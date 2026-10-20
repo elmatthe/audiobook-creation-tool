@@ -23,7 +23,7 @@ What is frozen
   This module adds one :class:`BookPlan` per attempted Book, in frozen order.
 - **Per Book:** stable id, workspace position, exact occurrences and source
   paths in order, the complete final chapter-title tuple
-  (:func:`~mp3_tools.m4b_maker_workflow.book_chapter_titles`), the embedded
+  (:func:`~m4b.maker.m4b_maker_workflow.book_chapter_titles`), the embedded
   Title (the Book's own, or the deterministic fallback below), effective
   Artist / Album Artist / Album / Series Name, the manual Series Part text
   (``None`` while Auto-number is on), the effective artwork path, the parsed
@@ -37,7 +37,7 @@ Naming (Decision 51A, plan section 5.8)
 ---------------------------------------
 Explicit Output Filename → Title → effective Album → the one source folder that
 directly contains every track → ``Book N``. The candidates come from the model
-(:func:`~mp3_tools.m4b_maker_workflow.output_name_candidates`); the first whose
+(:func:`~m4b.maker.m4b_maker_workflow.output_name_candidates`); the first whose
 sanitised stem is still readable is used, sanitised by the shared sanitiser,
 given ``.m4b`` exactly once, and collision-numbered by the shared planner.
 Never a local regex. The output filename and the embedded Title are distinct:
@@ -71,7 +71,7 @@ from shared.book_workspace import (
 )
 from shared.importing import IdFactory, ImportOptions, SupportedTypeCatalog
 from shared.job_control import RunSnapshot
-from mp3_tools import m4b_maker_workflow as wf
+from m4b.maker import m4b_maker_workflow as wf
 
 __all__ = [
     "PlanError",

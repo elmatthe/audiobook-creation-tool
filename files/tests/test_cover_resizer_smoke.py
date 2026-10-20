@@ -7,7 +7,7 @@ import pytest
 
 Image = pytest.importorskip("PIL.Image")
 
-from mp3_tools.cover_resizer import next_version_path, resize_for_audiobook
+from artwork.cover_resizer import next_version_path, resize_for_audiobook
 
 
 @pytest.fixture()

@@ -1,6 +1,6 @@
 """The redesigned MP3 Tool panel — v0.6.3 focused MP3 plan, Phase 4.
 
-``mp3_tools/mp3_tool.py`` becomes the first production adopter of the Plan 6
+``mp3/mp3_tool.py`` becomes the first production adopter of the Plan 6
 workspace: the Phase 2 navigator and Shared surface, the Phase 3 model, and the
 Plan 3 importer and job-control shells, composed into the MP3-specific workspace
 UI the focused plan describes. This suite proves the **shell** — what is on the
@@ -38,7 +38,7 @@ from shared.book_workspace_ui import BookNavigator, SharedMetadataSurface  # noq
 from shared.job_control import JobState  # noqa: E402
 from shared.job_ui import MainThreadError  # noqa: E402
 
-from mp3_tools import mp3_tool, mp3_workflow as wf  # noqa: E402
+from mp3 import mp3_tool, mp3_workflow as wf  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
@@ -46,7 +46,7 @@ from test_importing import make_config  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-PANEL_SOURCE = UNIVERSAL / "mp3_tools" / "mp3_tool.py"
+PANEL_SOURCE = UNIVERSAL / "mp3" / "mp3_tool.py"
 
 AQUA_THEME = {
     "mode": "aqua",
@@ -574,7 +574,7 @@ def test_a_heic_selection_previews_and_stores_the_source_path(make_panel, tmp_pa
 
 
 def test_the_panel_delegates_artwork_to_the_service(make_panel):
-    from mp3_tools import mp3_artwork
+    from artwork import mp3_artwork
 
     panel = make_panel()
     assert panel.artwork_filetypes() == mp3_artwork.artwork_filetypes()

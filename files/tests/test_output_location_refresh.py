@@ -34,11 +34,11 @@ TOOL_KEYS = ("tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b_meta
 
 PANEL_SOURCES = {
     "tts": UNIVERSAL / "tts" / "epub2tts_gui.py",
-    "m4b_converter": UNIVERSAL / "mp3_tools" / "m4b_converter.py",
-    "mp3_tool": UNIVERSAL / "mp3_tools" / "mp3_tool.py",
-    "m4b_maker": UNIVERSAL / "mp3_tools" / "m4b_maker.py",
-    "cover": UNIVERSAL / "mp3_tools" / "cover_resizer.py",
-    "m4b_metadata": UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py",
+    "m4b_converter": UNIVERSAL / "m4b" / "converter" / "m4b_converter.py",
+    "mp3_tool": UNIVERSAL / "mp3" / "mp3_tool.py",
+    "m4b_maker": UNIVERSAL / "m4b" / "maker" / "m4b_maker.py",
+    "cover": UNIVERSAL / "artwork" / "cover_resizer.py",
+    "m4b_metadata": UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py",
 }
 
 

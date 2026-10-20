@@ -1,6 +1,6 @@
 """The MP3 artwork / APIC service — v0.6.3 focused MP3 plan, Phase 6.
 
-``mp3_tools/mp3_artwork.py`` is the one place the MP3 Tool turns a selected
+``artwork/mp3_artwork.py`` is the one place the MP3 Tool turns a selected
 image into what an ID3 tag carries. JPG/JPEG and PNG are embedded as the
 source's own bytes; HEIC/HEIF is decoded through the shared capability path and
 converted to PNG **in memory** for the tag only. Nothing here resizes, crops or
@@ -23,13 +23,13 @@ from PIL import Image
 
 from shared import image_capabilities
 
-from mp3_tools import mp3_artwork as art
-from mp3_tools import mp3_plan as mp
-from mp3_tools.mp3_artwork import Artwork, ArtworkError
+from artwork import mp3_artwork as art
+from mp3 import mp3_plan as mp
+from artwork.mp3_artwork import Artwork, ArtworkError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "mp3_artwork.py"
+MODULE = UNIVERSAL / "artwork" / "mp3_artwork.py"
 
 
 def sha(path: Path) -> str:
@@ -91,7 +91,7 @@ def test_the_service_declares_no_capability_list_of_its_own():
     assert "pillow_heif" not in modules, "the optional import belongs to the shared probe"
     assert "shared.image_capabilities" in modules
     for banned in ("tkinter", "subprocess", "threading", "shutil", "shared.ffmpeg_utils",
-                   "shared.job_ui", "shared.output_paths", "mp3_tools.mp3_tool"):
+                   "shared.job_ui", "shared.output_paths", "mp3.mp3_tool"):
         assert banned not in modules, banned
 
 
@@ -354,7 +354,7 @@ def test_artwork_is_loaded_from_the_frozen_book_plan_value(tmp_path):
     from shared import book_workspace, output_paths
     from shared.importing import (IdFactory, ImportOptions, ImportedFile,
                                   ImportedFileSnapshot, ImportRoot, Revision)
-    from mp3_tools import mp3_workflow as wf
+    from mp3 import mp3_workflow as wf
     from test_importing import make_config
 
     ids = IdFactory("art-")

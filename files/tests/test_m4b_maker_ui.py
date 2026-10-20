@@ -1,6 +1,6 @@
 """The M4B Maker production panel — v0.6.4 Phase 6.
 
-``mp3_tools/m4b_maker.py`` is now a thin Tk composition/orchestration adapter
+``m4b/maker/m4b_maker.py`` is now a thin Tk composition/orchestration adapter
 over the completed Maker layers: the shared Plan 6 workspace and its adapters
 (``BookNavigator``, ``SharedMetadataSurface``), the Plan 3 importer and job
 adapters, the Phase 1 artwork control, the Phase 2 model, the Phase 3 planner
@@ -36,8 +36,9 @@ from shared.book_workspace_ui import BookNavigator, SharedMetadataSurface  # noq
 from shared.job_control import JobState  # noqa: E402
 from shared.job_ui import MainThreadError  # noqa: E402
 
-from mp3_tools import m4b_artwork_ui, m4b_maker, m4b_maker_batch as batch  # noqa: E402
-from mp3_tools import m4b_maker_plan as mp, m4b_maker_workflow as wf  # noqa: E402
+from artwork import m4b_artwork_ui
+from m4b.maker import m4b_maker, m4b_maker_batch as batch  # noqa: E402
+from m4b.maker import m4b_maker_plan as mp, m4b_maker_workflow as wf  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
@@ -45,7 +46,7 @@ from test_importing import make_config  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
+MODULE = UNIVERSAL / "m4b" / "maker" / "m4b_maker.py"
 
 windows_only = pytest.mark.skipif(
     sys.platform != "win32", reason="the ACT design system only applies on win32")
@@ -808,13 +809,13 @@ def test_the_panel_composes_the_four_layers_and_defines_no_business_rule():
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for required in ("shared.book_workspace", "shared.book_workspace_ui", "shared.job_ui",
                      "shared.job_control", "shared.import_coordination", "shared.importing",
-                     "mp3_tools.m4b_maker_workflow", "mp3_tools.m4b_maker_plan",
-                     "mp3_tools.m4b_maker_batch", "mp3_tools.m4b_artwork_ui"):
+                     "m4b.maker.m4b_maker_workflow", "m4b.maker.m4b_maker_plan",
+                     "m4b.maker.m4b_maker_batch", "artwork.m4b_artwork_ui"):
         assert required in modules, required
     for banned in ("wave", "json", "shared.ffmpeg_utils",
-                   "shared.metadata", "mutagen", "mp3_tools.mp3_workflow",
-                   "mp3_tools.mp3_plan", "mp3_tools.mp3_processing", "mp3_tools.mp3_tool",
-                   "mp3_tools.m4b_metadata_editor"):
+                   "shared.metadata", "mutagen", "mp3.mp3_workflow",
+                   "mp3.mp3_plan", "mp3.mp3_processing", "mp3.mp3_tool",
+                   "m4b.metadata.m4b_metadata_editor"):
         assert banned not in modules, banned
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef))}

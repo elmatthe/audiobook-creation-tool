@@ -15,7 +15,7 @@ The rules (v0.6.4 plan sections 4.6, 5.11, 6.12 and Phase 1):
   probe says this machine can decode them.
 - **Decoding is the one proved path.** Validation, source-byte preservation for
   JPG/PNG, the in-memory HEIC/HEIF → PNG conversion (pixel dimensions kept, no
-  file written) and the preview thumbnail are :mod:`mp3_tools.mp3_artwork`'s,
+  file written) and the preview thumbnail are :mod:`artwork.mp3_artwork`'s,
   reused rather than reimplemented — that module already routes every decode
   through the shared probe. What is M4B-specific, and lives here, is only the
   container representation: an :class:`M4BCover` carrying the bytes together
@@ -38,8 +38,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mp3_tools import mp3_artwork
-from mp3_tools.mp3_artwork import Artwork, ArtworkError, artwork_filetypes, preview_image
+from artwork import mp3_artwork
+from artwork.mp3_artwork import Artwork, ArtworkError, artwork_filetypes, preview_image
 
 __all__ = [
     "ArtworkError",

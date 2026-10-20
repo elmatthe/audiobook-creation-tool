@@ -49,17 +49,17 @@ from types import MappingProxyType
 from shared.importing import ImportRoot
 from shared.output_paths import assert_not_input
 
-from . import m4b_destinations
-from .m4b_chapters import ChapterUsability, plan_timeline, validate_chapters
-from .m4b_metadata import BOOK_FIELDS, AttachedPicture, MetadataMode, SourceTags
-from .m4b_naming import segment_filename
-from .m4b_probe import SourceReport
+from m4b.converter import m4b_destinations
+from m4b.m4b_chapters import ChapterUsability, plan_timeline, validate_chapters
+from m4b.converter.m4b_metadata import BOOK_FIELDS, AttachedPicture, MetadataMode, SourceTags
+from m4b.m4b_naming import segment_filename
+from m4b.m4b_probe import SourceReport
 
 #: The extension every Converter output carries.
 _EXTENSION = ".mp3"
 
 #: The reason recorded when a source carries several embedded covers. Not a
-#: :class:`~mp3_tools.m4b_chapters.InvalidReason`: nothing is wrong with the
+#: :class:`~m4b.m4b_chapters.InvalidReason`: nothing is wrong with the
 #: *chapter* map, so borrowing that vocabulary would misdescribe the defect.
 ARTWORK_AMBIGUOUS = "artwork_ambiguous"
 #: The source is xHE-AAC, ffmpeg cannot decode it completely, and this
@@ -329,12 +329,12 @@ def assemble_plan(
     *windows_decoder* answers "can this machine decode what ffmpeg cannot?".
     It is a seam so both answers are testable and so this module still runs no
     process of its own; production passes
-    :func:`mp3_tools.m4b_winaudio.available`.
+    :func:`m4b.m4b_winaudio.available`.
 
     Runs no process, reads no file, creates no directory and touches no widget.
     """
     if windows_decoder is None:
-        from . import m4b_winaudio
+        from m4b import m4b_winaudio
 
         windows_decoder = m4b_winaudio.available
     entries = tuple(entries)

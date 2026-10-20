@@ -6,7 +6,7 @@ a caption, a display-only preview and Choose… / Clear, drawn once for a Shared
 slot and once for the current Book, plus the two dialog/validation helpers a
 panel needs beside it. It holds **no business policy**: which files may be
 chosen, whether one decodes, what it becomes and how it is previewed are all
-:mod:`mp3_tools.m4b_artwork`'s (over ``shared.image_capabilities``), and
+:mod:`artwork.m4b_artwork`'s (over ``shared.image_capabilities``), and
 whether the Book copy is enabled is the workspace model's Decision 20B answer
 handed in by the consumer.
 
@@ -36,7 +36,7 @@ from tkinter import filedialog, ttk
 
 from shared.job_control import ControlKind
 from shared.job_ui import MainThreadGuard, style_name
-from mp3_tools import m4b_artwork
+from artwork import m4b_artwork
 
 __all__ = [
     "ArtworkControl",

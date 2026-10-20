@@ -67,7 +67,7 @@ import tk_gate  # noqa: E402
 from shared import paths  # noqa: E402,F401
 from shared import ui_theme  # noqa: E402
 
-from mp3_tools import mp3_tool  # noqa: E402
+from mp3 import mp3_tool  # noqa: E402
 
 
 @pytest.fixture(scope="module")

@@ -4,7 +4,7 @@ v0.6.4 Phase 4.
 The proven Maker engine the panel has always run, moved here behind the frozen
 Phase 3 plan so the panel (Phase 6) and the batch runner (Phase 5) share one
 copy that reads **nothing live**: no widget, no Tk variable, no workspace.
-Everything an execution needs arrives as a :class:`~mp3_tools.m4b_maker_plan.BookPlan`
+Everything an execution needs arrives as a :class:`~m4b.maker.m4b_maker_plan.BookPlan`
 plus explicit dependencies — the work root it may stage under, the frozen
 Fast-first option, a cancellation checkpoint and an event listener.
 
@@ -62,9 +62,9 @@ from subprocess import CalledProcessError
 from shared import ffmpeg_utils, metadata, output_paths
 from shared import subprocess_utils as sp
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
-from mp3_tools import m4b_artwork
-from mp3_tools import m4b_staging
-from mp3_tools.m4b_maker_plan import BookPlan
+from artwork import m4b_artwork
+from m4b import m4b_staging
+from m4b.maker.m4b_maker_plan import BookPlan
 
 __all__ = [
     "ProcessingError",
@@ -232,7 +232,7 @@ def write_concat_list(paths, dest: Path):
     with a literal ``'`` (an apostrophe in a book/track title, e.g. "Dark
     Lord's Dreadful Travelogue") corrupted the written path — ffmpeg's own
     error message re-quoted it back as "Lord''s" — and ffmpeg failed to open
-    it. ``mp3_tools.mp3_processing`` carries the same, already-correct escape,
+    it. ``mp3.mp3_processing`` carries the same, already-correct escape,
     but this engine is deliberately barred from importing that module (see
     ``test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once``),
     so the fix is corrected in place rather than shared by import.

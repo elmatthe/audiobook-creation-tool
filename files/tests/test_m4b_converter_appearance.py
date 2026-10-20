@@ -44,9 +44,9 @@ from shared import job_control as jc
 from shared import output_paths
 from shared import ui_theme
 
-from mp3_tools import m4b_converter as panel_module
-from mp3_tools.m4b_metadata import MetadataMode
-from mp3_tools.m4b_plan import ConversionMode
+from m4b.converter import m4b_converter as panel_module
+from m4b.converter.m4b_metadata import MetadataMode
+from m4b.converter.m4b_plan import ConversionMode
 
 from test_m4b_converter_importing import add_files, books
 from test_m4b_converter_jobs import (  # noqa: F401 - fixtures are used by name

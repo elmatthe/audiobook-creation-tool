@@ -58,8 +58,9 @@ from shared import ffmpeg_utils, output_paths
 from shared import job_control as jc
 from shared import subprocess_utils as sp
 
-from mp3_tools import m4b_converter, m4b_execution
-from mp3_tools.m4b_execution import (
+from m4b.converter import m4b_converter
+from m4b import m4b_execution
+from m4b.m4b_execution import (
     DRIFT_TOLERANCE,
     ProcessLaunchError,
     ProcessResult,
@@ -73,8 +74,8 @@ from mp3_tools.m4b_execution import (
     run_argv,
     tail_of,
 )
-from mp3_tools.m4b_metadata import AttachedPicture, MetadataMode, SourceTags
-from mp3_tools.m4b_plan import ConversionMode
+from m4b.converter.m4b_metadata import AttachedPicture, MetadataMode, SourceTags
+from m4b.converter.m4b_plan import ConversionMode
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -97,8 +98,8 @@ from test_m4b_metadata import require_ffmpeg  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "mp3_tools"
-PANEL_SOURCE = UNIVERSAL / "m4b_converter.py"
+UNIVERSAL = REPO_ROOT / "scripts" / "m4b"
+PANEL_SOURCE = UNIVERSAL / "converter" / "m4b_converter.py"
 EXECUTION_SOURCE = UNIVERSAL / "m4b_execution.py"
 
 #: Every wait here is bounded, so a defect fails rather than hangs.
@@ -969,7 +970,7 @@ def test_the_mode_is_restored_after_the_run(make_panel, tmp_path, run_env):
 
 def test_there_is_no_per_item_mode_anywhere():
     """One batch-wide choice (44A): a per-book mode would be two runs in one."""
-    from mp3_tools.m4b_plan import ItemPlan, SegmentPlan
+    from m4b.converter.m4b_plan import ItemPlan, SegmentPlan
     for holder in (ItemPlan, SegmentPlan):
         assert "mode" not in holder.__dataclass_fields__, holder.__name__
     source = PANEL_SOURCE.read_text(encoding="utf-8")
@@ -1391,7 +1392,7 @@ def test_the_default_is_the_non_accusing_wording():
 
 def test_the_execution_layer_reads_the_frozen_truth_and_never_guesses():
     """**Structural.** No re-probe, and no string sniffing for "xhe"."""
-    source = (REPO_ROOT / "scripts" / "mp3_tools"
+    source = (REPO_ROOT / "scripts" / "m4b"
               / "m4b_execution.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     body = next(node for node in ast.walk(tree)
@@ -1589,8 +1590,8 @@ def test_pre_roll_before_the_first_chapter_is_inside_the_first_output(
     very case this is testing. The audio, the duration and the execution are all
     real; only the chapter map is stated directly.
     """
-    from mp3_tools import m4b_probe
-    from mp3_tools.m4b_chapters import ChapterProbe, plan_timeline
+    from m4b import m4b_probe
+    from m4b.m4b_chapters import ChapterProbe, plan_timeline
 
     found = m4b_probe.probe_source(media["plain"])
     late = ChapterProbe(
@@ -1617,8 +1618,8 @@ def test_pre_roll_before_the_first_chapter_is_inside_the_first_output(
 
 def test_the_tail_after_the_last_chapter_is_inside_the_last_output(media, tmp_path):
     """The final segment ends at the source's own duration, not the last start."""
-    from mp3_tools import m4b_probe
-    from mp3_tools.m4b_chapters import ChapterProbe, plan_timeline
+    from m4b import m4b_probe
+    from m4b.m4b_chapters import ChapterProbe, plan_timeline
 
     found = m4b_probe.probe_source(media["plain"])
     late = ChapterProbe(
@@ -1817,7 +1818,7 @@ def test_a_tagless_chaptered_book_really_produces_id3v23(media, tmp_path):
     _ff("-i", str(media["plain"]), "-i", str(meta), "-map", "0:a",
         "-map_metadata", "1", "-map_chapters", "1", "-c:a", "copy", str(src))
 
-    from mp3_tools import m4b_probe
+    from m4b import m4b_probe
     rep = m4b_probe.probe_source(src)
     assert rep.tags.title == "" and rep.tags.artist == "", "the fixture must be tagless"
 

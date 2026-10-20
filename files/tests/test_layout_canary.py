@@ -1,7 +1,7 @@
 """v0.6.7 checkpoint B1 (Plan 01B) — the layout after ``scripts/Universal`` was lifted to ``scripts``.
 
-The relocation changed no behaviour, only where the application's packages live: ``shared``, ``tts``, ``mp3_tools`` and
-``launcher.py`` moved up one level and ``scripts/`` became the import root. Every module that derives the repository root
+The relocation changed no behaviour, only where the application's packages live: ``shared``, ``tts``, the tool packages (then one
+``mp3_tools`` package, split into ``mp3``, ``m4b`` and ``artwork`` by checkpoint B2) and ``launcher.py`` moved up one level and ``scripts/`` became the import root. Every module that derives the repository root
 from its own location (several must, because they run before the virtual environment exists) lost one ``.parent``.
 These canaries make that class of mistake loud: every derivation has to land on the same folder, the entry point and the
 launchers have to name files that exist, no tracked file may name the old layout, and the module maps in the READMEs
@@ -33,7 +33,9 @@ OLD_LAYOUT_ALLOWED = {
 }
 CODE_SUFFIXES = {".py", ".toml", ".bat", ".command", ".txt", ".cfg", ".ini"}
 TOP_LEVEL_SCRIPTS = {"launcher.py", "verify.py", "requirements.txt", "qwen3-requirements.txt", "README.md"}
-PACKAGES = ("shared", "tts", "mp3_tools")
+PACKAGES = ("shared", "tts", "mp3", "m4b", "artwork")
+#: Sub-packages whose modules their parent package README also maps (B2 split ``m4b`` by tool).
+README_SUBPACKAGES = {"m4b": ("converter", "maker", "metadata")}
 
 
 def git_lines(*args: str) -> list[str]:
@@ -95,7 +97,9 @@ def test_scripts_is_the_import_root_and_the_packages_import_under_their_plain_na
                          ("release.SCRIPTS_DIR", release.SCRIPTS_DIR), ("cleanup_worker.IMPORT_ROOT", cleanup_worker.IMPORT_ROOT),
                          ("verify.IMPORT_ROOT", verify.IMPORT_ROOT)):
         assert Path(value).resolve() == SCRIPTS.resolve(), label
-    assert paths.TTS_DIR == SCRIPTS / "tts" and paths.MP3_TOOLS_DIR == SCRIPTS / "mp3_tools"
+    assert paths.TTS_DIR == SCRIPTS / "tts" and paths.MP3_DIR == SCRIPTS / "mp3"
+    assert paths.M4B_DIR == SCRIPTS / "m4b" and paths.ARTWORK_DIR == SCRIPTS / "artwork"
+    assert not hasattr(paths, "MP3_TOOLS_DIR") and not (SCRIPTS / "mp3_tools" / "__init__.py").exists()
     for package in PACKAGES:
         module = importlib.import_module(package)
         assert Path(module.__file__).resolve().parent == (SCRIPTS / package).resolve(), package
@@ -397,7 +401,8 @@ def test_each_package_readme_names_every_module_and_only_real_files(package):
         target = (SCRIPTS / package / token).resolve()
         assert target.is_file(), f"{package}/README.md names {token}, which does not exist"
     names = {Path(token).name for token in mentioned}
-    modules = {p.name for p in (SCRIPTS / package).glob("*.py") if p.name != "__init__.py"}
+    folders = [SCRIPTS / package, *(SCRIPTS / package / sub for sub in README_SUBPACKAGES.get(package, ()))]
+    modules = {p.name for folder in folders for p in folder.glob("*.py") if p.name != "__init__.py"}
     missing = sorted(modules - names)
     assert not missing, f"{package}/README.md does not mention: {missing}"
 

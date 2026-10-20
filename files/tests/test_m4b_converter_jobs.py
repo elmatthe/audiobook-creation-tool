@@ -60,7 +60,8 @@ from shared import job_control as jc  # noqa: E402
 from shared import job_ui  # noqa: E402
 from shared import output_paths  # noqa: E402
 
-from mp3_tools import m4b_converter, m4b_execution  # noqa: E402
+from m4b.converter import m4b_converter
+from m4b import m4b_execution  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -74,7 +75,7 @@ from test_m4b_conversion_plan import (  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_converter.py"
 
 #: Every wait here is bounded, so a deadlock fails rather than hangs.
 WAIT = 5.0

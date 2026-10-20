@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_naming
-from mp3_tools.m4b_naming import flatten_title, segment_filename
+from m4b import m4b_naming
+from m4b.m4b_naming import flatten_title, segment_filename
 from shared import output_paths
 
 MODULE_PATH = Path(m4b_naming.__file__)
@@ -322,7 +322,7 @@ def test_the_naming_seam_is_pure():
 
 
 def test_the_naming_seam_is_converter_local():
-    assert MODULE_PATH.parent.name == "mp3_tools"
+    assert MODULE_PATH.parent.name == "m4b"
 
 
 def test_no_phase_five_or_later_vocabulary_exists_here():
@@ -345,7 +345,7 @@ def test_chapter_span_gained_no_filename_or_destination():
     """Phase 3's spans stay raw geometry; naming is a separate scalar function."""
     import dataclasses
 
-    from mp3_tools.m4b_chapters import ChapterSpan
+    from m4b.m4b_chapters import ChapterSpan
 
     fields = {f.name for f in dataclasses.fields(ChapterSpan)}
     assert fields == {"order", "source_index", "start", "end", "title"}
@@ -356,7 +356,7 @@ def test_chapter_span_gained_no_filename_or_destination():
 def test_a_span_title_can_be_named_without_touching_the_span():
     import copy
 
-    from mp3_tools.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter, plan_timeline
+    from m4b.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter, plan_timeline
 
     probe = ChapterProbe(ProbeStatus.OK, 100.0, (
         SourceChapter(0, 0.0, REAL_SLASH_TITLE),
@@ -380,6 +380,6 @@ def test_the_converter_panel_still_delegates_this_layer():
     owns no chapter logic of its own" rather than "nothing has adopted this
     yet".
     """
-    source = (MODULE_PATH.parent / "m4b_converter.py").read_text(encoding="utf-8")
+    source = (MODULE_PATH.parent / "converter" / "m4b_converter.py").read_text(encoding="utf-8")
     for name in ("m4b_naming", "segment_filename", "flatten_title", "m4b_chapters"):
         assert name not in source, name

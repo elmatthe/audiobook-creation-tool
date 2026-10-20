@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_chapters
-from mp3_tools.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
+from m4b import m4b_chapters
+from m4b.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
 
 MODULE_PATH = Path(m4b_chapters.__file__)
 
@@ -223,7 +223,7 @@ def test_the_probe_model_performs_no_io_and_runs_no_subprocess():
 
 
 def test_the_probe_model_is_converter_local():
-    assert MODULE_PATH.parent.name == "mp3_tools"
+    assert MODULE_PATH.parent.name == "m4b"
 
 
 def test_shared_ffmpeg_utils_gained_no_chapter_vocabulary():
@@ -278,7 +278,7 @@ def test_the_converter_panel_still_names_no_probe_model():
     The assertion is unchanged; what it protects is now "the panel owns no
     chapter logic of its own" rather than "nothing has adopted this yet".
     """
-    panel = MODULE_PATH.parent / "m4b_converter.py"
+    panel = MODULE_PATH.parent / "converter" / "m4b_converter.py"
     source = panel.read_text(encoding="utf-8")
     assert "m4b_chapters" not in source
     assert "ChapterProbe" not in source

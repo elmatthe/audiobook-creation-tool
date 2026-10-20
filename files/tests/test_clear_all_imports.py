@@ -28,10 +28,12 @@ from shared import appearance, output_paths, ui_theme  # noqa: E402
 from shared.book_workspace import has_meaningful_work  # noqa: E402
 from shared.job_control import JobState  # noqa: E402
 
-from mp3_tools import m4b_maker, m4b_metadata_editor as editor, mp3_tool  # noqa: E402
-from mp3_tools import m4b_maker_workflow as maker_wf  # noqa: E402
-from mp3_tools import m4b_metadata_workflow as editor_wf  # noqa: E402
-from mp3_tools import mp3_workflow  # noqa: E402
+from m4b.maker import m4b_maker
+from m4b.metadata import m4b_metadata_editor as editor
+from mp3 import mp3_tool  # noqa: E402
+from m4b.maker import m4b_maker_workflow as maker_wf  # noqa: E402
+from m4b.metadata import m4b_metadata_workflow as editor_wf  # noqa: E402
+from mp3 import mp3_workflow  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -320,7 +322,7 @@ def test_editor_clear_all_imports_and_clear_all_tags_are_distinct_actions(
     assert panel.on_clear_all_tags() is True
     panel._pump.tick()
     assert panel.workspace.count == 3 and panel.last_plan is not None
-    tree = ast.parse((UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py").read_text(encoding="utf-8"))
+    tree = ast.parse((UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py").read_text(encoding="utf-8"))
     functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
     calls = lambda fn: {ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)}  # noqa: E731
     assert "self._start_action" not in calls(functions["clear_all_imports"])
@@ -350,8 +352,8 @@ def test_the_button_sits_in_the_import_band_with_the_destructive_style(
 
 
 def test_the_button_asks_the_style_authority_and_names_no_colour():
-    for relative in ("mp3_tools/mp3_tool.py", "mp3_tools/m4b_maker.py",
-                     "mp3_tools/m4b_metadata_editor.py"):
+    for relative in ("mp3/mp3_tool.py", "m4b/maker/m4b_maker.py",
+                     "m4b/metadata/m4b_metadata_editor.py"):
         tree = ast.parse((UNIVERSAL / relative).read_text(encoding="utf-8"))
         literals = {node.value for node in ast.walk(tree)
                     if isinstance(node, ast.Constant) and isinstance(node.value, str)}

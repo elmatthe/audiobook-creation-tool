@@ -54,7 +54,7 @@ import tkinter as tk
 from shared import job_control as jc
 from shared.import_coordination import OutcomeStatus
 
-from mp3_tools import m4b_converter
+from m4b.converter import m4b_converter
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -74,7 +74,7 @@ from test_m4b_retry import work  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_converter.py"
 
 
 # --------------------------------------------------------------------------- #
@@ -730,10 +730,10 @@ def test_the_two_adoption_tuples_disagree_about_the_converter_on_purpose():
     from test_plan3_boundaries import ADOPTED
     from test_preferences_maintenance_ui import UNCONVERTED_PANELS
 
-    assert "mp3_tools/m4b_converter.py" in ADOPTED
-    assert "mp3_tools/m4b_converter.py" in UNCONVERTED_PANELS
+    assert "m4b/converter/m4b_converter.py" in ADOPTED
+    assert "m4b/converter/m4b_converter.py" in UNCONVERTED_PANELS
     assert set(UNCONVERTED_PANELS) == {
-        "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
+        "artwork/cover_resizer.py", "m4b/converter/m4b_converter.py",
         "tts/epub2tts_gui.py",
     }
 
@@ -755,26 +755,26 @@ def test_the_converter_local_modules_that_adopted_are_exactly_these():
     # the ``m4b_metadata_editor`` panel (Phase 10) share the prefix but are
     # the Maker's / Editor's, not the Converter's; they are named here so the
     # Converter set stays exact.
-    converter_local = {name for name in ADOPTED if name.startswith("mp3_tools/m4b_")}
+    converter_local = {name for name in ADOPTED if name.startswith(("m4b/", "artwork/m4b_"))}
     assert converter_local == {
-        "mp3_tools/m4b_converter.py",
-        "mp3_tools/m4b_destinations.py",
-        "mp3_tools/m4b_plan.py",
-        "mp3_tools/m4b_maker_workflow.py",
-        "mp3_tools/m4b_maker_plan.py",
-        "mp3_tools/m4b_maker_batch.py",
-        "mp3_tools/m4b_artwork_ui.py",
-        "mp3_tools/m4b_maker.py",
-        "mp3_tools/m4b_metadata_workflow.py",
-        "mp3_tools/m4b_metadata_plan.py",
-        "mp3_tools/m4b_metadata_batch.py",
-        "mp3_tools/m4b_metadata_editor.py",
+        "m4b/converter/m4b_converter.py",
+        "m4b/converter/m4b_destinations.py",
+        "m4b/converter/m4b_plan.py",
+        "m4b/maker/m4b_maker_workflow.py",
+        "m4b/maker/m4b_maker_plan.py",
+        "m4b/maker/m4b_maker_batch.py",
+        "artwork/m4b_artwork_ui.py",
+        "m4b/maker/m4b_maker.py",
+        "m4b/metadata/m4b_metadata_workflow.py",
+        "m4b/metadata/m4b_metadata_plan.py",
+        "m4b/metadata/m4b_metadata_batch.py",
+        "m4b/metadata/m4b_metadata_editor.py",
     }
 
 
 @pytest.mark.parametrize("relative", [
-    "m4b_execution.py", "m4b_numbering.py", "m4b_probe.py",
-    "m4b_commands.py", "m4b_metadata.py", "m4b_chapters.py",
+    "m4b/m4b_execution.py", "m4b/m4b_numbering.py", "m4b/m4b_probe.py",
+    "m4b/m4b_commands.py", "m4b/converter/m4b_metadata.py", "m4b/m4b_chapters.py",
 ])
 def test_the_pure_converter_modules_import_nothing_shared_and_no_tk(relative):
     """The pure layer stays pure: no Tk, no job control, no importer.
@@ -782,7 +782,7 @@ def test_the_pure_converter_modules_import_nothing_shared_and_no_tk(relative):
     These are the modules the Converter can test without a window, and that
     property is worth a guard rather than a habit.
     """
-    source = REPO_ROOT / "scripts" / "mp3_tools" / relative
+    source = REPO_ROOT / "scripts" / relative
     tree = ast.parse(source.read_text(encoding="utf-8"))
     imported: set[str] = set()
     for node in ast.walk(tree):

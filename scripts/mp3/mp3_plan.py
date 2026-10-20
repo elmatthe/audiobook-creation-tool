@@ -18,7 +18,7 @@ What is frozen
   that snapshot, in the frozen Book order.
 - **Per Book:** stable id, effective Artist / Album Artist / Album, signed Time,
   artwork, Auto-number, parsed Start #, the complete final Title tuple
-  (:func:`~mp3_tools.mp3_workflow.book_titles` — partial Chapter Titles
+  (:func:`~mp3.mp3_workflow.book_titles` — partial Chapter Titles
   override only their positions, blank lines collapse), the Book's output folder
   name and its **published** and **staging** directories.
 - **Per track:** occurrence id, source path, position, Title, Track Number (a
@@ -66,7 +66,7 @@ from shared.book_workspace import (
 )
 from shared.importing import IdFactory, ImportOptions, SupportedTypeCatalog
 from shared.job_control import RunSnapshot
-from mp3_tools import mp3_workflow as wf
+from mp3 import mp3_workflow as wf
 
 __all__ = [
     "PlanError",

@@ -92,7 +92,7 @@ import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
-# run standalone (python mp3_tools/m4b_maker.py) or imported by the launcher.
+# run standalone (python m4b/maker/m4b_maker.py) or imported by the launcher.
 _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
@@ -139,11 +139,11 @@ from shared.importing import (
 )
 from shared.job_control import JobEventKind, JobState, TERMINAL_STATES
 from shared.job_ui import MainThreadGuard, MainThreadPump, style_name
-from mp3_tools import m4b_artwork_ui
-from mp3_tools import m4b_maker_batch as batch
-from mp3_tools import m4b_maker_plan as mp
-from mp3_tools import m4b_maker_workflow as wf
-from mp3_tools.m4b_artwork_ui import ArtworkControl
+from artwork import m4b_artwork_ui
+from m4b.maker import m4b_maker_batch as batch
+from m4b.maker import m4b_maker_plan as mp
+from m4b.maker import m4b_maker_workflow as wf
+from artwork.m4b_artwork_ui import ArtworkControl
 
 APP_TITLE = "M4B Maker"
 

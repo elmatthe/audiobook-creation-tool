@@ -1,6 +1,6 @@
 """The MP3 workflow model — v0.6.3 focused MP3 plan, Phase 3.
 
-``mp3_tools/mp3_workflow.py`` is the MP3-specific **non-UI** layer: the supported-type
+``mp3/mp3_workflow.py`` is the MP3-specific **non-UI** layer: the supported-type
 catalog, folder-to-Book and Add-Files projection over the Plan 6 workspace, read-only
 source ID3 observation, majority / mixed calculation, per-occurrence default titles,
 Chapter Titles resolution, and the signed-Time and Start # parsers.
@@ -45,8 +45,8 @@ from shared.importing import (
     SupportedTypeCatalog,
 )
 
-from mp3_tools import mp3_workflow as wf
-from mp3_tools.mp3_workflow import (
+from mp3 import mp3_workflow as wf
+from mp3.mp3_workflow import (
     BookSourceSummary,
     Consensus,
     MP3ContractError,
@@ -58,7 +58,7 @@ from mp3_tools.mp3_workflow import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "mp3_workflow.py"
+MODULE = UNIVERSAL / "mp3" / "mp3_workflow.py"
 
 ROOT = Path(os.path.abspath(os.sep + "act-mp3-fixture-root"))
 ROOTED = ImportRoot("root-1", ROOT, 0)
@@ -787,7 +787,7 @@ def test_the_model_module_imports_no_tk_process_or_output_service():
                    "shutil", "shared.output_paths", "shared.ffmpeg_utils",
                    "shared.subprocess_utils", "shared.ui_theme", "shared.job_ui",
                    "shared.import_coordination", "shared.image_capabilities",
-                   "PIL", "pillow_heif", "mp3_tools.mp3_tool"):
+                   "PIL", "pillow_heif", "mp3.mp3_tool"):
         assert banned not in modules, banned
     assert "shared.book_workspace" in modules
     assert "shared.importing" in modules
@@ -830,18 +830,18 @@ def test_the_model_reuses_the_plan6_operations_rather_than_rebuilding_them():
 def test_the_model_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/mp3_workflow.py" in ADOPTED
+    assert "mp3/mp3_workflow.py" in ADOPTED
 
 
 def test_the_mp3_tool_panel_adopts_the_model_and_defines_none_of_it():
     """Phase 3 left the panel untouched; Phase 4 made it the model's consumer."""
-    tree = ast.parse((UNIVERSAL / "mp3_tools/mp3_tool.py").read_text(encoding="utf-8"))
+    tree = ast.parse((UNIVERSAL / "mp3/mp3_tool.py").read_text(encoding="utf-8"))
     modules = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             modules.add(node.module or "")
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
-    assert "mp3_tools.mp3_workflow" in modules
+    assert "mp3.mp3_workflow" in modules
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
     for owned_here in ("consensus", "summarise", "title_from_filename",

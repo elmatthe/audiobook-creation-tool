@@ -35,8 +35,8 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_metadata_batch as batch
-from mp3_tools import m4b_metadata_editor as editor
+from m4b.metadata import m4b_metadata_batch as batch
+from m4b.metadata import m4b_metadata_editor as editor
 from shared import paths
 from shared.book_workspace import BookDisposition
 from shared.job_control import JobEventKind, JobState
@@ -177,7 +177,7 @@ def test_cancel_mid_run_finishes_the_current_book_and_stops_the_rest(make_panel,
 
 def test_cancellation_uses_the_shared_primitive_raised_by_the_controller_not_the_panel():
     """The panel forwards the request; the runner and the engine honour the primitive."""
-    panel = (UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py").read_text(encoding="utf-8")
+    panel = (UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py").read_text(encoding="utf-8")
     tree = ast.parse(panel)
     modules = {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
     modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
@@ -196,7 +196,7 @@ def test_cancellation_uses_the_shared_primitive_raised_by_the_controller_not_the
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)                 and node.func.attr == "request_cancel":
             assert ast.unparse(node.func.value) == "self._coordinator"
-    runner = (UNIVERSAL / "mp3_tools" / "m4b_metadata_batch.py").read_text(encoding="utf-8")
+    runner = (UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_batch.py").read_text(encoding="utf-8")
     assert "from shared.cancellation import ConversionCancelled" in runner
     assert callable(getattr(batch.EditorRun, "cancel"))
 

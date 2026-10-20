@@ -60,7 +60,7 @@ ALLOCATOR = "numbering.py"
 
 #: The original Plan 5 allowlist, moved here with the implementation at Phase 6.
 #: ``files/tests/test_m4b_numbering.py`` asserted exactly this against
-#: ``mp3_tools/m4b_numbering.py`` while that file *was* the allocator.
+#: ``m4b/m4b_numbering.py`` while that file *was* the allocator.
 ALLOCATOR_IMPORTS = {"__future__", "dataclasses"}
 
 #: Also moved unchanged from the Plan 5 guard: vocabulary that would mean the
@@ -118,7 +118,7 @@ PHASE0_PLAN5_HASHES: dict[str, str] = {}
 CONVERTER_PHASE0_HASH = (
     "a44418853b3f8e38f9f78829c2f388bc0cb85b29bf35dcbc64d7d5ec9ab60880")
 
-#: Phase 0's hash of ``mp3_tools/m4b_numbering.py`` **while it was the allocator**.
+#: Phase 0's hash of ``m4b/m4b_numbering.py`` **while it was the allocator**.
 #: Kept as the evidence that the file genuinely changed at Phase 6 rather than as a
 #: gate: the promotion is the one authorised change to it, and it has now happened.
 PHASE0_ALLOCATOR_HASH = \
@@ -143,16 +143,25 @@ PHASE0_ALLOCATOR_HASH = \
 #: (its obsolete standalone-module purity assertion, replaced by a stricter one);
 #: these values close that authorisation again behind it.
 PHASE6_PROMOTION_HASHES = {
+    # Re-pinned once, deliberately, by v0.6.7 checkpoint B2: one docstring sentence now names the shim's new dotted
+    # path (``m4b.m4b_numbering``); no declaration changed. The previous digest was
+    # a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b.
     "scripts/shared/numbering.py":
-        "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
-    "scripts/mp3_tools/m4b_numbering.py":
-        "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
+        "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
+    # Re-pinned once, deliberately, by v0.6.7 checkpoint B2 (Plan 01B 5.1 Level 3): ``git mv`` from ``scripts/mp3_tools/``
+    # to ``scripts/m4b/``; the only content change is the docstring's dotted name ``m4b.m4b_numbering.SuccessNumbers``.
+    # The previous digest was 628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9.
+    "scripts/m4b/m4b_numbering.py":
+        "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
     # Re-pinned once, deliberately, by v0.6.7 checkpoint B1 (Plan 01B): the only change is the one-line path constant
     # ``UNIVERSAL = REPO_ROOT / "scripts" / "mp3_tools"`` after the application packages were lifted out of the former
     # ``Universal`` subfolder of ``scripts/``.
     # The previous digest was cf9f48a0d8d25e922921138e82ca0783c67eed74b0e47f266f80171f1c46069f.
+    # Re-pinned a second time, deliberately, by checkpoint B2: only the imports and the source-path constants follow the
+    # modules from ``mp3_tools`` into ``m4b`` / ``m4b.converter``; no assertion changed. B1's digest was
+    # 749d295a3a5ae8d376a6ed466184a415f398f2cc4cec20b81c78ec9ad32441f5.
     "files/tests/test_m4b_numbering.py":
-        "749d295a3a5ae8d376a6ed466184a415f398f2cc4cec20b81c78ec9ad32441f5",
+        "62768e48803163e4051790495c772b62defc13a86b5f2ff86e2e3aa1dc6cd965",
 }
 
 #: Module names the data layer may never import, by the drop section that forbids
@@ -453,10 +462,10 @@ def test_the_data_layer_reaches_no_output_path_service(name):
 
 @pytest.mark.parametrize("name", DATA_LAYER)
 def test_the_data_layer_imports_no_tool_module(name):
-    """``shared/`` may not depend on ``mp3_tools/`` or ``tts/``; that inverts the layering."""
+    """``shared/`` may not depend on ``mp3/``, ``m4b/``, ``artwork/`` or ``tts/``; that inverts the layering."""
     modules = imported_names(source_of(name))
     for entry in modules:
-        assert "mp3_tools" not in entry, entry
+        assert entry.split(".")[0] not in ("mp3", "m4b", "artwork"), entry
         assert not entry.split(".")[0] == "tts", entry
 
 
@@ -627,7 +636,7 @@ def test_the_frozen_data_layer_still_holds_no_success_counter(name):
 # --------------------------------------------------------------------------- #
 # Phase 6 — the promotion (drop section 17.1)
 #
-# The allocator that was ``mp3_tools/m4b_numbering.py`` is now
+# The allocator that was ``m4b/m4b_numbering.py`` is now
 # ``shared/numbering.py``, with the old path left as a compatibility re-export so
 # the M4B Converter's import keeps working. The contract is that this is a MOVE:
 # one implementation with two spellings, never two implementations.
@@ -639,7 +648,7 @@ def test_the_promoted_allocator_is_pure():
 
     ``files/tests/test_m4b_numbering.py`` asserted exactly this — import roots
     within ``{"__future__", "dataclasses"}``, and none of the forbidden
-    integration vocabulary — for as long as ``mp3_tools/m4b_numbering.py`` was the
+    integration vocabulary — for as long as ``m4b/m4b_numbering.py`` was the
     allocator. Phase 6 moved the allocator, so the property moved with it. It was
     **not** retired, and it was not weakened: the same allowlist and the same
     forbidden list, now pointed at the file that actually implements the counter.
@@ -669,7 +678,7 @@ def test_the_allocator_declares_exactly_the_three_promoted_names():
     had none: the promotion changed the module docstring and nothing else. The
     shim, which is a new file, does declare one.
     """
-    from mp3_tools import m4b_numbering
+    from m4b import m4b_numbering
 
     promoted = {"NumberingError", "Tentative", "SuccessNumbers"}
     assert top_level_declarations_in(parse(SHARED / ALLOCATOR)) == promoted
@@ -679,7 +688,7 @@ def test_the_allocator_declares_exactly_the_three_promoted_names():
 
 def test_the_legacy_path_is_a_re_export_and_not_a_second_implementation():
     """A wrapper or a subclass would be a fork with a shared docstring."""
-    tree = parse(UNIVERSAL / "mp3_tools/m4b_numbering.py")
+    tree = parse(UNIVERSAL / "m4b/m4b_numbering.py")
 
     assert defined_names(tree) == set(), defined_names(tree)
     sources = import_sources_in(tree)
@@ -692,7 +701,7 @@ def test_the_legacy_path_is_a_re_export_and_not_a_second_implementation():
 
 
 def test_both_import_paths_reach_the_very_same_objects():
-    from mp3_tools import m4b_numbering
+    from m4b import m4b_numbering
     from shared import numbering
 
     for name in ("NumberingError", "Tentative", "SuccessNumbers"):
@@ -707,9 +716,9 @@ def test_the_promotion_changed_the_legacy_file_and_left_the_converter_alone():
     never gave the Converter a numbering implementation of its own -- it still
     reaches the counter only through the legacy module the promotion re-exports.
     """
-    legacy = sha256_normalised(UNIVERSAL / "mp3_tools/m4b_numbering.py")
+    legacy = sha256_normalised(UNIVERSAL / "m4b/m4b_numbering.py")
     assert legacy != PHASE0_ALLOCATOR_HASH, "the promotion did not happen"
-    tree = parse(UNIVERSAL / "mp3_tools/m4b_converter.py")
+    tree = parse(UNIVERSAL / "m4b/converter/m4b_converter.py")
     defined = {node.name for node in ast.walk(tree)
                if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
     assert not {"SuccessNumbers", "Tentative", "NumberingError"} & defined
@@ -1426,14 +1435,14 @@ def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
     panels are still forbidden to name. A panel that merely changed a comment
     would pass the first half and fail the second.
     """
-    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/mp3_tool.py")
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3/mp3_tool.py")
             != MP3_TOOL_PHASE0_HASH)
-    tree = parse(UNIVERSAL / "mp3_tools/mp3_tool.py")
+    tree = parse(UNIVERSAL / "mp3/mp3_tool.py")
     names = referenced_names(tree) | imported_names(tree)
     assert "shared.book_workspace" in imported_names(tree)
     assert "WorkspaceSnapshot" in names
     assert "shared.book_workspace_ui" in imported_names(tree)
-    assert "mp3_tools.mp3_workflow" in imported_names(tree)
+    assert "mp3.mp3_workflow" in imported_names(tree)
 
 
 def test_the_maker_left_the_hash_gate_by_a_real_conversion():
@@ -1444,16 +1453,16 @@ def test_the_maker_left_the_hash_gate_by_a_real_conversion():
     shared navigator/surface and hands its frozen plan to the Phase 5 runner.
     The Metadata Editor stays exactly as protected as before.
     """
-    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_maker.py")
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "m4b/maker/m4b_maker.py")
             != MAKER_PHASE0_HASH)
-    tree = parse(UNIVERSAL / "mp3_tools/m4b_maker.py")
+    tree = parse(UNIVERSAL / "m4b/maker/m4b_maker.py")
     names = referenced_names(tree) | imported_names(tree)
     assert "shared.book_workspace" in imported_names(tree)
     assert "WorkspaceSnapshot" in names
     assert "shared.book_workspace_ui" in imported_names(tree)
-    assert "mp3_tools.m4b_maker_workflow" in imported_names(tree)
-    assert "mp3_tools.m4b_maker_plan" in imported_names(tree)
-    assert "mp3_tools.m4b_maker_batch" in imported_names(tree)
+    assert "m4b.maker.m4b_maker_workflow" in imported_names(tree)
+    assert "m4b.maker.m4b_maker_plan" in imported_names(tree)
+    assert "m4b.maker.m4b_maker_batch" in imported_names(tree)
 
 
 def test_the_editor_left_the_hash_gate_by_a_real_conversion():
@@ -1464,16 +1473,16 @@ def test_the_editor_left_the_hash_gate_by_a_real_conversion():
     composes the shared navigator/surface and hands its frozen plan to the
     Phase 9 runner. With it, every consumer panel has left the gate.
     """
-    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_metadata_editor.py")
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "m4b/metadata/m4b_metadata_editor.py")
             != EDITOR_PHASE0_HASH)
-    tree = parse(UNIVERSAL / "mp3_tools/m4b_metadata_editor.py")
+    tree = parse(UNIVERSAL / "m4b/metadata/m4b_metadata_editor.py")
     names = referenced_names(tree) | imported_names(tree)
     assert "shared.book_workspace" in imported_names(tree)
     assert "WorkspaceSnapshot" in names
     assert "shared.book_workspace_ui" in imported_names(tree)
-    assert "mp3_tools.m4b_metadata_workflow" in imported_names(tree)
-    assert "mp3_tools.m4b_metadata_plan" in imported_names(tree)
-    assert "mp3_tools.m4b_metadata_batch" in imported_names(tree)
+    assert "m4b.metadata.m4b_metadata_workflow" in imported_names(tree)
+    assert "m4b.metadata.m4b_metadata_plan" in imported_names(tree)
+    assert "m4b.metadata.m4b_metadata_batch" in imported_names(tree)
 
 
 def test_the_plan5_converter_gate_is_empty():
@@ -1489,7 +1498,7 @@ def test_the_converter_left_the_hash_gate_by_a_real_conversion():
     persistent Activity view. A panel that merely changed a comment would pass
     the first half and fail the second.
     """
-    path = UNIVERSAL / "mp3_tools/m4b_converter.py"
+    path = UNIVERSAL / "m4b/converter/m4b_converter.py"
     assert sha256_as_checked_out_on_windows(path) != CONVERTER_PHASE0_HASH
     tree = parse(path)
     names = referenced_names(tree) | imported_names(tree)
@@ -1793,7 +1802,7 @@ def test_the_stored_effective_value_guard_detects_a_second_truth():
 
 
 @pytest.mark.parametrize("code,expected", [
-    ("from mp3_tools import m4b_numbering\n"
+    ("from m4b import m4b_numbering\n"
      "def f():\n    return m4b_numbering", "m4b_numbering"),
     ("from shared.numbering import SuccessNumbers\n"
      "def f(n):\n    return SuccessNumbers(n)", "SuccessNumbers"),
@@ -2253,8 +2262,8 @@ def test_the_harness_adds_no_m4b_or_chapter_writing_behaviour():
                             "probe", "convert", "export", "run", "Popen"):
         assert owned_elsewhere not in called, owned_elsewhere
     modules = imported_names(tree)
-    for banned in ("subprocess", "shared.metadata", "mp3_tools.m4b_maker",
-                   "mp3_tools.m4b_converter", "pydub", "mutagen"):
+    for banned in ("subprocess", "shared.metadata", "m4b.maker.m4b_maker",
+                   "m4b.converter.m4b_converter", "pydub", "mutagen"):
         assert banned not in modules, banned
     declared = defined_names(tree)
     for invented in ("Chapter", "ChapterModel", "ChapterList", "ChapterPlan"):

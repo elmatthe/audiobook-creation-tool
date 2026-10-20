@@ -83,7 +83,7 @@ from shared.job_control import (  # noqa: E402
     project_summary,
 )
 
-from mp3_tools import cover_resizer as cr  # noqa: E402
+from artwork import cover_resizer as cr  # noqa: E402
 from tts import epub2tts_gui as tts_module  # noqa: E402
 
 from test_import_coordination import (  # noqa: E402

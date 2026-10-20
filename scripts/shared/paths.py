@@ -10,7 +10,9 @@ Layout (repo root)::
             requirements.txt
             shared/paths.py       <- this file
             tts/
-            mp3_tools/
+            mp3/                  <- MP3 Tool
+            m4b/                  <- M4B Converter, Maker, Metadata Editor
+            artwork/              <- Cover Image and shared artwork code
         files/
             bin/                  <- portable ffmpeg, if bundled
             runtime-data/
@@ -31,7 +33,9 @@ SCRIPTS_DIR: Path = SHARED_DIR.parent          # scripts — the import root
 REPO_ROOT: Path = SCRIPTS_DIR.parent
 
 TTS_DIR: Path = SCRIPTS_DIR / "tts"
-MP3_TOOLS_DIR: Path = SCRIPTS_DIR / "mp3_tools"
+MP3_DIR: Path = SCRIPTS_DIR / "mp3"
+M4B_DIR: Path = SCRIPTS_DIR / "m4b"
+ARTWORK_DIR: Path = SCRIPTS_DIR / "artwork"
 
 FILES_DIR: Path = REPO_ROOT / "files"
 RESOURCES_DIR: Path = FILES_DIR / "runtime-data"

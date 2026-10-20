@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from shared import ffmpeg_utils
-from mp3_tools import mp3_tool
+from mp3 import mp3_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -231,13 +231,13 @@ def test_input_order_is_preserved_audibly(tmp_path):
 #: Where the FFmpeg helpers live since the focused MP3 plan's Phase 7 moved
 #: them out of the panel: ``mp3_tool`` re-exports them, but the code — and so
 #: every structural guard below — is here.
-HELPERS_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "mp3_processing.py"
+HELPERS_SOURCE = REPO_ROOT / "scripts" / "mp3" / "mp3_processing.py"
 
 
 def test_no_ffmpeg_call_is_made_through_a_shell():
     """Argument-vector execution only — a path never reaches a shell."""
     for source in (HELPERS_SOURCE,
-                   REPO_ROOT / "scripts" / "mp3_tools" / "mp3_tool.py"):
+                   REPO_ROOT / "scripts" / "mp3" / "mp3_tool.py"):
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
@@ -302,7 +302,7 @@ def test_the_combine_output_still_goes_through_the_shared_run_directory():
     reserved nothing; restored at Phase 5, which plans every Combine into one
     shared reservation per operation. No local run-folder helper came back.
     """
-    source = (REPO_ROOT / "scripts" / "mp3_tools" / "mp3_tool.py"
+    source = (REPO_ROOT / "scripts" / "mp3" / "mp3_tool.py"
               ).read_text(encoding="utf-8")
     assert "reserve_run_directory" in source
     assert "next_available_folder" not in source

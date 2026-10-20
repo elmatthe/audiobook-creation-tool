@@ -1,6 +1,6 @@
 """The M4B Metadata Editor source/workspace model — v0.6.4 Phase 7.
 
-``mp3_tools/m4b_metadata_workflow.py`` is the Editor's Tk-free layer between the
+``m4b/metadata/m4b_metadata_workflow.py`` is the Editor's Tk-free layer between the
 shared Plan 6 workspace and the panel that adopts it later (Phase 10). One
 imported M4B-family occurrence is one stable Book; each Book carries a frozen
 observation of what its source contains (read through ``shared.metadata``, with
@@ -32,14 +32,14 @@ from shared.importing import (
     IdFactory, ImportRoot, ImportedFile, ImportedFileSnapshot, Revision, SupportedTypeCatalog,
 )
 
-from mp3_tools import m4b_metadata_workflow as wf
-from mp3_tools.m4b_metadata_workflow import (
+from m4b.metadata import m4b_metadata_workflow as wf
+from m4b.metadata.m4b_metadata_workflow import (
     EditorContractError, ObservationStore, SourceObservation,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_workflow.py"
+MODULE = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_workflow.py"
 
 _IDS = IdFactory("ed-")
 _BOOKS = IdFactory("edbook-")
@@ -554,9 +554,9 @@ def test_the_model_imports_no_tk_process_output_or_writer_and_writes_nothing():
     for banned in ("tkinter", "subprocess", "threading", "queue", "shutil", "tempfile",
                    "shared.output_paths", "shared.ffmpeg_utils", "shared.job_ui",
                    "shared.job_control", "shared.import_coordination", "shared.numbering",
-                   "mp3_tools.m4b_metadata_editor", "mp3_tools.m4b_maker",
-                   "mp3_tools.m4b_maker_workflow", "mp3_tools.mp3_workflow",
-                   "mp3_tools.m4b_artwork", "PIL"):
+                   "m4b.metadata.m4b_metadata_editor", "m4b.maker.m4b_maker",
+                   "m4b.maker.m4b_maker_workflow", "mp3.mp3_workflow",
+                   "artwork.m4b_artwork", "PIL"):
         assert banned not in modules, banned
     for required in ("shared.book_workspace", "shared.importing", "shared.metadata"):
         assert required in modules, required
@@ -580,7 +580,7 @@ def test_the_model_imports_no_tk_process_output_or_writer_and_writes_nothing():
 def test_the_model_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_metadata_workflow.py" in ADOPTED
+    assert "m4b/metadata/m4b_metadata_workflow.py" in ADOPTED
 
 
 def test_the_editor_panel_now_consumes_this_model():
@@ -588,7 +588,7 @@ def test_the_editor_panel_now_consumes_this_model():
     the panel its consumer (the old byte-identity pin retired with the conversion)."""
     from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
+    panel = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py"
     assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
     tree = ast.parse(panel.read_text(encoding="utf-8"))
     modules = {f"{node.module}.{alias.name}" for node in ast.walk(tree)
@@ -596,7 +596,7 @@ def test_the_editor_panel_now_consumes_this_model():
     modules |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
     modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
                 for alias in node.names}
-    assert "mp3_tools.m4b_metadata_workflow" in modules
+    assert "m4b.metadata.m4b_metadata_workflow" in modules
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
     for owned_here in ("observe_source", "prefill_values", "page_values", "edit_intent",

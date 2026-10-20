@@ -1,6 +1,6 @@
 """The M4B Maker batch runner — v0.6.4 Phase 5.
 
-``mp3_tools/m4b_maker_batch.py`` runs one frozen ``RunPlan`` through the shared
+``m4b/maker/m4b_maker_batch.py`` runs one frozen ``RunPlan`` through the shared
 job architecture without a panel: exactly one ``JobController`` and one
 ``JobReporter`` per batch attempt, one worker body, the Phase 4 single-Book
 engine for every Book in frozen order, continue-after-failure, the Plan 6
@@ -33,17 +33,17 @@ from shared.importing import (
 from shared.job_control import JobController, JobEventKind, JobState, RunResult
 from shared.numbering import SuccessNumbers
 
-from mp3_tools import m4b_maker_batch as batch
-from mp3_tools import m4b_maker_plan as mp
-from mp3_tools import m4b_maker_processing as proc
-from mp3_tools import m4b_maker_workflow as wf
-from mp3_tools.m4b_maker_batch import Attempt, BatchError, MakerRun
+from m4b.maker import m4b_maker_batch as batch
+from m4b.maker import m4b_maker_plan as mp
+from m4b.maker import m4b_maker_processing as proc
+from m4b.maker import m4b_maker_workflow as wf
+from m4b.maker.m4b_maker_batch import Attempt, BatchError, MakerRun
 
 from test_importing import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker_batch.py"
+MODULE = UNIVERSAL / "m4b" / "maker" / "m4b_maker_batch.py"
 
 _IDS = IdFactory("bt-")
 
@@ -557,12 +557,12 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
             modules.add(node.module or "")
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for banned in ("tkinter", "threading", "queue", "shared.job_ui", "shared.ui_theme",
-                   "shared.import_coordination", "mp3_tools.m4b_maker", "mp3_tools.mp3_tool",
-                   "mp3_tools.mp3_processing", "mp3_tools.mp3_plan", "mp3_tools.mp3_workflow",
-                   "mp3_tools.m4b_maker_workflow", "mp3_tools.m4b_numbering"):
+                   "shared.import_coordination", "m4b.maker.m4b_maker", "mp3.mp3_tool",
+                   "mp3.mp3_processing", "mp3.mp3_plan", "mp3.mp3_workflow",
+                   "m4b.maker.m4b_maker_workflow", "m4b.m4b_numbering"):
         assert banned not in modules, banned
     for required in ("shared.job_control", "shared.book_workspace", "shared.numbering",
-                     "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_processing"):
+                     "m4b.maker.m4b_maker_plan", "m4b.maker.m4b_maker_processing"):
         assert required in modules, required
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
@@ -595,7 +595,7 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
 def test_the_runner_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_maker_batch.py" in ADOPTED
+    assert "m4b/maker/m4b_maker_batch.py" in ADOPTED
 
 
 def test_the_maker_panel_now_runs_through_this_module():
@@ -603,6 +603,6 @@ def test_the_maker_panel_now_runs_through_this_module():
     its consumer (the old byte-identity pin retired with the conversion)."""
     from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
+    panel = UNIVERSAL / "m4b" / "maker" / "m4b_maker.py"
     assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
     assert "m4b_maker_batch" in panel.read_text(encoding="utf-8")

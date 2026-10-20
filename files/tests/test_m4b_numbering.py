@@ -51,11 +51,12 @@ import tkinter as tk
 from shared import job_control as jc
 from shared import output_paths
 
-from mp3_tools import m4b_converter, m4b_execution, m4b_numbering
-from mp3_tools.m4b_execution import ProcessResult
-from mp3_tools.m4b_metadata import MetadataMode, SourceTags
-from mp3_tools.m4b_numbering import NumberingError, SuccessNumbers, Tentative
-from mp3_tools.m4b_plan import ConversionMode
+from m4b.converter import m4b_converter
+from m4b import m4b_execution, m4b_numbering
+from m4b.m4b_execution import ProcessResult
+from m4b.converter.m4b_metadata import MetadataMode, SourceTags
+from m4b.m4b_numbering import NumberingError, SuccessNumbers, Tentative
+from m4b.converter.m4b_plan import ConversionMode
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -71,10 +72,10 @@ from test_m4b_execution import _probe, _tags, media  # noqa: E402,F401
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "mp3_tools"
-PANEL_SOURCE = UNIVERSAL / "m4b_converter.py"
+UNIVERSAL = REPO_ROOT / "scripts" / "m4b"
+PANEL_SOURCE = UNIVERSAL / "converter" / "m4b_converter.py"
 NUMBERING_SOURCE = UNIVERSAL / "m4b_numbering.py"
-PLAN_SOURCE = UNIVERSAL / "m4b_plan.py"
+PLAN_SOURCE = UNIVERSAL / "converter" / "m4b_plan.py"
 
 
 # --------------------------------------------------------------------------- #
@@ -240,7 +241,7 @@ def test_the_allocator_is_pure():
 
 def test_no_mutable_numbering_state_lives_in_the_plan():
     """The plan is immutable and is what a retry re-reads; a counter is not."""
-    from mp3_tools.m4b_plan import ConversionPlan, ItemPlan, SegmentPlan
+    from m4b.converter.m4b_plan import ConversionPlan, ItemPlan, SegmentPlan
 
     for kind in (ConversionPlan, ItemPlan, SegmentPlan):
         for field in kind.__dataclass_fields__:
@@ -416,7 +417,7 @@ def test_a_non_default_start_number_is_honoured(make_panel, tmp_path, run_env):
 def test_an_unusable_item_never_receives_or_consumes_a_number(
         make_panel, tmp_path, run_env):
     """Preflight refused it, so it is not an attempt at all."""
-    from mp3_tools.m4b_chapters import ProbeStatus
+    from m4b.m4b_chapters import ProbeStatus
 
     panel = whole_panel(make_panel, tmp_path, run_env, "A.m4b", "B.m4b", "C.m4b")
     run_env["reports"]["B.m4b"] = report(status=ProbeStatus.PROBE_FAILED,

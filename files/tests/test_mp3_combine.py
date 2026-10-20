@@ -25,10 +25,10 @@ from shared.book_workspace import SharedMetadata
 from shared.importing import ImportOptions
 from shared.job_control import JobState
 
-from mp3_tools import mp3_plan as mp
-from mp3_tools import mp3_processing as proc
-from mp3_tools import mp3_workflow as wf
-from mp3_tools.mp3_processing import ProcessingEvent
+from mp3 import mp3_plan as mp
+from mp3 import mp3_processing as proc
+from mp3 import mp3_workflow as wf
+from mp3.mp3_processing import ProcessingEvent
 
 from test_importing import make_config
 from test_mp3_write_id3 import (  # noqa: F401 - fixtures and helpers shared with Phase 7

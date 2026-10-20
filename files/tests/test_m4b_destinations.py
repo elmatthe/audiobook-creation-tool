@@ -42,8 +42,8 @@ from shared.importing import (
 from shared.output_paths import (DestinationPlanner, UnsafePathError,
                                  sanitize_component)
 
-from mp3_tools import m4b_destinations
-from mp3_tools.m4b_destinations import PlannedOccurrence, plan_outputs
+from m4b.converter import m4b_destinations
+from m4b.converter.m4b_destinations import PlannedOccurrence, plan_outputs
 
 MODULE_PATH = Path(m4b_destinations.__file__)
 

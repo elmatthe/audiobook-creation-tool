@@ -39,11 +39,12 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_commands, m4b_execution, m4b_plan, m4b_winaudio
-from mp3_tools.m4b_execution import SegmentWork
-from mp3_tools.m4b_metadata import AttachedPicture, MetadataMode
-from mp3_tools.m4b_plan import PlanOptions, assemble_plan
-from mp3_tools.m4b_winaudio import DecodeError, PcmFormat, PcmTimeline
+from m4b import m4b_commands, m4b_execution, m4b_winaudio
+from m4b.converter import m4b_plan
+from m4b.m4b_execution import SegmentWork
+from m4b.converter.m4b_metadata import AttachedPicture, MetadataMode
+from m4b.converter.m4b_plan import PlanOptions, assemble_plan
+from m4b.m4b_winaudio import DecodeError, PcmFormat, PcmTimeline
 
 from test_m4b_conversion_plan import (  # noqa: E402
     book,
@@ -108,7 +109,7 @@ def test_capability_is_probed_rather_than_read_off_the_os_version():
     can be removed by policy, so the only question worth asking is whether the
     libraries load and Media Foundation starts.
     """
-    source = (REPO_ROOT / "scripts" / "mp3_tools"
+    source = (REPO_ROOT / "scripts" / "m4b"
               / "m4b_winaudio.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     probe = next(node for node in ast.walk(tree)
@@ -172,7 +173,7 @@ def test_capability_downloads_and_installs_nothing():
     Asserted over imports and called names rather than raw text, so the prose
     explaining *why* no download happens cannot fail its own guard.
     """
-    tree = ast.parse((REPO_ROOT / "scripts" / "mp3_tools"
+    tree = ast.parse((REPO_ROOT / "scripts" / "m4b"
                       / "m4b_winaudio.py").read_text(encoding="utf-8"))
     roots = set()
     for node in ast.walk(tree):
@@ -189,7 +190,7 @@ def test_capability_downloads_and_installs_nothing():
 
 def test_the_module_needs_no_third_party_package():
     """ctypes is stdlib; mfplat and mfreadwrite are Windows. Nothing else."""
-    source = (REPO_ROOT / "scripts" / "mp3_tools"
+    source = (REPO_ROOT / "scripts" / "m4b"
               / "m4b_winaudio.py").read_text(encoding="utf-8")
     roots = set()
     for node in ast.walk(ast.parse(source)):
@@ -262,7 +263,7 @@ def test_nothing_larger_than_one_chunk_is_ever_held():
     Staging that to disk was the architecture this replaced, so no temporary
     file is created and no audio filename is ever named here.
     """
-    tree = ast.parse((REPO_ROOT / "scripts" / "mp3_tools"
+    tree = ast.parse((REPO_ROOT / "scripts" / "m4b"
                       / "m4b_winaudio.py").read_text(encoding="utf-8"))
     called = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
     called |= {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
@@ -380,7 +381,7 @@ def test_the_timeline_tracks_everything_it_handed_out():
 
 def test_the_timeline_never_seeks():
     """**Structural.** Seeking costs 0.183 s of primed audio per jump."""
-    source = (REPO_ROOT / "scripts" / "mp3_tools"
+    source = (REPO_ROOT / "scripts" / "m4b"
               / "m4b_winaudio.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     named = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
@@ -481,7 +482,7 @@ def test_macos_keeps_its_own_decoder_and_never_needs_this(tmp_path):
 
 def test_the_route_is_frozen_into_the_plan_not_re_derived():
     """**Structural.** Nothing after Start may ask the machine again."""
-    source = (REPO_ROOT / "scripts" / "mp3_tools"
+    source = (REPO_ROOT / "scripts" / "m4b"
               / "m4b_execution.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     named = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}

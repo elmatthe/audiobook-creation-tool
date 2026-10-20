@@ -1,6 +1,6 @@
 """The M4B Metadata Editor batch runner — v0.6.4 Phase 9.
 
-``mp3_tools/m4b_metadata_batch.py`` runs one frozen Editor ``RunPlan`` through
+``m4b/metadata/m4b_metadata_batch.py`` runs one frozen Editor ``RunPlan`` through
 the shared job architecture with no panel involved: one ``JobController`` and
 one ``JobReporter`` per attempt, the Phase 9 engine per Book in frozen order,
 continue-on-failure, the Plan 6 ``WorkspaceRunResult`` and Retry Failed, and
@@ -25,12 +25,12 @@ from shared.book_workspace import BookDisposition, WorkspaceRunResult, remove_bo
 from shared.importing import IdFactory
 from shared.job_control import JobController, JobEventKind, JobState
 
-from mp3_tools import m4b_metadata_batch as batch
-from mp3_tools import m4b_metadata_plan as mp
-from mp3_tools import m4b_metadata_processing as proc
-from mp3_tools import m4b_metadata_workflow as wf
-from mp3_tools.m4b_metadata_batch import Attempt, BatchError, EditorRun
-from mp3_tools.m4b_metadata_plan import EditorAction, EditorRunOptions
+from m4b.metadata import m4b_metadata_batch as batch
+from m4b.metadata import m4b_metadata_plan as mp
+from m4b.metadata import m4b_metadata_processing as proc
+from m4b.metadata import m4b_metadata_workflow as wf
+from m4b.metadata.m4b_metadata_batch import Attempt, BatchError, EditorRun
+from m4b.metadata.m4b_metadata_plan import EditorAction, EditorRunOptions
 
 from test_m4b_metadata_processing import (  # noqa: F401 - fixtures by import
     audio_md5, build, container, plan, png, reserve, sha, shared_with, sources,
@@ -38,7 +38,7 @@ from test_m4b_metadata_processing import (  # noqa: F401 - fixtures by import
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_batch.py"
+MODULE = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_batch.py"
 
 _IDS = IdFactory("eb-")
 
@@ -524,14 +524,14 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
     for banned in ("tkinter", "threading", "queue", "shutil", "subprocess", "mutagen",
                    "shared.job_ui", "shared.ui_theme", "shared.import_coordination",
                    "shared.ffmpeg_utils", "shared.subprocess_utils",
-                   "mp3_tools.m4b_metadata_editor", "mp3_tools.m4b_maker",
-                   "mp3_tools.m4b_maker_batch", "mp3_tools.m4b_maker_processing",
-                   "mp3_tools.mp3_tool", "mp3_tools.mp3_processing", "mp3_tools.mp3_plan",
-                   "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_numbering"):
+                   "m4b.metadata.m4b_metadata_editor", "m4b.maker.m4b_maker",
+                   "m4b.maker.m4b_maker_batch", "m4b.maker.m4b_maker_processing",
+                   "mp3.mp3_tool", "mp3.mp3_processing", "mp3.mp3_plan",
+                   "m4b.metadata.m4b_metadata_workflow", "m4b.m4b_numbering"):
         assert banned not in modules, banned
     for required in ("shared.job_control", "shared.book_workspace", "shared.numbering",
-                     "shared.metadata", "mp3_tools.m4b_metadata_plan",
-                     "mp3_tools.m4b_metadata_processing"):
+                     "shared.metadata", "m4b.metadata.m4b_metadata_plan",
+                     "m4b.metadata.m4b_metadata_processing"):
         assert required in modules, required
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
@@ -564,7 +564,7 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
 def test_the_runner_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_metadata_batch.py" in ADOPTED
+    assert "m4b/metadata/m4b_metadata_batch.py" in ADOPTED
 
 
 def test_the_editor_panel_now_runs_through_this_module():
@@ -572,7 +572,7 @@ def test_the_editor_panel_now_runs_through_this_module():
     the panel its consumer (the old byte-identity pin retired with the conversion)."""
     from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
+    panel = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py"
     assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
     tree = ast.parse(panel.read_text(encoding="utf-8"))
     modules = {f"{node.module}.{alias.name}" for node in ast.walk(tree)
@@ -580,7 +580,7 @@ def test_the_editor_panel_now_runs_through_this_module():
     modules |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
     modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
                 for alias in node.names}
-    assert "mp3_tools.m4b_metadata_batch" in modules
+    assert "m4b.metadata.m4b_metadata_batch" in modules
     built = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
              and ast.unparse(node.func).endswith(("EditorRun", "_run_factory"))]
     assert len(built) == 1, "one EditorRun construction site"

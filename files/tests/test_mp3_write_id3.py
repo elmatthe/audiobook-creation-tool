@@ -1,6 +1,6 @@
 """The multi-Book Write ID3 pipeline — v0.6.3 focused MP3 plan, Phase 7.
 
-``mp3_tools/mp3_processing.py`` runs one frozen Phase 5 ``RunPlan`` for the
+``mp3/mp3_processing.py`` runs one frozen Phase 5 ``RunPlan`` for the
 Write ID3 Tags operation: every track becomes a **new clean staged copy** with the
 frozen signed Time applied, then carries exactly the whitelisted ID3 frames the
 plan intends (Title, Artist / Album Artist / Album when populated, Track Number
@@ -37,11 +37,11 @@ from shared.importing import (
 )
 from shared.job_control import FailureRecord, JobState, RunResult
 
-from mp3_tools import mp3_artwork as art
-from mp3_tools import mp3_plan as mp
-from mp3_tools import mp3_processing as proc
-from mp3_tools import mp3_workflow as wf
-from mp3_tools.mp3_processing import BookReport, WriteId3Report
+from artwork import mp3_artwork as art
+from mp3 import mp3_plan as mp
+from mp3 import mp3_processing as proc
+from mp3 import mp3_workflow as wf
+from mp3.mp3_processing import BookReport, WriteId3Report
 
 from test_importing import make_config
 
@@ -50,7 +50,7 @@ pytestmark = pytest.mark.skipif(
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "mp3_processing.py"
+MODULE = UNIVERSAL / "mp3" / "mp3_processing.py"
 
 _IDS = IdFactory("w-")
 
@@ -514,7 +514,7 @@ def test_validation_refuses_the_wrong_frames(sources, reserve):
 
 
 def test_the_processing_module_owns_the_ffmpeg_helpers_and_the_panel_reexports_them():
-    from mp3_tools import mp3_tool
+    from mp3 import mp3_tool
 
     tree = ast.parse(MODULE.read_text(encoding="utf-8"))
     declared = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
@@ -540,7 +540,7 @@ def test_the_processing_module_reaches_no_tk_controller_or_second_planner():
             modules.add(node.module or "")
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for banned in ("tkinter", "threading", "queue", "shutil", "shared.job_ui",
-                   "shared.ui_theme", "shared.import_coordination", "mp3_tools.mp3_tool",
+                   "shared.ui_theme", "shared.import_coordination", "mp3.mp3_tool",
                    "shared.job_control.JobController"):
         assert banned not in modules, banned
     declared = {node.name for node in ast.walk(tree)

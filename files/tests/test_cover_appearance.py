@@ -40,7 +40,7 @@ from tkinter import ttk  # noqa: E402
 from shared import appearance  # noqa: E402
 from shared import job_ui  # noqa: E402
 
-from mp3_tools import cover_resizer as cr  # noqa: E402
+from artwork import cover_resizer as cr  # noqa: E402
 
 from test_cover_jobs import InlineRunner, output_base  # noqa: E402,F401
 from test_import_coordination import RecordingThreads  # noqa: E402

@@ -44,7 +44,7 @@ from enum import Enum
 
 from shared.metadata import ffmpeg_metadata_args
 
-from . import m4b_commands
+from m4b import m4b_commands
 
 
 class MetadataMode(Enum):

@@ -1,6 +1,6 @@
 """The M4B Metadata Editor per-Book engine — v0.6.4 Phase 9.
 
-``mp3_tools/m4b_metadata_processing.py`` executes one frozen Editor ``BookPlan``:
+``m4b/metadata/m4b_metadata_processing.py`` executes one frozen Editor ``BookPlan``:
 copy the source to **private staging**, perform the frozen action there through
 the shared ``metadata`` authorities (Save writes only the frozen intent; Clear
 All clears everything, keeps chapters and reapplies only the frozen intent;
@@ -30,13 +30,13 @@ from shared.importing import (
     IdFactory, ImportOptions, ImportedFile, ImportedFileSnapshot, ImportRoot, Revision,
 )
 
-from mp3_tools import m4b_artwork
-from mp3_tools import m4b_metadata_plan as mp
-from mp3_tools import m4b_metadata_processing as proc
-from mp3_tools import m4b_metadata_workflow as wf
-from mp3_tools.m4b_metadata_plan import EditorAction, EditorRunOptions
-from mp3_tools.m4b_metadata_processing import BookOutcome, ProcessingError
-from mp3_tools.m4b_metadata_workflow import ObservationStore
+from artwork import m4b_artwork
+from m4b.metadata import m4b_metadata_plan as mp
+from m4b.metadata import m4b_metadata_processing as proc
+from m4b.metadata import m4b_metadata_workflow as wf
+from m4b.metadata.m4b_metadata_plan import EditorAction, EditorRunOptions
+from m4b.metadata.m4b_metadata_processing import BookOutcome, ProcessingError
+from m4b.metadata.m4b_metadata_workflow import ObservationStore
 
 from test_importing import make_config
 from test_m4b_chapter_remux_timescale import (
@@ -46,7 +46,7 @@ from test_m4b_metadata_workflow import _META, _ff, m4b, require_ffmpeg, vendor_s
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_processing.py"
+MODULE = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_processing.py"
 
 _IDS = IdFactory("ex-")
 
@@ -760,13 +760,13 @@ def test_the_engine_uses_the_shared_authorities_and_re_encodes_nothing():
     for banned in ("tkinter", "threading", "queue", "subprocess", "shared.book_workspace",
                    "shared.job_ui", "shared.job_control", "shared.importing",
                    "shared.import_coordination", "shared.numbering", "shared.subprocess_utils",
-                   "mutagen", "PIL", "mp3_tools.m4b_metadata_editor",
-                   "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_maker_processing",
-                   "mp3_tools.mp3_processing", "wave", "json"):
+                   "mutagen", "PIL", "m4b.metadata.m4b_metadata_editor",
+                   "m4b.metadata.m4b_metadata_workflow", "m4b.maker.m4b_maker_processing",
+                   "mp3.mp3_processing", "wave", "json"):
         assert banned not in modules, banned
     for required in ("shared.metadata", "shared.ffmpeg_utils", "shared.cancellation",
-                     "mp3_tools.m4b_artwork", "mp3_tools.m4b_staging",
-                     "mp3_tools.m4b_metadata_plan"):
+                     "artwork.m4b_artwork", "m4b.m4b_staging",
+                     "m4b.metadata.m4b_metadata_plan"):
         assert required in modules, required
     calls = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
     # The authorities are handed to one guarded step runner, so they appear as
@@ -791,7 +791,7 @@ def test_the_editor_panel_reaches_this_engine_only_through_the_runner():
     the runner its one consumer — the panel still names no engine call."""
     from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
+    panel = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py"
     assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
     tree = ast.parse(panel.read_text(encoding="utf-8"))
     modules = {f"{node.module}.{alias.name}" for node in ast.walk(tree)
@@ -799,5 +799,5 @@ def test_the_editor_panel_reaches_this_engine_only_through_the_runner():
     modules |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
     modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
                 for alias in node.names}
-    assert "mp3_tools.m4b_metadata_processing" not in modules
-    assert "mp3_tools.m4b_metadata_batch" in modules
+    assert "m4b.metadata.m4b_metadata_processing" not in modules
+    assert "m4b.metadata.m4b_metadata_batch" in modules

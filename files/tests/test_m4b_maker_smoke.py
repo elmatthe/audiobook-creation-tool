@@ -12,8 +12,8 @@ from pathlib import Path
 
 from shared.importing import natural_key
 
-from mp3_tools import m4b_maker_processing as m4b_maker
-from mp3_tools import m4b_maker_workflow as wf
+from m4b.maker import m4b_maker_processing as m4b_maker
+from m4b.maker import m4b_maker_workflow as wf
 
 
 def test_natural_sort_orders_chapters_numerically():

@@ -45,14 +45,14 @@ from PIL import Image  # noqa: E402
 
 from shared import image_capabilities as caps  # noqa: E402
 
-from mp3_tools import cover_resizer  # noqa: E402
+from artwork import cover_resizer  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "cover_resizer.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "artwork" / "cover_resizer.py"
 
 WAIT = 5.0
 

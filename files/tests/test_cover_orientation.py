@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageOps
 
-from mp3_tools import cover_resizer as cr
+from artwork import cover_resizer as cr
 
 ORIENTATION = 0x0112
 RED = (255, 0, 0)

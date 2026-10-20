@@ -31,7 +31,7 @@ UNIVERSAL = REPO_ROOT / "scripts"
 #: developer-local files (untracked helper packages included), which are not application source, so nothing is discovered
 #: on disk. A new production top-level package must be added here on purpose; ``test_application_source_boundary`` fails
 #: while a tracked top-level folder of ``scripts/`` is missing from this tuple.
-APPLICATION_PACKAGES = ("shared", "tts", "mp3_tools")
+APPLICATION_PACKAGES = ("shared", "tts", "mp3", "m4b", "artwork")
 
 
 def application_packages(root: Path = UNIVERSAL) -> list[str]:

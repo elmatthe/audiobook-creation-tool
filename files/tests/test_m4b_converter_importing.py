@@ -56,7 +56,7 @@ from shared.job_control import JobAction  # noqa: E402
 
 from shared import output_paths  # noqa: E402
 
-from mp3_tools import m4b_converter  # noqa: E402
+from m4b.converter import m4b_converter  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
@@ -69,7 +69,7 @@ from test_m4b_conversion_plan import (  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_converter.py"
 
 
 @pytest.fixture(scope="module")

@@ -84,7 +84,7 @@ AUTHORITIES = {
         "reserve_run_directory", "RunReservation", "DestinationPlanner", "sanitize_component",
         "assert_not_input", "assert_contained", "assert_no_link_in",
         "validate_custom_destination", "temporary_sibling", "atomic_replace")),
-    "M4B staging and publication": ("mp3_tools/m4b_staging.py", (
+    "M4B staging and publication": ("m4b/m4b_staging.py", (
         "publish_staged", "require_owned", "prune_work_root", "StagingError")),
     "image capability": ("shared/image_capabilities.py", (
         "can_decode", "decodable_suffixes", "heif_capability", "FormatCapability")),
@@ -94,17 +94,17 @@ AUTHORITIES = {
         "clear_series_numbering", "apply_chapter_titles", "ffmetadata_header_lines",
         "ffmetadata_escape")),
     "success numbering": ("shared/numbering.py", ("SuccessNumbers",)),
-    "M4B artwork service": ("mp3_tools/m4b_artwork.py", (
+    "M4B artwork service": ("artwork/m4b_artwork.py", (
         "load_cover", "cover_for", "apply_cover", "embed_cover", "M4BCover")),
-    "artwork preview and chooser filter": ("mp3_tools/mp3_artwork.py", (
+    "artwork preview and chooser filter": ("artwork/mp3_artwork.py", (
         "preview_image", "artwork_filetypes", "Artwork", "ArtworkError")),
 }
 
-MAKER_FAMILY = ("mp3_tools/m4b_maker_workflow.py", "mp3_tools/m4b_maker_plan.py",
-                "mp3_tools/m4b_maker_processing.py", "mp3_tools/m4b_maker_batch.py")
-EDITOR_FAMILY = ("mp3_tools/m4b_metadata_workflow.py", "mp3_tools/m4b_metadata_plan.py",
-                 "mp3_tools/m4b_metadata_processing.py", "mp3_tools/m4b_metadata_batch.py")
-PANELS = ("mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py")
+MAKER_FAMILY = ("m4b/maker/m4b_maker_workflow.py", "m4b/maker/m4b_maker_plan.py",
+                "m4b/maker/m4b_maker_processing.py", "m4b/maker/m4b_maker_batch.py")
+EDITOR_FAMILY = ("m4b/metadata/m4b_metadata_workflow.py", "m4b/metadata/m4b_metadata_plan.py",
+                 "m4b/metadata/m4b_metadata_processing.py", "m4b/metadata/m4b_metadata_batch.py")
+PANELS = ("m4b/maker/m4b_maker.py", "m4b/metadata/m4b_metadata_editor.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -128,20 +128,20 @@ def test_the_metadata_writers_are_reached_only_by_the_two_engines_and_two_runner
                "apply_chapter_titles"}
     users = {module for module, tree in TREES.items()
              if module != "shared/metadata.py" and referenced_attributes(tree) & writers}
-    assert users == {"mp3_tools/m4b_maker_processing.py", "mp3_tools/m4b_maker_batch.py",
-                     "mp3_tools/m4b_metadata_processing.py", "mp3_tools/m4b_metadata_batch.py"}
+    assert users == {"m4b/maker/m4b_maker_processing.py", "m4b/maker/m4b_maker_batch.py",
+                     "m4b/metadata/m4b_metadata_processing.py", "m4b/metadata/m4b_metadata_batch.py"}
 
 
 def test_the_staging_pattern_is_reached_only_through_the_two_engines():
     """Both engines delegate to it; the runners reach staging through their engine
     (the Editor's runner prunes the empty work root through the pattern itself)."""
     importers = {module for module, tree in TREES.items()
-                 if module != "mp3_tools/m4b_staging.py"
-                 and "mp3_tools.m4b_staging" in imported_modules(tree)}
-    assert importers == {"mp3_tools/m4b_maker_processing.py",
-                         "mp3_tools/m4b_metadata_processing.py",
-                         "mp3_tools/m4b_metadata_batch.py"}
-    for runner in ("mp3_tools/m4b_maker_batch.py", "mp3_tools/m4b_metadata_batch.py"):
+                 if module != "m4b/m4b_staging.py"
+                 and "m4b.m4b_staging" in imported_modules(tree)}
+    assert importers == {"m4b/maker/m4b_maker_processing.py",
+                         "m4b/metadata/m4b_metadata_processing.py",
+                         "m4b/metadata/m4b_metadata_batch.py"}
+    for runner in ("m4b/maker/m4b_maker_batch.py", "m4b/metadata/m4b_metadata_batch.py"):
         calls = {ast.unparse(node.func) for node in ast.walk(TREES[runner])
                  if isinstance(node, ast.Call)}
         assert {"proc.stage_book", "proc.publish_book", "proc.discard_staging"} <= calls, runner
@@ -153,7 +153,7 @@ def test_the_success_allocator_is_constructed_only_by_the_two_runners():
     builders = {module for module, tree in TREES.items()
                 if module != "shared/numbering.py" and "SuccessNumbers" in {
                     ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}}
-    assert builders == {"mp3_tools/m4b_maker_batch.py", "mp3_tools/m4b_metadata_batch.py"}
+    assert builders == {"m4b/maker/m4b_maker_batch.py", "m4b/metadata/m4b_metadata_batch.py"}
     for module in builders:
         calls = call_names(TREES[module])
         assert {"propose", "commit"} <= calls, module
@@ -162,9 +162,9 @@ def test_the_success_allocator_is_constructed_only_by_the_two_runners():
 def test_reservations_are_taken_only_by_tool_panels_through_the_shared_service():
     reservers = {module for module, tree in TREES.items()
                  if module != "shared/output_paths.py" and "reserve_run_directory" in call_names(tree)}
-    assert reservers == {"mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
-                         "mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py",
-                         "mp3_tools/mp3_tool.py", "tts/epub2tts_gui.py"}
+    assert reservers == {"artwork/cover_resizer.py", "m4b/converter/m4b_converter.py",
+                         "m4b/maker/m4b_maker.py", "m4b/metadata/m4b_metadata_editor.py",
+                         "mp3/mp3_tool.py", "tts/epub2tts_gui.py"}
 
 
 def test_image_capability_is_asked_only_where_the_probe_belongs():
@@ -173,7 +173,7 @@ def test_image_capability_is_asked_only_where_the_probe_belongs():
               and call_names(tree) & {"can_decode", "decodable_suffixes", "heif_capability"}}
     for panel in PANELS:
         assert panel not in askers, "a panel asks the artwork service, never the probe"
-    assert "mp3_tools/m4b_artwork.py" in askers or "mp3_tools/mp3_artwork.py" in askers
+    assert "artwork/m4b_artwork.py" in askers or "artwork/mp3_artwork.py" in askers
 
 
 # --------------------------------------------------------------------------- #
@@ -204,20 +204,20 @@ def test_no_second_workspace_job_or_output_framework_exists():
 
 
 def test_maker_and_editor_keep_separate_business_modules_with_no_shared_m4b_controller():
-    for family, other in ((MAKER_FAMILY, "mp3_tools.m4b_metadata"),
-                          (EDITOR_FAMILY, "mp3_tools.m4b_maker")):
+    for family, other in ((MAKER_FAMILY, "m4b.converter.m4b_metadata"),
+                          (EDITOR_FAMILY, "m4b.maker.m4b_maker")):
         for module in family:
             assert module in TREES, module
             imports = imported_modules(TREES[module])
             assert not any(name.startswith(other) for name in imports), (module, other)
-    for panel, other in (("mp3_tools/m4b_maker.py", "mp3_tools.m4b_metadata"),
-                         ("mp3_tools/m4b_metadata_editor.py", "mp3_tools.m4b_maker")):
+    for panel, other in (("m4b/maker/m4b_maker.py", "m4b.converter.m4b_metadata"),
+                         ("m4b/metadata/m4b_metadata_editor.py", "m4b.maker.m4b_maker")):
         imports = imported_modules(TREES[panel])
         assert not any(name.startswith(other) for name in imports), (panel, other)
     # The two runners share the shared framework and nothing tool-specific: each
     # defines its own Attempt and run class, each constructs the controller once.
-    for runner, run_class in (("mp3_tools/m4b_maker_batch.py", "MakerRun"),
-                              ("mp3_tools/m4b_metadata_batch.py", "EditorRun")):
+    for runner, run_class in (("m4b/maker/m4b_maker_batch.py", "MakerRun"),
+                              ("m4b/metadata/m4b_metadata_batch.py", "EditorRun")):
         tree = TREES[runner]
         classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
         assert {"Attempt", run_class, "BookRecord", "BatchError"} <= set(classes)
@@ -226,13 +226,13 @@ def test_maker_and_editor_keep_separate_business_modules_with_no_shared_m4b_cont
         sites = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
                  and ast.unparse(node.func).endswith("JobController")]
         assert len(sites) == 1, runner
-    shared_m4b = {module for module in TREES if module.startswith("mp3_tools/m4b_")
+    shared_m4b = {module for module in TREES if module.startswith(("m4b/", "artwork/m4b_")) and not module.endswith("__init__.py")
                   and module not in MAKER_FAMILY + EDITOR_FAMILY + PANELS
-                  and not module.startswith("mp3_tools/m4b_converter")}
+                  and not module.startswith("m4b/converter/m4b_converter")}
     # The only modules both tools share below ``shared/``: the artwork service,
     # its Tk control and the staging pattern -- none of them runs a Book.
     m4b_shared = {m for m in shared_m4b if m in (
-        "mp3_tools/m4b_artwork.py", "mp3_tools/m4b_artwork_ui.py", "mp3_tools/m4b_staging.py")}
+        "artwork/m4b_artwork.py", "artwork/m4b_artwork_ui.py", "m4b/m4b_staging.py")}
     for module in m4b_shared:
         names = top_level_definitions(TREES[module])
         assert not any("Run" in n or "Attempt" in n or "Controller" in n for n in names), module
@@ -267,12 +267,12 @@ def test_the_production_panels_are_thin_tk_adapters():
             assert write not in calls, (panel, write)
         for required in ("shared.book_workspace", "shared.book_workspace_ui", "shared.job_ui",
                          "shared.job_control", "shared.import_coordination", "shared.importing",
-                         "mp3_tools.m4b_artwork_ui"):
+                         "artwork.m4b_artwork_ui"):
             assert required in imports, (panel, required)
 
 
 def test_the_workers_are_handed_frozen_plans_and_name_nothing_live():
-    for runner in ("mp3_tools/m4b_maker_batch.py", "mp3_tools/m4b_metadata_batch.py"):
+    for runner in ("m4b/maker/m4b_maker_batch.py", "m4b/metadata/m4b_metadata_batch.py"):
         tree = TREES[runner]
         attempt = next(node for node in tree.body
                        if isinstance(node, ast.ClassDef) and node.name == "Attempt")
@@ -299,15 +299,15 @@ def test_the_launcher_registry_and_tool_families_are_exactly_as_expected():
     assert len(tools.value.elts) == 6
     for module in MAKER_FAMILY + EDITOR_FAMILY + PANELS:
         assert module in TREES, module
-    assert "mp3_tools/m4b_staging.py" in TREES and "mp3_tools/m4b_artwork.py" in TREES
-    generic = [module for module in TREES if module.startswith("mp3_tools/m4b_")
+    assert "m4b/m4b_staging.py" in TREES and "artwork/m4b_artwork.py" in TREES
+    generic = [module for module in TREES if module.startswith(("m4b/", "artwork/m4b_")) and not module.endswith("__init__.py")
                and module not in MAKER_FAMILY + EDITOR_FAMILY + PANELS
-               and not module.startswith("mp3_tools/m4b_converter")
-               and module not in ("mp3_tools/m4b_artwork.py", "mp3_tools/m4b_artwork_ui.py",
-                                  "mp3_tools/m4b_staging.py")]
-    converter_own = {"mp3_tools/m4b_execution.py", "mp3_tools/m4b_numbering.py",
-                     "mp3_tools/m4b_probe.py", "mp3_tools/m4b_commands.py",
-                     "mp3_tools/m4b_metadata.py", "mp3_tools/m4b_chapters.py",
-                     "mp3_tools/m4b_destinations.py", "mp3_tools/m4b_plan.py",
-                     "mp3_tools/m4b_naming.py", "mp3_tools/m4b_winaudio.py"}
+               and not module.startswith("m4b/converter/m4b_converter")
+               and module not in ("artwork/m4b_artwork.py", "artwork/m4b_artwork_ui.py",
+                                  "m4b/m4b_staging.py")]
+    converter_own = {"m4b/m4b_execution.py", "m4b/m4b_numbering.py",
+                     "m4b/m4b_probe.py", "m4b/m4b_commands.py",
+                     "m4b/converter/m4b_metadata.py", "m4b/m4b_chapters.py",
+                     "m4b/converter/m4b_destinations.py", "m4b/converter/m4b_plan.py",
+                     "m4b/m4b_naming.py", "m4b/m4b_winaudio.py"}
     assert set(generic) <= converter_own, sorted(set(generic) - converter_own)

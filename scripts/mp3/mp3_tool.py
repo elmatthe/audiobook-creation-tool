@@ -31,7 +31,7 @@ the Plan 3 importer and job-control adapters and the Phase 3 MP3 model:
 
 Phase 7 moved the proven FFmpeg helpers (concat lists, FAST/Safe concat, WAV
 normalisation, signed-time append/trim, timestamp text) into
-``mp3_tools/mp3_processing.py`` beside the Write ID3 and Combine engines that
+``mp3/mp3_processing.py`` beside the Write ID3 and Combine engines that
 consume the frozen plan; they are re-exported here under their original names.
 
 Phase 5 adds the frozen plan: a processing button validates the workspace,
@@ -39,7 +39,7 @@ reserves **one** MP3 Tool run for the whole operation through the shared
 service, and freezes everything the processing phases and a later Retry Failed
 will read — Book order and ids, every track's occurrence, final Title, number
 and filename, effective metadata, signed Time, artwork, the Book subfolders and
-the private staging beside them (``mp3_tools/mp3_plan.py``).
+the private staging beside them (``mp3/mp3_plan.py``).
 
 Phase 9 runs it. One operation is **one** Plan 3 run: one ``JobController``
 for the whole batch (never one per Book), one ``JobReporter``, one event
@@ -117,7 +117,7 @@ import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
-# run standalone (python mp3_tools/mp3_tool.py) or imported by the launcher.
+# run standalone (python mp3/mp3_tool.py) or imported by the launcher.
 _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
@@ -167,10 +167,10 @@ from shared.importing import (
 )
 from shared.job_control import JobEventKind, JobState
 from shared.job_ui import MainThreadGuard, MainThreadPump, style_name
-from mp3_tools import mp3_artwork
-from mp3_tools import mp3_plan
-from mp3_tools import mp3_processing
-from mp3_tools import mp3_workflow as wf
+from artwork import mp3_artwork
+from mp3 import mp3_plan
+from mp3 import mp3_processing
+from mp3 import mp3_workflow as wf
 
 # Tk's side of the artwork preview. Decoding, thumbnailing and every rule about
 # what a chosen image becomes live in ``mp3_artwork``; this only turns the
@@ -299,7 +299,7 @@ def _remembered_dir(key: str) -> Path:
 # The proven FFmpeg helpers moved to ``mp3_processing`` at Phase 7 of the
 # focused MP3 redesign, where the Write ID3 engine shares them. They are
 # re-exported here under their original names for every existing caller.
-from mp3_tools.mp3_processing import (  # noqa: E402,F401
+from mp3.mp3_processing import (  # noqa: E402,F401
     add_silence_to_mp3,
     concat_mp3s_fast,
     concat_wavs_to_mp3,

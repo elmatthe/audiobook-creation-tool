@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mp3_tools.m4b_converter import sanitize_filename
+from m4b.converter.m4b_converter import sanitize_filename
 
 
 def test_sanitize_filename_behaviour():

@@ -408,7 +408,7 @@ def test_importing_the_cover_panel_works_without_heic_support(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", refuse_pillow_heif)
     caps.reset_cache()
-    module = importlib.import_module("mp3_tools.cover_resizer")
+    module = importlib.import_module("artwork.cover_resizer")
     importlib.reload(module)
     assert module.REPLACEABLE_SUFFIXES == frozenset(
         {".jpg", ".jpeg", ".png", ".heic", ".heif"}
@@ -426,7 +426,7 @@ def test_the_cover_panel_no_longer_owns_a_bare_optional_import():
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parent.parent.parent
-    panel = repo_root / "scripts" / "mp3_tools" / "cover_resizer.py"
+    panel = repo_root / "scripts" / "artwork" / "cover_resizer.py"
     source = panel.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
@@ -450,7 +450,7 @@ def test_the_cover_panel_no_longer_owns_a_bare_optional_import():
 
 def test_the_replaceable_suffix_contract_is_unchanged():
     """§4.2 depends on this set and Phase 1 must not touch it."""
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     assert cover_resizer.REPLACEABLE_SUFFIXES == frozenset(
         {".jpg", ".jpeg", ".png", ".heic", ".heif"}
@@ -459,7 +459,7 @@ def test_the_replaceable_suffix_contract_is_unchanged():
 
 def test_written_suffix_behaviour_is_unchanged():
     """Static format knowledge, not runtime capability. Same answers as before."""
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     for suffix in (".jpg", ".jpeg", ".png", ".heic", ".heif"):
         assert cover_resizer.written_suffix(suffix) == suffix
@@ -469,7 +469,7 @@ def test_written_suffix_behaviour_is_unchanged():
 
 
 def test_the_import_dialog_offers_exactly_what_the_probe_allows(monkeypatch):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     _pin(monkeypatch, decode=True, encode=True)
     assert cover_resizer._image_filetypes() == [
@@ -485,7 +485,7 @@ def test_the_import_dialog_offers_exactly_what_the_probe_allows(monkeypatch):
 
 
 def test_a_decode_only_machine_still_offers_heic_for_import(monkeypatch):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     _pin(monkeypatch, decode=True, encode=False)
     assert "*.heic" in cover_resizer._image_filetypes()[0][1]
@@ -510,7 +510,7 @@ def test_a_heic_destination_fails_truthfully_when_encoding_is_unavailable(
     monkeypatch, tall_cover, tmp_path
 ):
     """Decision 3A, at the one place a substitution could happen."""
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     _pin(monkeypatch, decode=True, encode=False)
     destination = tmp_path / "out.heic"
@@ -525,7 +525,7 @@ def test_a_heic_destination_fails_truthfully_when_encoding_is_unavailable(
 def test_no_silent_jpeg_substitution_for_either_heif_suffix(
     monkeypatch, tall_cover, tmp_path
 ):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     _pin(monkeypatch, decode=True, encode=False)
     for suffix in (".heic", ".heif"):
@@ -543,7 +543,7 @@ def test_an_unknown_extension_still_falls_back_to_jpg(monkeypatch, tall_cover, t
     Distinct from the HEIF case: ``.webp`` was never advertised as preserved, so
     falling back is not a broken promise. HEIC was, which is why it refuses.
     """
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     _pin(monkeypatch, decode=False, encode=False)
     cover_resizer.resize_for_audiobook(
@@ -556,7 +556,7 @@ def test_jpg_and_png_output_is_unaffected_by_the_heif_capability(
     monkeypatch, tall_cover, tmp_path
 ):
     """No behaviour change for the formats Pillow always provides."""
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     for decode, encode in ((True, True), (False, False)):
         _pin(monkeypatch, decode=decode, encode=encode)

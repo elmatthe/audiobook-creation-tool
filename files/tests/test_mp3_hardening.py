@@ -41,8 +41,9 @@ from shared.book_workspace import BookDisposition  # noqa: E402
 from shared.importing import ImportOptions  # noqa: E402
 from shared.job_control import JobEventKind, JobState  # noqa: E402
 
-from mp3_tools import mp3_artwork, mp3_plan, mp3_processing as proc, mp3_tool  # noqa: E402
-from mp3_tools import mp3_workflow as wf  # noqa: E402
+from artwork import mp3_artwork
+from mp3 import mp3_plan, mp3_processing as proc, mp3_tool  # noqa: E402
+from mp3 import mp3_workflow as wf  # noqa: E402
 
 from test_import_coordination import RealThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
@@ -544,7 +545,7 @@ def test_a_not_attempted_book_is_shown_as_not_attempted(make_panel, tmp_path, mo
 
 def test_queued_is_derived_from_the_active_batch_and_stored_nowhere():
     """Phase 9 judgment call A: ``Queued`` may stay only as pure presentation."""
-    source = (UNIVERSAL / "mp3_tools" / "mp3_tool.py").read_text(encoding="utf-8")
+    source = (UNIVERSAL / "mp3" / "mp3_tool.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     panel = next(node for node in ast.walk(tree)
                  if isinstance(node, ast.ClassDef) and node.name == "MP3ToolUI")
@@ -688,11 +689,11 @@ def _calls(tree: ast.AST) -> set[str]:
 
 
 def test_the_mp3_modules_keep_one_authority_for_each_concern():
-    tool = _tree("mp3_tools/mp3_tool.py")
-    plan = _tree("mp3_tools/mp3_plan.py")
-    engine = _tree("mp3_tools/mp3_processing.py")
-    workflow = _tree("mp3_tools/mp3_workflow.py")
-    artwork = _tree("mp3_tools/mp3_artwork.py")
+    tool = _tree("mp3/mp3_tool.py")
+    plan = _tree("mp3/mp3_plan.py")
+    engine = _tree("mp3/mp3_processing.py")
+    workflow = _tree("mp3/mp3_workflow.py")
+    artwork = _tree("artwork/mp3_artwork.py")
     for tree, name in ((tool, "tool"), (plan, "plan"), (engine, "engine"),
                        (workflow, "workflow"), (artwork, "artwork")):
         defined = {node.name for node in ast.walk(tree)
@@ -725,18 +726,19 @@ def test_the_mp3_modules_keep_one_authority_for_each_concern():
     literals = {node.value for node in ast.walk(artwork)
                 if isinstance(node, ast.Constant) and isinstance(node.value, str)}
     assert not any(v in (".heic", ".heif") for v in literals), "no hard-coded capability list"
-    sources = {name: (UNIVERSAL / f"mp3_tools/{name}").read_text(encoding="utf-8")
+    homes = {"mp3_artwork.py": "artwork"}  # the other four live in mp3/
+    sources = {name: (UNIVERSAL / f"{homes.get(name, 'mp3')}/{name}").read_text(encoding="utf-8")
                for name in ("mp3_tool.py", "mp3_plan.py", "mp3_processing.py",
                             "mp3_workflow.py", "mp3_artwork.py")}
     for name in sources:
         imported = set()
-        for node in ast.walk(_tree(f"mp3_tools/{name}")):
+        for node in ast.walk(_tree(f"{homes.get(name, 'mp3')}/{name}")):
             if isinstance(node, ast.Import):
                 imported |= {alias.name for alias in node.names}
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module or "")
         assert not any(m.startswith("pillow_heif") for m in imported), name
-        assert "rmtree" not in _calls(_tree(f"mp3_tools/{name}")), (
+        assert "rmtree" not in _calls(_tree(f"{homes.get(name, 'mp3')}/{name}")), (
             name, "no broad recursive cleanup")
     assert "ffmpeg_log" not in sources["mp3_tool.py"]
     engine_calls = _calls(engine)
@@ -770,7 +772,7 @@ def test_the_launcher_and_the_other_panels_are_where_they_were():
     # The M4B Maker left this list at v0.6.4 Phase 6 and the Metadata Editor
     # at Phase 10: both are workspace adopters now and name ``book_workspace``
     # on purpose. The Converter is the one M4B panel still held to it.
-    for panel in ("mp3_tools/m4b_converter.py",):
+    for panel in ("m4b/converter/m4b_converter.py",):
         text = (UNIVERSAL / panel).read_text(encoding="utf-8")
         assert "book_workspace" not in text and "mp3_workflow" not in text, panel
         assert "mp3_plan" not in text and "mp3_processing" not in text, panel

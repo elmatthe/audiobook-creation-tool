@@ -28,8 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_chapters
-from mp3_tools.m4b_chapters import (
+from m4b import m4b_chapters
+from m4b.m4b_chapters import (
     ChapterProbe,
     ChapterUsability,
     ChapterValidation,
@@ -388,7 +388,7 @@ def test_the_converter_panel_still_delegates_this_layer():
     owns no chapter logic of its own" rather than "nothing has adopted this
     yet".
     """
-    panel = MODULE_PATH.parent / "m4b_converter.py"
+    panel = MODULE_PATH.parent / "converter" / "m4b_converter.py"
     source = panel.read_text(encoding="utf-8")
     assert "m4b_chapters" not in source
     assert "validate_chapters" not in source

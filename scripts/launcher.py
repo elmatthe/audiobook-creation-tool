@@ -108,31 +108,31 @@ TOOLS: list[ToolSpec] = [
     ToolSpec(
         "m4b_converter",
         "M4B Converter",
-        "mp3_tools.m4b_converter",
+        "m4b.converter.m4b_converter",
         "Batch-convert M4B audiobooks into clean MP3 files.",
     ),
     ToolSpec(
         "mp3_tool",
         "MP3 Tool",
-        "mp3_tools.mp3_tool",
+        "mp3.mp3_tool",
         "Combine MP3s, add/remove time at track ends, and bulk-write ID3 tags.",
     ),
     ToolSpec(
         "m4b_maker",
         "M4B Maker",
-        "mp3_tools.m4b_maker",
+        "m4b.maker.m4b_maker",
         "Assemble MP3 files into a chaptered M4B with cover art and metadata.",
     ),
     ToolSpec(
         "cover",
         "Cover Image",
-        "mp3_tools.cover_resizer",
+        "artwork.cover_resizer",
         "Resize cover art to a clean square (letterbox without cropping, or center-crop).",
     ),
     ToolSpec(
         "m4b_metadata",
         "M4B Metadata",
-        "mp3_tools.m4b_metadata_editor",
+        "m4b.metadata.m4b_metadata_editor",
         "Edit tags, series info, and chapter titles on existing M4B files without re-encoding.",
     ),
 ]

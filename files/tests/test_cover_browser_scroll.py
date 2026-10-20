@@ -33,7 +33,7 @@ from tkinter import ttk
 
 import pytest
 
-from mp3_tools import cover_resizer
+from artwork import cover_resizer
 from shared import ui_theme
 
 from test_cover_browser import (  # noqa: F401 - fixtures are used by name

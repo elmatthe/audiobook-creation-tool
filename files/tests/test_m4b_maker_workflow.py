@@ -1,6 +1,6 @@
 """The M4B Maker workspace/import model — v0.6.4 Phase 2.
 
-``mp3_tools/m4b_maker_workflow.py`` is the Maker's Tk-free layer between the
+``m4b/maker/m4b_maker_workflow.py`` is the Maker's Tk-free layer between the
 shared Plan 6 workspace and the panel that adopts it later (Phase 6). It owns the
 Maker vocabulary and the pure rules the v0.6.4 plan states (sections 5.2–5.9,
 Phase 2), and it composes the shared authorities rather than growing second
@@ -31,12 +31,12 @@ from shared.importing import (
     SupportedTypeCatalog,
 )
 
-from mp3_tools import m4b_maker_workflow as wf
-from mp3_tools.m4b_maker_workflow import MakerContractError, MakerValueError
+from m4b.maker import m4b_maker_workflow as wf
+from m4b.maker.m4b_maker_workflow import MakerContractError, MakerValueError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker_workflow.py"
+MODULE = UNIVERSAL / "m4b" / "maker" / "m4b_maker_workflow.py"
 
 ROOT = Path(os.path.abspath(os.sep + "act-maker-fixture-root"))
 ROOTED = ImportRoot("root-1", ROOT, 0)
@@ -404,7 +404,7 @@ def test_the_automatic_title_rule_moved_out_of_the_panel_whole():
     """Phase 2 proved the rule verbatim against the hash-pinned panel by AST body
     equality (recorded in Handoff.md). Phase 6 converted the panel, which now
     defines neither helper: the model is the one place the rule lives."""
-    panel = ast.parse((UNIVERSAL / "mp3_tools" / "m4b_maker.py").read_text(encoding="utf-8"))
+    panel = ast.parse((UNIVERSAL / "m4b" / "maker" / "m4b_maker.py").read_text(encoding="utf-8"))
     model = ast.parse(MODULE.read_text(encoding="utf-8"))
     defined_in_panel = {n.name for n in ast.walk(panel) if isinstance(n, ast.FunctionDef)}
     defined_in_model = {n.name for n in ast.walk(model) if isinstance(n, ast.FunctionDef)}
@@ -540,9 +540,9 @@ def test_the_model_module_imports_no_tk_process_media_or_output_service():
                    "shared.ffmpeg_utils", "shared.subprocess_utils", "shared.ui_theme",
                    "shared.job_ui", "shared.job_control", "shared.import_coordination",
                    "shared.image_capabilities", "shared.metadata", "PIL", "pillow_heif",
-                   "mutagen", "mp3_tools.m4b_maker", "mp3_tools.mp3_workflow",
-                   "mp3_tools.mp3_tool", "mp3_tools.mp3_plan", "mp3_tools.mp3_processing",
-                   "mp3_tools.m4b_artwork"):
+                   "mutagen", "m4b.maker.m4b_maker", "mp3.mp3_workflow",
+                   "mp3.mp3_tool", "mp3.mp3_plan", "mp3.mp3_processing",
+                   "artwork.m4b_artwork"):
         assert banned not in modules, banned
     assert "shared.book_workspace" in modules
     assert "shared.importing" in modules
@@ -582,7 +582,7 @@ def test_the_model_reuses_the_plan6_operations_rather_than_rebuilding_them():
 def test_the_model_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_maker_workflow.py" in ADOPTED
+    assert "m4b/maker/m4b_maker_workflow.py" in ADOPTED
 
 
 def test_the_maker_panel_now_consumes_the_model():
@@ -590,6 +590,6 @@ def test_the_maker_panel_now_consumes_the_model():
     its consumer (the old byte-identity pin retired with the conversion)."""
     from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
+    panel = UNIVERSAL / "m4b" / "maker" / "m4b_maker.py"
     assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
     assert "m4b_maker_workflow" in panel.read_text(encoding="utf-8")

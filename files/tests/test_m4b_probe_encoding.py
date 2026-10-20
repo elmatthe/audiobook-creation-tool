@@ -43,8 +43,8 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_probe
-from mp3_tools.m4b_chapters import ProbeStatus
+from m4b import m4b_probe
+from m4b.m4b_chapters import ProbeStatus
 from shared import ffmpeg_utils
 
 from test_m4b_metadata import require_ffmpeg  # noqa: E402
@@ -434,7 +434,7 @@ def test_the_production_probe_reads_a_real_book_with_unicode_titles(unicode_book
 
 def test_a_real_unicode_book_is_usable_rather_than_refused(unicode_book):
     """The user-visible promise: it converts instead of saying it cannot be read."""
-    from mp3_tools.m4b_chapters import ChapterUsability, validate_chapters
+    from m4b.m4b_chapters import ChapterUsability, validate_chapters
 
     found = m4b_probe.probe_source(unicode_book)
     assert validate_chapters(found.probe).usability is ChapterUsability.CHAPTERED

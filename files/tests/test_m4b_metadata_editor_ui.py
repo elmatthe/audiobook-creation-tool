@@ -1,6 +1,6 @@
 """The M4B Metadata Editor production panel — v0.6.4 Phase 10.
 
-``mp3_tools/m4b_metadata_editor.py`` is now a thin Tk composition/orchestration
+``m4b/metadata/m4b_metadata_editor.py`` is now a thin Tk composition/orchestration
 adapter over the completed Editor layers: the shared Plan 6 workspace and its
 adapters (``BookNavigator`` with the Editor's action subset,
 ``SharedMetadataSurface``), the Plan 3 importer and job adapters, the Phase 6
@@ -41,11 +41,12 @@ from shared.book_workspace import BookDisposition  # noqa: E402
 from shared.book_workspace_ui import BookNavigator, SharedMetadataSurface  # noqa: E402
 from shared.job_control import JobAction, JobState  # noqa: E402
 
-from mp3_tools import m4b_artwork_ui, m4b_metadata_editor as editor  # noqa: E402
-from mp3_tools import m4b_metadata_batch as batch  # noqa: E402
-from mp3_tools import m4b_metadata_plan as mp  # noqa: E402
-from mp3_tools import m4b_metadata_workflow as wf  # noqa: E402
-from mp3_tools.m4b_metadata_plan import EditorAction  # noqa: E402
+from artwork import m4b_artwork_ui
+from m4b.metadata import m4b_metadata_editor as editor  # noqa: E402
+from m4b.metadata import m4b_metadata_batch as batch  # noqa: E402
+from m4b.metadata import m4b_metadata_plan as mp  # noqa: E402
+from m4b.metadata import m4b_metadata_workflow as wf  # noqa: E402
+from m4b.metadata.m4b_metadata_plan import EditorAction  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -56,7 +57,7 @@ from test_m4b_metadata_workflow import m4b, vendor_series  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
+MODULE = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py"
 FIXTURE_PATH = Path(__file__).with_name("manual_windows_ui_prototype.py")
 
 windows_only = pytest.mark.skipif(
@@ -1105,15 +1106,15 @@ def test_the_panel_composes_the_editor_layers_and_defines_no_business_rule():
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for required in ("shared.book_workspace", "shared.book_workspace_ui", "shared.job_ui",
                      "shared.job_control", "shared.import_coordination", "shared.importing",
-                     "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_metadata_plan",
-                     "mp3_tools.m4b_metadata_batch", "mp3_tools.m4b_artwork_ui"):
+                     "m4b.metadata.m4b_metadata_workflow", "m4b.metadata.m4b_metadata_plan",
+                     "m4b.metadata.m4b_metadata_batch", "artwork.m4b_artwork_ui"):
         assert required in modules, required
     for banned in ("shared.metadata", "mutagen", "shared.ffmpeg_utils", "shared.cancellation",
-                   "shutil", "tempfile", "mp3_tools.m4b_metadata_processing",
-                   "mp3_tools.m4b_staging", "mp3_tools.m4b_maker",
-                   "mp3_tools.m4b_maker_workflow", "mp3_tools.m4b_maker_plan",
-                   "mp3_tools.m4b_maker_batch", "mp3_tools.mp3_workflow",
-                   "mp3_tools.mp3_plan", "mp3_tools.mp3_processing", "mp3_tools.mp3_tool"):
+                   "shutil", "tempfile", "m4b.metadata.m4b_metadata_processing",
+                   "m4b.m4b_staging", "m4b.maker.m4b_maker",
+                   "m4b.maker.m4b_maker_workflow", "m4b.maker.m4b_maker_plan",
+                   "m4b.maker.m4b_maker_batch", "mp3.mp3_workflow",
+                   "mp3.mp3_plan", "mp3.mp3_processing", "mp3.mp3_tool"):
         assert banned not in modules, banned
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
@@ -1168,16 +1169,16 @@ def test_the_launcher_still_exposes_exactly_six_tools_with_the_editor_among_them
     assert len(launcher.TOOLS) == 6
     assert [spec.key for spec in launcher.TOOLS].count("m4b_metadata") == 1
     spec = next(spec for spec in launcher.TOOLS if spec.key == "m4b_metadata")
-    assert spec.module == "mp3_tools.m4b_metadata_editor"
+    assert spec.module == "m4b.metadata.m4b_metadata_editor"
 
 
 def test_the_editor_panel_is_now_an_adopter_and_its_hash_pin_is_retired():
     from test_plan3_boundaries import ADOPTED, UNADOPTED_PANELS
     from test_plan6_boundaries import PHASE0_PANEL_HASHES
 
-    assert "mp3_tools/m4b_metadata_editor.py" in ADOPTED
-    assert "mp3_tools/m4b_metadata_editor.py" not in UNADOPTED_PANELS
-    assert "mp3_tools/m4b_metadata_editor.py" not in PHASE0_PANEL_HASHES
+    assert "m4b/metadata/m4b_metadata_editor.py" in ADOPTED
+    assert "m4b/metadata/m4b_metadata_editor.py" not in UNADOPTED_PANELS
+    assert "m4b/metadata/m4b_metadata_editor.py" not in PHASE0_PANEL_HASHES
 
 
 # --------------------------------------------------------------------------- #
@@ -1196,7 +1197,7 @@ def test_manual_fixture_is_developer_only_and_unreachable_at_runtime():
     scripts_root = FIXTURE_PATH.parents[2] / "scripts"
     assert not list(scripts_root.rglob("manual_windows_ui_prototype.py"))
     assert "from shared import ui_theme" in source
-    assert "from mp3_tools import m4b_metadata_editor" in source
+    assert "from m4b.metadata import m4b_metadata_editor" in source
 
 
 def test_manual_fixture_states_are_deterministic_and_offline(make_panel):

@@ -44,7 +44,7 @@ from test_cover_browser import (  # noqa: F401 - fixtures are used by name
 )
 import tk_gate  # noqa: E402,F401
 
-from mp3_tools import cover_resizer as cr  # noqa: E402
+from artwork import cover_resizer as cr  # noqa: E402
 
 #: The launcher's default size, its Windows minimum, and a large window.
 MINIMUM = "{}x{}".format(*ui_theme.MIN_SIZE)

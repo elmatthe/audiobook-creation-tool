@@ -125,7 +125,7 @@ def run_books(numbers: SuccessNumbers, outcomes) -> tuple[int, ...]:
 
 def test_the_allocator_now_lives_in_shared_and_the_old_path_is_the_same_object():
     """One implementation, two import paths — not a fork."""
-    from mp3_tools import m4b_numbering
+    from m4b import m4b_numbering
     from shared import numbering
 
     assert m4b_numbering.SuccessNumbers is numbering.SuccessNumbers is SuccessNumbers
@@ -135,7 +135,7 @@ def test_the_allocator_now_lives_in_shared_and_the_old_path_is_the_same_object()
 
 def test_the_legacy_module_declares_no_allocator_of_its_own():
     import ast
-    from mp3_tools import m4b_numbering
+    from m4b import m4b_numbering
 
     tree = ast.parse(Path(m4b_numbering.__file__).read_text(encoding="utf-8"))
     declared = {node.name for node in ast.walk(tree)

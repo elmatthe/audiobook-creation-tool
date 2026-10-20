@@ -43,7 +43,7 @@ import pytest
 from shared import appearance, ffmpeg_utils, paths, ui_theme  # noqa: F401
 from shared.job_control import JobState
 
-from mp3_tools import mp3_tool
+from mp3 import mp3_tool
 
 from test_import_coordination import RealThreads
 from test_mp3_tool_ui import (  # noqa: F401 - fixtures are collected by name

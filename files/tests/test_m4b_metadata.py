@@ -34,8 +34,9 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_commands, m4b_metadata
-from mp3_tools.m4b_metadata import (
+from m4b import m4b_commands
+from m4b.converter import m4b_metadata
+from m4b.converter.m4b_metadata import (
     ArtworkSelectionError,
     AttachedPicture,
     ConversionCommands,
@@ -487,7 +488,8 @@ def test_the_policy_layer_executes_and_probes_nothing():
             imported.update(a.name.split(".")[0] for a in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-    assert imported <= {"__future__", "collections", "dataclasses", "enum", "shared"}
+    # ``m4b`` is the sibling ``m4b_commands`` (a relative ``from . import`` until checkpoint B2 made it absolute).
+    assert imported <= {"__future__", "collections", "dataclasses", "enum", "shared", "m4b"}
     for banned in ("subprocess", "os", "pathlib", "tkinter", "threading", "shutil"):
         assert banned not in imported
 
@@ -835,7 +837,7 @@ def _chapter_spans(path) -> list[tuple[float, float]]:
 
 def _source_titles(path) -> tuple[str, ...]:
     """The frozen titles a plan would carry, taken from the production probe."""
-    from mp3_tools import m4b_probe
+    from m4b import m4b_probe
     return tuple(c.title for c in m4b_probe.probe_source(path).probe.chapters)
 
 

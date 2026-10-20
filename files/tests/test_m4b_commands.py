@@ -28,8 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from mp3_tools import m4b_commands
-from mp3_tools.m4b_commands import segment_argv, whole_book_argv
+from m4b import m4b_commands
+from m4b.m4b_commands import segment_argv, whole_book_argv
 from shared import ffmpeg_utils
 
 MODULE_PATH = Path(m4b_commands.__file__)
@@ -671,7 +671,7 @@ def test_no_naming_or_filename_logic_leaked_in():
 
 def test_the_chapter_layer_is_untouched_by_naming_a_span():
     """The builder takes scalars, so planning a command cannot mutate a span."""
-    from mp3_tools.m4b_chapters import ChapterSpan
+    from m4b.m4b_chapters import ChapterSpan
 
     span = ChapterSpan(order=1, source_index=0, start=19.87, end=41.055, title="Ch 1")
     segment_argv(**base(start=span.start, end=span.end))

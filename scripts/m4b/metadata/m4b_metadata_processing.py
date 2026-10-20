@@ -3,7 +3,7 @@ atomic publication — v0.6.4 Phase 9.
 
 The per-Book transaction the Editor panel has always run — copy the source,
 then clear / write / strip / retitle *the copy* — moved behind the frozen
-Phase 8 :class:`~mp3_tools.m4b_metadata_plan.BookPlan` so the batch runner and
+Phase 8 :class:`~m4b.metadata.m4b_metadata_plan.BookPlan` so the batch runner and
 the Phase 10 panel share one copy that reads **nothing live**: no widget, no
 Tk variable, no workspace, no observation store. One thing changed
 deliberately: the copy now lands in the Book's **private staging directory**
@@ -67,9 +67,9 @@ from pathlib import Path
 
 from shared import ffmpeg_utils, metadata
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
-from mp3_tools import m4b_artwork
-from mp3_tools import m4b_staging
-from mp3_tools.m4b_metadata_plan import BookPlan, EditorAction
+from artwork import m4b_artwork
+from m4b import m4b_staging
+from m4b.metadata.m4b_metadata_plan import BookPlan, EditorAction
 
 __all__ = [
     "ProcessingError",

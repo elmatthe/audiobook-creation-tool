@@ -56,12 +56,13 @@ import tkinter as tk
 from shared import job_control as jc
 from shared import output_paths
 
-from mp3_tools import m4b_converter, m4b_execution
-from mp3_tools.m4b_chapters import ProbeStatus
-from mp3_tools.m4b_execution import ProcessResult
-from mp3_tools.m4b_metadata import MetadataMode
-from mp3_tools.m4b_plan import ConversionMode
-from mp3_tools.m4b_probe import ArtworkProblem
+from m4b.converter import m4b_converter
+from m4b import m4b_execution
+from m4b.m4b_chapters import ProbeStatus
+from m4b.m4b_execution import ProcessResult
+from m4b.converter.m4b_metadata import MetadataMode
+from m4b.converter.m4b_plan import ConversionMode
+from m4b.m4b_probe import ArtworkProblem
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -81,8 +82,8 @@ from test_m4b_numbering import (  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
-PLAN_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_plan.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_converter.py"
+PLAN_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_plan.py"
 
 #: Every wait here is bounded, so a deadlock fails rather than hangs.
 WAIT = 5.0
@@ -322,7 +323,7 @@ def test_a_source_that_was_never_probed_is_also_not_retryable(
     seam — the point being that it produces an ``ItemFailure`` like the others and
     must not acquire a different answer merely by entering another way.
     """
-    from mp3_tools import m4b_plan
+    from m4b.converter import m4b_plan
     from test_m4b_conversion_plan import direct
 
     entries = direct(book(tmp_path / "src", "A.m4b"))
@@ -337,7 +338,7 @@ def test_a_source_that_was_never_probed_is_also_not_retryable(
 
 def test_the_default_is_the_safe_answer():
     """``ItemFailure`` cannot be constructed retryable by forgetting to say so."""
-    from mp3_tools.m4b_plan import ItemFailure
+    from m4b.converter.m4b_plan import ItemFailure
 
     entry = ItemFailure(occurrence_id="occ-1", source=Path("A.m4b"),
                         reason="probe_failed", message="no")
@@ -1553,7 +1554,7 @@ def test_no_shared_production_module_knows_about_this_phase():
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module.split(".")[0])
-        assert "mp3_tools" not in imported, name
+        assert not imported & {"mp3", "m4b", "artwork"}, name
         for banned in ("merge_attempt", "ConversionPlan", "ItemPlan", "SegmentPlan"):
             assert banned not in named(tree), (name, banned)
     assert any(node.name == "merge_attempt" for node in ast.walk(parse_panel())
@@ -1563,7 +1564,7 @@ def test_no_shared_production_module_knows_about_this_phase():
 def test_the_executor_and_the_allocator_know_nothing_about_retry():
     """Phase 11 and Phase 12 are untouched by Phase 13."""
     for name in ("m4b_execution.py", "m4b_numbering.py"):
-        text = (REPO_ROOT / "scripts" / "mp3_tools" / name).read_text(
+        text = (REPO_ROOT / "scripts" / "m4b" / name).read_text(
             encoding="utf-8")
         tree = ast.parse(text)
         defined = {node.name for node in ast.walk(tree)
@@ -1574,7 +1575,7 @@ def test_the_executor_and_the_allocator_know_nothing_about_retry():
 
 def test_the_plan_holds_no_attempt_state():
     """A retry re-reads the plan, so nothing about an attempt may live in it."""
-    from mp3_tools.m4b_plan import ConversionPlan, ItemPlan, SegmentPlan
+    from m4b.converter.m4b_plan import ConversionPlan, ItemPlan, SegmentPlan
 
     for kind in (ConversionPlan, ItemPlan, SegmentPlan):
         for field in kind.__dataclass_fields__:

@@ -20,7 +20,7 @@ from mutagen.id3 import ID3
 
 from shared import ffmpeg_utils
 from shared import subprocess_utils as sp
-from mp3_tools import mp3_processing as proc
+from mp3 import mp3_processing as proc
 
 from test_mp3_write_id3 import (  # noqa: F401 - shared fixtures
     book, imported, junk_tag, observe, plan, png, reserve, sha, sources, workspace,

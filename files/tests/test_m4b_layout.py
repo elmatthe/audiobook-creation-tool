@@ -72,7 +72,8 @@ import tk_gate  # noqa: E402
 from shared import paths  # noqa: E402,F401
 from shared import ui_theme  # noqa: E402
 
-from mp3_tools import m4b_maker, m4b_metadata_editor  # noqa: E402
+from m4b.maker import m4b_maker
+from m4b.metadata import m4b_metadata_editor  # noqa: E402
 
 
 TOOLS = ("m4b_maker", "m4b_metadata")

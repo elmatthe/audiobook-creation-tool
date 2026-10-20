@@ -41,7 +41,7 @@ def application_tree(tmp_path: Path, extra: dict[str, str] | None = None) -> Pat
     return write(tmp_path / "scripts", {
         "launcher.py": CLEAN, "shared/__init__.py": "", "shared/paths.py": CLEAN, "tts/__init__.py": "",
         "tts/engine.py": CLEAN, "tts/speech/__init__.py": "", "tts/speech/rules.py": CLEAN,
-        "mp3_tools/__init__.py": "", "mp3_tools/m4b_plan.py": CLEAN, **(extra or {}),
+        "m4b/__init__.py": "", "m4b/converter/__init__.py": "", "m4b/converter/m4b_plan.py": CLEAN, **(extra or {}),
     })
 
 
@@ -65,7 +65,7 @@ def test_every_tracked_application_module_is_covered_on_the_real_tree():
 def test_an_unregistered_tracked_top_level_folder_of_scripts_fails_until_it_is_registered(monkeypatch):
     """A new production folder cannot silently escape review: it has to be added to APPLICATION_PACKAGES on purpose."""
     monkeypatch.setattr(source_probe, "APPLICATION_PACKAGES", ("shared", "tts"))
-    with pytest.raises(AssertionError, match="mp3_tools"):
+    with pytest.raises(AssertionError, match="artwork"):
         test_every_tracked_top_level_folder_of_scripts_is_an_application_package()
 
 
@@ -88,8 +88,9 @@ def test_nested_packages_are_covered_and_unregistered_folders_and_local_files_ar
     })
     covered = relative(application_python_files(root), root)
     assert covered == {"launcher.py", "shared/__init__.py", "shared/paths.py", "tts/__init__.py", "tts/engine.py",
-                       "tts/speech/__init__.py", "tts/speech/rules.py", "mp3_tools/__init__.py", "mp3_tools/m4b_plan.py"}
-    assert application_packages(root) == ["shared", "tts", "mp3_tools"]
+                       "tts/speech/__init__.py", "tts/speech/rules.py", "m4b/__init__.py", "m4b/converter/__init__.py",
+                       "m4b/converter/m4b_plan.py"}
+    assert application_packages(root) == ["shared", "tts", "mp3", "m4b", "artwork"]
 
 
 def test_a_missing_launcher_or_package_does_not_break_the_helper(tmp_path):
@@ -116,7 +117,7 @@ def test_a_local_helper_with_a_bare_ffmpeg_call_does_not_fail_the_ffmpeg_guard(m
 
 
 def test_the_same_call_inside_any_application_module_fails_the_ffmpeg_guard(monkeypatch, tmp_path):
-    for module in ("launcher.py", "shared/paths.py", "tts/engine.py", "tts/speech/rules.py", "mp3_tools/m4b_plan.py"):
+    for module in ("launcher.py", "shared/paths.py", "tts/engine.py", "tts/speech/rules.py", "m4b/converter/m4b_plan.py"):
         root = application_tree(tmp_path / module.replace("/", "_"), {module: BARE_FFMPEG})
         with pytest.raises(AssertionError) as caught:
             run_bare_ffmpeg_guard(monkeypatch, root)
@@ -156,7 +157,7 @@ def test_an_untracked_dev_package_is_excluded_from_every_production_guard(monkey
 
 def test_registering_a_package_makes_the_same_violations_detectable(monkeypatch, tmp_path):
     root = application_tree(tmp_path, DEV_HELPERS)
-    monkeypatch.setattr(source_probe, "APPLICATION_PACKAGES", ("shared", "tts", "mp3_tools", "dev_helpers"))
+    monkeypatch.setattr(source_probe, "APPLICATION_PACKAGES", ("shared", "tts", "mp3", "m4b", "artwork", "dev_helpers"))
     with pytest.raises((AssertionError, SyntaxError)):  # the broken module or the bare call, whichever is reached first
         run_bare_ffmpeg_guard(monkeypatch, root)
 

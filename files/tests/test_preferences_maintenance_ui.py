@@ -52,7 +52,7 @@ GENERIC_STYLES = (
 #: three since v0.6.4 Phase 6 converted the M4B Maker: both now name the
 #: design system deliberately, like the M4B Metadata Editor.
 UNCONVERTED_PANELS = (
-    "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
+    "artwork/cover_resizer.py", "m4b/converter/m4b_converter.py",
     "tts/epub2tts_gui.py",
 )
 

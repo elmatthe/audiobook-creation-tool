@@ -43,7 +43,7 @@ from shared.job_control import (  # noqa: E402
     is_locked,
 )
 
-from mp3_tools import mp3_plan, mp3_processing as proc, mp3_tool  # noqa: E402
+from mp3 import mp3_plan, mp3_processing as proc, mp3_tool  # noqa: E402
 
 from test_import_coordination import RealThreads  # noqa: E402
 from test_mp3_tool_ui import (  # noqa: E402,F401  (fixtures are collected by name)
@@ -62,8 +62,8 @@ pytestmark = pytest.mark.skipif(
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-PANEL_SOURCE = UNIVERSAL / "mp3_tools" / "mp3_tool.py"
-ENGINE_SOURCE = UNIVERSAL / "mp3_tools" / "mp3_processing.py"
+PANEL_SOURCE = UNIVERSAL / "mp3" / "mp3_tool.py"
+ENGINE_SOURCE = UNIVERSAL / "mp3" / "mp3_processing.py"
 JOB_UI_SOURCE = UNIVERSAL / "shared" / "job_ui.py"
 
 

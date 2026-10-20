@@ -19,9 +19,9 @@ import pytest
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
-from mp3_tools import m4b_maker as mk  # noqa: E402
-from mp3_tools import m4b_maker_plan as mp  # noqa: E402
-from mp3_tools import m4b_maker_processing as proc  # noqa: E402
+from m4b.maker import m4b_maker as mk  # noqa: E402
+from m4b.maker import m4b_maker_plan as mp  # noqa: E402
+from m4b.maker import m4b_maker_processing as proc  # noqa: E402
 from shared import config, output_paths as op  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
 import tk_gate  # noqa: E402
@@ -362,7 +362,7 @@ def test_cancellation_cleanup_is_guarded_in_source():
     """
     import ast
 
-    from mp3_tools import m4b_staging
+    from m4b import m4b_staging
 
     panel = Path(mk.__file__).read_text(encoding="utf-8")
     assert "rmtree" not in panel and "ConversionCancelled" not in panel

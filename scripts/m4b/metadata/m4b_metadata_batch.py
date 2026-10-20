@@ -1,7 +1,7 @@
 """M4B Metadata Editor batch execution, success numbering and Retry Failed —
 v0.6.4 Phase 9.
 
-One frozen :class:`~mp3_tools.m4b_metadata_plan.RunPlan` runs through the
+One frozen :class:`~m4b.metadata.m4b_metadata_plan.RunPlan` runs through the
 shared job architecture here, with no panel involved — the Maker's Phase 5
 runner, re-composed for the Editor's three actions. The panel (Phase 10) only
 wires buttons to it and drains its events.
@@ -19,8 +19,8 @@ What this composes, and defines none of
   a widget; events cross to the UI through the ``publish`` callable the caller
   supplied, exactly as the shared ``JobAdapter`` expects.
 - **The Phase 9 engine** for every Book in frozen order:
-  :func:`~mp3_tools.m4b_metadata_processing.stage_book` then
-  :func:`~mp3_tools.m4b_metadata_processing.publish_book`, with the shared
+  :func:`~m4b.metadata.m4b_metadata_processing.stage_book` then
+  :func:`~m4b.metadata.m4b_metadata_processing.publish_book`, with the shared
   success-number allocator between them. A failed Book never stops the next.
 - **The Plan 3 result vocabulary.** Each Book settles into its own
   ``RunResult`` against its exact frozen ``RunSnapshot``. A Book that failed
@@ -75,9 +75,9 @@ from shared.job_control import (
     RunResult,
 )
 from shared.numbering import SuccessNumbers
-from mp3_tools import m4b_metadata_processing as proc
-from mp3_tools import m4b_staging
-from mp3_tools.m4b_metadata_plan import BookPlan, EditorAction, RunPlan
+from m4b.metadata import m4b_metadata_processing as proc
+from m4b import m4b_staging
+from m4b.metadata.m4b_metadata_plan import BookPlan, EditorAction, RunPlan
 
 __all__ = [
     "BatchError",

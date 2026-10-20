@@ -45,12 +45,14 @@ from shared.book_workspace import BookDisposition  # noqa: E402
 from shared.book_workspace_ui import BookNavigator  # noqa: E402
 from shared.job_control import JobController, JobEventKind, JobReporter, JobState  # noqa: E402
 
-from mp3_tools import m4b_artwork, m4b_maker, m4b_metadata_editor as editor  # noqa: E402
-from mp3_tools import m4b_maker_batch, m4b_maker_plan, m4b_maker_processing  # noqa: E402
-from mp3_tools import m4b_maker_workflow as maker_wf  # noqa: E402
-from mp3_tools import m4b_metadata_batch, m4b_metadata_processing  # noqa: E402
-from mp3_tools import m4b_metadata_workflow as editor_wf  # noqa: E402
-from mp3_tools.m4b_metadata_plan import EditorAction  # noqa: E402
+from artwork import m4b_artwork
+from m4b.maker import m4b_maker
+from m4b.metadata import m4b_metadata_editor as editor  # noqa: E402
+from m4b.maker import m4b_maker_batch, m4b_maker_plan, m4b_maker_processing  # noqa: E402
+from m4b.maker import m4b_maker_workflow as maker_wf  # noqa: E402
+from m4b.metadata import m4b_metadata_batch, m4b_metadata_processing  # noqa: E402
+from m4b.metadata import m4b_metadata_workflow as editor_wf  # noqa: E402
+from m4b.metadata.m4b_metadata_plan import EditorAction  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402

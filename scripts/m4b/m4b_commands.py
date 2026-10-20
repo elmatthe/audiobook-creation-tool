@@ -360,7 +360,7 @@ def pcm_argv(
     """Encode already-decoded PCM arriving on stdin.
 
     **Why this exists.** ffmpeg's native decoder silently loses 23.91 % of a real
-    xHE-AAC audiobook (see :mod:`mp3_tools.m4b_winaudio`), so on Windows that one
+    xHE-AAC audiobook (see :mod:`m4b.m4b_winaudio`), so on Windows that one
     codec is decoded by Media Foundation instead and the samples are piped here.
     Everything downstream of the decoder is unchanged: same encoder, same
     quality, same allowlisted metadata, same ID3 version, same transactional

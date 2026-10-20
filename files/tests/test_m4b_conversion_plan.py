@@ -5,7 +5,7 @@ complete-timeline partition, the naming seam and the metadata/chapter/artwork
 rules. Phases 7B, 8 and 9 gave the panel the shared importer, provenance-aware
 destinations and the shared run controls. This phase is where they become one
 answer: every source is read on a worker thread, judged, planned, and frozen into
-a single :class:`~mp3_tools.m4b_plan.ConversionPlan` before anything is written.
+a single :class:`~m4b.converter.m4b_plan.ConversionPlan` before anything is written.
 
 What these tests protect, in order of how much they matter
 -----------------------------------------------------------
@@ -61,10 +61,11 @@ from shared.importing import (
     capture_identity,
 )
 
-from mp3_tools import m4b_converter, m4b_execution, m4b_plan, m4b_probe
-from mp3_tools.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
-from mp3_tools.m4b_metadata import AttachedPicture, MetadataMode, SourceTags
-from mp3_tools.m4b_plan import (
+from m4b.converter import m4b_converter, m4b_plan
+from m4b import m4b_execution, m4b_probe
+from m4b.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
+from m4b.converter.m4b_metadata import AttachedPicture, MetadataMode, SourceTags
+from m4b.converter.m4b_plan import (
     ARTWORK_AMBIGUOUS,
     ConversionMode,
     ConversionPlan,
@@ -74,7 +75,7 @@ from mp3_tools.m4b_plan import (
     SegmentPlan,
     assemble_plan,
 )
-from mp3_tools.m4b_probe import ArtworkProblem, SourceReport
+from m4b.m4b_probe import ArtworkProblem, SourceReport
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -82,9 +83,9 @@ from test_m4b_metadata import require_ffmpeg  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
-PLAN_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_plan.py"
-PROBE_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_probe.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_converter.py"
+PLAN_SOURCE = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_plan.py"
+PROBE_SOURCE = REPO_ROOT / "scripts" / "m4b" / "m4b_probe.py"
 
 #: Every wait here is bounded, so a deadlock fails rather than hangs.
 WAIT = 5.0
@@ -1002,14 +1003,14 @@ def test_the_plan_freezes_the_metadata_mode(tmp_path, metadata_mode):
     (MetadataMode.STRIP, False),
 ])
 def test_whole_book_chapter_retention_is_d6a(tmp_path, metadata_mode, keeps):
-    from mp3_tools.m4b_metadata import retains_chapters
+    from m4b.converter.m4b_metadata import retains_chapters
     plan = _cell(tmp_path, ConversionMode.WHOLE, metadata_mode)
     assert retains_chapters(plan.metadata_mode, split=plan.items[0].fragment) is keeps
 
 
 @pytest.mark.parametrize("metadata_mode", list(MetadataMode))
 def test_every_split_fragment_drops_the_source_chapter_map(tmp_path, metadata_mode):
-    from mp3_tools.m4b_metadata import retains_chapters
+    from m4b.converter.m4b_metadata import retains_chapters
     plan = _cell(tmp_path, ConversionMode.SPLIT, metadata_mode)
     assert plan.items[0].fragment is True
     assert retains_chapters(plan.metadata_mode, split=True) is False
@@ -1021,14 +1022,14 @@ def test_every_split_fragment_drops_the_source_chapter_map(tmp_path, metadata_mo
     (MetadataMode.STRIP, False),
 ])
 def test_artwork_follows_the_locked_mode_rules(tmp_path, metadata_mode, wanted):
-    from mp3_tools.m4b_metadata import wants_artwork
+    from m4b.converter.m4b_metadata import wants_artwork
     plan = _cell(tmp_path, ConversionMode.WHOLE, metadata_mode)
     assert plan.items[0].picture == AttachedPicture(2, "mjpeg")
     assert wants_artwork(plan.metadata_mode) is wanted
 
 
 def test_whole_preserve_carries_the_source_fields_and_the_overrides(tmp_path):
-    from mp3_tools.m4b_metadata import whole_book_tags
+    from m4b.converter.m4b_metadata import whole_book_tags
     plan = _cell(tmp_path, ConversionMode.WHOLE, MetadataMode.PRESERVE)
     tags = whole_book_tags(plan.metadata_mode, source=plan.items[0].tags,
                            replacement=plan.replacement)
@@ -1038,7 +1039,7 @@ def test_whole_preserve_carries_the_source_fields_and_the_overrides(tmp_path):
 
 
 def test_whole_replace_carries_only_what_was_typed(tmp_path):
-    from mp3_tools.m4b_metadata import whole_book_tags
+    from m4b.converter.m4b_metadata import whole_book_tags
     plan = _cell(tmp_path, ConversionMode.WHOLE, MetadataMode.REPLACE)
     tags = whole_book_tags(plan.metadata_mode, source=plan.items[0].tags,
                            replacement=plan.replacement)
@@ -1047,14 +1048,14 @@ def test_whole_replace_carries_only_what_was_typed(tmp_path):
 
 
 def test_whole_strip_carries_nothing(tmp_path):
-    from mp3_tools.m4b_metadata import whole_book_tags
+    from m4b.converter.m4b_metadata import whole_book_tags
     plan = _cell(tmp_path, ConversionMode.WHOLE, MetadataMode.STRIP)
     assert whole_book_tags(plan.metadata_mode, source=plan.items[0].tags,
                            replacement=plan.replacement) == {}
 
 
 def test_split_preserve_inherits_only_book_identity(tmp_path):
-    from mp3_tools.m4b_metadata import segment_tags
+    from m4b.converter.m4b_metadata import segment_tags
     plan = _cell(tmp_path, ConversionMode.SPLIT, MetadataMode.PRESERVE)
     segment = plan.items[0].segments[1]
     tags = segment_tags(plan.metadata_mode, title=segment.title,
@@ -1067,7 +1068,7 @@ def test_split_preserve_inherits_only_book_identity(tmp_path):
 
 def test_split_replace_still_regenerates_the_segment_title(tmp_path):
     """Decision 47A's narrow exception, proved end to end."""
-    from mp3_tools.m4b_metadata import segment_tags
+    from m4b.converter.m4b_metadata import segment_tags
     plan = _cell(tmp_path, ConversionMode.SPLIT, MetadataMode.REPLACE)
     segment = plan.items[0].segments[0]
     tags = segment_tags(plan.metadata_mode, title=segment.title,
@@ -1079,7 +1080,7 @@ def test_split_replace_still_regenerates_the_segment_title(tmp_path):
 
 
 def test_split_strip_regenerates_nothing(tmp_path):
-    from mp3_tools.m4b_metadata import segment_tags
+    from m4b.converter.m4b_metadata import segment_tags
     plan = _cell(tmp_path, ConversionMode.SPLIT, MetadataMode.STRIP)
     segment = plan.items[0].segments[0]
     assert segment_tags(plan.metadata_mode, title=segment.title,

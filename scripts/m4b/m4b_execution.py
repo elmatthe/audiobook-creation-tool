@@ -48,9 +48,9 @@ from pathlib import Path
 from shared import output_paths
 from shared import subprocess_utils as sp
 
-from . import m4b_commands
-from . import m4b_metadata
-from .m4b_metadata import AttachedPicture, MetadataMode
+from m4b import m4b_commands
+from m4b.converter import m4b_metadata
+from m4b.converter.m4b_metadata import AttachedPicture, MetadataMode
 
 #: How often the poll loop looks at the child and at the cancellation latch.
 #: Short enough that Cancel feels immediate, long enough not to spin a core.

@@ -23,8 +23,8 @@ from shared.importing import (
     IdFactory, ImportRoot, ImportedFile, ImportedFileSnapshot, Revision,
 )
 
-from mp3_tools import m4b_metadata_workflow as wf
-from mp3_tools.m4b_metadata_workflow import ObservationStore
+from m4b.metadata import m4b_metadata_workflow as wf
+from m4b.metadata.m4b_metadata_workflow import ObservationStore
 
 _IDS = IdFactory("eds-")
 

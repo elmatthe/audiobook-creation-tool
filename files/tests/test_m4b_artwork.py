@@ -1,6 +1,6 @@
 """The shared M4B artwork service — v0.6.4 Phase 1.
 
-``mp3_tools/m4b_artwork.py`` is the one place both M4B tools (Maker and
+``artwork/m4b_artwork.py`` is the one place both M4B tools (Maker and
 Metadata Editor) turn a selected image into what an MP4 container's ``covr``
 atom carries. The rules are the v0.6.4 plan's (sections 4.6, 5.11, 6.12,
 Phase 1):
@@ -39,13 +39,13 @@ from PIL import Image
 
 from shared import ffmpeg_utils, image_capabilities
 
-from mp3_tools import m4b_artwork as art
-from mp3_tools import mp3_artwork
-from mp3_tools.m4b_artwork import ArtworkError, M4BCover
+from artwork import m4b_artwork as art
+from artwork import mp3_artwork
+from artwork.m4b_artwork import ArtworkError, M4BCover
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_artwork.py"
+MODULE = UNIVERSAL / "artwork" / "m4b_artwork.py"
 
 
 # --------------------------------------------------------------------------- #
@@ -151,13 +151,13 @@ def test_the_service_keeps_no_capability_list_and_reinvents_no_decoder():
             modules.add(node.module or "")
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     assert "pillow_heif" not in modules, "the optional import belongs to the shared probe"
-    assert "mp3_tools.mp3_artwork" in modules, "decoding is the proved shared path"
+    assert "artwork.mp3_artwork" in modules, "decoding is the proved shared path"
     for banned in ("tkinter", "subprocess", "threading", "shutil", "queue",
                    "shared.ffmpeg_utils", "shared.job_ui", "shared.job_control",
                    "shared.output_paths", "shared.importing", "shared.book_workspace",
-                   "shared.metadata", "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
-                   "mp3_tools.mp3_processing", "mp3_tools.mp3_workflow",
-                   "mp3_tools.m4b_maker", "mp3_tools.m4b_metadata_editor"):
+                   "shared.metadata", "mp3.mp3_tool", "mp3.mp3_plan",
+                   "mp3.mp3_processing", "mp3.mp3_workflow",
+                   "m4b.maker.m4b_maker", "m4b.metadata.m4b_metadata_editor"):
         assert banned not in modules, banned
     defined = {node.name for node in ast.walk(tree)
                if isinstance(node, (ast.FunctionDef, ast.ClassDef))}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mp3_tools import mp3_tool
+from mp3 import mp3_tool
 
 
 def test_seconds_to_hms_formats():

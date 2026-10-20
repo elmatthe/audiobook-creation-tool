@@ -27,7 +27,7 @@ lets a plan stay retry-stable.
 
 **Promoted, not rewritten.** v0.6.3 Plan 6 Phase 6 moved this module here from
 ``mp3_tools/m4b_numbering.py`` so one allocator serves every consumer;
-``mp3_tools.m4b_numbering`` is now a thin re-export of these same objects. The
+that module (``m4b.m4b_numbering`` since v0.6.7 checkpoint B2) is now a thin re-export of these same objects. The
 declarations below are unchanged, and a test proves that mechanically against the
 pre-move source. The allocator still has **no knowledge of what a book is**.
 

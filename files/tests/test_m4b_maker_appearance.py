@@ -43,7 +43,8 @@ import pytest
 from shared import appearance, ffmpeg_utils, paths, ui_theme  # noqa: F401
 from shared.job_control import JobState
 
-from mp3_tools import m4b_artwork_ui, m4b_maker
+from artwork import m4b_artwork_ui
+from m4b.maker import m4b_maker
 
 import test_import_coordination as tic
 from test_import_coordination import RecordingThreads

@@ -71,8 +71,8 @@ from typing import List, Optional, Tuple
 from shared import ffmpeg_utils, paths
 from shared import subprocess_utils as sp
 from shared.job_control import FailureLog, FailureRecord, JobState, RunResult
-from mp3_tools import mp3_artwork
-from mp3_tools import mp3_plan
+from artwork import mp3_artwork
+from mp3 import mp3_plan
 
 __all__ = [
     "ProcessingError",

@@ -41,8 +41,8 @@ from typing import Any, Callable
 from shared import ffmpeg_utils
 from shared import subprocess_utils as sp
 
-from .m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
-from .m4b_metadata import (
+from m4b.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
+from m4b.converter.m4b_metadata import (
     ArtworkSelectionError,
     AttachedPicture,
     SourceTags,
@@ -75,7 +75,7 @@ class ArtworkProblem:
 
     A live exception is not something a frozen plan may hold, and it is not
     something that should cross a thread boundary. The two strings
-    :class:`~mp3_tools.m4b_metadata.ArtworkSelectionError` already writes -- one
+    :class:`~m4b.converter.m4b_metadata.ArtworkSelectionError` already writes -- one
     for a person, one for the Details pane -- are copied out here instead.
     """
 
@@ -137,7 +137,7 @@ def _tags_from(format_block: dict) -> SourceTags:
     """The approved subset of the source's own metadata, and nothing else.
 
     Keys are matched case-insensitively because containers disagree about case,
-    and an atom outside :data:`~mp3_tools.m4b_metadata.BOOK_FIELDS` is simply not
+    and an atom outside :data:`~m4b.converter.m4b_metadata.BOOK_FIELDS` is simply not
     representable here -- which is what stops an unknown freeform atom reaching
     an output by accident.
     """
@@ -218,7 +218,7 @@ def probe_source(path, *, runner: Callable[[list[str]], str | bytes] | None = No
     title is a corruption, not a recovery.
 
     Never raises. Every failure route -- the process, the payload, the duration,
-    the audio stream -- produces its own :class:`~mp3_tools.m4b_chapters.
+    the audio stream -- produces its own :class:`~m4b.m4b_chapters.
     ProbeStatus`, because a caller that cannot tell them apart cannot report
     truthfully on what went wrong.
     """

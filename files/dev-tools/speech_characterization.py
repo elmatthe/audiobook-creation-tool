@@ -42,7 +42,7 @@ VERBATIM_LIMIT = 6000
 
 
 def import_root() -> Path:
-    """The folder that holds the ``shared``, ``tts`` and ``mp3_tools`` packages (moves in checkpoint B1)."""
+    """The folder that holds the ``shared`` and ``tts`` packages (``scripts/Universal`` before checkpoint B1)."""
     for candidate in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "Universal"):
         if (candidate / "shared" / "paths.py").is_file():
             return candidate

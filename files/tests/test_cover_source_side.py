@@ -23,7 +23,7 @@ Image = pytest.importorskip("PIL.Image")
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
-from mp3_tools import cover_resizer as cr  # noqa: E402
+from artwork import cover_resizer as cr  # noqa: E402
 from shared import config, output_paths as op  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
 import tk_gate  # noqa: E402

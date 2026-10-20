@@ -1,6 +1,6 @@
 """The frozen M4B Metadata Editor action plans — v0.6.4 Phase 8.
 
-``mp3_tools/m4b_metadata_plan.py`` freezes **exact intent** for the three Editor
+``m4b/metadata/m4b_metadata_plan.py`` freezes **exact intent** for the three Editor
 actions — Save Tags, Clear All Tags (keep chapters), Remove Series Numbering —
 from the Phase 7 model's intent functions, together with one standard run and
 flat, collision-safe staged/final paths through ``output_paths``. It keeps the
@@ -27,19 +27,19 @@ from shared.importing import (
 )
 from shared.job_control import RunSnapshot
 
-from mp3_tools import m4b_metadata_plan as mp
-from mp3_tools import m4b_metadata_workflow as wf
-from mp3_tools.m4b_metadata_plan import (
+from m4b.metadata import m4b_metadata_plan as mp
+from m4b.metadata import m4b_metadata_workflow as wf
+from m4b.metadata.m4b_metadata_plan import (
     BookPlan, EditorAction, EditorRunOptions, PlanError, RunPlan,
 )
-from mp3_tools.m4b_metadata_workflow import ObservationStore
+from m4b.metadata.m4b_metadata_workflow import ObservationStore
 
 from test_importing import make_config
 from test_m4b_metadata_workflow import _META, _ff, m4b, require_ffmpeg, vendor_series
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_plan.py"
+MODULE = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_plan.py"
 
 _IDS = IdFactory("ep-")
 
@@ -471,11 +471,11 @@ def test_the_plan_module_imports_no_tk_process_media_or_writer_and_writes_nothin
     for banned in ("tkinter", "subprocess", "threading", "queue", "shutil", "tempfile",
                    "shared.metadata", "shared.ffmpeg_utils", "shared.job_ui",
                    "shared.import_coordination", "shared.numbering", "mutagen", "PIL",
-                   "mp3_tools.m4b_metadata_editor", "mp3_tools.m4b_artwork",
-                   "mp3_tools.m4b_maker_plan", "mp3_tools.mp3_plan", "re"):
+                   "m4b.metadata.m4b_metadata_editor", "artwork.m4b_artwork",
+                   "m4b.maker.m4b_maker_plan", "mp3.mp3_plan", "re"):
         assert banned not in modules, banned
     for required in ("shared.output_paths", "shared.book_workspace", "shared.importing",
-                     "mp3_tools.m4b_metadata_workflow"):
+                     "m4b.metadata.m4b_metadata_workflow"):
         assert required in modules, required
     called = {node.func.attr for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
@@ -495,7 +495,7 @@ def test_the_plan_module_imports_no_tk_process_media_or_writer_and_writes_nothin
 def test_the_plan_module_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_metadata_plan.py" in ADOPTED
+    assert "m4b/metadata/m4b_metadata_plan.py" in ADOPTED
 
 
 def test_the_editor_panel_now_freezes_its_actions_through_this_module():
@@ -503,7 +503,7 @@ def test_the_editor_panel_now_freezes_its_actions_through_this_module():
     the panel their consumer (the old byte-identity pin retired with the conversion)."""
     from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
+    panel = UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py"
     assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
     tree = ast.parse(panel.read_text(encoding="utf-8"))
     calls = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}

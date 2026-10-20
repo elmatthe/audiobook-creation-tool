@@ -1,6 +1,6 @@
 """The M4B artwork Tk control — v0.6.4 Phase 6 (the Phase 1 seam, now due).
 
-``mp3_tools/m4b_artwork_ui.py`` is the one artwork chooser/preview control the
+``artwork/m4b_artwork_ui.py`` is the one artwork chooser/preview control the
 M4B Maker uses now and the Metadata Editor will reuse. It carries no policy:
 the chooser filter, decoding and the preview are ``m4b_artwork``'s over the
 shared capability probe; whether the Book copy is enabled is the model's answer
@@ -26,13 +26,13 @@ from shared import image_capabilities, ui_theme  # noqa: E402
 from shared.job_control import ControlKind  # noqa: E402
 from shared.job_ui import LockGroup, MainThreadError  # noqa: E402
 
-from mp3_tools import m4b_artwork  # noqa: E402
-from mp3_tools import m4b_artwork_ui as art_ui  # noqa: E402
-from mp3_tools.m4b_artwork_ui import ArtworkControl  # noqa: E402
+from artwork import m4b_artwork  # noqa: E402
+from artwork import m4b_artwork_ui as art_ui  # noqa: E402
+from artwork.m4b_artwork_ui import ArtworkControl  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_artwork_ui.py"
+MODULE = UNIVERSAL / "artwork" / "m4b_artwork_ui.py"
 
 
 @pytest.fixture(scope="module")
@@ -256,11 +256,11 @@ def test_the_adapter_carries_no_policy_no_decoder_and_no_maker_vocabulary():
             modules.add(node.module or "")
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for banned in ("pillow_heif", "shared.image_capabilities", "shared.book_workspace",
-                   "mp3_tools.m4b_maker", "mp3_tools.m4b_maker_workflow",
-                   "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_metadata_editor",
-                   "mp3_tools.mp3_artwork", "mp3_tools.mp3_tool", "threading", "subprocess"):
+                   "m4b.maker.m4b_maker", "m4b.maker.m4b_maker_workflow",
+                   "m4b.maker.m4b_maker_plan", "m4b.metadata.m4b_metadata_editor",
+                   "artwork.mp3_artwork", "mp3.mp3_tool", "threading", "subprocess"):
         assert banned not in modules, banned
-    assert "mp3_tools.m4b_artwork" in modules
+    assert "artwork.m4b_artwork" in modules
     literals = {node.value for node in ast.walk(tree)
                 if isinstance(node, ast.Constant) and isinstance(node.value, str)}
     for suffix in (".heic", ".heif", ".jpg", ".jpeg", ".png"):
@@ -277,4 +277,4 @@ def test_the_adapter_carries_no_policy_no_decoder_and_no_maker_vocabulary():
 def test_the_adapter_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_artwork_ui.py" in ADOPTED
+    assert "artwork/m4b_artwork_ui.py" in ADOPTED

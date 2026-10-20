@@ -1,6 +1,6 @@
 """The frozen M4B Maker run plan — v0.6.4 Phase 3.
 
-``mp3_tools/m4b_maker_plan.py`` freezes one Maker operation completely before
+``m4b/maker/m4b_maker_plan.py`` freezes one Maker operation completely before
 any media is touched: the Books in order with their stable ids and exact
 occurrences, the final chapter titles, the effective metadata, artwork and
 Silence, the manual-or-auto series settings, the Fast-first option, the
@@ -35,9 +35,9 @@ from shared.importing import (
 )
 from shared.job_control import RunSnapshot
 
-from mp3_tools import m4b_maker_plan as mp
-from mp3_tools import m4b_maker_workflow as wf
-from mp3_tools.m4b_maker_plan import (
+from m4b.maker import m4b_maker_plan as mp
+from m4b.maker import m4b_maker_workflow as wf
+from m4b.maker.m4b_maker_plan import (
     BookPlan, DestinationMode, MakerDestination, MakerRunOptions, PlanError, RunPlan,
 )
 
@@ -45,7 +45,7 @@ from test_importing import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker_plan.py"
+MODULE = UNIVERSAL / "m4b" / "maker" / "m4b_maker_plan.py"
 
 _IDS = IdFactory("plan-")
 
@@ -566,12 +566,12 @@ def test_the_plan_module_imports_no_tk_process_media_or_ui():
                    "wave", "json", "shared.ffmpeg_utils", "shared.subprocess_utils",
                    "shared.ui_theme", "shared.job_ui", "shared.import_coordination",
                    "shared.image_capabilities", "shared.metadata", "shared.numbering",
-                   "PIL", "mutagen", "mp3_tools.m4b_maker", "mp3_tools.mp3_plan",
-                   "mp3_tools.mp3_workflow", "mp3_tools.mp3_processing", "mp3_tools.mp3_tool",
-                   "mp3_tools.m4b_artwork", "mp3_tools.m4b_numbering"):
+                   "PIL", "mutagen", "m4b.maker.m4b_maker", "mp3.mp3_plan",
+                   "mp3.mp3_workflow", "mp3.mp3_processing", "mp3.mp3_tool",
+                   "artwork.m4b_artwork", "m4b.m4b_numbering"):
         assert banned not in modules, banned
     for required in ("shared.output_paths", "shared.book_workspace", "shared.importing",
-                     "mp3_tools.m4b_maker_workflow"):
+                     "m4b.maker.m4b_maker_workflow"):
         assert required in modules, required
     called = {node.func.attr for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
@@ -588,7 +588,7 @@ def test_the_plan_module_imports_no_tk_process_media_or_ui():
 def test_the_plan_module_is_registered_as_a_plan3_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/m4b_maker_plan.py" in ADOPTED
+    assert "m4b/maker/m4b_maker_plan.py" in ADOPTED
 
 
 def test_the_maker_panel_now_plans_through_this_module():
@@ -596,6 +596,6 @@ def test_the_maker_panel_now_plans_through_this_module():
     call ``plan_run`` (the old byte-identity pin retired with the conversion)."""
     from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
+    panel = UNIVERSAL / "m4b" / "maker" / "m4b_maker.py"
     assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
     assert "m4b_maker_plan" in panel.read_text(encoding="utf-8")

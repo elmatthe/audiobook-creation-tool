@@ -1,6 +1,6 @@
 """The frozen MP3 run plan — v0.6.3 focused MP3 plan, Phase 5.
 
-``mp3_tools/mp3_plan.py`` turns one workspace into one immutable execution plan
+``mp3/mp3_plan.py`` turns one workspace into one immutable execution plan
 before any media is touched: one reserved run for the whole operation, one Book
 subfolder per eligible Book, every track's final Title / number / filename, the
 staged and published destination of every output, and the Plan 6 capture the
@@ -45,15 +45,15 @@ from shared.importing import (
 )
 from shared.job_control import RunSnapshot
 
-from mp3_tools import mp3_plan as mp
-from mp3_tools import mp3_workflow as wf
-from mp3_tools.mp3_plan import BookPlan, MP3Operation, PlanError, RunPlan, TrackPlan
+from mp3 import mp3_plan as mp
+from mp3 import mp3_workflow as wf
+from mp3.mp3_plan import BookPlan, MP3Operation, PlanError, RunPlan, TrackPlan
 
 from test_importing import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "mp3_plan.py"
+MODULE = UNIVERSAL / "mp3" / "mp3_plan.py"
 
 _IDS = IdFactory("plan-")
 
@@ -677,7 +677,7 @@ def test_the_planning_module_reaches_no_tk_media_or_controller():
     for banned in ("tkinter", "subprocess", "threading", "queue", "shutil", "mutagen",
                    "PIL", "shared.ffmpeg_utils", "shared.subprocess_utils",
                    "shared.job_ui", "shared.ui_theme", "shared.import_coordination",
-                   "mp3_tools.mp3_tool", "shared.image_capabilities"):
+                   "mp3.mp3_tool", "shared.image_capabilities"):
         assert banned not in modules, banned
     assert "shared.output_paths" in modules
     assert "shared.book_workspace" in modules
@@ -711,7 +711,7 @@ def test_the_planning_module_declares_no_second_sanitiser_or_collision_loop():
 def test_the_planning_module_is_registered_as_an_adopter():
     from test_plan3_boundaries import ADOPTED
 
-    assert "mp3_tools/mp3_plan.py" in ADOPTED
+    assert "mp3/mp3_plan.py" in ADOPTED
 
 
 def _tmp_filesystem_is_case_insensitive(tmp_path) -> bool:

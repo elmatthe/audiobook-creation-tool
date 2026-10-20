@@ -1,6 +1,6 @@
 """The shared M4B staging/publication pattern — v0.6.4 Phase 11 hardening.
 
-``mp3_tools/m4b_staging.py`` was extracted at Phase 9 from the Maker engine so
+``m4b/m4b_staging.py`` was extracted at Phase 9 from the Maker engine so
 both M4B tools run one copy of the private-staging → atomic-publication
 pattern. Phase 9 proved it through the two engines; this suite is its own
 contract, exercised directly and through both engines' delegation:
@@ -27,14 +27,16 @@ from pathlib import Path
 import pytest
 
 from shared import output_paths
-from mp3_tools import m4b_maker_processing, m4b_metadata_processing, m4b_staging
-from mp3_tools.m4b_staging import StagingError
+from m4b.maker import m4b_maker_processing
+from m4b.metadata import m4b_metadata_processing
+from m4b import m4b_staging
+from m4b.m4b_staging import StagingError
 
 from test_output_paths import make_dir_link, make_file_link
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_staging.py"
+MODULE = UNIVERSAL / "m4b" / "m4b_staging.py"
 
 
 @dataclass(frozen=True)

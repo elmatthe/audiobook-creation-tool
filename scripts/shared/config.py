@@ -87,17 +87,17 @@ USER_STATE_SETTINGS: frozenset[str] = frozenset(
         "last_tool",
         # shared/appearance.py — the remembered Light/Dark choice (v0.6.6)
         "appearance",
-        # mp3_tools/cover_resizer.py
+        # artwork/cover_resizer.py
         "cover_resizer.input_dir",
-        # mp3_tools/m4b_converter.py
+        # m4b/converter/m4b_converter.py
         "m4b_converter.input_dir",
-        # mp3_tools/m4b_maker.py
+        # m4b/maker/m4b_maker.py
         "m4b_maker.input_dir",
         "m4b_maker.cover_dir",
-        # mp3_tools/m4b_metadata_editor.py
+        # m4b/metadata/m4b_metadata_editor.py
         "m4b_metadata.input_dir",
         "m4b_metadata.cover_dir",
-        # mp3_tools/mp3_tool.py
+        # mp3/mp3_tool.py
         "mp3_tool.input_dir",
     }
 )

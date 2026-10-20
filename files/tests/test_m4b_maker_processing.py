@@ -1,6 +1,6 @@
 """The M4B Maker single-Book engine — v0.6.4 Phase 4.
 
-``mp3_tools/m4b_maker_processing.py`` runs **one frozen ``BookPlan``** from
+``m4b/maker/m4b_maker_processing.py`` runs **one frozen ``BookPlan``** from
 start to atomic publication and reads nothing else: no widget, no live
 workspace. The proven Maker algorithms (FFmpeg concat, WAV normalisation,
 inserted silence, chapter timing, the FAST → Safe fallback) moved here from
@@ -38,17 +38,17 @@ from shared.importing import (
     IdFactory, ImportOptions, ImportedFile, ImportedFileSnapshot, ImportRoot, Revision,
 )
 
-from mp3_tools import m4b_artwork
-from mp3_tools import m4b_maker_plan as mp
-from mp3_tools import m4b_maker_processing as proc
-from mp3_tools import m4b_maker_workflow as wf
-from mp3_tools.m4b_maker_processing import BookOutcome, ProcessingError, ProcessingEvent
+from artwork import m4b_artwork
+from m4b.maker import m4b_maker_plan as mp
+from m4b.maker import m4b_maker_processing as proc
+from m4b.maker import m4b_maker_workflow as wf
+from m4b.maker.m4b_maker_processing import BookOutcome, ProcessingError, ProcessingEvent
 
 from test_importing import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
-MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker_processing.py"
+MODULE = UNIVERSAL / "m4b" / "maker" / "m4b_maker_processing.py"
 
 _IDS = IdFactory("mk-")
 
@@ -676,13 +676,13 @@ def test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_onc
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for banned in ("tkinter", "threading", "queue", "shared.book_workspace", "shared.job_ui",
                    "shared.job_control", "shared.importing", "shared.import_coordination",
-                   "shared.ui_theme", "shared.settings", "mp3_tools.m4b_maker",
-                   "mp3_tools.mp3_processing", "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
-                   "mp3_tools.m4b_maker_workflow", "shared.numbering", "PIL", "pillow_heif"):
+                   "shared.ui_theme", "shared.settings", "m4b.maker.m4b_maker",
+                   "mp3.mp3_processing", "mp3.mp3_tool", "mp3.mp3_plan",
+                   "m4b.maker.m4b_maker_workflow", "shared.numbering", "PIL", "pillow_heif"):
         assert banned not in modules, banned
     for required in ("shared.ffmpeg_utils", "shared.subprocess_utils", "shared.metadata",
-                     "shared.output_paths", "shared.cancellation", "mp3_tools.m4b_artwork",
-                     "mp3_tools.m4b_maker_plan"):
+                     "shared.output_paths", "shared.cancellation", "artwork.m4b_artwork",
+                     "m4b.maker.m4b_maker_plan"):
         assert required in modules, required
     # No command list is headed by a bare executable name: every FFmpeg or
     # ffprobe launch starts with the shared authority's resolved command.
@@ -707,7 +707,7 @@ def test_the_moved_algorithms_left_the_panel_whole():
     """Phase 4 proved the helpers verbatim against the hash-pinned panel by AST
     body equality (recorded in Handoff.md). Phase 6 converted the panel, which
     now defines none of them: the engine is the one place they live."""
-    panel = ast.parse((UNIVERSAL / "mp3_tools" / "m4b_maker.py").read_text(encoding="utf-8"))
+    panel = ast.parse((UNIVERSAL / "m4b" / "maker" / "m4b_maker.py").read_text(encoding="utf-8"))
     engine = ast.parse(MODULE.read_text(encoding="utf-8"))
     in_panel = {n.name for n in ast.walk(panel) if isinstance(n, ast.FunctionDef)}
     in_engine = {n.name for n in ast.walk(engine) if isinstance(n, ast.FunctionDef)}
@@ -725,7 +725,7 @@ def test_the_maker_panel_runs_nothing_itself():
     Phase 5 runner and never imports the engine or FFmpeg directly."""
     from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
-    panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
+    panel = UNIVERSAL / "m4b" / "maker" / "m4b_maker.py"
     assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
     tree = ast.parse(panel.read_text(encoding="utf-8"))
     modules = set()
@@ -735,6 +735,6 @@ def test_the_maker_panel_runs_nothing_itself():
         elif isinstance(node, ast.ImportFrom):
             modules.add(node.module or "")
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
-    assert "mp3_tools.m4b_maker_processing" not in modules
+    assert "m4b.maker.m4b_maker_processing" not in modules
     assert "shared.ffmpeg_utils" not in modules
-    assert "mp3_tools.m4b_maker_batch" in modules
+    assert "m4b.maker.m4b_maker_batch" in modules

@@ -39,7 +39,7 @@ import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
-# run standalone (python mp3_tools/m4b_converter.py) or imported by the launcher.
+# run standalone (python m4b/converter/m4b_converter.py) or imported by the launcher.
 _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
@@ -70,14 +70,14 @@ from shared.job_control import (
     capture_run,
 )
 
-from . import m4b_execution
-from . import m4b_metadata
-from . import m4b_numbering
-from . import m4b_plan
-from . import m4b_probe
-from . import m4b_winaudio
-from .m4b_metadata import MetadataMode
-from .m4b_plan import ConversionMode, PlanOptions
+from m4b import m4b_execution
+from m4b.converter import m4b_metadata
+from m4b import m4b_numbering
+from m4b.converter import m4b_plan
+from m4b import m4b_probe
+from m4b import m4b_winaudio
+from m4b.converter.m4b_metadata import MetadataMode
+from m4b.converter.m4b_plan import ConversionMode, PlanOptions
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
@@ -1535,7 +1535,7 @@ class M4BConverterUI(ttk.Frame):
 
         The plan is the single authority from that point on. This body reads no
         widget, no variable and no manager: it was handed frozen occurrences and
-        one frozen :class:`~mp3_tools.m4b_plan.PlanOptions`, and it consults
+        one frozen :class:`~m4b.converter.m4b_plan.PlanOptions`, and it consults
         them and the plan alone.
 
         **A retry enters below the preflight.** When ``retry_ids`` is present the

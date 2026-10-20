@@ -32,11 +32,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 TOOL_MODULES = {
     "tts": "tts.epub2tts_gui",
-    "m4b_converter": "mp3_tools.m4b_converter",
-    "mp3_tool": "mp3_tools.mp3_tool",
-    "m4b_maker": "mp3_tools.m4b_maker",
-    "cover": "mp3_tools.cover_resizer",
-    "m4b_metadata": "mp3_tools.m4b_metadata_editor",
+    "m4b_converter": "m4b.converter.m4b_converter",
+    "mp3_tool": "mp3.mp3_tool",
+    "m4b_maker": "m4b.maker.m4b_maker",
+    "cover": "artwork.cover_resizer",
+    "m4b_metadata": "m4b.metadata.m4b_metadata_editor",
 }
 EXPECTED_PARENTS = {
     "tts": "TTS-Audiobook-Outputs",
@@ -272,7 +272,7 @@ def test_converter_module_reserves_only_at_start(output_base):
     reservation and nothing reserves while the panel is being constructed — is
     unchanged and is now asserted structurally rather than by substring.
     """
-    path = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
+    path = REPO_ROOT / "scripts" / "m4b" / "converter" / "m4b_converter.py"
     source = path.read_text(encoding="utf-8")
 
     tree = ast.parse(source)
@@ -301,7 +301,7 @@ def test_mp3_tool_reserves_exactly_one_run_per_operation(output_base):
     operation path — one run per operation, never one per Book, and never at
     build time.
     """
-    source = (REPO_ROOT / "scripts" / "mp3_tools" / "mp3_tool.py").read_text(
+    source = (REPO_ROOT / "scripts" / "mp3" / "mp3_tool.py").read_text(
         encoding="utf-8"
     )
     tree = ast.parse(source)
@@ -344,9 +344,9 @@ def test_mp3_tool_keeps_the_signed_time_helpers_for_its_processing_phases():
     of every Book at zero, positive and negative Time, with real-media tests of
     its own (``test_mp3_write_id3.py``). The panel re-exports them by identity.
     """
-    from mp3_tools import mp3_processing, mp3_tool
+    from mp3 import mp3_processing, mp3_tool
 
-    source = (REPO_ROOT / "scripts" / "mp3_tools" / "mp3_processing.py"
+    source = (REPO_ROOT / "scripts" / "mp3" / "mp3_processing.py"
               ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     declared = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
@@ -359,7 +359,7 @@ def test_mp3_tool_keeps_the_signed_time_helpers_for_its_processing_phases():
 
 
 def test_mp3_tool_retired_its_local_run_folder_helper():
-    from mp3_tools import mp3_tool
+    from mp3 import mp3_tool
 
     assert not hasattr(mp3_tool, "next_available_folder")
     assert not hasattr(mp3_tool, "BASE_OUTPUT_DIRNAME")
@@ -392,7 +392,7 @@ def test_maker_staging_stays_inside_its_run(output_base):
 
 def test_maker_has_no_output_base_bypass():
     """Phase 5 added the custom destination; the base-bypassing browse stays gone."""
-    source = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_maker.py").read_text(
+    source = (REPO_ROOT / "scripts" / "m4b" / "maker" / "m4b_maker.py").read_text(
         encoding="utf-8"
     )
     assert "choose_outdir" not in source, "the old output-folder browse must stay removed"
@@ -406,7 +406,7 @@ def test_maker_has_no_output_base_bypass():
 
 def test_cover_source_side_toggle_is_off_on_a_fresh_build(fresh_root, output_base):
     """Phase 5 replaced the disabled placeholder with a real, safe-by-default toggle."""
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
     assert ui.chk_source_side.cget("text") == cover_resizer.SOURCE_SIDE_LABEL
@@ -416,7 +416,7 @@ def test_cover_source_side_toggle_is_off_on_a_fresh_build(fresh_root, output_bas
 
 
 def test_cover_choices_are_disabled_until_the_mode_is_enabled(fresh_root, output_base):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
     assert str(ui.rb_numbered.cget("state")) == "disabled"
@@ -429,7 +429,7 @@ def test_cover_choices_are_disabled_until_the_mode_is_enabled(fresh_root, output
 
 
 def test_cover_turning_the_mode_off_discards_a_replace_selection(fresh_root, output_base):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
     ui.var_source_side.set(True)
@@ -444,7 +444,7 @@ def test_cover_turning_the_mode_off_discards_a_replace_selection(fresh_root, out
 
 
 def test_cover_rebuilding_the_panel_never_restores_replacement(fresh_root, output_base):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     first = cover_resizer.build_ui(ttk.Frame(fresh_root))
     first.var_source_side.set(True)
@@ -457,7 +457,7 @@ def test_cover_rebuilding_the_panel_never_restores_replacement(fresh_root, outpu
 
 
 def test_cover_replacement_is_not_persisted_as_a_preference(fresh_root, output_base):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
     ui.var_source_side.set(True)
@@ -481,7 +481,7 @@ def test_cover_standard_output_goes_only_into_the_reserved_run(output_base, tmp_
 
 
 def test_cover_leaves_imported_originals_untouched(output_base, tmp_path):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     sources = [mp3_fixture(tmp_path / "src" / "a.jpg"), mp3_fixture(tmp_path / "src" / "b.jpg")]
     before = digest(sources)
@@ -514,7 +514,7 @@ def _import_into_cover(ui, *paths):
 
 def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp_path):
     """The Phase 4 "unreachable" guard becomes the Phase 5 three-gate guard."""
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     Image = pytest.importorskip("PIL.Image")
     src = tmp_path / "src" / "cover.jpg"
@@ -540,7 +540,7 @@ def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp
 
 def test_cover_declining_confirmation_starts_nothing(fresh_root, output_base, tmp_path,
                                                      monkeypatch):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     Image = pytest.importorskip("PIL.Image")
     src = tmp_path / "src" / "cover.jpg"
@@ -572,7 +572,7 @@ def test_metadata_editor_reserves_per_action(output_base):
     through ``_reserve_run`` exactly once after validation)."""
     import ast
 
-    source = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_metadata_editor.py"
+    source = (REPO_ROOT / "scripts" / "m4b" / "metadata" / "m4b_metadata_editor.py"
               ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     functions = {node.name: node for node in ast.walk(tree)
@@ -622,9 +622,9 @@ def test_metadata_editor_plans_every_output_through_the_reservations_planner():
     """
     import ast
 
-    panel = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_metadata_editor.py"
+    panel = (REPO_ROOT / "scripts" / "m4b" / "metadata" / "m4b_metadata_editor.py"
              ).read_text(encoding="utf-8")
-    plan = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_metadata_plan.py"
+    plan = (REPO_ROOT / "scripts" / "m4b" / "metadata" / "m4b_metadata_plan.py"
             ).read_text(encoding="utf-8")
     assert "avoid_input_overwrite" not in panel and "avoid_input_overwrite" not in plan
     panel_calls = {ast.unparse(node.func) for node in ast.walk(ast.parse(panel))
@@ -877,44 +877,44 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: v0.6.3 Plan 6 Phase 8 adds ``shared.book_workspace_ui`` as the seventh, for the
 #: same reason: it is the Plan 6 Tk adapter, not a tool, so it matches nothing in
 #: ``TOOL_MODULES`` and is excluded from no guard by being named here.
-#: v0.6.3 focused MP3 plan Phase 3 adds ``mp3_tools.mp3_workflow`` as the eighth:
+#: v0.6.3 focused MP3 plan Phase 3 adds ``mp3.mp3_workflow`` as the eighth:
 #: the MP3 Tool's pure model. Phase 4 adds the panel itself as the ninth —
-#: ``mp3_tools.mp3_tool`` is redesigned on the shared importer and workspace,
+#: ``mp3.mp3_tool`` is redesigned on the shared importer and workspace,
 #: so it leaves the unadopted-tool check below; M4B Maker and the M4B Metadata
 #: Editor remain the two unadopted tools.
-#: v0.6.3 focused MP3 plan Phase 5 adds ``mp3_tools.mp3_plan`` as the tenth: the
+#: v0.6.3 focused MP3 plan Phase 5 adds ``mp3.mp3_plan`` as the tenth: the
 #: MP3 Tool's frozen run plan, not a tool panel, listed only to keep the two
 #: spellings in step.
-#: Phase 7 adds ``mp3_tools.mp3_processing`` as the eleventh: the Write ID3
+#: Phase 7 adds ``mp3.mp3_processing`` as the eleventh: the Write ID3
 #: engine settles each Book into a Plan 3 ``RunResult``, so it names the
 #: foundation's result vocabulary; not a tool panel.
-#: v0.6.4 Phase 2 adds ``mp3_tools.m4b_maker_workflow`` as the twelfth: the
+#: v0.6.4 Phase 2 adds ``m4b.maker.m4b_maker_workflow`` as the twelfth: the
 #: Maker's Tk-free model over the Plan 6 workspace and the importer's values;
-#: not a tool panel — ``mp3_tools.m4b_maker`` itself is still checked below.
-#: v0.6.4 Phase 3 adds ``mp3_tools.m4b_maker_plan`` as the thirteenth: the
+#: not a tool panel — ``m4b.maker.m4b_maker`` itself is still checked below.
+#: v0.6.4 Phase 3 adds ``m4b.maker.m4b_maker_plan`` as the thirteenth: the
 #: Maker's frozen run plan over the shared destination and capture; not a panel.
-#: v0.6.4 Phase 5 adds ``mp3_tools.m4b_maker_batch`` as the fourteenth: the
+#: v0.6.4 Phase 5 adds ``m4b.maker.m4b_maker_batch`` as the fourteenth: the
 #: Maker's Tk-free batch runner over the shared job architecture; not a panel.
-#: v0.6.4 Phase 6 adds ``mp3_tools.m4b_artwork_ui`` (the one M4B artwork Tk
-#: control) and ``mp3_tools.m4b_maker`` itself: the Maker panel is now the
+#: v0.6.4 Phase 6 adds ``artwork.m4b_artwork_ui`` (the one M4B artwork Tk
+#: control) and ``m4b.maker.m4b_maker`` itself: the Maker panel is now the
 #: second production adopter of the shared workspace, so only the Metadata
 #: Editor is still checked below. v0.6.4 Phase 7 adds
-#: ``mp3_tools.m4b_metadata_workflow``, the Editor's Tk-free model; Phase 8
-#: adds ``mp3_tools.m4b_metadata_plan``, its frozen action plans; Phase 9 adds
-#: ``mp3_tools.m4b_metadata_batch``, its Tk-free batch runner; Phase 10 adds
-#: ``mp3_tools.m4b_metadata_editor`` itself: the Editor panel is the third
+#: ``m4b.metadata.m4b_metadata_workflow``, the Editor's Tk-free model; Phase 8
+#: adds ``m4b.metadata.m4b_metadata_plan``, its frozen action plans; Phase 9 adds
+#: ``m4b.metadata.m4b_metadata_batch``, its Tk-free batch runner; Phase 10 adds
+#: ``m4b.metadata.m4b_metadata_editor`` itself: the Editor panel is the third
 #: production adopter of the shared workspace, so no tool panel is left to
 #: check below — the no-adoption guard's remaining set is deliberately empty.
-PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
-                  "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
-                  "mp3_tools.m4b_plan", "shared.book_workspace",
-                  "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
-                  "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
-                  "mp3_tools.mp3_processing", "mp3_tools.m4b_maker_workflow",
-                  "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_batch",
-                  "mp3_tools.m4b_artwork_ui", "mp3_tools.m4b_maker",
-                  "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_metadata_plan",
-                  "mp3_tools.m4b_metadata_batch", "mp3_tools.m4b_metadata_editor")
+PLAN3_ADOPTERS = ("artwork.cover_resizer", "tts.epub2tts_gui",
+                  "m4b.converter.m4b_converter", "m4b.converter.m4b_destinations",
+                  "m4b.converter.m4b_plan", "shared.book_workspace",
+                  "shared.book_workspace_ui", "mp3.mp3_workflow",
+                  "mp3.mp3_tool", "mp3.mp3_plan",
+                  "mp3.mp3_processing", "m4b.maker.m4b_maker_workflow",
+                  "m4b.maker.m4b_maker_plan", "m4b.maker.m4b_maker_batch",
+                  "artwork.m4b_artwork_ui", "m4b.maker.m4b_maker",
+                  "m4b.metadata.m4b_metadata_workflow", "m4b.metadata.m4b_metadata_plan",
+                  "m4b.metadata.m4b_metadata_batch", "m4b.metadata.m4b_metadata_editor")
 
 
 def _tool_path(relative: str) -> Path:
@@ -1063,7 +1063,7 @@ def _run_params(*paths, **extra):
     reads every source itself, and reserves the run folder only once something
     is usable. So there is no destination map to build here any more.
     """
-    from mp3_tools.m4b_plan import PlanOptions
+    from m4b.converter.m4b_plan import PlanOptions
 
     params = {"imported_files": _occurrences(*paths), "options": PlanOptions()}
     params.update(extra)
@@ -1100,7 +1100,7 @@ def _occurrences(*paths):
 @needs_ffmpeg
 def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path):
     """End to end against a real ffmpeg: probe, plan, reserve, convert."""
-    from mp3_tools import m4b_converter
+    from m4b.converter import m4b_converter
 
     source = _tone(tmp_path / "src" / "Book.m4b", 1.0, 300, codec="aac")
     before = source.read_bytes()
@@ -1118,7 +1118,7 @@ def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path
 
 @needs_ffmpeg
 def test_the_converter_worker_numbers_duplicate_stems(output_base, tmp_path):
-    from mp3_tools import m4b_converter
+    from m4b.converter import m4b_converter
 
     a = _tone(tmp_path / "one" / "Book.m4b", 1.0, 300, codec="aac")
     b = _tone(tmp_path / "two" / "Book.m4b", 1.0, 500, codec="aac")
@@ -1143,7 +1143,7 @@ def test_an_unreadable_source_reserves_no_run_folder(output_base, tmp_path):
     before = sorted(p.name for p in op.ensure_tool_parent("m4b_converter").iterdir())
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    m4b_converter_module = __import__("mp3_tools.m4b_converter", fromlist=["x"])
+    m4b_converter_module = __import__("m4b.converter.m4b_converter", fromlist=["x"])
     m4b_converter_module.M4BConverterUI._run_conversion(host, _run_params(broken))
 
     plan = host.plan()
@@ -1169,14 +1169,14 @@ def test_the_time_edit_worker_writes_copies_into_its_run():
                  "test_an_excessive_trim_fails_safely_with_the_real_occurrence",
                  "test_every_source_hash_is_unchanged_after_a_whole_run"):
         assert callable(getattr(covered, name)), name
-    from mp3_tools import mp3_tool
+    from mp3 import mp3_tool
 
     assert not hasattr(mp3_tool.MP3ToolUI, "_time_edit_worker")
 
 
 @needs_ffmpeg
 def test_the_cover_worker_writes_only_into_its_run(output_base, tmp_path):
-    from mp3_tools import cover_resizer
+    from artwork import cover_resizer
 
     Image = pytest.importorskip("PIL.Image")
     src = tmp_path / "shoot"

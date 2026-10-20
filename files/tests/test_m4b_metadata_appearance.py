@@ -42,8 +42,9 @@ import pytest
 from shared import appearance, paths, ui_theme  # noqa: F401
 from shared.job_control import JobState
 
-from mp3_tools import m4b_artwork_ui, m4b_metadata_editor as editor
-from mp3_tools import m4b_metadata_workflow as wf
+from artwork import m4b_artwork_ui
+from m4b.metadata import m4b_metadata_editor as editor
+from m4b.metadata import m4b_metadata_workflow as wf
 
 from test_m4b_metadata_editor_ui import (  # noqa: F401 - fixtures are collected by name
     container,
@@ -794,8 +795,8 @@ def test_the_panel_still_composes_the_editor_layers_only():
         elif isinstance(node, ast.ImportFrom):
             modules.add(node.module or "")
     assert "shared.metadata" not in modules and "mutagen" not in modules
-    assert "mp3_tools.m4b_metadata_processing" not in modules
+    assert "m4b.metadata.m4b_metadata_processing" not in modules
     # The preserve-by-default rules stay the model's.
-    assert wf.page_values.__module__ == "mp3_tools.m4b_metadata_workflow"
+    assert wf.page_values.__module__ == "m4b.metadata.m4b_metadata_workflow"
     for owned in ("edit_intent", "page_values", "chapter_edits"):
         assert f"def {owned}" not in source

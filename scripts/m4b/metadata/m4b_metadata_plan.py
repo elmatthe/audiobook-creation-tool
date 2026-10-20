@@ -23,7 +23,7 @@ What is frozen
   and frozen disposition survive in ``capture.skipped`` for Phase 9 to report;
   nothing tries to repair it, and no other Book is affected.
 - **Per Book, kept apart and never collapsed:** the frozen
-  :class:`~mp3_tools.m4b_metadata_workflow.SourceObservation` (what the source
+  :class:`~m4b.metadata.m4b_metadata_workflow.SourceObservation` (what the source
   *contains*), the explicit **Shared overrides**, the explicit **Book edits**,
   the explicit **artwork replacement**, the positional **chapter-title edits**,
   and the **action**. ``writes`` is a derived read-only view (Shared over Book)
@@ -69,8 +69,8 @@ from shared.book_workspace import (
 )
 from shared.importing import IdFactory, ImportOptions, SupportedTypeCatalog
 from shared.job_control import RunSnapshot
-from mp3_tools import m4b_metadata_workflow as wf
-from mp3_tools.m4b_metadata_workflow import ObservationStore, SourceObservation
+from m4b.metadata import m4b_metadata_workflow as wf
+from m4b.metadata.m4b_metadata_workflow import ObservationStore, SourceObservation
 
 __all__ = [
     "PlanError",

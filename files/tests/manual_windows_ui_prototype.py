@@ -47,7 +47,7 @@ SCRIPTS_ROOT = REPO_ROOT / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from mp3_tools import m4b_metadata_editor  # noqa: E402
+from m4b.metadata import m4b_metadata_editor  # noqa: E402
 from shared import ui_theme  # noqa: E402
 
 #: Shown on the specimen sheet itself, so a screenshot of it can never be
@@ -108,7 +108,7 @@ def _populate(ui) -> None:
     """
     from pathlib import PurePath
 
-    from mp3_tools import m4b_metadata_workflow as wf
+    from m4b.metadata import m4b_metadata_workflow as wf
     from shared.importing import ImportRoot, ImportedFile, ImportedFileSnapshot, Revision
 
     folder = Path.home() / "Audiobooks" / "Samples"

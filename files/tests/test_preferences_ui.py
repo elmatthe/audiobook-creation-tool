@@ -906,8 +906,8 @@ def test_no_tool_panel_was_touched_by_phase_two():
     """Output behaviour belongs to Phases 3-5; the panels are untouched here."""
     import importlib
 
-    for module_name in ("mp3_tools.cover_resizer", "mp3_tools.m4b_maker",
-                        "mp3_tools.m4b_converter", "mp3_tools.mp3_tool"):
+    for module_name in ("artwork.cover_resizer", "m4b.maker.m4b_maker",
+                        "m4b.converter.m4b_converter", "mp3.mp3_tool"):
         module = importlib.import_module(module_name)
         source = Path(module.__file__).read_text(encoding="utf-8")
         assert "preferences_ui" not in source

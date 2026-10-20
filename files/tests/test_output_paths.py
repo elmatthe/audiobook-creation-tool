@@ -1051,9 +1051,9 @@ def test_the_module_imports_no_tk_subprocess_or_network():
 def test_every_tool_panel_consumes_the_shared_service():
     """The guard flipped with the phase boundary: Phase 4 migrated all six."""
     tool_modules = [
-        "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
-        "mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py",
-        "mp3_tools/mp3_tool.py", "tts/epub2tts_gui.py",
+        "artwork/cover_resizer.py", "m4b/converter/m4b_converter.py",
+        "m4b/maker/m4b_maker.py", "m4b/metadata/m4b_metadata_editor.py",
+        "mp3/mp3_tool.py", "tts/epub2tts_gui.py",
     ]
     for relative in tool_modules:
         source = (REPO_ROOT / "scripts" / relative).read_text(encoding="utf-8")
@@ -1138,10 +1138,10 @@ def test_the_cleanup_flow_still_deletes_nothing_from_the_gui():
 
 def test_the_two_approved_exceptions_exist_and_no_others():
     """Phase 5 added exactly the two destination exceptions Decision 10A allows."""
-    cover = (REPO_ROOT / "scripts" / "mp3_tools" / "cover_resizer.py").read_text(
+    cover = (REPO_ROOT / "scripts" / "artwork" / "cover_resizer.py").read_text(
         encoding="utf-8"
     )
-    maker = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_maker.py").read_text(
+    maker = (REPO_ROOT / "scripts" / "m4b" / "maker" / "m4b_maker.py").read_text(
         encoding="utf-8"
     )
     assert "Save beside source images" in cover
@@ -1149,8 +1149,8 @@ def test_the_two_approved_exceptions_exist_and_no_others():
     assert "Choose custom destination" in maker
 
     # No third exception route arrived anywhere.
-    for relative in ("mp3_tools/m4b_converter.py", "mp3_tools/mp3_tool.py",
-                     "mp3_tools/m4b_metadata_editor.py", "tts/epub2tts_gui.py"):
+    for relative in ("m4b/converter/m4b_converter.py", "mp3/mp3_tool.py",
+                     "m4b/metadata/m4b_metadata_editor.py", "tts/epub2tts_gui.py"):
         source = (REPO_ROOT / "scripts" / relative).read_text(encoding="utf-8")
         assert "Save beside source" not in source
         assert "custom destination" not in source.lower()
