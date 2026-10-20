@@ -23,12 +23,16 @@ from tts import qwen3_worker as worker
 # Fakes
 # --------------------------------------------------------------------------- #
 class FakeCuda:
-    def __init__(self, available: bool):
+    def __init__(self, available: bool, devices: int | None = None):
         self.available = available
+        self.devices = (1 if available else 0) if devices is None else devices
         self.seeds = []
 
     def is_available(self):
         return self.available
+
+    def device_count(self):
+        return self.devices
 
     def synchronize(self):
         pass
@@ -452,3 +456,14 @@ def test_when_every_take_runs_away_the_shortest_is_kept_and_the_file_still_finis
     assert holder_model.calls == [1000, 1000 + step, 1000 + 2 * step]  # bounded: RUNAWAY_RETRIES re-renders, no more
     chunk = next(e for e in events(capsys) if e["event"] == "chunk")
     assert chunk["audio_s"] == 5.0 and chunk["retries"] == 1
+
+
+
+def test_cuda_reported_available_with_no_device_runs_on_the_cpu(tmp_path, monkeypatch, capsys):
+    """S5: CUDA_VISIBLE_DEVICES set to an empty value makes PyTorch say "available" with zero devices; "cuda:0" would fail."""
+    torch, holder = install_fakes(monkeypatch, cuda=True)
+    torch.cuda.devices = 0
+    assert worker.run_synth(job_for(tmp_path)) == worker.EXIT_OK
+    loaded = events(capsys)[0]
+    assert holder["args"][1] == "cpu" and loaded["device"] == "cpu"
+    assert torch.cuda.seeds == []  # no CUDA call is made at all on that machine

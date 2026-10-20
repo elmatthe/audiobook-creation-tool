@@ -1,4 +1,4 @@
-"""qwen3_transcripts.py — setting the six cloned Qwen3 voices up: their reference transcripts, made and confirmed in the app.
+"""qwen3_clone_setup.py — setting the six cloned Qwen3 voices up: their reference transcripts, made and confirmed in the app.
 
 A Qwen3 clone is conditioned on its reference recording AND the exact words spoken in it, and the application will only use
 a transcript that the person at this computer has approved for exactly that recording (``qwen3_runtime.load_transcript``:
@@ -14,7 +14,7 @@ excerpts of the narrators' books, so they are never shipped (owner ruling Q5): e
 
 Everything is stored in the same local, untracked file the app reads (``files/runtime-data/qwen3/transcripts.json``, or the
 ``ACT_QWEN3_TRANSCRIPTS`` override), which ``files/runtime-data/`` keeps out of git and out of every release archive.
-No Tk here: ``qwen3_transcripts_ui`` is the window.
+No Tk here: ``qwen3_clone_setup_ui`` is the window.
 """
 from __future__ import annotations
 

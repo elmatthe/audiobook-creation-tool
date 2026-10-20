@@ -12,7 +12,7 @@ Job kinds
 ``probe``  import the stack and report versions and GPU/CPU state; with ``model_dir`` also load that model once, so an
            install can prove the files really load. Synthesises nothing.
 ``transcribe``  draft the words spoken in each clone's reference recording with the pinned local speech recognizer
-           (``tts.qwen3_transcripts``), offline; the text goes to a file in the job folder, never to stdout.
+           (``tts.qwen3_clone_setup``), offline; the text goes to a file in the job folder, never to stdout.
 
 Terminal events (exactly one per run): ``done``, ``failed``, ``canceled``. A run that ends without one is a failure the
 reader reports as such. Cancellation is a flag file checked before the load, before each chunk and after it; the parent
@@ -56,8 +56,17 @@ def _versions() -> dict:
     return out
 
 
+def _cuda_usable(torch) -> bool:
+    """A GPU this process can actually use. ``is_available()`` alone is not enough: with ``CUDA_VISIBLE_DEVICES`` set to an
+    empty value PyTorch reports CUDA as available with zero devices, and "cuda:0" then fails. That machine runs on the CPU."""
+    try:
+        return bool(torch.cuda.is_available()) and torch.cuda.device_count() > 0
+    except Exception:  # noqa: BLE001 - a broken driver is "no usable GPU", not a crash
+        return False
+
+
 def _sync(torch) -> None:
-    if torch.cuda.is_available():
+    if _cuda_usable(torch):
         torch.cuda.synchronize()
 
 
@@ -75,17 +84,17 @@ def choose_device(preference: str, cuda_available: bool) -> str:
 
 
 def _device_state(torch, device: str) -> dict:
-    if device.startswith("cuda") and torch.cuda.is_available():
+    if device.startswith("cuda") and _cuda_usable(torch):
         props = torch.cuda.get_device_properties(0)
         return {"device": device, "device_name": props.name, "total_mib": props.total_memory // 2**20,
                 "capability": list(torch.cuda.get_device_capability(0))}
-    return {"device": "cpu", "device_name": "CPU", "cuda_available": bool(torch.cuda.is_available())}
+    return {"device": "cpu", "device_name": "CPU", "cuda_available": bool(_cuda_usable(torch))}
 
 
 def _load_model(job: dict, torch):
     from qwen_tts import Qwen3TTSModel
 
-    device = choose_device(job.get("device", "auto"), torch.cuda.is_available())
+    device = choose_device(job.get("device", "auto"), _cuda_usable(torch))
     started = time.perf_counter()
     model = Qwen3TTSModel.from_pretrained(
         job["model_dir"], device_map=device, dtype=getattr(torch, job.get("dtype", "bfloat16")),
@@ -141,9 +150,9 @@ def run_probe(job: dict) -> int:
     except Exception as exc:  # noqa: BLE001
         emit({"event": "failed", "stage": "import", "message": f"{type(exc).__name__}: {exc}"})
         return EXIT_FAILED
-    info = {"event": "probe", "versions": _versions(), "cuda_available": bool(torch.cuda.is_available()),
+    info = {"event": "probe", "versions": _versions(), "cuda_available": bool(_cuda_usable(torch)),
             "torch_cuda": getattr(torch.version, "cuda", None)}
-    info.update(_device_state(torch, "cuda:0" if torch.cuda.is_available() else "cpu"))
+    info.update(_device_state(torch, "cuda:0" if _cuda_usable(torch) else "cpu"))
     if job.get("model_dir"):
         try:
             model, device, load_s = _load_model(job, torch)
@@ -230,7 +239,7 @@ def run_synth(job: dict) -> int:
             for attempt in range(RUNAWAY_RETRIES + 1):
                 seed = attempt_seed(int(chunk["seed"]), attempt)
                 torch.manual_seed(seed)
-                if torch.cuda.is_available():
+                if _cuda_usable(torch):
                     torch.cuda.manual_seed_all(seed)
                 if mode == "custom_voice":
                     wavs, this_rate = model.generate_custom_voice(
@@ -256,7 +265,7 @@ def run_synth(job: dict) -> int:
             sf.write(str(out_dir / name), np.asarray(wav, dtype="float32"), rate, subtype="FLOAT")
         except Exception as exc:  # noqa: BLE001
             oom = "out of memory" in str(exc).lower()
-            if oom and torch.cuda.is_available():
+            if oom and _cuda_usable(torch):
                 torch.cuda.empty_cache()
             emit({"event": "failed", "stage": "generate", "index": chunk["index"], "oom": oom,
                   "message": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc()[-1500:]})
@@ -288,7 +297,7 @@ def run_transcribe(job: dict) -> int:
         import torchaudio
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-        device = choose_device(job.get("device", "auto"), torch.cuda.is_available())
+        device = choose_device(job.get("device", "auto"), _cuda_usable(torch))
         started = time.perf_counter()
         processor = WhisperProcessor.from_pretrained(job["model_dir"], local_files_only=True)
         model = WhisperForConditionalGeneration.from_pretrained(job["model_dir"], local_files_only=True).to(device).eval()

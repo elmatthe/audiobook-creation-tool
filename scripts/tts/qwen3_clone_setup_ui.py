@@ -1,7 +1,7 @@
-"""qwen3_transcripts_ui.py — the "Set up cloned voices" dialog: make the six Qwen3 clones usable, once, in the app.
+"""qwen3_clone_setup_ui.py — the "Set up cloned voices" dialog: make the six Qwen3 clones usable, once, in the app.
 
 Reached from "Install / repair Qwen3 voices" once the Base model is installed. Three steps, each only when the user asks
-(``tts.qwen3_transcripts`` has the rules):
+(``tts.qwen3_clone_setup`` has the rules):
 
 1. "Install speech recognizer" -- the size is shown and confirmed before anything is downloaded;
 2. "Create drafts" -- the six bundled recordings are transcribed on this computer; nothing is approved by this;
@@ -20,7 +20,7 @@ from typing import Callable, Optional
 from shared import appearance
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
-from tts import qwen3_transcripts as qt
+from tts import qwen3_clone_setup as qt
 from tts.qwen3_install_ui import POLL_MS, SetupSession, _ask_yes_no
 
 STATE_WORDS = {qt.STATE_APPROVED: "Approved", qt.STATE_DRAFT: "Draft: listen, correct, approve",

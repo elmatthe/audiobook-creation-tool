@@ -136,7 +136,7 @@ def state_lines() -> list[str]:
         voices = "Aiden and Ryan" if key == rt.MODEL_CUSTOMVOICE else "the six cloned voices"
         lines.append(f"{spec.label} model ({voices}): " + ("installed." if ok else _short(reason)))
         if key == rt.MODEL_BASE and ok:
-            from tts import qwen3_transcripts as qt
+            from tts import qwen3_clone_setup as qt
 
             approved = sum(r.state == qt.STATE_APPROVED for r in qt.rows())
             lines.append(f"Cloned voices set up: {approved} of 6"
@@ -305,9 +305,9 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         if open_clones is not None:
             open_clones(win)
         else:
-            from tts import qwen3_transcripts_ui
+            from tts import qwen3_clone_setup_ui
 
-            qwen3_transcripts_ui.run_dialog(win, theme=theme, confirm=confirm, style_name=style_name, on_change=on_change)
+            qwen3_clone_setup_ui.run_dialog(win, theme=theme, confirm=confirm, style_name=style_name, on_change=on_change)
         refresh()
 
     def poll() -> None:

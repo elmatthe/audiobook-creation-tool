@@ -80,8 +80,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_process.py",
     "tts/qwen3_setup.py",
     "tts/qwen3_install_ui.py",
-    "tts/qwen3_transcripts.py",
-    "tts/qwen3_transcripts_ui.py",
+    "tts/qwen3_clone_setup.py",
+    "tts/qwen3_clone_setup_ui.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

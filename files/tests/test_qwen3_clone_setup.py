@@ -27,7 +27,7 @@ from tts import qwen3_install_ui as install_ui
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 from tts import qwen3_synth
-from tts import qwen3_transcripts as qt
+from tts import qwen3_clone_setup as qt
 from tts import qwen3_worker as worker
 
 from test_qwen3_runtime import install_clone_fixture, install_environment, install_model, sandbox  # noqa: F401
@@ -395,7 +395,7 @@ class FakePlayer:
 
 @pytest.fixture()
 def dialog(tk_root, drafting):
-    from tts import qwen3_transcripts_ui as ui
+    from tts import qwen3_clone_setup_ui as ui
 
     made = []
 

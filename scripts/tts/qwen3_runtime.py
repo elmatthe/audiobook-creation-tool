@@ -42,7 +42,7 @@ KIND_CLONE = "clone"
 MODEL_CUSTOMVOICE = "customvoice"
 MODEL_BASE = "base"
 MODEL_KEYS = (MODEL_CUSTOMVOICE, MODEL_BASE)
-#: The local speech recognizer that drafts the six clones' reference transcripts once (``tts.qwen3_transcripts``). It is
+#: The local speech recognizer that drafts the six clones' reference transcripts once (``tts.qwen3_clone_setup``). It is
 #: pinned and verified exactly like the two voice models, but it is not a voice model: it is never installed by "Install
 #: Both" and no voice needs it at narration time.
 TRANSCRIBER = "transcriber"
