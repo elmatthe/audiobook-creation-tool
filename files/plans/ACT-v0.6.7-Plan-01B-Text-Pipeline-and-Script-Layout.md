@@ -685,3 +685,9 @@ Status: **done**, switched off. Codex review deferred to the consolidated pre-me
   skips unchanged; +1,472 tests since. The three macOS-launcher parse tests that fail when PowerShell resolves WSL's `bash.exe` ran and passed under Git Bash.
 * G2: `speech_ab.py g2` renders one 2,392-character passage (two chapters, every listening class, the ambiguous examples, a URL, prose colons, dialogue) through each
   engine's production entry point with `build_snapshot("v1")`, the voice's production timing preset (including the end pause) and 192k MP3. Durations 2.9-3.4 min.
+
+### B.13 Gate G2 (2026-10-20) -- approved; A6 authorised, G3 not approved
+
+* Owner G2 verdicts on `files/dev-work/speech-ab/g2/`: `1-Edge-Steffan` PASS, `2-Kokoro-Heart` PASS, `3-Chatterbox-Female-1` PASS, `4-Qwen3-Aiden` PASS; notes: none
+  (Decisions 2026-10-20). No pronunciation, voice, timing, pacing or normalization changes requested; the advisory "one roll" read-back is not an owner failure.
+* A5 configuration, G1 decisions, test evidence and the full-gate counts (9,989 / 60 / 0) are unchanged. A6 is authorised as an evaluation; G3 is not approved.

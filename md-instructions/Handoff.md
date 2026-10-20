@@ -2,6 +2,15 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: G2 APPROVED (4/4 PASS); A6 authorised and in progress; G3 not approved (2026-10-20, HOME-PC)
+
+- **G2 (owner, 2026-10-20):** Edge Steffan PASS, Kokoro Heart PASS, Chatterbox Female 1 PASS, Qwen3 Aiden PASS; notes: none. No pronunciation, voice, timing, pacing or
+  normalization changes requested. The advisory "one rule"/"one roll" read-back is not an owner-reported failure. Decisions 2026-10-20 (G2).
+- A5 stands as approved: G1 mode table, four native exceptions, default `v1`, full gate 9,989 / 60 / 0 (see below).
+- **Now:** A6 -- a conditional, evidence-first evaluation of the Chatterbox colon compatibility code; the workaround stays unless the mechanical criteria and G3 pass.
+- Still deferred to final hardening / pre-merge: Edge reliability and recovery enhancement; consolidated Codex review (B1 final correction, A1-A6); S5; re-test of
+  the four native exceptions at S5.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A5 verified (full gate PASS); G2 recordings ready; STOPPED at owner gate G2 (2026-10-20, HOME-PC)
 
 - **A5 full gate** (`scripts/verify.py`, run under Git Bash so `bash` is Git's): RESULT: PASS -- **9,989 passed, 60 skipped, 0 failed** (19 min 1 s); deps, docs,

@@ -4,6 +4,28 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Plan 01B gate G2 approved (4/4 PASS); A6 authorised, G3 not approved
+
+**Owner verdicts (G2, approved).** The owner listened to all four ~3-minute production recordings in `files/dev-work/speech-ab/g2/`:
+
+| Recording | Verdict | Notes |
+|---|---|---|
+| `1-Edge-Steffan.mp3` | PASS | none |
+| `2-Kokoro-Heart.mp3` | PASS | none |
+| `3-Chatterbox-Female-1.mp3` | PASS | none |
+| `4-Qwen3-Aiden.mp3` | PASS | none |
+
+**Decision.**
+- G2 is passed. No pronunciation, voice, timing, pacing or normalization change is requested; the A5 configuration (G1 mode table, four native exceptions,
+  `[tts] speech_prep = "v1"`, Qwen3 revision handling) stands as approved. G2 samples are not regenerated; G1 is not reopened.
+- The advisory Whisper read-back of "one rule:" as "one roll" in the Chatterbox recording is **not** an owner-reported failure: the recording passed by ear.
+- A6 (Chatterbox colon compatibility retirement *evaluation*) is authorised. It is not permission to remove the workaround; removal needs the A6 mechanical criteria
+  and owner gate G3, which is **not** approved.
+
+-- Decided by the owner (G2 verdicts); recorded by Claude Code
+
+---
+
 ## 2026-10-20 - Plan 01B gate G1 verdicts and checkpoint A5: the production mode table
 
 **Owner verdicts (G1, approved).** 60 comparisons in `files/dev-work/speech-ab/a4/listen-ordered/`: 11 A, 18 B, 31 Same, 0 Neither, decoded through the private
