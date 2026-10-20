@@ -3,6 +3,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import copy
+import io
 import os
 import re
 import subprocess
@@ -124,7 +125,11 @@ def get_book(sourcefile):
     # utf-8-sig, not utf-8 (v0.6.6 Phase 10): a Windows "UTF-8 with BOM" file
     # otherwise keeps U+FEFF on its first line, which ``strip`` leaves in place,
     # so its "Title:"/"Author:"/"#" line was spoken aloud instead of parsed.
-    with open(sourcefile, "r", encoding="utf-8-sig") as file:
+    # The decode boundary is shared (Plan 01B A1); get_book keeps its own chapter parsing.
+    _ensure_shared_on_path()
+    from tts.speech.document import read_source_text
+
+    with io.StringIO(read_source_text(sourcefile)) as file:
         current_chapter = {"title": "blank", "paragraphs": []}
         initialized_first_chapter = False
         header_done = False

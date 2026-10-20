@@ -34,6 +34,7 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
 
 from shared import ffmpeg_utils
 from tts.pdf_extractor import extract_text_from_pdf
+from tts.speech.document import read_source_text
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
 CHUNK_TARGET = 3000
@@ -172,7 +173,7 @@ def convert_single_pdf(
                 if pdf_path.suffix.lower() == ".txt":
                     # utf-8-sig: a leading BOM is a signature, not text (the
                     # documented UTF-8 / UTF-8-with-BOM TXT contract).
-                    text = pdf_path.read_text(encoding="utf-8-sig")
+                    text = read_source_text(pdf_path)
                 else:
                     text = extract_text_from_pdf(str(pdf_path))
                 chunks = split_into_chunks(text)

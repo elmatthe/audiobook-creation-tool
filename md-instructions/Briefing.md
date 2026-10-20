@@ -421,6 +421,8 @@ flashing during use.
 - **Import convention:** `scripts/` is the single import root (v0.6.7 checkpoint B1 lifted `launcher.py`, `shared/`, `tts/` and
   `mp3_tools/` out of the former `scripts/Universal/`; the package names did not change). Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
+  Source-text structure (decode, `Title:`/`Author:`/`#`) is read by Kokoro, Chatterbox and Qwen3 through `tts/speech/document.py` (v0.6.7 A1);
+  per-engine differences are `StructureOptions`.
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
   only ever imported as `tts.epub2tts_edge`.
 - **Data flow (TTS):** GUI → `tts/epub2tts_edge/runner.run_conversion_job` (cwd-safe temp-dir

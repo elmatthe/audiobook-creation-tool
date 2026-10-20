@@ -27,6 +27,7 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 | Edge TTS (network) | `batch_convert.py`, `epub2tts_edge/` | five voices |
 | Kokoro (local) | `kokoro_synth.py` | nine voices; Kokoro's own G2P handles numbers |
 | Chatterbox Turbo (local, cloned) | `chatterbox_synth.py` | six voices from the bundled reference recordings; 300-character chunks |
+| Shared speech preparation | `speech/document.py` | one decode and `Title:`/`Author:`/`#` structure loader for Kokoro, Chatterbox and Qwen3 (A1); standard library only |
 | Qwen3-TTS (local, optional, Windows first) | `qwen3_runtime.py`, `qwen3_synth.py`, `qwen3_worker.py`, `qwen3_process.py`, `qwen3_setup.py`, `qwen3_install_ui.py`, `qwen3_models.json` | eight voices in a separate `.venv-qwen3`; only `qwen3_worker.py` runs inside it |
 
 ## Text-route baselines

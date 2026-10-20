@@ -66,6 +66,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_runtime.py",
     "tts/qwen3_synth.py",
     "tts/qwen3_worker.py",
+    "tts/speech/__init__.py",
+    "tts/speech/document.py",
     "tts/qwen3_process.py",
     "tts/qwen3_setup.py",
     "tts/qwen3_install_ui.py",

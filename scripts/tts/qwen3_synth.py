@@ -48,6 +48,7 @@ from shared.cancellation import ConversionCancelled
 from tts import qwen3_process
 from tts import qwen3_runtime as rt
 from tts.qwen3_runtime import Qwen3Unavailable
+from tts.speech.document import HEADING_PARAGRAPH_STRUCTURE, load_speech_text, parse_structure
 
 # --------------------------------------------------------------------------- #
 # Constants
@@ -93,18 +94,7 @@ def prepare_text(raw_text: str) -> str:
     ``chatterbox_file_to_mp3`` do. A heading line additionally becomes a paragraph of its own (blank lines around
     it), so a title is never fused with the first sentence after it and earns the paragraph pause.
     """
-    lines: list[str] = []
-    for line in raw_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("Title:") or stripped.startswith("Author:"):
-            continue
-        if stripped.startswith("#"):
-            heading = stripped.lstrip("#").strip()
-            if heading:
-                lines.extend(["", heading, ""])
-            continue
-        lines.append(line)
-    return "\n".join(lines).strip()
+    return parse_structure(raw_text, HEADING_PARAGRAPH_STRUCTURE).text
 
 
 # --------------------------------------------------------------------------- #
@@ -710,7 +700,7 @@ def qwen3_file_to_mp3(
     # Held for the whole conversion, machine-wide: an install or repair (in this app or another copy) cannot replace the
     # environment or models under a running worker, and two Qwen3 conversions cannot fight over one GPU.
     with rt.inference_lease():
-        text = prepare_text(src.read_text(encoding="utf-8-sig"))
+        text = load_speech_text(src, HEADING_PARAGRAPH_STRUCTURE).text
         if not text:
             raise ValueError("No text content found after parsing source file.")
         chunks = plan_chunks(text)

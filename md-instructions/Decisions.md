@@ -12,6 +12,19 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Plan 01B checkpoint A1: one structure loader, existing engine differences kept as options; intermediate Codex reviews deferred
+
+**Decision.**
+- *One loader, explicit options.* `tts/speech/document.py` owns decoding and the `Title:`/`Author:`/`#` rules. Engine differences are options, not forks: Qwen3 makes a heading a paragraph of
+  its own (and drops an empty heading), Kokoro/Chatterbox keep heading text in line (an empty heading leaves an empty line), Edge folder takes the text untouched. Unifying any of these
+  would change audio and remains the owner's decision ([D10], [D11]); A1 changes none.
+- *The speech package is a pure-Python leaf.* Standard library only; it imports no engine and no UI module (pinned by a test). It is listed in the production-source allow-list on purpose.
+- *Review cadence.* The owner explicitly deferred the independent Codex review of B1's final correction and of every intermediate checkpoint (A1 onward) to ONE consolidated pre-merge verification before v0.6.7 closes. Codex has NOT independently passed the final B1 correction; that evidence stays unresolved until the consolidated qualification.
+
+-- Decided by the owner's instruction; implemented by Claude Code
+
+---
+
 ## 2026-10-19 - Plan 01B corrective checkpoint: where a startup notice is shown, and what "application source" means to a guard
 
 **Decision (Codex findings on B1).**

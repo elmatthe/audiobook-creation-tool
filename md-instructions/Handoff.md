@@ -2,6 +2,17 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A1 (shared structure loader) done; A2 NOT started (2026-10-20, HOME-PC)
+
+C0, A0 and B1 are accepted by the owner. The owner explicitly deferred the independent Codex review of B1's final correction and of every intermediate checkpoint (A1 onward) to ONE consolidated pre-merge verification before v0.6.7 closes. Codex has NOT independently passed the final B1 correction; that evidence stays unresolved until the consolidated qualification.
+A1 is a pure refactor: `scripts/tts/speech/document.py` (new, standard library only) is the one implementation of source decoding (`utf-8-sig`) and the
+`Title:`/`Author:`/`#` rules. `StructureOptions` keeps each engine's behaviour: `LOCAL_ENGINE_STRUCTURE` (Kokoro, Chatterbox), `HEADING_PARAGRAPH_STRUCTURE` (Qwen3),
+`RAW_STRUCTURE` (Edge folder: the text is handed over unchanged). Edge direct keeps `get_book` and chapter parsing and shares only the decode. The A0 goldens are
+byte-identical (`speech_characterization.py check` prints OK). New `test_speech_document.py` proves equivalence with verbatim copies of the old loops on the quality corpus,
+edge cases and a seeded random generator. `test_epub_retirement.py` allow-list gained the two new modules. No full verify (reserved for the next critical checkpoint).
+Not started: A2-A5, A6, S5. No normalization, dependency, voice, model, pause, seed or setting change; no merge, tag or release; identity stays 0.6.6.
+Next: A2 only on the owner's go-ahead.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: final B1 source-inventory correction done; A1 still NOT started (2026-10-19, HOME-PC)
 
 The last open Codex P2 is closed: the production-source helper uses the explicit registry `APPLICATION_PACKAGES` only, so untracked developer packages (e.g. `scripts/dev_helpers/`) and local scripts are excluded, and a new tracked production folder fails the canary until registered. Plan 01B Appendix B.5 has the proof. Focused set (source-inventory, FFmpeg, M4B structural-authority, application-boundary, layout canary and the other 9 modules that use the helper): 1,182 passed, 2 skipped; A0 `check` prints OK; no full verify run. All three original Codex findings are resolved. Next: independent Codex review and owner approval before A1.

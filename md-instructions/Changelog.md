@@ -15,6 +15,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — Shared source-structure loader for the speech engines (v0.6.7 Plan 01B checkpoint A1, 2026-10-20)
+
+- Development only, no audible change: Kokoro, Chatterbox and Qwen3 now read a source `.txt` (BOM handling, `Title:`/`Author:` lines, `#` headings) through one shared
+  module, `tts/speech/document.py`, instead of three private copies. Edge direct shares only the file decode; Edge folder shares only its decode. Each engine keeps its existing
+  heading and metadata behaviour; the text each route hands to its engine is byte-identical to before.
+
 ### Fixed — Leftover-folder notice and production-guard scope (v0.6.7 Plan 01B corrective checkpoint after B1, 2026-10-19)
 
 - The notice about a leftover `scripts/Universal/` is now shown where a person can see it: one line in the launcher window's status bar, once per launch, never a dialog.

@@ -69,6 +69,7 @@ import soundfile as sf
 from pydub import AudioSegment
 
 from shared import ffmpeg_utils
+from tts.speech.document import LOCAL_ENGINE_STRUCTURE, load_speech_text
 
 # --------------------------------------------------------------------------- #
 # Engine identity — the exact release this module was written against
@@ -1434,21 +1435,9 @@ def chatterbox_file_to_mp3(
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")
 
-    # utf-8-sig: a leading BOM would hide a "Title:" first line from the skip
-    # below and have it spoken (v0.6.6 Phase 10).
-    raw_text = src.read_text(encoding="utf-8-sig")
-
-    lines = raw_text.splitlines()
-    content_lines: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("Title:") or stripped.startswith("Author:"):
-            continue
-        if stripped.startswith("#"):
-            content_lines.append(stripped.lstrip("#").strip())
-        else:
-            content_lines.append(line)
-    text = "\n".join(content_lines).strip()
+    # Decoding (utf-8-sig, so a BOM cannot hide a "Title:" line) and the Title:/Author:/# rules are the shared
+    # structure stage (Plan 01B A1); this engine keeps its own options.
+    text = load_speech_text(src, LOCAL_ENGINE_STRUCTURE).text
 
     # Chatterbox Turbo's own ceiling, never Kokoro's — see
     # CHATTERBOX_MAX_CHUNK_CHARS for the evidence and the Phase 12 defect it fixes.
