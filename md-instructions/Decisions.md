@@ -4,6 +4,46 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Edge TTS reliability and recovery (final hardening checkpoint): classify, retry only what can recover, say what to do
+
+**Decision.** Both Edge routes (direct `run_edgespeak`, folder `convert_single_pdf`) now decide whether another attempt can help from the exception's real type and
+attributes, instead of retrying every exception. One new module, `scripts/tts/edge_failures.py`, is the only place that classifies and words failures.
+
+| Kind | Real signals | Retried? | What the user is told |
+|---|---|---|---|
+| service refused | `aiohttp.ClientResponseError`/`WSServerHandshakeError` status 401/403; `edge_tts.SkewAdjustmentError` | no | Microsoft's service refused the connection; retrying/reinstalling/updating may not fix it; check connection and PC date/time; report if it persists; an offline voice can be chosen *by the user* |
+| protocol | other HTTP statuses (400/404/426/...); `UnknownResponse`, `UnexpectedResponse` | no | the service answered in a way this ACT version does not understand (it has probably changed); retrying will not fix it; report it |
+| network / temporary | status 408/425/429/5xx; `WebSocketError`; `aiohttp.ClientConnectionError`/`ClientPayloadError`/timeouts; `TimeoutError`, `ConnectionError`, `socket.gaierror` | yes, the existing bounds | could not reach the service after several tries; check connection/VPN/firewall; Retry Failed |
+| local | `OSError` that is not a network error, `ValueError`, `TypeError` | no | not an Edge message at all: the original exception is raised unchanged |
+| cancelled | `ConversionCancelled`, `asyncio.CancelledError`, `KeyboardInterrupt` | no | never wrapped, never reported as a service failure |
+| unknown | `NoAudioReceived`, other `EdgeTTSException`, anything unrecognised | yes, the existing bounds | failed unexpectedly after several tries; Retry Failed; report with the log |
+
+- *Retry bounds are the approved ones, only applied to failures that can recover.* Direct: 3 attempts, 3 s apart. Folder: `CHUNK_MAX_RETRIES = 5` (2/4/8/16 s) inside
+  `PDF_MAX_RETRIES = 2` whole-file redos (5 s) -- both constants and `INTER_CHUNK_DELAY_SEC` unchanged and still pinned by existing tests. A refused handshake used to cost
+  3 requests (direct) or 15 (folder, 5 x 3, ~100 s of waiting); it now costs 1 and no wait. The folder's whole-file redo is also skipped for permanent failures.
+- *Cancellation:* the folder route checks the user's cancel before each back-off and before the whole-file pause, so a cancelled run no longer sits out up to 30 s of waits.
+  The direct route is unchanged there (cancel is already checked between sentences; its longest wait is 3 s).
+- *Diagnostics survive, secrets and book text do not.* The final error is `EdgeServiceError` (a `RuntimeError`), `str()` = `<one-line advice> | Technical detail: <type,
+  HTTP status, scrubbed message, attempt count, edge-tts version>`, with the original exception chained. Every URL query string and bare `TrustedClientToken`/`Sec-MS-GEC`/
+  `ConnectionId` is removed (also from the folder route's traceback text in `batch_errors.log`). The direct route's log line no longer prints the sentence it was synthesizing.
+  A failed attempt's partial audio file is removed. Nothing is published on failure: the direct route moves its file only after assembly; the folder route merges only after
+  every chunk succeeded (unchanged).
+- *Panel:* `record_failure` appends the advice line to the item's `display_message` when the failure text carries one (`split_failure_text`); the technical detail stays in
+  `technical_detail` and the log. Items stay `retryable=True`, so Retry Failed means what it always did.
+- *Recovery is guidance, not action.* Setup_and_Run is named only when the installed `edge_tts.__version__` differs from the pin (`EXPECTED_EDGE_TTS`, kept equal to
+  `requirements.txt` by a test); a remote 403 is never promised to be fixable by reinstalling. `edge-tts==7.3.1` and every other pin are unchanged; no auto-upgrade, no
+  alternative provider, no venv repair, no new startup network call, no fallback voice or engine, no dialog.
+- *Not done on purpose:* a run-level circuit breaker that would skip the remaining files after the first refusal. Each file now fails after one quick request, the failures
+  are individually retryable, and skipping would change which items are reported as failed. Revisit only if a service-wide outage makes long queues noisy.
+- *Verification:* `files/tests/test_edge_failures.py` (57 offline tests; the real `Communicate` boundary replaced by a scripted fake that is checked against the real
+  signature; real aiohttp/edge_tts exception types), three panel tests in `test_tts_jobs.py`; run against the pre-change route code the refusal, token and cancel tests fail
+  (15 requests, token and sentence in the log). Eight mutants of the new logic killed. One live request through the production path with the pinned dependency and
+  `en-US-SteffanNeural` succeeded (live availability is a service fact, not a test prerequisite). The full `verify.py` gate is reserved for S5; A0 `check` OK.
+
+-- Decided by the owner's deferral (2026-10-20); implemented by Claude Code
+
+---
+
 ## 2026-10-20 - Plan 01B checkpoint A6: the Chatterbox colon compatibility code is RETAINED WITH EVIDENCE
 
 **Question.** With speech preparation on (A5, G2 passed), can either Chatterbox colon mechanism be retired?

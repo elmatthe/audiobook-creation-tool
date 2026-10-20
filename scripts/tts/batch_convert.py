@@ -33,6 +33,7 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
+from tts import edge_failures
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -170,6 +171,8 @@ def convert_single_pdf(
                 )
                 shutil.rmtree(tmp_root, ignore_errors=True)
                 tmp_root.mkdir(parents=True, exist_ok=True)
+                if _cancelled():
+                    return "cancelled", pdf_path, None
                 time.sleep(5)
 
             try:
@@ -201,15 +204,22 @@ def convert_single_pdf(
                             synthesize_chunk_mp3(chunk, cpath, speaker, rate)
                             break
                         except Exception as e:
-                            if attempt < CHUNK_MAX_RETRIES - 1:
+                            # Only a failure another attempt can plausibly cure is retried (see edge_failures):
+                            # a refused handshake or a changed protocol would fail identically every time.
+                            if edge_failures.is_retryable(e) and attempt < CHUNK_MAX_RETRIES - 1:
                                 wait = 2 ** (attempt + 1)
                                 log(
                                     f"  [retry {attempt+1}/{CHUNK_MAX_RETRIES-1}] "
-                                    f"chunk {idx} of {pdf_path.name} — waiting {wait}s ({e})"
+                                    f"chunk {idx} of {pdf_path.name} — waiting {wait}s ({edge_failures.describe(e)})"
                                 )
+                                if _cancelled():  # do not sit out a back-off the user has cancelled
+                                    return "cancelled", pdf_path, None
                                 time.sleep(wait)
                                 continue
-                            raise
+                            final = edge_failures.final_error(e, attempt + 1)
+                            if final is e:
+                                raise
+                            raise final from e
                     chunk_paths.append(cpath)
                     time.sleep(INTER_CHUNK_DELAY_SEC)
 
@@ -219,8 +229,10 @@ def convert_single_pdf(
                     progress_report(stem, "completed")
                 return "success", pdf_path, None
             except Exception as e:
-                last_err = f"{e}\n{traceback.format_exc()}"
-                if pdf_attempt < PDF_MAX_RETRIES:
+                # The log may be shared for diagnosis: scrub handshake tokens out of the message and traceback.
+                last_err = edge_failures.scrub(f"{e}\n{traceback.format_exc()}")
+                # Redoing the whole file cannot cure a permanent failure (refused/changed service, local problem).
+                if pdf_attempt < PDF_MAX_RETRIES and edge_failures.is_retryable(e):
                     continue
                 if progress_report is not None:
                     progress_report(stem, "failed")

@@ -17,6 +17,7 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 |---|---|
 | `pdf_extractor.py` | PDF → plain text (PyMuPDF), including dehyphenation and page-gap repair |
 | `batch_convert.py` | Edge **folder** route: raw text, 3000-character chunks, one MP3 per source file |
+| `edge_failures.py` | Edge failure classification shared by both Edge routes: what is retried, the one-line recovery advice, token-free diagnostics |
 | `epub2tts_edge/epub2tts_edge.py` | Edge **direct** route: `Title:`/`Author:`/`#` structure, sentence splitting, comma/ellipsis/dash pauses, paragraph and chapter assembly |
 | `epub2tts_edge/runner.py` | Runs one direct Edge conversion in a private working folder |
 

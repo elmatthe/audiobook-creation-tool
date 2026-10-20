@@ -50,6 +50,7 @@ PRODUCTION_TTS_SOURCES = (
     "tts/epub2tts_edge/__init__.py",
     "tts/__init__.py",
     "tts/batch_convert.py",
+    "tts/edge_failures.py",
     "tts/pdf_extractor.py",
     "tts/kokoro_synth.py",
     "tts/voice_registry.py",

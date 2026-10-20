@@ -532,6 +532,9 @@ def run_edgespeak(sentence, speaker, filename):
     if not _SPEAKABLE.search(sentence):
         AudioSegment.silent(duration=50).export(filename, format="mp3")
         return
+    _ensure_shared_on_path()
+    from tts import edge_failures
+
     for speakattempt in range(3):
         try:
             communicate = edge_tts.Communicate(sentence, speaker)
@@ -540,13 +543,19 @@ def run_edgespeak(sentence, speaker, filename):
                 raise RuntimeError("Failed to save file from edge_tts")
             break
         except Exception as e:
-            print(f"Attempt {speakattempt+1}/3 failed with '{sentence}' in run_edgespeak with error: {e}")
+            # Only a failure another attempt can plausibly cure is retried: a refused handshake (HTTP 401/403),
+            # a changed protocol or a local file problem would fail identically three times. The log names the
+            # failure, never the sentence (source text).
+            print(f"Attempt {speakattempt+1}/3 failed in run_edgespeak: {edge_failures.describe(e)}")
+            if not edge_failures.is_retryable(e) or speakattempt == 2:
+                with contextlib.suppress(OSError):
+                    os.remove(filename)  # never leave the failed attempt's partial audio behind
+                final = edge_failures.final_error(e, speakattempt + 1)
+                if final is e:
+                    raise
+                raise final from e
             # wait a few seconds in case its a transient network issue
             time.sleep(3)
-    else:
-        msg = f"Giving up on sentence after 3 attempts in run_edgespeak: {sentence!r}"
-        print(msg)
-        raise RuntimeError(msg)
 
 def run_save(communicate, filename):
     asyncio.run(communicate.save(filename))

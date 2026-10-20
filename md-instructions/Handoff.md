@@ -2,6 +2,27 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 final hardening: Edge reliability and recovery DONE; STOPPED before the consolidated Codex review (2026-10-20, HOME-PC)
+
+- **What changed (both Edge routes, one shared module `scripts/tts/edge_failures.py`):** failures are classified from real exception types/status (service refused 401/403 and
+  clock-skew; protocol; network/temporary; local; cancelled; unknown). Only network and unknown failures are retried, with the unchanged approved bounds (direct 3 x 3 s;
+  folder 5 chunk x 3 whole-file, constants pinned by existing tests). A refused handshake now costs 1 request (was 3 direct / 15 folder, ~100 s of waits); local file
+  problems are not retried; the folder route stops at once on Cancel during a back-off. The final error is `EdgeServiceError` = one-line plain advice + `| Technical detail:`
+  (type, HTTP status, scrubbed message, attempts, edge-tts version); handshake tokens and the book's sentence are no longer logged; failed partial audio is removed.
+  `epub2tts_gui.record_failure` appends the advice to the item's `display_message`; items stay retryable. Decisions 2026-10-20 (Edge reliability and recovery) has the table.
+- **Unchanged (proved):** `edge-tts==7.3.1` and all pins; voices, text, chunking, rate, pauses, output naming/bitrate; successful requests are exactly
+  `Communicate(sentence, voice)` (direct) / `Communicate(text=, voice=, rate=)` (folder); no fallback voice/engine, no startup network call, no dialog. A0 `check` OK.
+- **Verification:** `files/tests/test_edge_failures.py` (57 offline) + 3 panel tests in `test_tts_jobs.py`; focused set (Edge, batch, TTS jobs/panel/importing, retry, job control,
+  config, settings, speech, layout, boundaries, kokoro/qwen3/chatterbox boundaries, bootstrap requirements, launcher smoke) **3,523 passed, 1 skipped, 0 failed**.
+  Against the pre-change route code the new refusal/token/cancel tests fail; 8 mutants of the new logic killed. Live smoke: one short non-book sentence through
+  `run_edgespeak` with `en-US-SteffanNeural` on edge-tts 7.3.1 returned real audio (service availability, not a test prerequisite). No full `verify.py` (reserved for S5).
+- **Registered with the contracts:** `tts/edge_failures.py` added to `PRODUCTION_TTS_SOURCES` (`test_epub_retirement`) and to `scripts/tts/README.md` (layout canary).
+- **Decisions for the owner (none blocking):** (1) no run-level circuit breaker after the first refusal (each file fails after one quick request; revisit if outages make long
+  queues noisy); (2) the advice suggests the *user* may pick an offline voice; ACT never switches voice or engine itself; (3) if a future 403 persists with the pin intact, the
+  remedy is a verified pin bump through the existing owner-gated process (as 7.2.8 -> 7.3.1), not code here.
+- **Next (owner-gated, not started):** the ONE consolidated independent Codex CLI review covering B1's final correction, A1-A6 and this Edge hardening; then resolution of
+  verified findings; then S5 (full gate, re-test the four native exceptions, re-evaluate the A6 exception). Not started and not authorised: Plan 02, B2, PR/merge/tag/release.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A6 closed RETAINED WITH EVIDENCE; G2 approved; G3 did not arise (2026-10-20, HOME-PC)
 
 - **A6:** both Chatterbox colon mechanisms (structural-colon `punc_norm` patch; 75 ms prose-colon pause) retained unchanged. Gate A failed for each: v1 and off

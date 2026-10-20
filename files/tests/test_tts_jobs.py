@@ -1070,6 +1070,72 @@ def test_a_folder_item_failure_is_an_item_failure_too(
     assert result.has_retryable is True
 
 
+def _refused_by_the_edge_service():
+    """The error both Edge routes now end on when Microsoft's service answers HTTP 403."""
+    import aiohttp
+    from multidict import CIMultiDict, CIMultiDictProxy
+    from yarl import URL
+
+    from tts import edge_failures
+
+    url = URL("wss://speech.example.test/v1?TrustedClientToken=SECRETTOKEN")
+    info = aiohttp.RequestInfo(url=url, method="GET", headers=CIMultiDictProxy(CIMultiDict()), real_url=url)
+    return edge_failures.final_error(
+        aiohttp.WSServerHandshakeError(info, (), status=403, message="Invalid response status"), 1)
+
+
+def test_a_direct_edge_service_refusal_reaches_the_failure_record_as_one_line_of_advice(
+    make_panel, output_base, tmp_path, failing_stubs, monkeypatch
+):
+    from tts.epub2tts_edge import runner
+
+    def refused(sourcefile, **kwargs):
+        raise _refused_by_the_edge_service()
+
+    monkeypatch.setattr(runner, "run_conversion_job", refused)
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
+    run_attempt(panel)
+
+    record = panel._result.failures.records[0]
+    assert record.display_message.startswith("one.txt could not be converted. Microsoft's online Edge Read Aloud")
+    assert "\n" not in record.display_message and "HTTP 403" in record.display_message
+    assert "WSServerHandshakeError (HTTP 403)" in record.technical_detail
+    assert "SECRETTOKEN" not in record.technical_detail + record.display_message
+    assert record.retryable is True, "Retry Failed keeps its normal meaning: the item stays retryable"
+
+
+def test_a_folder_edge_service_refusal_reaches_the_failure_record_the_same_way(
+    make_panel, output_base, tmp_path, failing_stubs, monkeypatch
+):
+    from tts import batch_convert
+
+    def refused(path, output_dir, speaker, rate, log=print, progress_report=None, cancel_check=None,
+                out_mp3=None, bitrate=None, speech_prep=None):
+        error = _refused_by_the_edge_service()
+        return "failed", Path(path), f"{error}\nTraceback (most recent call last):\n  ..."
+
+    monkeypatch.setattr(batch_convert, "convert_single_pdf", refused)
+    root = tmp_path / "Library"
+    sources(root, "01.pdf")
+    panel = make_panel(choose_folder=lambda: (root,))
+    panel.importer.add_folder()
+    panel._pump.tick()
+    run_attempt(panel)
+
+    record = panel._result.failures.records[0]
+    assert "refused the connection" in record.display_message and "\n" not in record.display_message
+    assert "Traceback" in record.technical_detail and "Traceback" not in record.display_message
+    assert panel._result.has_retryable is True
+
+
+def test_an_ordinary_failure_keeps_its_plain_display_message(
+    make_panel, output_base, tmp_path, failing_stubs
+):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "bad.txt")
+    run_attempt(panel)
+    assert panel._result.failures.records[0].display_message == "bad.txt could not be converted."
+
+
 def test_an_orchestration_failure_is_fatal_and_not_retryable(
     make_panel, output_base, tmp_path, stubs, monkeypatch
 ):

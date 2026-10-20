@@ -140,6 +140,7 @@ from shared.job_control import (
 )
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
+from tts import edge_failures
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -2798,6 +2799,9 @@ class _RunContext:
         own collision-safe path.
         """
         trouble = f"{item['source'].name} could not be converted."
+        advice = edge_failures.split_failure_text(detail)  # an Edge service failure carries its own one-line advice
+        if advice:
+            trouble = f"{trouble} {advice}"
         self.failures.append(FailureRecord(
             item_id=item["item_id"], stage=STAGE_CONVERT,
             display_message=trouble, technical_detail=detail,

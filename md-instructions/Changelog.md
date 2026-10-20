@@ -15,6 +15,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — Edge voices: clearer, faster failures when Microsoft's service is unavailable (v0.6.7 final hardening, 2026-10-20)
+
+- When Microsoft's online Edge Read Aloud service refuses or cannot be reached, a file that cannot be converted now says why in plain words and what to try (check the
+  connection and the PC's date and time, use Retry Failed, report it if it keeps happening) instead of showing only "could not be converted". Nothing is promised that
+  reinstalling or updating cannot deliver, and Setup_and_Run is suggested only if the installed Edge component is not the version ACT expects.
+- A refusal that retrying cannot cure (HTTP 401/403, or a service that has changed) is no longer retried: it fails after one request instead of three (single file) or
+  fifteen with about 100 seconds of waiting (folder). Temporary network problems keep exactly the same bounded retries as before. Cancelling during a retry wait now stops at once.
+- Logs no longer contain the service's handshake tokens or the sentence being read. Voices, text, pauses, output and the pinned `edge-tts 7.3.1` are unchanged.
+
 ### Added — Chatterbox colon evaluation evidence (v0.6.7 Plan 01B checkpoint A6, 2026-10-20)
 
 - Development only, no change to narration: the Chatterbox colon handling (times, ratios, web addresses and paths keep their colon; a short pause after an
