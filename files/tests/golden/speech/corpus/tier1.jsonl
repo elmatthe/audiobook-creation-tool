@@ -1,0 +1,48 @@
+{"id": "card-thousands", "input": "It had 1,250 pages.", "expected": "It had one thousand two hundred fifty pages.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "card-small", "input": "She kept 12 hens and 3 goats.", "expected": "She kept twelve hens and three goats.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "card-million", "input": "About 1,000,000 stars.", "expected": "About one million stars.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "card-hundred-one", "input": "Page 101 was torn.", "expected": "Page one hundred one was torn.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "no 'and' in whole numbers"}
+{"id": "card-zero", "input": "The score was 0 at half time.", "expected": "The score was zero at half time.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "card-count-cue-four-digit", "input": "It held 1500 people.", "expected": "It held one thousand five hundred people.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "count noun resolves a four-digit number"}
+{"id": "card-2005-same-either-way", "input": "He ran 2005 laps.", "expected": "He ran two thousand five laps.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "year and cardinal readings coincide"}
+{"id": "card-large-unsplit", "input": "A crowd of 25000 gathered.", "expected": "A crowd of twenty five thousand gathered.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "card-list-number", "input": "1. Begin here.", "expected": "one. Begin here.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "card-sentence-end", "input": "The answer is 42.", "expected": "The answer is forty two.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "a sentence stop is never consumed"}
+{"id": "card-quotes", "input": "\"7\" she said.", "expected": "\"seven\" she said.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "dec-basic", "input": "It was 3.5 meters wide.", "expected": "It was three point five meters wide.", "classes": ["DEC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "dec-leading-zero-fraction", "input": "A 0.07 margin.", "expected": "A zero point zero seven margin.", "classes": ["DEC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "dec-trailing-zero", "input": "It cost 3.50 in tokens.", "expected": "It cost three point five zero in tokens.", "classes": ["DEC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ord-first", "input": "The 1st time.", "expected": "The first time.", "classes": ["ORD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ord-twenty-first", "input": "On the 21st floor.", "expected": "On the twenty first floor.", "classes": ["ORD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ord-teens", "input": "The 11th, 12th and 13th.", "expected": "The eleventh, twelfth and thirteenth.", "classes": ["ORD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ord-hundredth", "input": "The 100th visitor.", "expected": "The one hundredth visitor.", "classes": ["ORD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ord-102nd", "input": "The 102nd row.", "expected": "The one hundred second row.", "classes": ["ORD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "pct-decimal", "input": "A 12.5% rise.", "expected": "A twelve point five percent rise.", "classes": ["PCT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "pct-whole", "input": "Nearly 100% sure.", "expected": "Nearly one hundred percent sure.", "classes": ["PCT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-cents", "input": "It cost $12.50 today.", "expected": "It cost twelve dollars fifty cents today.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-whole", "input": "Only $5.", "expected": "Only five dollars.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-one", "input": "Just $1 each.", "expected": "Just one dollar each.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-cents-only", "input": "A $0.50 fee.", "expected": "A fifty cents fee.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-one-cent", "input": "It rose $1.01 overnight.", "expected": "It rose one dollar one cent overnight.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-pound", "input": "Rent was £3 a week.", "expected": "Rent was three pounds a week.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-pence", "input": "A pie for £2.75.", "expected": "A pie for two pounds seventy five pence.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-euro", "input": "Coffee was €2.", "expected": "Coffee was two euros.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-yen", "input": "A ticket was ¥100.", "expected": "A ticket was one hundred yen.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-million-word", "input": "They raised $1.5 million.", "expected": "They raised one point five million dollars.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-billion-suffix", "input": "A $2bn deal.", "expected": "A two billion dollars deal.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "cur-thousands", "input": "Worth $1,200 now.", "expected": "Worth one thousand two hundred dollars now.", "classes": ["CUR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-in", "input": "Born in 1999.", "expected": "Born in nineteen ninety nine.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-oh", "input": "Built by 1905.", "expected": "Built by nineteen oh five.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-2000s", "input": "Since 2005 it rained.", "expected": "Since two thousand five it rained.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-twenty-twenty", "input": "Until 2024.", "expected": "Until twenty twenty four.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-hundred", "input": "In 1900 the town grew.", "expected": "In nineteen hundred the town grew.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-decade", "input": "The 1990s were loud.", "expected": "The nineteen nineties were loud.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-decade-hundreds", "input": "In the 1800s.", "expected": "In the eighteen hundreds.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-month-cue", "input": "By May 1999 it was over.", "expected": "By May nineteen ninety nine it was over.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-bc", "input": "Rome in 44 BC.", "expected": "Rome in forty four BC.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-ad-before", "input": "In AD 79 it erupted.", "expected": "In AD seventy nine it erupted.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "year-circa", "input": "Written c. 1350.", "expected": "Written c. thirteen fifty.", "classes": ["YEAR"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "hyg-ligature", "input": "A ﬁne ﬂag.", "expected": "A fine flag.", "classes": ["HYG"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "hyg-soft-hyphen", "input": "extra\u00adordinary", "expected": "extraordinary", "classes": ["HYG"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "hyg-zero-width-space", "input": "web\u200bsite", "expected": "website", "classes": ["HYG"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "hyg-nbsp", "input": "two\u00a0words", "expected": "two words", "classes": ["HYG"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}

@@ -1,0 +1,42 @@
+{"id": "adv-catch-22", "input": "It was a Catch-22.", "expected": "It was a Catch-22.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-r2-d2", "input": "R2-D2 beeped.", "expected": "R2-D2 beeped.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-24-7", "input": "Open 24/7 here.", "expected": "Open 24/7 here.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-9-11", "input": "After 9/11 everything changed.", "expected": "After 9/11 everything changed.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-3d", "input": "In 3D glasses.", "expected": "In 3D glasses.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-4k", "input": "A 4K screen.", "expected": "A 4K screen.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-2nd-amendment", "input": "The 2nd Amendment.", "expected": "The second Amendment.", "classes": ["ORD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-apt-4b", "input": "Apt. 4B was empty.", "expected": "Apt. 4B was empty.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-version-triple", "input": "Version 1.2.3 shipped.", "expected": "Version 1.2.3 shipped.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-address", "input": "1250 Elm Street is old.", "expected": "1250 Elm Street is old.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-address-small", "input": "He lived at 221 Baker St. then.", "expected": "He lived at 221 Baker St. then.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-bare-year-like", "input": "1999 was a good year.", "expected": "1999 was a good year.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-conflicting-cues", "input": "In 1500 cases it failed.", "expected": "In 1500 cases it failed.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-leading-zero", "input": "Agent 007 smiled.", "expected": "Agent 007 smiled.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-hyphen-compound", "input": "A 5-year-old and a 1st-class seat.", "expected": "A 5-year-old and a 1st-class seat.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-negative", "input": "It fell to -5 overnight.", "expected": "It fell to -5 overnight.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-phone", "input": "Call 555-1234 now.", "expected": "Call 555-1234 now.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-bible-verse", "input": "John 3:16 is quoted.", "expected": "John 3:16 is quoted.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-psalm-verse", "input": "Psalm 119:105 again.", "expected": "Psalm 119:105 again.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-time-no-cue", "input": "It was 6:45 when he came.", "expected": "It was 6:45 when he came.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-ratio-no-cue", "input": "Close to 3:1, it felt.", "expected": "Close to 3:1, it felt.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-slash-date", "input": "Due 03/05/2024 latest.", "expected": "Due 03/05/2024 latest.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-day-month", "input": "On 5 March 2024 we left.", "expected": "On 5 March 2024 we left.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-range-no-cue", "input": "Scores of 12-15 were rare.", "expected": "Scores of 12-15 were rare.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-section-number", "input": "Section 3.5 explains it.", "expected": "Section 3.5 explains it.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-section-line-start", "input": "3.5 Results\nThey held.", "expected": "3.5 Results\nThey held.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-version", "input": "Use v2.0 or version 2.1 today.", "expected": "Use v2.0 or version 2.1 today.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-saint", "input": "St. Paul is here.", "expected": "St. Paul is here.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-dr-sentence-end", "input": "He saw the Dr. Then he left.", "expected": "He saw the Dr. Then he left.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "a title before a function word may end a sentence"}
+{"id": "adv-single-roman", "input": "Chapter I and Part V.", "expected": "Chapter I and Part V.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "single letters are never numerals"}
+{"id": "adv-roman-no-cue", "input": "The IV drip and Rocky II.", "expected": "The IV drip and Rocky II.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-ordinal-wrong-suffix", "input": "The 2st try.", "expected": "The 2st try.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-feet-inches", "input": "He stood 5'10\" tall.", "expected": "He stood 5'10\" tall.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-am-verb", "input": "I am 5 years old and I am tired.", "expected": "I am five years old and I am tired.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-seconds", "input": "Finished in 1:02:33 flat.", "expected": "Finished in 1:02:33 flat.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-invalid-date", "input": "On February 30 nothing.", "expected": "On February 30 nothing.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-unit-in-word", "input": "5 in the morning.", "expected": "five in the morning.", "classes": ["CARD"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "'in' is never a unit"}
+{"id": "adv-million-suffix-no-currency", "input": "A 5m run.", "expected": "A 5m run.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "'m' glued to a number may mean million"}
+{"id": "adv-too-long", "input": "ID 12345678901234567 here.", "expected": "ID 12345678901234567 here.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}
+{"id": "adv-unicode-digits", "input": "Arabic ٣ stays.", "expected": "Arabic ٣ stays.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "only ASCII digits are numbers"}
+{"id": "adv-ampersand-glued", "input": "AT&T and R&D.", "expected": "AT&T and R&D.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "adv-abbreviated-year-range", "input": "From 1990-95 it grew.", "expected": "From 1990-95 it grew.", "classes": [], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "", "ambiguous": 1}

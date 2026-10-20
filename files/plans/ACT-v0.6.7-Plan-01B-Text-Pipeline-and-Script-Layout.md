@@ -593,3 +593,22 @@ Status: **done, awaiting owner approval for A2**. The owner explicitly deferred 
 * Rewired: `kokoro_synth.py`, `chatterbox_synth.py` (loop replaced), `qwen3_synth.py` (`prepare_text` delegates; the file read goes through the loader), `batch_convert.py` (decode), `epub2tts_edge.get_book` (decode only, iterates a `StringIO` of the shared decode, chapter parsing untouched).
 * Preserved differences and why: heading-as-paragraph (Qwen3, audio-affecting if unified), empty-heading handling, Edge folder untouched text, Edge `get_book` header/chapter model. Nothing else (splitters, pauses, seeds, Chatterbox colon patch and 75 ms pause) was touched.
 * Proof: `test_speech_document.py` (equivalence with verbatim old loops on the quality corpus, edge cases and 300 seeded random documents; BOM; empty file; Edge line equivalence; no private marker loop in the engines; stdlib-only package). A0 `check` OK, goldens unchanged.
+
+### B.7 Checkpoint A2 record (2026-10-20)
+
+Status: **done**, under the owner's explicit A2-A6 authorisation (this supersedes the header's "only C0, A0 and B1" without waiving any gate). Codex review deferred to the
+consolidated pre-merge qualification; it has not passed for A1 or A2.
+
+* Modules (`scripts/tts/speech/`): `numbers_en.py` (US-English verbalizer), `classes.py` (class ids, tiers, the rule families, protected spans), `normalize.py`
+  (one-pass resolution, modes, `NormalizedText` with both offset maps), `glossary.py` (schema, validation, precedence, engine scope, phoneme markup), `integrity.py`
+  (reconstruction, runtime invariants, hashes), `report.py` (summary and Details lines). Data: `data/lexicon.json`, `data/units.json` (41 units), empty `data/glossary.default.json`.
+  Not wired anywhere; no engine file changed.
+* Deviations from the plan text, each recorded in Decisions 2026-10-20 (A2): hygiene resolves last; the ambiguous year band starts at 1000; clock markers are spoken
+  `A M`/`P M`; `Title:`/`Author:` lines protected whole; numbers that look like identifiers are left unchanged from 100 upward.
+* Corpus: `files/tests/golden/speech/corpus/{tier1,tier2,no_change,adversarial}.jsonl`, 160 hand-written cases (48/51/19/42) covering every class, the plan's adversarial
+  list and the approved passages. Only `DIFFICULT_SHORT` changes under all-`expand` (Dr., 7:15, 2.5, Mr., Mrs. x2, Prof.); `6:45` and `3:1` stay ambiguous. The preview
+  sentence, the Chatterbox evaluation sentences and every other quality-corpus passage are byte-identical.
+* Proofs: `test_speech_normalize.py` (corpus, verbalizer incl. a num2words oracle over 6,000 values, I1-I10 over 300 seeded documents, offset maps, modes, per-class
+  mutation, integrity-checker mutation, pinned ruleset fingerprint, a 1 MB book in well under the 15 s bound) and `test_speech_glossary.py`. The property test found one real
+  defect during development (a longer claim hid a bare fraction, violating I6), fixed. 23 code mutants (boundaries, cues, claims, modes, maps, each invariant check,
+  glossary validation, verbalizer style) were each killed. Focused set 1,631 passed; A0 `check` OK; no full verify (reserved for A5).

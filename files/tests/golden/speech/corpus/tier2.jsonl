@@ -1,0 +1,51 @@
+{"id": "time-oh", "input": "Meet at 7:05.", "expected": "Meet at seven oh five.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-oclock", "input": "Meet at 7:00.", "expected": "Meet at seven o'clock.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-pm-sentence-end", "input": "We left at 7:15 p.m. Then it rained.", "expected": "We left at seven fifteen P M. Then it rained.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "the final stop stays as the sentence's punctuation"}
+{"id": "time-am-mid-sentence", "input": "At 10:30 a.m. tomorrow we go.", "expected": "At ten thirty A M tomorrow we go.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-hour-pm", "input": "Dinner is at 7pm.", "expected": "Dinner is at seven P M.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-oclock-ampm", "input": "Open from 9:00 AM daily.", "expected": "Open from nine A M daily.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-before-cue", "input": "It ended before 7:15.", "expected": "It ended before seven fifteen.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-24h-cue", "input": "The train leaves at 14:30.", "expected": "The train leaves at fourteen thirty.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "time-24h-hundred", "input": "Report by 18:00 sharp.", "expected": "Report by eighteen hundred sharp.", "classes": ["TIME"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ratio-cue-after", "input": "A 3:1 ratio.", "expected": "A three to one ratio.", "classes": ["RATIO"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ratio-cue-before", "input": "They won 2:0 at home.", "expected": "They won two to zero at home.", "classes": ["RATIO"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ratio-cannot-be-time", "input": "Odds of nearly 100:1 against.", "expected": "Odds of nearly one hundred to one against.", "classes": ["RATIO"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "ratio-large-no-cue", "input": "It came out 100:75 overall.", "expected": "It came out one hundred to seventy five overall.", "classes": ["RATIO"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "hour above 24 cannot be a time"}
+{"id": "date-month-day-year", "input": "On March 5, 2024 we met.", "expected": "On March fifth twenty twenty four we met.", "classes": ["DATE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "date-month-day", "input": "Every December 25 it snows.", "expected": "Every December twenty fifth it snows.", "classes": ["DATE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "date-ordinal-suffix", "input": "On July 4th they marched.", "expected": "On July fourth they marched.", "classes": ["DATE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "date-abbreviation", "input": "Due Sept. 30, 1999.", "expected": "Due September thirtieth nineteen ninety nine.", "classes": ["DATE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "date-iso", "input": "Logged 2024-03-05 at noon.", "expected": "Logged March fifth twenty twenty four at noon.", "classes": ["DATE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "range-pages", "input": "Read pages 12-15 now.", "expected": "Read pages twelve to fifteen now.", "classes": ["RANGE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "range-pp", "input": "See pp. 12-15.", "expected": "See pp. twelve to fifteen.", "classes": ["RANGE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "range-ages", "input": "For ages 8-12 only.", "expected": "For ages eight to twelve only.", "classes": ["RANGE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "range-years-from", "input": "It ran from 1939–1945 in Europe.", "expected": "It ran from nineteen thirty nine to nineteen forty five in Europe.", "classes": ["RANGE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "range-count-after", "input": "Allow 3-5 days.", "expected": "Allow three to five days.", "classes": ["RANGE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "frac-cup", "input": "Add 1/2 cup of milk.", "expected": "Add one half cup of milk.", "classes": ["FRAC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "frac-mile", "input": "Walk 3/4 mile north.", "expected": "Walk three quarters mile north.", "classes": ["FRAC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "frac-thirds", "input": "About 2/3 of them.", "expected": "About two thirds of them.", "classes": ["FRAC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "frac-mixed", "input": "Use 1 1/2 cups.", "expected": "Use one and one half cups.", "classes": ["FRAC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "frac-vulgar", "input": "Add ½ teaspoon.", "expected": "Add one half teaspoon.", "classes": ["FRAC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "frac-vulgar-mixed", "input": "It took 2½ hours.", "expected": "It took two and one half hours.", "classes": ["FRAC"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-km", "input": "Run 5 km daily.", "expected": "Run five kilometers daily.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-singular", "input": "Just 1 kg left.", "expected": "Just one kilogram left.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-glued", "input": "A 10kg bag.", "expected": "A ten kilograms bag.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-decimal", "input": "About 2.5 mi away.", "expected": "About two point five miles away.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-fahrenheit", "input": "It hit 72°F today.", "expected": "It hit seventy two degrees Fahrenheit today.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-celsius-spaced", "input": "Heat to 180 °C.", "expected": "Heat to one hundred eighty degrees Celsius.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-degree", "input": "A 45° angle.", "expected": "A forty five degrees angle.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-speed", "input": "Doing 60 mph.", "expected": "Doing sixty miles per hour.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-nbsp", "input": "About 5\u00a0km out.", "expected": "About five kilometers out.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "no-break space from PDF extraction"}
+{"id": "unit-meters-spaced", "input": "A 100 m sprint.", "expected": "A one hundred meters sprint.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "unit-gigabytes", "input": "It holds 64 GB.", "expected": "It holds sixty four gigabytes.", "classes": ["UNIT"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "title-mr", "input": "Mr. Smith arrived.", "expected": "Mister Smith arrived.", "classes": ["TITLE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "title-mrs-dr", "input": "Mrs. Jones met Dr. Patel.", "expected": "Missus Jones met Doctor Patel.", "classes": ["TITLE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "title-prof-possessive", "input": "Prof. Whitfield's theory.", "expected": "Professor Whitfield's theory.", "classes": ["TITLE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "title-capt", "input": "Capt. Ahab stared.", "expected": "Captain Ahab stared.", "classes": ["TITLE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "roman-chapter", "input": "Chapter IV begins.", "expected": "Chapter four begins.", "classes": ["ROMAN"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "roman-regnal", "input": "Henry VIII ruled.", "expected": "Henry the eighth ruled.", "classes": ["ROMAN"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "roman-world-war", "input": "After World War II ended.", "expected": "After World War two ended.", "classes": ["ROMAN"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "roman-part", "input": "Part III: The Return", "expected": "Part three: The Return", "classes": ["ROMAN"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": "the colon after the numeral is kept"}
+{"id": "sym-ampersand", "input": "Smith & Wesson.", "expected": "Smith and Wesson.", "classes": ["SYM"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "sym-times", "input": "A 3 × 4 grid.", "expected": "A three times four grid.", "classes": ["SYM"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}
+{"id": "mixed-difficult-short-sentence", "input": "Dr. Elena Marsh left before 7:15 and slowed by 2.5 degrees.", "expected": "Doctor Elena Marsh left before seven fifteen and slowed by two point five degrees.", "classes": ["DEC", "TIME", "TITLE"], "engines": ["edge", "kokoro", "chatterbox", "qwen3"], "note": ""}

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "_comment": "Context cues and spoken names for tts/speech/classes.py. Any change here changes normalization: bump RULESET_VERSION (the fingerprint test enforces it). Words are compared in lower case with a trailing full stop removed unless stated.",
+  "months": {
+    "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+    "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
+  },
+  "month_abbreviations": {
+    "Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April", "Jun": "June", "Jul": "July",
+    "Aug": "August", "Sep": "September", "Sept": "September", "Oct": "October", "Nov": "November", "Dec": "December"
+  },
+  "year_cues_before": ["in", "since", "by", "until", "till", "from", "before", "after", "during", "circa", "c", "year", "of", "early", "late", "mid", "summer", "winter", "spring", "autumn", "fall"],
+  "year_cues_after": ["AD", "BC", "CE", "BCE", "A.D.", "B.C.", "A.D", "B.C"],
+  "count_nouns": [
+    "people", "persons", "men", "women", "children", "kids", "babies", "adults", "students", "soldiers", "troops", "officers", "workers", "employees", "members", "voters", "votes", "residents", "citizens", "passengers", "patients", "deaths", "casualties", "victims", "survivors", "families", "households", "guests", "fans", "players", "teams", "horses", "cattle", "sheep", "animals", "birds", "fish", "trees",
+    "pages", "words", "letters", "lines", "books", "copies", "chapters", "volumes", "articles", "papers", "documents", "files", "records", "entries", "items", "units", "pieces", "parts", "points", "steps", "times",
+    "years", "months", "weeks", "days", "hours", "minutes", "seconds", "nights", "decades", "centuries",
+    "miles", "kilometers", "kilometres", "meters", "metres", "feet", "yards", "inches", "acres", "pounds", "ounces", "tons", "tonnes", "grams", "kilograms", "gallons", "liters", "litres",
+    "dollars", "cents", "euros", "yen", "francs", "rupees", "coins", "shares", "bottles", "boxes", "cars", "ships", "planes", "aircraft", "boats", "houses", "homes", "rooms", "buildings", "cities", "towns", "villages", "countries", "stores", "shops", "schools", "jobs", "cases", "tests", "games", "matches", "rounds", "laps", "runs", "goals", "calories", "bullets", "rifles", "guns", "tanks", "questions", "answers", "problems", "examples", "species", "languages", "pairs", "sets", "kinds", "types", "lives"
+  ],
+  "identifier_cues": ["room", "no", "number", "nos", "apt", "apartment", "suite", "flight", "route", "highway", "interstate", "pin", "code", "zip", "id", "ext", "extension", "unit", "box", "bus", "platform", "gate", "seat", "row", "model", "serial", "account", "phone", "tel"],
+  "street_suffixes": ["Street", "St", "Avenue", "Ave", "Road", "Rd", "Boulevard", "Blvd", "Lane", "Ln", "Drive", "Dr", "Way", "Court", "Ct", "Place", "Pl", "Terrace", "Square", "Sq", "Parkway", "Pkwy", "Highway", "Hwy", "Circle", "Close", "Crescent"],
+  "section_cues": ["section", "chapter", "version", "release", "figure", "fig", "table", "rule", "verse", "step", "item", "clause", "paragraph", "article", "appendix", "equation", "eq", "v", "ver", "§"],
+  "time_cues_before": ["at", "by", "until", "till", "around", "about", "before", "after", "from", "since", "past", "to", "between"],
+  "time_cues_after": ["o'clock"],
+  "ratio_cues": ["ratio", "ratios", "odds", "score", "scored", "scoring", "won", "win", "wins", "lost", "lose", "beat", "beaten", "margin", "majority", "split", "aspect"],
+  "range_cues": ["pages", "page", "pp", "p", "ages", "aged", "age", "years", "hours", "minutes", "days", "weeks", "months", "from", "between", "chapters", "verses", "sections", "items", "steps", "lines", "nos", "numbers", "grades", "levels", "rounds", "seasons", "episodes", "volumes"],
+  "range_year_cues": ["from", "between", "during", "in", "since", "circa", "c"],
+  "fraction_nouns": ["of", "cup", "cups", "teaspoon", "teaspoons", "tablespoon", "tablespoons", "tsp", "tbsp", "inch", "inches", "mile", "miles", "pound", "pounds", "ounce", "ounces", "hour", "hours", "pint", "pints", "gallon", "gallons", "liter", "liters", "litre", "litres", "acre", "acres", "foot", "feet", "yard", "yards", "share", "shares", "point", "points", "percent", "the", "an", "a", "dozen", "glass", "glasses", "slice", "slices", "stick", "sticks", "can", "cans", "bag", "bags", "lb", "oz"],
+  "titles": {
+    "Mr": "Mister", "Mrs": "Missus", "Ms": "Miz", "Dr": "Doctor", "Prof": "Professor", "Capt": "Captain",
+    "Gen": "General", "Lt": "Lieutenant", "Sgt": "Sergeant", "Col": "Colonel", "Rev": "Reverend"
+  },
+  "ambiguous_titles": ["St", "No", "Fr"],
+  "roman_cues": ["chapter", "book", "part", "act", "volume", "vol", "section", "scene", "canto", "article", "phase", "stage", "episode", "season", "round", "level", "appendix", "psalm", "plate", "figure", "table", "class", "grade", "type", "series"],
+  "roman_cue_phrases": ["World War"],
+  "regnal_names": [
+    "Alexander", "Alfonso", "Amenhotep", "Anne", "Benedict", "Boniface", "Catherine", "Charles", "Clement", "Constantine", "David", "Edward", "Elizabeth", "Ferdinand", "Francis", "Frederick", "George", "Gregory", "Gustav", "Henry", "Innocent", "James", "John", "Leo", "Leopold", "Louis", "Ludwig", "Mary", "Napoleon", "Nicholas", "Paul", "Peter", "Philip", "Pius", "Ptolemy", "Ramesses", "Richard", "Robert", "Rudolf", "Sixtus", "Stephen", "Thutmose", "Urban", "Victor", "Wilhelm", "William"
+  ],
+  "currencies": {
+    "$": {"major": ["dollar", "dollars"], "minor": ["cent", "cents"]},
+    "£": {"major": ["pound", "pounds"], "minor": ["penny", "pence"]},
+    "€": {"major": ["euro", "euros"], "minor": ["cent", "cents"]},
+    "¥": {"major": ["yen", "yen"], "minor": null}
+  },
+  "magnitude_words": ["thousand", "million", "billion", "trillion"],
+  "magnitude_suffixes": {"k": "thousand", "K": "thousand", "m": "million", "M": "million", "bn": "billion", "B": "billion"},
+  "ampm": {"a.m.": "A M", "a.m": "A M", "am": "A M", "AM": "A M", "A.M.": "A M", "p.m.": "P M", "p.m": "P M", "pm": "P M", "PM": "P M", "P.M.": "P M"},
+  "vulgar_fractions": {"½": [1, 2], "⅓": [1, 3], "⅔": [2, 3], "¼": [1, 4], "¾": [3, 4], "⅛": [1, 8], "⅜": [3, 8], "⅝": [5, 8], "⅞": [7, 8]},
+  "hygiene": {
+    "_comment": "Narrow, individually validated list (decision D14). Zero-width joiners and non-joiners are deliberately absent: they matter in some scripts.",
+    "delete": ["\u00ad", "\u200b", "\u2060", "\ufeff"],
+    "space": ["\u00a0", "\u202f", "\u2007"],
+    "ligatures": {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st", "ﬆ": "st"}
+  },
+  "language": {
+    "_comment": "A line is left untouched when at least non_latin_ratio of its letters are outside the Latin script, or when it has at least min_words words and more foreign than English function words (at least two foreign).",
+    "non_latin_ratio": 0.2,
+    "min_words": 4,
+    "english_stopwords": ["the", "and", "of", "to", "a", "in", "is", "was", "that", "it", "he", "she", "for", "on", "with", "as", "his", "her", "they", "at", "by", "this", "had", "not", "but", "from", "or", "have", "an", "were", "are", "which", "you", "we", "be", "one", "all", "there", "their", "been", "has", "when", "who", "will", "more", "no", "if", "out", "so", "said", "what", "up", "its", "about", "into", "than", "them", "can", "only", "other", "new", "some", "could", "time", "these", "two", "may", "then", "do", "first", "any", "my", "now", "such", "like", "our", "over", "man", "me", "even", "most", "made", "after", "also", "did", "many", "before", "must", "through", "back", "years", "where", "much", "your", "way", "well", "down", "should", "because", "each", "just", "those", "people", "how", "too", "little", "state", "good", "very", "make", "world", "still", "own", "see", "men", "work", "long", "get", "here", "between", "both", "life", "being", "under", "never", "day", "same", "another", "know", "while", "last", "might", "us", "great", "old", "year", "off", "come", "since", "against", "go", "came", "right", "used", "take", "three"],
+    "foreign_stopwords": ["le", "la", "les", "des", "du", "et", "est", "une", "dans", "pour", "pas", "qui", "que", "sur", "avec", "ce", "sont", "nous", "vous", "il", "elle", "el", "los", "las", "del", "y", "es", "una", "por", "con", "para", "como", "pero", "su", "lo", "se", "der", "die", "das", "und", "ist", "nicht", "ein", "eine", "mit", "den", "dem", "auf", "zu", "ich", "sie", "wir", "il", "di", "che", "non", "un", "per", "sono", "della", "nel", "não", "uma", "com", "os", "da", "em", "ao"]
+  }
+}

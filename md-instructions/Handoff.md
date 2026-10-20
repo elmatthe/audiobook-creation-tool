@@ -2,6 +2,14 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A2 (normalizer core) done, not wired; A3 next (2026-10-20, HOME-PC)
+
+A2 is complete under the owner's A2-A6 authorisation (Codex reviews deferred to the consolidated pre-merge qualification; none has passed for A1 or A2).
+New `scripts/tts/speech/{normalize,classes,numbers_en,glossary,integrity,report}.py` + `data/{lexicon,units,glossary.default}.json`; nothing calls them yet, so no
+route or audio changed. Corpus: 160 hand-written cases in `files/tests/golden/speech/corpus/*.jsonl`. Tests: `test_speech_normalize.py`, `test_speech_glossary.py`.
+Focused set (speech, epub-retirement allow-list, application boundary, layout canary, Plan 3 boundaries, Chatterbox P9 guards): 1,631 passed. 23 code mutants killed. A0 `check` OK.
+Record: Plan 01B Appendix B.7. Next: A3 (profiles, mode table all `native`, wiring at the five routes behind `tts.speech_prep` = `off`, run-scoped snapshot).
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A1 (shared structure loader) done; A2 NOT started (2026-10-20, HOME-PC)
 
 C0, A0 and B1 are accepted by the owner. The owner explicitly deferred the independent Codex review of B1's final correction and of every intermediate checkpoint (A1 onward) to ONE consolidated pre-merge verification before v0.6.7 closes. Codex has NOT independently passed the final B1 correction; that evidence stays unresolved until the consolidated qualification.

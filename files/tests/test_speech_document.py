@@ -202,14 +202,28 @@ def test_the_engines_no_longer_carry_a_private_copy_of_the_marker_loop():
         assert not offenders, f"{name} re-implements the Title:/Author: rule at {offenders}; use tts.speech.document"
 
 
+#: The standard-library modules the speech package may use (A1 structure stage + A2 normalizer). Deliberately absent:
+#: anything random, clock-based, networked, process- or thread-based (determinism, invariant I9; no network, D5).
+SPEECH_STDLIB = {"__future__", "dataclasses", "pathlib", "typing", "re", "json", "hashlib", "bisect", "unicodedata",
+                 "collections", "types"}
+SPEECH_FORBIDDEN = {"random", "time", "datetime", "secrets", "uuid", "socket", "urllib", "http", "ssl", "subprocess",
+                    "threading", "multiprocessing", "asyncio", "os"}
+
+
 def test_the_speech_package_is_standard_library_only_and_imports_no_engine_or_ui():
-    for path in SPEECH_DIR.glob("*.py"):
+    assert not SPEECH_STDLIB & SPEECH_FORBIDDEN
+    paths = sorted(SPEECH_DIR.glob("*.py"))  # a flat package: data/ holds JSON only
+    assert {p.name for p in paths} >= {"document.py", "normalize.py", "numbers_en.py", "classes.py", "glossary.py",
+                                       "integrity.py", "report.py"}
+    for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             modules = ([a.name for a in node.names] if isinstance(node, ast.Import)
                        else [node.module or ""] if isinstance(node, ast.ImportFrom) and node.level == 0 else [])
             for module in modules:
                 root = module.split(".")[0]
-                assert root in {"__future__", "dataclasses", "pathlib", "typing"}, f"{path.name} imports {module}"
+                assert root in SPEECH_STDLIB, f"{path.name} imports {module}"
+            if isinstance(node, ast.ImportFrom) and node.level > 1:
+                raise AssertionError(f"{path.name} reaches outside the speech package with a relative import")
 
 
 def test_edge_get_book_reads_the_same_lines_through_the_shared_decode(tmp_path):

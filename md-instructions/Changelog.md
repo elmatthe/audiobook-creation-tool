@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Speech-preparation normalizer core, not yet wired (v0.6.7 Plan 01B checkpoint A2, 2026-10-20)
+
+- Development only, no audible change: nothing calls it yet. New `tts/speech/` modules (`normalize`, `classes`, `numbers_en`, `glossary`, `integrity`, `report`) and data
+  tables (`data/lexicon.json`, `data/units.json`, an empty `data/glossary.default.json`): deterministic English normalization of numbers, money, years, times, ratios, dates,
+  ranges, fractions, units, titles, Roman numerals and two symbols; context cues required where a reading is ambiguous, otherwise the token is left exactly as written and
+  reported; URLs, e-mail addresses, paths, `Title:`/`Author:` lines, `#` markers and non-English lines are protected. A data-only pronunciation glossary (ships empty).
+  Ruleset version 1. Standard library only; no new dependency.
+
 ### Changed — Shared source-structure loader for the speech engines (v0.6.7 Plan 01B checkpoint A1, 2026-10-20)
 
 - Development only, no audible change: Kokoro, Chatterbox and Qwen3 now read a source `.txt` (BOM handling, `Title:`/`Author:` lines, `#` headings) through one shared

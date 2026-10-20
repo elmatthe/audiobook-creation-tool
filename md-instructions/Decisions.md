@@ -4,6 +4,33 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Plan 01B checkpoint A2: normalizer core decisions
+
+**Decision.**
+- *Hygiene resolves last, on what the classes leave.* Plan 4.3 lists hygiene above the classes; its spans are single characters, and the only overlap is a no-break space
+  inside a numeric token (`5 km` from PDF extraction), whose spoken form already uses an ordinary space. Resolving it first would have blocked that token.
+- *A claim is a claim.* An ambiguous token, and an edit whose class is not `expand`, still claims its span, so no lower rule rewrites part of it (`5 km` with UNIT native is
+  never half-expanded by CARD). A mixed-number match also offers its bare fraction, because a longer claim can otherwise hide a candidate that a second pass would find (I6).
+- *Mode semantics.* `expand` applies the class's rule edits; `glossary_only` withholds them but lets an owner glossary entry change the token; `native` leaves the token to the
+  engine, glossary included. A glossary entry on ordinary words applies whenever its engine scope matches.
+- *Metadata lines are protected whole.* Edge direct uses the `Title:`/`Author:` values as metadata, so they are never edited; `#` markers are protected and heading text is
+  normalized like body text.
+- *Years.* The ambiguous band is 1000-2099 (the plan said 1100; `in 1066` needs the same cue logic). A cued year is classed YEAR even where both readings coincide (`since 2005`),
+  so the YEAR mode governs every cued year. A year cue together with a count noun (`in 1500 cases`) is a conflict and is left unchanged.
+- *Numbers that look like identifiers* (leading zero, more than 15 digits, a cue such as Room/Flight/No., or a street address) are left unchanged from 100 upward.
+- *Clock markers are spoken `A M` / `P M`.* The plan's example wrote `p m`; a lower-case `a` risks being read as the article. Open for the A4 listening.
+- *English detection is a line heuristic* (non-Latin script share, or more foreign than English function words); a line it rejects is protected, never edited (D14, D15).
+- *Fail closed in the core.* A violated invariant raises `IntegrityError`; how a run reacts is decided where the core is wired (A3).
+- *Versioning.* `RULESET_VERSION` = 1. A test pins a fingerprint of the version, every data table and the rule registry, so a data change cannot land without a bump; a code
+  change to a rule still needs a deliberate bump and a Changelog line.
+- *Package boundary.* The speech-package import guard now allow-lists the exact standard-library modules used and forbids randomness, clocks, network, processes and threads.
+
+**Why.** Each choice keeps the plan's conservative policy (unchanged unless a positive cue exists) and keeps behaviour traceable and testable before anything is wired.
+
+-- Decided under the owner's A2-A6 authorisation; implemented by Claude Code
+
+---
+
 ## 2026-10-19 - Application source is an explicit registry, not discovery
 
 **Decision.** `source_probe.APPLICATION_PACKAGES = ("shared", "tts", "mp3_tools")` is the only definition of production packages for guards; folders are never discovered from disk. A new production top-level folder requires a deliberate registry edit, enforced by a tracked-tree canary. **Why.** Discovery by `__init__.py` pulled untracked developer packages into FFmpeg, architecture and syntax guards. This supersedes the discovery clause in the entry below.
