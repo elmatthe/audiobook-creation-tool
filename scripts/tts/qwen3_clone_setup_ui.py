@@ -25,6 +25,9 @@ from tts.qwen3_install_ui import POLL_MS, SetupSession, _ask_yes_no
 
 STATE_WORDS = {qt.STATE_APPROVED: "Approved", qt.STATE_DRAFT: "Draft: listen, correct, approve",
                qt.STATE_MISSING: "No transcript yet", qt.STATE_STALE: "Made for a different recording: create a new draft"}
+#: Shown when Approve is pressed with nothing ticked. A named constant, so a string ``.set()`` literal never names a
+#: voice (``test_voice_labels`` treats one as a persisted voice setting).
+NOTHING_TICKED = "Tick \"I listened\" for each voice you have checked, then approve."
 
 
 class TranscriptSession(SetupSession):
@@ -219,7 +222,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     def _approve() -> None:
         decisions = {w["voice_id"]: (w["text"].get("1.0", tk.END), True) for w in win.rows if w["listened"].get()}
         if not decisions:
-            win.message_var.set("Tick \"I listened\" for each voice you have checked, then approve.")
+            win.message_var.set(NOTHING_TICKED)
             return
         try:
             done = qt.approve(decisions)
