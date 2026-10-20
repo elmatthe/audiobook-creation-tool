@@ -51,7 +51,7 @@ class Qwen3Voice:
     kind: str  # KIND_PRESET | KIND_CLONE
     model_key: str  # MODEL_CUSTOMVOICE | MODEL_BASE
     speaker: str = ""  # the model's own preset speaker name (presets only)
-    reference_name: str = ""  # bundled reference recording stem (clones only), e.g. "Female-1"
+    reference_name: str = ""  # stable key of a clone's reference (transcripts are stored under it), e.g. "Female-1"
     reference_sha256: str = ""  # the recording this clone was approved against (clones only)
 
 
@@ -168,7 +168,10 @@ def local_transcripts_path() -> Path:
 
 
 def reference_path(voice: Qwen3Voice) -> Path:
-    return repo_root() / "files" / "Chatterbox-Voice-Uploads" / f"{voice.reference_name}.wav"
+    """The ONE bundled copy of the recording, shared with the Chatterbox voice of the same speaker (named by its label)."""
+    from tts.voice_registry import reference_recording_filename
+
+    return repo_root() / "files" / "Chatterbox-Voice-Uploads" / reference_recording_filename(voice.voice_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -735,10 +738,10 @@ def hardware_summary() -> str:
 def reference_status(voice: Qwen3Voice) -> tuple[bool, str]:
     path = reference_path(voice)
     if not path.is_file():
-        return False, (f"Setup required for {voice.label}: its reference recording '{voice.reference_name}.wav' is "
+        return False, (f"Setup required for {voice.label}: its reference recording '{reference_path(voice).name}' is "
                        "not present on this computer. This voice is unavailable here; every other voice is unaffected.")
     if sha256_file(path) != voice.reference_sha256:
-        return False, (f"The reference recording '{voice.reference_name}.wav' does not match the one {voice.label} "
+        return False, (f"The reference recording '{reference_path(voice).name}' does not match the one {voice.label} "
                        "was approved against, so it will not be used. Restore the original file to use this voice.")
     return True, "ok"
 

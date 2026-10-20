@@ -446,7 +446,7 @@ def test_the_job_for_a_preset_names_the_speaker_and_for_a_clone_the_reference_an
     clone = qs.build_job(rt.get_voice("qwen3-male-2"), chunks, job_dir=tmp_path, model_dir=tmp_path / "m",
                          reference_text="the approved words", device="cpu")
     assert clone["mode"] == "clone" and clone["reference_text"] == "the approved words"
-    assert clone["reference_wav"].endswith("Male-2.wav") and clone["device"] == "cpu" and "speaker" not in clone
+    assert clone["reference_wav"].endswith("Chatterbox - Male 2.wav") and clone["device"] == "cpu" and "speaker" not in clone
 
 
 # --------------------------------------------------------------------------- #
@@ -777,7 +777,7 @@ def test_a_clone_is_made_from_a_verified_snapshot_not_from_the_pathname(fake, mo
     import hashlib
     from dataclasses import replace
 
-    reference = tmp_path / "Male-4.wav"
+    reference = tmp_path / "Chatterbox - Male 4.wav"
     sf.write(str(reference), (0.1 * np.sin(np.arange(24000) / 7)).astype("float32"), 24000, subtype="PCM_16")
     original = reference.read_bytes()
     voice = replace(rt.get_voice("qwen3-male-4"), reference_sha256=hashlib.sha256(original).hexdigest())

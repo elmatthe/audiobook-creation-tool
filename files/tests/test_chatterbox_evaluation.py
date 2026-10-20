@@ -381,7 +381,7 @@ def test_a_source_hash_mismatch_never_substitutes_another_source(engine):
     engine.fail_hash_for = "chatterbox-male-2"
     results = _run()
     sources = {Path(r.source_path).name for r in results if r.source_path}
-    assert "Male-2.wav" not in sources or all(not r.ok for r in results)
+    assert "Chatterbox - Male 2.wav" not in sources or all(not r.ok for r in results)
     assert engine.generated == []
 
 

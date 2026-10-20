@@ -329,7 +329,7 @@ def test_a_clone_without_an_approved_transcript_is_refused_for_the_apps_own_reas
 
 
 def test_the_reference_must_be_the_registered_original(monkeypatch, tmp_path, approved, engine_ready):
-    other = tmp_path / "Female-1.wav"
+    other = tmp_path / "Chatterbox - Female 1.wav"
     other.write_bytes(b"not the approved recording")
     monkeypatch.setattr(rt, "reference_path", lambda voice: other)
     with pytest.raises(exp.ExperimentError, match="not the one the app registered"):
@@ -340,7 +340,7 @@ def test_the_six_original_recordings_are_the_registered_ones_and_stay_that_way()
     for voice_id in CLONES:
         voice = rt.get_voice(voice_id)
         path = rt.reference_path(voice)
-        assert path.parent.name == "Chatterbox-Voice-Uploads" and path.name == f"{voice.reference_name}.wav"
+        assert path.parent.name == "Chatterbox-Voice-Uploads" and path.name == f"Chatterbox - {voice.label.removeprefix('Qwen3 - ')}.wav"
         assert rt.sha256_file(path) == voice.reference_sha256
 
 

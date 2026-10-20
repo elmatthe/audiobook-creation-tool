@@ -443,6 +443,31 @@ def get_voice(display_label: str) -> VoiceEntry | None:
     return next((v for v in VOICES if v.display_label == display_label), None)
 
 
+#: The six bundled reference recordings are shared by the Chatterbox voices and the Qwen3 clones made from the same
+#: speakers. Each Qwen3 clone names the Chatterbox voice whose recording it is cloned from; there is one copy of each file.
+CLONE_REFERENCE_VOICE: dict[str, str] = {
+    "qwen3-female-1": "chatterbox-female-1",
+    "qwen3-female-2": "chatterbox-female-2",
+    "qwen3-male-1": "chatterbox-male-1",
+    "qwen3-male-2": "chatterbox-male-2",
+    "qwen3-male-3": "chatterbox-male-3",
+    "qwen3-male-4": "chatterbox-male-4",
+}
+
+
+def reference_recording_filename(voice_id: str) -> str:
+    """The bundled reference recording's file name: the Chatterbox voice's display label plus ``.wav``.
+
+    ``files/Chatterbox-Voice-Uploads/Chatterbox - Female 1.wav`` and so on. A Qwen3 clone resolves to its Chatterbox voice's
+    recording. The registry label is the single source of the name, so the file and the dropdown can never disagree.
+    """
+    source = CLONE_REFERENCE_VOICE.get(voice_id, voice_id)
+    entry = next((v for v in VOICES if v.voice_id == source and v.backend == "chatterbox"), None)
+    if entry is None:
+        raise KeyError(f"{voice_id!r} has no bundled reference recording")
+    return f"{entry.display_label}.wav"
+
+
 def display_labels() -> list[str]:
     """Ordered list of display labels for the Combobox values."""
     return [v.display_label for v in VOICES]

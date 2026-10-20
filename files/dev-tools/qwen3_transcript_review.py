@@ -211,7 +211,7 @@ def build(drafts_path: Path = DRAFTS, out: Path = PAGE) -> Path:
     for voice in clone_voices():
         data = rt.reference_path(voice).read_bytes()
         if sha256_bytes(data) != voice.reference_sha256:
-            raise ReviewError(f"{voice.reference_name}.wav is not the recording the app registered; refusing to build")
+            raise ReviewError(f"{rt.reference_path(voice).name} is not the recording the app registered; refusing to build")
         audio[voice.voice_id] = data
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)

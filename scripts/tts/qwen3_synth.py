@@ -465,7 +465,7 @@ def snapshot_reference(voice: rt.Qwen3Voice, job_dir: Path) -> Path:
         raise Qwen3Unavailable(f"Setup required for {voice.label}: its reference recording could not be read ({exc}).") from exc
     if rt.sha256_file(snapshot) != voice.reference_sha256:
         raise Qwen3Unavailable(
-            f"The reference recording '{voice.reference_name}.wav' does not match the one {voice.label} was approved "
+            f"The reference recording '{rt.reference_path(voice).name}' does not match the one {voice.label} was approved "
             "against, so it will not be used.")
     try:
         pad_reference_tail(snapshot)  # only after the copy has been proved to be the approved recording

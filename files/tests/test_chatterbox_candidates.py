@@ -191,9 +191,9 @@ def test_candidate_and_historical_outputs_use_different_subfolders():
 # C. Reference identity — hash-bound like every approved voice (P8)
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("voice_id,source_name,sha", [
-    ("chatterbox-male-3", "Male-3.wav",
+    ("chatterbox-male-3", "Chatterbox - Male 3.wav",
      "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
-    ("chatterbox-male-4", "Male-4.wav",
+    ("chatterbox-male-4", "Chatterbox - Male 4.wav",
      "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 ])
 def test_the_production_hashes_bind_the_approved_bundled_wavs(
@@ -207,8 +207,8 @@ def test_the_production_hashes_bind_the_approved_bundled_wavs(
 
 
 def test_get_reference_voice_finds_both_via_the_primary_production_set():
-    assert cbx.get_reference_voice("chatterbox-male-3").source_name == "Male-3.wav"
-    assert cbx.get_reference_voice("chatterbox-male-4").source_name == "Male-4.wav"
+    assert cbx.get_reference_voice("chatterbox-male-3").source_name == "Chatterbox - Male 3.wav"
+    assert cbx.get_reference_voice("chatterbox-male-4").source_name == "Chatterbox - Male 4.wav"
     assert "chatterbox-male-3" in cbx.REFERENCE_VOICES
     assert "chatterbox-male-4" in cbx.REFERENCE_VOICES
 

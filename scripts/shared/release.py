@@ -72,12 +72,12 @@ ROOT_FILES = ("README.md", "config.toml")
 # CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
 # extra recordings, derivatives and caches are not distributable assets.
 REFERENCE_ASSETS = (
-    "files/Chatterbox-Voice-Uploads/Female-1.wav",
-    "files/Chatterbox-Voice-Uploads/Female-2.wav",
-    "files/Chatterbox-Voice-Uploads/Male-1.wav",
-    "files/Chatterbox-Voice-Uploads/Male-2.wav",
-    "files/Chatterbox-Voice-Uploads/Male-3.wav",
-    "files/Chatterbox-Voice-Uploads/Male-4.wav",
+    "files/Chatterbox-Voice-Uploads/Chatterbox - Female 1.wav",
+    "files/Chatterbox-Voice-Uploads/Chatterbox - Female 2.wav",
+    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 1.wav",
+    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 2.wav",
+    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 3.wav",
+    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 4.wav",
 )
 
 # Directory names that are excluded wherever they appear in the tree.

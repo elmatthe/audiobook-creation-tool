@@ -156,7 +156,8 @@ def test_clone_reference_hashes_agree_with_the_chatterbox_registry_without_impor
         if voice.kind != rt.KIND_CLONE:
             continue
         twin = cs.REFERENCE_VOICES["chatterbox-" + voice.voice_id.removeprefix("qwen3-")]
-        assert (voice.reference_name + ".wav", voice.reference_sha256) == (twin.source_name, twin.source_sha256)
+        # one bundled copy, named after the Chatterbox label, bound to the same hash
+        assert (rt.reference_path(voice).name, voice.reference_sha256) == (twin.source_name, twin.source_sha256)
     source = (REPO_ROOT / "scripts" / "tts" / "qwen3_runtime.py").read_text("utf-8")
     assert "chatterbox_synth" not in source.replace("``chatterbox_synth.REFERENCE_VOICES``", "")  # independent
 

@@ -460,8 +460,8 @@ def test_exactly_six_canonical_wavs_and_no_runtime_data_are_tracked():
         ["git", "ls-files", "files/Chatterbox-Voice-Uploads/", "files/runtime-data/"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     )
-    expected = {f"files/Chatterbox-Voice-Uploads/{stem}.wav" for stem in
-                ["Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4"]}
+    expected = {f"files/Chatterbox-Voice-Uploads/Chatterbox - {stem}.wav" for stem in
+                ["Female 1", "Female 2", "Male 1", "Male 2", "Male 3", "Male 4"]}
     assert set(tracked.stdout.splitlines()) == expected
     assert {f"files/Chatterbox-Voice-Uploads/{v.source_name}"
             for v in cbx.REFERENCE_VOICES.values()} == expected

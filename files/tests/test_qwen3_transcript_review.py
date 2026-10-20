@@ -105,7 +105,7 @@ def test_building_refuses_a_draft_made_for_another_recording(tmp_path, drafts):
 
 
 def test_building_refuses_a_recording_that_is_not_the_registered_one(tmp_path, drafts, monkeypatch):
-    fake = tmp_path / "Female-1.wav"
+    fake = tmp_path / "Chatterbox - Female 1.wav"
     fake.write_bytes(b"RIFF....not the approved recording")
     real = rt.reference_path
     monkeypatch.setattr(rt, "reference_path", lambda voice: fake if voice.reference_name == "Female-1" else real(voice))

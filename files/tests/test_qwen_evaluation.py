@@ -553,7 +553,7 @@ def test_only_approved_clones_run_and_they_get_the_exact_approved_text(fake_env,
     job = json.loads((run.dir / "seen-job.json").read_text(encoding="utf-8"))
     assert [r["row_id"] for r in job["rows"]] == ["qwen-clone-female-1"]
     assert job["mode"] == "clone" and job["rows"][0]["reference_text"] == "The approved words."
-    assert job["rows"][0]["reference_wav"].endswith("Female-1.wav")
+    assert job["rows"][0]["reference_wav"].endswith("Chatterbox - Female 1.wav")
     assert "x_vector" not in json.dumps(job)
     assert run.manifest.get("qwen-clone-female-2")["status"] == "blocked"
 

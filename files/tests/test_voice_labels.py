@@ -260,3 +260,30 @@ def test_the_panel_starts_on_the_default_voice_rather_than_a_stored_one():
     source = (Path(vr.__file__).resolve().parent / "epub2tts_gui.py").read_text(
         encoding="utf-8")
     assert "self.selected_voice_label = tk.StringVar(value=DEFAULT_VOICE_LABEL)" in source
+
+
+def test_the_six_reference_recordings_are_named_after_the_chatterbox_labels_and_shared_by_the_qwen3_clones():
+    """One bundled copy per speaker, named exactly like its Chatterbox dropdown label; each Qwen3 clone resolves to it."""
+    import hashlib
+    from pathlib import Path
+
+    from tts import chatterbox_synth as cbx, qwen3_runtime as rt, voice_registry as vr
+
+    uploads = Path(__file__).resolve().parents[2] / "files" / "Chatterbox-Voice-Uploads"
+    chatterbox = [v for v in vr.VOICES if v.backend == "chatterbox"]
+    assert sorted(p.name for p in uploads.glob("*.wav")) == sorted(f"{v.display_label}.wav" for v in chatterbox)
+    for entry in chatterbox:
+        assert vr.reference_recording_filename(entry.voice_id) == f"{entry.display_label}.wav"
+        assert cbx.reference_source_path(entry.voice_id) == uploads / f"{entry.display_label}.wav"
+    assert sorted(vr.CLONE_REFERENCE_VOICE) == sorted(v.voice_id for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE)
+    for clone_id, chatterbox_id in vr.CLONE_REFERENCE_VOICE.items():
+        voice = rt.get_voice(clone_id)
+        path = rt.reference_path(voice)
+        assert path == cbx.reference_source_path(chatterbox_id)  # the same single file, not a copy
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == voice.reference_sha256 == cbx.REFERENCE_VOICES[chatterbox_id].source_sha256
+        assert voice.label.removeprefix("Qwen3 - ") == vr.get_voice(path.stem).display_label.removeprefix("Chatterbox - ")
+    import pytest
+
+    for voice_id in ("qwen3-aiden", "af_heart", "en-US-AriaNeural", "nobody"):
+        with pytest.raises(KeyError):
+            vr.reference_recording_filename(voice_id)
