@@ -4,6 +4,46 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Qwen3 clone narration: calm-delivery preference, the transcript review package, and the temperature experiment (owner-gated)
+
+**Preference (owner).** The six Qwen3 Base clones should narrate calmly and evenly: noticeably less variation in pitch, emotional intensity and pace than their Chatterbox counterparts; no sudden
+high-to-low pitch swings, exaggerated inflection, dramatic sentence endings, needless loudness or cadence changes, or different delivery between adjacent chunks. Each clone keeps its reference voice and
+natural accent, accurate and complete text, natural phrasing and pauses, the six original Chatterbox reference WAVs (unchanged), and Qwen3 Base ICL cloning from an owner-approved, hash-bound transcript.
+Excluded by the owner: a new model, voice substitution, style instructions embedded in the text, a pitch-flattening filter, a dependency upgrade.
+
+**Facts established from the pinned install (no model loaded, no audio).** `qwen-tts==0.1.1`. Production passes no sampling argument, so a clone uses the Base model's own `generation_config.json` (the library's
+docstring says `generate_config.json`; the code reads `generation_config.json`): `do_sample` true, `temperature` 0.9, `top_p` 1.0, `top_k` 50, `repetition_penalty` 1.05, `max_new_tokens` 8192, and for the
+sub-talker `subtalker_dosample` true, `subtalker_temperature` 0.9, `subtalker_top_p` 1.0, `subtalker_top_k` 50. `generate_voice_clone(**kwargs)` forwards sampling arguments through
+`_merge_generate_kwargs`: an explicit `temperature=0.9` is the identical merge to passing nothing, and `temperature=0.8` changes that one value and nothing else (proved against the real library by
+`qwen3_calm_venv_tools.py selfcheck`, and by a test that runs it where `.venv-qwen3` exists). Each chunk's seed (`derive_seed`) does not depend on temperature, so candidates are paired.
+
+**Could `subtalker_temperature` help?** Plausibly, but secondarily. In the model code the main talker samples one codec token per frame (the first codebook: what is said, its timing and its overall contour) and the
+sub-talker (`code_predictor`) then fills in the remaining codebooks for that frame (acoustic detail). So the main `temperature` is the more plausible lever for pitch, inflection and pace, and the sub-talker's for
+fine texture. That is an inference from the code structure, not a measurement. It is NOT varied in the first experiment (the owner asked for it to stay 0.9); the harness cannot override it. It is a possible second
+axis if 0.8/0.7 do not calm the delivery enough, and adding it would be an owner decision.
+
+**What was built (development only; nothing in production changed).**
+- `files/dev-tools/qwen3_transcript_review.py`: builds `files/dev-work/qwen3-eval/transcript-review/review.html`, an offline, self-contained page that plays the six ORIGINAL reference WAVs (embedded byte for byte,
+  each checked against the SHA-256 the app registered), shows each Whisper draft beside an editable field with a "listened" tick and PASS / NEEDS CORRECTION, and downloads one decisions file. `apply FILE` is a
+  dry run; `apply FILE --write` records PASS entries as `approved: true`, bound to the recording's SHA-256, in the local untracked `files/runtime-data/qwen3/transcripts.json` (the file the app's own loader reads).
+  Nothing is approved by building the page, by a dry run, by NEEDS CORRECTION or by an undecided voice; the Whisper drafts, the recordings and every tracked file are never modified.
+- `files/dev-tools/qwen3_calm_worker.py` + `qwen3_calm_experiment.py` + `qwen3_calm_venv_tools.py`: the comparison harness. Every clip goes through the PRODUCTION entry point `qwen3_file_to_mp3` (its availability and
+  transcript-approval rules apply; no `availability`, `python` or other safety seam is overridden). The baseline (0.9) runs the production worker with no override; a candidate runs the same production worker
+  through a wrapper that forwards one extra argument, `temperature` (range 0.1-1.5), to clone `synth` jobs only (a preset such as Aiden or Ryan is never altered). Candidates 0.8 and 0.7, optional 0.6; the text
+  (a fixed 2,328-character passage with prose, dialogue, punctuation and paragraph transitions), the reference, the transcript, the chunking, the seeds and every other control are identical. Output (WAVs, manifest
+  with seeds and hashes but never transcript text, pitch/loudness/pace measurements, a whisper read-back for completeness, a labelled `listen.html`) goes only under ignored `files/dev-work/`, never into `files/voice-previews/`.
+- Tests: `test_qwen3_calm_harness.py` (68) and `test_qwen3_transcript_review.py` (25), offline; 25 of 25 mutants of the new guards killed on the final pass (the one early survivor was a guard whose error was
+  masked by a later one; its test now requires the explicit reason).
+
+**Owner gate (unchanged by this entry).** No clone audio has been generated, because no transcript is approved. After the owner approves the six transcripts: run the harness on one female and one male clone,
+provide labelled baseline / 0.8 / 0.7 samples for listening, and let the owner choose. Until the owner approves a candidate: no new production temperature, no change to the Qwen3 generation contract or pipeline
+revision, no replacement of any published preview. If a lower temperature is approved: ONE shared, tested clone narration profile, a tracked pipeline-revision change, Aiden and Ryan untouched, and the six
+genuine public clone previews generated with that profile. The transcripts must be verified and approved either way. No full `verify.py` before S5.
+
+-- Preference and gate set by the owner (2026-10-20); recorded and prepared by Claude Code
+
+---
+
 ## 2026-10-20 - Owner publication decision: preview audio for all 28 voices may be published (supersedes the Q5/Q8 preview restriction)
 
 **Decision.** The owner explicitly authorized publishing short generated preview audio for **all 28 registered ACT voices** in `files/voice-previews/`. The earlier rule that kept

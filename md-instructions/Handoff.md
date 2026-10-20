@@ -2,6 +2,20 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Qwen3 clones: transcript-review page and calm-narration harness READY; STOPPED at the owner gate (2026-10-20, HOME-PC)
+
+- **Owner preference:** calm, restrained, consistent clone narration (less pitch/emotion/pace swing than Chatterbox) with identity, accent, text and the original WAVs preserved. Decisions 2026-10-20 (Qwen3 clone narration) has the facts and the gate.
+- **Review page (untracked, ignored):** `files/dev-work/qwen3-eval/transcript-review/review.html` -- open it in a browser. Six original recordings with Whisper drafts, editable text, "listened" tick, PASS / NEEDS CORRECTION,
+  a download button. Return the downloaded `qwen3-transcript-decisions.json` (or paste its contents); then `python files/dev-tools/qwen3_transcript_review.py apply <file>` (dry run) and `... --write` records the PASS entries.
+  Rebuild with `... build`; check with `... status`. All six are still `approved: false`; nothing has been approved.
+- **Harness (tracked, dev-only):** `files/dev-tools/qwen3_calm_experiment.py` (`selfcheck | plan | run | report`), `qwen3_calm_worker.py`, `qwen3_calm_venv_tools.py`. `run` refuses until the clones' transcripts are approved. Baseline 0.9 = the
+  production worker unmodified; candidates 0.8 / 0.7 (optional 0.6) forward only `temperature`; sub-talker stays 0.9; same seeds. Output only under `files/dev-work/qwen3-eval/calm-narration/`.
+- **Verified (no clone audio made):** pinned `qwen-tts==0.1.1`; explicit `temperature=0.9` merges identically to the default; 0.8 changes only `temperature`; production worker/synth/job/pins carry no override (tested); 93 focused
+  tests pass; mutation-checked; the page was exercised in headless Edge (audio decodes, PASS needs "listened", export round-trips through `apply`).
+- **Not done, on purpose:** no clone audio, no production temperature or contract change, no pipeline-revision change, no preview replaced or published (22 of 28 stand; the six clones stay pending), Aiden/Ryan untouched, no full `verify.py`.
+- **Next (owner):** approve the six transcripts; then run the experiment on one female + one male clone and listen; choose a candidate (or none). Then, only if a lower temperature is approved: one shared tested clone profile, pipeline-revision bump,
+  and the six public clone previews. Still pending separately: the consolidated Codex review, then S5.
+
 ## CURRENT STATE — v0.6.7 voice previews: owner authorized all 28; 22 of 28 generated and published; 6 Qwen3 clones PENDING an approved transcript (2026-10-20, HOME-PC)
 
 - **Owner decision (2026-10-20, Decisions entry at the top):** short generated preview audio for all 28 registered voices may be published; this supersedes the Q5/Q8 preview
