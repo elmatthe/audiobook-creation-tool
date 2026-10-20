@@ -4,6 +4,49 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Plan 01B checkpoint A6: the Chatterbox colon compatibility code is RETAINED WITH EVIDENCE
+
+**Question.** With speech preparation on (A5, G2 passed), can either Chatterbox colon mechanism be retired?
+(A) the structural-colon `punc_norm` patch (`_structural_colon_punc_norm`, `_ensure_structural_colon_patch`, applied in `_instantiate_model`), which keeps
+times, ratios, references, URL schemes and paths away from the pinned wheel's blanket `:` -> `,`; (B) the prose-colon pause (`_PROSE_COLON`,
+`split_at_prose_colon`, `COLON_PAUSE_MS = 75`, joined in `_synthesize_chunk`). Evaluated independently.
+
+**Evidence (text level, no audio; `files/dev-tools/chatterbox_colon_matrix.py`, output `files/dev-work/speech-ab/a6/text-matrix.{json,md}`).**
+- The pinned `chatterbox-tts==0.1.7` `ChatterboxTurboTTS.generate()` calls the module-level `punc_norm` unconditionally before tokenizing, with no parameter
+  to skip or configure it; the wheel's `punc_norm` replaces every `:`. Token level (pinned tokenizer, offline): `6:45` -> `:` id 25 becomes `,` id 11;
+  `https://` -> `://` id 1378 becomes `,` + `//`; `C:\` -> `:\` id 7479 becomes `,` + `\`. Colon-free text: identical ids.
+- With preparation `v1` (A5 table) **and** `off`, these colons still reach `generate()` by policy and only the patch keeps them: cue-less times (`It was 6:45
+  when`, `His best lap was 1:30`, `3:15`, `01:02:03`), bare ratios (`2:1`, DIFFICULT_SHORT's `3:1`), references (`John 3:16`, `clause 4:2`), URL schemes
+  (`https://`, `ftp://`, `mailto:`) and Windows paths (`C:\`). Cued times and ratios (`6:45 p.m.`, `at 1:30`, `odds were 3:1`) are expanded in `v1` and no
+  longer need it. DIFFICULT_SHORT: 4 colons kept by the patch with `off`, 3 with `v1` (`6:45`, `3:1`, the URL; `7:15` is expanded).
+- Prose colons never reach the tokenizer either way (patched and wheel output are identical); their pause comes only from the split and the 75 ms PCM gap.
+- The immutable A0 OFF golden (`files/tests/golden/speech/chatterbox.json`) pins both mechanisms: `colon_pause_ms` 75, the prose-colon segments, the exact
+  `generate()` inputs, the patched `punc_norm` output (4 colons in `qc_difficult_short`, 5 in `punctuation`) and the assembled sample counts.
+
+**Gate A (mechanical feasibility) not met -- no credible candidate, so no GPU evaluation was run.**
+- (A) Unmet: A6 criterion 1 and prerequisites 1 and 3. No defined non-patch fate exists for the unexpanded and protected colons: (a) spoken forms for URLs and
+  paths are URL respelling, closed as a forbidden substitution; (b) the only patch-free ways to keep a colon from the wheel are a look-alike character (the
+  tokenizer then never sees the approved `:` / `://` tokens -- a new pronunciation contract) or re-implementing `generate()` against the wheel's internals
+  (a deeper coupling than one attribute); (c) an accepted residual risk is not approved and is not a substitute for correctness. Expanding the ambiguous
+  forms would reopen the A2-A5 ambiguity and protected-span policies, and `off` would still need the patch. Removing the patch changes the A0 OFF golden.
+- (B) Unmet: prerequisites 3 and 6. Without the split the wheel reads a prose colon as a comma -- the 0 ms option the owner did not choose (0 / 75 / 125 ms set,
+  2026-08-16). A text-only pause was proven impossible for a colon (every spacing variant normalises to the same comma); substituting other punctuation
+  (`;`, `.`) would be a new pacing contract with a model-chosen, unseeded length, would add or remove prose colons (Plan 01B 3.3 forbids it), and before
+  chunking would change the clause-level chunk plan (the semicolon outranks the colon). Removing it changes the A0 OFF golden. Mechanism B is the app's own
+  assembly code, not a patch of the wheel; it depends only on the wheel turning a colon into a comma.
+
+**Decision.** Both mechanisms stay unchanged, as an evidenced engine exception (Plan 01B 4.6 convergence rule; A6 criterion 5). No production code, wheel
+pin, golden or test assertion changed. New tracked evidence: `files/tests/test_chatterbox_colon_a6.py` (mutation-checked: removing the patch, removing the
+split or zeroing the pause each fails it); the existing colon contract tests are unchanged. G3 does not arise (no candidate audio).
+**Re-evaluation:** at the final S5 review, or at any explicitly authorised Chatterbox wheel change (the byte-parity test in
+`test_chatterbox_colon_integration.py` flags a `punc_norm` change), or if the owner approves spoken forms for URLs and paths.
+*Observation, not a finding:* the split makes each colon segment its own `generate()` call, so the wheel capitalises the segment's first letter (`never` ->
+`Never`) and the word before the colon ends a call (`one rule,`); this is the approved behaviour and the G2 recording passed by ear.
+
+-- Evaluated and recorded by Claude Code under the owner's A6 authorisation; no owner verdict required (no candidate)
+
+---
+
 ## 2026-10-20 - Plan 01B gate G2 approved (4/4 PASS); A6 authorised, G3 not approved
 
 **Owner verdicts (G2, approved).** The owner listened to all four ~3-minute production recordings in `files/dev-work/speech-ab/g2/`:

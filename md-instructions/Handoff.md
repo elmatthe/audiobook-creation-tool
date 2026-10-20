@@ -2,6 +2,16 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A6 closed RETAINED WITH EVIDENCE; G2 approved; G3 did not arise (2026-10-20, HOME-PC)
+
+- **A6:** both Chatterbox colon mechanisms (structural-colon `punc_norm` patch; 75 ms prose-colon pause) retained unchanged. Gate A failed for each: v1 and off
+  still send cue-less times, bare ratios, `John 3:16`, URL schemes and `C:\` paths to `generate()`, only the patch keeps them from the wheel's blanket `:` -> `,`,
+  and the immutable A0 OFF golden pins both mechanisms. No candidate, so no GPU time and no G3. Decisions 2026-10-20 (A6); Plan 01B B.14.
+- Evidence: `files/dev-tools/chatterbox_colon_matrix.py` (text matrix in `files/dev-work/speech-ab/a6/`), `files/tests/test_chatterbox_colon_a6.py`.
+- **Next:** none in Plan 01B before the consolidated checkpoint. Waiting for the owner: the consolidated Codex review (B1 final correction, A1-A6), then S5
+  (full gate, re-test the four native exceptions, re-evaluate the A6 exception). Deferred: Edge reliability and recovery enhancement (final hardening).
+  Not started and not authorised: Plan 02, B2, PR/merge/tag/release.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: G2 APPROVED (4/4 PASS); A6 authorised and in progress; G3 not approved (2026-10-20, HOME-PC)
 
 - **G2 (owner, 2026-10-20):** Edge Steffan PASS, Kokoro Heart PASS, Chatterbox Female 1 PASS, Qwen3 Aiden PASS; notes: none. No pronunciation, voice, timing, pacing or

@@ -691,3 +691,14 @@ Status: **done**, switched off. Codex review deferred to the consolidated pre-me
 * Owner G2 verdicts on `files/dev-work/speech-ab/g2/`: `1-Edge-Steffan` PASS, `2-Kokoro-Heart` PASS, `3-Chatterbox-Female-1` PASS, `4-Qwen3-Aiden` PASS; notes: none
   (Decisions 2026-10-20). No pronunciation, voice, timing, pacing or normalization changes requested; the advisory "one roll" read-back is not an owner failure.
 * A5 configuration, G1 decisions, test evidence and the full-gate counts (9,989 / 60 / 0) are unchanged. A6 is authorised as an evaluation; G3 is not approved.
+
+### B.14 Checkpoint A6 (2026-10-20) -- RETAINED WITH EVIDENCE; G3 did not arise
+
+* Evaluated mechanisms A (structural-colon `punc_norm` patch) and B (prose-colon split + 75 ms gap) independently, text level only, with `off` and `v1`:
+  `files/dev-tools/chatterbox_colon_matrix.py` -> `files/dev-work/speech-ab/a6/text-matrix.{json,md}` (23 cases incl. unabridged DIFFICULT_SHORT; pinned
+  tokenizer ids offline).
+* Gate A not met for either (Decisions 2026-10-20, A6): criterion 1 has no patch-free fate for unexpanded/protected colons (respelling closed; look-alike or
+  re-implemented `generate()` not credible; residual risk not approved); the prose pause has no text-level equivalent that keeps the approved 75 ms; and the
+  immutable A0 OFF golden pins both. No GPU run, no listening package, no G3. Production code, wheel pin, goldens and existing tests unchanged.
+* New: `files/tests/test_chatterbox_colon_a6.py` (evidence pins; mutation-checked). Focused set 1,451 passed; A0 `check` OK. Full gate not rerun (A5's stands;
+  S5 owns the final one). Section 8 "URL/path spoken forms" stays an open owner item; re-evaluate the exception at S5 or on a Chatterbox wheel change.

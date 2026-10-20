@@ -426,6 +426,8 @@ flashing during use.
   Speech preparation (v0.6.7 A2-A5, `tts/speech/`): one shared, deterministic English normalizer runs on the decoded text before every route's structure
   stage; per-engine cells in `tts/speech/data/modes.json` come from the owner's G1 verdicts (four native exceptions); `[tts] speech_prep` (default `v1`, `off`
   restores the old text); a run freezes its snapshot by value, Retry Failed re-uses it.
+  Chatterbox colon compatibility (structural-colon `punc_norm` patch, 75 ms prose-colon pause) was evaluated at A6 and retained with evidence (Decisions
+  2026-10-20); it is re-evaluated at S5 or on a Chatterbox wheel change.
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
   only ever imported as `tts.epub2tts_edge`.
 - **Data flow (TTS):** GUI → `tts/epub2tts_edge/runner.run_conversion_job` (cwd-safe temp-dir

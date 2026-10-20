@@ -15,6 +15,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Chatterbox colon evaluation evidence (v0.6.7 Plan 01B checkpoint A6, 2026-10-20)
+
+- Development only, no change to narration: the Chatterbox colon handling (times, ratios, web addresses and paths keep their colon; a short pause after an
+  ordinary colon) was re-examined now that text preparation is on and is kept as it is, with the evidence recorded (`files/dev-tools/chatterbox_colon_matrix.py`,
+  `files/tests/test_chatterbox_colon_a6.py`). The owner's G2 listening of all four engines passed.
+
 ### Changed — Speech preparation is on: numbers, money, dates, times and titles are read as written (v0.6.7 Plan 01B checkpoint A5, 2026-10-20)
 
 - Text is now prepared for every voice before it is spoken: `$12.50` becomes "twelve dollars fifty cents", `1/2 cup` "one half cup", `pages 12-15` "pages twelve
