@@ -15,6 +15,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Speech-preparation A/B listening tool (v0.6.7 Plan 01B checkpoint A4, 2026-10-20)
+
+- Development only, no application change: `files/dev-tools/speech_ab.py` builds the bounded A/B listening corpus (one class per snippet, one voice per engine) through
+  the app's own engine entry points, with blind clip names, a separate key, mechanical checks, an advisory Whisper read-back and a Kokoro pronunciation probe.
+
 ### Added — Speech preparation wired into every TTS route, switched off (v0.6.7 Plan 01B checkpoint A3, 2026-10-20)
 
 - No audible change: the new developer setting `[tts] speech_prep` in `config.toml` defaults to `off`, and with `off` every route (Edge direct, Edge folder, Kokoro,

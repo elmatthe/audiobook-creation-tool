@@ -2,6 +2,18 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A4 clips ready; STOPPED at owner gate G1 (2026-10-20, HOME-PC)
+
+**Waiting for the owner.** Listen to `files/dev-work/speech-ab/a4/listen/` (90 WAV clips, 14 min) using `listen/REVIEW-SHEET.md` (45 rows: Kokoro, Chatterbox, Qwen3 x 15
+classes); the key is `files/dev-work/speech-ab/a4/key/` (do not open before listening). Nothing is enabled: `[tts] speech_prep` is still `off` and every cell `native`.
+- **Edge is blocked, and not only for A4:** Microsoft's read-aloud endpoint refuses the pinned `edge-tts==7.2.8` with HTTP 403 at the WebSocket handshake (clock checked
+  in sync). A minimal five-word `edge_tts.Communicate` call fails the same way, so the production Edge voices fail on HOME-PC today. Fixing it means upgrading a pinned
+  dependency: an owner decision, not done. The 30 Edge clips are not generated; Edge cells stay `native` until they can be heard.
+- **ASR read-back** ran in `.venv-qwen3` (run only, nothing changed) because the evaluation venv's torch now fails importing `torch._dynamo` (`NP_SUPPORTED_MODULES`);
+  that venv was not repaired.
+- **Resume after G1:** record the verdicts per engine x class in Decisions, then A5 (apply the approved matrix in `scripts/tts/speech/data/modes.json`, flip the default
+  only for approved cells, bump Qwen3 `PIPELINE_REVISION`, focused tests, the A5 full verify gate), then G2.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A3 (wiring, snapshot) done, switched off; A4 next (2026-10-20, HOME-PC)
 
 All five routes call `tts.speech.pipeline.prepare`; `[tts] speech_prep` defaults to `off` and every mode cell is `native`, so no route or audio changed. Proof: the unmodified

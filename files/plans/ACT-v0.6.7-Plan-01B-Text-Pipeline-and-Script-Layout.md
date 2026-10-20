@@ -631,3 +631,20 @@ Status: **done**, switched off. Codex review deferred to the consolidated pre-me
   deeply frozen and passes the run freeze; `off` reads no file; broken user files and an unreadable bundled table never fail a run.
 * Mutation sweep: 17 mutants; 15 killed. Survivors: a documentation string (expected) and an equivalent mutant (`<` vs `<=` at a segment end returns the same offset).
   It found one real gap, fixed: a span wholly inside a joining newline came back inverted; it is now empty.
+
+### B.9 Checkpoint A4 record (2026-10-20) -- stopped at owner gate G1
+
+* Tool: `files/dev-tools/speech_ab.py` (`plan | probe | generate | asr | report`), tests `files/tests/test_speech_ab.py` (10). Output (gitignored):
+  `files/dev-work/speech-ab/a4/listen/` (clips + `REVIEW-SHEET.md`) and `.../a4/key/` (`plan.json`, `manifest.json`, `VERDICT-TABLE.md`, `kokoro-probe.json`, logs).
+* Corpus: 15 snippets (one per audible class; HYG is mechanical-only), TIME/DEC/TITLE taken from the approved DIFFICULT_SHORT passage. Voices (D13): Edge
+  `en-US-SteffanNeural`, Kokoro `af_heart`, Chatterbox `chatterbox-female-1`, Qwen3 `qwen3-aiden`. A = speech preparation off; B = only that class expanded for that
+  engine; identical settings otherwise (production timing presets, 400 ms closing silence on both sides; Chatterbox pairs share one seed). 60 pairs planned, every
+  integrity proof passes. Generated: Kokoro, Chatterbox, Qwen3 30 clips each, 0 failures; **Edge 0 of 30** (service 403, see Handoff). 14.0 min of audio.
+* Mechanical: all 45 generated pairs pass (valid mono audio, level, no clipping, plausible rate, integrity). Advisory ASR (Whisper small.en): the expanded side was read
+  back correctly where several native readings were not -- Chatterbox `1/2` as "one slash two" and `100:1` garbled, Qwen3 `3 × 4` hallucinated and currency words
+  dropped, Kokoro `12-15` as "1215", Chatterbox ISO date garbled. ASR cannot judge TIME (it writes `7.15`), nor titles (it writes `Dr.`): those are for the ear.
+* Kokoro probe (D8, misaki 0.9.4): every four-digit test number (1250, 1500, 1999, 2024, 2500) is read as a year in every frame, including `It held 1250 pages`
+  ("twelve fifty pages"); 5000 reads the same either way. ACT's CARD rule fixes the count-cued case; cue-less four-digit numbers stay unchanged (ambiguity policy), so
+  Kokoro keeps reading them as years -- a residual risk; no engine-risk override is proposed without its own approval.
+* Changes to previously approved audio, labelled in the key: TITLE (pronunciation + pacing), TIME and DEC (pronunciation) on every engine, from DIFFICULT_SHORT; and
+  Chatterbox TIME/RATIO (pronunciation + pacing; the colon patch's "B PASS natively" baseline).
