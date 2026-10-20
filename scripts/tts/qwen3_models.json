@@ -127,5 +127,60 @@
     "approx_download_bytes": 3100000000,
     "approx_installed_bytes": 5300000000,
     "note": "Measured on the evaluation machine (Windows, CPython 3.12.10, cu128 wheels); approximate."
+  },
+  "transcriber": {
+    "label": "speech recognizer (Whisper small.en)",
+    "purpose": "Drafts the six cloned voices' reference transcripts once, on this computer, for the user to confirm. Installed only when the user asks.",
+    "repo": "openai/whisper-small.en",
+    "revision": "e8727524f962ee844a7319d92be39ac1bd25655a",
+    "license": "apache-2.0",
+    "dir": "whisper-small.en-e8727524",
+    "total_bytes": 970930930,
+    "files": {
+      "added_tokens.json": {
+        "size": 34604,
+        "sha256": "560be47bea388757f8d4cc185c5d82067426cbb6361e38016dd90ddc01ab203a"
+      },
+      "config.json": {
+        "size": 1943,
+        "sha256": "3441094addfb2a31ef62ea117e95bd6e437bbad8e93d3697fe420a4a6d3603a5"
+      },
+      "generation_config.json": {
+        "size": 1931,
+        "sha256": "aad4e18c0fb1d063c5b38b4080cec3c4c8cdfff95e1de4797013470654a5a72a"
+      },
+      "merges.txt": {
+        "size": 456318,
+        "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5"
+      },
+      "model.safetensors": {
+        "size": 966992008,
+        "sha256": "6014ac49b506df900f66f4aca6b0801eed7245594ace97bcaf73e0ae5b863066"
+      },
+      "normalizer.json": {
+        "size": 52666,
+        "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd"
+      },
+      "preprocessor_config.json": {
+        "size": 184990,
+        "sha256": "9b5cd03a36fbb8a627c64d98a5b5b126ead95a77720723944487311f0110b666"
+      },
+      "special_tokens_map.json": {
+        "size": 1830,
+        "sha256": "014f8f802366ed818919550be0ad9e35907327cb9e142e8aaa102420f460bda8"
+      },
+      "tokenizer.json": {
+        "size": 2405679,
+        "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0"
+      },
+      "tokenizer_config.json": {
+        "size": 805,
+        "sha256": "14f84bdf4b9ecdbd4738ddc81c17a1baedfc02bb93c6e049c951e15a1b40b70d"
+      },
+      "vocab.json": {
+        "size": 798156,
+        "sha256": "3ba3c3109ff33976c4bd966589c11ee14fcaa1f4c9e5e154c2ed7f99d80709e7"
+      }
+    }
   }
 }

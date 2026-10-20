@@ -42,6 +42,10 @@ KIND_CLONE = "clone"
 MODEL_CUSTOMVOICE = "customvoice"
 MODEL_BASE = "base"
 MODEL_KEYS = (MODEL_CUSTOMVOICE, MODEL_BASE)
+#: The local speech recognizer that drafts the six clones' reference transcripts once (``tts.qwen3_transcripts``). It is
+#: pinned and verified exactly like the two voice models, but it is not a voice model: it is never installed by "Install
+#: Both" and no voice needs it at narration time.
+TRANSCRIBER = "transcriber"
 
 
 @dataclass(frozen=True)
@@ -338,12 +342,33 @@ def _validate_model_entry(key: str, raw: dict) -> None:
 
 
 def model_spec(key: str) -> ModelSpec:
-    if key not in MODEL_KEYS:
+    if key not in MODEL_KEYS and key != TRANSCRIBER:
         raise Qwen3Unavailable(f"Unknown Qwen3 model '{key}'.")
-    raw = load_manifest()["models"][key]
+    raw = load_manifest()["models"][key] if key in MODEL_KEYS else load_manifest()["transcriber"]
     _validate_model_entry(key, raw)
     return ModelSpec(key=key, label=raw["label"], repo=raw["repo"], revision=raw["revision"], license=raw["license"],
-                     dir_name=raw["dir"], voices=tuple(raw["voices"]), files=dict(raw["files"]))
+                     dir_name=raw["dir"], voices=tuple(raw.get("voices", ())), files=dict(raw["files"]))
+
+
+def transcriber_status() -> tuple[bool, str]:
+    """``(ok, reason)`` for the speech recognizer that drafts the clone transcripts. Cheap: never hashes or loads."""
+    spec = model_spec(TRANSCRIBER)
+    size = format_bytes(spec.total_bytes)
+    marker = marker_path(TRANSCRIBER)
+    if not marker.is_file():
+        if spec.directory.is_dir():
+            return False, f"The speech recognizer ({size}) is only partly installed."
+        return False, f"The speech recognizer ({size}) is not installed."
+    try:
+        recorded = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        recorded = None
+    if not isinstance(recorded, dict) or recorded.get("manifest_sha256") != spec.manifest_sha256():
+        return False, "The speech recognizer is a different or unreadable version; install it again."
+    problems = model_file_problems(TRANSCRIBER)
+    if problems:
+        return False, f"The speech recognizer is damaged ({problems[0]}); install it again."
+    return True, "ok"
 
 
 def is_link(path: Path) -> bool:
@@ -833,9 +858,10 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
                 return False, reason
             transcript = load_transcript(voice_id)
             if not transcript.ok:
-                return False, (f"Setup required for {voice.label}: {transcript.reason}. Cloned voices need their "
-                               "approved reference transcript; the Qwen3 preset voices, Edge, Kokoro and Chatterbox "
-                               "are unaffected.")
+                return False, (f"Setup required for {voice.label}: {transcript.reason}. Set the cloned voices up once: "
+                               "choose \"Install / repair Qwen3 voices\", then \"Set up cloned voices\" (the app drafts "
+                               "the transcripts on this computer for you to confirm). The Qwen3 preset voices, Edge, "
+                               "Kokoro and Chatterbox are unaffected.")
     except Exception as exc:  # noqa: BLE001 - report it, never crash a panel
         return False, f"This voice could not be checked on this computer ({exc})."
     return True, "ok"

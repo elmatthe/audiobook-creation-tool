@@ -135,6 +135,12 @@ def state_lines() -> list[str]:
         ok, reason = rt.model_status(key)
         voices = "Aiden and Ryan" if key == rt.MODEL_CUSTOMVOICE else "the six cloned voices"
         lines.append(f"{spec.label} model ({voices}): " + ("installed." if ok else _short(reason)))
+        if key == rt.MODEL_BASE and ok:
+            from tts import qwen3_transcripts as qt
+
+            approved = sum(r.state == qt.STATE_APPROVED for r in qt.rows())
+            lines.append(f"Cloned voices set up: {approved} of 6"
+                         + ("." if approved == 6 else " (use \"Set up cloned voices\" to finish)."))
     lines.append(rt.hardware_summary())
     return lines
 
@@ -167,11 +173,12 @@ def _ask_yes_no(parent: tk.Misc, title: str, message: str) -> bool:
 def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Optional[SetupSession] = None,
                  confirm: Optional[Callable[[tk.Misc, str, str], bool]] = None,
                  style_name: Optional[Callable[[Optional[dict], str], str]] = None,
-                 on_change: Optional[Callable[[], None]] = None) -> tk.Toplevel:
+                 on_change: Optional[Callable[[], None]] = None,
+                 open_clones: Optional[Callable[[tk.Misc], None]] = None) -> tk.Toplevel:
     """Build the dialog and return it, without waiting on it.
 
     The returned window exposes what a test needs: ``session``, the buttons (``btn_customvoice``, ``btn_base``,
-    ``btn_both``, ``btn_repair``, ``btn_cancel``, ``btn_close``), ``state_var``, ``message_var``, ``progress`` and
+    ``btn_both``, ``btn_repair``, ``btn_clones``, ``btn_cancel``, ``btn_close``), ``state_var``, ``message_var``, ``progress`` and
     ``poll()`` (one main-thread drain of the worker's queue) / ``refresh()`` (re-read the installed state).
 
     ``confirm`` and ``style_name`` are handed in by the host panel (the TTS panel, which has adopted the shared job
@@ -217,7 +224,9 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     for column, button in enumerate((win.btn_customvoice, win.btn_base, win.btn_both)):
         button.grid(row=0, column=column, padx=(0, 8))
     win.btn_repair = ttk.Button(actions, text="Check and repair", style=st("button"), command=lambda: _repair())
-    win.btn_repair.grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+    win.btn_repair.grid(row=1, column=0, sticky="w", pady=(8, 0))
+    win.btn_clones = ttk.Button(actions, text="Set up cloned voices...", style=st("button"), command=lambda: _clones())
+    win.btn_clones.grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     ttk.Label(body, text=("Nothing is downloaded until you press one of these buttons and confirm. Everything is stored "
                           "inside this app's own folder (the voice engine in .venv-qwen3, the models under "
@@ -249,6 +258,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         _set(win.btn_base, enable and not installed["base"])
         _set(win.btn_both, enable and not all(installed.values()))
         _set(win.btn_repair, enable and bool(installed_or_partial_components() or rt.venv_dir().exists()))  # engine-only too
+        _set(win.btn_clones, enable and installed["base"] and rt.environment_status()[0])
         _set(win.btn_cancel, running)
         _set(win.btn_close, not running)
 
@@ -289,6 +299,16 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         session.cancel()
         message_var.set("Cancelling...")
         _set(win.btn_cancel, False)
+
+    def _clones() -> None:
+        """The six cloned voices need their reference transcripts set up once (its own dialog)."""
+        if open_clones is not None:
+            open_clones(win)
+        else:
+            from tts import qwen3_transcripts_ui
+
+            qwen3_transcripts_ui.run_dialog(win, theme=theme, confirm=confirm, style_name=style_name, on_change=on_change)
+        refresh()
 
     def poll() -> None:
         state["polling"] = None  # this poll has fired; at most one is ever outstanding

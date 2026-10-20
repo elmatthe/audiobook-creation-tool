@@ -11,6 +11,8 @@ Job kinds
 ``synth``  load the model from a local, pinned snapshot **offline**, then render every chunk to its own float WAV.
 ``probe``  import the stack and report versions and GPU/CPU state; with ``model_dir`` also load that model once, so an
            install can prove the files really load. Synthesises nothing.
+``transcribe``  draft the words spoken in each clone's reference recording with the pinned local speech recognizer
+           (``tts.qwen3_transcripts``), offline; the text goes to a file in the job folder, never to stdout.
 
 Terminal events (exactly one per run): ``done``, ``failed``, ``canceled``. A run that ends without one is a failure the
 reader reports as such. Cancellation is a flag file checked before the load, before each chunk and after it; the parent
@@ -236,6 +238,61 @@ def run_synth(job: dict) -> int:
     return EXIT_OK
 
 
+#: Whisper reads 30 s at a time; a reference recording is 15 s. A longer input is refused rather than silently cut.
+TRANSCRIBE_MAX_SECONDS = 30.0
+TRANSCRIBE_RATE = 16000
+
+
+def run_transcribe(job: dict) -> int:
+    """Draft the text spoken in each reference recording with the pinned local speech recognizer, offline.
+
+    The result is written to ``job["out_file"]`` (inside the job folder, which the parent removes), never to stdout, so the
+    words never pass through the event stream or a log. One ``done`` follows; nothing here approves anything.
+    """
+    import numpy as np
+    import soundfile as sf
+    import torch
+
+    try:
+        import torchaudio
+        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+
+        device = choose_device(job.get("device", "auto"), torch.cuda.is_available())
+        started = time.perf_counter()
+        processor = WhisperProcessor.from_pretrained(job["model_dir"], local_files_only=True)
+        model = WhisperForConditionalGeneration.from_pretrained(job["model_dir"], local_files_only=True).to(device).eval()
+    except Exception as exc:  # noqa: BLE001
+        emit({"event": "failed", "stage": "load", "message": f"{type(exc).__name__}: {exc}",
+              "trace": traceback.format_exc()[-1500:]})
+        return EXIT_FAILED
+    emit({"event": "loaded", "load_s": round(time.perf_counter() - started, 2), "versions": _versions(),
+          "chunks": len(job["items"]), **_device_state(torch, device)})
+    results: dict[str, str] = {}
+    for item in job["items"]:
+        if _cancelled(job):
+            emit({"event": "canceled", "completed": len(results)})
+            return EXIT_CANCELED
+        try:
+            audio, rate = sf.read(item["wav"], dtype="float32", always_2d=True)
+            audio = audio.mean(axis=1)
+            if audio.size / rate > TRANSCRIBE_MAX_SECONDS:
+                raise RuntimeError(f"the recording is longer than {TRANSCRIBE_MAX_SECONDS:.0f} s")
+            if rate != TRANSCRIBE_RATE:
+                audio = torchaudio.functional.resample(torch.from_numpy(np.ascontiguousarray(audio)), rate,
+                                                       TRANSCRIBE_RATE).numpy()
+            features = processor(audio, sampling_rate=TRANSCRIBE_RATE, return_tensors="pt").input_features.to(device)
+            with torch.no_grad():
+                ids = model.generate(features, max_new_tokens=220)
+            results[item["name"]] = processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
+        except Exception as exc:  # noqa: BLE001
+            emit({"event": "failed", "stage": "transcribe", "message": f"{item['name']}: {type(exc).__name__}: {exc}",
+                  "trace": traceback.format_exc()[-1500:]})
+            return EXIT_FAILED
+    Path(job["out_file"]).write_text(json.dumps(results, ensure_ascii=False), encoding="utf-8")
+    emit({"event": "done", "items": len(results)})
+    return EXIT_OK
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         sys.stderr.write("usage: qwen3_worker.py <job.json>\n")
@@ -248,6 +305,8 @@ def main(argv: list[str]) -> int:
             return run_synth(job)
         if kind == "probe":
             return run_probe(job)
+        if kind == "transcribe":
+            return run_transcribe(job)
         emit({"event": "failed", "stage": "job", "message": f"unknown job kind {kind!r}"})
         return EXIT_FAILED
     except Exception as exc:  # noqa: BLE001 - the parent must always get a terminal event
