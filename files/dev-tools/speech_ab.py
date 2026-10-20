@@ -100,13 +100,17 @@ def impact(route: str, cls: str) -> dict:
     return {"affects_previously_approved": labels or ["none"], "evidence": evidence or "no approved recording contains it"}
 
 
+#: The A4 baseline: every cell native (the rollout table A4 was planned against), whatever production ships today.
+A4_BASE_TABLE = {engine: {c: "native" for c in classes.RULE_CLASSES} for engine in sorted(set(ROUTE_ENGINE.values()))}
+
+
 def snapshot_for(route: str, cls: str | None) -> SpeechPrepSnapshot | None:
     """A: None (off). B: v1 with only ``cls`` expanded for this engine; every other cell native, no glossary."""
     if cls is None:
         return None
-    table = profiles.load_mode_table()
-    return SpeechPrepSnapshot(setting=SETTING_V1, cells=profiles.effective_cells(table, ((ROUTE_ENGINE[route], cls, "expand"),)),
-                              mode_table_hash=profiles.table_hash(table))
+    return SpeechPrepSnapshot(setting=SETTING_V1,
+                              cells=profiles.effective_cells(A4_BASE_TABLE, ((ROUTE_ENGINE[route], cls, "expand"),)),
+                              mode_table_hash=profiles.table_hash(A4_BASE_TABLE))
 
 
 def sha(text: str) -> str:
@@ -540,8 +544,45 @@ def _file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+#: Listening-copy hygiene (owner, G1): a clip ends 120 ms after its last sample above -60 dBFS. -60 dBFS is far below quiet
+#: speech, so the cut can only fall in silence; the kept 120 ms holds the final word's decay. Production timing is unchanged.
+TRIM_THRESHOLD_DBFS = -60.0
+TRIM_KEEP_MS = 120
+TRIM_MIN_MS = 50
+
+
+def trimmed_listening_copy(source: Path) -> tuple[bytes, dict]:
+    """The listening copy of ``source``: identical samples, minus terminal silence. Lossless (the source's own PCM)."""
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    info = sf.info(str(source))
+    if info.subtype != "PCM_16":
+        raise ValueError(f"{source.name}: expected 16-bit PCM, found {info.subtype}")
+    samples, rate = sf.read(str(source), dtype="int16", always_2d=True)
+    level = np.abs(samples.astype(np.int32)).max(axis=1)
+    limit = int(round(32768 * 10 ** (TRIM_THRESHOLD_DBFS / 20)))
+    above = np.flatnonzero(level > limit)
+    keep = len(samples)
+    if above.size:
+        candidate = min(len(samples), int(above[-1]) + 1 + int(rate * TRIM_KEEP_MS / 1000))
+        if (len(samples) - candidate) * 1000 / rate >= TRIM_MIN_MS and level[candidate:].max(initial=0) <= limit:
+            keep = candidate
+    buffer = io.BytesIO()
+    sf.write(buffer, samples[:keep], rate, subtype="PCM_16", format="WAV")
+    return buffer.getvalue(), {"source_seconds": round(len(samples) / rate, 3), "export_seconds": round(keep / rate, 3),
+                               "trimmed_ms": round((len(samples) - keep) * 1000 / rate), "kept_samples": keep}
+
+
 def export_ordered(plan: dict | None = None, listen: Path = LISTEN, out: Path = ORDERED, key: Path = KEY) -> int:
-    """Copy the blind clips into one flat, numbered folder. Never synthesizes; a byte-identical copy is left alone."""
+    """Copy the blind clips into one flat, numbered folder, each minus its terminal silence.
+
+    Always made from the untouched clip in ``listen/`` (never from an earlier export), so it never degrades; a copy that
+    already holds exactly the expected bytes is left alone. Never synthesizes. An existing review sheet is never replaced:
+    it may hold the owner's verdicts.
+    """
     plan = load_plan() if plan is None else plan
     rows = ordered_rows(plan)
     pairs = {p["pair"]: p for p in plan["pairs"]}
@@ -562,22 +603,47 @@ def export_ordered(plan: dict | None = None, listen: Path = LISTEN, out: Path = 
         for slot in ("A", "B"):
             source = listen / f"{row[slot]['source_clip']}.wav"
             target = out / row[slot]["file"]
-            digest = _file_sha(source)
+            data, trim = trimmed_listening_copy(source)
+            digest = hashlib.sha256(data).hexdigest()
             if not target.is_file() or _file_sha(target) != digest:
-                shutil.copyfile(source, target)
+                target.write_bytes(data)
                 copied += 1
-            if _file_sha(target) != digest:
-                print(f"copy of {source.name} does not match its source")
+            problem = verify_listening_copy(source, target, trim["kept_samples"])
+            if problem:
+                print(problem)
                 return 1
             preparation = "off (today)" if row[slot]["source_clip"] == pair["clips"]["A"] else f"{row['class']} expanded"
             mapping.append({"file": row[slot]["file"], "number": row["number"], "listening_slot": slot,
-                            "source_clip": row[slot]["source_clip"], "sha256": digest, "pair": row["pair"],
-                            "preparation": preparation})
+                            "source_clip": row[slot]["source_clip"], "source_sha256": _file_sha(source),
+                            "sha256": digest, "pair": row["pair"], "preparation": preparation, **trim})
     write_json(key / ORDERED_MAPPING, {"note": "THE KEY for listen-ordered/. Do not open before listening.",
+                                       "trim": {"threshold_dbfs": TRIM_THRESHOLD_DBFS, "keep_ms": TRIM_KEEP_MS,
+                                                "min_ms": TRIM_MIN_MS},
                                        "files": mapping})
-    (out / "REVIEW-SHEET.md").write_text(ordered_review_sheet(plan, rows), encoding="utf-8")
-    print(f"{len(rows)} comparisons, {len(mapping)} files ({copied} copied, {len(mapping) - copied} already identical)")
+    sheet = out / "REVIEW-SHEET.md"
+    if not sheet.exists():
+        sheet.write_text(ordered_review_sheet(plan, rows), encoding="utf-8")
+    trimmed = sum(1 for m in mapping if m["trimmed_ms"])
+    print(f"{len(rows)} comparisons, {len(mapping)} files ({copied} written, {len(mapping) - copied} already identical); "
+          f"{trimmed} trimmed, {len(mapping) - trimmed} kept whole")
     return 0
+
+
+def verify_listening_copy(source: Path, target: Path, kept: int) -> str | None:
+    """The copy must be exactly the source's first ``kept`` samples, and everything removed must be below the threshold."""
+    import numpy as np
+    import soundfile as sf
+
+    original, rate = sf.read(str(source), dtype="int16", always_2d=True)
+    copy, copy_rate = sf.read(str(target), dtype="int16", always_2d=True)
+    limit = int(round(32768 * 10 ** (TRIM_THRESHOLD_DBFS / 20)))
+    if copy_rate != rate or copy.shape[1] != original.shape[1] or len(copy) != kept:
+        return f"{target.name}: format or length differs from its source"
+    if not np.array_equal(copy, original[:kept]):
+        return f"{target.name}: samples differ from its source"
+    if kept < len(original) and int(np.abs(original[kept:].astype(np.int32)).max()) > limit:
+        return f"{target.name}: the removed tail of {source.name} was not silent"
+    return None
 
 
 def ordered_review_sheet(plan: dict, rows: list[dict]) -> str:

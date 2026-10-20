@@ -7,7 +7,9 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "dev-tools"))
 
@@ -117,19 +119,33 @@ def test_the_legacy_sheet_agrees_with_the_ordered_slots_where_it_exists():
     assert checked == 45
 
 
+RATE = 24000
+
+
+def speech_then_silence(path: Path, seed: int, *, speech_s=0.4, tail_s=1.0, tail_level=0.0) -> np.ndarray:
+    """A synthetic clip: noise-like 'speech', then a tail at ``tail_level`` (0 = digital silence)."""
+    rng = np.random.default_rng(seed)
+    speech = (rng.uniform(-0.4, 0.4, int(RATE * speech_s)) * 32767).astype(np.int16)
+    tail = (rng.uniform(-tail_level, tail_level, int(RATE * tail_s)) * 32767).astype(np.int16)
+    samples = np.concatenate([speech, tail])
+    sf.write(str(path), samples, RATE, subtype="PCM_16")
+    return samples
+
+
 @pytest.fixture()
 def fake_listen(tmp_path, monkeypatch):
     listen = tmp_path / "listen"
     listen.mkdir()
-    for pair in PLAN["pairs"]:
-        for side, name in pair["clips"].items():
-            (listen / f"{name}.wav").write_bytes(f"RIFF-{name}-{side}".encode())
+    for index, pair in enumerate(PLAN["pairs"]):
+        for offset, name in enumerate(pair["clips"].values()):
+            speech_then_silence(listen / f"{name}.wav", index * 2 + offset)
     monkeypatch.setattr(ab, "synthesize", lambda *a, **k: pytest.fail("the export must never synthesize"))
     return listen
 
 
-def test_export_copies_byte_identical_files_and_a_private_mapping(fake_listen, tmp_path):
+def test_export_writes_trimmed_copies_and_a_private_mapping(fake_listen, tmp_path):
     out, key = tmp_path / "listen-ordered", tmp_path / "key"
+    sources_before = {p.name: p.read_bytes() for p in fake_listen.glob("*.wav")}
     assert ab.export_ordered(PLAN, fake_listen, out, key) == 0
     wavs = sorted(p.name for p in out.glob("*.wav"))
     assert wavs == sorted(row[s]["file"] for row in ROWS for s in ("A", "B"))
@@ -137,13 +153,46 @@ def test_export_copies_byte_identical_files_and_a_private_mapping(fake_listen, t
     pairs = {p["pair"]: p for p in PLAN["pairs"]}
     for entry in mapping:
         source = fake_listen / f"{entry['source_clip']}.wav"
-        assert (out / entry["file"]).read_bytes() == source.read_bytes()
-        assert entry["sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+        original, _ = sf.read(str(source), dtype="int16")
+        copy, _ = sf.read(str(out / entry["file"]), dtype="int16")
+        assert np.array_equal(copy, original[:len(copy)]), "only the end may be removed"
+        assert len(copy) == int(RATE * 0.4) + int(RATE * ab.TRIM_KEEP_MS / 1000)
+        assert entry["trimmed_ms"] == round((len(original) - len(copy)) * 1000 / RATE) > 800
+        assert entry["source_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+        assert entry["sha256"] == hashlib.sha256((out / entry["file"]).read_bytes()).hexdigest()
         side = "A" if pairs[entry["pair"]]["clips"]["A"] == entry["source_clip"] else "B"
         assert entry["preparation"] == ("off (today)" if side == "A" else f"{pairs[entry['pair']]['class']} expanded")
+    assert {p.name: p.read_bytes() for p in fake_listen.glob("*.wav")} == sources_before, "sources are never touched"
     before = {p.name: p.stat().st_mtime_ns for p in out.glob("*.wav")}
     assert ab.export_ordered(PLAN, fake_listen, out, key) == 0
     assert {p.name: p.stat().st_mtime_ns for p in out.glob("*.wav")} == before, "a rerun rewrites nothing"
+
+
+def test_quiet_endings_and_clips_without_silence_are_kept_whole(tmp_path):
+    quiet = speech_then_silence(tmp_path / "quiet.wav", 1, tail_level=10 ** (-50 / 20))  # a soft fricative, not silence
+    data, info = ab.trimmed_listening_copy(tmp_path / "quiet.wav")
+    assert info["trimmed_ms"] == 0 and info["kept_samples"] == len(quiet)
+    full = speech_then_silence(tmp_path / "full.wav", 2, tail_s=0.0)
+    assert ab.trimmed_listening_copy(tmp_path / "full.wav")[1]["kept_samples"] == len(full)
+    short = speech_then_silence(tmp_path / "short.wav", 3, tail_s=0.15)  # 150 ms tail: under the 50 ms saving floor
+    assert ab.trimmed_listening_copy(tmp_path / "short.wav")[1]["trimmed_ms"] == 0
+    assert len(short) == int(RATE * 0.55)
+
+
+def test_the_copy_check_rejects_changed_samples_and_non_silent_cuts(tmp_path):
+    original = speech_then_silence(tmp_path / "src.wav", 4)
+    sf.write(str(tmp_path / "bad.wav"), original[:500] * 0, RATE, subtype="PCM_16")
+    assert "samples differ" in ab.verify_listening_copy(tmp_path / "src.wav", tmp_path / "bad.wav", 500)
+    sf.write(str(tmp_path / "cut.wav"), original[:500], RATE, subtype="PCM_16")
+    assert "not silent" in ab.verify_listening_copy(tmp_path / "src.wav", tmp_path / "cut.wav", 500)
+
+
+def test_an_existing_review_sheet_is_never_replaced(fake_listen, tmp_path):
+    out = tmp_path / "listen-ordered"
+    out.mkdir()
+    (out / "REVIEW-SHEET.md").write_text("| 001 | ... | A | owner verdicts |\n", encoding="utf-8")
+    assert ab.export_ordered(PLAN, fake_listen, out, tmp_path / "key") == 0
+    assert (out / "REVIEW-SHEET.md").read_text(encoding="utf-8") == "| 001 | ... | A | owner verdicts |\n"
 
 
 def test_the_ordered_sheet_references_every_file_and_stays_blind(fake_listen, tmp_path):
@@ -165,9 +214,10 @@ def test_the_ordered_sheet_references_every_file_and_stays_blind(fake_listen, tm
 def test_the_export_refuses_missing_sources_and_foreign_files(fake_listen, tmp_path):
     out = tmp_path / "listen-ordered"
     victim = next(fake_listen.glob("*.wav"))
+    kept = victim.read_bytes()
     victim.write_bytes(b"")
     assert ab.export_ordered(PLAN, fake_listen, out, tmp_path / "key") == 1 and not out.exists()
-    victim.write_bytes(b"RIFF")
+    victim.write_bytes(kept)
     out.mkdir()
     (out / "stray.wav").write_bytes(b"x")
     assert ab.export_ordered(PLAN, fake_listen, out, tmp_path / "key") == 1
@@ -181,8 +231,10 @@ def test_the_real_ordered_folder_is_complete_and_identical_to_its_sources():
     assert len(mapping) == 120 and len(list(ab.ORDERED.glob("*.wav"))) == 120
     for entry in mapping:
         source, copy = ab.LISTEN / f"{entry['source_clip']}.wav", ab.ORDERED / entry["file"]
-        assert hashlib.sha256(copy.read_bytes()).hexdigest() == entry["sha256"] == \
-            hashlib.sha256(source.read_bytes()).hexdigest()
+        assert hashlib.sha256(copy.read_bytes()).hexdigest() == entry["sha256"]
+        assert hashlib.sha256(source.read_bytes()).hexdigest() == entry["source_sha256"]
+        assert ab.verify_listening_copy(source, copy, entry["kept_samples"]) is None
+        assert entry["export_seconds"] * 1000 + entry["trimmed_ms"] == pytest.approx(entry["source_seconds"] * 1000, abs=2)
     plan = ab.load_plan()
     assert plan == PLAN, "key/plan.json must be the plan this tool builds (unchanged since generation)"
     edge = [p for p in plan["pairs"] if p["route"] == "edge_direct"]
