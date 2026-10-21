@@ -251,10 +251,14 @@ def test_the_packager_never_names_the_template_at_all():
 
 
 def test_the_packaged_root_files_are_a_closed_named_set():
-    """Root packaging is an enumerated list, not a directory walk."""
+    """Root packaging is an enumerated list, not a directory walk.
+
+    ``_write_archive`` is the one function that chooses members (v0.6.7 split it out of ``_package_os``, which now
+    only stages, validates and publishes).
+    """
     tree = ast.parse((UNIVERSAL / "shared" / "release.py").read_text(encoding="utf-8"))
     function = next(n for n in ast.walk(tree)
-                    if isinstance(n, ast.FunctionDef) and n.name == "_package_os")
+                    if isinstance(n, ast.FunctionDef) and n.name == "_write_archive")
     attributes = [n.attr for n in ast.walk(function) if isinstance(n, ast.Attribute)]
     assert "iterdir" not in attributes, "the repository root must never be walked"
     assert "walk" not in attributes
@@ -674,8 +678,10 @@ def test_the_packager_imports_nothing_from_the_application():
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported.add((node.module or "").split(".")[0])
-    # subprocess is for git alone: v0.6.6 Phase 11 packages only committed files.
-    assert imported <= {"__future__", "subprocess", "sys", "zipfile", "pathlib", "version"}
+    # subprocess is for git alone: v0.6.6 Phase 11 packages only committed files. os/tempfile/zlib are the
+    # v0.6.7 no-replace staging, link-based publication and per-member CRC validation.
+    assert imported <= {"__future__", "subprocess", "sys", "zipfile", "pathlib", "version",
+                        "os", "tempfile", "zlib"}
 
 
 def test_building_is_not_part_of_application_startup():
@@ -685,3 +691,185 @@ def test_building_is_not_part_of_application_startup():
     source = (UNIVERSAL / "shared" / "release.py").read_text(encoding="utf-8")
     assert source.rstrip().endswith("raise SystemExit(main())")
     assert '__name__ == "__main__"' in source
+
+
+# --------------------------------------------------------------------------- #
+# Existing archives are never replaced (v0.6.7, audit ACT67-AUD-001)
+# --------------------------------------------------------------------------- #
+
+
+def archive_name(os_name: str) -> str:
+    return f"AudiobookTool-{os_name}-v{release.VERSION}.zip"
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def occupy(dist: Path, os_name: str, payload: bytes = b"published release bytes") -> Path:
+    dist.mkdir(parents=True, exist_ok=True)
+    path = dist / archive_name(os_name)
+    path.write_bytes(payload + os_name.encode())
+    return path
+
+
+def assert_no_staging_left(dist: Path) -> None:
+    assert [p.name for p in dist.iterdir() if p.name.startswith(".staging-")] == []
+
+
+@pytest.mark.parametrize("occupied", [("Windows",), ("MacOS",), ("Windows", "MacOS")])
+def test_an_occupied_destination_refuses_the_whole_build_and_keeps_its_bytes(tmp_path, occupied):
+    """One occupied platform blocks both: nothing is deleted, nothing new appears."""
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    before = {name: sha(occupy(dist, name)) for name in occupied}
+    (dist / "AudiobookTool-Windows-v0.0.1.zip").write_bytes(b"an older release")
+    assert run_main(root, dist) != 0
+    assert {name: sha(dist / archive_name(name)) for name in occupied} == before
+    for name in set(OS_NAMES) - set(occupied):
+        assert not (dist / archive_name(name)).exists()
+    assert (dist / "AudiobookTool-Windows-v0.0.1.zip").read_bytes() == b"an older release"
+    assert_no_staging_left(dist)
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_a_single_platform_build_refuses_an_occupied_destination(tmp_path, os_name):
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    before = sha(occupy(dist, os_name))
+    with pytest.raises(release.ReleaseError, match="never replaced"):
+        build(root, dist, os_name)
+    assert sha(dist / archive_name(os_name)) == before
+
+
+def test_a_folder_at_the_destination_counts_as_occupied(tmp_path):
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    (dist / archive_name("MacOS")).mkdir(parents=True)
+    (dist / archive_name("MacOS") / "keep.txt").write_text("keep", encoding="utf-8")
+    assert run_main(root, dist) != 0
+    assert (dist / archive_name("MacOS") / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not (dist / archive_name("Windows")).exists()
+
+
+def wrap(monkeypatch, name, after):
+    """Run release.<name> for real, then ``after(os_name_or_args, result)``."""
+    real = getattr(release, name)
+
+    def wrapper(*args, **kwargs):
+        result = real(*args, **kwargs)
+        after(args, result)
+        return result
+
+    monkeypatch.setattr(release, name, wrapper)
+
+
+def test_an_interrupted_write_publishes_nothing(tmp_path, monkeypatch):
+    """The second platform dies mid-archive: the first, already staged, must not be published either."""
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    real = release._write_executable
+
+    def dying(zf, src, arcname):
+        if arcname.endswith(".command"):
+            raise OSError("simulated: disk full while writing")
+        return real(zf, src, arcname)
+
+    monkeypatch.setattr(release, "_write_executable", dying)
+    with pytest.raises(OSError, match="disk full"):
+        run_main(root, dist)
+    assert sorted(p.name for p in dist.iterdir()) == []
+
+
+def test_a_keyboard_interrupt_mid_build_leaves_existing_archives_alone(tmp_path, monkeypatch):
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    unrelated = dist / "AudiobookTool-Windows-v0.0.1.zip"
+    dist.mkdir()
+    unrelated.write_bytes(b"older")
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(release, "_validate_archive", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_main(root, dist)
+    assert sorted(p.name for p in dist.iterdir()) == [unrelated.name]
+    assert unrelated.read_bytes() == b"older"
+
+
+def test_a_truncated_archive_fails_validation_and_is_not_published(tmp_path, monkeypatch):
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+
+    def truncate(args, result):
+        path = args[1]
+        path.write_bytes(path.read_bytes()[:-200])
+
+    wrap(monkeypatch, "_write_archive", truncate)
+    assert run_main(root, dist) != 0
+    assert sorted(p.name for p in dist.iterdir()) == []
+
+
+def test_a_source_changed_during_the_build_fails_validation(tmp_path, monkeypatch):
+    """A member that no longer equals its source is caught by the per-member check, not just the CRC scan."""
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+
+    def edit_source(args, result):
+        (root / "scripts" / "launcher.py").write_text("x = 'changed after writing'\n", encoding="utf-8")
+
+    wrap(monkeypatch, "_write_archive", edit_source)
+    assert run_main(root, dist) != 0
+    assert sorted(p.name for p in dist.iterdir()) == []
+
+
+@pytest.mark.parametrize("racer", OS_NAMES)
+def test_a_destination_created_during_the_build_is_never_overwritten(tmp_path, monkeypatch, racer):
+    """The preflight passed, then someone else wrote the archive. Their bytes win; this build publishes nothing."""
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    foreign = b"written by a concurrent build"
+
+    def race(args, result):
+        if args[2] == release.ENTRY_FILES["MacOS"]:  # after the last validation, just before publication
+            (dist / archive_name(racer)).write_bytes(foreign)
+
+    wrap(monkeypatch, "_validate_archive", race)
+    assert run_main(root, dist) != 0
+    assert (dist / archive_name(racer)).read_bytes() == foreign
+    other = next(name for name in OS_NAMES if name != racer)
+    # Windows is published first; when MacOS loses the race its link is withdrawn again.
+    assert not (dist / archive_name(other)).exists()
+    assert_no_staging_left(dist)
+
+
+def test_a_drive_without_hard_links_publishes_nothing(tmp_path, monkeypatch):
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+
+    def no_links(src, dst):
+        raise OSError(1, "simulated: hard links not supported")
+
+    monkeypatch.setattr(release.os, "link", no_links)
+    assert run_main(root, dist) != 0
+    assert sorted(p.name for p in dist.iterdir()) == []
+
+
+def test_a_successful_build_validates_publishes_and_cleans_up(tmp_path):
+    root = fake_repo(tmp_path / "repo")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "AudiobookTool-MacOS-v0.0.1.zip").write_bytes(b"older")
+    assert run_main(root, dist) == 0
+    assert sorted(p.name for p in dist.iterdir()) == sorted(
+        ["AudiobookTool-MacOS-v0.0.1.zip", *(archive_name(n) for n in OS_NAMES)])
+    assert (dist / "AudiobookTool-MacOS-v0.0.1.zip").read_bytes() == b"older"
+    for os_name in OS_NAMES:
+        with zipfile.ZipFile(dist / archive_name(os_name)) as zf:
+            assert zf.testzip() is None
+            assert zf.getinfo(LAUNCHERS[os_name]).external_attr >> 16 == 0o100755
+    # A second run of the same version refuses rather than replacing what the first published.
+    first = {n: sha(dist / archive_name(n)) for n in OS_NAMES}
+    assert run_main(root, dist) != 0
+    assert {n: sha(dist / archive_name(n)) for n in OS_NAMES} == first

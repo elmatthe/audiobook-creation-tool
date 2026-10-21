@@ -2,6 +2,16 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Codex audit remediation: IN PROGRESS (2026-10-21, HOME-PC, Claude Code)
+
+Branch `feature/0.6.7-speech-pipeline-and-layout`, audited baseline `1bf268c`. Audit report: `files/dev-work/final-codex-audit/ACT-v0.6.7-Final-Audit.md` (ignored, local).
+Identity stays 0.6.6; nothing merged, tagged, packaged or released. The owner's six Qwen3 clone transcripts are now OWNER-APPROVED on HOME-PC (checked read-only:
+6/6 `approved: true`, bound to the registered reference SHA-256s, all six voices available); they are never edited, re-drafted or copied by this work.
+
+- **CP1 AUD-001 (release no-clobber): DONE.** `shared/release.py` refuses if either platform's archive already exists, stages both in a fresh folder inside `dist/`,
+  validates every member against its source, then publishes by hard link (never replaces); a lost race withdraws only this run's own link. 14 new synthetic tests.
+- **Next:** CP2 Kokoro health/repair (AUD-002).
+
 ## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
 
 Not merged, tagged or released; identity stays 0.6.6. Supersedes the "Pending owner" lines of the blocks below: the owner listened to all 28 previews and approved their audio, and the six clones PASS at
