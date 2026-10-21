@@ -103,6 +103,15 @@ REFERENCE_ASSETS = (
 EXCLUDED_DIR_NAMES = {".venv", ".venv-qwen3", "__pycache__", ".pytest_cache"}
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
+# Tracked developer entry points under scripts/ that the application never imports or runs (v0.6.7, audit
+# ACT67-AUD-012): the verification gate (needs files/tests and the dev docs), this packager (needs .git) and the
+# voice-sample evaluation helper (needs files/dev-tools). Named exactly, so nothing else can be dropped by accident;
+# each is repo-relative POSIX.
+DEVELOPER_ONLY_SCRIPTS = frozenset({
+    "scripts/verify.py",
+    "scripts/shared/release.py",
+    "scripts/tts/generate_voice_samples.py",
+})
 # Exact file names that are always excluded, wherever they appear in the tree.
 # Folder-metadata artifacts a real OS drops just from browsing a folder in
 # Finder/Explorer -- gitignored (never committed), so they cannot be relied on
@@ -242,7 +251,7 @@ def _write_archive(os_name: str, zip_path: Path) -> tuple[list[tuple[str, Path]]
             if not path.is_file():
                 continue
             rel = path.relative_to(REPO_ROOT)
-            if _is_excluded(rel):
+            if _is_excluded(rel) or rel.as_posix() in DEVELOPER_ONLY_SCRIPTS:
                 continue
             if rel.as_posix() not in tracked:
                 left_behind.append(rel.as_posix())

@@ -30,6 +30,10 @@ release candidate). State at this checkpoint:
 - **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
 - **Code layout after B2:** `scripts/{launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/}`; each package has a README module map.
 - **Qualification evidence** (S5 runtime, the extracted-ZIP test) and what remains unproven are in `Handoff.md` (current-state block of 2026-10-20) and `Decisions.md`.
+- **Codex audit remediation (2026-10-21):** no-clobber release packaging, proved Kokoro health and constrained repair, a cross-installation Qwen3 guard
+  (`rt.MachineGuard`, a Windows named mutex), real Tk initialisation in every setup probe, reported clone-approval save failures, an absolute README gallery
+  link and developer-only scripts kept out of the ZIP. Still OPEN (owner/manual): AUD-004 clean Windows setup, AUD-005 reference-recording
+  redistribution authority, AUD-008 final release-candidate ZIP, AUD-009 network model acquisition. Details: Decisions 2026-10-21, Handoff.
 
 ## Post-release v0.6.6 bundled-reference contract (2026-09-30)
 
@@ -663,8 +667,9 @@ rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries);
   encode (ffmpeg run directly so every scratch file stays in the job folder). Progress is per source file, with the current-item
   message refreshed per chunk. Cancellation: a flag file, then after a 3-second grace the whole process tree is killed; the job folder
   (which holds the user's text) is always removed; an existing output is never replaced by a partial file.
-- **Safety.** Worker and pip run inside a Job Object (not run at all if containment fails); `setup.lock`/`inference.lock` OS file locks keep
-  install/repair and conversions apart machine-wide; manifest names are validated and nothing beneath a model folder may be a link;
+- **Safety.** Worker and pip run inside a Job Object (not run at all if containment fails); per-installation `setup.lock`/`inference.lock` OS file locks keep
+  install/repair and conversions of one copy apart, and the `rt.MachineGuard` named mutex keeps every copy of the app (all Windows users)
+  to one Qwen3 model operation at a time; manifest names are validated and nothing beneath a model folder may be a link;
   `.venv-qwen3` must be a real folder in the repo; pip runs `--isolated --require-virtualenv --require-hashes`.
 - **Measured (HOME-PC, Windows 11):** GPU RTX 5070 about 1.37x real time (peak +5.6 GB VRAM); CPU (CUDA hidden) about 2.2x, 5.6 GB RAM on a
   Ryzen 7 9800X3D (one machine only); install about 7 minutes with a fast link. macOS is untested and not claimed.
@@ -1463,6 +1468,11 @@ the exact five-step smoke test is written out in `Handoff.md`.
 ### Known limitations and retained follow-up
 
 **Known limitations (documented, not bugs):**
+- **Main environment reproducibility (audit ACT67-AUD-010, 2026-10-21).** `scripts/requirements.txt` pins direct dependencies (plus the
+  qualified `srsly==2.5.3`), not the full transitive set, so two installs can differ (spaCy 3.8.15 vs 3.8.16 was observed); Chatterbox's
+  weights are downloaded without a pinned model revision. Only `.venv-qwen3` is fully hash-pinned. A full lock is a separate owner decision.
+- **Python 3.11 vs Qwen3.** Ordinary ACT accepts a 3.11 or 3.12 app environment; the optional Qwen3 voices need exactly 3.12 (cp312 wheels).
+  On a 3.11 environment the Qwen3 installer refuses with a clear message and the eight Qwen3 voices stay unavailable; nothing else is affected.
 - **Current v0.6.6 disposition (Phase 13, 2026-09-29).** The historical Plan-9 targets below
   are superseded by the frozen v0.6.6 contract: all six core-control groups must fit without
   core scrolling at Windows 920×600 and Mac 1024×800. Windows geometry/keyboard suites cover

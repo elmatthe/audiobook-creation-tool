@@ -15,6 +15,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.6.7 Codex audit remediation (2026-10-21) — not released; identity stays 0.6.6
+
+#### Fixed
+- **The release packager no longer deletes an existing archive (ACT67-AUD-001).** `scripts/shared/release.py` refuses to build if either platform's
+  `dist/AudiobookTool-<OS>-v<VERSION>.zip` already exists, writes both into a fresh staging folder inside `dist/`, checks every member against its source,
+  and publishes by hard link, which never replaces a file that appeared meanwhile. A run publishes both archives or neither.
+- **Kokoro is only reported healthy when its voices can actually start (ACT67-AUD-002).** The launch check used to confirm only that the packages were
+  present, and said "ok" while Windows was blocking a library every Kokoro voice needs. Setup, repair and launch now prove the whole synthesis chain offline
+  (without downloading anything), record the result, and re-prove after a real synthesis fails. Repairs install from `scripts/requirements.txt`, so the
+  qualified `srsly==2.5.3` applies; a repair that cannot help is not repeated on every launch; the notice names the real cause (for example Windows
+  Application Control) instead of "Python may be 3.13+".
+- **Two copies of the app can no longer load Qwen3 models at the same time (ACT67-AUD-003).** Each copy's lock file lived in its own folder. A
+  machine-wide Windows lock now covers every Qwen3 conversion, transcription and model check across all copies (and Windows users); it never waits and is
+  released automatically if the app crashes.
+- **Setup now checks that Tk can really open a window (ACT67-AUD-006).** The checks started Tcl only, so a Python with a broken Tk was accepted and the
+  app then failed to open. Stage 0, interpreter selection and the environment check now initialise a real (hidden) Tk window, with a time limit.
+- **A clone approval that cannot be saved now says so (ACT67-AUD-007).** A read-only, locked or full disk used to make "Approve" silently do nothing. The
+  dialog now explains the problem, keeps the edited text and ticks, never claims success first, and a retry works; existing approvals stay untouched.
+- **The README's voice-gallery link works from the downloaded ZIP (ACT67-AUD-011)**: it is now an absolute GitHub link (on the feature branch until the
+  owner's merge decision, like the preview downloads).
+
+#### Changed
+- The TTS Audiobook description in the launcher names all four engines (Edge TTS, Kokoro, Chatterbox, Qwen3).
+- The release ZIPs no longer include three developer-only scripts (`scripts/verify.py`, `scripts/shared/release.py`, `scripts/tts/generate_voice_samples.py`)
+  (ACT67-AUD-012). All six tools, the Qwen3 worker and their data still ship.
+- The README states that the optional Qwen3 voices need Python 3.12 exactly; on a Python 3.11 app environment everything else works.
+
+#### Not changed / still open
+- Owner/manual release gates remain OPEN: clean standard-user Windows setup (AUD-004), redistribution authority for the six bundled reference recordings
+  (AUD-005), an exact final release-candidate ZIP (AUD-008), real network download of the Qwen3 models and recognizer (AUD-009). The main environment's
+  transitive packages and the Chatterbox model revision are not fully pinned (AUD-010, documented).
+- Qwen3 speed: investigated only (`files/dev-work/qwen3-performance/`, local); no production inference change.
+
 ### v0.6.7 final implementation and Windows qualification (2026-10-20) — not released; identity stays 0.6.6
 
 #### Added

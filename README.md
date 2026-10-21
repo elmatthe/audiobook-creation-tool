@@ -51,12 +51,12 @@ Eight more local voices: **Qwen3 - Aiden** and **Qwen3 - Ryan** (preset voices) 
 
 ## Voice samples
 
-Short samples of all 28 voices, each reading the same sentence and named exactly as in the app, are in the [voice previews](files/voice-previews/README.md) folder of this repository on GitHub. They are not part of the download.
+Short samples of all 28 voices, each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/README.md) folder of this repository on GitHub. They are not part of the download.
 
 ## Requirements
 
 - Windows 10/11 or macOS 12+, with space for the Python environment, outputs and any voice models.
-- On Windows, when no suitable Python is found, setup asks before installing Python 3.12 for your user account only, using the official python.org installer, which it verifies before running (winget is only a fallback). Setup acquires FFmpeg (and, on macOS, Python) with the supported tools (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13.
+- On Windows, when no suitable Python is found, setup asks before installing Python 3.12 for your user account only, using the official python.org installer, which it verifies before running (winget is only a fallback). Setup acquires FFmpeg (and, on macOS, Python) with the supported tools (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13. The optional Qwen3 voices need Python 3.12 exactly (their pinned engine packages are built only for 3.12): on a computer whose app environment uses Python 3.11 everything else works, but the Qwen3 installer refuses and those eight voices stay unavailable until the app is set up with Python 3.12.
 - Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (the Qwen3 voices need up to about 14 GB more, see above).
 
 ## More information

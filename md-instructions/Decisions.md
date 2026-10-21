@@ -4,6 +4,52 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-21 - v0.6.7 Codex audit remediation: no-clobber packaging, proved Kokoro health, a cross-installation Qwen3 guard, real Tk proofs
+
+Implementation decisions by Claude Code under the owner's remediation brief for `files/dev-work/final-codex-audit/ACT-v0.6.7-Final-Audit.md`.
+
+**Release archives are never replaced (AUD-001).** `release.py` checks both destinations first and refuses if either exists; nothing in `dist/` is deleted
+or overwritten except the run's own `.staging-*` folder. Archives are validated member by member (order, size, CRC32 against the source, launcher mode 0755)
+and published with `os.link`, chosen because it fails on an existing destination on NTFS, APFS and ext4 alike (`os.replace` would silently overwrite on
+POSIX). If a later link fails, earlier links of the same run are withdrawn only while `os.path.samefile` proves they are still this run's file. A drive
+without hard links is refused rather than given a replacing fallback. There is deliberately no "replace" option: moving old archives aside stays a manual act.
+
+**Kokoro health = presence + a recorded offline proof (AUD-002).** Presence (`find_spec`) still runs every launch (cheap). The proof imports kokoro, torch,
+misaki, spaCy, srsly, soundfile and scipy and, when spaCy's English model is installed, builds the English G2P with `model=False` under
+`HF_HUB_OFFLINE=1`, so it can never download the Kokoro weights or spaCy's model. It is recorded in `.venv/.kokoro-proof.json`, keyed to the requirements
+hash and the interpreter: success trusted 7 days (same as the import proof), failure 1 day. `kokoro_synth` deletes the record when a real pipeline load
+fails. Repairs run `pip install -r scripts/requirements.txt` (never the hand-kept `KOKORO_PKGS` list), and a repair whose proof still fails is not rerun
+that day, because reinstalling the same pinned files cannot change an Application Control decision. The repair no longer warms the full model (which could
+download ~300 MB unasked); setup's opt-in warmup is unchanged.
+
+**Qwen3 resource scope (AUD-003).** `rt.MachineGuard` is a Windows named mutex, `Global\AudiobookCreationTool-Qwen3-ModelGuard-v1`: one heavy Qwen3 model
+operation at a time across every copy of the app and every Windows user/session (one GPU, one RAM). If Windows refuses the `Global\` namespace for any
+reason other than access denied, it falls back to `Local\` (this logon session) and says so in `scope`. Access denied means another user's copy holds it
+open and is treated as busy. Acquisition never waits; the kernel releases an abandoned mutex, so a crash cannot strand it; it is thread-owned, so it is only
+used as a `with` block. Taken by `inference_lease` (conversions, transcription drafting) and around the install/repair model-load probe; downloads do not
+take it. The per-installation `setup.lock`/`inference.lock` file locks stay for the installation's own files. A mutex rather than a shared lock file avoids a
+global file location; Qwen3 is Windows-only, so elsewhere the guard is an explicit no-op (`scope = "none"`). The test suite uses its own mutex name.
+
+**GUI health means Tk initialises (AUD-006).** One proof everywhere: `tkinter.Tk()`, `withdraw()`, `destroy()` before any event loop (no window), 30 s bound,
+in the venv probe, `_tcl_tk_ok` and stage 0 (which now runs candidates as a bounded process, not with `&`). A TclError about a missing display is a property
+of where the app runs, not of the environment: reported as degraded `no-display`, never as a reason to rebuild.
+
+**Clone approval persistence (AUD-007).** `write_store` maps any filesystem error to `SetupError` with one actionable message; the dialog also catches any
+other exception. Failures return before the rows reload, so the user's text and ticks stay. `atomic_write_text` removes only its own partial temp file.
+
+**Packaging and docs (AUD-011/AUD-012).** The README gallery link is absolute and must name the same ref as `voice_previews.RAW_BASE` (a test pins that); both
+move to the stable branch together at the owner's merge decision. The release walk skips exactly three tracked developer entry points
+(`DEVELOPER_ONLY_SCRIPTS`); no application module imports them (tested on the built archive).
+
+**Recorded, not changed (AUD-010).** The main `.venv` pins direct requirements only; transitive packages can drift between installs (two qualified
+environments already differ in spaCy 3.8.15 vs 3.8.16), and Chatterbox's weights are fetched without a pinned revision. A full transitive lock and a pinned
+Chatterbox revision are a separate, owner-approved change; nothing was upgraded or locked here. `.venv-qwen3` remains fully hash-pinned.
+
+**Gates kept open, not waived:** AUD-004 (clean standard-user Windows install), AUD-005 (redistribution authority for the six reference recordings), AUD-008
+(an exact final release-candidate ZIP), AUD-009 (real network acquisition of the Qwen3 models and recognizer).
+
+---
+
 ## 2026-10-20 - v0.6.7 final implementation: owner listening approval, in-app clone set-up, Windows stage 0, the reference names and the B2 split
 
 **Owner listening approval (owner).** The owner listened to all 28 published voice previews and approved their audio quality. The six Qwen3 clones PASS at temperature 0.70 and sub-talker

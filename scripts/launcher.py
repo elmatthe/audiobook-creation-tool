@@ -103,7 +103,7 @@ TOOLS: list[ToolSpec] = [
         "tts",
         "TTS Audiobook",
         "tts.epub2tts_gui",
-        "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro AI voices.",
+        "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro, Chatterbox and Qwen3 voices.",
     ),
     ToolSpec(
         "m4b_converter",

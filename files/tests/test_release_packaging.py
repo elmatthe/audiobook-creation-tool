@@ -355,12 +355,13 @@ def test_the_scripts_tree_is_complete(archives, os_name):
         and not release.EXCLUDED_DIR_NAMES & set(path.relative_to(REPO_ROOT).parts)
         and path.suffix not in release.EXCLUDED_SUFFIXES
         and path.name not in release.EXCLUDED_FILE_NAMES
+        and path.relative_to(REPO_ROOT).as_posix() not in release.DEVELOPER_ONLY_SCRIPTS
     }
     packaged = {name for name in names(archives[os_name]) if name.startswith("scripts/")}
     assert packaged == expected
     assert "scripts/requirements.txt" in packaged
     assert "scripts/launcher.py" in packaged
-    assert "scripts/verify.py" in packaged
+    assert "scripts/verify.py" not in packaged  # a development gate since v0.6.7 (ACT67-AUD-012)
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -873,3 +874,84 @@ def test_a_successful_build_validates_publishes_and_cleans_up(tmp_path):
     first = {n: sha(dist / archive_name(n)) for n in OS_NAMES}
     assert run_main(root, dist) != 0
     assert {n: sha(dist / archive_name(n)) for n in OS_NAMES} == first
+
+
+# --------------------------------------------------------------------------- #
+# Developer entry points stay behind; everything the app runs ships (v0.6.7, audit ACT67-AUD-012)
+# --------------------------------------------------------------------------- #
+def test_the_developer_only_exclusion_is_exactly_three_tracked_files():
+    tracked = set(git(REPO_ROOT, "ls-files", "--", "scripts").splitlines())
+    assert release.DEVELOPER_ONLY_SCRIPTS == {
+        "scripts/verify.py", "scripts/shared/release.py", "scripts/tts/generate_voice_samples.py"}
+    assert release.DEVELOPER_ONLY_SCRIPTS <= tracked, "a stale name here would hide a rename"
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_developer_entry_points_never_ship(archives, os_name):
+    assert not release.DEVELOPER_ONLY_SCRIPTS & set(names(archives[os_name]))
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_every_tool_and_the_qwen3_worker_still_ship(archives, os_name):
+    import launcher
+
+    members = set(names(archives[os_name]))
+    assert len(launcher.TOOLS) == 6
+    for spec in launcher.TOOLS:
+        assert "scripts/" + spec.module.replace(".", "/") + ".py" in members, spec.module
+    for required in ("scripts/launcher.py", "scripts/requirements.txt", "scripts/qwen3-requirements.txt",
+                     "scripts/tts/qwen3_worker.py", "scripts/tts/qwen3_runtime.py", "scripts/tts/qwen3_models.json",
+                     "scripts/tts/voice_registry.py", "scripts/shared/bootstrap.py", "scripts/shared/bootstrap_host.ps1"):
+        assert required in members, required
+    assert any(m.startswith("scripts/tts/speech/data/") for m in members)
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_no_packaged_module_imports_a_developer_entry_point(archives, os_name):
+    dev_modules = {Path(p).stem for p in release.DEVELOPER_ONLY_SCRIPTS}
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        for member in zf.namelist():
+            if not member.endswith(".py"):
+                continue
+            tree = ast.parse(zf.read(member).decode("utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    found = {alias.name.split(".")[-1] for alias in node.names}
+                elif isinstance(node, ast.ImportFrom):
+                    found = {(node.module or "").split(".")[-1]} | {alias.name for alias in node.names}
+                else:
+                    continue
+                assert not found & dev_modules, f"{member} imports {found & dev_modules}"
+
+
+# --------------------------------------------------------------------------- #
+# The README a ZIP user reads has no dead relative links (v0.6.7, audit ACT67-AUD-011)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_every_relative_readme_link_resolves_inside_the_archive(archives, os_name):
+    import re
+
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        members = set(zf.namelist())
+        readme = zf.read("README.md").decode("utf-8")
+    targets = re.findall(r"\]\(([^)\s]+)\)", readme)
+    assert targets
+    relative = [t for t in targets if not re.match(r"^(https?:|mailto:|#)", t)]
+    missing = [t for t in relative if t.split("#")[0] not in members]
+    assert missing == [], f"links that are dead once extracted: {missing}"
+
+
+def test_the_readme_gallery_link_points_at_the_same_ref_as_the_preview_downloads():
+    """Both move together at the owner's merge decision; until then they must not disagree."""
+    import importlib.util
+    import re
+
+    spec = importlib.util.spec_from_file_location("voice_previews_ref", REPO_ROOT / "files/dev-tools/voice_previews.py")
+    text = (REPO_ROOT / "files" / "dev-tools" / "voice_previews.py").read_text(encoding="utf-8")
+    raw_base = re.search(r'^RAW_BASE = "([^"]+)"', text, re.M).group(1)
+    raw_ref = re.match(r"https://github\.com/elmatthe/audiobook-creation-tool/raw/(.+)/files/voice-previews/$", raw_base)
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    gallery = re.search(r"\[voice previews\]\((https://github\.com/elmatthe/audiobook-creation-tool/blob/(.+?)"
+                        r"/files/voice-previews/README\.md)\)", readme)
+    assert spec is not None and raw_ref and gallery
+    assert gallery.group(2) == raw_ref.group(1)

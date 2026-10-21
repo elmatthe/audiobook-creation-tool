@@ -29,7 +29,16 @@ Identity stays 0.6.6; nothing merged, tagged, packaged or released. The owner's 
   (previous store byte-identical, partial temp file removed); the dialog also catches anything unexpected, keeps the edited
   text and ticks, never reports success first, and a retry works. Synthetic stores only. Owner store re-checked read-only:
   6/6 approved through the dialog's own row source, hash unchanged.
-- **Next:** CP5 docs/packaging hygiene (AUD-010/011/012, TTS subtitle, Python 3.11 note).
+- **CP5: DONE.** AUD-011 README gallery link is absolute (same feature-branch ref as `voice_previews.RAW_BASE`, tested; both switch at
+  the owner's merge decision). AUD-012 `release.DEVELOPER_ONLY_SCRIPTS` keeps `verify.py`, `release.py` and `generate_voice_samples.py`
+  out of the ZIPs (six tools, Qwen3 worker and data still ship; tested on the built archive). AUD-010 documented (Briefing known
+  limitations, Decisions). Launcher TTS description names all four engines. README: Qwen3 needs Python 3.12 exactly.
+- **Still OPEN (owner/manual, not waived):** AUD-004 clean standard-user Windows setup; AUD-005 redistribution authority for the six
+  reference recordings; AUD-008 an exact final release-candidate ZIP (old qualification ZIP predates the srsly pin); AUD-009 real
+  network download of the Qwen3 models and recognizer.
+- **Test-suite note (pre-existing, not fixed):** `test_launcher_smoke.py` run on its own writes a session log into the real
+  `files/runtime-data/logs/` (the session guard then errors); in the full gate an earlier import redirects it.
+- **Next:** CP6 Qwen3 performance investigation (report only), then the final gate.
 
 ## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
 
