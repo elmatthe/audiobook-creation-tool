@@ -43,6 +43,13 @@ audioop-lts==0.2.2 ; python_version >= "3.13"
 
 # --- Local AI TTS (Kokoro) — only on Python <3.13 (PyPI wheels require it) ---
 kokoro==0.9.4 ; python_version < "3.13"
+# srsly is a transitive dependency (kokoro -> misaki -> spacy) that was left to the
+# resolver. A fresh install on 2026-10-20 resolved srsly 2.5.4, whose compiled
+# srsly/msgpack/_epoch extension Windows Smart App Control (enforcing) refused to
+# load, so every Kokoro voice failed with "DLL load failed ... An Application Control
+# policy has blocked this file". 2.5.3 is the build every Kokoro voice was qualified
+# with (S5) and it loads under the same policy. spacy 3.8 accepts srsly >=2.4.3,<3.
+srsly==2.5.3 ; python_version < "3.13"
 
 # --- Local AI voice cloning (Chatterbox Turbo) — OPTIONAL engine ---
 # v0.6.1 Plan 4 Phase 8. Engine package verified against the exact published wheel
