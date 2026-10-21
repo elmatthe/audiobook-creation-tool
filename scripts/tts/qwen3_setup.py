@@ -750,7 +750,7 @@ def probe_environment(*, model_dir: Optional[Path] = None, runner: Optional[Comm
     guard = rt.MachineGuard()
     try:
         if not guard.acquire():
-            raise SetupError(rt.MACHINE_BUSY_MESSAGE + " Everything downloaded so far is kept.")
+            raise SetupError(guard.refusal_message + " Everything downloaded so far is kept.")
         code = runner([str(rt.venv_python()), str(rt.worker_script()), str(job_path)],
                       env=rt.worker_environment(), cwd=jobs, on_line=on_line, cancel_check=cancel_check)
     finally:

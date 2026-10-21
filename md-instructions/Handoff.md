@@ -2,6 +2,32 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 closure corrections CLR-001 to CLR-004: DONE and verified on HOME-PC; READY for a short independent Codex closure check (2026-10-21, Claude Code)
+
+Branch `feature/0.6.7-speech-pipeline-and-layout`; starting head `97a0c34`. Not merged, tagged, packaged or released; identity stays 0.6.6; no `dist/` file touched.
+Source report: `files/dev-work/final-codex-audit/ACT-v0.6.7-Closure-Review.md` (ignored, local). Rationale: Decisions 2026-10-21 (closure corrections).
+
+- **CLR-001 Kokoro (bootstrap.py):** health is three-state; an unfinished proof is `None` = unverified, not healthy, not broken; honest launch notice, no repair/download/cache.
+- **CLR-002 Qwen3 (qwen3_runtime.py, qwen3_setup.py):** `MachineGuard` is Global-only and fails closed; busy / denied / creation-failed are distinct messages; the `Local\` fallback is gone.
+- **CLR-003 Tk:** `probe_venv` 120 s -> `TK_PROOF_TIMEOUT_S` (30 s); base-interpreter check and stage 0 were already 30 s; hung children proved ended.
+- **CLR-004 tests (conftest.py, test_launcher_smoke.py, new test_launcher_isolation.py):** logs and settings are redirected for the whole session by an explicit import.
+- **Verification (new this pass):** every new test was run red against the old code first (9 failures for CLR-001, 6 for CLR-002 including the real-kernel type-collision
+  reproduction, the venv bound for CLR-003, and the audit's 14 passed + 1 containment error for CLR-004, reproduced in a throwaway checkout copy). Standalone
+  `test_launcher_smoke.py` was then run in the real checkout only after a tripwire plugin proved logs and settings resolve to scratch: 14 passed, and all 113
+  real log/settings files were identical by size, mtime and SHA-256 before and after. Live HOME-PC: real Tk probe 0.12 s, Kokoro proof OK (not recorded), production
+  Qwen3 guard acquire/release OK. Final `python scripts/verify.py`: RESULT PASS, 10,440 passed / 60 skipped / 0 failed (1,167 s; 2 warnings: the same audioop/pkg_resources deprecations as before); deps/docs/docnames/config PASS.
+- **Preserved (read-only checks):** 28 voices (5/9/6/8); 28/28 preview WAVs identical to the audited `1bf268c` blobs; 6/6 reference hashes match the registry; 6/6 clone
+  transcripts approved and checksum-valid through the production loader (nothing printed); transcript store hash equals the recorded pre-test value; A0 `check` OK; no
+  release ZIP, model, environment, setting or real log changed.
+- **Carried forward, not re-proven here:** the real four-engine cancellation and long-narration evidence, the Kokoro `af_heart` and Qwen3 Aiden / Male 4 production-route
+  runs from the audit-remediation pass, and the focused suites listed in the closure review. Same-tree full-gate counts above are new.
+- **Observed, left alone (macOS, not this task):** `Setup_and_Run-audiobook-creation-tool.command` `tk_ok()` still runs `tkinter.Tcl()` with no timeout. It only chooses an
+  interpreter and the Python bootstrap proves real Tk afterwards; worth tightening with the next macOS pass.
+- **Still OPEN (owner/manual, unchanged):** AUD-004 clean standard-user Windows setup; AUD-005 rights/provenance of the six reference recordings; AUD-008 the exact final
+  release-candidate ZIP; AUD-009 real unseeded Qwen3 model and recognizer download. AUD-010 stays deferred and non-blocking. Qwen3 speed work stays deferred to after v0.6.7.
+- **Next:** a short, independent Codex closure check of this branch against CLR-001 to CLR-004; then the owner's decisions on AUD-004/005/008/009, the version bump, the
+  merge (switch `voice_previews.RAW_BASE` and the README gallery link together), tag and release.
+
 ## CURRENT STATE — v0.6.7 Codex audit remediation: DONE and verified on HOME-PC; READY for the independent Codex closure review (2026-10-21, Claude Code)
 
 Branch `feature/0.6.7-speech-pipeline-and-layout`, audited baseline `1bf268c`. Audit: `files/dev-work/final-codex-audit/ACT-v0.6.7-Final-Audit.md` (ignored, local).
@@ -25,7 +51,7 @@ Not merged, tagged, packaged or released; identity stays 0.6.6; no `dist/` file 
   about 1.35 (end to end 1.37); 74% of generation is the per-frame nested code-predictor `generate()`; GPU busy only 5-18%. Sub-real-time looks
   achievable only with batching/CUDA graphs, which change the audio. Recommendation: defer to after release; first experiment = batched chunks
   within `qwen-tts 0.1.1`, owner-authorised. No production inference change was made.
-- **Test-suite note (pre-existing, not fixed):** `test_launcher_smoke.py` run on its own writes a session log into the real
+- **Test-suite note (pre-existing; FIXED by CLR-004, see the block above):** `test_launcher_smoke.py` run on its own writes a session log into the real
   `files/runtime-data/logs/`; in the full gate an earlier import redirects it.
 - **Delegation note:** `.claude/CLAUDE.md` names `files/dev/qwen_worker.py` for test fixtures; it does not exist in this checkout, so nothing was delegated.
 - **Next:** a fresh, independent Codex closure review of this branch against the audit. Then the owner's decisions on AUD-004/005/008/009, the

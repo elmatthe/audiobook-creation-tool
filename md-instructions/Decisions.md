@@ -4,6 +4,36 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-21 - v0.6.7 closure corrections: three-state Kokoro health, a fail-closed Qwen3 guard, one Tk bound, a session-wide test redirect
+
+Implementation decisions by Claude Code under the owner's narrow corrective brief for the second Codex closure audit (CLR-001 to CLR-004).
+
+**"Not proven broken" is not "proven healthy" (CLR-001).** `kokoro_is_healthy` returns `(True | False | None, reason)` and `ensure_kokoro_installed`
+returns `True | False | None`; `None` means the proof timed out or could not be started. The smallest representation that keeps every caller's tuple
+shape: tests and call sites that already unpack `(ok, reason)` keep working, and only the three callers that must tell the states apart (launch,
+setup, repair) branch on `is None`. `None` is never recorded (no success cache, no failure cache), never triggers a repair, rebuild or download,
+and launches the app with an honest notice; the next launch proves again, so a completed proof recovers to healthy or finds the real fault. After a
+repair whose proof cannot finish, launch reports "unverified" at once instead of waiting out the same limit a second time.
+
+**Machine-wide protection fails closed (CLR-002, owner decision).** `MachineGuard` uses the `Global\` mutex only. The `Local\` fallback is removed:
+a session-scoped mutex cannot exclude another Windows session on the same GPU, and a fallback in one process with a Global guard in another would
+protect different kernel objects. Outcomes are now distinguishable: `failure == "busy"` (wait timed out; the established contention message),
+`failure == "denied"` (access denied opening an existing mutex; a message that says Windows refused permission and does NOT claim another user is
+running anything), and a raised `Qwen3Unavailable` carrying the Windows error number when creation or the wait itself fails. Callers (the lease and
+the model-load probe) take the message from `guard.refusal_message`. Normal contention, crash-release by the kernel and the per-installation file
+locks are unchanged. Rejected: an "accepted reduced-scope" mode (more states to explain, and it would have to be surfaced by every caller).
+
+**One bound for every Tk proof (CLR-003).** `probe_venv` uses `TK_PROOF_TIMEOUT_S` like `_tcl_tk_ok`; the stage-0 script already used 30 s. A source-level
+test pins that no literal timeout sits beside a Tk proof, and real hung interpreters (and a real stage-0 `Test-Candidate` with an accelerated bound)
+prove the bound is enforced and the child is gone. The macOS `.command` `tk_ok` still uses `tkinter.Tcl()` with no timeout; it only picks an
+interpreter and the Python bootstrap proves real Tk afterwards, so it was left alone as out of scope (recorded in the Handoff).
+
+**Test isolation is established by an explicit import, not by luck (CLR-004).** `conftest._isolated_runtime_data` imports `shared.paths` and
+`shared.settings` (constants-only modules, safe to import, unlike `shared.bootstrap`) and redirects `paths.LOGS_DIR` and `paths.SETTINGS_FILE` for the
+whole session, before any test body can start the logger. Redirecting `SETTINGS_FILE` (not calling `settings.use_path`) matters: ten test modules end with
+`use_path(None)`, which falls back to `paths.SETTINGS_FILE`. Production log retention was not touched. The proof runs in a disposable copy of the
+checkout, never against the real runtime-data.
+
 ## 2026-10-21 - v0.6.7 Codex audit remediation: no-clobber packaging, proved Kokoro health, a cross-installation Qwen3 guard, real Tk proofs
 
 Implementation decisions by Claude Code under the owner's remediation brief for `files/dev-work/final-codex-audit/ACT-v0.6.7-Final-Audit.md`.

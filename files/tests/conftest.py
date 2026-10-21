@@ -483,7 +483,38 @@ def _sandbox_setup_log(_sandbox_logs_dir):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _isolated_setup_log(_sandbox_logs_dir, _sandbox_setup_log):
+def _isolated_runtime_data(_sandbox_logs_dir, tmp_path_factory):
+    """Point the application's log directory and settings file at scratch before anything can use them.
+
+    Closure review ACT67-CLR-004: this used to happen only for modules the session had already imported, so a run that
+    reached ``LauncherApp`` first (``pytest files/tests/test_launcher_smoke.py`` on its own) started the application logger
+    against the REAL ``files/runtime-data/logs``, whose retention then deleted the developer's real session logs; the
+    first smoke test also rewrote the real ``settings.json``. Here the two modules are imported explicitly instead of
+    looked up, so the redirect cannot depend on import or collection order. Both are constants-only modules
+    (``shared.settings`` imports nothing but ``shared.paths``), so importing them disturbs nothing -- unlike
+    ``shared.bootstrap``, see ``_already_imported``.
+
+    Session-scoped fixtures are set up before the first test body, and a test body is the earliest anything here starts
+    the logger, so the redirect always comes first. Teardown restores only the two attributes this fixture replaced; the
+    scratch folders belong to pytest's own temp tree. A test that calls ``settings.use_path(None)`` falls back to the
+    redirected ``paths.SETTINGS_FILE``, never to the real file.
+    """
+    from shared import paths, settings
+
+    restore = [(paths, "LOGS_DIR", paths.LOGS_DIR), (paths, "SETTINGS_FILE", paths.SETTINGS_FILE)]
+    paths.LOGS_DIR = _sandbox_logs_dir
+    paths.SETTINGS_FILE = tmp_path_factory.mktemp("settings") / "settings.json"
+    settings.invalidate()  # nothing read before this point may stay cached from the real file
+    try:
+        yield
+    finally:
+        for module, name, original in reversed(restore):
+            setattr(module, name, original)
+        settings.invalidate()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_setup_log(_isolated_runtime_data, _sandbox_logs_dir, _sandbox_setup_log):
     """Send the session's setup logging to a sandbox, never to the real log.
 
     The production half of this fix made ``SetupLog`` open its file on first use
@@ -497,10 +528,10 @@ def _isolated_setup_log(_sandbox_logs_dir, _sandbox_setup_log):
     sandbox logger, so the whole run costs one directory and one file handle.
 
     There are two independent writers of that directory and both are redirected:
-    ``bootstrap`` (``setup_<date>.log``) and ``shared.logging_setup`` via
+    ``bootstrap`` (``setup_<date>.log``, here) and ``shared.logging_setup`` via
     ``shared.paths.LOGS_DIR`` (``session_<timestamp>.log``, written whenever a
-    test builds the launcher). The second was leaving real session logs behind
-    long before this phase.
+    test builds the launcher; redirected by ``_isolated_runtime_data``, which this
+    fixture depends on so the order is never left to chance).
 
     **Session-scoped, not per-test, and that matters.** The redirect only has to
     hold for the run, so doing it once replaces roughly fifteen thousand
@@ -518,7 +549,6 @@ def _isolated_setup_log(_sandbox_logs_dir, _sandbox_setup_log):
     is undone normally.
     """
     bootstrap = _already_imported("shared.bootstrap")
-    paths = _already_imported("shared.paths")
     restore: list[tuple[object, str, object]] = []
 
     if bootstrap is not None:
@@ -527,9 +557,6 @@ def _isolated_setup_log(_sandbox_logs_dir, _sandbox_setup_log):
         if _sandbox_setup_log is not None:
             restore.append((bootstrap, "LOG", bootstrap.LOG))
             bootstrap.LOG = _sandbox_setup_log
-    if paths is not None:
-        restore.append((paths, "LOGS_DIR", paths.LOGS_DIR))
-        paths.LOGS_DIR = _sandbox_logs_dir
 
     try:
         yield

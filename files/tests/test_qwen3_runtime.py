@@ -842,3 +842,133 @@ def test_off_windows_the_guard_is_an_honest_no_op(monkeypatch, guard_name):
     assert guard.acquire() and guard.scope == "none"
     guard.release()
     assert guard.scope is None
+
+
+# --------------------------------------------------------------------------- #
+# Machine-wide protection fails closed (v0.6.7 closure review, ACT67-CLR-002)
+#
+# A Local\ mutex only covers one Windows logon session, so substituting it for a Global\ one that could not be made would
+# silently drop the one-operation-per-computer guarantee. The guard must refuse instead, and say which thing happened.
+# --------------------------------------------------------------------------- #
+class _FakeKernel:
+    """Just enough of kernel32 to steer MachineGuard.acquire() down one branch; records every name it is asked for."""
+
+    HANDLE = 0xBEEF
+
+    def __init__(self, *, create_error=None, wait=0x0):
+        self.create_error, self.wait = create_error, wait
+        self.names: list[str] = []
+        self.closed: list = []
+        self.released: list = []
+        self.error = 0
+
+    def CreateMutexW(self, security, owner, name):  # noqa: N802 - mirrors the Win32 name
+        self.names.append(name)
+        if self.create_error is not None:
+            self.error = self.create_error
+            return None
+        return self.HANDLE
+
+    def WaitForSingleObject(self, handle, ms):  # noqa: N802
+        return self.wait
+
+    def ReleaseMutex(self, handle):  # noqa: N802
+        self.released.append(handle)
+
+    def CloseHandle(self, handle):  # noqa: N802
+        self.closed.append(handle)
+
+
+def _steer_guard(monkeypatch, kernel: _FakeKernel) -> None:
+    import types
+
+    ctypes_like = types.SimpleNamespace(get_last_error=lambda: kernel.error)
+    monkeypatch.setattr(rt.MachineGuard, "_kernel32", staticmethod(lambda: (kernel, ctypes_like)))
+    monkeypatch.setattr(rt.sys, "platform", "win32")
+
+
+def test_a_global_creation_failure_refuses_and_never_tries_a_local_mutex(monkeypatch, guard_name):
+    kernel = _FakeKernel(create_error=6)  # ERROR_INVALID_HANDLE: the name is taken by a different kind of object
+    _steer_guard(monkeypatch, kernel)
+    guard = rt.MachineGuard()
+    with pytest.raises(rt.Qwen3Unavailable, match=r"(?s)could not create.*error 6"):
+        guard.acquire()
+    assert kernel.names == ["Global\\" + guard_name], "exactly one attempt, in the machine-wide namespace"
+    assert not guard.held and guard.scope is None
+
+
+def test_access_denied_refuses_without_claiming_another_user_is_busy(monkeypatch, guard_name):
+    kernel = _FakeKernel(create_error=rt._ERROR_ACCESS_DENIED)
+    _steer_guard(monkeypatch, kernel)
+    guard = rt.MachineGuard()
+    assert guard.acquire() is False
+    assert kernel.names == ["Global\\" + guard_name], "access denied is not a reason to try the session namespace"
+    assert guard.failure == "denied" and not guard.held
+    message = guard.refusal_message
+    assert message != rt.MACHINE_BUSY_MESSAGE
+    assert "permission" in message and "not started" in message
+    assert "is running a Qwen3" not in message, "it was not shown that anyone is running anything"
+
+
+def test_a_failed_wait_is_a_failure_not_busy(monkeypatch, guard_name):
+    kernel = _FakeKernel(wait=0xFFFFFFFF)  # WAIT_FAILED
+    kernel.error = 87
+    _steer_guard(monkeypatch, kernel)
+    guard = rt.MachineGuard()
+    with pytest.raises(rt.Qwen3Unavailable, match="error 87"):
+        guard.acquire()
+    assert kernel.closed == [kernel.HANDLE] and not guard.held
+
+
+def test_a_genuinely_held_guard_is_busy_and_says_so(monkeypatch, guard_name):
+    kernel = _FakeKernel(wait=0x102)  # WAIT_TIMEOUT
+    _steer_guard(monkeypatch, kernel)
+    guard = rt.MachineGuard()
+    assert guard.acquire() is False
+    assert guard.failure == "busy" and guard.refusal_message == rt.MACHINE_BUSY_MESSAGE
+    assert kernel.closed == [kernel.HANDLE]
+
+
+@pytest.mark.parametrize("scenario", ["access_denied", "creation_failed"])
+def test_the_lease_refuses_without_the_machine_guard_and_gives_back_the_local_lock(
+        sandbox, monkeypatch, guard_name, scenario):
+    error = rt._ERROR_ACCESS_DENIED if scenario == "access_denied" else 6
+    _steer_guard(monkeypatch, _FakeKernel(create_error=error))
+    with pytest.raises(rt.Qwen3Unavailable) as raised:
+        rt.inference_lease().__enter__()
+    if scenario == "access_denied":
+        assert str(raised.value) == rt.MachineGuard.DENIED_MESSAGE
+    else:
+        assert "could not create" in str(raised.value)
+    assert str(raised.value) != rt.MACHINE_BUSY_MESSAGE
+    lock = rt.FileLock(rt.inference_lock_path())
+    assert lock.acquire(), "the installation lock taken on the way was given back"
+    lock.release()
+
+
+@windows_only
+def test_a_real_kernel_name_collision_refuses_instead_of_falling_back_to_local(guard_name):
+    """The audit's own reproduction: an Event already owns the Global name, so CreateMutexW fails with
+    ERROR_INVALID_HANDLE. The old guard then took a Local mutex and reported success."""
+    import ctypes
+    from ctypes import wintypes
+
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateEventW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR)
+    k.CreateEventW.restype = wintypes.HANDLE
+    k.OpenMutexW.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR)
+    k.OpenMutexW.restype = wintypes.HANDLE
+    k.CloseHandle.argtypes = (wintypes.HANDLE,)
+    event = k.CreateEventW(None, True, False, "Global\\" + guard_name)
+    assert event, "the audit-only Event could not be created"
+    try:
+        guard = rt.MachineGuard()
+        with pytest.raises(rt.Qwen3Unavailable, match="could not create"):
+            guard.acquire()
+        assert not guard.held
+        probe = k.OpenMutexW(0x00100000, False, "Local\\" + guard_name)  # SYNCHRONIZE
+        if probe:
+            k.CloseHandle(probe)
+        assert not probe, "no session-scoped mutex was left behind"
+    finally:
+        k.CloseHandle(event)

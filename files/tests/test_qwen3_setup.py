@@ -1551,3 +1551,21 @@ def test_a_load_check_refuses_while_another_copy_holds_the_models_and_runs_nothi
     guard = rt.MachineGuard()
     assert guard.acquire()
     guard.release()
+
+
+@pytest.mark.parametrize("failure", ["denied", "busy"])
+def test_a_load_check_runs_nothing_when_the_machine_wide_guard_cannot_be_had(sandbox, runner, monkeypatch, failure):
+    """CLR-002: no heavy model probe without the machine-wide guard, and the reason is the true one."""
+    install_environment(sandbox)
+    calls: list = []
+
+    def refuse(self):
+        self.failure = failure
+        return False
+
+    monkeypatch.setattr(rt.MachineGuard, "acquire", refuse)
+    expected = rt.MachineGuard.DENIED_MESSAGE if failure == "denied" else rt.MACHINE_BUSY_MESSAGE
+    with pytest.raises(su.SetupError) as raised:
+        su.probe_environment(model_dir=sandbox / "some-model", runner=lambda cmd, **kw: calls.append(cmd) or runner(cmd, **kw))
+    assert str(raised.value) == expected + " Everything downloaded so far is kept."
+    assert calls == []

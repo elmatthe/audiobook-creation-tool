@@ -12,6 +12,7 @@ have to match the tree. They also pin the one new behaviour B1 added — a warni
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import re
 import subprocess
@@ -112,7 +113,13 @@ def test_the_data_locations_did_not_move():
 
     assert paths.FILES_DIR == REPO_ROOT / "files" and paths.RESOURCES_DIR == REPO_ROOT / "files" / "runtime-data"
     assert paths.REQUIREMENTS_FILE == SCRIPTS / "requirements.txt"
-    assert paths.SETTINGS_FILE == REPO_ROOT / "files" / "runtime-data" / "settings.json"
+    # The session redirects shared.paths.LOGS_DIR / SETTINGS_FILE to scratch (conftest._isolated_runtime_data), so the
+    # production values are read from a fresh load of the module's own source instead of the live, redirected object.
+    spec = importlib.util.spec_from_file_location("_production_paths_canary", SCRIPTS / "shared" / "paths.py")
+    production = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(production)
+    assert production.SETTINGS_FILE == REPO_ROOT / "files" / "runtime-data" / "settings.json"
+    assert production.LOGS_DIR == REPO_ROOT / "files" / "runtime-data" / "logs"
 
 
 def test_the_bundled_reference_recordings_are_where_they_were_and_bit_identical():

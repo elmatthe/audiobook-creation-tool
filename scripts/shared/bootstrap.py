@@ -684,7 +684,7 @@ def probe_venv(venv_py: Path) -> Optional[dict]:
     """
     try:
         r = subprocess.run([str(venv_py), "-c", _VENV_PROBE],
-                           capture_output=True, text=True, timeout=120, **_hidden())
+                           capture_output=True, text=True, timeout=TK_PROOF_TIMEOUT_S, **_hidden())
         if r.returncode != 0:
             return None
         payload = json.loads((r.stdout or "").strip())
@@ -944,8 +944,13 @@ def current_kokoro_proof() -> Optional[dict]:
     return payload if 0 <= age <= limit else None
 
 
-def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
+def kokoro_is_healthy(venv_py: Path) -> tuple[Optional[bool], str]:
     """Can the Kokoro voices actually run in this venv? Returns ``(ok, reason)``.
+
+    Tri-state, like ``prove_kokoro_dependencies``: ``True`` is proved healthy, ``False`` is proved (or known) broken,
+    and ``None`` is **unverified** -- the proof timed out or could not run, which is not evidence either way. Callers
+    must not treat ``None`` as healthy, and must not repair, reinstall or download because of it. It is never
+    recorded, so the next launch simply proves again and a completed proof replaces the unverified state.
 
     Presence is checked on every launch (cheap). The real proof runs only when no recorded proof applies: after
     setup, a repair, a requirements change, a new interpreter, a failed real synthesis (which deletes the record), or
@@ -959,9 +964,16 @@ def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
         return recorded["ok"] is True, "ok" if recorded["ok"] is True else str(recorded.get("detail"))
     proved, detail, _facts = prove_kokoro_dependencies(venv_py)
     if proved is None:
-        return True, f"present; the dependency proof will be retried ({detail})"
+        return None, f"could not be verified; the proof will be retried ({detail})"
     record_kokoro_proof(proved, detail)
     return proved, detail
+
+
+def kokoro_unverified_message(detail: str) -> str:
+    """Launch notice for an inconclusive Kokoro check: honest that it is unknown, and says what happens next."""
+    return (f"The local Kokoro AI voices could not be verified this time ({detail}). They may work normally; the check "
+            "is repeated each launch until it completes, and nothing was reinstalled or downloaded. If a Kokoro "
+            "voice fails, restart the app. Edge TTS and the other voices are unaffected.")
 
 
 def kokoro_repair_is_worthwhile() -> bool:
@@ -974,8 +986,12 @@ def kokoro_repair_is_worthwhile() -> bool:
     return not (recorded is not None and recorded.get("ok") is False and recorded.get("after_repair"))
 
 
-def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> bool:
-    """Repair the Kokoro stack in the existing venv from ``requirements.txt``. Returns True when proved working.
+def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> Optional[bool]:
+    """Repair the Kokoro stack in the existing venv from ``requirements.txt``.
+
+    Returns ``True`` when proved working, ``False`` when the repair or its proof failed, and ``None`` when the
+    packages installed but the proof could not finish: unverified, so neither claimed as working nor recorded as a
+    failed repair (the next launch proves again; an unfinished proof is never a reason to reinstall).
 
     This is the *self-heal* path: it pip-installs into the venv that already exists (never --user, never system
     site-packages). It installs from the authoritative requirements file, not a hand-kept package list, so every
@@ -1005,7 +1021,8 @@ def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> bool:
         proved, detail, facts = prove_kokoro_dependencies(venv_py)
         log(f"Post-install Kokoro proof: {detail}")
         if proved is None:
-            return True  # installed and present; the proof is retried next launch rather than guessed
+            log("  The Kokoro components installed, but the proof could not finish; it is retried next launch.")
+            return None
         record_kokoro_proof(proved, detail, after_repair=True)
         if proved and not facts.get("weights"):
             log("  Kokoro model weights are not downloaded yet; they download the first time a Kokoro voice is used.")
@@ -2581,6 +2598,8 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         ok_kokoro, why = kokoro_is_healthy(venv_python())
         if ok_kokoro:
             warmup_kokoro_pipeline(venv_python(), log.line)
+        elif ok_kokoro is None:
+            log.line(f"Kokoro voices not verified: {why}. No warm-up was run; the check repeats on the next launch.")
         else:
             log.line(f"Kokoro voices unavailable: {kokoro_failure_message(why)}. Detail: {why}")
 
@@ -3160,17 +3179,30 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
 
     ok, reason = kokoro_is_healthy(venv_py)
     LOG.line(f"Kokoro health-check: {reason}")
-    if not ok and kokoro_repair_is_worthwhile():
+    # ``ok is None`` is unverified (the proof could not finish): not healthy, and not broken, so no repair.
+    if ok is False and kokoro_repair_is_worthwhile():
         LOG.line("Kokoro voices not usable — attempting an in-venv repair…")
         # The repair proves the result itself: building the G2P loads the same native files a first synthesis
         # would, so Smart App Control evaluates them inside this dialog -- without the model, so no surprise
         # ~300 MB download.
-        show_repair_dialog(lambda: ensure_kokoro_installed(venv_py, LOG.line))
-        ok, reason = kokoro_is_healthy(venv_py)
+        repair_result: dict = {}
+
+        def _repair_kokoro() -> bool:
+            repair_result["ok"] = ensure_kokoro_installed(venv_py, LOG.line)
+            return bool(repair_result["ok"])
+
+        show_repair_dialog(_repair_kokoro)
+        if repair_result.get("ok") is None:
+            # The repair finished without a completed proof; asking again now would just wait out the same limit.
+            ok, reason = None, "the repair finished but its proof could not complete"
+        else:
+            ok, reason = kokoro_is_healthy(venv_py)
         LOG.line(f"Kokoro health-check after repair: {reason}")
-    elif not ok:
+    elif ok is False:
         LOG.line("  A repair already ran for this environment and could not fix it; not repeating it today.")
-    if not ok:
+    if ok is None:
+        notices.append(kokoro_unverified_message(reason))
+    elif not ok:
         fix = ("" if "application control" in reason.lower() or "4551" in reason else
                f' To retry by hand: "{venv_py}" -m pip install -r "{REQUIREMENTS_FILE}".')
         notices.append(

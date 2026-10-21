@@ -939,6 +939,21 @@ def test_the_conversion_holds_the_lease_for_its_whole_run_and_always_gives_it_ba
         pass
 
 
+@pytest.mark.parametrize("failure", ["denied", "busy"])
+def test_no_worker_starts_when_the_machine_wide_guard_cannot_be_had(fake, monkeypatch, failure):
+    """CLR-002: the conversion's only door to the worker is the lease, and the lease needs the machine-wide guard."""
+    def refuse(self):
+        self.failure = failure
+        return False
+
+    monkeypatch.setattr(rt.MachineGuard, "acquire", refuse)
+    expected = rt.MachineGuard.DENIED_MESSAGE if failure == "denied" else rt.MACHINE_BUSY_MESSAGE
+    with pytest.raises(rt.Qwen3Unavailable) as raised:
+        fake.convert()
+    assert str(raised.value) == expected
+    assert fake.exported == {} and fake.job_folders() == [] and fake.logs == []  # no job, no worker, no output
+
+
 # --------------------------------------------------------------------------- #
 # The clone narration profile (owner preference, 2026-10-20)
 # --------------------------------------------------------------------------- #

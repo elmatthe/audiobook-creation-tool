@@ -689,23 +689,38 @@ class MachineGuard:
 
     ``FileLock`` lives in each installation's own runtime folder, so two extracted copies of the app lock two different
     files and could each load a multi-gigabyte model at once. This guard is a Windows named mutex instead: a kernel
-    object every copy finds by name, with no file anywhere. Scope:
+    object every copy finds by name, with no file anywhere. It lives in the ``Global\\`` namespace only -- the whole
+    machine, across Windows users and logon sessions (one GPU, one RAM) -- and it **fails closed**: a ``Local\\``
+    mutex covers one logon session, so quietly falling back to it would drop the one-operation-per-computer guarantee
+    (closure review ACT67-CLR-002). If the machine-wide mutex cannot be had, nothing is protected and the operation is
+    refused, with ``failure`` saying which of three things happened:
 
-    * ``Global\\`` namespace first -- the whole machine, across Windows users and logon sessions (one GPU, one RAM);
-    * if Windows refuses the global namespace for a reason other than "someone else holds it", the ``Local\\``
-      namespace -- this logon session only -- and ``scope`` says so.
+    * ``"busy"``   -- another owner genuinely holds it right now (``acquire`` returns False);
+    * ``"denied"`` -- Windows would not let this user open the existing mutex (``acquire`` returns False). Another Windows
+      user's copy having it open is the usual cause, but that is not proven, so the message does not claim it;
+    * creation or wait failed outright -- ``acquire`` raises ``Qwen3Unavailable`` carrying the Windows error number.
 
-    Acquisition never waits: it succeeds at once or reports busy, so nothing can hang on it. The kernel releases the
-    mutex when its owner dies however it dies (the next owner sees WAIT_ABANDONED and simply takes it), so a crash cannot
-    strand it. It belongs to the acquiring thread, which is why it is only ever used as a ``with`` block. A mutex created
-    by another Windows user cannot be opened by this one (access denied); that only happens while their copy holds it
-    open, so it counts as busy. Qwen3 runs on Windows only; elsewhere this is a no-op with ``scope`` "none".
+    Acquisition never waits: it succeeds at once or refuses, so nothing can hang on it. The kernel releases the mutex
+    when its owner dies however it dies (the next owner sees WAIT_ABANDONED and simply takes it), so a crash cannot
+    strand it. It belongs to the acquiring thread, which is why it is only ever used as a ``with`` block. Qwen3 runs on
+    Windows only; elsewhere this is a no-op with ``scope`` "none".
     """
+
+    DENIED_MESSAGE = ("Windows did not give this user permission to open the lock that keeps copies of this app from "
+                      "loading Qwen3 models at the same time. Another Windows user's copy may have it open, or this may "
+                      "be a permission problem. Qwen3 was not started, so two models cannot load at once. If no one else "
+                      "is using Qwen3, restart the computer or ask an administrator.")
 
     def __init__(self, name: Optional[str] = None) -> None:
         self.name = name or MACHINE_GUARD_NAME
         self.scope: Optional[str] = None
+        self.failure: Optional[str] = None
         self._handle = None
+
+    @property
+    def refusal_message(self) -> str:
+        """What to tell the user after ``acquire`` returned False."""
+        return self.DENIED_MESSAGE if self.failure == "denied" else MACHINE_BUSY_MESSAGE
 
     @property
     def held(self) -> bool:
@@ -732,24 +747,27 @@ class MachineGuard:
             self.scope = "none"
             return True
         k, ctypes = self._kernel32()
-        handle = None
-        for scope, prefix in (("machine", "Global\\"), ("session", "Local\\")):
-            handle = k.CreateMutexW(None, False, prefix + self.name)
-            if handle:
-                self.scope = scope
-                break
-            if ctypes.get_last_error() == _ERROR_ACCESS_DENIED:
-                return False  # another Windows user's copy has it open, i.e. is using it
+        self.failure = None
+        handle = k.CreateMutexW(None, False, "Global\\" + self.name)
         if not handle:
+            error = ctypes.get_last_error()
+            if error == _ERROR_ACCESS_DENIED:
+                self.failure = "denied"
+                return False
             raise Qwen3Unavailable("Windows could not create the lock that keeps two copies of this app from loading "
-                                   f"Qwen3 models at the same time (error {ctypes.get_last_error()}).")
+                                   f"Qwen3 models at the same time (error {error}), so Qwen3 was not started.")
         result = k.WaitForSingleObject(handle, 0)
         if result in (_WAIT_OBJECT_0, _WAIT_ABANDONED):
             self._handle = handle
+            self.scope = "machine"
             return True
+        error = ctypes.get_last_error()
         k.CloseHandle(handle)
-        self.scope = None
-        return False
+        if result == _WAIT_TIMEOUT:
+            self.failure = "busy"
+            return False
+        raise Qwen3Unavailable("Windows could not check the lock that keeps two copies of this app from loading Qwen3 "
+                               f"models at the same time (error {error}), so Qwen3 was not started.")
 
     def release(self) -> None:
         if self.scope == "none":
@@ -791,7 +809,7 @@ class inference_lease:
                 "Try again when that has finished.")
         try:
             if not self._guard.acquire():
-                raise Qwen3Unavailable(MACHINE_BUSY_MESSAGE)
+                raise Qwen3Unavailable(self._guard.refusal_message)
         except BaseException:
             self._lock.release()
             raise

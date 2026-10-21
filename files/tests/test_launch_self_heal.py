@@ -1070,3 +1070,53 @@ def test_a_repair_that_already_failed_today_is_not_rerun(
     message = launch.warnings[0][1]
     assert "Kokoro" in message and "missing" in message
     assert f'-r "{bootstrap.REQUIREMENTS_FILE}"' in message
+
+
+# --------------------------------------------------------------------------- #
+# CLR-001: an unfinished Kokoro proof is "unverified" -- not healthy, not broken
+# --------------------------------------------------------------------------- #
+def test_an_unverified_kokoro_launches_with_an_honest_notice_and_no_repair(
+        launch, windows, tools, commands, ffmpeg_ready, monkeypatch):
+    repairs: list = []
+    monkeypatch.setattr(bootstrap, "kokoro_is_healthy",
+                        lambda py: (None, "could not be verified: the Kokoro proof did not finish within 120 s"))
+    monkeypatch.setattr(bootstrap, "kokoro_repair_is_worthwhile", lambda: True)
+    monkeypatch.setattr(bootstrap, "ensure_kokoro_installed",
+                        lambda py, log: repairs.append(py) or False)
+
+    assert launch.run() == 0
+
+    assert repairs == [], "no repair, rebuild or download is started by an inconclusive check alone"
+    assert "repair-dialog" not in launch.events
+    assert launch.events.index("launch_gui") < launch.events.index("warning")
+    message = launch.warnings[0][1]
+    assert "could not be verified" in message and "Kokoro" in message
+    assert "unavailable" not in message, "it is not known to be broken"
+    assert "pip install" not in message
+
+
+def test_a_repair_that_cannot_prove_its_result_is_reported_unverified_and_not_reprobed(
+        launch, windows, tools, commands, ffmpeg_ready, monkeypatch):
+    probes: list = []
+    monkeypatch.setattr(bootstrap, "kokoro_is_healthy",
+                        lambda py: probes.append(py) or (False, "import: ModuleNotFoundError: No module named 'misaki'"))
+    monkeypatch.setattr(bootstrap, "kokoro_repair_is_worthwhile", lambda: True)
+    monkeypatch.setattr(bootstrap, "ensure_kokoro_installed", lambda py, log: None)
+
+    assert launch.run() == 0
+
+    assert len(probes) == 1, "the proof that just failed to finish is not immediately run a second time"
+    message = launch.warnings[0][1]
+    assert "could not be verified" in message and "unavailable" not in message
+
+
+def test_a_proved_repair_is_still_rechecked_and_launches_quietly(
+        launch, windows, tools, commands, ffmpeg_ready, monkeypatch):
+    states = iter([(False, "MISSING:kokoro"), (True, "ok")])
+    monkeypatch.setattr(bootstrap, "kokoro_is_healthy", lambda py: next(states))
+    monkeypatch.setattr(bootstrap, "kokoro_repair_is_worthwhile", lambda: True)
+    monkeypatch.setattr(bootstrap, "ensure_kokoro_installed", lambda py, log: True)
+
+    assert launch.run() == 0
+
+    assert launch.warnings == []

@@ -57,6 +57,8 @@ class Child:
         if script == bootstrap._KOKORO_PROOF:
             if self.proof == "timeout":
                 raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+            if self.proof == "oserror":
+                raise OSError("the interpreter could not be started")
             if self.proof == "ok":
                 return subprocess.CompletedProcess(argv, 0, "noise\nOK:" + json.dumps(self.facts), "")
             info = {"stage": "import", "type": "ImportError", "error": self.proof}
@@ -129,11 +131,33 @@ def test_a_failed_proof_is_trusted_for_a_day_only(venv, monkeypatch):
     assert bootstrap.current_kokoro_proof() is None
 
 
-def test_a_proof_that_cannot_finish_is_not_a_finding(venv, monkeypatch):
-    Child(monkeypatch, proof="timeout")
+@pytest.mark.parametrize("proof", ["timeout", "oserror"])
+def test_a_proof_that_cannot_finish_is_unverified_not_healthy_and_not_broken(venv, monkeypatch, proof):
+    """CLR-001: "not proven broken" is not "proven healthy". Three states, and the middle one is ``None``."""
+    Child(monkeypatch, proof=proof)
     ok, reason = bootstrap.kokoro_is_healthy(PY)
-    assert ok is True and "retried" in reason
-    assert not bootstrap.kokoro_proof_path().exists(), "nothing proved, so nothing recorded"
+    assert ok is None, "an unfinished proof is neither health nor a finding"
+    assert "could not be verified" in reason
+    assert not bootstrap.kokoro_proof_path().exists(), "nothing proved, so nothing recorded (no success cache)"
+
+
+def test_a_later_completed_proof_clears_the_unverified_state(venv, monkeypatch):
+    child = Child(monkeypatch, proof="timeout")
+    assert bootstrap.kokoro_is_healthy(PY)[0] is None
+    child.proof = "ok"
+    assert bootstrap.kokoro_is_healthy(PY) == (True, "ok")
+    assert bootstrap.current_kokoro_proof()["ok"] is True
+    child.proof = "timeout"
+    assert bootstrap.kokoro_is_healthy(PY) == (True, "ok"), "the recorded success keeps the cheap launch path"
+    assert child.count("proof") == 2
+
+
+def test_a_later_completed_proof_can_also_find_the_install_broken(venv, monkeypatch):
+    child = Child(monkeypatch, proof="timeout")
+    assert bootstrap.kokoro_is_healthy(PY)[0] is None
+    child.proof = BLOCKED
+    ok, reason = bootstrap.kokoro_is_healthy(PY)
+    assert ok is False and "_epoch" in reason
 
 
 # --------------------------------------------------------------------------- #
@@ -217,6 +241,19 @@ def test_a_repair_whose_proof_still_fails_is_recorded_and_not_rerun_today(venv, 
     ok, reason = bootstrap.kokoro_is_healthy(PY)
     assert ok is False and "_epoch" in reason
     assert child.count("proof") == 1, "the blocked file is not loaded again on the next launch"
+
+
+@pytest.mark.parametrize("proof", ["timeout", "oserror"])
+def test_a_repair_whose_proof_cannot_finish_does_not_claim_success(venv, monkeypatch, proof):
+    """CLR-001: installed and present is not "proved working", and nothing is cached as either outcome."""
+    child = Child(monkeypatch, proof=proof)
+    lines: list[str] = []
+    assert bootstrap.ensure_kokoro_installed(PY, lines.append) is None
+    assert not bootstrap.kokoro_proof_path().exists(), "neither a success nor a failure was proved"
+    assert bootstrap.kokoro_repair_is_worthwhile() is True, "an inconclusive proof is not a failed repair"
+    assert child.count("pip") == 1
+    child.proof = "ok"
+    assert bootstrap.kokoro_is_healthy(PY) == (True, "ok"), "a later completed proof recovers to healthy"
 
 
 def test_a_failure_found_at_launch_still_earns_one_repair(venv, monkeypatch):

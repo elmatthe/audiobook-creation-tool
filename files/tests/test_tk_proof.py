@@ -10,6 +10,7 @@ a missing ``tk.tcl`` does, while ``Tcl()`` keeps working.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -152,3 +153,118 @@ def test_stage_zero_rejects_a_python_whose_tk_cannot_initialise(broken_tk, tmp_p
                              "-OutFile", str(out), "-AssumeNo"], capture_output=True, text=True, timeout=300)
     assert result.returncode == 2, result.stdout + result.stderr
     assert not out.exists()
+
+
+# --------------------------------------------------------------------------- #
+# One bound for every GUI capability proof (closure review ACT67-CLR-003)
+#
+# AUD-006 fixed the proof and bounded the base-interpreter check and stage 0 at TK_PROOF_TIMEOUT_S, but the venv probe --
+# the one on every ordinary launch -- still allowed 120 s. These tests pin the argument of each route, then hang a real
+# child to see the bound enforced and the child gone.
+# --------------------------------------------------------------------------- #
+HANG = (
+    "import os, time\n"
+    "open(os.environ['ACT_HANG_PID_FILE'], 'w').write(str(os.getpid()))\n"
+    "time.sleep(600)\n"
+)
+
+
+def _process_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True)
+        return str(pid) in (out.stdout or "")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.fixture
+def hung_interpreter(tmp_path, monkeypatch):
+    """This interpreter with a sitecustomize that records its pid and never returns: a Tk that hangs the way a stuck
+    display or a blocked DLL does, without touching any installed file. Returns the file the pid lands in."""
+    shim = tmp_path / "hang-shim"
+    shim.mkdir()
+    (shim / "sitecustomize.py").write_text(HANG, encoding="utf-8")
+    pid_file = tmp_path / "hung.pid"
+    monkeypatch.setenv("PYTHONPATH", str(shim))
+    monkeypatch.setenv("ACT_HANG_PID_FILE", str(pid_file))
+    return pid_file
+
+
+def _assert_child_gone(pid_file: Path) -> None:
+    assert pid_file.exists(), "the hanging child never started, so the bound was not what ended it"
+    pid = int(pid_file.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 10
+    while _process_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not _process_alive(pid), "the timed-out probe left its interpreter running"
+
+
+def test_the_venv_probe_passes_the_shared_tk_bound(monkeypatch):
+    seen = {}
+
+    def capture(cmd, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", capture)
+    assert bootstrap.probe_venv(Path("python")) is None
+    assert seen["timeout"] == bootstrap.TK_PROOF_TIMEOUT_S == 30
+
+
+def test_every_gui_capability_proof_is_bounded_by_the_one_constant():
+    """Source-level companion to the call tests: no literal bound can creep back next to a Tk proof."""
+    import ast
+
+    tree = ast.parse(Path(bootstrap.__file__).read_text(encoding="utf-8"))
+    functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    for name in ("probe_venv", "_tcl_tk_ok"):
+        timeouts = [kw.value for call in ast.walk(functions[name]) if isinstance(call, ast.Call)
+                    for kw in call.keywords if kw.arg == "timeout"]
+        assert timeouts, f"{name} runs a subprocess without any bound"
+        assert all(isinstance(t, ast.Name) and t.id == "TK_PROOF_TIMEOUT_S" for t in timeouts), name
+
+
+def test_a_hung_venv_probe_is_ended_at_the_bound_and_leaves_no_child(hung_interpreter, monkeypatch):
+    monkeypatch.setattr(bootstrap, "TK_PROOF_TIMEOUT_S", 2)  # accelerated: the same code path, a shorter bound
+    started = time.monotonic()
+    assert bootstrap.probe_venv(Path(sys.executable)) is None
+    assert time.monotonic() - started < 20
+    _assert_child_gone(hung_interpreter)
+
+
+def test_a_hung_base_interpreter_check_is_ended_at_the_bound_and_leaves_no_child(hung_interpreter, monkeypatch):
+    monkeypatch.setattr(bootstrap, "TK_PROOF_TIMEOUT_S", 2)
+    started = time.monotonic()
+    assert bootstrap._tcl_tk_ok([sys.executable]) is False
+    assert time.monotonic() - started < 20
+    _assert_child_gone(hung_interpreter)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="stage 0 is Windows PowerShell")
+def test_a_hung_stage_zero_candidate_is_killed_at_the_bound(tmp_path):
+    """The real ``Test-Candidate`` from bootstrap_host.ps1, with the 30 s bound and the probe swapped for an accelerated
+    1 s sleeper. Everything else (process start, bounded wait, kill) is the production text."""
+    import re
+
+    text = STAGE_ZERO.read_text(encoding="ascii")
+    match = re.search(r"function Test-Candidate\(.*?(?=^function Find-Python)", text, re.DOTALL | re.MULTILINE)
+    assert match, "Test-Candidate not found in the stage 0 script"
+    assert "$ProbeTimeoutMs = 30000" in text
+    pid_file = tmp_path / "stage0.pid"
+    probe = f"import os,time;open(r'{pid_file}','w').write(str(os.getpid()));time.sleep(600)"
+    harness = tmp_path / "harness.ps1"
+    harness.write_text(
+        f'$ProbeTimeoutMs = 1000\n$Probe = "{probe}"\n{match.group(0)}\n'
+        f"$sw = [Diagnostics.Stopwatch]::StartNew()\n"
+        f"$r = Test-Candidate @('{sys.executable}')\n"
+        f"Write-Output ('RESULT=' + [string]($null -eq $r) + ' ELAPSED=' + [int]$sw.Elapsed.TotalSeconds)\n",
+        encoding="ascii")
+    done = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(harness)],
+                          capture_output=True, text=True, timeout=120)
+    assert "RESULT=True" in done.stdout, done.stdout + done.stderr
+    assert int(done.stdout.split("ELAPSED=")[1].split()[0]) < 15
+    _assert_child_gone(pid_file)

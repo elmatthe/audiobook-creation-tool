@@ -92,3 +92,19 @@ def test_warmup_kokoro_pipeline_accepts_setuplog_line(monkeypatch):
         bootstrap.LOG.set_ui_sink(None)
     assert any("Initializing AI voice engine" in line for line in captured)
     assert any("Kokoro pipeline warmup complete." in line for line in captured)
+
+
+def test_run_setup_does_not_warm_up_or_call_unverified_kokoro_ready(monkeypatch, tmp_path):
+    """CLR-001: an unfinished proof is neither "ready" nor "unavailable", and no warmup is started on it."""
+    _stub_setup_steps(monkeypatch, tmp_path)
+    monkeypatch.setattr(bootstrap, "kokoro_is_healthy",
+                        lambda venv_py: (None, "could not be verified: the Kokoro proof did not finish"))
+    warmups: list = []
+    monkeypatch.setattr(bootstrap, "warmup_kokoro_pipeline", lambda py, log: warmups.append(py))
+    lines: list[str] = []
+    log = bootstrap.SetupLog()
+    monkeypatch.setattr(log, "line", lines.append)
+    ok, msg = bootstrap.run_setup(download_kokoro=True, progress=lambda step, text: None, log=log)
+    assert ok is True and warmups == []
+    text = "\n".join(lines)
+    assert "could not be verified" in text and "unavailable" not in text

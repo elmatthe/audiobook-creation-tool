@@ -15,6 +15,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.6.7 closure corrections (2026-10-21) — not released; identity stays 0.6.6
+
+Four findings from the second independent Codex closure audit (`ACT67-CLR-001` to `-004`). Nothing here changes narration, voices, previews,
+transcripts, settings, logs or release archives.
+
+#### Fixed
+- **A Kokoro check that could not finish is no longer reported as healthy (ACT67-CLR-001).** If the Kokoro dependency proof times out or cannot be
+  started, the launcher now says the voices "could not be verified this time" instead of treating that as proof they work. Nothing is reinstalled
+  or downloaded because of it and nothing is cached; the check repeats on the next launch, and a completed check replaces the unverified state. A
+  repair whose own proof cannot finish is reported the same way and is not counted as a failed repair.
+- **The Qwen3 one-model-at-a-time guard no longer quietly shrinks to one Windows session (ACT67-CLR-002).** If Windows will not create or open the
+  computer-wide lock, Qwen3 is now refused with a plain explanation instead of falling back to a lock that other Windows users cannot see. A lock
+  that another user's copy genuinely holds still reports "another copy is running"; a permission refusal or a lock Windows could not create each
+  get their own message. No model is loaded and no worker is started without the computer-wide lock.
+- **Every GUI capability check now gives up after 30 seconds (ACT67-CLR-003).** The check run on each ordinary launch allowed 120 seconds for a
+  hung Tk; it now uses the same 30-second bound as the base-Python check and the Windows stage-0 script. The timed-out interpreter is ended.
+
+#### Tests
+- **Running `test_launcher_smoke.py` on its own can no longer touch your real logs or settings (ACT67-CLR-004; pre-existing, test-only).** The
+  test session now redirects the application's log folder and settings file to scratch before anything can start the logger, however the tests are
+  selected, and the first smoke test no longer snapshots and rewrites the real `settings.json`. A new test proves this in a throwaway copy of the
+  checkout (45 seeded logs, existing and absent settings). `test_the_data_locations_did_not_move` now reads the production paths from the module's
+  own source, because the live values are redirected under test.
+
 ### v0.6.7 Codex audit remediation (2026-10-21) — not released; identity stays 0.6.6
 
 #### Fixed

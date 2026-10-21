@@ -125,12 +125,15 @@ def _first_entry(container):
 
 def test_all_six_tools_build_without_error_panels(tk_root, tmp_path, monkeypatch):
     import launcher
-    from shared import paths
+    from shared import paths, settings
 
-    # select_tool() persists last_tool; snapshot settings.json so the test
-    # leaves no trace.
-    settings_file = paths.SETTINGS_FILE
-    backup = settings_file.read_bytes() if settings_file.exists() else None
+    # select_tool() persists last_tool and the launcher starts the application logger. Both must land in scratch, never
+    # in the real runtime-data (closure review ACT67-CLR-004): conftest redirects the logs for the whole session, and this
+    # test gives itself a settings file of its own instead of snapshotting and restoring the real one.
+    real_runtime = (paths.REPO_ROOT / "files" / "runtime-data").resolve()
+    assert real_runtime not in paths.LOGS_DIR.resolve().parents and paths.LOGS_DIR.resolve() != real_runtime
+    monkeypatch.setattr(paths, "SETTINGS_FILE", tmp_path / "settings.json")
+    settings.invalidate()
 
     failures: list[str] = []
     orig = launcher.LauncherApp._show_load_error
@@ -151,8 +154,7 @@ def test_all_six_tools_build_without_error_panels(tk_root, tmp_path, monkeypatch
         assert failures == []
         assert len(app.containers) == len(EXPECTED_TOOLS)
     finally:
-        if backup is not None:
-            settings_file.write_bytes(backup)
+        settings.invalidate()
 
 
 # ---------------------------------------------------------------------------
