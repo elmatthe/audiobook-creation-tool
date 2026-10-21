@@ -15,7 +15,13 @@ Identity stays 0.6.6; nothing merged, tagged, packaged or released. The owner's 
   `.venv/.kokoro-proof.json` (pins + interpreter, 7 days ok / 1 day failed); `kokoro_synth` deletes it when a real pipeline load fails.
   Every repair installs `-r requirements.txt` (srsly 2.5.3 applies); a failed repair is not rerun that day; notices are classified
   (Application Control / library / missing), never "Python may be 3.13+". Real offline af_heart synthesis on HOME-PC passed.
-- **Next:** CP3 Qwen3 cross-installation lock (AUD-003).
+- **CP3 AUD-003 (Qwen3 cross-installation guard): DONE.** `rt.MachineGuard` = Windows named mutex
+  `Global\AudiobookCreationTool-Qwen3-ModelGuard-v1` (all users/sessions; `Local\` = this session if Windows refuses Global),
+  never waits, released by the kernel on crash. Taken by every conversion and transcription (`inference_lease`) and by the
+  install/repair model probe; per-installation `setup.lock`/`inference.lock` kept for local files. Tests contend two synthetic
+  installation roots in child processes (normal release, abrupt kill, exception). Real route re-run on HOME-PC: Aiden and Male 4
+  (owner-approved transcript, read-only) both succeeded; owner store hash unchanged; job folder empty.
+- **Next:** CP4 Tk probe (AUD-006) and clone-approval save errors (AUD-007).
 
 ## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
 

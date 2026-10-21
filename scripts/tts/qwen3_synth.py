@@ -756,8 +756,9 @@ def qwen3_file_to_mp3(
     if not ok:
         raise Qwen3Unavailable(reason)
 
-    # Held for the whole conversion, machine-wide: an install or repair (in this app or another copy) cannot replace the
-    # environment or models under a running worker, and two Qwen3 conversions cannot fight over one GPU.
+    # Held for the whole conversion: an install or repair of this copy cannot replace the environment or models under a
+    # running worker (this installation's file lock), and no other copy of the app on the computer can load a Qwen3
+    # model at the same time (the machine-wide named mutex, rt.MachineGuard).
     with rt.inference_lease():
         # Speech preparation (Plan 01B A3) runs on the decoded source before the structure stage. ``speech_prep`` is the
         # run's frozen snapshot; None or "off" leaves the text, the plan and every seed exactly as before.

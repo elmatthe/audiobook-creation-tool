@@ -663,3 +663,182 @@ def test_the_inference_lease_is_exclusive_and_released_even_when_the_work_fails(
             raise RuntimeError("the conversion failed")
     with rt.inference_lease():  # free again
         pass
+
+
+# --------------------------------------------------------------------------- #
+# Cross-installation guard (v0.6.7, audit ACT67-AUD-003)
+#
+# Each installation's inference.lock lives in its own runtime folder, so two extracted copies of the app locked two
+# different files and could both load a multi-gigabyte model at once. rt.MachineGuard is a named kernel mutex every copy
+# finds by name. These tests use two synthetic installation roots in lightweight child processes; no model is loaded.
+# --------------------------------------------------------------------------- #
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="the guard is a Windows named mutex; Qwen3 is Windows-only")
+
+GUARD_CHILD = r"""
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from tts import qwen3_runtime as rt
+root, name, mode = Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+rt.runtime_dir = lambda: root          # a separate installation of the app
+rt.MACHINE_GUARD_NAME = name
+lease = rt.inference_lease()
+try:
+    lease.__enter__()
+except rt.Qwen3Unavailable as exc:
+    print("busy", flush=True)
+    sys.exit(3)
+print("held", flush=True)
+if mode == "hold":
+    if sys.stdin.readline().strip() == "release":
+        lease.__exit__(None, None, None)
+        print("released", flush=True)
+        sys.stdin.readline()
+"""
+
+
+def _guard_child(root: Path, name: str, mode: str):
+    import subprocess
+
+    from tts import qwen3_process as qp
+
+    return qp.spawn([sys.executable, "-c", GUARD_CHILD, str(Path(rt.__file__).resolve().parents[1]), str(root), name,
+                     mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+
+
+def _try_from_another_installation(root: Path, name: str) -> str:
+    """'held' or 'busy': what a second copy of the app gets right now (it exits at once either way)."""
+    from tts import qwen3_process as qp
+
+    proc = _guard_child(root, name, "probe")
+    try:
+        answer = proc.stdout.readline().strip()
+        proc.wait(timeout=60)
+        return answer
+    finally:
+        qp.kill_tree(proc)
+        qp.release(proc)
+
+
+@pytest.fixture
+def guard_name(monkeypatch):
+    import uuid
+
+    name = f"AudiobookCreationTool-Qwen3-TEST-{uuid.uuid4().hex}"
+    monkeypatch.setattr(rt, "MACHINE_GUARD_NAME", name)
+    return name
+
+
+def test_the_production_guard_has_one_fixed_versioned_name():
+    import importlib
+
+    source = Path(rt.__file__).read_text(encoding="utf-8")
+    assert 'MACHINE_GUARD_NAME = "AudiobookCreationTool-Qwen3-ModelGuard-v1"' in source
+    assert importlib.import_module("tts.qwen3_runtime") is rt
+
+
+def test_per_installation_file_locks_alone_never_contended_across_copies(tmp_path):
+    """The audit's reproduction, kept as a fact about FileLock: different roots, different files, no contention."""
+    a, b = rt.FileLock(tmp_path / "copy-a" / "inference.lock"), rt.FileLock(tmp_path / "copy-b" / "inference.lock")
+    assert a.acquire() and b.acquire()
+    a.release()
+    b.release()
+
+
+@windows_only
+def test_two_installations_contend_and_a_normal_release_frees_the_guard(tmp_path, guard_name):
+    from tts import qwen3_process as qp
+
+    holder = _guard_child(tmp_path / "copy-a", guard_name, "hold")
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        assert _try_from_another_installation(tmp_path / "copy-b", guard_name) == "busy"
+        assert _try_from_another_installation(tmp_path / "copy-a", guard_name) == "busy"  # same copy: its file lock too
+        holder.stdin.write("release\n")
+        holder.stdin.flush()
+        assert holder.stdout.readline().strip() == "released"
+        assert _try_from_another_installation(tmp_path / "copy-b", guard_name) == "held"
+    finally:
+        qp.kill_tree(holder)
+        qp.release(holder)
+
+
+@windows_only
+def test_a_copy_that_dies_holding_the_guard_never_strands_it(tmp_path, guard_name):
+    import time
+
+    from tts import qwen3_process as qp
+
+    holder = _guard_child(tmp_path / "copy-a", guard_name, "hold")
+    assert holder.stdout.readline().strip() == "held"
+    assert _try_from_another_installation(tmp_path / "copy-b", guard_name) == "busy"
+    qp.kill_tree(holder)  # abrupt termination, no release
+    qp.release(holder)
+    deadline, answer = time.monotonic() + 10, "busy"
+    while answer == "busy" and time.monotonic() < deadline:  # the kernel closes a dead process's handles a moment later
+        answer = _try_from_another_installation(tmp_path / "copy-b", guard_name)
+    assert answer == "held"
+
+
+@windows_only
+def test_an_exception_inside_the_lease_releases_both_locks(sandbox, tmp_path, guard_name):
+    with pytest.raises(RuntimeError):
+        with rt.inference_lease():
+            raise RuntimeError("the conversion failed")
+    assert _try_from_another_installation(tmp_path / "copy-b", guard_name) == "held"
+    lock = rt.FileLock(rt.inference_lock_path())
+    assert lock.acquire()
+    lock.release()
+
+
+@windows_only
+def test_a_busy_guard_refuses_at_once_and_gives_back_the_local_lock(sandbox, guard_name):
+    """Held by another thread here (a mutex belongs to a thread): the lease must not wait, and must not keep the file
+    lock it took on the way."""
+    import threading
+    import time
+
+    taken, done = threading.Event(), threading.Event()
+
+    def other_copy():
+        guard = rt.MachineGuard()
+        assert guard.acquire()
+        taken.set()
+        done.wait(30)
+        guard.release()
+
+    thread = threading.Thread(target=other_copy)
+    thread.start()
+    try:
+        assert taken.wait(30)
+        started = time.monotonic()
+        with pytest.raises(rt.Qwen3Unavailable, match="Another copy of this app"):
+            rt.inference_lease().__enter__()
+        assert time.monotonic() - started < 5, "the guard must never wait"
+        lock = rt.FileLock(rt.inference_lock_path())
+        assert lock.acquire(), "the installation lock taken on the way was given back"
+        lock.release()
+    finally:
+        done.set()
+        thread.join(30)
+    with rt.inference_lease():
+        pass
+
+
+@windows_only
+def test_the_guard_is_machine_scoped_and_released_idempotently(guard_name):
+    guard = rt.MachineGuard()
+    assert guard.acquire() and guard.held
+    assert guard.scope == "machine"
+    assert guard.acquire(), "re-acquiring your own is a no-op"
+    guard.release()
+    guard.release()
+    assert not guard.held
+
+
+def test_off_windows_the_guard_is_an_honest_no_op(monkeypatch, guard_name):
+    monkeypatch.setattr(rt.sys, "platform", "darwin")
+    guard = rt.MachineGuard()
+    assert guard.acquire() and guard.scope == "none"
+    guard.release()
+    assert guard.scope is None

@@ -691,12 +691,14 @@ def test_two_installs_cannot_run_at_once(sandbox):
     again.release()
 
 
-def test_an_install_in_another_copy_of_the_app_blocks_us_and_a_crash_never_leaves_it_stale(sandbox):
+def test_an_install_in_another_process_of_this_copy_blocks_us_and_a_crash_never_leaves_it_stale(sandbox):
+    """Same installation, second process (a second launch of this copy). Separate copies are kept apart on the GPU by
+    ``rt.MachineGuard`` instead; see test_qwen3_runtime's cross-installation tests."""
     from test_qwen3_runtime import hold_in_another_process, stop_holder
 
-    holder = hold_in_another_process(rt.setup_lock_path())  # another copy of the app is installing
+    holder = hold_in_another_process(rt.setup_lock_path())  # another process of this copy is installing
     try:
-        with pytest.raises(su.SetupError, match="possibly by another copy of this app"):
+        with pytest.raises(su.SetupError, match="already being installed or repaired"):
             su.InstallLock().acquire()
         assert su._PROCESS_LOCK.acquire(blocking=False), "a refused attempt must give back the in-process lock"
         su._PROCESS_LOCK.release()
@@ -1509,3 +1511,43 @@ def test_atomic_text_publication_leaves_no_temporary_file_and_replaces_the_old_t
     rt.atomic_write_text(target, "one")
     rt.atomic_write_text(target, "two")
     assert target.read_text(encoding="utf-8") == "two" and not list(tmp_path.glob("*.tmp"))
+
+
+# --------------------------------------------------------------------------- #
+# The model-load probe shares the machine-wide guard (v0.6.7, audit ACT67-AUD-003)
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(sys.platform != "win32", reason="the guard is a Windows named mutex")
+def test_a_load_check_refuses_while_another_copy_holds_the_models_and_runs_nothing(sandbox, runner):
+    import threading
+
+    install_environment(sandbox)
+    calls: list = []
+
+    def counting(cmd, **kwargs):
+        calls.append(cmd)
+        return runner(cmd, **kwargs)
+
+    taken, done = threading.Event(), threading.Event()
+
+    def other_copy():
+        guard = rt.MachineGuard()
+        assert guard.acquire()
+        taken.set()
+        done.wait(30)
+        guard.release()
+
+    thread = threading.Thread(target=other_copy)
+    thread.start()
+    try:
+        assert taken.wait(30)
+        with pytest.raises(su.SetupError, match="Another copy of this app.*downloaded so far is kept"):
+            su.probe_environment(model_dir=sandbox / "some-model", runner=counting)
+        assert calls == [], "no model was loaded while another copy held the guard"
+    finally:
+        done.set()
+        thread.join(30)
+    su.probe_environment(runner=counting)  # free again: the probe runs, and gives the guard back afterwards
+    assert len(calls) == 1
+    guard = rt.MachineGuard()
+    assert guard.acquire()
+    guard.release()

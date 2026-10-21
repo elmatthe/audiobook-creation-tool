@@ -424,6 +424,12 @@ def _no_real_qwen3_install(monkeypatch):
 
     monkeypatch.setattr(setup, "run_command", _refuse)
 
+    # v0.6.7 (audit ACT67-AUD-003): the cross-installation guard is a named kernel mutex every copy of the app shares.
+    # Under test it gets a name of its own, so the suite can never contend with -- or block -- a real copy of the app
+    # converting on this machine. The production name is asserted by name in test_qwen3_runtime.
+    monkeypatch.setattr(importlib.import_module("tts.qwen3_runtime"), "MACHINE_GUARD_NAME",
+                        f"AudiobookCreationTool-Qwen3-TEST-{os.getpid()}")
+
 
 @pytest.fixture(scope="session")
 def _sandbox_logs_dir(tmp_path_factory):

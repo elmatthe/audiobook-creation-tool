@@ -243,10 +243,13 @@ _PROCESS_LOCK = threading.Lock()
 class InstallLock:
     """Exclusive right to change the Qwen3 installation.
 
-    Two operating-system file locks plus an in-process lock: ``setup.lock`` keeps two installs/repairs apart (in this app
-    or another copy), and ``inference.lock`` -- the same lock every Qwen3 conversion holds while it runs -- keeps an
-    install from replacing files a worker has open, or competing with it for the GPU. The operating system drops both when
-    a process ends however it ends, so a crash can never leave a stale lock behind.
+    Two operating-system file locks plus an in-process lock: ``setup.lock`` keeps two installs/repairs of THIS copy apart,
+    and ``inference.lock`` -- the same lock every Qwen3 conversion of this copy holds while it runs -- keeps an install
+    from replacing files a worker has open. Both live in this installation's own runtime folder, so they protect its
+    files, not the machine: a separate copy of the app has its own files and its own locks. The GPU/RAM side -- one model
+    loaded at a time across every copy -- is ``rt.MachineGuard``, taken by ``probe_environment`` and by every conversion
+    and transcription. The operating system drops all of them when a process ends however it ends, so a crash can never
+    leave a stale lock behind.
     """
 
     def __init__(self) -> None:
@@ -259,12 +262,12 @@ class InstallLock:
             raise SetupError("The Qwen3 voices are already being installed or repaired. Wait for that to finish.")
         try:
             if not self._setup.acquire():
-                raise SetupError("The Qwen3 voices are already being installed or repaired (possibly by another copy of "
-                                 "this app). Wait for that to finish.")
+                raise SetupError("The Qwen3 voices of this copy of the app are already being installed or "
+                                 "repaired. Wait for that to finish.")
             if not self._inference.acquire():
                 self._setup.release()
-                raise SetupError("The Qwen3 voices are being used by a conversion right now (possibly in another copy of "
-                                 "this app). Let it finish, or cancel it, before installing or repairing.")
+                raise SetupError("The Qwen3 voices are being used by a conversion right now. Let it finish, or cancel "
+                                 "it, before installing or repairing.")
             self._held = True
         except BaseException:
             _PROCESS_LOCK.release()
@@ -742,10 +745,16 @@ def probe_environment(*, model_dir: Optional[Path] = None, runner: Optional[Comm
 
     progress(Progress(step, "Checking that the Qwen3 voice engine starts..." if model_dir is None
                       else "Checking that the model loads..."))
+    # The probe starts CUDA and may load a whole model, so it takes the same machine-wide guard as a conversion: another
+    # copy of the app cannot be loading a model at the same moment. (Downloads do not need it and do not hold it.)
+    guard = rt.MachineGuard()
     try:
+        if not guard.acquire():
+            raise SetupError(rt.MACHINE_BUSY_MESSAGE + " Everything downloaded so far is kept.")
         code = runner([str(rt.venv_python()), str(rt.worker_script()), str(job_path)],
                       env=rt.worker_environment(), cwd=jobs, on_line=on_line, cancel_check=cancel_check)
     finally:
+        guard.release()
         job_path.unlink(missing_ok=True)
     failed = next((e for e in events if e.get("event") == "failed"), None)
     report = next((e for e in events if e.get("event") == "probe"), None)

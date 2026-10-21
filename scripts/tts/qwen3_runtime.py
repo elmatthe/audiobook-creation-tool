@@ -667,25 +667,132 @@ class FileLock:
             os.close(fd)
 
 
+#: The shared name every copy of the app uses for its cross-installation Qwen3 guard (see ``MachineGuard``). Versioned
+#: so a future, incompatible guard can never be confused with this one.
+MACHINE_GUARD_NAME = "AudiobookCreationTool-Qwen3-ModelGuard-v1"
+
+_WAIT_OBJECT_0, _WAIT_ABANDONED, _WAIT_TIMEOUT = 0x0, 0x80, 0x102
+_ERROR_ACCESS_DENIED = 5
+
+
+class MachineGuard:
+    """One heavy Qwen3 model operation at a time across EVERY copy of the app on this computer (audit ACT67-AUD-003).
+
+    ``FileLock`` lives in each installation's own runtime folder, so two extracted copies of the app lock two different
+    files and could each load a multi-gigabyte model at once. This guard is a Windows named mutex instead: a kernel
+    object every copy finds by name, with no file anywhere. Scope:
+
+    * ``Global\\`` namespace first -- the whole machine, across Windows users and logon sessions (one GPU, one RAM);
+    * if Windows refuses the global namespace for a reason other than "someone else holds it", the ``Local\\``
+      namespace -- this logon session only -- and ``scope`` says so.
+
+    Acquisition never waits: it succeeds at once or reports busy, so nothing can hang on it. The kernel releases the
+    mutex when its owner dies however it dies (the next owner sees WAIT_ABANDONED and simply takes it), so a crash cannot
+    strand it. It belongs to the acquiring thread, which is why it is only ever used as a ``with`` block. A mutex created
+    by another Windows user cannot be opened by this one (access denied); that only happens while their copy holds it
+    open, so it counts as busy. Qwen3 runs on Windows only; elsewhere this is a no-op with ``scope`` "none".
+    """
+
+    def __init__(self, name: Optional[str] = None) -> None:
+        self.name = name or MACHINE_GUARD_NAME
+        self.scope: Optional[str] = None
+        self._handle = None
+
+    @property
+    def held(self) -> bool:
+        return self._handle is not None or self.scope == "none"
+
+    @staticmethod
+    def _kernel32():
+        import ctypes
+        from ctypes import wintypes
+
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+        k.CreateMutexW.restype = wintypes.HANDLE
+        k.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        k.WaitForSingleObject.restype = wintypes.DWORD
+        k.ReleaseMutex.argtypes = (wintypes.HANDLE,)
+        k.CloseHandle.argtypes = (wintypes.HANDLE,)
+        return k, ctypes
+
+    def acquire(self) -> bool:
+        if self.held:
+            return True
+        if sys.platform != "win32":
+            self.scope = "none"
+            return True
+        k, ctypes = self._kernel32()
+        handle = None
+        for scope, prefix in (("machine", "Global\\"), ("session", "Local\\")):
+            handle = k.CreateMutexW(None, False, prefix + self.name)
+            if handle:
+                self.scope = scope
+                break
+            if ctypes.get_last_error() == _ERROR_ACCESS_DENIED:
+                return False  # another Windows user's copy has it open, i.e. is using it
+        if not handle:
+            raise Qwen3Unavailable("Windows could not create the lock that keeps two copies of this app from loading "
+                                   f"Qwen3 models at the same time (error {ctypes.get_last_error()}).")
+        result = k.WaitForSingleObject(handle, 0)
+        if result in (_WAIT_OBJECT_0, _WAIT_ABANDONED):
+            self._handle = handle
+            return True
+        k.CloseHandle(handle)
+        self.scope = None
+        return False
+
+    def release(self) -> None:
+        if self.scope == "none":
+            self.scope = None
+            return
+        if self._handle is None:
+            return
+        handle, self._handle = self._handle, None
+        k, _ctypes = self._kernel32()
+        try:
+            k.ReleaseMutex(handle)
+        finally:
+            k.CloseHandle(handle)
+            self.scope = None
+
+
+MACHINE_BUSY_MESSAGE = ("Another copy of this app (possibly another Windows user's) is running a Qwen3 conversion, model "
+                        "check or transcription right now, and only one can use the models at a time. Try again when "
+                        "it has finished.")
+
+
 class inference_lease:
     """Held while a conversion uses the Qwen3 environment and models, so an install or repair cannot change them under it.
 
-    Machine-wide (a file lock), so a second copy of the app is covered too. One Qwen3 conversion at a time per machine is
-    also the right limit for a GPU that holds a multi-gigabyte model.
+    Two locks, two scopes. This installation's ``inference.lock`` keeps an install or repair of THIS copy from changing
+    its files under a running worker. ``MachineGuard`` keeps every copy of the app on the computer to one heavy Qwen3
+    model operation at a time -- the right limit for one GPU holding a multi-gigabyte model. Both are released when the
+    block ends, by an exception too, and by the operating system if the process dies.
     """
 
     def __init__(self) -> None:
         self._lock = FileLock(inference_lock_path())
+        self._guard = MachineGuard()
 
     def __enter__(self) -> "inference_lease":
         if not self._lock.acquire():
             raise Qwen3Unavailable(
-                "The Qwen3 voices are being installed or repaired, or another conversion (possibly in another copy of "
-                "this app) is using them right now. Try again when that has finished.")
+                "The Qwen3 voices are being installed or repaired, or another conversion is using them right now. "
+                "Try again when that has finished.")
+        try:
+            if not self._guard.acquire():
+                raise Qwen3Unavailable(MACHINE_BUSY_MESSAGE)
+        except BaseException:
+            self._lock.release()
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
-        self._lock.release()
+        try:
+            self._guard.release()
+        finally:
+            self._lock.release()
 
 
 # --------------------------------------------------------------------------- #
