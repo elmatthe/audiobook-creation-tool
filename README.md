@@ -46,13 +46,17 @@ TTS accepts **PDF and TXT only**. Save TXT files as **UTF-8**, with or without a
 Eight more local voices: **Qwen3 - Aiden** and **Qwen3 - Ryan** (preset voices) and **Qwen3 - Female 1**, **Female 2**, **Male 1**, **Male 2**, **Male 3** and **Male 4** (cloned from the bundled reference recordings). They are never installed automatically. In **TTS Audiobook**, choose one of them and press **Install / repair Qwen3 voices...**. Pick **CustomVoice** (about 4.5 GB; Aiden and Ryan), **Base** (about 4.5 GB; the six cloned voices) or **Both** (about 8.4 GB), and confirm the sizes shown. The first install also prepares a separate Python environment for the voice engine (about 3.1 GB to download, about 5.3 GB on disk). Nothing is downloaded until you confirm, everything is stored inside the app folder, and the same button repairs a damaged installation.
 
 - Qwen3 runs on an NVIDIA GPU when one is found, otherwise on the CPU. Both are slower than real time: on the RTX 5070 it was tested on, narration took about 1.4 to 1.9 times as long as the audio; on the CPU tested (a Ryzen 7 9800X3D) about 2.2 times, using about 6 GB of memory. Your computer will differ, and a long book can take many hours.
-- The cloned voices also need an approved reference transcript on your computer; until one is provided they show **Setup required**. The preset voices do not need one.
+- The six cloned voices need one more step, once: in the same window choose **Set up cloned voices...**. After you confirm, the app installs a speech recognizer (about 971 MB), drafts each voice's reference transcript on your computer, and asks you to listen to each recording, correct its text if needed and approve it. Until then those voices show **Setup required**. The preset voices do not need this step.
 - Windows only for now. On macOS the Qwen3 voices are listed as not yet available.
+
+## Voice samples
+
+Short samples of all 28 voices, each reading the same sentence and named exactly as in the app, are in the [voice previews](files/voice-previews/README.md) folder of this repository on GitHub. They are not part of the download.
 
 ## Requirements
 
 - Windows 10/11 or macOS 12+, with space for the Python environment, outputs and any voice models.
-- Setup can acquire Python and FFmpeg when supported acquisition tools are available (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13.
+- On Windows, when no suitable Python is found, setup asks before installing Python 3.12 for your user account only, using the official python.org installer, which it verifies before running (winget is only a fallback). Setup acquires FFmpeg (and, on macOS, Python) with the supported tools (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13.
 - Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (the Qwen3 voices need up to about 14 GB more, see above).
 
 ## More information

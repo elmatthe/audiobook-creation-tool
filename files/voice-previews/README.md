@@ -6,7 +6,7 @@ Short (about 10 second) samples of the voices in the Audiobook Creation Tool, al
 
 The sentence: *Welcome. This is a short sample of my voice, reading a calm passage at an even pace, so that you can decide whether it suits the story you want to hear, today or tomorrow.*
 
-Each link below is the raw WAV. GitHub serves raw files as downloads, so a click saves the file and your audio player opens it. Publishing a sample is not an approval of its audio quality.
+Each link below is the raw WAV. GitHub serves raw files as downloads, so a click saves the file and your audio player opens it. Publishing a sample is not an approval of its audio quality; the owner's separate listening review is recorded under "Owner listening review".
 
 | Voice | Engine | Preview (raw WAV) | Publication |
 |---|---|---|---|
@@ -49,11 +49,15 @@ On 2026-10-20 the owner decided: Short generated preview audio for all 28 regist
 - **Separate gate:** A Qwen3 clone preview is only generated from an owner-approved transcript bound to its reference recording's SHA-256.
 - **Separate gate:** Qwen3 production-clone qualification (S5) is unchanged by this decision.
 
+## Owner listening review
+
+On 2026-10-20: The owner listened to all 28 published previews and approved their audio quality. The six Qwen3 clones passed at temperature 0.70 and sub-talker temperature 0.80; no further experiments are planned. It does not approve any reference transcript for production use.
+
 ## The Qwen3 clone narration profile
 
 The six Qwen3 cloned voices are meant to narrate calmly and evenly, with less pitch, intensity and pace variation than the model's own sampling gives. They are generated at temperature 0.70 (the Base model's default is 0.90) and sub-talker temperature 0.80 (also 0.90 by default); top_p, top_k, the repetition penalty and each chunk's seed are unchanged. The copy of the reference recording the clone is conditioned on also gets 0.6 s of silence after it, because some references end mid-sound and the clone then opens with a leftover of it. The previews are made by the application's own clone path with that profile (profile revision 1), each from its original reference recording. Neither the recordings nor the transcripts are published here.
 
-**6 of the clone previews use a provisional reference transcript:** Whisper's draft of the recording, which the owner has not approved. They are listening samples only. The application still refuses to make a clone without an approved, reference-bound transcript, and these previews do not approve one.
+**6 of the clone previews use a provisional reference transcript:** Whisper's draft of the recording, which the owner has not approved. They are listening samples only. The application still refuses to make a clone without an approved, reference-bound transcript, and these previews do not approve one. In the app, each person sets the cloned voices up once on their own computer (TTS Audiobook, "Install / repair Qwen3 voices...", then "Set up cloned voices..."): the app drafts each transcript locally, and the person listens, corrects and approves it.
 
 ## How they are made
 

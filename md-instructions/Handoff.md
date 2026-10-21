@@ -2,6 +2,42 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
+
+Not merged, tagged or released; identity stays 0.6.6. Supersedes the "Pending owner" lines of the blocks below: the owner listened to all 28 previews and approved their audio, and the six clones PASS at
+temperature 0.70 / sub-talker 0.80. Production transcripts are no longer the owner's to approve: each user approves their own in the app.
+
+- **Done this pass (commits on `feature/0.6.7-speech-pipeline-and-layout`):** reference recordings renamed to `Chatterbox - <label>.wav` (bytes unchanged); "Set up cloned voices..." in the app
+  (pinned Whisper small.en, local drafts, the user's own listen/correct/approve); Windows stage 0 `bootstrap_host.ps1` (verified python.org 3.12.10, per-user, with consent, winget only as fallback);
+  S5 fixes (runaway-chunk re-render, CUDA only with a real device, the clone dialog fits 768 px, a `.set()` literal); B2 split of `scripts/mp3_tools/` into `mp3/`, `m4b/`, `artwork/`;
+  srsly pinned to 2.5.3 (below); preview README records the owner's listening approval; repository README links the gallery.
+- **S5 runtime qualification (dev tree, real TTS panel, evidence in ignored `files/dev-work/s5/`):** 28/28 voices SUCCEEDED with correct dispatch; every output MP3 24 kHz mono about 160 kbps (the
+  known 24 kHz cap); read-back word error rate at most 0.156, all recognizer spellings; 320 s sustained Qwen3 clone (WER 0.021); folder and PDF+TXT routes; mid-run cancel of Qwen3, Chatterbox, Edge
+  and Kokoro each ended CANCELLED with no output; Qwen3 on the CPU with the GPU hidden (both `-1` and empty) and Chatterbox on the CPU. The six clones used an ISOLATED qualification transcript store
+  (a test operator's, not the owner's); the owner's own store holds six drafts, all `approved: false`. The four native exceptions were re-tested: speech preparation v1 still leaves
+  Edge CUR/FRAC/SYM and Kokoro CUR untouched, and re-synthesized through today's Edge service and Kokoro they read back as the approved clips did. A6: the Chatterbox colon shim stays
+  (its basis, `chatterbox-tts==0.1.7`, is unchanged). Full gate on the final tree: `python scripts/verify.py` RESULT PASS, 10,336 passed / 60 skipped / 0 failed.
+- **CP6 extracted-ZIP qualification** (`release.py` at b667d9f → `dist/v0.6.7-qualification/AudiobookTool-Windows-v0.6.6-identity-b667d9f.zip`, kept local; extracted to a NEW folder
+  `C:\Users\ematthew\ACTQ67`): 123 members, exactly the tracked `scripts/` + 6 renamed WAVs (byte-identical to git) + root files; no `.venv`, tests, dev tools, runtime data, transcripts or previews.
+  Stage 0 found the existing 3.12.10; first-run setup (the GUI's own `run_setup`, dialog click replaced) built `.venv`, installed packages, verified FFmpeg, downloaded and warmed Chatterbox
+  (459 s); `--venv-check` healthy; the real `.bat` fast path opened the launcher window; a deliberately broken `.venv` (pyvenv.cfg removed) was detected by the `.bat` and repaired (packages only),
+  with `settings.json` and the transcript store byte-identical afterwards; the Qwen3 installer built `.venv-qwen3` for real and installed both models and the recognizer from hash-checked local seeds,
+  both load checks passed, and six local drafts were made; 5,126 tool tests (MP3 Tool, M4B Converter, Maker, Metadata Editor, Cover Image, launcher) passed against the extracted scripts and `.venv`
+  (2 failures are dev-checkout assumptions: `.gitignore` and the macOS `.command` are not in the Windows archive). Narration from the extracted copy: Edge 5/5 and Kokoro 9/9 (after the fix) SUCCEEDED,
+  MP3 24 kHz mono, WER at most 0.156.
+- **Release blocker found by CP6 and FIXED:** the fresh install resolved the unpinned transitive `srsly` to 2.5.4; Windows Smart App Control (enforcing on HOME-PC) blocked its `_epoch` extension,
+  so all nine Kokoro voices failed ("An Application Control policy has blocked this file"). `scripts/requirements.txt` now pins `srsly==2.5.3` (the qualified build); the launch path's existing
+  reconciliation downgraded the extracted copy and Kokoro then worked. The Kokoro import-only health check had said "ok" throughout, because `import kokoro` does not load spaCy/srsly.
+- **NOT proven / open:** Chatterbox (6) and Qwen3 (8) narration FROM THE EXTRACTED COPY (the 28-voice run was stopped by Claude Code for low system memory after the Kokoro rows; not restarted
+  without the owner); running the python.org installer (HOME-PC already has 3.12.10, no Windows Sandbox); a truly clean machine (FFmpeg came from the existing per-user WinGet install; pip used its
+  cache); network download of the Qwen3 models from the extracted copy (seeded); macOS (untested this pass); other drifted transitive packages of the main `.venv` (only `.venv-qwen3` is fully
+  hash-pinned).
+- **Minor findings for the owner (not fixed):** (1) `release.py` overwrites `dist/AudiobookTool-*-v<VERSION>.zip` without warning; with identity still 0.6.6 it overwrote the local copies of the
+  published v0.6.6 assets (restored byte-identical from the GitHub release, SHA256SUMS OK). (2) First-run setup logs "Kokoro package not installed (Python may be 3.13+)" when the real cause is a blocked
+  DLL. (3) The Kokoro launch health check is import-only and cannot see a spaCy/srsly failure. (4) Recommend locking the main `.venv`'s full transitive set (as `.venv-qwen3` is).
+- **Next:** the ONE consolidated independent Codex review of the branch; then the owner's decisions on the version bump, merge, tag and release. Raw preview links point at this feature branch
+  (`voice_previews.RAW_BASE`); switch them to `master` when it merges.
+
 ## CURRENT STATE — v0.6.7 voice previews: 28 of 28 PUBLISHED; the six Qwen3 clone previews await the owner's listening review (2026-10-20, HOME-PC)
 
 - **Done:** the six clone previews (`qwen3-female-1/2`, `qwen3-male-1..4`) are generated and published in `files/voice-previews/`, so the set is 28 of 28; the 22 earlier WAVs are unchanged. The README links every WAV directly

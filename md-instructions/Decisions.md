@@ -4,6 +4,46 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - v0.6.7 final implementation: owner listening approval, in-app clone set-up, Windows stage 0, the reference names and the B2 split
+
+**Owner listening approval (owner).** The owner listened to all 28 published voice previews and approved their audio quality. The six Qwen3 clones PASS at temperature 0.70 and sub-talker
+temperature 0.80 (`CLONE_GENERATION_REVISION = 1`); no further experiments. The 28 WAVs and every voice identity are preserved as published. This approves AUDIO; it approves no reference
+transcript: the preview drafts stay provisional (`approved: false`) and nothing in the repository becomes a production transcript.
+
+**Production transcripts come from each user, in the app (implementation decision under the owner's brief).** A clone is used only with a transcript the person at that computer approved,
+bound to the recording's SHA-256 (unchanged loader rule). TTS Audiobook → "Install / repair Qwen3 voices..." → "Set up cloned voices...": (1) install the pinned Whisper small.en recognizer
+(revision `e8727524…`, 11 files, 970,930,930 bytes, each size- and SHA-256-checked; only after the size is shown and confirmed), (2) draft all six locally in `.venv-qwen3`
+(`qwen3_worker.py` job kind `transcribe`, at most 30 s of audio, result written to a file, never stdout), saved `approved: false`, (3) the person plays each recording, corrects the text,
+ticks "I listened" and approves. An approved entry is never overwritten by a draft; a draft for a changed recording reads as stale. No CLI, no JSON editing, no review page, no external
+provider, no silent download. Modules: `tts/qwen3_clone_setup.py`, `tts/qwen3_clone_setup_ui.py` (named so no tracked `scripts/` file name contains "transcript", the Q5 guard).
+
+**Windows stage 0 (`scripts/shared/bootstrap_host.ps1`).** The launcher no longer depends on winget to get Python. Stage 0 RUNS each candidate (py launcher 3.12/3.11, the per-user and
+Program Files installs, `python` on PATH; the Store alias is skipped) and accepts only 3.11/3.12 with ssl, venv and Tk. With none, it asks, then downloads the pinned python.org 3.12.10 amd64
+installer (26,964,224 bytes, SHA-256 `67B5635E…95FB`, Authenticode subject must be the Python Software Foundation) into `files/temp/bootstrap/`, reuses it when still valid, and installs
+per-user with no PATH change, no file associations, no py launcher. winget (user scope) is only the fallback. Exit 0 ok / 2 declined / 3 failed. Not proven: running the installer on
+HOME-PC (it already has 3.12.10, and Windows Sandbox is unavailable), so the clean-machine path stays unverified.
+
+**Reference recordings named after their labels.** `files/Chatterbox-Voice-Uploads/Chatterbox - Female 1.wav` ... `Chatterbox - Male 4.wav` (`git mv`, bytes and hashes unchanged), derived
+from `voice_registry` (`reference_recording_filename`); one copy serves both engines (`CLONE_REFERENCE_VOICE`). `qwen3_runtime.reference_name` ("Female-1") stays the stable transcript key.
+
+**S5 production fixes.** (a) Runaway Qwen3 chunk: longer than 1.0 s + 0.6 s per word → re-render with seed + k·104729, at most twice, keep the shortest (found as Ryan laughing after
+"Chapter One"; Aiden unchanged). (b) The worker uses CUDA only when `is_available()` AND `device_count() > 0` (an empty `CUDA_VISIBLE_DEVICES` made PyTorch report a GPU it could not open).
+(c) The clone set-up rows scroll inside a box sized to the screen (it was 942 px tall). (d) A status message became a named constant so no string `.set()` literal names a voice
+(`test_voice_labels` reads one as a persisted voice setting). None of these changes text, chunks or seeds: `PIPELINE_REVISION` stays 1 and the A0 golden is unchanged.
+
+**B2 (Plan 01B §5.1 Level 3).** `scripts/mp3_tools/` is split into `mp3/`, `m4b/` (`converter/`, `maker/`, `metadata/` + the shared M4B modules) and `artwork/`; 30 modules moved with their
+names, classes and behaviour unchanged. Relative imports became absolute. `source_probe.APPLICATION_PACKAGES = ("shared", "tts", "mp3", "m4b", "artwork")`. Three content pins were
+re-pinned on purpose (each records its previous digest): `shared/numbering.py` and `m4b/m4b_numbering.py` (docstring dotted names only) and `test_m4b_numbering.py` (imports and path
+constants only). `paths.MP3_TOOLS_DIR` (unused) became `MP3_DIR`/`M4B_DIR`/`ARTWORK_DIR`. No stale-folder warning was added for `scripts/mp3_tools/`: it only ever existed in development
+checkouts, where a pull leaves at most an ignored `__pycache__`.
+
+**`srsly==2.5.3` pinned (release blocker found by the extracted-ZIP test).** The main `.venv` pins only direct dependencies; a fresh install resolved the transitive `srsly` to 2.5.4,
+and Smart App Control (enforcing on HOME-PC) refused its unsigned `srsly/msgpack/_epoch` extension, so every Kokoro pipeline failed. 2.5.3 is the build S5 qualified and it loads under
+the same policy; the launch-time requirements reconciliation applies the pin to existing installs. A full transitive lock of the main `.venv` (as `.venv-qwen3` has) is recommended, not done.
+
+**Version identity stays 0.6.6.** `version.py` says the identity is bumped at the approved release-candidate checkpoint; no such approval exists, so the qualification archive is the
+committed tree packaged as 0.6.6 and renamed `-identity-<sha>` in a separate folder. The bump to 0.6.7 is an owner decision.
+
 ## 2026-10-20 - Qwen3 clone previews: provisional transcripts for listening samples, the calmer profile, and the reference-tail fix
 
 **Decision (owner).** The six clone previews are published NOW for the owner to listen to, before any further approval. The owner authorized using Whisper's existing drafts as PROVISIONAL reference text for these

@@ -15,6 +15,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.6.7 final implementation and Windows qualification (2026-10-20) — not released; identity stays 0.6.6
+
+#### Added
+- **Set up cloned voices, in the app.** TTS Audiobook → "Install / repair Qwen3 voices..." → "Set up cloned voices...": after the user confirms the size, the app installs a pinned
+  speech recognizer (Whisper small.en, about 971 MB), drafts each clone's reference transcript on this computer, and the user plays each recording, corrects the text and ticks
+  "I listened" before approving. Approval is bound to the recording's SHA-256; an approved transcript is never overwritten by a new draft. No command line, no JSON editing,
+  no review page, no external service. Transcripts stay in the ignored `files/runtime-data/qwen3/` and never reach git or a release archive.
+- **Windows stage 0 (`scripts/shared/bootstrap_host.ps1`).** When no usable Python 3.11/3.12 is found, setup asks before installing the pinned python.org 3.12.10 installer for the
+  current user only; the download is checked for size, SHA-256 and the Python Software Foundation signature before it runs, and is reused when still valid. winget is only a
+  fallback, PATH and file associations are not changed, and declining exits cleanly.
+
+#### Changed
+- **The six reference recordings are named after their Chatterbox labels** (`files/Chatterbox-Voice-Uploads/Chatterbox - Female 1.wav` ... `Chatterbox - Male 4.wav`); the bytes
+  and hashes are unchanged and the Qwen3 clones use the same six files.
+- **B2: `scripts/mp3_tools/` is split by tool** into `scripts/mp3/` (MP3 Tool), `scripts/m4b/` (shared M4B code, with `converter/`, `maker/` and `metadata/`) and
+  `scripts/artwork/` (Cover Image and shared artwork code). Modules, classes and behaviour are unchanged; imports, launcher entries, tests, guards and READMEs follow the move.
+- The voice preview gallery records the owner's listening approval of all 28 samples and points to the in-app clone set-up; the repository README links to it.
+
+#### Fixed
+- **Qwen3 - Ryan could laugh or run on after a short heading.** A Qwen3 chunk whose audio is far longer than its words allow (over 1.0 s + 0.6 s per word) is re-rendered with the
+  next seed, at most twice, keeping the shortest take if every attempt runs long.
+- **Qwen3 crashed when the GPU was hidden with an empty `CUDA_VISIBLE_DEVICES`.** The worker now uses the GPU only when a CUDA device actually exists, otherwise the CPU.
+- **The clone set-up dialog no longer runs off a 768-pixel screen**: the six rows scroll inside the window.
+- **Kokoro voices failed on a fresh Windows install with Smart App Control on.** A new install picked up srsly 2.5.4 (a library Kokoro uses underneath), whose compiled part
+  Windows refused to load ("An Application Control policy has blocked this file"). `srsly` is now pinned to 2.5.3, the build every Kokoro voice was qualified with; an existing
+  install picks the pin up on its next launch.
+
+#### Verified (HOME-PC, Windows 11, RTX 5070)
+- S5: all 28 voices selected, dispatched and narrated through the real TTS panel (MP3, 24 kHz mono); read-back word error rate at most 0.156, every miss a recognizer spelling;
+  a 320-second Qwen3 clone narration; PDF and TXT, single file and folder; mid-run cancellation of each engine leaves no output; Qwen3 and Chatterbox on the CPU.
+- Release ZIP built by `scripts/shared/release.py`, extracted into a new folder and set up from it (first run, relaunch, a broken environment repaired with settings kept, the Qwen3
+  install, 5,126 tool tests, Edge and Kokoro narration): see Handoff for the results and what stays unproven.
+
 ### Changed — Qwen3 cloned voices: calmer, more even narration, and a clean start (v0.6.7, 2026-10-20)
 
 - The six cloned Qwen3 voices now narrate with less pitch, intensity and pace variation (lower sampling temperatures than the model's defaults); the other voices are unchanged.

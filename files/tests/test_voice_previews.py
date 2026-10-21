@@ -189,6 +189,18 @@ def test_the_readme_never_calls_an_incomplete_set_complete():
     assert "Pending previews" not in complete
 
 
+def test_the_owner_listening_review_is_stated_only_for_a_complete_set_and_approves_no_transcript():
+    """The 2026-10-20 review covered all 28 files; an incomplete set cannot claim it, and it is not a transcript approval."""
+    complete = vp.render_readme(complete_set(manifest()))
+    assert "## Owner listening review" in complete and "approved their audio quality" in complete
+    assert "temperature 0.70 and sub-talker temperature 0.80" in complete
+    assert "does not approve any reference transcript" in complete
+    incomplete = manifest()
+    incomplete["voices"][-1]["preview"] = {"status": vp.PREVIEW_PENDING, "file": None, "sha256": None,
+                                           "pending_reason": "regenerating"}
+    assert "Owner listening review" not in vp.render_readme(incomplete)
+
+
 def test_the_readme_states_the_owner_decision_its_scope_and_that_no_third_party_terms_were_verified():
     text = vp.README.read_text("utf-8")
     assert "## Publication decision" in text and "2026-10-20" in text and "supersedes" in text
