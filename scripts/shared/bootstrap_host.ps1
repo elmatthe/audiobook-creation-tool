@@ -43,7 +43,10 @@ $InstallerSize = 26964224
 $InstallerSha256 = '67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB'
 $InstallerSigner = 'Python Software Foundation'
 $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312'
-$Probe = "import sys, ssl, venv, tkinter; tkinter.Tcl().eval('info patchlevel'); v = sys.version_info; print(sys.executable); print('%d.%d' % (v[0], v[1]))"
+# Tk is proved by initialising it (a withdrawn, destroyed root: no window is shown). Tcl() alone never loads Tk, so a
+# Python whose tk.tcl is missing used to pass here and then fail to open the app's window (audit ACT67-AUD-006).
+$Probe = "import sys, ssl, venv, tkinter; r = tkinter.Tk(); r.withdraw(); r.destroy(); v = sys.version_info; print(sys.executable); print('%d.%d' % (v[0], v[1]))"
+$ProbeTimeoutMs = 30000                    # a candidate that has not answered by then is not used (a hung Tk cannot run the app)
 
 function Say([string]$Message) { Write-Host $Message }
 
@@ -54,9 +57,26 @@ function Test-Candidate([string[]]$Command) {
     $rest = @()
     if ($Command.Count -gt 1) { $rest = $Command[1..($Command.Count - 1)] }
     try {
-        $out = & $exe @rest -c $Probe 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $out) { return $null }
-        $lines = @($out)
+        # Bounded: run it as a process we can stop, never with '&', which would wait forever on a hung interpreter.
+        # (Windows PowerShell 5.1 has no ProcessStartInfo.ArgumentList; none of these arguments contains a double quote.)
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        $psi.Arguments = (@($rest) + @('-c', $Probe) | ForEach-Object { '"' + $_ + '"' }) -join ' '
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $stdout = $proc.StandardOutput.ReadToEndAsync()
+        $null = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($ProbeTimeoutMs)) {
+            try { $proc.Kill() } catch { }
+            return $null
+        }
+        if ($proc.ExitCode -ne 0) { return $null }
+        $out = $stdout.Result.Trim()
+        if (-not $out) { return $null }
+        $lines = @($out -split "`r?`n")
         if ($lines.Count -lt 2) { return $null }
         if ($lines[1] -ne '3.12' -and $lines[1] -ne '3.11') { return $null }
         if (-not (Test-Path -LiteralPath $lines[0])) { return $null }

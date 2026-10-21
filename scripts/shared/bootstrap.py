@@ -632,6 +632,21 @@ class VenvHealth:
                 f"version={self.version!r}, ssl={self.ssl}, tk={self.tk})")
 
 
+# The GUI proof every probe shares (v0.6.7, audit ACT67-AUD-006): really initialise Tk, then withdraw and destroy the
+# root before the event loop ever runs, so no window is shown. ``tkinter.Tcl()`` -- what the probes used before -- starts
+# Tcl only and never loads Tk: an interpreter whose ``tk.tcl`` is missing passed it and then failed opening the window.
+_TK_PROOF_LINES = (
+    "import tkinter",
+    "_root = tkinter.Tk()",
+    "_root.withdraw()",
+    "_root.destroy()",
+)
+#: Seconds one Tk proof may take before it counts as not working (a Tk that hangs cannot open the launcher either).
+TK_PROOF_TIMEOUT_S = 30
+# A missing display is a property of where this runs (a service, a CI box), not of the Python install: a rebuild cannot
+# fix it, so it is reported as such rather than as broken Tk.
+_NO_DISPLAY_MARKERS = ("no display name", "couldn't connect to display", "cannot open display")
+
 _VENV_PROBE = (
     "import json, sys\n"
     "d = {'version': list(sys.version_info[:3])}\n"
@@ -641,13 +656,18 @@ _VENV_PROBE = (
     "except Exception:\n"
     "    d['ssl'] = False\n"
     "try:\n"
-    "    import tkinter\n"
-    "    tkinter.Tcl()\n"
+    + "".join(f"    {line}\n" for line in _TK_PROOF_LINES) +
     "    d['tk'] = True\n"
-    "except Exception:\n"
+    "except Exception as exc:\n"
     "    d['tk'] = False\n"
+    "    d['tk_error'] = ('%s: %s' % (type(exc).__name__, exc))[:300]\n"
     "print(json.dumps(d))\n"
 )
+
+
+def tk_error_is_no_display(error: str) -> bool:
+    lowered = (error or "").lower()
+    return any(marker in lowered for marker in _NO_DISPLAY_MARKERS)
 
 
 def probe_venv(venv_py: Path) -> Optional[dict]:
@@ -657,9 +677,10 @@ def probe_venv(venv_py: Path) -> Optional[dict]:
     the launch path: measured on HOME-PC, ~58 ms against ~190 ms. ``None`` means
     the interpreter did not execute at all, which is itself the answer.
 
-    Tk is proved by initialising ``Tcl()``, never by importing ``tkinter`` — the
-    import succeeds on a Homebrew ``python@3.12`` with no ``python-tk@3.12``,
-    and the app then dies opening its window.
+    Tk is proved by initialising a real (withdrawn, destroyed) ``Tk()`` root,
+    never by importing ``tkinter`` — the import succeeds on a Homebrew
+    ``python@3.12`` with no ``python-tk@3.12`` — and never by ``Tcl()`` alone,
+    which does not load Tk at all (audit ACT67-AUD-006).
     """
     try:
         r = subprocess.run([str(venv_py), "-c", _VENV_PROBE],
@@ -671,6 +692,7 @@ def probe_venv(venv_py: Path) -> Optional[dict]:
             "version": tuple(payload["version"][:2]),
             "ssl": bool(payload["ssl"]),
             "tk": bool(payload["tk"]),
+            "tk_error": str(payload.get("tk_error") or ""),
         }
     except Exception:
         return None
@@ -723,6 +745,13 @@ def assess_venv_health(*, require_tk: bool = True,
             f"{FULL_FEATURE_BELOW[0]}.{FULL_FEATURE_BELOW[1] - 1}) could be "
             "obtained. Edge TTS and the audio tools work; the local voices do not.",
             version=version, ssl=True, tk=has_tk, executes=True)
+
+    if require_tk and not has_tk and tk_error_is_no_display(caps.get("tk_error", "")):
+        return VenvHealth(
+            VENV_DEGRADED, "no-display",
+            "No display is available to this process, so no window can open here. "
+            "That is not a fault of the environment, which was not rebuilt.",
+            version=version, ssl=True, tk=False, executes=True)
 
     if require_tk and not has_tk:
         if compatible_base_available is None or compatible_base_available:
@@ -1199,10 +1228,13 @@ def _probe_import(py, module: str, timeout: float = 30) -> bool:
 
 
 def _tcl_tk_ok(py) -> bool:
-    """True only if Tk can actually *initialize* (not merely import)."""
+    """True only if Tk can actually *initialize* (not merely import, and not Tcl alone).
+
+    Same proof as the venv probe (``_TK_PROOF_LINES``), bounded by ``TK_PROOF_TIMEOUT_S``; a timeout counts as no Tk.
+    """
     try:
-        return _run(_as_argv(py) + ["-c", "import tkinter; tkinter.Tcl()"],
-                    timeout=30).returncode == 0
+        return _run(_as_argv(py) + ["-c", "\n".join(_TK_PROOF_LINES)],
+                    timeout=TK_PROOF_TIMEOUT_S).returncode == 0
     except Exception:
         return False
 

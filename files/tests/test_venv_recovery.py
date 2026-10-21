@@ -203,9 +203,11 @@ def test_tk_is_not_required_in_headless_mode(env, monkeypatch):
     assert bootstrap.assess_venv_health(require_tk=False).state == bootstrap.VENV_HEALTHY
 
 
-def test_tk_health_means_tcl_actually_starts_not_that_tkinter_imports():
-    """Homebrew python@3.12 imports tkinter fine and then cannot open a window."""
-    assert "tkinter.Tcl()" in bootstrap._VENV_PROBE
+def test_tk_health_means_tk_actually_initialises_not_that_tkinter_imports():
+    """Homebrew python@3.12 imports tkinter fine and then cannot open a window; and Tcl() alone never loads Tk at all
+    (audit ACT67-AUD-006). The proof is a real, withdrawn, destroyed Tk root; test_tk_proof.py runs it for real."""
+    assert "_root = tkinter.Tk()" in bootstrap._VENV_PROBE and "_root.withdraw()" in bootstrap._VENV_PROBE
+    assert "Tcl()" not in bootstrap._VENV_PROBE
 
 
 def test_the_whole_assessment_costs_one_subprocess(env, monkeypatch):

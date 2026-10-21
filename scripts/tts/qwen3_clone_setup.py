@@ -65,10 +65,23 @@ def read_store(path: Optional[Path] = None) -> dict:
     return data
 
 
+#: Shown when the transcripts file cannot be written. The store is replaced atomically, so the file on disk is still the
+#: previous one; the dialog keeps the user's text and ticks for a retry.
+SAVE_FAILED = ("The approval could not be saved: the transcripts file {name} could not be written ({reason}). Nothing was "
+               "changed, and your text and ticks are kept. Check that the app's folder is not read-only, open in another "
+               "program or out of disk space, then click Approve again.")
+
+
 def write_store(data: dict, path: Optional[Path] = None) -> None:
+    """Replace the store atomically. Any filesystem failure becomes a :class:`qwen3_setup.SetupError` (audit ACT67-AUD-007):
+    it used to escape as a raw OSError into the Tk callback, and the user saw nothing at all."""
     path = Path(path or store_path())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rt.atomic_write_json(path, data)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rt.atomic_write_json(path, data)
+    except (OSError, rt.Qwen3Unavailable) as exc:
+        reason = getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
+        raise su.SetupError(SAVE_FAILED.format(name=path.name, reason=reason)) from exc
 
 
 def rows(path: Optional[Path] = None) -> list[Row]:

@@ -236,9 +236,18 @@ def atomic_write_text(path: Path, text: str) -> None:
     refuse_link(path.parent)
     tmp = path.with_name(path.name + ".tmp")
     remove_entry(tmp)  # a leftover (or planted) link here must never be written through
-    with open(tmp, "x", encoding="utf-8") as handle:  # exclusive create: never opens an existing file or link
-        handle.write(text)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "x", encoding="utf-8") as handle:  # exclusive create: never opens an existing file or link
+            handle.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        # The destination is untouched until os.replace succeeds; only this call's own partial file is cleaned up.
+        try:
+            if tmp.is_file() and not tmp.is_symlink():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def atomic_write_json(path: Path, data: dict) -> None:

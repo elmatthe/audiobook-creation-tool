@@ -224,10 +224,17 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         if not decisions:
             win.message_var.set(NOTHING_TICKED)
             return
+        # Nothing below runs until the store is safely written, and every failure returns BEFORE load_rows(), so the
+        # user's edited text and ticks stay on screen for a retry. Anything unexpected (reading the recording, say) is
+        # shown too: an exception escaping a Tk callback is silent, and the button then appeared to do nothing.
         try:
             done = qt.approve(decisions)
         except su.SetupError as exc:
             win.message_var.set(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - report it in the dialog, never lose it in Tk's callback handler
+            win.message_var.set(f"The approval could not be saved ({type(exc).__name__}: {exc}). Nothing was changed, "
+                                "and your text and ticks are kept; click Approve again to retry.")
             return
         load_rows()
         refresh()

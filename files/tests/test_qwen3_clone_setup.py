@@ -495,3 +495,121 @@ def test_the_six_rows_scroll_inside_a_box_that_fits_a_768_pixel_screen(dialog, d
     assert box <= max(240, win.winfo_screenheight() - 420)  # the rest of the dialog keeps its room on a short screen
     win.rows_canvas.update_idletasks()
     assert win.rows_canvas.bbox("all")[3] > 0  # the rows live inside the scrolled area
+
+
+# --------------------------------------------------------------------------- #
+# A save that fails is reported, keeps the user's work and can be retried (v0.6.7, audit ACT67-AUD-007)
+#
+# Every store here is the synthetic one the ``drafting`` fixture points ACT_QWEN3_TRANSCRIPTS at; conftest fingerprints
+# the real transcripts file around every test, so none of this can touch a real approval.
+# --------------------------------------------------------------------------- #
+def _store_bytes(path: Path) -> bytes:
+    return path.read_bytes() if path.exists() else b""
+
+
+def _fail_replace(monkeypatch):
+    def locked(src, dst):
+        raise PermissionError(13, "simulated: the file is locked by another program")
+
+    monkeypatch.setattr(rt.os, "replace", locked)
+
+
+def _fail_open(monkeypatch):
+    real_open = open
+
+    def refused(file, mode="r", *args, **kwargs):
+        if "x" in mode:  # only the store's own exclusive-create write; reading the recordings still works
+            raise PermissionError(13, "simulated: the folder is read-only")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(rt, "open", refused, raising=False)
+
+
+def _fail_write(monkeypatch):
+    real_open = open
+
+    class Full:
+        def __init__(self, handle):
+            self._handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._handle.close()
+
+        def write(self, text):
+            raise OSError(28, "simulated: no space left on the disk")
+
+    def opener(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        return Full(handle) if "x" in mode else handle
+
+    monkeypatch.setattr(rt, "open", opener, raising=False)
+
+
+def _fail_mkdir(monkeypatch):
+    def refused(self, *args, **kwargs):
+        raise PermissionError(13, "simulated: cannot create the folder")
+
+    monkeypatch.setattr(qt.Path, "mkdir", refused)
+
+
+FAULTS = {"replace": _fail_replace, "open": _fail_open, "write": _fail_write, "mkdir": _fail_mkdir}
+
+
+@pytest.mark.parametrize("fault", sorted(FAULTS))
+def test_a_store_that_cannot_be_written_raises_the_setup_error_and_keeps_the_old_file(drafting, monkeypatch, fault):
+    voices, path, jobs = drafting
+    qt.approve({"qwen3-female-1": ("Already approved words.", True)}, today="2026-10-20")
+    before = _store_bytes(path)
+    with monkeypatch.context() as m:
+        FAULTS[fault](m)
+        with pytest.raises(su.SetupError, match="could not be saved") as caught:
+            qt.approve({"qwen3-male-2": ("New words.", True)})
+    assert "simulated" in str(caught.value) and "click Approve again" in str(caught.value)
+    assert _store_bytes(path) == before, "the previous approvals are byte-for-byte intact"
+    assert not path.with_name(path.name + ".tmp").exists(), "no partial file is left behind"
+    assert rt.load_transcript("qwen3-female-1").ok and not rt.load_transcript("qwen3-male-2").ok
+
+
+def test_the_dialog_shows_a_failed_save_keeps_the_edits_and_ticks_and_a_retry_succeeds(dialog, drafting, monkeypatch):
+    voices, path, jobs = drafting
+    qt.create_drafts(run_worker=FakeWorker(), jobs_root=jobs)
+    changed = []
+    win = dialog(on_change=lambda: changed.append(1))
+    row = win.rows[5]
+    row["text"].delete("1.0", tk.END)
+    row["text"].insert("1.0", "The corrected words.")
+    row["listened"].set(True)
+    before = _store_bytes(path)
+    with monkeypatch.context() as m:
+        _fail_replace(m)
+        win.btn_approve.invoke()  # used to raise PermissionError into Tk's callback handler and show nothing
+    message = win.message_var.get()
+    assert "could not be saved" in message and "simulated" in message
+    assert "Approved:" not in message and changed == []
+    assert row["text"].get("1.0", tk.END).strip() == "The corrected words." and row["listened"].get() is True
+    assert row["state_var"].get() != "Approved" and _store_bytes(path) == before
+    assert not rt.load_transcript("qwen3-male-4").ok
+    win.btn_approve.invoke()  # the fault is gone: the very same edits are approved on retry
+    assert rt.load_transcript("qwen3-male-4").text == "The corrected words." and changed == [1]
+    assert row["state_var"].get() == "Approved" and "Qwen3 - Male 4" in win.message_var.get()
+
+
+def test_an_unexpected_error_during_approval_is_shown_not_lost(dialog, drafting, monkeypatch):
+    """Not a storage error: reading the recording fails. The dialog must still say so and keep the user's work."""
+    voices, path, jobs = drafting
+    win = dialog()
+    row = win.rows[0]
+    row["text"].insert("1.0", "Words I typed.")
+    row["listened"].set(True)
+
+    def unreadable(voice):
+        raise PermissionError(13, "simulated: the recording is locked")
+
+    monkeypatch.setattr(rt, "reference_status", unreadable)
+    win.btn_approve.invoke()
+    assert "could not be saved" in win.message_var.get() and "PermissionError" in win.message_var.get()
+    assert "Words I typed." in row["text"].get("1.0", tk.END) and row["listened"].get() is True
+    assert not path.exists()

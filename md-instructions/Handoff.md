@@ -21,7 +21,15 @@ Identity stays 0.6.6; nothing merged, tagged, packaged or released. The owner's 
   install/repair model probe; per-installation `setup.lock`/`inference.lock` kept for local files. Tests contend two synthetic
   installation roots in child processes (normal release, abrupt kill, exception). Real route re-run on HOME-PC: Aiden and Male 4
   (owner-approved transcript, read-only) both succeeded; owner store hash unchanged; job folder empty.
-- **Next:** CP4 Tk probe (AUD-006) and clone-approval save errors (AUD-007).
+- **CP4 AUD-006 (Tk proof): DONE.** The venv probe, the base-interpreter check and stage 0 now initialise a real Tk root
+  (withdrawn and destroyed before any event loop: no window), bounded at 30 s; stage 0 no longer runs candidates with an
+  unbounded `&`. A missing display is reported as `no-display` (degraded, not rebuilt). Fault-injection tests run the real
+  probes and real stage 0 with Tk broken but Tcl healthy.
+- **CP4 AUD-007 (approval save errors): DONE.** `write_store` turns any filesystem failure into the setup-error contract
+  (previous store byte-identical, partial temp file removed); the dialog also catches anything unexpected, keeps the edited
+  text and ticks, never reports success first, and a retry works. Synthetic stores only. Owner store re-checked read-only:
+  6/6 approved through the dialog's own row source, hash unchanged.
+- **Next:** CP5 docs/packaging hygiene (AUD-010/011/012, TTS subtitle, Python 3.11 note).
 
 ## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
 
