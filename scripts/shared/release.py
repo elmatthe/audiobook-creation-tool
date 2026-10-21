@@ -325,11 +325,13 @@ def _package(os_names) -> list[Path]:
     _refuse_occupied(os_names)
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=DIST_DIR))
+    # The only files ever created in the staging folder; cleanup removes exactly these (no directory listing: the
+    # packager walks one tree, scripts/, and nothing else).
+    candidates = [staging / _destination(os_name).name for os_name in os_names]
     try:
         staged: dict[str, Path] = {}
         reports = []
-        for os_name in os_names:
-            zip_path = staging / _destination(os_name).name
+        for os_name, zip_path in zip(os_names, candidates):
             written, left_behind = _write_archive(os_name, zip_path)
             _validate_archive(zip_path, written, ENTRY_FILES[os_name])
             staged[os_name] = zip_path
@@ -339,8 +341,8 @@ def _package(os_names) -> list[Path]:
         # Best effort: a staged file is at most a second link to a published archive, so removing it loses
         # nothing, and a failure here must not hide the error that ended the build.
         try:
-            for leftover in staging.iterdir():
-                leftover.unlink()
+            for leftover in candidates:
+                leftover.unlink(missing_ok=True)
             staging.rmdir()
         except OSError as exc:
             print(f"  note: could not remove the staging folder {staging.name}: {exc}")

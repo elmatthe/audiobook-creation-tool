@@ -700,9 +700,30 @@ def test_the_generator_is_the_only_production_file_phase_nine_widened():
     for path in application_python_files(REPO_ROOT / "scripts"):
         if path.name == "generate_voice_samples.py":
             continue
-        if "generate_voice_samples" in path.read_text(encoding="utf-8"):
+        source = path.read_text(encoding="utf-8")
+        if path.name == "release.py" and path.parent.name == "shared":
+            # v0.6.7 (audit ACT67-AUD-012): the developer packager names the generator only to keep it OUT of the
+            # release archives. That one mention is allowed, and only as a string constant inside that assignment.
+            source = _without_developer_only_exclusion(source)
+        if "generate_voice_samples" in source:
             offenders.append(path.name)
     assert offenders == []
+
+
+def _without_developer_only_exclusion(source: str) -> str:
+    """``release.py``'s source with its ``DEVELOPER_ONLY_SCRIPTS = frozenset({...})`` string constants blanked."""
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+    found = 0
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["DEVELOPER_ONLY_SCRIPTS"]:
+            found += 1
+            for const in ast.walk(node.value):
+                if isinstance(const, ast.Constant) and isinstance(const.value, str):
+                    row = const.lineno - 1
+                    lines[row] = lines[row].replace(repr(const.value)[1:-1], "")
+    assert found == 1, "release.DEVELOPER_ONLY_SCRIPTS is the one place allowed to name the generator"
+    return "".join(lines)
 
 
 # --------------------------------------------------------------------------- #
