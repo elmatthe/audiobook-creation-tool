@@ -2,43 +2,34 @@
 
 ## Current Focus
 
-## CURRENT STATE — v0.6.7 Codex audit remediation: IN PROGRESS (2026-10-21, HOME-PC, Claude Code)
+## CURRENT STATE — v0.6.7 Codex audit remediation: DONE and verified on HOME-PC; READY for the independent Codex closure review (2026-10-21, Claude Code)
 
-Branch `feature/0.6.7-speech-pipeline-and-layout`, audited baseline `1bf268c`. Audit report: `files/dev-work/final-codex-audit/ACT-v0.6.7-Final-Audit.md` (ignored, local).
-Identity stays 0.6.6; nothing merged, tagged, packaged or released. The owner's six Qwen3 clone transcripts are now OWNER-APPROVED on HOME-PC (checked read-only:
-6/6 `approved: true`, bound to the registered reference SHA-256s, all six voices available); they are never edited, re-drafted or copied by this work.
+Branch `feature/0.6.7-speech-pipeline-and-layout`, audited baseline `1bf268c`. Audit: `files/dev-work/final-codex-audit/ACT-v0.6.7-Final-Audit.md` (ignored, local).
+Not merged, tagged, packaged or released; identity stays 0.6.6; no `dist/` file touched. Supersedes the blocks below where they differ.
 
-- **CP1 AUD-001 (release no-clobber): DONE.** `shared/release.py` refuses if either platform's archive already exists, stages both in a fresh folder inside `dist/`,
-  validates every member against its source, then publishes by hard link (never replaces); a lost race withdraws only this run's own link. 14 new synthetic tests.
-- **CP2 AUD-002 (Kokoro health): DONE.** `kokoro_is_healthy` = per-launch presence + a recorded offline proof (imports kokoro/torch, misaki,
-  spaCy, srsly, soundfile, scipy; builds the English G2P with `model=False`, hub offline; weights reported, never fetched). Proof record
-  `.venv/.kokoro-proof.json` (pins + interpreter, 7 days ok / 1 day failed); `kokoro_synth` deletes it when a real pipeline load fails.
-  Every repair installs `-r requirements.txt` (srsly 2.5.3 applies); a failed repair is not rerun that day; notices are classified
-  (Application Control / library / missing), never "Python may be 3.13+". Real offline af_heart synthesis on HOME-PC passed.
-- **CP3 AUD-003 (Qwen3 cross-installation guard): DONE.** `rt.MachineGuard` = Windows named mutex
-  `Global\AudiobookCreationTool-Qwen3-ModelGuard-v1` (all users/sessions; `Local\` = this session if Windows refuses Global),
-  never waits, released by the kernel on crash. Taken by every conversion and transcription (`inference_lease`) and by the
-  install/repair model probe; per-installation `setup.lock`/`inference.lock` kept for local files. Tests contend two synthetic
-  installation roots in child processes (normal release, abrupt kill, exception). Real route re-run on HOME-PC: Aiden and Male 4
-  (owner-approved transcript, read-only) both succeeded; owner store hash unchanged; job folder empty.
-- **CP4 AUD-006 (Tk proof): DONE.** The venv probe, the base-interpreter check and stage 0 now initialise a real Tk root
-  (withdrawn and destroyed before any event loop: no window), bounded at 30 s; stage 0 no longer runs candidates with an
-  unbounded `&`. A missing display is reported as `no-display` (degraded, not rebuilt). Fault-injection tests run the real
-  probes and real stage 0 with Tk broken but Tcl healthy.
-- **CP4 AUD-007 (approval save errors): DONE.** `write_store` turns any filesystem failure into the setup-error contract
-  (previous store byte-identical, partial temp file removed); the dialog also catches anything unexpected, keeps the edited
-  text and ticks, never reports success first, and a retry works. Synthetic stores only. Owner store re-checked read-only:
-  6/6 approved through the dialog's own row source, hash unchanged.
-- **CP5: DONE.** AUD-011 README gallery link is absolute (same feature-branch ref as `voice_previews.RAW_BASE`, tested; both switch at
-  the owner's merge decision). AUD-012 `release.DEVELOPER_ONLY_SCRIPTS` keeps `verify.py`, `release.py` and `generate_voice_samples.py`
-  out of the ZIPs (six tools, Qwen3 worker and data still ship; tested on the built archive). AUD-010 documented (Briefing known
-  limitations, Decisions). Launcher TTS description names all four engines. README: Qwen3 needs Python 3.12 exactly.
-- **Still OPEN (owner/manual, not waived):** AUD-004 clean standard-user Windows setup; AUD-005 redistribution authority for the six
-  reference recordings; AUD-008 an exact final release-candidate ZIP (old qualification ZIP predates the srsly pin); AUD-009 real
-  network download of the Qwen3 models and recognizer.
+- **Owner transcripts:** the owner approved all six Qwen3 clone transcripts in the app (Male 4 deliberately starts with "Hello Arthur."). Checked
+  read-only before, during and after this work: 6/6 `approved: true`, bound to the registered reference SHA-256s, all six voices available,
+  store byte-identical throughout. Never edited, re-drafted, copied or printed. The audit's "0 of 6 approved" is historical.
+- **Fixed (checkpoint commits):** AUD-001 `588081c` release no-clobber (preflight both, staged, member-validated, hard-link publish, all or nothing).
+  AUD-002 `32aa554` Kokoro proof record + constrained repair + truthful notices. AUD-003 `d390d84` `rt.MachineGuard` named mutex across copies/users.
+  AUD-006/007 `76501c9` real Tk proof everywhere, approval save failures reported with edits kept. AUD-011/012 + docs `2f9fa7b`.
+  Boundary-guard fix after the first gate `5cedae2`. Rationale: Decisions 2026-10-21.
+- **Verification:** final `python scripts/verify.py` (Git Bash PATH) on `5cedae2`: **RESULT PASS, 10,412 passed / 60 skipped / 0 failed, 2 warnings**
+  (audioop/pkg_resources deprecations); deps/docs/docnames/config PASS. The first gate run on `2f9fa7b` FAILED 2 boundary tests; fixed in
+  `5cedae2`, not waived. Every new guard was mutation-checked. Real runs on HOME-PC: Kokoro af_heart offline; Qwen3 Aiden + Male 4 through
+  `qwen3_file_to_mp3` with the new guard. Preserved: 28 voices (5/9/6/8), 28/28 preview hashes, 6/6 reference hashes, A0 `check` OK.
+- **Still OPEN (owner/manual, not waived):** AUD-004 clean standard-user Windows 10/11 setup; AUD-005 redistribution authority for the six
+  reference recordings; AUD-008 an exact final release-candidate ZIP (the qualification ZIP predates the srsly pin); AUD-009 real unseeded network
+  download of the Qwen3 models and recognizer. AUD-010 documented only (main `.venv` transitive drift, unpinned Chatterbox revision). macOS untested.
+- **Qwen3 speed (CP6, investigation only):** `files/dev-work/qwen3-performance/ACT-v0.6.7-Qwen3-Performance-Investigation.md` (local). Warm RTF
+  about 1.35 (end to end 1.37); 74% of generation is the per-frame nested code-predictor `generate()`; GPU busy only 5-18%. Sub-real-time looks
+  achievable only with batching/CUDA graphs, which change the audio. Recommendation: defer to after release; first experiment = batched chunks
+  within `qwen-tts 0.1.1`, owner-authorised. No production inference change was made.
 - **Test-suite note (pre-existing, not fixed):** `test_launcher_smoke.py` run on its own writes a session log into the real
-  `files/runtime-data/logs/` (the session guard then errors); in the full gate an earlier import redirects it.
-- **Next:** CP6 Qwen3 performance investigation (report only), then the final gate.
+  `files/runtime-data/logs/`; in the full gate an earlier import redirects it.
+- **Delegation note:** `.claude/CLAUDE.md` names `files/dev/qwen_worker.py` for test fixtures; it does not exist in this checkout, so nothing was delegated.
+- **Next:** a fresh, independent Codex closure review of this branch against the audit. Then the owner's decisions on AUD-004/005/008/009, the
+  version bump, the merge (switch `voice_previews.RAW_BASE` and the README gallery link to the stable branch together), tag and release.
 
 ## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
 
