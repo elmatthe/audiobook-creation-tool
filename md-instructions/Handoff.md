@@ -10,7 +10,12 @@ Identity stays 0.6.6; nothing merged, tagged, packaged or released. The owner's 
 
 - **CP1 AUD-001 (release no-clobber): DONE.** `shared/release.py` refuses if either platform's archive already exists, stages both in a fresh folder inside `dist/`,
   validates every member against its source, then publishes by hard link (never replaces); a lost race withdraws only this run's own link. 14 new synthetic tests.
-- **Next:** CP2 Kokoro health/repair (AUD-002).
+- **CP2 AUD-002 (Kokoro health): DONE.** `kokoro_is_healthy` = per-launch presence + a recorded offline proof (imports kokoro/torch, misaki,
+  spaCy, srsly, soundfile, scipy; builds the English G2P with `model=False`, hub offline; weights reported, never fetched). Proof record
+  `.venv/.kokoro-proof.json` (pins + interpreter, 7 days ok / 1 day failed); `kokoro_synth` deletes it when a real pipeline load fails.
+  Every repair installs `-r requirements.txt` (srsly 2.5.3 applies); a failed repair is not rerun that day; notices are classified
+  (Application Control / library / missing), never "Python may be 3.13+". Real offline af_heart synthesis on HOME-PC passed.
+- **Next:** CP3 Qwen3 cross-installation lock (AUD-003).
 
 ## CURRENT STATE — v0.6.7 final implementation and Windows release qualification: DONE on HOME-PC; READY for the consolidated Codex review (2026-10-20, HOME-PC)
 

@@ -27,6 +27,7 @@ if "HF_HOME" not in os.environ:
             os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(_hf / "hub"))
             break
 
+import sys
 import tempfile
 import time
 from typing import Callable
@@ -67,6 +68,19 @@ def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
 # evaluates Kokoro's unsigned native DLLs; subsequent in-process loads that fail
 # are real errors and must not be retried/swallowed.
 _first_pipeline_load_attempted = False
+
+# The launcher's record of its last Kokoro dependency proof (shared/bootstrap.py, KOKORO_PROOF_NAME), kept inside
+# the venv this process runs in. A pipeline that cannot load here is the strongest evidence there is that a recorded
+# success is stale, so it is deleted and the next launch proves again (and says what is wrong) instead of trusting it.
+KOKORO_PROOF_NAME = ".kokoro-proof.json"
+
+
+def _forget_kokoro_proof() -> None:
+    try:
+        (Path(sys.prefix) / KOKORO_PROOF_NAME).unlink(missing_ok=True)
+    except OSError:
+        pass  # best effort: the record also ages out on its own
+
 
 # Cached per lang_code. Discovered by the v0.6.5 Phase 1 quality-suite harness:
 # without this, every call rebuilt a whole KPipeline from scratch — harmless
@@ -125,6 +139,17 @@ def _get_pipeline(lang_code: str):
     if cached is not None:
         return cached
 
+    try:
+        pipeline = _load_pipeline(lang_code)
+    except (OSError, RuntimeError, ImportError):
+        _forget_kokoro_proof()
+        raise
+    _PIPELINE_CACHE[lang_code] = pipeline
+    return pipeline
+
+
+def _load_pipeline(lang_code: str):
+    """The first-load-retry part of ``_get_pipeline``."""
     global _first_pipeline_load_attempted
     if not _first_pipeline_load_attempted:
         _first_pipeline_load_attempted = True
@@ -142,8 +167,6 @@ def _get_pipeline(lang_code: str):
                 raise exc2 from exc
     else:
         pipeline = _instantiate_pipeline(lang_code)
-
-    _PIPELINE_CACHE[lang_code] = pipeline
     return pipeline
 
 

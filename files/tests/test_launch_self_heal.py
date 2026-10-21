@@ -1020,3 +1020,53 @@ def test_the_root_launchers_learned_no_ffmpeg_semantics(launcher):
     for needle in ("ffmpeg_health", "ffmpeg_portable", "ffprobe",
                    "Gyan.FFmpeg", "ffmpeg-state"):
         assert needle not in text, f"{launcher} learned {needle}"
+
+
+# =========================================================================== #
+# Kokoro: a truthful notice, one repair, no blind retries (audit ACT67-AUD-002)
+# =========================================================================== #
+@pytest.fixture
+def ffmpeg_ready(monkeypatch):
+    """FFmpeg is not the subject here; it is simply fine."""
+    import types
+    monkeypatch.setattr(bootstrap, "ensure_ffmpeg_ready_for_launch",
+                        lambda: types.SimpleNamespace(ready=True))
+
+
+BLOCKED_KOKORO = ("import: ImportError: DLL load failed while importing _epoch: "
+                  "An Application Control policy has blocked this file.")
+
+
+def test_a_policy_blocked_kokoro_gets_one_repair_and_an_honest_notice(
+        launch, windows, tools, commands, ffmpeg_ready, monkeypatch):
+    repairs: list = []
+    monkeypatch.setattr(bootstrap, "kokoro_is_healthy", lambda py: (False, BLOCKED_KOKORO))
+    monkeypatch.setattr(bootstrap, "kokoro_repair_is_worthwhile", lambda: True)
+    monkeypatch.setattr(bootstrap, "ensure_kokoro_installed",
+                        lambda py, log: repairs.append(py) or False)
+
+    assert launch.run() == 0
+
+    assert len(repairs) == 1
+    message = launch.warnings[0][1]
+    assert "Application Control" in message
+    assert "3.13" not in message
+    assert "pip install" not in message, "reinstalling the same blocked file is not a fix to offer"
+
+
+def test_a_repair_that_already_failed_today_is_not_rerun(
+        launch, windows, tools, commands, ffmpeg_ready, monkeypatch):
+    repairs: list = []
+    monkeypatch.setattr(bootstrap, "kokoro_is_healthy",
+                        lambda py: (False, "import: ModuleNotFoundError: No module named 'misaki'"))
+    monkeypatch.setattr(bootstrap, "kokoro_repair_is_worthwhile", lambda: False)
+    monkeypatch.setattr(bootstrap, "ensure_kokoro_installed",
+                        lambda py, log: repairs.append(py) or False)
+
+    assert launch.run() == 0
+
+    assert repairs == []
+    assert "repair-dialog" not in launch.events
+    message = launch.warnings[0][1]
+    assert "Kokoro" in message and "missing" in message
+    assert f'-r "{bootstrap.REQUIREMENTS_FILE}"' in message

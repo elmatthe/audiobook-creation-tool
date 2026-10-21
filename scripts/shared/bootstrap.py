@@ -764,11 +764,69 @@ KOKORO_SUBPROCESS_PREAMBLE = (
 )
 
 
-def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
-    """Probe the venv for kokoro + soundfile + scipy. Returns ``(ok, reason)``.
+#: Per-environment record of the last Kokoro dependency proof, inside the venv (so a rebuilt venv never inherits it).
+#: ``tts/kokoro_synth.py`` deletes it (by the same name, under ``sys.prefix``) when a real synthesis cannot load the
+#: pipeline, so the next launch proves again instead of trusting a stale success.
+KOKORO_PROOF_NAME = ".kokoro-proof.json"
+#: A successful proof is trusted as long as the general import proof is.
+KOKORO_PROOF_MAX_AGE_S = IMPORT_PROOF_MAX_AGE_DAYS * 86400
+#: A failed proof is trusted for a day: long enough that a policy-blocked native file is not retried (and the repair
+#: not rerun) on every launch, short enough that a fixed machine recovers without the user doing anything.
+KOKORO_FAILED_PROOF_MAX_AGE_S = 86400
+#: The proof imports torch; a first import in a brand-new venv is slow (see ``IMPORT_PROBE_TIMEOUT_S``).
+KOKORO_PROOF_TIMEOUT_S = 300
 
-    Uses ``importlib.util.find_spec`` (cheap — does not import torch) so the
-    check is fast enough to run on every launch without slowing the fast path.
+# The proof: import the whole synthesis chain (kokoro -> torch, misaki -> spaCy -> srsly, soundfile, scipy) and, when
+# spaCy's English model is already installed, build the English G2P exactly as a real pipeline does -- spaCy model,
+# srsly, eSpeak NG -- but with no Kokoro model (model=False) and the Hugging Face hub offline, so it never downloads
+# anything. Missing model weights are reported separately: they are an optional download, not a broken install.
+_KOKORO_PROOF = (
+    "import os, sys, json\n"
+    "os.environ['HF_HUB_OFFLINE'] = '1'\n"
+    f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+    "stage = 'import'\n"
+    "try:\n"
+    "    import soundfile, scipy, srsly, spacy, misaki.en\n"
+    "    from kokoro import KPipeline\n"
+    "    from shared import espeak_data\n"
+    "    stage = 'pipeline'\n"
+    "    english = spacy.util.is_package('en_core_web_sm')\n"
+    "    if english:\n"
+    "        espeak_data.configure()\n"
+    "        KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M', model=False)\n"
+    "    try:\n"
+    "        from huggingface_hub import try_to_load_from_cache\n"
+    "        weights = isinstance(try_to_load_from_cache('hexgrad/Kokoro-82M', 'kokoro-v1_0.pth'), str)\n"
+    "    except Exception:\n"
+    "        weights = False\n"
+    "except BaseException as exc:\n"
+    "    print('BROKEN:' + json.dumps({'stage': stage, 'type': type(exc).__name__, 'error': str(exc)}))\n"
+    "    sys.exit(1)\n"
+    "print('OK:' + json.dumps({'english_model': english, 'weights': weights}))\n"
+)
+
+
+def kokoro_failure_message(detail: str) -> str:
+    """Plain-language reason for a failed Kokoro proof; the raw detail goes to the log, not here."""
+    lowered = detail.lower()
+    if "application control" in lowered or "4551" in lowered:
+        return ("Windows Application Control (Smart App Control or a company policy) blocked one of the files the "
+                "Kokoro voices need, so they cannot run on this computer as it is set up. Reinstalling the same "
+                "files does not change that decision")
+    if "dll load failed" in lowered or "cannot load library" in lowered or "winerror 126" in lowered:
+        return "a library the Kokoro voices need is installed but could not be loaded"
+    if "modulenotfounderror" in lowered or "no module named" in lowered:
+        return "a component the Kokoro voices need is missing"
+    if lowered.startswith("missing:"):
+        return "the Kokoro voice packages are not installed"
+    return "the Kokoro voice components are installed but failed to start"
+
+
+def kokoro_packages_present(venv_py: Path) -> tuple[bool, str]:
+    """Cheap **presence** probe for kokoro + soundfile + scipy. Returns ``(ok, reason)``.
+
+    ``find_spec`` (does not import torch) is fast enough for every launch, but it is presence only: a package
+    whose native extension Windows refuses to load still has a spec. ``kokoro_is_healthy`` adds the real proof.
     """
     probe = (
         "import importlib.util as u, sys; "
@@ -790,31 +848,142 @@ def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
         return False, f"probe failed: {exc!r}"
 
 
-def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> bool:
-    """Install the pinned Kokoro stack into the existing venv. Returns True on success.
+def prove_kokoro_dependencies(venv_py: Path) -> tuple[Optional[bool], str, dict]:
+    """Really import Kokoro's synthesis chain and build its English G2P, offline. Returns ``(ok, detail, facts)``.
 
-    This is the *self-heal* path: it pip-installs into the venv that already
-    exists (never --user, never system site-packages). ``log`` is the same
-    callable the rest of the bootstrap uses, so output is tee'd to the setup log
-    and the repair dialog's live log pane.
+    Tri-state like ``prove_required_imports``: ``None`` means the probe itself could not run or finish (a cold
+    first import can be very slow), which is not evidence of a broken install. ``facts`` says whether spaCy's
+    English model and the Kokoro weights are already on this computer; neither being absent is a failure.
     """
-    log(f"Installing Kokoro stack into venv: {' '.join(KOKORO_PKGS)}")
+    env = os.environ.copy()
+    hf_cache = RESOURCES_DIR / "models" / "huggingface"
+    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
+    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
+    env["HF_HUB_OFFLINE"] = "1"
+    try:
+        r = subprocess.run([str(venv_py), "-c", _KOKORO_PROOF], capture_output=True, text=True,
+                           timeout=KOKORO_PROOF_TIMEOUT_S, env=env, **_hidden())
+    except subprocess.TimeoutExpired:
+        return None, f"the Kokoro proof did not finish within {KOKORO_PROOF_TIMEOUT_S} s", {}
+    except OSError as exc:
+        return None, f"the Kokoro proof could not run: {exc!r}", {}
+    lines = (r.stdout or "").strip().splitlines()
+    last = lines[-1] if lines else ""
+    try:
+        if r.returncode == 0 and last.startswith("OK:"):
+            return True, "ok", json.loads(last[3:])
+        if last.startswith("BROKEN:"):
+            info = json.loads(last[7:])
+            return False, f"{info.get('stage')}: {info.get('type')}: {info.get('error')}", {}
+    except ValueError:
+        pass
+    tail = (r.stderr or "").strip().splitlines()[-3:]
+    # A native crash (no Python traceback) is still a real failure to start the engine.
+    return False, f"exit {r.returncode}: " + (" | ".join(tail) or last or "no output"), {}
+
+
+def kokoro_proof_path() -> Path:
+    return VENV_DIR / KOKORO_PROOF_NAME
+
+
+def record_kokoro_proof(ok: bool, detail: str, *, after_repair: bool = False) -> None:
+    """Remember a completed proof (success or failure) for these pins and this interpreter. Never fatal."""
+    try:
+        kokoro_proof_path().parent.mkdir(parents=True, exist_ok=True)
+        kokoro_proof_path().write_text(json.dumps({
+            "ok": bool(ok), "detail": detail, "after_repair": bool(after_repair),
+            "requirements_sha256": requirements_fingerprint(),
+            "interpreter": _interpreter_identity(),
+            "proved_at": time.time(),
+        }, indent=2), encoding="utf-8")
+    except OSError:
+        pass  # an unrecorded proof is simply repeated next launch
+
+
+def current_kokoro_proof() -> Optional[dict]:
+    """The recorded proof if it still applies (same pins, same interpreter, fresh enough), else None."""
+    try:
+        payload = json.loads(kokoro_proof_path().read_text(encoding="utf-8"))
+        if payload.get("requirements_sha256") != requirements_fingerprint():
+            return None
+        if payload.get("interpreter") != _interpreter_identity():
+            return None
+        age = time.time() - float(payload["proved_at"])
+        limit = KOKORO_PROOF_MAX_AGE_S if payload.get("ok") is True else KOKORO_FAILED_PROOF_MAX_AGE_S
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+    return payload if 0 <= age <= limit else None
+
+
+def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
+    """Can the Kokoro voices actually run in this venv? Returns ``(ok, reason)``.
+
+    Presence is checked on every launch (cheap). The real proof runs only when no recorded proof applies: after
+    setup, a repair, a requirements change, a new interpreter, a failed real synthesis (which deletes the record), or
+    after the record ages out. So the healthy launch costs one small subprocess and a file read.
+    """
+    present, reason = kokoro_packages_present(venv_py)
+    if not present:
+        return False, reason
+    recorded = current_kokoro_proof()
+    if recorded is not None:
+        return recorded["ok"] is True, "ok" if recorded["ok"] is True else str(recorded.get("detail"))
+    proved, detail, _facts = prove_kokoro_dependencies(venv_py)
+    if proved is None:
+        return True, f"present; the dependency proof will be retried ({detail})"
+    record_kokoro_proof(proved, detail)
+    return proved, detail
+
+
+def kokoro_repair_is_worthwhile() -> bool:
+    """False while a repair has already run and its proof still failed (for these pins, today).
+
+    Reinstalling identical pinned files cannot change an Application Control decision, so the launch does not
+    rerun pip (or reload a blocked file) every time; it says what is wrong instead.
+    """
+    recorded = current_kokoro_proof()
+    return not (recorded is not None and recorded.get("ok") is False and recorded.get("after_repair"))
+
+
+def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> bool:
+    """Repair the Kokoro stack in the existing venv from ``requirements.txt``. Returns True when proved working.
+
+    This is the *self-heal* path: it pip-installs into the venv that already exists (never --user, never system
+    site-packages). It installs from the authoritative requirements file, not a hand-kept package list, so every
+    qualified constraint applies -- notably ``srsly==2.5.3``, which a resolver left to itself replaced with a build
+    Smart App Control blocks. ``log`` is the same callable the rest of the bootstrap uses, so output is tee'd to the
+    setup log and the repair dialog's live log pane. The result is recorded, so a failed repair is not repeated on
+    every launch. No model weights are downloaded here.
+    """
+    log(f"Repairing the Kokoro voice components from {REQUIREMENTS_FILE.name}")
     try:
         r = subprocess.run(
-            [str(venv_py), "-m", "pip", "install", "--no-input", *KOKORO_PKGS],
-            capture_output=True, text=True, timeout=600, **_hidden(),
+            [str(venv_py), "-m", "pip", "install", "--no-input", "-r", str(REQUIREMENTS_FILE)],
+            capture_output=True, text=True, timeout=1800, **_hidden(),
         )
         if r.stdout:
             log(r.stdout.strip())
         if r.returncode != 0:
             if r.stderr:
                 log(r.stderr.strip())
+            record_kokoro_proof(False, "pip could not install the Kokoro components", after_repair=True)
             return False
-        ok, reason = kokoro_is_healthy(venv_py)
-        log(f"Post-install health-check: {reason}")
-        return ok
+        present, reason = kokoro_packages_present(venv_py)
+        if not present:
+            log(f"Post-install presence check: {reason}")
+            record_kokoro_proof(False, reason, after_repair=True)
+            return False
+        proved, detail, facts = prove_kokoro_dependencies(venv_py)
+        log(f"Post-install Kokoro proof: {detail}")
+        if proved is None:
+            return True  # installed and present; the proof is retried next launch rather than guessed
+        record_kokoro_proof(proved, detail, after_repair=True)
+        if proved and not facts.get("weights"):
+            log("  Kokoro model weights are not downloaded yet; they download the first time a Kokoro voice is used.")
+        return proved
     except Exception as exc:
         log(f"ensure_kokoro_installed failed: {exc!r}")
+        record_kokoro_proof(False, f"repair could not run: {exc!r}", after_repair=True)
         return False
 
 
@@ -2087,11 +2256,21 @@ def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
 def predownload_kokoro(log: SetupLog) -> None:
     """Pre-download the Kokoro model (~300 MB). Best-effort; never fatal."""
     py = venv_python()
-    check = _run([str(py), "-c", "import kokoro"])
-    if check.returncode != 0:
-        log.line("Kokoro package not installed (Python may be 3.13+) — "
-                 "skipping model pre-download.")
+    present, detail = kokoro_packages_present(py)
+    if not present:
+        version = _interp_version_argv([str(py)])
+        why = ("this Python is too new for Kokoro" if version is not None and not _is_kokoro_compatible(version)
+               else "the Kokoro packages are not installed")
+        log.line(f"Skipping the Kokoro model pre-download: {why} ({detail}).")
         return
+    proved, detail, _facts = prove_kokoro_dependencies(py)
+    if proved is False:
+        record_kokoro_proof(False, detail)
+        log.line(f"Skipping the Kokoro model pre-download: {kokoro_failure_message(detail)}.")
+        log.line(f"  Detail: {detail}")
+        return
+    if proved:
+        record_kokoro_proof(True, detail)
     log.line("Pre-downloading Kokoro-82M model weights (~300 MB, one-time)…")
     script = (
         KOKORO_SUBPROCESS_PREAMBLE +
@@ -2365,8 +2544,13 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         predownload_kokoro(log)
         # Pre-warm the pipeline so Smart App Control / WDAC evaluates Kokoro's
         # unsigned native DLLs during this install dialog, not on first synthesis.
-        if kokoro_is_healthy(venv_python())[0]:
+        # kokoro_is_healthy runs (or reuses) the real dependency proof, so a
+        # blocked file is reported here rather than hidden behind "ok".
+        ok_kokoro, why = kokoro_is_healthy(venv_python())
+        if ok_kokoro:
             warmup_kokoro_pipeline(venv_python(), log.line)
+        else:
+            log.line(f"Kokoro voices unavailable: {kokoro_failure_message(why)}. Detail: {why}")
 
     if download_chatterbox:
         progress(chatterbox_step, "Downloading the Chatterbox voice model (~3.9 GB)…")
@@ -2944,25 +3128,22 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
 
     ok, reason = kokoro_is_healthy(venv_py)
     LOG.line(f"Kokoro health-check: {reason}")
+    if not ok and kokoro_repair_is_worthwhile():
+        LOG.line("Kokoro voices not usable — attempting an in-venv repair…")
+        # The repair proves the result itself: building the G2P loads the same native files a first synthesis
+        # would, so Smart App Control evaluates them inside this dialog -- without the model, so no surprise
+        # ~300 MB download.
+        show_repair_dialog(lambda: ensure_kokoro_installed(venv_py, LOG.line))
+        ok, reason = kokoro_is_healthy(venv_py)
+        LOG.line(f"Kokoro health-check after repair: {reason}")
+    elif not ok:
+        LOG.line("  A repair already ran for this environment and could not fix it; not repeating it today.")
     if not ok:
-        LOG.line("Kokoro stack incomplete — attempting an in-venv repair…")
-
-        def _repair_and_warmup() -> bool:
-            if not ensure_kokoro_installed(venv_py, LOG.line):
-                return False
-            # Force Smart App Control / WDAC to evaluate the freshly-installed
-            # native DLLs now (inside this dialog), not on first synthesis.
-            warmup_kokoro_pipeline(venv_py, LOG.line)
-            return True
-
-        show_repair_dialog(_repair_and_warmup)
-        ok2, reason2 = kokoro_is_healthy(venv_py)
-        LOG.line(f"Kokoro health-check after repair: {reason2}")
-        if not ok2:
-            notices.append(
-                "The local Kokoro AI voices could not be installed, so Edge TTS "
-                f"voices will be used instead. Reason: {reason2}. Manual fix: "
-                f'"{venv_py}" -m pip install ' + " ".join(KOKORO_PKGS) + ".")
+        fix = ("" if "application control" in reason.lower() or "4551" in reason else
+               f' To retry by hand: "{venv_py}" -m pip install -r "{REQUIREMENTS_FILE}".')
+        notices.append(
+            f"The local Kokoro AI voices are unavailable: {kokoro_failure_message(reason)}. Edge TTS and "
+            f"the other voices still work.{fix}")
 
     launched = launch_gui(LOG)
     if launched and notices:

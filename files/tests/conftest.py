@@ -60,6 +60,8 @@ if str(SCRIPTS_ROOT) not in sys.path:
 _GUARDED_PATHS = {
     "the real requirements stamp": REPO_ROOT / ".venv" / ".requirements-state.json",
     "the real import proof": REPO_ROOT / ".venv" / ".import-proof.json",
+    # v0.6.7 audit remediation: the Kokoro dependency proof record (shared/bootstrap.py KOKORO_PROOF_NAME).
+    "the real Kokoro proof": REPO_ROOT / ".venv" / ".kokoro-proof.json",
     "the real FFmpeg pin": (REPO_ROOT / "files" / "runtime-data"
                             / "ffmpeg-state.json"),
     "the real installed FFmpeg build": REPO_ROOT / "files" / "bin",
@@ -93,7 +95,7 @@ _GUARDED_PATHS = {
 #  side of ~5500 tests is over ten thousand scans, and paying that per test is
 #  what previously perturbed the suite's timing enough to trip a bounded thread
 #  wait in test_job_ui.py.
-_PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof",
+_PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof", "the real Kokoro proof",
                      "the real FFmpeg pin", "the real installed FFmpeg build",
                      "the real FFmpeg staging tree",
                      "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
