@@ -2,6 +2,33 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P00C verify evidence mode: DONE; NEXT is P01A (final-audio regressions) after normal-chat review (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 "Durable full gates" and P00C. Identity stays 0.6.6.
+Not merged, tagged, packaged or released. No application runtime, dependency pin, model, transcript, WAV, preview or environment change.
+
+- **What landed:** `scripts/verify.py --evidence-dir <new dir below files/dev-work/act070-remediation/>` (a relative path is taken from the repository
+  root). The no-argument gate is unchanged: same `subprocess.run` pytest command, same five gates, order, meanings and report text. Malformed arguments
+  now exit 2 instead of being silently ignored.
+- **Evidence mode:** streams the pytest child's merged stdout/stderr to `pytest.log` as it arrives (flushed, tracebacks intact); adds only `-ra` and
+  `--junitxml=<dir>/pytest.xml`; writes a flushed `verify.log`, `start.json` (argv, interpreter, tree fingerprint), an `INCOMPLETE.json` marker from
+  start until normal completion, and an atomically finalized `result.json` (per-gate status, native exit, elapsed time; JUnit totals; interpreter; start
+  and end fingerprint). PASS also needs a JUnit report that agrees with exit 0 and an unchanged fingerprint. Ctrl+C stops only the known child and exits
+  130 INCOMPLETE; an unexpected error keeps its traceback and re-raises; a killed run leaves the marker. `read_evidence_status()` gives
+  PASS/FAIL/INCOMPLETE/INVALID, and only a finalized result with no marker reads PASS. Refused: existing paths, `..`, links/junctions, anything outside
+  the root, OS-rewritten names (trailing dot) and non-portable or reserved names.
+- **Fingerprint:** SHA-256 over the working-tree bytes of every tracked file plus untracked, non-ignored files under `scripts/` and `files/tests/`
+  (other untracked trees such as `files/run-temp/` are excluded by design). Read-only git (`--no-optional-locks`).
+- **Tests:** new `files/tests/test_verify_evidence.py` (synthetic pytest child, throwaway git repository, mutation-checked). No existing test mocked
+  `subprocess.run` for verify, so none needed changing. Results in `files/dev-work/act070-remediation/checkpoints/P00C.md`; sample PASS, FAIL, empty,
+  interrupted and killed evidence in `files/dev-work/act070-remediation/p00c-samples/` (both ignored). No full suite run; the first full gate is P01C.
+- **Full-gate command from now on:** `./.venv/Scripts/python.exe -u scripts/verify.py --evidence-dir
+  files/dev-work/act070-remediation/verify/<phase>-<starting-sha>-<unique-run>` as a tool-tracked background task. A timeout or interruption is
+  INCOMPLETE, never PASS and never a product FAIL.
+- **Known local-only items, unchanged:** `.ai/`, `scripts/project-status.py`, `files/run-temp/` stay untracked and unstaged.
+- **Still OPEN (unchanged):** AUD-004, AUD-005, AUD-008, AUD-009; AUD-010 deferred and non-blocking.
+- **Next:** P01A only, after the normal chat reviews this P00C report and pushed diff.
+
 ## CURRENT STATE — v0.7.0 P00B branch and preservation guards: DONE; NEXT is P00C (verify evidence mode) after normal-chat review (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` (Revision 2, now tracked). It supersedes the v0.6.7 release target
