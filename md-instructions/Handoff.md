@@ -2,6 +2,36 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P01A final-audio root cause + regression tests: DONE; NEXT is P01B (local-engine EOF policy) after normal-chat review (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and P01A. Identity stays 0.6.6.
+Investigation and tests only: no production code, voice setting, preview, Qwen sampling, transcript, model, environment or private store changed;
+no real synthesis, network or download. Not merged, tagged, packaged or released. No full gate (first is P01C).
+
+- **Root causes (all routes stack a deliberate closing pause):** every registry preset freezes `end_pause` 3000 ms; Edge direct adds the final
+  sentence's paragraph pause + the last chapter's chapter pause + the 3000 ms end (5.80–5.87 s measured on earlier real outputs, all deliberate);
+  Edge folder adds 50 ms after the last chunk + the 3000 ms module constant and never trims the final network chunk's ~800 ms padding; Kokoro,
+  Chatterbox and Qwen3 add the chunk pause after the last rendered chunk too (700 ms) + 3000 ms, on top of 50–750 ms of natural model tail.
+  Engine defaults (3000 ms) also reach direct callers and the shipped sample helper (Chatterbox long text, Qwen3). Zeroing presets alone is not enough.
+- **Calibration (§5.1):** 10 ms windows, per channel, RMS **or** peak ≥ −60 dBFS, keep 150 ms kept every synthetic ending (worst endpoint error
+  −130 ms, reverb). −50 dBFS cut 4/13 endings → rejected. The peak guard and per-channel measurement are both required. −70 dBFS is an ambiguity
+  detector, not a cut point (noise floors, decoder spikes). FFmpeg 9.0.1 encodes gaplessly (0 extra samples at 128k/192k/320k).
+  Open: Qwen3 Ryan is borderline (needs listening); isolated spikes in Edge's padding sit 0.3 dB under the −60 peak guard (P01C decision).
+- **Tests:** new `files/tests/test_tts_final_tail.py` (81 nodes) drives the panel's converters, the Edge runner/CLI, the folder worker and the
+  sample helper with synthetic PCM, capturing the exact PCM handed to the one final encode. 44 pass today (final-sound, internal-pause,
+  cancellation and no-publication guards); **37 carry the plan's exact strict xfail** (`ACT070-P01A/<case> — Q1; remove in P01B|P01C`):
+  **23 due in P01B, 14 due in P01C**, zero allowed after P01C. Each was run red with `--runxfail`: 37/37 `AssertionError` on the intended assertion.
+- **Proof the tests are meaningful:** in a disposable copy, a throwaway prototype made all 37 XPASS (81/81 with `--runxfail`); bad trimmers
+  (−50 dBFS, RMS-only, keep 0, downmix, silence compression) each fail guards. 13 existing tests encode the old contract and must be replaced
+  atomically in P01B/P01C (list in the P01A record), never xfailed.
+- **Focused run:** 12 P01 suites, 509 passed / 37 xfailed / 0 failed / 0 errors / 0 XPASS / 0 skipped. Protected: 6/6 reference WAV hashes,
+  28/28 previews, private store fingerprint unchanged.
+- **Evidence (ignored):** `files/dev-work/act070-remediation/checkpoints/P01A.md`, `…/audio/red-ledger.json`, calibration and red-proof logs.
+- **Known local-only items, unchanged:** `.ai/`, `scripts/project-status.py`, `files/run-temp/` stay untracked and unstaged.
+- **Still OPEN (unchanged):** AUD-004, AUD-005, AUD-008, AUD-009; AUD-010 deferred and non-blocking.
+- **Next:** P01B only (zero EOF defaults, between-rendered-chunks-only pauses, conservative terminal trim for Kokoro/Chatterbox/Qwen3; remove the
+  23 P01B markers), after the normal chat reviews this P01A report and pushed diff.
+
 ## CURRENT STATE — v0.7.0 P00C verify evidence mode: DONE; NEXT is P01A (final-audio regressions) after normal-chat review (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 "Durable full gates" and P00C. Identity stays 0.6.6.
