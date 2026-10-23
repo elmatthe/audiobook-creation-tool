@@ -2,6 +2,33 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P01B: `.venv-qwen3` re-locked and repaired (scikit-learn 1.9.0); Qwen3 gate CLOSED; overall P01B NOT VERIFIED (owner listening + flake) (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 / P01B and §7; owner task "P01B Qwen3 Production
+Re-lock and Repair". HOME-PC, branch `feature/0.7.0-release-remediation`, parent `6efda2b`. Identity stays 0.6.6. Not merged, tagged or packaged. No full gate.
+
+- **Why:** `.venv-qwen3` had scikit-learn 1.9.1 hash-locked, and SAC (Enforce) blocked its unsigned `_isfinite`. The disposable full-stack qualification
+  (`checkpoints/P01B-SAC-Qwen-full-stack.md`) showed that the exact lock with only that line set to 1.9.0 installs, is consistent and loads under SAC.
+- **Change:** `scripts/qwen3-requirements.txt` has one line changed: `scikit-learn==1.9.1 --hash=sha256:4b59abb3…e49c` → `scikit-learn==1.9.0
+  --hash=sha256:4306775fad04cc4b472a1b15af1ae9cede1540fbfcc17fbce3767cd8dc7ae283`. The other 88 pins and hashes, LF endings and 9,883-byte length are unchanged.
+  The file is byte-identical to the qualified copy (normalised sha256 `0e4dc94d…` → `b1851204…`). Decisions 2026-10-23.
+- **Repair** (no Install/repair workflow, no rebuild): the production `InstallLock`, `installer_environment()` and `run_command` ran `install_environment()`'s
+  hashed pip argv against the live interpreter. Only `--cache-dir` was moved into the evidence folder, and `--report` was added. The dry-run gate, repeated
+  inside the same held lock, predicted exactly one install (scikit-learn 1.9.0, `4306775f…`, files.pythonhosted.org) with 88 already satisfied. Live
+  result: uninstalled 1.9.1, installed 1.9.0, nothing else; 89 of 90 RECORDs unchanged. `_isfinite` is now `bbace3b3…`, the same bytes as the main env.
+- **Verified on the live `.venv-qwen3`:** `pip check` clean; freeze diff is that one line only; RECORD re-hash of 29,701 files with 0 bad. 330 natives:
+  329 loaded, **0 SAC-blocked**, 1 optional numba `tbb12.dll`. The import probe (16/16, including transformers → `sklearn.metrics` and the whole `qwen_tts` chain)
+  and all 16 qwen_tts modules import. The production `probe_environment()` (no model) returned `probe` + `done`: CUDA on `cuda:0` RTX 5070, 12,226 MiB, sm 12.0.
+  **`test_qwen3_calm_harness.py::test_the_real_library_…` PASSED on the live env (not skipped).** All 12 Qwen3 test modules: 679 passed, 2 skipped
+  (pre-existing symlink privilege), 0 failed. SAC On / Enforce. **0 Code Integrity events** from 15:26:38Z to 15:33:05Z.
+- **State:** the production `probe_environment()` → `rt.write_environment_state()` recorded `requirements_sha256` `b1851204…`. Only that field and `recorded_utc`
+  changed, and the probe content is identical. `environment_status()` = ok; both model markers are ok and unchanged. Main `.venv`, model folders, reference
+  recordings and the private transcript store are untouched or unread.
+- **Evidence (ignored):** `checkpoints/P01B-Qwen-production-repair.md` and `act070-remediation/qwen-prod-repair/`.
+- **Open, carried forward:** owner listening (Ryan borderline and representative local endings) NOT RUN; intermittent `test_venv_recovery` failures (root cause
+  unknown); the first main-repair run stamped after 6/7 imports (re-proved by run 2); WinError 206 / AUD-004; AUD-005, AUD-008, AUD-009.
+- **Next:** review of this checkpoint. P01B becomes VERIFIED only after the owner listening gate and a disposition of the flake. P01C waits.
+
 ## CURRENT STATE — v0.7.0 P01B: main `.venv` repaired (scikit-learn 1.9.0) and VERIFIED; overall P01B NOT VERIFIED — Qwen3 gate open (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 / P01B and §7; owner task "P01B Production

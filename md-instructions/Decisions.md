@@ -4,6 +4,21 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-23 - Qwen3 hash lock moves scikit-learn to 1.9.0 (Smart App Control drift; same build as the main environment)
+
+Owner-authorised at P01B (plan Revision 2 §6); recorded by Claude Code.
+
+**`scripts/qwen3-requirements.txt` now locks `scikit-learn==1.9.0 --hash=sha256:4306775fad04cc4b472a1b15af1ae9cede1540fbfcc17fbce3767cd8dc7ae283`**
+(was 1.9.1 `4b59abb3…`). Smart App Control (Enforce) refused 1.9.1's unsigned `sklearn/utils/_isfinite` on HOME-PC. transformers' generation module
+imports scikit-learn, so the Qwen3 worker could not start. The official 1.9.0 cp312 wheel is the one already pinned in the main environment. The full locked
+Qwen3 stack with only this line changed was qualified first in a disposable environment and then in the live `.venv-qwen3`. Results: hashed install, `pip check`
+clean, 0 SAC-blocked natives, the real worker probe passes, and so does the real-library self-check. The other 88 pins and hashes are unchanged. Existing
+installs see a new requirements fingerprint and report "out of date". `qwen3_setup.install()` then re-runs the hashed pip command in place (a one-package
+change) and re-records the probe. The full-check `repair()` path rebuilds the whole environment instead (`rebuild=True`, about 3 GB to download). That is
+existing behaviour, not changed here.
+
+Not chosen: disabling SAC or adding exclusions, wheel substitution outside the hash lock, or a rebuild of the 5 GB environment for a one-package delta.
+
 ## 2026-10-23 - scikit-learn pinned to 1.9.0 in the main environment (Smart App Control drift, srsly precedent)
 
 Owner-authorised at P01B (plan Revision 2 §6); recorded by Claude Code.
