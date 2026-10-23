@@ -1668,7 +1668,8 @@ def test_no_engine_module_changed_and_no_timing_default_moved():
     assert batch_convert.CHUNK_TARGET == 3000
     assert batch_convert.CHUNK_PAUSE_MS == 50
     assert batch_convert.INTER_CHUNK_DELAY_SEC == 0.8
-    assert batch_convert.END_RECORDING_SILENCE_MS == 3000
+    # v0.7.0 P01C (Q1): the folder route's 3000 ms closing silence is gone, constant and all.
+    assert not hasattr(batch_convert, "END_RECORDING_SILENCE_MS")
     assert batch_convert.CHUNK_MAX_RETRIES == 5
     assert batch_convert.PDF_MAX_RETRIES == 2
 
@@ -1677,7 +1678,7 @@ def test_no_engine_module_changed_and_no_timing_default_moved():
     assert engine.DEFAULT_PARAGRAPH_PAUSE_MS == 850
     assert engine.DEFAULT_TITLE_PAUSE_MS == 1200
     assert engine.DEFAULT_CHAPTER_PAUSE_MS == 2000
-    assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 3000
+    assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 0  # v0.7.0 P01C (Q1): was 3000
     assert engine.DEFAULT_TRIM_SILENCE_DB == -58.0
 
     assert vr.DEFAULT_VOICE_LABEL == "Edge Male - Steffan (en-US)"

@@ -134,15 +134,29 @@ def test_read_book_output_is_still_a_valid_decodable_file(monkeypatch, tmp_path)
     assert len(seg) > 0
 
 
+def _stub_frames(stub_bytes: bytes) -> tuple[int, int]:
+    """(frames, frame rate) of one decoded stub sentence, the unit every expectation below counts in."""
+    stub = AudioSegment.from_file(io.BytesIO(stub_bytes))
+    return int(stub.frame_count()), stub.frame_rate
+
+
+def _silence_frames(ms: int, rate: int) -> int:
+    return int(AudioSegment.silent(duration=ms, frame_rate=rate).frame_count())
+
+
 @pytestmark_ffmpeg
 def test_read_book_still_applies_the_configured_pause_values(monkeypatch, tmp_path):
-    """Coarse sanity check that the in-memory refactor still produces the
-    configured pause, not an exact-timing proof -- Phase 5's own evidence
-    (Decisions.md, 2026-09-21) already measured trailing-silence parity
-    between production and this exact candidate precisely, on real network
-    audio, for two real corpus items."""
+    """The configured pause still separates two rendered paragraphs, frame for frame.
+
+    v0.7.0 P01C (Q1) replaced the v0.6.5 single-sentence check, which expected the
+    paragraph pause *after* the book's only sentence: that closing pause is exactly
+    what Q1 removed. An explicit end-of-book pause is still accepted and adds
+    nothing. Phase 5's own evidence (Decisions.md, 2026-09-21) measured the
+    in-memory assembly against the old one on real network audio.
+    """
     ffmpeg_utils.configure_pydub()
     stub_bytes = _stub_mp3_bytes()
+    stub, rate = _stub_frames(stub_bytes)
 
     def fake_run_edgespeak(sentence, speaker, filename):
         Path(filename).write_bytes(stub_bytes)
@@ -152,16 +166,42 @@ def test_read_book_still_applies_the_configured_pause_values(monkeypatch, tmp_pa
 
     book_contents = [{
         "title": "blank",
-        "paragraphs": ["One sentence only in this paragraph."],
+        "paragraphs": ["One sentence only in this paragraph.", "A second paragraph ends the book."],
     }]
     files = engine.read_book(
         book_contents, "en-US-SteffanNeural",
         paragraphpause=850, sentencepause=800, trim_tts_padding=False,
-        chapter_trailing_pause=0, end_of_book_pause=0,
+        chapter_trailing_pause=0, end_of_book_pause=3000,
     )
     seg = AudioSegment.from_file(files[0])
-    # ~120ms stub sentence + the 850ms paragraph pause (last/only sentence).
-    assert len(seg) == pytest.approx(120 + 850, abs=150)
+    # sentence, the 850 ms paragraph pause, the final sentence -- and nothing after it
+    # (v0.6.6: another 850 ms paragraph pause plus the 3000 ms end-of-book pause).
+    assert int(seg.frame_count()) == 2 * stub + _silence_frames(850, rate)
+
+
+@pytestmark_ffmpeg
+def test_the_chapter_pause_separates_chapters_and_nothing_follows_the_last(monkeypatch, tmp_path):
+    """v0.7.0 P01C (Q1): the chapter pause stays between chapters; the final chapter ends with its last word."""
+    ffmpeg_utils.configure_pydub()
+    stub_bytes = _stub_mp3_bytes()
+    stub, rate = _stub_frames(stub_bytes)
+
+    def fake_run_edgespeak(sentence, speaker, filename):
+        Path(filename).write_bytes(stub_bytes)
+
+    monkeypatch.setattr(engine, "run_edgespeak", fake_run_edgespeak)
+    monkeypatch.chdir(tmp_path)
+
+    book_contents = [{"title": "blank", "paragraphs": ["Chapter one has one sentence."]},
+                     {"title": "blank", "paragraphs": ["Chapter two ends the book."]}]
+    files = engine.read_book(
+        book_contents, "en-US-SteffanNeural",
+        paragraphpause=850, sentencepause=800, trim_tts_padding=False,
+        chapter_trailing_pause=2000, end_of_book_pause=3000,
+    )
+    first, last = (int(AudioSegment.from_file(f).frame_count()) for f in files)
+    assert first == stub + _silence_frames(850, rate) + _silence_frames(2000, rate)
+    assert last == stub  # v0.6.6: + 850 paragraph + 2000 chapter + 3000 end of book
 
 
 # --------------------------------------------------------------------------- #

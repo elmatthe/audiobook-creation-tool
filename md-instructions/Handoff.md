@@ -2,6 +2,40 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P01C: Edge direct + folder endings fixed; 0 ACT070 xfails; P01 full gate next; P01C owner listening OPEN (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and §6 / P01C; owner task "P01C Edge EOF
+Remediation and Five-Voice Listening Evidence", which also authorises P01C **before** the consolidated owner listening session (checkpoint order only;
+Decisions 2026-10-23). HOME-PC, branch `feature/0.7.0-release-remediation`, parent `6b8e2a9`. Identity stays 0.6.6. Not merged, tagged or packaged.
+
+- **Defect:** after the final word Edge direct stacked paragraph 850 + chapter 2,000 + end-of-book 3,000 ms (5.85 s); Edge folder added a 50 ms join after
+  the last chunk, a fixed 3,000 ms `END_RECORDING_SILENCE_MS`, and kept the last chunk's own ~0.8 s network padding.
+- **Fix:** `epub2tts_edge.read_book` puts sentence/paragraph/chapter pauses only between rendered content; `end_of_book_pause` (default 3000 → 0) is
+  accepted by `read_book`, the runner and `--end-pause` but adds nothing. `batch_convert.merge_mp3s` joins only between chunks;
+  `END_RECORDING_SILENCE_MS` is deleted. Both routes apply the P01B `tts.audio_tail` policy through the new pydub adapter
+  `apply_final_tail_policy_to_segment` (exact sample prefix) just before their existing single MP3 encode, and log the tail line. Registry
+  `_edge_preset` end 3000 → 0 (the panel fallback follows the engine constant). Internal pauses, the −58 dBFS per-sentence trim, bitrate, cancel and
+  no-clobber paths are unchanged.
+- **Tests:** all 14 P01C strict xfails removed and passing (37/37 ledger entries resolved; `_red` helper deleted; **zero xfail markers** in
+  `files/tests`). 14 new nodes (explicit end pause adds nothing, untrimmed padding shortened by the policy, folder run-log line, segment adapter
+  8/16/32-bit × mono/stereo + refusal, exact frame-count chapter/paragraph pacing). Superseded assertions replaced (old value → 0, negative control =
+  old value): `test_tts_jobs`, `test_tts_importing` ×2, `test_epub_retirement`, `test_chatterbox_boundaries::EXPECTED_VOICES` Edge rows,
+  `test_voice_labels`, `test_edge_direct_pcm_assembly::test_read_book_still_applies_the_configured_pause_values`. Speech goldens `edge_direct`/`edge_folder`
+  regenerated: only the removed pause arithmetic moved (reconciled per input); the other four routes byte-identical.
+- **Verification:** 70-module focused selection **4,311 passed, 3 skipped (symlink privilege, pre-existing), 0 failed, 0 xfail, 0 XPASS**, incl. the
+  real Qwen3 library node. Negative controls on a disposable copy: **14/14 wrong policies killed** (`audio/p01c/mutation.json`). P00C full gate:
+  scheduled immediately after this record (`verify/P01C-…`); its result is reported with the commit, not written back here.
+- **After the gate (owner direction):** five real Edge direct samples (CP6 "…to ring." text, end pause 0, 192 kbps) and one Edge folder ending, then a new
+  versioned 28-voice page (target 22 playable / 28: Kokoro 9, Chatterbox 6, Qwen3 presets 2, Edge 5; Qwen3 clones 6 BLOCKED). The 17 P01B local
+  samples are unaffected by P01C (no shared local-engine code changed) and are reused byte-for-byte.
+- **Status:** P01C technical PASS only once the gate passes. P01B owner listening **NOT RUN**; combined 28-voice listening **NOT RUN**; P01C owner
+  listening **OPEN**. P02/P03 not authorised.
+- **Open, carried forward:** Edge direct's −58 dBFS per-sentence trim can still drop a final sound quieter than −58 dBFS (pre-existing, approved
+  v0.6.5; listening covers it); Edge CLI `--format m4b` has no tail policy (not an app route); the handle holder; WinError 206 / AUD-004, AUD-005, AUD-008,
+  AUD-009.
+- **Evidence (ignored):** `checkpoints/P01C.md`, `audio/p01c/`, `audio/red-ledger.json`.
+- **Next:** gate → commit/push → Edge samples + listening page → ChatGPT review. Then the owner's consolidated 28-voice listening session.
+
 ## CURRENT STATE — v0.7.0 P01B: Windows venv-rename false success FIXED (honest failure + bounded WinError 5/32 retry); P01B technically clean; overall P01B NOT VERIFIED (owner listening) (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 / P01B; owner task "P01B Windows Venv-Rename

@@ -51,7 +51,10 @@ DEFAULT_SENTENCE_PAUSE_MS = 800
 DEFAULT_PARAGRAPH_PAUSE_MS = 850
 DEFAULT_TITLE_PAUSE_MS = 1200
 DEFAULT_CHAPTER_PAUSE_MS = 2000
-DEFAULT_END_OF_BOOK_PAUSE_MS = 3000
+# v0.7.0 (owner decision Q1): a narration ends with its last sound. The sentence/paragraph/chapter pauses above are
+# placed only *between* rendered content, and ``end_of_book_pause`` is still accepted by ``read_book``, the runner and
+# the command line for compatibility but adds nothing.
+DEFAULT_END_OF_BOOK_PAUSE_MS = 0
 # Intra-sentence gaps (edge-tts escapes XML so we split and glue with silence instead of SSML breaks).
 COMMA_PAUSE_MS = 300
 ELLIPSIS_PAUSE_MS = 600
@@ -326,6 +329,9 @@ def read_book(
 
     for i, chapter in enumerate(book_contents, start=1):
         _checkpoint()  # between chapters
+        # v0.7.0 (Q1): the book's final sentence gets no sentence/paragraph pause and its chapter no chapter pause;
+        # every pause between rendered content is unchanged. ``end_of_book_pause`` adds nothing (see its default).
+        last_chapter = i == len(book_contents)
         files = []
         partname = f"part{i}.flac"
         print(f"\n\n")
@@ -394,7 +400,10 @@ def read_book(
                         sentence_segments.append(merged_sent)
                         sent_counter += 1
 
+                    last_paragraph = last_chapter and pindex == len(chapter["paragraphs"]) - 1
                     for si in range(len(sentence_segments)):
+                        if last_paragraph and si == len(sentence_segments) - 1:
+                            break  # the final word of the book: nothing follows it
                         pause = sentencepause if si < n_sents - 1 else paragraphpause
                         sentence_segments[si] = sentence_segments[si] + AudioSegment.silent(
                             duration=pause
@@ -412,7 +421,8 @@ def read_book(
                 files.append(ptemp)
                 _tick()
             # combine paragraphs into chapter
-            append_silence(files[-1], chapter_trailing_pause)
+            if not last_chapter:
+                append_silence(files[-1], chapter_trailing_pause)
             combined = AudioSegment.empty()
             for file in files:
                 combined += AudioSegment.from_file(file)
@@ -420,8 +430,6 @@ def read_book(
             for file in files:
                 os.remove(file)
             segments.append(partname)
-    if segments and end_of_book_pause > 0:
-        append_silence(segments[-1], end_of_book_pause)
     return segments
 
 def generate_metadata(files, author, title, chapter_titles):
@@ -510,6 +518,12 @@ def make_mp3(files, sourcefile, speaker, bitrate="192k"):
     combined = AudioSegment.empty()
     for fname in files:
         combined += AudioSegment.from_file(fname)
+    # v0.7.0 final-tail policy, on the lossless assembly inside this one MP3 encode (no extra generation).
+    _ensure_shared_on_path()
+    from tts import audio_tail
+
+    combined, tail = audio_tail.apply_final_tail_policy_to_segment(combined)
+    print(tail.summary())
     combined.export(outputmp3, format="mp3", bitrate=bitrate)
     for f in files:
         os.remove(f)
@@ -630,8 +644,8 @@ def main():
         default=DEFAULT_CHAPTER_PAUSE_MS,
         metavar="MS",
         help=(
-            "extra silence on the last paragraph before merging a chapter, in milliseconds "
-            f"(default: {DEFAULT_CHAPTER_PAUSE_MS})"
+            "extra silence on the last paragraph before merging a chapter, in milliseconds; "
+            f"none after the final chapter (default: {DEFAULT_CHAPTER_PAUSE_MS})"
         ),
     )
     parser.add_argument(
@@ -641,8 +655,8 @@ def main():
         dest="end_of_book_pause",
         metavar="MS",
         help=(
-            "silence appended at the very end of the output file, in milliseconds "
-            f"(default: {DEFAULT_END_OF_BOOK_PAUSE_MS})"
+            "accepted for compatibility and ignored: since v0.7.0 the narration ends with "
+            f"its last sound, with no closing pause (default: {DEFAULT_END_OF_BOOK_PAUSE_MS})"
         ),
     )
     parser.add_argument(

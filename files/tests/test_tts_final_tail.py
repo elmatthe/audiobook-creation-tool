@@ -20,9 +20,9 @@ The trailing-silence measurement is this module's own oracle, not production cod
 separately, a window counts as sound when its RMS **or** its peak reaches -60 dBFS, and the latest channel wins. The
 P01A calibration (``files/dev-work/act070-remediation/audio/``) chose it; the -50 dBFS candidate cut real sounds.
 
-Tests that pass today guard what a fix must not break. Tests that encode the new policy fail on the v0.6.6 code and
-carry the plan's narrow strict marker until the checkpoint that fixes them (exact ledger:
-``files/dev-work/act070-remediation/audio/red-ledger.json``). An XPASS fails the run: remove the marker then.
+Tests that encode the new policy failed on the v0.6.6 code; P01A ledgered them with the plan's narrow strict marker
+(``files/dev-work/act070-remediation/audio/red-ledger.json``), P01B removed the 23 local-engine markers and P01C the
+14 Edge ones. No temporary marker is left: every node here must pass normally.
 """
 
 from __future__ import annotations
@@ -64,12 +64,6 @@ def _punkt_available() -> bool:
 # Never downloads: a machine without the tokenizer data skips the Edge direct cases instead.
 needs_edge_direct = pytest.mark.skipif(not (ffmpeg_utils.have_ffmpeg() and _punkt_available()),
                                        reason="requires ffmpeg and the installed NLTK Punkt data")
-
-
-def _red(case: str, checkpoint: str):
-    """The plan's one permitted temporary marker: exact node, executed, strict, AssertionError only (Section 6)."""
-    return pytest.mark.xfail(strict=True, raises=AssertionError,
-                             reason=f"ACT070-P01A/{case} — Q1; remove in {checkpoint}")
 
 
 # --------------------------------------------------------------------------- #
@@ -486,8 +480,8 @@ def test_the_final_encode_is_gapless_so_codec_padding_cannot_spend_the_budget(tm
 # B. Timing values: registry presets, the panel's fallback and the Edge command line
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("backend", [
-    pytest.param("edge", marks=_red("registry-edge-end-pause", "P01C")),
-    "kokoro",  # P01B fixed the three local engines; their markers are gone
+    "edge",  # P01C fixed the Edge routes; with P01B's local engines no ACT070 marker is left
+    "kokoro",
     "chatterbox",
     "qwen3",
 ])
@@ -502,14 +496,12 @@ def test_no_registry_voice_carries_a_closing_pause(backend):
     assert not offenders, f"{backend} voices still freeze a closing pause: {offenders}"
 
 
-@_red("gui-fallback-end-pause", "P01C")
 def test_the_panels_fallback_preset_carries_no_closing_pause():
     from tts import epub2tts_gui as gui
 
     assert int(gui._default_timing_preset().get("end_pause", "0")) == 0
 
 
-@_red("edge-cli-end-pause", "P01C")
 def test_the_edge_command_line_default_carries_no_closing_pause(monkeypatch):
     from tts.epub2tts_edge import epub2tts_edge as engine
     from tts.epub2tts_edge import runner
@@ -716,7 +708,8 @@ def edge_direct(monkeypatch, tmp_path, mp3_encodes):
             return tmp_path / "TTS-Audiobook-1" / "book.mp3"
 
         def run(self, text: str, audio: dict[str, np.ndarray], *, voice_id="en-US-SteffanNeural",
-                cancel_check=None, fail: tuple[str, ...] = (), defaults: bool = False):
+                cancel_check=None, fail: tuple[str, ...] = (), defaults: bool = False,
+                pause_kw: dict | None = None):
             lines.clear()
             lines.update(audio)
             failing.clear()
@@ -724,6 +717,7 @@ def edge_direct(monkeypatch, tmp_path, mp3_encodes):
             source = tmp_path / "book.txt"
             source.write_text(text, encoding="utf-8")
             params = _frozen_params(voice_id, tmp_path / "TTS-Audiobook-1")
+            params["pause_kw"].update(pause_kw or {})  # a run whose frozen values differ from the voice preset
             if defaults:  # a direct caller of the engine's runner that passes no pause values at all
                 out_dir = tmp_path / "runner-out"
                 runner.run_conversion_job(str(source), output_dir=str(out_dir), speaker=voice_id, audio_format="mp3")
@@ -803,10 +797,7 @@ def _edge_book(case: str):
 
 
 @needs_edge_direct
-@pytest.mark.parametrize("case", [
-    pytest.param(c, marks=_red(f"edge-direct-{c}", "P01C"))
-    for c in ("single_paragraph", "multi_chapter", "trailing_heading", "quiet_final_sound")
-])
+@pytest.mark.parametrize("case", ["single_paragraph", "multi_chapter", "trailing_heading", "quiet_final_sound"])
 def test_an_edge_direct_book_ends_without_a_closing_pause(edge_direct, case):
     text, book, audio = _edge_book(case)
     out, rate, params = edge_direct.run(text, audio)
@@ -827,7 +818,6 @@ def test_an_edge_direct_book_keeps_every_internal_pause_and_final_sound(edge_dir
 
 
 @needs_edge_direct
-@_red("edge-runner-default-args", "P01C")
 def test_the_edge_runner_called_with_its_own_defaults_adds_no_closing_pause(edge_direct):
     from tts.epub2tts_edge import epub2tts_edge as engine
 
@@ -839,6 +829,32 @@ def test_the_edge_runner_called_with_its_own_defaults_adds_no_closing_pause(edge
     expected = _edge_direct_expected(book, audio, defaults)
     _assert_keeps(out, expected)
     _assert_nothing_added(out, expected, "edge-runner-default-args")
+
+
+@needs_edge_direct
+def test_an_explicit_end_of_book_pause_adds_nothing(edge_direct):
+    """``end_of_book_pause`` is still accepted (panel, runner, command line) for compatibility; it adds no pause."""
+    text, book, audio = _edge_book("multi_chapter")
+    out, _rate, params = edge_direct.run(text, audio, pause_kw={"end_of_book_pause": 3000})
+    expected = _edge_direct_expected(book, audio, params["pause_kw"])
+    _assert_keeps(out, expected)
+    _assert_nothing_added(out, expected, "edge-direct-explicit-end-pause")
+
+
+@needs_edge_direct
+def test_untrimmed_edge_padding_after_the_final_word_is_shortened_by_the_policy(edge_direct, capsys):
+    """With per-sentence trimming off, the last sentence's own network padding reaches ``make_mp3``: the final-tail
+    policy keeps 150 ms of it there. The same padding after every earlier sentence is pacing and stays whole."""
+    padding = _noise(0.8, -85, seed=7)  # Edge's own near-silence closing each network chunk
+    text, book, audio = _edge_book("multi_chapter")
+    padded = {spoken: np.concatenate([pcm, padding]) for spoken, pcm in audio.items()}
+    out, rate, params = edge_direct.run(text, padded, pause_kw={"trim_tts_padding": False})
+    whole = _edge_direct_expected(book, padded, params["pause_kw"])  # ends with the final sentence's full padding
+    last_word_end = len(whole) - len(padding)
+    _assert_keeps(out, whole[:last_word_end + _samples(KEEP_MS / 1000)])
+    assert len(out) <= last_word_end + _samples((KEEP_MS + WINDOW_MS) / 1000), "more than the policy keeps"
+    _assert_bounded_tail(out, rate, "edge-direct-untrimmed")
+    assert "of trailing near-silence shortened to 0.15 s" in capsys.readouterr().out  # the run log says so
 
 
 @needs_edge_direct
@@ -887,6 +903,7 @@ def edge_folder(monkeypatch, tmp_path, mp3_encodes):
     class Harness:
         encodes = mp3_encodes
         run_dir = tmp_path / "TTS-Audiobook-1"
+        logs: list[str] = []
 
         def destination(self) -> Path:
             return self.run_dir / "Folder" / "book.mp3"
@@ -899,7 +916,7 @@ def edge_folder(monkeypatch, tmp_path, mp3_encodes):
             pending[:] = [np.asarray(r, dtype=np.float32) for r in renders]
             params = _frozen_params("en-US-SteffanNeural", self.run_dir)
             status, _path, message = bc.convert_single_pdf(
-                source, self.run_dir, params["speaker"], params["rate"], lambda _m: None, None,
+                source, self.run_dir, params["speaker"], params["rate"], self.logs.append, None,
                 cancel_check or (lambda: False), self.destination(), bitrate=params["bitrate"])
             return status, message, params
 
@@ -946,10 +963,7 @@ def _folder_case(case: str):
     raise ValueError(case)
 
 
-@pytest.mark.parametrize("case", [
-    pytest.param(c, marks=_red(f"edge-folder-{c}", "P01C"))
-    for c in ("single", "multiple", "raw_padding", "quiet_final_sound", "stereo_right_tail")
-])
+@pytest.mark.parametrize("case", ["single", "multiple", "raw_padding", "quiet_final_sound", "stereo_right_tail"])
 def test_an_edge_folder_file_ends_without_a_closing_pause(edge_folder, case):
     chunks, keep, exact = _folder_case(case)
     status, message, _params = edge_folder.run(chunks)
@@ -994,7 +1008,6 @@ def test_cancelling_an_edge_folder_file_publishes_nothing(edge_folder):
 
 
 @needs_ffmpeg
-@_red("edge-folder-decoded-mp3", "P01C")
 def test_the_published_edge_folder_mp3_decodes_with_a_bounded_tail(edge_folder):
     edge_folder.encodes.real_encode = True
     chunks, _keep, _exact = _folder_case("raw_padding")
@@ -1004,6 +1017,15 @@ def test_the_published_edge_folder_mp3_decodes_with_a_bounded_tail(edge_folder):
     decoded = _decode(edge_folder.destination())
     assert abs(len(decoded) - len(_only_encode(edge_folder.encodes).pcm)) <= 2 * 576
     _assert_bounded_tail(decoded, RATE, "edge-folder-decoded-mp3")
+
+
+def test_the_edge_folder_run_log_reports_the_final_tail(edge_folder):
+    chunks, _keep, _exact = _folder_case("raw_padding")
+    status, message, _params = edge_folder.run(chunks)
+    if status != "success":
+        raise RuntimeError(f"the folder worker reported {status}: {message}")
+    assert any(line.startswith("  book.txt: Final tail:") and "shortened to 0.15 s" in line
+               for line in edge_folder.logs), edge_folder.logs
 
 
 # --------------------------------------------------------------------------- #
@@ -1129,6 +1151,31 @@ def test_the_policy_rejects_shapes_and_types_it_cannot_measure():
     with pytest.raises(ValueError):
         audio_tail.apply_final_tail_policy(np.zeros(10, dtype=bool), RATE)
     assert len(audio_tail.apply_final_tail_policy(np.zeros(0, np.float32), RATE).pcm) == 0
+
+
+@pytest.mark.parametrize("width", [1, 2, 4])
+@pytest.mark.parametrize("channels", [1, 2])
+def test_a_pydub_segment_is_cut_exactly_where_its_pcm_would_be(width, channels):
+    """P01C: the Edge routes assemble in pydub; the segment form is the same rule, an exact sample prefix."""
+    from tts import audio_tail
+
+    pcm = np.concatenate([_tone(0.5), _zeros(0.8)])  # digital silence stays silence at every width
+    segment = _seg(np.stack([pcm] * channels, axis=1)).set_sample_width(width)
+    kept, tail = audio_tail.apply_final_tail_policy_to_segment(segment)
+    reference = audio_tail.apply_final_tail_policy(_q16(pcm), RATE)
+    assert int(kept.frame_count()) == len(reference.pcm) == len(tail.pcm) < len(pcm)
+    assert (kept.frame_rate, kept.channels, kept.sample_width) == (RATE, channels, width)
+    assert kept.raw_data == segment.raw_data[:len(kept.raw_data)]
+    untouched, _tail = audio_tail.apply_final_tail_policy_to_segment(kept)
+    assert untouched is kept  # nothing more to remove: the very same segment comes back
+
+
+def test_a_pydub_segment_of_an_unknown_sample_width_is_refused():
+    from tts import audio_tail
+
+    with pytest.raises(ValueError):
+        audio_tail.apply_final_tail_policy_to_segment(SimpleNamespace(sample_width=3, raw_data=b"", channels=1,
+                                                                      frame_rate=RATE))
 
 
 @pytest.mark.parametrize("engine", ["kokoro", "chatterbox", "qwen3"])

@@ -33,7 +33,7 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
-from tts import edge_failures
+from tts import audio_tail, edge_failures
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -41,9 +41,8 @@ from tts.speech.profiles import EDGE_FOLDER
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
 CHUNK_TARGET = 3000
-CHUNK_PAUSE_MS = 50
+CHUNK_PAUSE_MS = 50  # between two chunks only; v0.7.0 (Q1) removed the 3000 ms closing silence after the last
 INTER_CHUNK_DELAY_SEC = 0.8
-END_RECORDING_SILENCE_MS = 3000
 CHUNK_MAX_RETRIES = 5
 PDF_MAX_RETRIES = 2
 
@@ -106,7 +105,7 @@ def synthesize_chunk_mp3(text: str, path: str, voice: str, rate: str) -> None:
 
 
 def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,
-               bitrate: str | None = None) -> None:
+               bitrate: str | None = None) -> audio_tail.FinalTail:
     """Join the per-chunk MP3s the Edge service returned into one file.
 
     Unlike the local engines this genuinely cannot avoid a second generation —
@@ -114,14 +113,22 @@ def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,
     decoding and re-encoding. What it *can* do is stop leaving the final encode
     to ffmpeg's defaults, which is what produced files whose advertised duration
     was half their real length (see ``shared.ffmpeg_utils``).
+
+    The ``CHUNK_PAUSE_MS`` join goes *between* chunks only, and the v0.7.0
+    final-tail policy (:mod:`tts.audio_tail`) shortens the last chunk's own
+    network padding on the decoded PCM, inside this one encode. The padding
+    closing every earlier chunk is pacing and stays. Returns the tail facts
+    for the caller's log.
     """
     combined = AudioSegment.empty()
     silence = AudioSegment.silent(duration=CHUNK_PAUSE_MS)
-    for chunk_path in chunk_paths:
-        combined += AudioSegment.from_mp3(chunk_path) + silence
-    if END_RECORDING_SILENCE_MS > 0:
-        combined += AudioSegment.silent(duration=END_RECORDING_SILENCE_MS)
+    for index, chunk_path in enumerate(chunk_paths):
+        if index:
+            combined += silence
+        combined += AudioSegment.from_mp3(chunk_path)
+    combined, tail = audio_tail.apply_final_tail_policy_to_segment(combined)
     combined.export(output_mp3_path, **ffmpeg_utils.mp3_export_options(bitrate))
+    return tail
 
 
 def convert_single_pdf(
@@ -224,7 +231,9 @@ def convert_single_pdf(
                     time.sleep(INTER_CHUNK_DELAY_SEC)
 
                 out_mp3.parent.mkdir(parents=True, exist_ok=True)
-                merge_mp3s(chunk_paths, str(out_mp3), bitrate)
+                tail = merge_mp3s(chunk_paths, str(out_mp3), bitrate)
+                if tail is not None:  # test doubles of merge_mp3s return nothing
+                    log(f"  {pdf_path.name}: {tail.summary()}")
                 if progress_report is not None:
                     progress_report(stem, "completed")
                 return "success", pdf_path, None

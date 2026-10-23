@@ -546,7 +546,7 @@ def test_every_edge_timing_constant_keeps_its_approved_value():
     assert engine.DEFAULT_PARAGRAPH_PAUSE_MS == 850
     assert engine.DEFAULT_TITLE_PAUSE_MS == 1200
     assert engine.DEFAULT_CHAPTER_PAUSE_MS == 2000
-    assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 3000
+    assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 0  # v0.7.0 P01C (Q1): was 3000
     assert engine.COMMA_PAUSE_MS == 300
     assert engine.ELLIPSIS_PAUSE_MS == 600
     assert engine.EM_DASH_PAUSE_MS == 400

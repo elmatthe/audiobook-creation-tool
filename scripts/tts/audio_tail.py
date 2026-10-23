@@ -134,3 +134,20 @@ def apply_final_tail_policy(pcm: np.ndarray, sample_rate: int) -> FinalTail:
     keep = int(round(sample_rate * KEEP_MS / 1000))
     cut = min(n, max(nominal + keep, conservative))
     return FinalTail(np.asarray(pcm)[:cut], int(sample_rate), n, nominal, conservative)
+
+
+def apply_final_tail_policy_to_segment(segment):
+    """The same rule for a pydub ``AudioSegment`` (the Edge routes assemble in pydub): ``(kept segment, FinalTail)``.
+
+    The segment is read through its own attributes, so this module still imports no pydub. The kept segment is an
+    exact sample prefix of the input (``get_sample_slice``), with the same rate, width and channel layout.
+    """
+    # pydub keeps every width as signed little-endian PCM in memory (it re-biases 8-bit WAV on load and export).
+    dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(segment.sample_width)
+    if dtype is None:
+        raise ValueError(f"unsupported PCM sample width {segment.sample_width} bytes")
+    pcm = np.frombuffer(segment.raw_data, dtype=dtype)
+    tail = apply_final_tail_policy(pcm.reshape(-1, segment.channels), segment.frame_rate)
+    if tail.removed_samples == 0:
+        return segment, tail
+    return segment.get_sample_slice(0, len(tail.pcm)), tail

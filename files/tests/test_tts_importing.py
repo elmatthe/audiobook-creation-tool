@@ -1262,7 +1262,7 @@ def test_a_directly_added_file_still_reaches_the_rich_edge_engine(
     assert job["paragraphpause"] == 850
     assert job["title_trailing_pause"] == 1200
     assert job["chapter_trailing_pause"] == 2000
-    assert job["end_of_book_pause"] == 3000
+    assert job["end_of_book_pause"] == 0  # v0.7.0 P01C (Q1): the Edge preset's closing pause was 3000
     assert job["trim_tts_padding"] is True
     assert job["trim_silence_db"] == -58.0
     assert stubs.batch_items == [], "a direct file never takes the batch worker"
@@ -1387,7 +1387,7 @@ def test_the_panel_reimplements_no_engine_and_changes_no_timing_default():
     assert engine.DEFAULT_PARAGRAPH_PAUSE_MS == 850
     assert engine.DEFAULT_TITLE_PAUSE_MS == 1200
     assert engine.DEFAULT_CHAPTER_PAUSE_MS == 2000
-    assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 3000
+    assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 0  # v0.7.0 P01C (Q1): was 3000
     assert engine.DEFAULT_TRIM_SILENCE_DB == -58.0
     assert batch_convert.PDF_MAX_RETRIES == 2
     assert batch_convert.CHUNK_MAX_RETRIES == 5

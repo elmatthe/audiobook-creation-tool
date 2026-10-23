@@ -4,6 +4,46 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-23 - P01C before the combined owner listening session (checkpoint order only; acceptance unchanged)
+
+Owner direction 2026-10-23 ("ACT v0.7.0 — P01C Edge EOF remediation and five-voice listening evidence"); recorded by Claude Code.
+
+**The owner wants real production samples of all 28 voices before one consolidated manual listening session, so P01C (Edge) is implemented and
+technically verified before the P01B listening checkpoint instead of after it.** The plan (§6 P01B/P01C exit rows) put owner listening of the local
+endings before further audio changes; this changes the order of checkpoints only.
+
+- Acceptance standards are unchanged: every ending still needs ≤ 300 ms measured trailing near-silence **and** owner listening PASS (§5.1). Mechanical
+  figures never stand in for listening.
+- Status words stay exact: P01B owner listening **NOT RUN**; combined 28-voice listening **NOT RUN**; P01C technical verification may PASS while its
+  owner listening stays **OPEN**. Nothing is marked accepted without the owner's exported verdicts.
+- If the combined session finds a clipped or wrong ending (local or Edge), it is corrected then; no long tail is added to compensate (§6 P01 exit).
+- P02/P03 and later phases are not authorised by this exception.
+
+## 2026-10-23 - Edge narration ends with its last sound: direct and folder routes share the P01B final-tail policy
+
+Owner decision Q1 (plan §5.1), implemented at P01C; recorded by Claude Code.
+
+**Edge direct (`epub2tts_edge.read_book` → `make_mp3`):** the book's final sentence gets no sentence/paragraph pause and the final chapter no chapter
+pause; every pause between rendered content (sentence, paragraph, comma/ellipsis/dash, title, between-chapter) is unchanged. `end_of_book_pause` is still
+accepted by `read_book`, `run_conversion_job` and the `--end-pause` command-line option, so no caller breaks, but it adds nothing and its default is 0 —
+the same treatment P01B gave the local engines' `end_silence_ms`. Measured old stack after the final word: paragraph 850 + chapter 2,000 + end 3,000 =
+5.85 s (the "about 6 s" seen in the app).
+
+**Edge folder (`batch_convert.merge_mp3s`):** the 50 ms `CHUNK_PAUSE_MS` join goes between chunks only, and `END_RECORDING_SILENCE_MS` (3,000) is
+deleted rather than set to 0, so it cannot quietly come back. The padding Edge returns at the end of every earlier network chunk is pacing and is kept.
+
+**One policy, no extra encode:** both routes apply `tts.audio_tail` (−60 dBFS nominal end + 150 ms, never less than the −70 dBFS end, terminal suffix
+only) through a new pydub adapter `apply_final_tail_policy_to_segment`, which reads the segment's own signed PCM (8/16/32-bit) and returns an exact
+sample prefix (`get_sample_slice`). It runs on the already-decoded assembly immediately before each route's existing single MP3 encode; the encoder calls,
+bitrate handling and no-clobber/cancel paths are untouched (the direct route's encode line is byte-identical). The folder worker logs the tail line per
+file; the direct engine prints it like its other progress lines.
+
+**Deliberately unchanged:** the direct route's per-sentence −58 dBFS edge trim (approved v0.6.5; it also shapes every internal pause), the generic MP3/M4B
+tools, the Edge CLI's own `--format m4b` route (not used by the app: it now has no closing pause structurally, but no tail policy, because applying it
+there would mean another decode), and `generate_voice_samples`' raw single-chunk Edge preview call (no ACT assembly or pause; trimming it would add a
+lossy generation). Speech-characterization goldens for `edge_direct`/`edge_folder` were regenerated on purpose; every changed field is the removed pause
+arithmetic (`audio/p01c/golden-diff.txt`, `golden-reconcile.txt`); text, splits and the other four routes are byte-identical.
+
 ## 2026-10-23 - A venv that must be replaced but cannot be set aside fails the repair; Windows retries WinError 5/32 within 250 ms
 
 Owner-authorised at P01B (owner task "P01B Windows Venv-Rename Reliability Fix"); recorded by Claude Code.

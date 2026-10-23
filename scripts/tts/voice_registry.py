@@ -89,7 +89,7 @@ def _edge_preset(
     paragraph: int = 850,
     title: int = 1200,
     chapter: int = 2000,
-    end: int = 3000,
+    end: int = 0,  # v0.7.0 Q1: an Edge narration ends with its last sound, no closing pause
     trim_db: int = -58,
     trim_chunks: bool = True,
     rate: str = "+0%",

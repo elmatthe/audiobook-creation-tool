@@ -185,7 +185,9 @@ def test_the_timing_presets_are_still_the_approved_values():
     assert vr._qwen3_preset() == vr._chatterbox_preset() == vr._kokoro_preset(speed=1.0)
     # v0.7.0 P01B (Q1): the local engines' closing pause is 0; the between-chunk pause is unchanged.
     assert vr._qwen3_preset()["paragraphpause"] == "700" and vr._qwen3_preset()["end_pause"] == "0"
-    assert all(entry.timing_preset["end_pause"] == "0" for entry in vr.VOICES if entry.backend != "edge")
+    # v0.7.0 P01C (Q1): the Edge rows too; every voice of all four engines freezes no closing pause.
+    assert all(entry.timing_preset["end_pause"] == "0" for entry in vr.VOICES)
+    assert vr._edge_preset()["end_pause"] == "0" and vr._edge_preset()["chapter_ms"] == "2000"
 
 
 def test_the_group_labels_are_unchanged_and_are_never_the_voice_name():

@@ -88,33 +88,34 @@ def test_the_chatterbox_preset_disables_edge_chunk_trimming():
 #
 # v0.7.0 P01B (owner decision Q1, no closing pause): the five Kokoro rows' end_pause
 # is now "0" -- the only value that moved; every other millisecond is unchanged.
-# The Edge rows keep "3000" until P01C fixes the Edge routes.
+# v0.7.0 P01C: the five Edge rows' end_pause "3000" -> "0" in the same way; their
+# sentence, paragraph, title and chapter values are unchanged.
 # --------------------------------------------------------------------------- #
 EXPECTED_VOICES = [
     ("edge", "en-US-SteffanNeural", "Edge Male - Steffan (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "800", "paragraphpause": "850", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "2000", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AndrewNeural", "Edge Male - Andrew (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "820", "paragraphpause": "870", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "2000", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AriaNeural", "Edge Female - Aria (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "2000", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AvaNeural", "Edge Female - Ava (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "2000", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-JennyNeural", "Edge Female - Jenny (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "750", "paragraphpause": "800", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "2000", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("kokoro", "af_heart", "Kokoro Female (Default) - Heart (en-US)",
      "Kokoro Local AI — American English",
