@@ -2,8 +2,7 @@
  "data": {
   "constants": {
    "chunk_pause_ms": 50,
-   "chunk_target": 3000,
-   "end_silence_ms": 3000
+   "chunk_target": 3000
   },
   "inputs": {
    "oversized": {

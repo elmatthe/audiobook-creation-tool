@@ -317,8 +317,8 @@ def collect_edge_folder() -> dict:
     _ensure_importable()
     from tts import batch_convert as bc
 
-    out: dict = {"constants": {"chunk_target": bc.CHUNK_TARGET, "chunk_pause_ms": bc.CHUNK_PAUSE_MS,
-                               "end_silence_ms": bc.END_RECORDING_SILENCE_MS}, "inputs": {}}
+    # v0.7.0 P01C removed END_RECORDING_SILENCE_MS (the folder route's closing silence), so it is no longer recorded.
+    out: dict = {"constants": {"chunk_target": bc.CHUNK_TARGET, "chunk_pause_ms": bc.CHUNK_PAUSE_MS}, "inputs": {}}
     with tempfile.TemporaryDirectory(prefix="speech_char_in_") as tmp:
         for name, text in sorted(corpus().items()):
             source = write_input(Path(tmp), name, text)

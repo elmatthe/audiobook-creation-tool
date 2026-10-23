@@ -5,7 +5,7 @@
    "comma_pause_ms": 300,
    "ellipsis_pause_ms": 600,
    "em_dash_pause_ms": 400,
-   "end_of_book_pause_ms": 3000,
+   "end_of_book_pause_ms": 0,
    "paragraph_pause_ms": 850,
    "sentence_pause_ms": 800,
    "title_pause_ms": 1200
@@ -792,22 +792,12 @@
       {
        "file": "pgraphs41.flac",
        "format": "flac",
-       "ms": 950
-      },
-      {
-       "file": "pgraphs41.flac",
-       "format": "flac",
-       "ms": 2950
+       "ms": 100
       },
       {
        "file": "part1.flac",
        "format": "flac",
-       "ms": 67497
-      },
-      {
-       "file": "part1.flac",
-       "format": "flac",
-       "ms": 70497
+       "ms": 64647
       }
      ],
      "files": [
@@ -1121,22 +1111,12 @@
       {
        "file": "pgraphs2.flac",
        "format": "flac",
-       "ms": 5049
-      },
-      {
-       "file": "pgraphs2.flac",
-       "format": "flac",
-       "ms": 7049
+       "ms": 4200
       },
       {
        "file": "part1.flac",
        "format": "flac",
-       "ms": 17048
-      },
-      {
-       "file": "part1.flac",
-       "format": "flac",
-       "ms": 20048
+       "ms": 14199
       }
      ],
      "files": [
@@ -1311,22 +1291,12 @@
       {
        "file": "pgraphs0.flac",
        "format": "flac",
-       "ms": 12348
-      },
-      {
-       "file": "pgraphs0.flac",
-       "format": "flac",
-       "ms": 14348
+       "ms": 11498
       },
       {
        "file": "part1.flac",
        "format": "flac",
-       "ms": 14348
-      },
-      {
-       "file": "part1.flac",
-       "format": "flac",
-       "ms": 17348
+       "ms": 11498
       }
      ],
      "files": [
@@ -1633,22 +1603,12 @@
       {
        "file": "pgraphs0.flac",
        "format": "flac",
-       "ms": 5949
-      },
-      {
-       "file": "pgraphs0.flac",
-       "format": "flac",
-       "ms": 7949
+       "ms": 5099
       },
       {
        "file": "part1.flac",
        "format": "flac",
-       "ms": 7949
-      },
-      {
-       "file": "part1.flac",
-       "format": "flac",
-       "ms": 10949
+       "ms": 5099
       }
      ],
      "files": [
@@ -2018,22 +1978,12 @@
       {
        "file": "pgraphs6.flac",
        "format": "flac",
-       "ms": 3349
-      },
-      {
-       "file": "pgraphs6.flac",
-       "format": "flac",
-       "ms": 5349
+       "ms": 2499
       },
       {
        "file": "part1.flac",
        "format": "flac",
-       "ms": 34843
-      },
-      {
-       "file": "part1.flac",
-       "format": "flac",
-       "ms": 37843
+       "ms": 31993
       }
      ],
      "files": [
@@ -2740,22 +2690,12 @@
       {
        "file": "pgraphs1.flac",
        "format": "flac",
-       "ms": 950
-      },
-      {
-       "file": "pgraphs1.flac",
-       "format": "flac",
-       "ms": 2950
+       "ms": 100
       },
       {
        "file": "part2.flac",
        "format": "flac",
-       "ms": 5200
-      },
-      {
-       "file": "part2.flac",
-       "format": "flac",
-       "ms": 8200
+       "ms": 2350
       }
      ],
      "files": [
@@ -2827,22 +2767,12 @@
       {
        "file": "pgraphs0.flac",
        "format": "flac",
-       "ms": 950
-      },
-      {
-       "file": "pgraphs0.flac",
-       "format": "flac",
-       "ms": 2950
+       "ms": 100
       },
       {
        "file": "part1.flac",
        "format": "flac",
-       "ms": 2950
-      },
-      {
-       "file": "part1.flac",
-       "format": "flac",
-       "ms": 5950
+       "ms": 100
       }
      ],
      "files": [
