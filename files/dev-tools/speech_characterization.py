@@ -369,7 +369,7 @@ def collect_kokoro() -> dict:
                     if piece.strip():
                         yield None, None, np.zeros(1200, dtype="float32")  # 50 ms at 24 kHz
 
-            def fake_export(arr, sample_rate, output_path, bitrate=None, _exported=exported):
+            def fake_export(arr, sample_rate, output_path, bitrate=None, log=None, _exported=exported):
                 _exported.append({"samples": int(len(arr)), "sample_rate": sample_rate})
 
             with quiet(), mock.patch.object(ks, "_get_pipeline", lambda lang_code: fake_pipeline), \
@@ -411,7 +411,7 @@ def collect_chatterbox() -> dict:
                     generated.append(chunk)
                     return np.full(2400, 0.02, dtype="float32")  # 100 ms
 
-            def fake_export(arr, sample_rate, output_path, bitrate=None, _exported=exported):
+            def fake_export(arr, sample_rate, output_path, bitrate=None, log=None, _exported=exported):
                 _exported.append({"samples": int(len(arr)), "sample_rate": sample_rate})
 
             model = FakeModel()

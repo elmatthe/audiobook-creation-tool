@@ -44,7 +44,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 187200
+      "samples": 114000
      }
     ],
     "generate_calls": {
@@ -213,7 +213,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 91200
+      "samples": 18000
      }
     ],
     "generate_calls": {
@@ -271,7 +271,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 86400
+      "samples": 13200
      }
     ],
     "generate_calls": {
@@ -443,7 +443,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 276600
+      "samples": 203400
      }
     ],
     "generate_calls": {
@@ -1082,7 +1082,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 82800
+      "samples": 9600
      }
     ],
     "generate_calls": {
@@ -1151,7 +1151,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 145200
+      "samples": 72000
      }
     ],
     "generate_calls": {
@@ -1310,7 +1310,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 167400
+      "samples": 94200
      }
     ],
     "generate_calls": {
@@ -1484,7 +1484,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 97800
+      "samples": 24600
      }
     ],
     "generate_calls": {
@@ -1559,7 +1559,7 @@
     "assembled": [
      {
       "sample_rate": 24000,
-      "samples": 86400
+      "samples": 13200
      }
     ],
     "generate_calls": {

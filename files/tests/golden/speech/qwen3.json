@@ -7,9 +7,9 @@
     "gap_samples": 1200,
     "sample_rate": 24000,
     "speech_samples": 350,
-    "total_samples": 74750
+    "total_samples": 73550
    },
-   "total_samples": 74750
+   "total_samples": 73550
   },
   "constants": {
    "max_chunk_chars": 600,
