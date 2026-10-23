@@ -4,6 +4,21 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-23 - scikit-learn pinned to 1.9.0 in the main environment (Smart App Control drift, srsly precedent)
+
+Owner-authorised at P01B (plan Revision 2 §6); recorded by Claude Code.
+
+**`scikit-learn==1.9.0 ; python_version < "3.13"` is pinned in `scripts/requirements.txt`.** scikit-learn is a transitive dependency
+(chatterbox-tts → librosa 0.11.0, which accepts >=1.1.0), and transformers' generation module imports it, so every local engine depends on it. The 2026-10-21
+fresh install resolved 1.9.1. On 2026-10-23 Smart App Control (Enforce) refused its unsigned `sklearn/utils/_isfinite` extension (earlier
+`__check_build`), so Kokoro and Chatterbox could not import. Re-probing later the same day did not clear it. 1.9.0 is the build the main environment
+ran from 2026-08-16. Its official wheel (sha256 `4306775f…`) was qualified in disposable environments and then in the live `.venv`: 0 blocked natives,
+`pip check` clean, and the real Kokoro proof passes. Existing installs pick the pin up through the launch-time requirements reconciliation.
+
+Not chosen: disabling SAC or adding exclusions (end users run SAC, so the qualification would stop meaning anything), unqualified wheel substitution, or waiting
+indefinitely. `.venv-qwen3`'s hash lock stays 1.9.1 until its own qualification and an owner decision. The srsly entry's recommendation stands: a
+full transitive lock of the main environment would prevent this class of drift. Still not done.
+
 ## 2026-10-23 - v0.7.0 supersedes the v0.6.7 release target; new working branch; owner preservation is guarded by exact ignore rules
 
 Owner decisions from the approved plan `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` (Revision 2: D36, Q33, §3),

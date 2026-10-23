@@ -50,6 +50,15 @@ kokoro==0.9.4 ; python_version < "3.13"
 # policy has blocked this file". 2.5.3 is the build every Kokoro voice was qualified
 # with (S5) and it loads under the same policy. spacy 3.8 accepts srsly >=2.4.3,<3.
 srsly==2.5.3 ; python_version < "3.13"
+# scikit-learn is the same kind of transitive (chatterbox-tts -> librosa 0.11.0, which
+# accepts >=1.1.0; transformers' generation module also imports it, and every local
+# engine reaches that). The 2026-10-21 fresh install resolved 1.9.1, and on 2026-10-23
+# Smart App Control (enforcing) refused to load its sklearn/utils/_isfinite extension,
+# so Kokoro and Chatterbox failed to import with the same "Application Control policy"
+# error. 1.9.0 is the build this environment ran from 2026-08-16; its official wheel was
+# qualified on 2026-10-23 under the same policy against this exact stack (every native
+# file loads, pip check clean, the Kokoro and Chatterbox import chains import).
+scikit-learn==1.9.0 ; python_version < "3.13"
 
 # --- Local AI voice cloning (Chatterbox Turbo) — OPTIONAL engine ---
 # v0.6.1 Plan 4 Phase 8. Engine package verified against the exact published wheel

@@ -2,6 +2,34 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P01B: main `.venv` repaired (scikit-learn 1.9.0) and VERIFIED; overall P01B NOT VERIFIED — Qwen3 gate open (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 / P01B and §7; owner task "P01B Production
+Main Environment Repair". HOME-PC, branch `feature/0.7.0-release-remediation`, parent `24f209e`. Identity stays 0.6.6. Not merged, tagged or packaged. No full gate.
+
+- **Why:** after the P01B commits, Smart App Control (Enforce) blocked unsigned natives of the *unpinned* transitive scikit-learn 1.9.1 (first
+  `__check_build/_check_build`, then `utils/_isfinite`) in both `.venv` and `.venv-qwen3`. Kokoro, Chatterbox and Qwen3 could not import on HOME-PC:
+  7 nodes failed, 3 Chatterbox colon modules were uncollectable, and `test_kokoro_health.py::test_the_real_proof_passes_on_the_qualified_environment`
+  skipped as "not installed". That skip was really the SAC block. The P01B block below still lists the original `_check_build` result. The ignored
+  records are under `files/dev-work/act070-remediation/checkpoints/`: `P01B-policy-triage.md`, `P01B-verification-recheck.md`, `P01B-SAC-feasibility.md`,
+  `P01B-SAC-Qwen-qualification.md` and `P01B-SAC-Main-stack-qualification.md`.
+- **Change:** `scripts/requirements.txt` pins `scikit-learn==1.9.0 ; python_version < "3.13"` (srsly precedent, Decisions 2026-10-23). The live `.venv` was
+  reconciled through the bootstrap's own pip → import proof → stamp contract, after a dry run proved the one-package delta. Result: only scikit-learn
+  1.9.1 → 1.9.0 (official wheel `4306775f…`), 171 other RECORDs unchanged, `pip check` clean, all 7 required imports proved, stamps for the new
+  fingerprint. `.venv-qwen3` is byte-identical to before.
+- **Verified on the live `.venv`:** 404 natives, 0 SAC-blocked, 0 Code Integrity events; the Kokoro + Chatterbox import chains import; the 6 tuning nodes, 3 colon
+  modules and the Kokoro real-proof node **pass (85/85; real proof PASSED, not skipped)**. 66-module focused selection (55 P01B modules + 3 colon + 8
+  `requirements.txt` readers): 4,228 passed / 14 xfailed (exactly the open P01C ledger, 0 XPASS) / 2 skipped (pre-existing symlink-privilege) / 1
+  deselected (the Qwen3 real-library node) / **2 failed: an intermittent `test_venv_recovery` flake**. It is triggered by `test_bootstrap_requirements_state`
+  running first, varies by node, and is reproduced on a `git archive` of the pre-change HEAD. Root cause unknown; not fixed. The P01C full gate runs that
+  order and may hit it.
+- **Evidence (ignored):** `checkpoints/P01B-main-production-repair.md` and `act070-remediation/prod-repair/`.
+- **Open:** **Qwen3 gate**: `.venv-qwen3` still has the 1.9.1 hash lock, with `_isfinite` blocked. Next smallest action (owner-authorised): a disposable
+  full-Qwen3-stack import qualification with only the scikit-learn lock line swapped to 1.9.0, in a *shallow* folder (WinError 206). Then the re-lock
+  decision → `.venv-qwen3` repair → the real self-check node. Owner listening NOT RUN. The Kokoro proof record is stale until the next launch re-proves it.
+  WinError 206 on deep install paths (spaCy `transition_system` at ≥ 251 characters) → AUD-004 / P07 / P10. AUD-004, AUD-005, AUD-008, AUD-009 open.
+- **Next:** review of this checkpoint. Then the Qwen3 qualification, only if authorised. P01C waits for P01B VERIFIED.
+
 ## CURRENT STATE — v0.7.0 P01B local-engine final-audio remediation: DONE; NEXT is P01C (Edge routes + first full gate) after normal-chat review (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and P01B. Identity stays 0.6.6.
