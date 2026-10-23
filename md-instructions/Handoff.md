@@ -2,6 +2,28 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P00B branch and preservation guards: DONE; NEXT is P00C (verify evidence mode) after normal-chat review (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` (Revision 2, now tracked). It supersedes the v0.6.7 release target
+and the "Codex closure check, then merge/tag" next step in the block below (Decisions 2026-10-23); v0.6.7 records keep their identifiers. Identity stays 0.6.6
+until the separately authorised P11 checkpoint. Not merged, tagged, packaged or released; `master` and `dist/` untouched.
+
+- **Branch:** `feature/0.7.0-release-remediation`, created from `feature/0.6.7-speech-pipeline-and-layout` at `d61822b` after confirming that tip equals the
+  remote tip (never from `master`). The source branch is retained unchanged.
+- **P00A baseline (read-only, ignored evidence `files/dev-work/act070-remediation/00-baseline.md`):** 6/6 reference WAV hashes and 28/28 preview blobs match;
+  the private transcript store fingerprint is unchanged; preservation tag `20261021-184021-592ae0be` verified.
+- **Preservation guard:** `.gitignore` now excludes exactly the three root-anchored preserved directories from plan §3 (`.venv`, `.venv-qwen3` and
+  `files/runtime-data`, each with suffix `.act67-preserved-20261021-184021-592ae0be`). Proved with `git check-ignore` on synthetic paths only (positive and
+  near-miss negative controls); their contents were not read. Manifest: `files/dev-work/manual-fresh-install/preservation-20261021-184021-592ae0be.json`
+  (ignored). They are not install, repair, migration or cleanup targets; never run their interpreters (the preserved Qwen3 venv is bound to the fresh
+  `<root>\.venv`). Restoration is P12 only, with separate approval.
+- **Known local-only items, left exactly as found (owner decision):** `.ai/`, `scripts/project-status.py`, `files/run-temp/` stay untracked, unignored and
+  unstaged. A clean checkpoint means clean tracked/staging state, not an empty `git status`. Stage by explicit path only.
+- **Checks:** focused repository-contract and ignore/containment suites only (no full gate until P01C); results and evidence in
+  `files/dev-work/act070-remediation/checkpoints/P00B.md` (ignored).
+- **Still OPEN (unchanged):** AUD-004, AUD-005, AUD-008, AUD-009; AUD-010 deferred and non-blocking.
+- **Next:** P00C only (developer `scripts/verify.py --evidence-dir` observability), after the normal chat reviews this P00B report and pushed diff.
+
 ## CURRENT STATE — v0.6.7 closure corrections CLR-001 to CLR-004: DONE and verified on HOME-PC; READY for a short independent Codex closure check (2026-10-21, Claude Code)
 
 Branch `feature/0.6.7-speech-pipeline-and-layout`; starting head `97a0c34`. Not merged, tagged, packaged or released; identity stays 0.6.6; no `dist/` file touched.

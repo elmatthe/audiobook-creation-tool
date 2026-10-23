@@ -4,6 +4,37 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-23 - v0.7.0 supersedes the v0.6.7 release target; new working branch; owner preservation is guarded by exact ignore rules
+
+Owner decisions from the approved plan `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` (Revision 2: D36, Q33, §3),
+recorded by Claude Code at checkpoint P00B.
+
+**The release target is v0.7.0 (D36).** The Revision 2 plan is the authority for the remaining release work. It supersedes the v0.6.7 remediation target
+and the "Codex closure check, then version bump, merge, tag and release" sequence in the 2026-10-21 records. Historical v0.6.7 plans, evidence and
+entries keep their original identifiers and are not rewritten. Code and config identity stays 0.6.6 until the separately authorised final-identity
+checkpoint (P11); each plan checkpoint is separately assigned and stops for review.
+
+**New working branch from the verified feature tip (Q33).** `feature/0.7.0-release-remediation` was created from `feature/0.6.7-speech-pipeline-and-layout`
+at `d61822b` after confirming that tip equals the remote tip, never from `master`. The old branch is preserved; no history rewrite, no remote deletion.
+
+**Owner preservation is protected by exact ignore rules, not by cleanup (§3).** The three directories renamed before the 2026-10-21 fresh-install test
+(tag `20261021-184021-592ae0be`) are ignored by root-anchored, directory-only rules that match only those exact names; near-miss names, nested copies and
+other paths stay visible. This was proved with `git check-ignore` on synthetic paths, without reading the private contents. They are not install, repair,
+migration or cleanup targets and no interpreter inside them is run; restoration is plan checkpoint P12 only, with separate owner approval. Ignoring them
+does not replace explicit, path-scoped staging. Rejected: a broad `*.act67-preserved-*` glob (it could hide unrelated future work) and ignoring their
+parent folders.
+
+**The plan lives under `files/plans/`, not `md-instructions/`.** The four-document contract (`Briefing.md`, `Handoff.md`, `Decisions.md`, `Changelog.md`)
+is unchanged. The tracked plan contains no absolute local path or account identity; owner- and machine-specific details stay in ignored evidence under
+`files/dev-work/`.
+
+**Known local-only items stay as found.** `.ai/`, `scripts/project-status.py` and `files/run-temp/` remain untracked, unignored and unstaged by owner
+decision; no new ignore rule was added for them. A clean checkpoint exit means clean tracked and staging state, not an artificially empty `git status`.
+
+Signed: the owner (plan Revision 2 decisions and the P00B brief); recorded by Claude Code.
+
+---
+
 ## 2026-10-21 - v0.6.7 closure corrections: three-state Kokoro health, a fail-closed Qwen3 guard, one Tk bound, a session-wide test redirect
 
 Implementation decisions by Claude Code under the owner's narrow corrective brief for the second Codex closure audit (CLR-001 to CLR-004).

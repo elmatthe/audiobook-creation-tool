@@ -30,6 +30,13 @@ files/bin/
 # Delete files/runtime-data/ + files/bin/ + .venv/ for a full "uninstall".
 files/runtime-data/
 
+# Owner preservation of the pre-fresh-install HOME-PC state (v0.7.0 plan §3, tag
+# 20261021-184021-592ae0be). Exact, root-anchored directory names only: these hold
+# private environments and runtime data and are never staged, packaged or cleaned.
+/.venv.act67-preserved-20261021-184021-592ae0be/
+/.venv-qwen3.act67-preserved-20261021-184021-592ae0be/
+/files/runtime-data.act67-preserved-20261021-184021-592ae0be/
+
 # Test logs / harness outputs (any folder named test-logs, at any depth)
 test-logs/
 
