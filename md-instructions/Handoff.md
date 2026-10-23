@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-## CURRENT STATE — v0.7.0 P01C: Edge direct + folder endings fixed; 0 ACT070 xfails; P01 full gate next; P01C owner listening OPEN (2026-10-23, Claude Code)
+## CURRENT STATE — v0.7.0 P01C: Edge endings fixed; 0 ACT070 xfails; P01 full gate PASS; 5 Edge samples made (22/28 playable); owner listening OPEN (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and §6 / P01C; owner task "P01C Edge EOF
 Remediation and Five-Voice Listening Evidence", which also authorises P01C **before** the consolidated owner listening session (checkpoint order only;
@@ -23,18 +23,25 @@ Decisions 2026-10-23). HOME-PC, branch `feature/0.7.0-release-remediation`, pare
   `test_voice_labels`, `test_edge_direct_pcm_assembly::test_read_book_still_applies_the_configured_pause_values`. Speech goldens `edge_direct`/`edge_folder`
   regenerated: only the removed pause arithmetic moved (reconciled per input); the other four routes byte-identical.
 - **Verification:** 70-module focused selection **4,311 passed, 3 skipped (symlink privilege, pre-existing), 0 failed, 0 xfail, 0 XPASS**, incl. the
-  real Qwen3 library node. Negative controls on a disposable copy: **14/14 wrong policies killed** (`audio/p01c/mutation.json`). P00C full gate:
-  scheduled immediately after this record (`verify/P01C-…`); its result is reported with the commit, not written back here.
-- **After the gate (owner direction):** five real Edge direct samples (CP6 "…to ring." text, end pause 0, 192 kbps) and one Edge folder ending, then a new
-  versioned 28-voice page (target 22 playable / 28: Kokoro 9, Chatterbox 6, Qwen3 presets 2, Edge 5; Qwen3 clones 6 BLOCKED). The 17 P01B local
-  samples are unaffected by P01C (no shared local-engine code changed) and are reused byte-for-byte.
-- **Status:** P01C technical PASS only once the gate passes. P01B owner listening **NOT RUN**; combined 28-voice listening **NOT RUN**; P01C owner
-  listening **OPEN**. P02/P03 not authorised.
+  real Qwen3 library node. Negative controls on a disposable copy: **14/14 wrong policies killed** (`audio/p01c/mutation.json`).
+- **P01 full gate PASS** (`verify/P01C-6b8e2a9-20261023T184126Z`): pytest 10,630 passed, 61 skipped (all pre-existing platform/fixture skips),
+  0 failed, 0 xfail; deps/docs/docnames/config PASS; the tested tree fingerprint `0ada2ae1…` equals the committed P01C tree.
+- **Edge samples (after the gate, at the committed P01C tree):** five real TtsPanel Edge direct runs of the CP6 "…to ring." text, end pause 0. Decoded tail
+  −70/−60/−50 dBFS: Steffan 0/0/3, Andrew 0/0/0, Aria 0/0/5, Ava 0/0/7, Jenny 0/0/0 ms; "ring" carries energy into the last 150 ms. Internal
+  pauses measure at the presets. One real Edge **folder** ending (Steffan, S2 text, 2 chunks): 0.83 s → 0.15 s, tail 140/160/180 ms, internal join
+  1,000 ms vs 996 ms expected from the raw chunks. Andrew failed twice on the Edge service (`NoAudioReceived`, intermittent, not text-dependent;
+  nothing published) and succeeded on the third recorded attempt. All files are 160 kbps: the run asks for 192k, but 24 kHz MP3 tops out at 160
+  (pre-existing, same for the 17 local samples). Protected 0/84, environment 0/295 changed.
+- **Listening page:** `files/dev-work/act070-remediation/audio/all-voice-listening-P01C-20261023T191328Z/index.html`: **22 playable / 28** (Kokoro 9,
+  Chatterbox 6, Qwen3 presets 2, Edge 5; Qwen3 clones 6 BLOCKED) + 1 extra Edge folder-route sample; offline, links and hashes verified. The
+  17 P01B samples are byte-identical copies (P01C changed no local-engine code); the P01B folder itself is untouched.
+- **Status:** P01C technical verification **PASS**. P01B owner listening **NOT RUN**; combined 28-voice listening **NOT RUN**; P01C owner listening
+  **OPEN**. P02/P03 not authorised.
 - **Open, carried forward:** Edge direct's −58 dBFS per-sentence trim can still drop a final sound quieter than −58 dBFS (pre-existing, approved
-  v0.6.5; listening covers it); Edge CLI `--format m4b` has no tail policy (not an app route); the handle holder; WinError 206 / AUD-004, AUD-005, AUD-008,
-  AUD-009.
-- **Evidence (ignored):** `checkpoints/P01C.md`, `audio/p01c/`, `audio/red-ledger.json`.
-- **Next:** gate → commit/push → Edge samples + listening page → ChatGPT review. Then the owner's consolidated 28-voice listening session.
+  v0.6.5; listening covers it); Andrew's intermittent Edge-service `NoAudioReceived`; Edge CLI `--format m4b` has no tail policy (not an app route);
+  the handle holder; WinError 206 / AUD-004, AUD-005, AUD-008, AUD-009.
+- **Evidence (ignored):** `checkpoints/P01C.md`, `audio/p01c/`, `audio/red-ledger.json`, `audio/edge-voices-P01C-*`.
+- **Next:** ChatGPT review of P01C, then the owner's consolidated 28-voice listening session from the page above. No further phase starts by inference.
 
 ## CURRENT STATE — v0.7.0 P01B: Windows venv-rename false success FIXED (honest failure + bounded WinError 5/32 retry); P01B technically clean; overall P01B NOT VERIFIED (owner listening) (2026-10-23, Claude Code)
 
