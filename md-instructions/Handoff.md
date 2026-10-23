@@ -2,6 +2,37 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P01B: Windows venv-rename false success FIXED (honest failure + bounded WinError 5/32 retry); P01B technically clean; overall P01B NOT VERIFIED (owner listening) (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 / P01B; owner task "P01B Windows Venv-Rename
+Reliability Fix". The owner approved honest failure and a Windows-only retry bounded at 250 ms. HOME-PC, branch `feature/0.7.0-release-remediation`,
+parent `2f3b26d`. Identity stays 0.6.6. Not merged, tagged or packaged. No full gate.
+
+- **Defect** (`checkpoints/P01B-recovery-test-flake.md`): while another process briefly holds a directory, Windows refuses `os.replace` with WinError 5
+  (repo tree 26/4800, `%TEMP%` 0/3000, cleared in ≤ 1.7 ms). `_create_validated_venv` then kept an environment it had judged REPAIRABLE, `repair_venv`
+  reconciled packages into it, and the user was told "The environment was rebuilt, with limits" although nothing had been rebuilt. This was the
+  intermittent `test_venv_recovery` failure.
+- **Fix** (`scripts/shared/bootstrap.py`):
+  - If a REPAIRABLE environment cannot be set aside and is still present, `_create_validated_venv` logs `[!!] … left unchanged and nothing was rebuilt`
+    and returns False. That happens before create, reconcile, stamp or commit. `repair_venv` reports "could not be rebuilt. It will be retried next time."
+    Healthy and DEGRADED environments are still kept as before.
+  - `_move_venv_aside`, on Windows only, retries the same rename for WinError 5/32 with delays of 5/10/20/40/80 ms inside one 250 ms monotonic budget.
+    No sleep or attempt runs past the window, and the aside is re-checked before every retry. Any other error fails at once. Non-Windows behaviour is unchanged.
+- **Tests:** `test_venv_recovery.py` §J adds 16 deterministic nodes (controlled clock and scripted rename). Against the pre-fix code, 8 failed, including both
+  false-success cases. The mutation check killed 8/8.
+- **Verification** (pytest default `%TEMP%` basetemp):
+  - venv_recovery 97, requirements_state 55, both module orders 152/152, and 9 adjacent bootstrap/self-heal modules 253.
+  - The 66-module focused selection, run once: **4,246 passed, 14 xfailed** (exactly the 14 open ledger nodes, 0 XPASS), 2 skipped (pre-existing),
+    1 deselected (the Qwen3 real-library node), **0 failed**.
+  - Protected fingerprint: 295/295 identical. Neither `.venv` nor `.venv-qwen3` changed.
+- **Evidence (ignored):** `checkpoints/P01B-venv-rename-reliability.md` and `act070-remediation/venv-rename/`.
+- **Open, carried forward:**
+  - owner listening (Ryan borderline and representative local endings) is NOT RUN;
+  - the handle holder is still not attributed;
+  - the first main-repair run's 6/7 stamp was re-proved by run 2;
+  - WinError 206 / AUD-004, AUD-005, AUD-008 and AUD-009.
+- **Next:** review of this checkpoint. P01B becomes VERIFIED only after the owner listening gate. P01C waits.
+
 ## CURRENT STATE — v0.7.0 P01B: `.venv-qwen3` re-locked and repaired (scikit-learn 1.9.0); Qwen3 gate CLOSED; overall P01B NOT VERIFIED (owner listening + flake) (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §6 / P01B and §7; owner task "P01B Qwen3 Production

@@ -1538,6 +1538,20 @@ def _venv_aside_path() -> Path:
     return VENV_DIR.with_name(VENV_DIR.name + VENV_ASIDE_SUFFIX)
 
 
+#: Windows refusals worth one more try: ERROR_ACCESS_DENIED and
+#: ERROR_SHARING_VIOLATION, which is what a rename gets while another process
+#: (an indexer, a scanner, a file watcher) briefly has the directory open.
+#: Measured on HOME-PC, every such refusal had cleared within 2 ms.
+_ASIDE_TRANSIENT_WINERRORS = (5, 32)
+#: The whole retry window, in seconds. Anything still held after this is not
+#: transient, and the repair fails honestly rather than waiting on it.
+_ASIDE_RETRY_BUDGET_S = 0.25
+_ASIDE_RETRY_DELAYS_S = (0.005, 0.01, 0.02, 0.04, 0.08)
+# Seams so the tests can drive the retry with a controlled clock.
+_aside_monotonic = time.monotonic
+_aside_sleep = time.sleep
+
+
 def _move_venv_aside(log: SetupLog) -> Optional[Path]:
     """Rename the current venv out of the way. Returns the aside path, or None.
 
@@ -1551,19 +1565,42 @@ def _move_venv_aside(log: SetupLog) -> Optional[Path]:
     name is used instead, so the worst case is disk to clean rather than an
     environment nobody can get back. :func:`recover_interrupted_replacement`
     normally resolves that state before this is reached.
+
+    On Windows a refusal in :data:`_ASIDE_TRANSIENT_WINERRORS` retries the same
+    rename a few times inside :data:`_ASIDE_RETRY_BUDGET_S`, re-checking before
+    each try that the aside has not appeared meanwhile. Any other error, or a
+    refusal that outlasts the window, returns None.
     """
     if not VENV_DIR.exists():
         return None
     aside = _venv_aside_path()
     if aside.exists():
         aside = aside.with_name(f"{aside.name}-{int(time.time())}")
-    try:
-        os.replace(VENV_DIR, aside)
-        return aside
-    except OSError as exc:
-        # Typically the running interpreter is inside it (Windows locks it).
-        log.line(f"  Could not set the existing environment aside: {exc}")
-        return None
+    deadline = _aside_monotonic() + _ASIDE_RETRY_BUDGET_S
+    delays = iter(_ASIDE_RETRY_DELAYS_S)
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            os.replace(VENV_DIR, aside)
+            if attempts > 1:
+                log.line(f"  Set the existing environment aside on attempt {attempts}.")
+            return aside
+        except OSError as exc:
+            error = exc
+        delay = next(delays, None)
+        if (not IS_WINDOWS
+                or getattr(error, "winerror", None) not in _ASIDE_TRANSIENT_WINERRORS
+                or delay is None
+                or _aside_monotonic() + delay > deadline):
+            break
+        _aside_sleep(delay)
+        if _aside_monotonic() > deadline or aside.exists():
+            break
+    # Typically the running interpreter is inside it (Windows locks it).
+    log.line(f"  Could not set the existing environment aside "
+             f"(attempts: {attempts}): {error}")
+    return None
 
 
 def _restore_venv(aside: Optional[Path], log: SetupLog) -> bool:
@@ -1735,6 +1772,14 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog, headless: bool,
         if health.state == VENV_REPAIRABLE:
             log.line(f"  Replacing the existing environment: {health.detail}")
             txn.aside = _move_venv_aside(log)
+            if txn.aside is None and VENV_DIR.exists():
+                # The environment that must be replaced is still in the way.
+                # Carrying on would keep it, install packages into it and then
+                # report a rebuild that never happened, so stop here with it
+                # exactly as it was.
+                log.line("  [!!] The existing environment could not be set aside, "
+                         "so it was left unchanged and nothing was rebuilt.")
+                return False
         else:
             log.line(f"  Keeping the existing environment ({health.state}).")
 

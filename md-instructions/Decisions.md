@@ -4,6 +4,23 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-23 - A venv that must be replaced but cannot be set aside fails the repair; Windows retries WinError 5/32 within 250 ms
+
+Owner-authorised at P01B (owner task "P01B Windows Venv-Rename Reliability Fix"); recorded by Claude Code.
+
+**When the health authority says REPAIRABLE, the old environment must be renamed aside before anything is created in its place.** If that rename fails
+and the environment is still there, `_create_validated_venv` returns False and the repair reports failure with the previous environment unchanged. There is no
+create, no package reconcile, no stamp and no commit. Before this, the environment was kept and `repair_venv` could report "rebuilt, with limits" when
+nothing had been rebuilt. Healthy and deliberately DEGRADED environments are still kept as before.
+
+**`_move_venv_aside` retries only on Windows and only for WinError 5 (access denied) or 32 (sharing violation).** These are the refusals another process's brief
+handle causes, and they were measured to clear within 2 ms. It retries the same source and destination with delays of 5–80 ms inside a single 250 ms
+monotonic budget. No sleep or attempt may run past that budget, and before each retry it re-checks that no aside has appeared. Any other error, or a refusal
+that outlasts the window, is a failure.
+
+Not chosen: unbounded or generic filesystem retry; ACL changes, elevation, process killing or antivirus/SAC exclusions; test-side retries, stubbing the
+rename, or accepting a failed aside in tests. The test-side options would weaken the contract rather than fix the defect.
+
 ## 2026-10-23 - Qwen3 hash lock moves scikit-learn to 1.9.0 (Smart App Control drift; same build as the main environment)
 
 Owner-authorised at P01B (plan Revision 2 §6); recorded by Claude Code.

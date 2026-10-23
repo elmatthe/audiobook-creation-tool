@@ -1358,3 +1358,282 @@ def test_a_degraded_environment_answers_the_check_with_zero(env, monkeypatch):
                         lambda log, prefer_tk=True: None)
 
     assert bootstrap._venv_check() == 0
+
+
+# --------------------------------------------------------------------------- #
+# J. A refused rename is a failed replacement, never a kept-and-reported one
+#
+# On Windows another process (an indexer, a scanner, an editor's file watcher)
+# can hold a directory open for a millisecond or two, and while it does,
+# os.replace of that directory fails with WinError 5. _move_venv_aside reported
+# that by returning None, and _create_validated_venv carried on regardless: it
+# kept the environment it had just decided must be replaced, reconciled packages
+# into it, and repair_venv told the user "The environment was rebuilt, with
+# limits" when nothing had been rebuilt. This was caught as an intermittent
+# failure of the 3.10 and Tk-broken replacement tests above.
+#
+# The rule now: when a replacement is required, the old environment must have
+# been moved aside before anything is created in its place. If it cannot be,
+# the repair stops and says so, with the old environment exactly as it was.
+# Short-lived refusals (WinError 5 and 32 only) get a few retries of the same
+# rename inside one bounded window, driven here by a controlled clock.
+# --------------------------------------------------------------------------- #
+class _Clock:
+    """Stands in for the retry's monotonic clock and sleep."""
+
+    def __init__(self, *, oversleep: float = 0.0) -> None:
+        self.start = self.now = 1000.0
+        self.oversleep = oversleep
+        self.sleeps: list[float] = []
+        self.planned_wakes: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.planned_wakes.append(self.now + seconds)
+        self.now += seconds + self.oversleep
+
+
+def _controlled_time(monkeypatch, **kwargs) -> _Clock:
+    clock = _Clock(**kwargs)
+    monkeypatch.setattr(bootstrap, "_aside_monotonic", clock.monotonic)
+    monkeypatch.setattr(bootstrap, "_aside_sleep", clock.sleep)
+    return clock
+
+
+def _win_error(code: int | None) -> OSError:
+    """A refusal carrying ``code`` as its Windows error, on any platform."""
+    exc = PermissionError(13, "Access is denied")
+    exc.winerror = code
+    return exc
+
+
+def _always(code: int | None):
+    while True:
+        yield _win_error(code)
+
+
+def _refusing_rename(monkeypatch, refusals, clock: _Clock | None = None,
+                     *, cost: float = 0.0) -> list:
+    """``os.replace`` that refuses to move the venv, then really moves it.
+
+    Each attempt on the venv takes the next exception from ``refusals`` and
+    raises it; once they run out the real rename happens. Every other rename
+    (restoring an aside, pytest's own) goes straight through. Returns the
+    attempts, stamped with the controlled clock's time when there is one;
+    ``cost`` is how long each attempt takes on that clock.
+    """
+    real_replace = os.replace
+    pending = iter(refusals)
+    attempts: list = []
+
+    def fake_replace(src, dst, *args, **kwargs):
+        if Path(src) == bootstrap.VENV_DIR:
+            attempts.append(clock.now if clock is not None else None)
+            if clock is not None:
+                clock.now += cost
+            exc = next(pending, None)
+            if exc is not None:
+                raise exc
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(bootstrap.os, "replace", fake_replace)
+    return attempts
+
+
+def _no_aside_exists(env) -> bool:
+    return not any(p.name.startswith(bootstrap._venv_aside_path().name)
+                   for p in env.tmp.iterdir())
+
+
+def test_a_refused_aside_stops_the_replacement_before_anything_is_built(
+        env, monkeypatch):
+    """Scenario A, first-run ownership: the replace decision stands or nothing happens."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    monkeypatch.setattr(bootstrap, "venv_is_valid", lambda: True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(tk=False))
+    _versions(monkeypatch, venv=(3, 12), base=(3, 12))
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    monkeypatch.setattr(bootstrap, "create_venv",
+                        lambda argv, log: pytest.fail("built over an environment "
+                                                      "that was never set aside"))
+    clock = _controlled_time(monkeypatch)
+    _refusing_rename(monkeypatch, _always(5), clock)
+    log = _Log()
+
+    ok = bootstrap._create_validated_venv(["py", "-3.12"], log, False)
+
+    assert ok is False
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert bootstrap.venv_python().read_bytes() == b"not a real interpreter"
+    assert _no_aside_exists(env)
+    assert "Could not set the existing environment aside" in log.text
+    assert "venv ready" not in log.text
+
+
+def test_a_refused_aside_is_a_truthful_repair_failure(env, monkeypatch):
+    """Scenario A through repair_venv: the exact false success that was observed.
+
+    A 3.10 environment runs, so with the rename refused the old code kept it,
+    reconciled into it and reported "rebuilt, with limits".
+    """
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    monkeypatch.setattr(bootstrap, "venv_is_valid", lambda: True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 10)))
+    _versions(monkeypatch, venv=(3, 10), base=(3, 12))
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    monkeypatch.setattr(bootstrap, "create_venv",
+                        lambda argv, log: pytest.fail("built over an environment "
+                                                      "that was never set aside"))
+    calls = _reconcile_spy(monkeypatch)
+    clock = _controlled_time(monkeypatch)
+    _refusing_rename(monkeypatch, _always(5), clock)
+    log = _Log()
+
+    ok, message = bootstrap.repair_venv(log)
+
+    assert ok is False
+    assert "could not be rebuilt" in message
+    assert "with limits" not in message and "repaired" not in message
+    assert calls == {"pip": 0, "validate": 0}, "packages went into the old environment"
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert _no_aside_exists(env)
+    assert not bootstrap.requirements_state_path().exists()
+    assert not bootstrap.import_proof_path().exists()
+    assert "Could not set the existing environment aside" in log.text
+
+
+@pytest.mark.parametrize("code", [5, 32])
+def test_a_momentary_refusal_is_retried_and_the_replacement_goes_ahead(
+        env, monkeypatch, code):
+    """Scenario B: one refusal, then the same rename succeeds and the transaction runs."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    _reconcile_spy(monkeypatch)
+    monkeypatch.setattr(
+        bootstrap, "probe_venv",
+        lambda py: _probe() if (bootstrap.VENV_DIR / "candidate.txt").exists() else None)
+    clock = _controlled_time(monkeypatch)
+    attempts = _refusing_rename(monkeypatch, [_win_error(code)], clock)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is True
+    assert "repaired" in message
+    assert len(attempts) == 2
+    assert len(clock.sleeps) == 1
+    assert not keepsake.exists()
+    assert (env.venv / "candidate.txt").exists()
+    assert _no_aside_exists(env)
+
+
+@pytest.mark.parametrize("oversleep, cost", [(0.0, 0.0), (0.1, 0.0), (0.0, 0.06)])
+def test_a_refusal_that_persists_is_retried_inside_one_bounded_window(
+        env, monkeypatch, oversleep, cost):
+    """Scenario C: bounded by attempts and by the clock, then an honest None.
+
+    ``oversleep`` makes every sleep run long and ``cost`` makes every refused
+    rename slow, as a busy machine can, so the deadline rather than the attempt
+    count is what has to stop it: no attempt starts after it, and no sleep is
+    begun that would only end beyond it.
+    """
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    clock = _controlled_time(monkeypatch, oversleep=oversleep)
+    attempts = _refusing_rename(monkeypatch, _always(5), clock, cost=cost)
+    log = _Log()
+
+    assert bootstrap._move_venv_aside(log) is None
+
+    window_end = clock.start + bootstrap._ASIDE_RETRY_BUDGET_S
+    assert 1 < len(attempts) <= len(bootstrap._ASIDE_RETRY_DELAYS_S) + 1
+    assert all(t <= window_end for t in attempts)
+    assert all(t <= window_end for t in clock.planned_wakes)
+    assert sum(clock.sleeps) <= bootstrap._ASIDE_RETRY_BUDGET_S
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert _no_aside_exists(env)
+    assert "Could not set the existing environment aside" in log.text
+
+
+def test_the_retry_window_is_the_one_the_owner_approved():
+    assert bootstrap._ASIDE_RETRY_BUDGET_S <= 0.25
+    assert sum(bootstrap._ASIDE_RETRY_DELAYS_S) <= bootstrap._ASIDE_RETRY_BUDGET_S
+    assert set(bootstrap._ASIDE_TRANSIENT_WINERRORS) == {5, 32}
+
+
+@pytest.mark.parametrize("code", [None, 2, 3, 17, 183])
+def test_any_other_refusal_fails_at_once(env, monkeypatch, code):
+    """Scenario D: not access-denied or a sharing violation, so not retried."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    clock = _controlled_time(monkeypatch)
+    attempts = _refusing_rename(monkeypatch, _always(code), clock)
+
+    assert bootstrap._move_venv_aside(_Log()) is None
+
+    assert len(attempts) == 1
+    assert clock.sleeps == []
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert _no_aside_exists(env)
+
+
+def test_off_windows_a_refusal_is_never_retried(env, monkeypatch):
+    """Non-Windows semantics are unchanged, whatever the exception carries."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
+    clock = _controlled_time(monkeypatch)
+    attempts = _refusing_rename(monkeypatch, _always(5), clock)
+
+    assert bootstrap._move_venv_aside(_Log()) is None
+
+    assert len(attempts) == 1
+    assert clock.sleeps == []
+    assert keepsake.exists()
+
+
+def test_a_retry_never_lands_on_an_aside_that_appeared_meanwhile(env, monkeypatch):
+    """The guard is re-checked before every retry, not only the first attempt."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    clock = _controlled_time(monkeypatch)
+    aside = bootstrap._venv_aside_path()
+
+    def sleep_while_an_aside_appears(seconds):
+        clock.sleep(seconds)
+        aside.mkdir()
+        (aside / "keepsake.txt").write_text("someone else's", encoding="utf-8")
+
+    monkeypatch.setattr(bootstrap, "_aside_sleep", sleep_while_an_aside_appears)
+    attempts = _refusing_rename(monkeypatch, [_win_error(5)], clock)
+
+    assert bootstrap._move_venv_aside(_Log()) is None
+
+    assert len(attempts) == 1
+    assert (aside / "keepsake.txt").read_text(encoding="utf-8") == "someone else's"
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+
+
+def test_a_degraded_environment_is_still_kept_without_any_rename(env, monkeypatch):
+    """Scenario E: the new stop applies only when replacement was actually required."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 13)))
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 13))
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    attempts = _refusing_rename(monkeypatch, _always(5))
+
+    ok = bootstrap._create_validated_venv(["py", "-3.13"], _Log(), False)
+
+    assert ok is True
+    assert attempts == []
+    assert keepsake.read_text(encoding="utf-8") == "previous"
