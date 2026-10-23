@@ -82,6 +82,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_install_ui.py",
     "tts/qwen3_clone_setup.py",
     "tts/qwen3_clone_setup_ui.py",
+    # Added by v0.7.0 P01B: the shared final-tail policy every local engine's final encode applies.
+    "tts/audio_tail.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

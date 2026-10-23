@@ -487,9 +487,9 @@ def test_the_final_encode_is_gapless_so_codec_padding_cannot_spend_the_budget(tm
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("backend", [
     pytest.param("edge", marks=_red("registry-edge-end-pause", "P01C")),
-    pytest.param("kokoro", marks=_red("registry-kokoro-end-pause", "P01B")),
-    pytest.param("chatterbox", marks=_red("registry-chatterbox-end-pause", "P01B")),
-    pytest.param("qwen3", marks=_red("registry-qwen3-end-pause", "P01B")),
+    "kokoro",  # P01B fixed the three local engines; their markers are gone
+    "chatterbox",
+    "qwen3",
 ])
 def test_no_registry_voice_carries_a_closing_pause(backend):
     from tts import voice_registry as vr
@@ -528,12 +528,12 @@ def test_the_edge_command_line_default_carries_no_closing_pause(monkeypatch):
 # C. Local engines through the panel's converters
 # --------------------------------------------------------------------------- #
 _LOCAL_TAIL_CASES = (
-    [pytest.param("kokoro", c, marks=_red(f"kokoro-{c}", "P01B"), id=f"kokoro-{c}")
+    [pytest.param("kokoro", c, id=f"kokoro-{c}")
      for c in ("single", "multiple", "skipped_final", "natural_tail",
                "quiet_fricative", "breath", "transient", "reverb")]
-    + [pytest.param("chatterbox", c, marks=_red(f"chatterbox-{c}", "P01B"), id=f"chatterbox-{c}")
+    + [pytest.param("chatterbox", c, id=f"chatterbox-{c}")
        for c in ("single", "multiple", "skipped_final", "natural_tail")]
-    + [pytest.param("qwen3", c, marks=_red(f"qwen3-{c}", "P01B"), id=f"qwen3-{c}")
+    + [pytest.param("qwen3", c, id=f"qwen3-{c}")
        for c in ("single", "multiple", "clone", "natural_tail")]
 )
 
@@ -608,7 +608,6 @@ def test_cancelling_a_finished_qwen3_run_leaves_the_existing_file_untouched(loca
 # --------------------------------------------------------------------------- #
 # D. Direct callers: engine defaults and the shipped voice-sample helper
 # --------------------------------------------------------------------------- #
-@_red("kokoro-default-args", "P01B")
 def test_kokoro_called_with_its_own_defaults_adds_no_closing_pause(local_engine):
     """A caller that passes no timing at all (``kokoro_file_to_mp3``'s own defaults) gets the product policy too."""
     import tts.kokoro_synth as ks
@@ -644,9 +643,8 @@ def test_the_sample_helpers_kokoro_route_adds_nothing(local_engine):
 
 
 @pytest.mark.parametrize("voice_id, chunks", [
-    pytest.param("chatterbox-female-1", 2, marks=_red("sample-helper-chatterbox-long", "P01B"),
-                 id="chatterbox_long_text"),
-    pytest.param("qwen3-ryan", 1, marks=_red("sample-helper-qwen3", "P01B"), id="qwen3"),
+    pytest.param("chatterbox-female-1", 2, id="chatterbox_long_text"),
+    pytest.param("qwen3-ryan", 1, id="qwen3"),
 ])
 def test_the_sample_helpers_local_routes_add_no_closing_pause(local_engine, voice_id, chunks):
     """``generate_voice_samples`` calls the file converters with their own defaults (3000 ms end at v0.6.6)."""
@@ -671,7 +669,6 @@ def test_the_sample_helpers_local_routes_add_no_closing_pause(local_engine, voic
 
 
 @needs_ffmpeg
-@_red("kokoro-decoded-mp3", "P01B")
 def test_the_published_kokoro_mp3_decodes_with_a_bounded_tail(local_engine):
     """The acceptance measurement itself: re-decode the real finished MP3 with the pinned FFmpeg."""
     local_engine.encodes.real_encode = True
@@ -1007,3 +1004,145 @@ def test_the_published_edge_folder_mp3_decodes_with_a_bounded_tail(edge_folder):
     decoded = _decode(edge_folder.destination())
     assert abs(len(decoded) - len(_only_encode(edge_folder.encodes).pcm)) <= 2 * 576
     _assert_bounded_tail(decoded, RATE, "edge-folder-decoded-mp3")
+
+
+# --------------------------------------------------------------------------- #
+# G. The production final-tail policy itself (P01B, ``tts.audio_tail``)
+# --------------------------------------------------------------------------- #
+def _sine(seconds: float, dbfs_peak: float, freq: float = 220.0) -> np.ndarray:
+    return (10 ** (dbfs_peak / 20) * np.sin(2 * np.pi * freq * np.arange(_samples(seconds)) / RATE)).astype(np.float32)
+
+
+def test_the_policy_constants_are_the_calibrated_ones():
+    """P01A calibration; a change needs a new calibration and listening, never a quiet edit."""
+    from tts import audio_tail
+
+    assert (audio_tail.WINDOW_MS, audio_tail.NOMINAL_THRESHOLD_DBFS, audio_tail.CONSERVATIVE_THRESHOLD_DBFS,
+            audio_tail.KEEP_MS, audio_tail.BUDGET_MS) == (10, -60.0, -70.0, 150, 300)
+
+
+@pytest.mark.parametrize("sound", SOUNDS)
+def test_the_policy_finds_the_same_end_as_the_independent_oracle(sound):
+    from tts import audio_tail
+
+    tail, _keep = _final_sound(sound)
+    pcm = np.concatenate([_zeros(0.3), _tone(0.7), tail])
+    for threshold in (-70.0, -60.0, -50.0):
+        assert audio_tail.last_sound(pcm, RATE, threshold) == last_sound(pcm, threshold_dbfs=threshold), threshold
+    assert audio_tail.last_sound(_q16(pcm), RATE) == last_sound(_q16(pcm))  # 16-bit input measures the same
+
+
+def test_the_policy_only_ever_shortens_the_terminal_suffix():
+    """Leading and internal silence are untouched: the result is an exact prefix of the input, same dtype/shape."""
+    from tts import audio_tail
+
+    pcm = np.concatenate([_zeros(1.0), _tone(0.5), _zeros(2.0), _tone(0.5, 330.0), _zeros(3.0)])
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    assert result.pcm.dtype == pcm.dtype and result.pcm.ndim == 1
+    np.testing.assert_array_equal(result.pcm, pcm[:len(result.pcm)])
+    assert len(result.pcm) == _samples(1.0 + 0.5 + 2.0 + 0.5) + _samples(KEEP_MS / 1000)
+    assert result.tail_ms == pytest.approx(KEEP_MS) and not result.uncertain
+    assert "shortened to 0.15 s" in result.summary()
+
+
+def test_a_short_natural_tail_is_left_exactly_as_it_is():
+    from tts import audio_tail
+
+    pcm = np.concatenate([_tone(1.0), _zeros(0.04)])
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    assert len(result.pcm) == len(pcm) and result.removed_samples == 0  # never padded, never shortened further
+    assert "nothing removed" in result.summary()
+
+
+def test_a_quiet_decay_that_only_the_conservative_threshold_sees_is_kept():
+    """A -65 dBpk decay lasting 250 ms: -60 dBFS no longer sees it, so 150 ms alone would cut 100 ms of it."""
+    from tts import audio_tail
+
+    decay = _sine(0.25, -65.0)
+    pcm = np.concatenate([_tone(1.0), decay, _zeros(1.0)])
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    assert len(result.pcm) >= _samples(1.25), "the -65 dB decay was cut"
+    assert len(result.pcm) <= _samples(1.25) + _samples(WINDOW_MS / 1000)
+    assert not result.uncertain
+
+
+def test_quiet_sound_past_the_budget_is_kept_in_full_and_reported_never_clipped():
+    """Section 5.1: if the conservative end cannot meet 300 ms, keep it and say so rather than cut audio."""
+    from tts import audio_tail
+
+    pcm = np.concatenate([_tone(1.0), _sine(0.6, -65.0), _zeros(1.0)])
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    assert len(result.pcm) >= _samples(1.6)
+    assert result.uncertain and result.tail_ms > BUDGET_MS
+    assert "please listen" in result.summary()
+
+
+def test_audio_with_no_sound_at_all_is_left_unchanged_and_reported():
+    from tts import audio_tail
+
+    pcm = _noise(2.0, -90, seed=9)
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    assert len(result.pcm) == len(pcm) and result.uncertain and result.nominal_end == 0
+    assert "left unchanged" in result.summary()
+
+
+def test_every_channel_counts_on_its_own():
+    """A quiet right-channel tail and an antiphase tail (which a downmix cancels) both survive."""
+    from tts import audio_tail
+
+    speech = _tone(1.0)
+    right = _fade(_noise(0.25, -58, seed=3, highpass=True), 0.3)
+    stereo = np.stack([np.concatenate([speech, _zeros(1.25)]), np.concatenate([speech, right, _zeros(1.0)])], axis=1)
+    kept = audio_tail.apply_final_tail_policy(stereo, RATE).pcm
+    assert kept.shape[1] == 2 and len(kept) >= _samples(1.25)
+    tail = _noise(0.25, -55, seed=4, highpass=True)
+    antiphase = np.stack([np.concatenate([speech, tail, _zeros(1.0)]), np.concatenate([speech, -tail, _zeros(1.0)])],
+                         axis=1)
+    assert len(audio_tail.apply_final_tail_policy(antiphase, RATE).pcm) >= _samples(1.25)
+
+
+def test_16_bit_frames_first_pcm_is_handled_like_float():
+    from tts import audio_tail
+
+    pcm = np.concatenate([_tone(1.0), _final_sound("breath")[0]])
+    as_float = audio_tail.apply_final_tail_policy(pcm, RATE)
+    as_int = audio_tail.apply_final_tail_policy(_q16(pcm), RATE)
+    assert as_int.pcm.dtype == np.int16 and as_int.pcm.shape[1] == 1
+    assert abs(len(as_int.pcm) - len(as_float.pcm)) <= _samples(WINDOW_MS / 1000)
+
+
+def test_a_long_silent_suffix_is_searched_back_across_blocks():
+    """The tail is scanned backwards in 30 s blocks; a sound 65 s before the end is still found exactly."""
+    from tts import audio_tail
+
+    rate = 8000
+    pcm = np.concatenate([(0.3 * np.sin(np.arange(rate) / 3)).astype(np.float32), np.zeros(rate * 65, np.float32)])
+    result = audio_tail.apply_final_tail_policy(pcm, rate)
+    assert len(result.pcm) == rate + int(rate * KEEP_MS / 1000)
+
+
+def test_the_policy_rejects_shapes_and_types_it_cannot_measure():
+    from tts import audio_tail
+
+    with pytest.raises(ValueError):
+        audio_tail.apply_final_tail_policy(np.zeros((2, 3, 4), np.float32), RATE)
+    with pytest.raises(ValueError):
+        audio_tail.apply_final_tail_policy(np.zeros(10, dtype=bool), RATE)
+    assert len(audio_tail.apply_final_tail_policy(np.zeros(0, np.float32), RATE).pcm) == 0
+
+
+@pytest.mark.parametrize("engine", ["kokoro", "chatterbox", "qwen3"])
+def test_the_run_log_reports_the_final_tail(local_engine, engine):
+    """The owner can see in the run log what the policy did (and when an ending needs listening)."""
+    from tts import epub2tts_gui as gui
+
+    converter = {"kokoro": gui.convert_with_kokoro, "chatterbox": gui.convert_with_chatterbox,
+                 "qwen3": gui.convert_with_qwen3}[engine]
+    source = local_engine.root / "logged.txt"
+    source.write_text(local_engine.text(engine, 2), encoding="utf-8")
+    local_engine.queue([_tone(0.9), np.concatenate([_tone(0.7, 330.0), _zeros(2.0)])])
+    logs: list[str] = []
+    item = {"source": source, "destination": local_engine.destination(), "item_id": "item-1"}
+    converter(item, _frozen_params(LOCAL_VOICES[engine]), None, logs.append, lambda: False)
+    local_engine.drained()
+    assert any("Final tail: 2.00 s of trailing near-silence shortened to 0.15 s." in line for line in logs), logs

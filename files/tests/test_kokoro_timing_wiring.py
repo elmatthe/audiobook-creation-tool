@@ -1,4 +1,7 @@
-"""Kokoro timing wiring: end_silence_ms / chunk_pause_ms must reach the output.
+"""Kokoro timing wiring: chunk_pause_ms must reach the output, and no closing pause may.
+
+v0.7.0 P01B (owner decision Q1) replaced the v0.6.6 contract that ``end_silence_ms`` and a pause after *every* chunk
+lengthen the file: the pause now separates rendered chunks only, and ``end_silence_ms`` adds nothing.
 
 _get_pipeline is monkeypatched to a fake yielding fixed audio, so neither the
 kokoro package nor the 300 MB model is touched. Output duration is measured
@@ -21,8 +24,9 @@ from pydub import AudioSegment  # noqa: E402
 
 import tts.kokoro_synth as ks  # noqa: E402
 
-# 0.25 s of silence at Kokoro's fixed 24 kHz sample rate, per pipeline call.
-_FAKE_AUDIO = np.zeros(6000, dtype=np.float32)
+# 0.25 s of a steady tone at Kokoro's fixed 24 kHz sample rate, per pipeline call: a real sound, so the final-tail
+# policy has an ending to keep (an all-silent fake would give it nothing to measure).
+_FAKE_AUDIO = (0.3 * np.sin(2 * np.pi * 220 * np.arange(6000) / 24000)).astype(np.float32)
 
 
 class _FakePipeline:
@@ -59,16 +63,18 @@ def test_text_splits_into_two_chunks():
     assert len(ks.split_into_chunks(_TWO_CHUNK_TEXT)) == 2
 
 
-def test_end_silence_ms_extends_output(tmp_path, fake_pipeline):
+def test_an_explicit_end_silence_adds_no_closing_pause(tmp_path, fake_pipeline):
+    """v0.6.6 lengthened this file by the 2000 ms asked for; Q1 forbids any closing pause, whoever asks."""
     base = _duration_ms(tmp_path, "end0", end_silence_ms=0, chunk_pause_ms=50)
-    longer = _duration_ms(tmp_path, "end2000", end_silence_ms=2000, chunk_pause_ms=50)
-    delta = longer - base
-    assert 1800 <= delta <= 2200, f"end_silence_ms not applied (delta={delta}ms)"
+    asked = _duration_ms(tmp_path, "end2000", end_silence_ms=2000, chunk_pause_ms=50)
+    assert asked == base, f"end_silence_ms added {asked - base} ms after the last sound"
+    # Two 250 ms chunks and the one 50 ms pause between them; nothing after the last chunk.
+    assert abs(base - 550) <= 30, base
 
 
-def test_chunk_pause_ms_extends_output(tmp_path, fake_pipeline):
+def test_chunk_pause_ms_separates_the_rendered_chunks_only(tmp_path, fake_pipeline):
     base = _duration_ms(tmp_path, "pause50", end_silence_ms=0, chunk_pause_ms=50)
     longer = _duration_ms(tmp_path, "pause1050", end_silence_ms=0, chunk_pause_ms=1050)
-    # Two chunks -> the +1000 ms pause is appended after each of them.
+    # Two chunks -> one pause between them. v0.6.6 also put it after the last chunk (a delta of ~2000 ms).
     delta = longer - base
-    assert 1600 <= delta <= 2400, f"chunk_pause_ms not applied (delta={delta}ms)"
+    assert 970 <= delta <= 1030, f"chunk_pause_ms is not exactly one between-chunk pause (delta={delta}ms)"

@@ -2,6 +2,39 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P01B local-engine final-audio remediation: DONE; NEXT is P01C (Edge routes + first full gate) after normal-chat review (2026-10-23, Claude Code)
+
+Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and P01B. Identity stays 0.6.6.
+Kokoro, Chatterbox and Qwen3 (presets and clones) only; Edge routes untouched (P01C). No model install/download, real synthesis, environment
+change, private transcript access, preview/sample regeneration or protected-asset edit. Not merged, tagged, packaged or released. No full gate.
+
+- **Policy:** new `scripts/tts/audio_tail.py`, applied at each local engine's one final encode (Kokoro/Chatterbox `_export_mp3`, which also
+  covers their one-shot sample routes; Qwen3 `publish_mp3`). 10 ms windows per channel, RMS **or** peak; keep `max(last −60 dBFS sound + 150 ms,
+  last −70 dBFS sound)`; only the terminal suffix is shortened; a shorter natural tail is never padded; no sound → unchanged; quiet sound kept
+  past 300 ms is never clipped but logged "please listen". Every run log now carries a `Final tail:` line.
+- **Pauses:** the chunk pause sits only *between rendered chunks* (a skipped chunk adds none, nothing follows the last). Local registry presets
+  and engine defaults: `end_pause`/`end_silence_ms` 3000 → 0; `end_silence_ms` stays in the signatures but adds nothing; Qwen3 `assemble()` keeps
+  it as a documented diagnostic argument and production passes 0. Edge preset/constants unchanged until P01C.
+- **Preserved:** Qwen3 clone 0.6 s reference pad, generation revision 1, temperature 0.70 / sub-talker 0.80, seeds, speed, chunk text; one
+  lossy encode; 24 kHz mono; bitrate; cancellation; atomic no-clobber Qwen3 publication. 6/6 reference hashes, 28/28 previews, private store
+  fingerprint unchanged.
+- **Tests:** all 23 P01B strict xfails removed (they pass normally); 21 new policy nodes; 14 P01C Edge xfails remain, byte-identical. Old-EOF-contract
+  assertions in 9 test modules replaced atomically with the new invariant (list in the P01B record). Speech A0 goldens: only the recorded assembled
+  sample counts moved (Kokoro/Chatterbox −3,050 ms each = old trailing gap + closing pause; Qwen3 −50 ms); all speech text, splits, seeds and
+  constants byte-identical — committed separately. Mutation controls: 12/12 wrong policies caught.
+- **Focused run:** 55 modules, 3,713 passed / 14 xfailed (Edge) / 3 pre-existing skips / 0 XPASS; 7 failed + 3 modules uncollectable, all
+  **Smart App Control** blocking `sklearn/__check_build/_check_build.cp312-win_amd64.pyd` (also in `.venv-qwen3`; reproduced with a bare
+  `import sklearn`). NOT RUN, not worked around — **owner decision needed before P01C's full gate**.
+- **Measured:** 28 earlier real local outputs (3.75–4.45 s trailing quiet) → 150 ms each, re-encoded at 192k and decoded: 150 ms, 0 extra
+  samples; loudest removed content −72.5 dBFS peak. 0/13 synthetic endings cut (−50 dBFS would cut 4). **Qwen3 Ryan** stays borderline
+  (−70/−60 differ by 150 ms; its decay is kept in full; removed part peaks −72.6 dBFS) → owner listening required. Owner listening: NOT RUN.
+- **Evidence (ignored):** `files/dev-work/act070-remediation/checkpoints/P01B.md`, `…/audio/red-ledger.json` (23 resolved / 14 open),
+  `p01b-tail-evidence.json`, `p01b-golden-diff.txt`, `p01b-mutation.json`, `p01b-focused-run.{log,xml}`.
+- **Known local-only items, unchanged:** `.ai/`, `scripts/project-status.py`, `files/run-temp/` stay untracked and unstaged.
+- **Still OPEN (unchanged):** AUD-004, AUD-005, AUD-008, AUD-009; AUD-010 deferred and non-blocking.
+- **Next:** P01C only (Edge direct/batch end policy, remove the last 14 ACT070 markers, first full gate), after the normal chat reviews this
+  P01B report and pushed diff.
+
 ## CURRENT STATE — v0.7.0 P01A final-audio root cause + regression tests: DONE; NEXT is P01B (local-engine EOF policy) after normal-chat review (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and P01A. Identity stays 0.6.6.

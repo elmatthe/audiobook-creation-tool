@@ -345,7 +345,7 @@ def test_the_run_hands_the_engine_the_voice_presets_pauses_and_the_chosen_bitrat
     panel.bitrate_var.set("320k")
     run_attempt(panel)
     call = qwen3.calls[0]
-    assert call["end_silence_ms"] == int(entry.timing_preset["end_pause"]) == 3000
+    assert call["end_silence_ms"] == int(entry.timing_preset["end_pause"]) == 0  # v0.7.0 Q1: no closing pause
     assert call["chunk_pause_ms"] == int(entry.timing_preset["paragraphpause"]) == 700
     assert call["bitrate"] == "320k"
     assert callable(call["cancel_check"]) and callable(call["progress_callback"]) and callable(call["log"])

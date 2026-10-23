@@ -113,7 +113,7 @@ def _kokoro_preset(
     paragraph: int = 700,
     title: int = 1000,
     chapter: int = 1800,
-    end: int = 3000,
+    end: int = 0,  # v0.7.0 Q1: a local-engine narration ends with its last sound, no closing pause
 ) -> dict:
     return {
         "sentencepause": str(sentence),
@@ -133,7 +133,7 @@ def _chatterbox_preset(
     paragraph: int = 700,
     title: int = 1000,
     chapter: int = 1800,
-    end: int = 3000,
+    end: int = 0,  # v0.7.0 Q1: a local-engine narration ends with its last sound, no closing pause
 ) -> dict:
     """Timing defaults for the local Chatterbox engine.
 
@@ -168,15 +168,15 @@ def _qwen3_preset(
     paragraph: int = 700,
     title: int = 1000,
     chapter: int = 1800,
-    end: int = 3000,
+    end: int = 0,  # v0.7.0 Q1: a local-engine narration ends with its last sound, no closing pause
 ) -> dict:
     """Timing defaults for the local Qwen3-TTS engine.
 
     The same *shape* and the same *values* as ``_chatterbox_preset`` and ``_kokoro_preset``: all three are local
     engines whose chunk boundaries are clean, and the owner ruled (CP6, Q6) that Qwen3 follows ACT's existing
     narration policy rather than the evaluation's fixed pauses. The panel hands ``paragraphpause`` to the engine as
-    the pause after every chunk and ``end_pause`` as the closing silence, exactly as it does for the other local
-    engines. There is no rate/speed control (the Qwen3 API exposes none), so ``rate`` and ``kokoro_speed`` are carried
+    the pause between chunks and ``end_pause`` (0 since v0.7.0 Q1: no closing pause) exactly as it does for the other
+    local engines. There is no rate/speed control (the Qwen3 API exposes none), so ``rate`` and ``kokoro_speed`` are carried
     at their neutral values, and ``trim_edge_chunks`` stays off. No per-voice tuning: Aiden is not timed differently
     from Male 4.
     """

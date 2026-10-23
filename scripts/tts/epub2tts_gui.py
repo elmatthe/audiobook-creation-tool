@@ -3203,8 +3203,8 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
     is handed over as it stands. The import stays inside the function so a machine without Qwen3 never loads it to open
     this panel.
 
-    Pauses come from the run's frozen voice preset exactly as for Kokoro and Chatterbox: the paragraph pause after every
-    chunk and the end pause once at the end (owner ruling Q6).
+    Pauses come from the run's frozen voice preset exactly as for Kokoro and Chatterbox: the paragraph pause between
+    chunks (owner ruling Q6) and no closing pause (v0.7.0 Q1; the preset's end pause is 0).
 
     Progress: the bar still counts completed *source files* -- one progress model per run -- but a Qwen3 file takes
     minutes to hours, so each finished chunk also refreshes the current-item message ("... chunk 3/25"). That reuses the

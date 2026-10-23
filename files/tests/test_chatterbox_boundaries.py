@@ -85,6 +85,10 @@ def test_the_chatterbox_preset_disables_edge_chunk_trimming():
 # v0.6.5 Phase 2 removed the two multilingual Edge rows (Andrew/Ava
 # Multilingual) from the registry per the plan's final voice inventory
 # (Section 3); this table follows. Ordinary Andrew and Ava are unaffected.
+#
+# v0.7.0 P01B (owner decision Q1, no closing pause): the five Kokoro rows' end_pause
+# is now "0" -- the only value that moved; every other millisecond is unchanged.
+# The Edge rows keep "3000" until P01C fixes the Edge routes.
 # --------------------------------------------------------------------------- #
 EXPECTED_VOICES = [
     ("edge", "en-US-SteffanNeural", "Edge Male - Steffan (en-US)",
@@ -115,27 +119,27 @@ EXPECTED_VOICES = [
     ("kokoro", "af_heart", "Kokoro Female (Default) - Heart (en-US)",
      "Kokoro Local AI — American English",
      {"sentencepause": "600", "paragraphpause": "700", "title_ms": "1000",
-      "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "1800", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("kokoro", "af_bella", "Kokoro Female - Bella (en-US)",
      "Kokoro Local AI — American English",
      {"sentencepause": "620", "paragraphpause": "700", "title_ms": "1000",
-      "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "1800", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("kokoro", "am_michael", "Kokoro Male - Michael (en-US)",
      "Kokoro Local AI — American English",
      {"sentencepause": "580", "paragraphpause": "700", "title_ms": "1000",
-      "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "1800", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("kokoro", "bf_emma", "Kokoro Female - Emma (en-UK)",
      "Kokoro Local AI — British English",
      {"sentencepause": "640", "paragraphpause": "700", "title_ms": "1000",
-      "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "1800", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("kokoro", "bm_george", "Kokoro Male - George (en-UK)",
      "Kokoro Local AI — British English",
      {"sentencepause": "600", "paragraphpause": "700", "title_ms": "1000",
-      "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
+      "chapter_ms": "1800", "end_pause": "0", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
 ]
 

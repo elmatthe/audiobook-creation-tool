@@ -353,7 +353,7 @@ def test_selecting_a_chatterbox_voice_applies_its_timing_preset(
     params = run_attempt(panel)
 
     assert panel.voice_var.get() == entry.voice_id
-    assert params["end_pause"] == int(entry.timing_preset["end_pause"]) == 3000
+    assert params["end_pause"] == int(entry.timing_preset["end_pause"]) == 0  # v0.7.0 Q1: no closing pause
     assert (params["paragraph_pause"]
            == int(entry.timing_preset["paragraphpause"]) == 700)
     assert params["pause_kw"] == {}, "pause_kw only ever applies to the Edge engine"

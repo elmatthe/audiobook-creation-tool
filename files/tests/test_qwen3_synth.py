@@ -261,16 +261,22 @@ def tone(seconds: float) -> np.ndarray:
 
 
 def test_assembly_follows_the_local_engine_policy_exactly():
+    """v0.7.0 P01B (Q1) replaced v0.6.6's gap after EVERY chunk (the last too): the pause now goes only between chunks.
+    ``end_silence_ms`` stays an internal/diagnostic argument here; production always passes 0 (below)."""
     audio = [tone(0.5), tone(1.0), tone(0.25)]
-    pcm, report = qs.assemble(audio, RATE, chunk_pause_ms=700, end_silence_ms=3000)
-    gap, end = int(RATE * 0.7), int(RATE * 3.0)
-    assert pcm.size == sum(a.size for a in audio) + 3 * gap + end  # a gap after EVERY chunk (the last too), then the end
+    pcm, report = qs.assemble(audio, RATE, chunk_pause_ms=700, end_silence_ms=0)
+    gap = int(RATE * 0.7)
+    assert pcm.size == sum(a.size for a in audio) + 2 * gap  # two gaps for three chunks; nothing after the last
     assert report == {"sample_rate": RATE, "chunks": 3, "speech_samples": sum(a.size for a in audio),
-                      "gap_samples": gap, "end_silence_samples": end, "total_samples": pcm.size}
+                      "gap_samples": gap, "end_silence_samples": 0, "total_samples": pcm.size}
     first = audio[0].size
     assert np.all(pcm[:first] == 0.25) and np.all(pcm[first:first + gap] == 0.0)  # speech, then silence, in order
     assert np.all(pcm[first + gap:first + gap + audio[1].size] == 0.25)
-    assert np.all(pcm[-end:] == 0.0) and pcm[-end - 1] == 0.0  # the final chunk's own pause leads into the end pause
+    assert np.all(pcm[-audio[2].size:] == 0.25)  # the file ends on the last chunk's own final sample
+    one, _ = qs.assemble([tone(0.5)], RATE, chunk_pause_ms=700, end_silence_ms=0)
+    assert one.size == tone(0.5).size  # a single chunk gets no pause at all
+    diagnostic, report = qs.assemble(audio, RATE, chunk_pause_ms=700, end_silence_ms=3000)  # the retained argument
+    assert diagnostic.size == pcm.size + int(RATE * 3.0) and report["end_silence_samples"] == int(RATE * 3.0)
 
 
 def test_zero_pauses_add_no_samples_and_negative_values_are_treated_as_zero():
@@ -282,14 +288,15 @@ def test_zero_pauses_add_no_samples_and_negative_values_are_treated_as_zero():
 
 
 def test_assembly_takes_its_pauses_from_the_voice_preset_the_gui_freezes():
-    """The GUI passes the voice's paragraph pause as the chunk pause and its end pause as the end silence."""
+    """The GUI passes the voice's paragraph pause as the chunk pause; its end pause is 0 since v0.7.0 Q1."""
     from tts import voice_registry
 
     entry = next(v for v in voice_registry.VOICES if v.voice_id == "chatterbox-female-1")
     preset = entry.timing_preset
-    pcm, report = qs.assemble([tone(0.2)], RATE, chunk_pause_ms=int(preset["paragraphpause"]),
+    pcm, report = qs.assemble([tone(0.2), tone(0.2)], RATE, chunk_pause_ms=int(preset["paragraphpause"]),
                               end_silence_ms=int(preset["end_pause"]))
-    assert report["gap_samples"] == int(RATE * 0.7) and report["end_silence_samples"] == int(RATE * 3.0)
+    assert report["gap_samples"] == int(RATE * 0.7) and report["end_silence_samples"] == 0
+    assert pcm.size == 2 * tone(0.2).size + int(RATE * 0.7)
 
 
 @pytest.mark.parametrize("bad, message", [
@@ -454,12 +461,13 @@ def test_the_job_for_a_preset_names_the_speaker_and_for_a_clone_the_reference_an
 # --------------------------------------------------------------------------- #
 def test_a_conversion_runs_the_worker_assembles_with_the_policy_and_cleans_up(fake):
     progress = []
+    # An explicit closing pause is asked for and must not appear (v0.7.0 Q1; v0.6.6 published 4 gaps + 3 s here).
     fake.convert(MANY, plan={"seconds": 0.2}, chunk_pause_ms=700, end_silence_ms=3000, bitrate="192k",
                  progress_callback=lambda done, total: progress.append((done, total)))
     assert progress == [(1, 4), (2, 4), (3, 4), (4, 4)]  # one tick per chunk, in order
     speech = sum(int(RATE * (0.2 + 0.1 * i)) for i in range(4))
     assert fake.exported["rate"] == RATE and fake.exported["bitrate"] == "192k"
-    assert fake.exported["arr"].size == speech + 4 * int(RATE * 0.7) + int(RATE * 3.0)
+    assert fake.exported["arr"].size == speech + 3 * int(RATE * 0.7)  # the pause between chunks only
     assert (fake.tmp / "story.mp3").read_bytes() == b"MP3-BYTES"  # published at the destination...
     assert not Path(fake.exported["staged"]).exists() and fake.job_folders() == []  # ...and the job folder is gone
     text = "\n".join(fake.logs)

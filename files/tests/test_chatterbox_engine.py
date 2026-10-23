@@ -791,17 +791,34 @@ def test_cancellation_is_checked_between_chunks_not_mid_generation(synth_ready, 
     assert len(synth_ready.generated) == 1
 
 
-def test_the_end_silence_and_chunk_pause_contract_is_honoured(synth_ready, tmp_path):
+def test_no_closing_pause_is_added_and_the_chunk_pause_only_separates_chunks(synth_ready, tmp_path, monkeypatch):
+    """v0.7.0 P01B (Q1) replaced v0.6.6's ``test_the_end_silence_and_chunk_pause_contract_is_honoured``, which
+    required ``end_silence_ms`` and a pause after every chunk to lengthen the file. Now an explicit end silence adds
+    nothing, and the pause appears exactly once between each pair of rendered chunks."""
+    import numpy as np
     from pydub import AudioSegment
 
-    source = _source_text(tmp_path, sentences=400)
-    short = tmp_path / "short.mp3"
-    long = tmp_path / "long.mp3"
-    cbx.chatterbox_file_to_mp3(str(source), str(short), "chatterbox-male-1",
-                               end_silence_ms=0, chunk_pause_ms=0, log=lambda _m: None)
-    cbx.chatterbox_file_to_mp3(str(source), str(long), "chatterbox-male-1",
-                               end_silence_ms=3000, chunk_pause_ms=50, log=lambda _m: None)
-    assert len(AudioSegment.from_mp3(long)) > len(AudioSegment.from_mp3(short)) + 2500
+    def tone(text, **kwargs):  # a real sound per chunk, so the final-tail policy has an ending to keep
+        synth_ready.generated.append(text)
+        n = int(synth_ready.sr * synth_ready.seconds)
+        return (0.3 * np.sin(2 * np.pi * 220 * np.arange(n) / synth_ready.sr)).astype("float32")[None, :]
+
+    monkeypatch.setattr(synth_ready, "generate", tone)
+    source = _source_text(tmp_path, sentences=40)
+
+    def duration_ms(name, **timing):
+        out = tmp_path / f"{name}.mp3"
+        synth_ready.generated.clear()
+        cbx.chatterbox_file_to_mp3(str(source), str(out), "chatterbox-male-1", log=lambda _m: None, **timing)
+        return len(AudioSegment.from_mp3(out)), len(synth_ready.generated)
+
+    plain, chunks = duration_ms("plain", end_silence_ms=0, chunk_pause_ms=0)
+    asked, _ = duration_ms("asked", end_silence_ms=3000, chunk_pause_ms=0)
+    paused, _ = duration_ms("paused", end_silence_ms=0, chunk_pause_ms=50)
+    assert chunks > 2
+    assert abs(plain - chunks * 1000) <= 30, (plain, chunks)  # every chunk's second of sound and nothing after it
+    assert asked == plain, f"end_silence_ms added {asked - plain} ms after the last sound"
+    assert abs((paused - plain) - 50 * (chunks - 1)) <= 30, (paused - plain, chunks)  # v0.6.6: 50 * chunks
 
 
 def test_the_worker_facing_signature_matches_the_kokoro_shape():

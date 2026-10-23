@@ -446,7 +446,11 @@ def test_chatterbox_honours_the_runs_chosen_bitrate(chatterbox_ready, tmp_path):
 
 @needs_ffmpeg
 def test_chatterbox_still_honours_its_pause_contract(chatterbox_ready, tmp_path):
-    """Assembly moved to PCM; the configured silences must land unchanged."""
+    """Assembly moved to PCM; the configured between-chunk pause must land unchanged.
+
+    v0.7.0 P01B (Q1) replaced the old expectation (3.0 s closing pause + a pause after every chunk): the pause now
+    separates chunks only, and an explicit end_silence_ms adds nothing.
+    """
     import tts.chatterbox_synth as cbx
 
     source = _text(tmp_path)
@@ -460,7 +464,8 @@ def test_chatterbox_still_honours_its_pause_contract(chatterbox_ready, tmp_path)
     added = decoded_duration(long) - decoded_duration(short)
     chunks = len(cbx.split_for_chatterbox(
         source.read_text(encoding="utf-8").split("Author: Nobody\n")[1].strip()))
-    assert added == pytest.approx(3.0 + chunks * 0.05, abs=0.25)
+    assert chunks > 2
+    assert added == pytest.approx((chunks - 1) * 0.05, abs=0.02)  # v0.6.6: 3.0 + chunks * 0.05
 
 
 @needs_ffmpeg

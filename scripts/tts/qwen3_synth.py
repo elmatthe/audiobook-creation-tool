@@ -45,6 +45,7 @@ import soundfile as sf
 
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
+from tts import audio_tail
 from tts import qwen3_process
 from tts import qwen3_runtime as rt
 from tts.qwen3_runtime import Qwen3Unavailable
@@ -331,19 +332,22 @@ def assemble(chunk_audio: list[np.ndarray], sample_rate: int, *, chunk_pause_ms:
              end_silence_ms: int) -> tuple[np.ndarray, dict]:
     """Join the chunks and return the PCM plus an exact accounting.
 
-    The policy is the existing local-engine one: **every** rendered chunk is followed by the paragraph pause (the
-    last one too), then the end pause is appended once. Silence is built at the model's own rate, so the configured
-    pauses are exact sample counts. No normalisation, crossfade, trimming or denoise.
+    The policy is the local-engine one (v0.7.0 Q1): the paragraph pause goes *between* rendered chunks and nothing
+    follows the last one. Silence is built at the model's own rate, so the configured pauses are exact sample counts.
+    No normalisation, crossfade, trimming or denoise here; the final-tail policy runs at publication.
+
+    ``end_silence_ms`` is a retained internal/diagnostic argument: production (:func:`qwen3_file_to_mp3`) always passes
+    0, so no closing pause can reach a published MP3 through this function.
     """
     if not chunk_audio:
         raise AssemblyError("there is nothing to assemble")
     gap = np.zeros(int(sample_rate * max(chunk_pause_ms, 0) / 1000.0), dtype="float32")
     end = np.zeros(int(sample_rate * max(end_silence_ms, 0) / 1000.0), dtype="float32")
     pieces: list[np.ndarray] = []
-    for arr in chunk_audio:
-        pieces.append(arr)
-        if gap.size:
+    for i, arr in enumerate(chunk_audio):
+        if i and gap.size:
             pieces.append(gap)
+        pieces.append(arr)
     if end.size:
         pieces.append(end)
     out = np.concatenate(pieces)
@@ -352,7 +356,7 @@ def assemble(chunk_audio: list[np.ndarray], sample_rate: int, *, chunk_pause_ms:
         "sample_rate": int(sample_rate), "chunks": len(chunk_audio), "speech_samples": speech,
         "gap_samples": int(gap.size), "end_silence_samples": int(end.size), "total_samples": int(out.size),
     }
-    if out.size != speech + gap.size * len(chunk_audio) + end.size:  # internal consistency, never expected to fire
+    if out.size != speech + gap.size * (len(chunk_audio) - 1) + end.size:  # internal consistency, never expected to fire
         raise AssemblyError("the assembled length does not match the planned length")
     return out, report
 
@@ -398,17 +402,23 @@ def encode_mp3(wav_path: Path, mp3_path: Path, bitrate: Optional[str], *, work_d
 
 def publish_mp3(arr: np.ndarray, sample_rate: int, output_path: str | Path, bitrate: Optional[str] = None, *,
                 work_dir: Path, cancel_check: Optional[Callable[[], bool]] = None,
-                encoder: Callable = encode_mp3) -> None:
+                encoder: Callable = encode_mp3, log: Optional[Callable[[str], None]] = None) -> None:
     """Write the assembled PCM as the one and only lossy generation, and publish it atomically.
 
     The WAV and the MP3 are made inside ``work_dir`` (the job folder, which is always removed). The finished MP3 is
     copied beside the destination under a temporary name and moved into place only when complete, so a failure never
     leaves a partial file and never damages one that was already there. Cancellation is checked after the encode and
     again immediately before the move: a Cancel pressed at any point before the file is published wins.
+
+    The v0.7.0 final-tail policy (:mod:`tts.audio_tail`) runs first, on the finished PCM, exactly as it does in the
+    other local engines' one encode.
     """
     destination = Path(output_path)
     wav, mp3 = work_dir / "encode.wav", work_dir / "encode.mp3"
-    sf.write(str(wav), arr, sample_rate)  # 16-bit PCM, what the other local engines hand to their encoder
+    tail = audio_tail.apply_final_tail_policy(arr, sample_rate)
+    if log is not None:
+        log(f"  {tail.summary()}")
+    sf.write(str(wav), tail.pcm, sample_rate)  # 16-bit PCM, what the other local engines hand to their encoder
     encoder(wav, mp3, bitrate, work_dir=work_dir, cancel_check=cancel_check)
     _raise_if_cancelled(cancel_check)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -717,7 +727,7 @@ def qwen3_file_to_mp3(
     source_path: str,
     output_mp3_path: str,
     voice_id: str,
-    end_silence_ms: int = 3000,
+    end_silence_ms: int = 0,
     chunk_pause_ms: int = 700,
     log: Callable[[str], None] = print,
     cancel_check: Optional[Callable[[], bool]] = None,
@@ -746,6 +756,10 @@ def qwen3_file_to_mp3(
 
     The keyword-only seams (``python``, ``script``, ``jobs_root``, ``env``, ``encoder``, ``availability``) exist for
     the offline tests; production passes none of them.
+
+    **No closing pause (v0.7.0 Q1).** ``chunk_pause_ms`` separates chunks and nothing follows the last one.
+    ``end_silence_ms`` is retained only so existing callers keep working; whatever is passed, no closing silence is
+    added. The final-tail policy then shortens the model's own trailing near-silence.
     """
     src = Path(source_path)
     if not src.exists():
@@ -809,9 +823,10 @@ def qwen3_file_to_mp3(
             audio, rate = _collect_chunks(job_dir / "chunks", run.chunk_events, len(chunks))
             _raise_if_cancelled(cancel_check)
             log("  Assembling Qwen3 audio...")
-            pcm, report = assemble(audio, rate, chunk_pause_ms=chunk_pause_ms, end_silence_ms=end_silence_ms)
+            pcm, report = assemble(audio, rate, chunk_pause_ms=chunk_pause_ms, end_silence_ms=0)
             _raise_if_cancelled(cancel_check)
-            publish_mp3(pcm, rate, output_mp3_path, bitrate, work_dir=job_dir, cancel_check=cancel_check, encoder=encoder)
+            publish_mp3(pcm, rate, output_mp3_path, bitrate, work_dir=job_dir, cancel_check=cancel_check, encoder=encoder,
+                        log=log)
             log(f"Qwen3: saved -> {output_mp3_path} ({report['speech_samples'] / rate:.1f} s of speech)")
         except Qwen3Failed as exc:
             record_failure(job_dir, str(exc))

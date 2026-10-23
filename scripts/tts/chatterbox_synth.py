@@ -69,6 +69,7 @@ import soundfile as sf
 from pydub import AudioSegment
 
 from shared import ffmpeg_utils
+from tts import audio_tail
 from tts.speech.document import read_source_text
 from tts.voice_registry import reference_recording_filename
 from tts.speech.pipeline import prepare
@@ -1308,17 +1309,23 @@ def _synthesize_chunk(model, chunk: str, cancel_check=None,
 
 
 def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
-                bitrate: str | None = None) -> None:
+                bitrate: str | None = None, log: Callable[[str], None] | None = None) -> None:
     """Write assembled PCM out as the one and only lossy generation.
 
     The contract comes from :func:`shared.ffmpeg_utils.mp3_export_options` rather
     than from ffmpeg's defaults — see that module for why a defaulted export
     produced files whose advertised duration was half their real length.
+
+    The v0.7.0 final-tail policy (:mod:`tts.audio_tail`) runs here, on the finished
+    PCM, so no route through this encoder can publish a closing pause.
     """
+    tail = audio_tail.apply_final_tail_policy(arr, sample_rate)
+    if log is not None:
+        log(f"  {tail.summary()}")
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
         tmp_wav_path = tmp_wav.name
     try:
-        sf.write(tmp_wav_path, arr, sample_rate)
+        sf.write(tmp_wav_path, tail.pcm, sample_rate)
         AudioSegment.from_wav(tmp_wav_path).export(
             output_path, **ffmpeg_utils.mp3_export_options(bitrate))
     finally:
@@ -1403,14 +1410,14 @@ def synthesize_text_to_mp3(
     if arr.size == 0:
         raise ChatterboxUnavailable(
             f"Chatterbox produced no audio for voice '{voice_id}'.")
-    _export_mp3(arr, model.sr, output_path, bitrate)
+    _export_mp3(arr, model.sr, output_path, bitrate, log=log)
 
 
 def chatterbox_file_to_mp3(
     source_path: str,
     output_mp3_path: str,
     voice_id: str,
-    end_silence_ms: int = 3000,
+    end_silence_ms: int = 0,
     chunk_pause_ms: int = 50,
     log: Callable[[str], None] = print,
     cancel_check: Callable[[], bool] | None = None,
@@ -1434,6 +1441,11 @@ def chatterbox_file_to_mp3(
     second generation cost **5.67 dB** of SNR against the source PCM at the
     bitrate it was actually using. Holding the chunks as arrays costs a few tens
     of MB for a chapter and removes the loss entirely.
+
+    **No closing pause (v0.7.0 Q1).** ``chunk_pause_ms`` separates rendered chunks
+    and nothing follows the last one. ``end_silence_ms`` is retained only so
+    existing callers keep working; whatever is passed, no closing silence is added.
+    The final-tail policy then shortens the model's own trailing near-silence.
     """
     src = Path(source_path)
     if not src.exists():
@@ -1478,10 +1490,11 @@ def chatterbox_file_to_mp3(
                 progress_callback(idx, len(chunks))
             continue
 
-        # Same order as before: every rendered chunk is followed by the pause.
-        rendered.append(arr)
-        if gap.size:
+        # The pause goes *between* rendered chunks (Q1): a skipped chunk adds none,
+        # and nothing follows the last chunk that actually rendered.
+        if rendered and gap.size:
             rendered.append(gap)
+        rendered.append(arr)
         if progress_callback is not None:
             progress_callback(idx, len(chunks))
 
@@ -1489,9 +1502,6 @@ def chatterbox_file_to_mp3(
         raise ChatterboxUnavailable("Chatterbox produced no audio segments.")
 
     log("  Assembling Chatterbox audio…")
-    if end_silence_ms > 0:
-        rendered.append(np.zeros(int(model.sr * end_silence_ms / 1000.0),
-                                 dtype="float32"))
-    _export_mp3(np.concatenate(rendered), model.sr, output_mp3_path, bitrate)
+    _export_mp3(np.concatenate(rendered), model.sr, output_mp3_path, bitrate, log=log)
 
     log(f"Chatterbox: saved → {output_mp3_path}")
