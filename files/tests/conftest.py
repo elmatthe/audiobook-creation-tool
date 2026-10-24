@@ -80,6 +80,9 @@ _GUARDED_PATHS = {
                                       / "state.json"),
     "the real Qwen3 local transcripts": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                          / "transcripts.json"),
+    # v0.7.0 P03D: a developer's choice to narrate a clone with a local transcript.
+    "the real Qwen3 transcript selection": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
+                                            / "transcript-selection.json"),
     "the real Qwen3 model folder": (REPO_ROOT / "files" / "runtime-data" / "models"
                                     / "qwen3-tts"),
     "the real Qwen3 job folder": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
@@ -100,7 +103,8 @@ _PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof", "th
                      "the real FFmpeg staging tree",
                      "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
                      "the real Qwen3 install record",
-                     "the real Qwen3 local transcripts", "the real Qwen3 model folder",
+                     "the real Qwen3 local transcripts", "the real Qwen3 transcript selection",
+                     "the real Qwen3 model folder",
                      "the real Qwen3 job folder", "the real Qwen3 failure record")
 
 
@@ -429,6 +433,27 @@ def _no_real_qwen3_install(monkeypatch):
     # converting on this machine. The production name is asserted by name in test_qwen3_runtime.
     monkeypatch.setattr(importlib.import_module("tts.qwen3_runtime"), "MACHINE_GUARD_NAME",
                         f"AudiobookCreationTool-Qwen3-TEST-{os.getpid()}")
+
+
+DEVELOPER_CONFIG = "[development]\ndeveloper_mode = true\n"
+
+
+@pytest.fixture()
+def developer_mode(tmp_path_factory, monkeypatch):
+    """Developer mode on for one test, through the REAL loader reading a disposable ``config.toml`` (v0.7.0 P03D).
+
+    The tracked root ``config.toml`` is never edited: the process-wide snapshot is replaced by one built from a fixture
+    file holding a genuine TOML ``true``, and monkeypatch restores the original snapshot afterwards. Returns the
+    snapshot. Every other test runs on the tracked file, which the repository gate requires to say ``false``.
+    """
+    from shared import config
+
+    folder = tmp_path_factory.mktemp("developer-config")
+    (folder / "config.toml").write_text(DEVELOPER_CONFIG, encoding="utf-8")
+    snapshot = config.load(config_path=folder / "config.toml", settings_data={}, repo_root=folder)
+    assert snapshot.development.developer_mode is True and not snapshot.diagnostics
+    monkeypatch.setattr(config, "_cache", snapshot)
+    return snapshot
 
 
 @pytest.fixture(scope="session")

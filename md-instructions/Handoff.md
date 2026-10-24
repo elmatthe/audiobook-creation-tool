@@ -2,6 +2,49 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P03D: typed developer mode (shipped false) gates the reference-transcript tools in UI and backend; deliberate, hash-bound local override; P03 full gate; NEXT is review, then P04A only when authorised (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.3 (config contract) and §6 / P03D (owner task "Execute P03D: Developer Mode, Transcript Tool Gating and Full P03
+Verification"). HOME-PC, branch `feature/0.7.0-release-remediation`, parent `791cb21`. Identity stays 0.6.6. Not merged, tagged or packaged.
+Decision: Decisions 2026-10-24 (P03D).
+
+- **Done:** `config.toml` `[development] developer_mode = false` (documented: TOML-only, restart after editing). `shared/config.py` accepts only
+  a TOML boolean; missing/invalid → false + diagnostic; `EffectiveConfig.development` + source tracking; `config.developer_mode()`. Not a
+  settings overlay, no environment shortcut, never written by the app. `verify.py` config gate and `release.py` (source and each archive member)
+  require an explicit `false`.
+- **Normal mode:** no transcript-tool button; the clone dialog will not build; `qwen3_runtime.require_developer_mode()` guards every
+  restricted path (explicit `override=`, `ACT_QWEN3_TRANSCRIPTS`, selection, recognizer install, drafts, approve, store write,
+  select/clear); `qwen3_transcript_review.py build/apply/status --store` and `voice_previews.py --provisional-transcripts` refuse. Presets,
+  installation/repair and the six bundled clones are unchanged; nothing checks or downloads Whisper.
+- **Developer mode:** one "Developer tools → Reference transcripts..." entry reusing the existing workflow; new explicit "4. Narrate with my
+  approved texts..." (confirmed) / "Use the shipped texts". Private `files/runtime-data/qwen3/transcript-selection.json` binds voice id +
+  recording hash + text hash (no text, no path). A stale, changed, unbound or damaged selection fails that clone closed (never the bundle).
+  Selecting keeps unsaved edits; a failed save keeps the previous file.
+- **Tests:** new `test_developer_mode.py` (78: matrix A–O incl. AST guards on environment reads and the single gate). Packaging: 7 refusal
+  cases + archive-member check + committed-file pin; fixture repo now ships `false`; `tomllib` added to the packager's import allowlist.
+  Developer-mode opt-in via the conftest `developer_mode` fixture (real loader, disposable TOML) for `test_qwen3_clone_setup.py` and
+  `test_qwen3_transcript_review.py` (module-wide, both wholly developer workflows) and the named override/provisional tests in
+  `test_qwen3_runtime`, `test_bundled_clone_transcripts`, `test_voice_previews`. Replaced contract (P03C → P03D, old = negative control):
+  the variable no longer names the store in normal mode. Conftest guards the real selection file too.
+- **Negative controls:** 39 mutations, all killed (two first survived because a second guard masked them; the tests were strengthened
+  and both then killed); restored byte-exact. P03C's equivalent "strip on return" mutation was reviewed and is still equivalent (outer
+  whitespace is refused, also on the new selection path); its contract is unchanged.
+- **Verification:** first P03 full gate `verify/P03D-791cb21-20261024T160029Z` **FAILED**, 1 of 11,078:
+  `test_application_source_boundary` caught my new guard walking `scripts/` with a raw `rglob` (it also read the untracked local
+  `scripts/project-status.py`); fixed to `source_probe.application_python_files`. In the same run Smart App Control blocked
+  `.venv/.../thinc/layers/sparselinear.cp312-win_amd64.pyd` (16:06:05Z, Code Integrity 3033/3077), so the Kokoro real-proof test
+  skipped (62 skips vs 61 at P02B). That is environmental and transient (it imports and passes afterwards); protection was not touched.
+  The rerun on the corrected tree and the focused counts are in `checkpoints/P03D.md`; this block is written before that rerun so the
+  committed tree is the tested tree.
+- **Assets:** bundle `dd953523…7429` byte-identical; six reference WAVs = registered hashes; 28 preview WAVs match `previews.json`; no live
+  local store or selection on HOME-PC; nothing private staged.
+- **Open:** P01B/P01C owner listening and combined 28-voice listening **NOT RUN/OPEN**; clone preview WAVs still from provisional drafts (not
+  regenerated); a developer-mode UI walk-through on a real display is an owner acceptance item; stray 0-byte private review file (P03B
+  Minor) untouched; earlier carried items unchanged (launcher "— ready." after a failed tool load, long stems in engine temp paths, Andrew
+  `NoAudioReceived`, −58 dBFS trim, WinError 206 / AUD-004, -005, -008, -009).
+- **Evidence (ignored):** `checkpoints/P03D.md`, `p03d/` (focused logs/JUnit, `mutation.json`, `mutation-rerun.json`, `asset-hashes.json`).
+- **Next:** review of P03D, then P04A only when authorised.
+
 ## CURRENT STATE — v0.7.0 P03C: the six owner-approved clone transcripts ship as `scripts/tts/data/bundled_clone_transcripts.json`; narration trusts only that verified bundle; NEXT is P03D only when authorised (2026-10-24, Claude Code)
 
 Authority: owner approval 2026-10-24 of review file `48f5dbef…c236` (4,334 B), publication of the six texts only in the bundle with only the five

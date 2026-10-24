@@ -342,8 +342,10 @@ def test_a_missing_or_changed_reference_blocks_a_clone_with_its_own_message(sand
 
 
 def test_an_explicit_local_store_is_accepted_only_when_approved_literally_and_bound_to_the_recording(sandbox,
-                                                                                                     monkeypatch):
-    """The maintainer's override reader (v0.7.0 P03C): the same strict rules as the v0.6.7 local loader, one named file."""
+                                                                                                     monkeypatch,
+                                                                                                     developer_mode):
+    """The maintainer's override reader (v0.7.0 P03C): the same strict rules as the v0.6.7 local loader, one named file.
+    Developer mode only since P03D (``test_developer_mode`` pins the normal-mode refusal)."""
     voice = install_clone_fixture(sandbox, monkeypatch)
     path = rt.local_transcripts_path()
 
@@ -375,7 +377,9 @@ def test_an_explicit_local_store_is_accepted_only_when_approved_literally_and_bo
 
 
 def test_normal_resolution_reads_the_bundle_never_the_environment_or_local_store(sandbox, monkeypatch, tmp_path):
-    """v0.7.0 P03C (Q8/Q35) replaces the v0.6.7 rule "the ACT_QWEN3_TRANSCRIPTS file wins, then the local file"."""
+    """v0.7.0 P03C (Q8/Q35) replaces the v0.6.7 rule "the ACT_QWEN3_TRANSCRIPTS file wins, then the local file"; P03D
+    replaces "the variable still names the maintainer's store" with: in normal mode it names nothing and ``override=`` is
+    refused (old behaviour = the negative control in the developer-mode test below)."""
     voice = install_clone_fixture(sandbox, monkeypatch)
     install_bundle(sandbox, monkeypatch)
     write_transcripts(rt.local_transcripts_path(), voice, text="from the local file")
@@ -383,10 +387,25 @@ def test_normal_resolution_reads_the_bundle_never_the_environment_or_local_store
     write_transcripts(override, voice, text="from the override")
     assert rt.local_store_path() == rt.local_transcripts_path()
     monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(override))
-    assert rt.local_store_path() == override  # where the maintainer tools keep their store ...
-    assert rt.load_transcript(voice.voice_id).text == "bundled words for Male-1"  # ... is never what narration reads
-    assert rt.load_transcript(voice.voice_id, override=override).text == "from the override"  # only when named
+    assert not rt.developer_mode()  # the tracked config.toml ships false
+    assert rt.local_store_path() == rt.local_transcripts_path()  # normal mode ignores the variable (P03D)
+    assert rt.load_transcript(voice.voice_id).text == "bundled words for Male-1"  # narration reads only the bundle
+    refused = rt.load_transcript(voice.voice_id, override=override)
+    assert not refused.ok and refused.text == "" and refused.reason == rt.DEVELOPER_MODE_REQUIRED
     assert rt.load_transcript("qwen3-aiden") == rt.Transcript(True, "", "not needed")
+
+
+def test_in_developer_mode_the_variable_names_the_store_but_narration_still_needs_a_selection(sandbox, monkeypatch,
+                                                                                             tmp_path, developer_mode):
+    """The v0.7.0 P03C maintainer shape survives only in developer mode, and developer mode alone selects nothing."""
+    voice = install_clone_fixture(sandbox, monkeypatch)
+    install_bundle(sandbox, monkeypatch)
+    override = tmp_path / "elsewhere" / "dev-transcripts.json"
+    write_transcripts(override, voice, text="from the override")
+    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(override))
+    assert rt.local_store_path() == override  # where the maintainer tools keep their store ...
+    assert rt.load_transcript(voice.voice_id).text == "bundled words for Male-1"  # ... is not what narration reads
+    assert rt.load_transcript(voice.voice_id, override=override).text == "from the override"  # only when named
 
 
 def test_the_only_tracked_transcript_file_is_the_shipped_bundle():

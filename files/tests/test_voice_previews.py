@@ -488,8 +488,9 @@ def test_unavailable_reason_asks_the_apps_own_availability_and_never_substitutes
     assert asked == [("qwen3", "qwen3-male-2"), ("cbx", "chatterbox-male-3")]  # each asks only its own engine, for its own voice
 
 
-def test_a_clone_preview_cannot_be_made_without_an_approved_reference_bound_transcript(tmp_path):
+def test_a_clone_preview_cannot_be_made_without_an_approved_reference_bound_transcript(tmp_path, developer_mode):
     """An explicitly named local store keeps the strict rule: an unapproved or unbound draft is not a transcript.
+    Naming a store is developer-only since v0.7.0 P03D.
 
     (Since v0.7.0 P03C the generator's clones use the shipped bundle, exactly like the app; see the provisional test.)
     """
@@ -968,7 +969,7 @@ def drafts_file(tmp_path):
     return path
 
 
-def test_the_provisional_drafts_must_be_bound_to_the_registered_recordings(drafts_file):
+def test_the_provisional_drafts_must_be_bound_to_the_registered_recordings(drafts_file, developer_mode):
     texts = vp.provisional_transcripts(drafts_file)
     assert sorted(texts) == sorted(CLONE_IDS) and texts["qwen3-male-2"] == "Provisional words for Male-2."
     data = json.loads(drafts_file.read_text("utf-8"))
@@ -985,7 +986,7 @@ def test_the_provisional_drafts_must_be_bound_to_the_registered_recordings(draft
         vp.provisional_transcripts(drafts_file.with_name("missing.json"))
 
 
-def test_the_provisional_loader_answers_only_for_its_voices_and_only_inside_the_with(tmp_path):
+def test_the_provisional_loader_answers_only_for_its_voices_and_only_inside_the_with(tmp_path, developer_mode):
     from tts import qwen3_runtime as rt
 
     original = rt.load_transcript
@@ -1008,7 +1009,8 @@ def test_the_provisional_loader_answers_only_for_its_voices_and_only_inside_the_
     assert rt.load_transcript is original  # restored even when the synthesis fails
 
 
-def test_a_provisional_run_makes_clones_labels_them_and_never_writes_an_approval(folder, monkeypatch, drafts_file, tmp_path):
+def test_a_provisional_run_makes_clones_labels_them_and_never_writes_an_approval(folder, monkeypatch, drafts_file, tmp_path,
+                                                                                  developer_mode):
     from tts import qwen3_runtime as rt
 
     seen = []
@@ -1053,7 +1055,7 @@ def test_without_the_flag_a_clone_still_needs_a_real_approval_and_stays_pending(
     assert record_of("qwen3-female-2", data)["preview"]["status"] == vp.PREVIEW_PENDING
 
 
-def test_a_provisional_run_still_refuses_what_the_machine_cannot_make(folder, monkeypatch, drafts_file):
+def test_a_provisional_run_still_refuses_what_the_machine_cannot_make(folder, monkeypatch, drafts_file, developer_mode):
     reset_clones_to_pending(folder)
     monkeypatch.setattr(vp, "PROVISIONAL_DRAFTS", drafts_file)
     monkeypatch.setattr(vp, "synthesize", lambda *a: pytest.fail("an engine ran"))

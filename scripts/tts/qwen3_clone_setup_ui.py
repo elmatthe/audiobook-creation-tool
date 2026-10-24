@@ -1,12 +1,16 @@
-"""qwen3_clone_setup_ui.py — the "Set up cloned voices" dialog: the maintainer's local transcript workflow for the six clones.
+"""qwen3_clone_setup_ui.py — "Developer tools → Reference transcripts": the maintainer's local transcript workflow.
 
-The app ships the six approved transcripts (v0.7.0 P03C), so normal use needs nothing here; what this dialog approves is kept
-in a local store that narration never reads. Reached from "Install / repair Qwen3 voices" once the Base model is installed.
-Three steps, each only when the user asks (``tts.qwen3_clone_setup`` has the rules):
+The app ships the six approved transcripts (v0.7.0 P03C), so normal use needs nothing here. Since v0.7.0 P03D the dialog is a
+developer tool: it is reachable from "Install / repair Qwen3 voices" only when ``config.toml`` sets ``developer_mode = true``,
+and :func:`build_dialog` refuses to open otherwise. Each step runs only when the user asks (``tts.qwen3_clone_setup`` has the
+rules, and refuses outside developer mode too):
 
 1. "Install speech recognizer" -- the size is shown and confirmed before anything is downloaded;
 2. "Create drafts" -- the six bundled recordings are transcribed on this computer; nothing is approved by this;
-3. per voice: play the recording, correct the text, tick "I listened", then "Approve ticked voices".
+3. per voice: play the recording, correct the text, tick "I listened", then "Approve ticked voices" (local store only);
+4. "Narrate with my approved texts" -- confirmed first; narration on this computer then uses those local texts for the
+   approved voices, bound to their recording and text hashes, until "Use the shipped texts" undoes it. The shipped bundle is
+   never changed.
 
 Like ``qwen3_install_ui`` the work runs on one worker thread (:class:`TranscriptSession`, no Tk) and the window drains its
 queue on the main thread, so the logic is testable without a display and :func:`build_dialog` returns without waiting.
@@ -26,6 +30,11 @@ from tts.qwen3_install_ui import POLL_MS, SetupSession, _ask_yes_no
 
 STATE_WORDS = {qt.STATE_APPROVED: "Approved", qt.STATE_DRAFT: "Draft: listen, correct, approve",
                qt.STATE_MISSING: "No transcript yet", qt.STATE_STALE: "Made for a different recording: create a new draft"}
+#: Added to a row's state when narration on this computer is set to use the local text (developer selection).
+SELECTED_WORDS = " (narration uses this local text)"
+DIALOG_TITLE = "Developer tools → Reference transcripts"
+#: Shown when "Narrate with my approved texts" is pressed before anything is approved. A named constant (see above).
+NOTHING_APPROVED = "Approve a voice's transcript first; only approved local texts can be used for narration."
 #: Shown when Approve is pressed with nothing ticked. A named constant, so a string ``.set()`` literal never names a
 #: voice (``test_voice_labels`` treats one as a persisted voice setting).
 NOTHING_TICKED = "Tick \"I listened\" for each voice you have checked, then approve."
@@ -70,8 +79,11 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
                  style_name: Optional[Callable[[Optional[dict], str], str]] = None,
                  on_change: Optional[Callable[[], None]] = None, player=None) -> tk.Toplevel:
     """Build the dialog and return it without waiting. Exposes ``rows`` (per voice: ``voice_id``, ``text``,
-    ``listened``, ``state_var``, ``btn_play``), ``btn_install``, ``btn_drafts``, ``btn_approve``, ``btn_cancel``,
-    ``btn_close``, ``message_var``, ``poll()`` and ``refresh()`` for tests."""
+    ``listened``, ``state_var``, ``btn_play``), ``btn_install``, ``btn_drafts``, ``btn_select``, ``btn_shipped``,
+    ``btn_approve``, ``btn_cancel``, ``btn_close``, ``message_var``, ``poll()`` and ``refresh()`` for tests.
+
+    Raises :class:`qwen3_setup.SetupError` (no window is created) unless developer mode is on."""
+    qt.require_developer_mode()
     theme = theme or {}
     session = session or TranscriptSession()
     confirm = confirm or _ask_yes_no
@@ -80,7 +92,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
 
     win = tk.Toplevel(parent)
     appearance.apply_native_appearance(win, theme)
-    win.title("Set up cloned voices")
+    win.title(DIALOG_TITLE)
     try:
         win.transient(parent.winfo_toplevel())
     except tk.TclError:
@@ -100,7 +112,9 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         "spoken in that recording. The app already includes those words for all six voices, so nothing here is needed to "
         "use them. This is a maintainer tool: install the speech recognizer, let it draft the six transcripts on this "
         "computer (nothing is sent anywhere), then listen to each recording, correct the text if a word is wrong, tick "
-        "\"I listened\" and approve. What you approve here is kept on this computer and does not change the voices."
+        "\"I listened\" and approve. What you approve here is kept on this computer only. It does not replace the "
+        "transcripts shipped with the app, and narration keeps using those until you deliberately choose \"Narrate with my "
+        "approved texts\"; \"Use the shipped texts\" undoes that."
     )).pack(anchor="w")
 
     actions = ttk.Frame(body, style=st("window"))
@@ -110,6 +124,11 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     win.btn_drafts = ttk.Button(actions, text="2. Create drafts", style=st("button"), command=lambda: _drafts())
     win.btn_install.grid(row=0, column=0, padx=(0, 8))
     win.btn_drafts.grid(row=0, column=1)
+    win.btn_select = ttk.Button(actions, text="4. Narrate with my approved texts...", style=st("button"),
+                                command=lambda: _select())
+    win.btn_shipped = ttk.Button(actions, text="Use the shipped texts", style=st("button"), command=lambda: _shipped())
+    win.btn_select.grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
+    win.btn_shipped.grid(row=1, column=1, sticky="w", pady=(8, 0))
     win.status_var = tk.StringVar(value="")
     ttk.Label(body, textvariable=win.status_var, justify=tk.LEFT, wraplength=640, style=st("label")).pack(
         anchor="w", pady=(8, 0))
@@ -178,26 +197,38 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     def _set(button, enabled: bool) -> None:
         button.configure(state=tk.NORMAL if enabled else tk.DISABLED)
 
+    def show_states() -> None:
+        """Each row's state words, without touching its text or tick (a selection must not discard unsaved edits)."""
+        current = {r.voice_id: r for r in qt.rows()}
+        selected = set(qt.selected_voice_ids())
+        for widgets in win.rows:
+            words = STATE_WORDS[current[widgets["voice_id"]].state]
+            widgets["state_var"].set(words + (SELECTED_WORDS if widgets["voice_id"] in selected else ""))
+
     def load_rows() -> None:
         current = {r.voice_id: r for r in qt.rows()}
         for widgets in win.rows:
             row = current[widgets["voice_id"]]
-            widgets["state_var"].set(STATE_WORDS[row.state])
             widgets["text"].delete("1.0", tk.END)
             widgets["text"].insert("1.0", row.text)
             widgets["listened"].set(False)
+        show_states()
 
     def refresh() -> None:
         running = session.running
         recognizer_ok, recognizer_reason = rt.transcriber_status()
         problem = qt.drafting_problem()
         approved = sum(r.state == qt.STATE_APPROVED for r in qt.rows())
+        selected = len(qt.selected_voice_ids())
         win.status_var.set(("Speech recognizer: installed. " if recognizer_ok else f"{recognizer_reason} ")
-                           + f"{approved} of 6 cloned voices approved.")
+                           + f"{approved} of 6 cloned voices approved locally; "
+                           + (f"{selected} narrate with a local text." if selected else "narration uses the shipped texts."))
         supported = rt.platform_supported()
         _set(win.btn_install, supported and not running and not recognizer_ok)
         _set(win.btn_drafts, not running and problem is None)
         _set(win.btn_approve, not running)
+        _set(win.btn_select, not running)
+        _set(win.btn_shipped, not running and selected > 0)
         _set(win.btn_cancel, running)
         _set(win.btn_close, not running)
 
@@ -242,6 +273,46 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         load_rows()
         refresh()
         win.message_var.set(f"Approved: {', '.join(done)}. These voices are ready to use.")
+        if on_change is not None:
+            on_change()
+
+    def _select() -> None:
+        chosen = [r for r in qt.rows() if r.state == qt.STATE_APPROVED]
+        if not chosen:
+            win.message_var.set(NOTHING_APPROVED)
+            return
+        question = ("Narrate " + ", ".join(r.label for r in chosen) + " with the text you approved here instead of the "
+                    "transcript shipped with the app?\n\nThis applies to this computer only, and only while developer mode "
+                    "is on. The shipped transcripts are not changed; \"Use the shipped texts\" returns to them. If the "
+                    "approved text or the recording changes later, that voice stops until you choose again.")
+        if not confirm(win, "Narrate with my approved texts", question):
+            return
+        try:
+            done = qt.select_for_narration([r.voice_id for r in chosen])
+        except su.SetupError as exc:
+            win.message_var.set(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - shown, never lost in Tk's callback handler
+            win.message_var.set(f"The choice could not be saved ({type(exc).__name__}: {exc}). Nothing was changed.")
+            return
+        show_states()
+        refresh()
+        win.message_var.set(f"Narration on this computer now uses your approved text for: {', '.join(done)}.")
+        if on_change is not None:
+            on_change()
+
+    def _shipped() -> None:
+        try:
+            qt.return_to_shipped()
+        except su.SetupError as exc:
+            win.message_var.set(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            win.message_var.set(f"The choice could not be saved ({type(exc).__name__}: {exc}). Nothing was changed.")
+            return
+        show_states()
+        refresh()
+        win.message_var.set("Narration uses the transcripts shipped with the app again.")
         if on_change is not None:
             on_change()
 

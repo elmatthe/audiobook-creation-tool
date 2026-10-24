@@ -16,6 +16,11 @@ Owner rulings it implements (``md-instructions/Decisions.md``, 2026-10-19, CP6):
   app as curated data (``tts/data/bundled_clone_transcripts.json``). Narration uses only that verified bundle, bound to
   each registered recording's hash; a local store or ``ACT_QWEN3_TRANSCRIPTS`` never shadows it. The local store is
   maintainer tooling, read only when a caller passes it explicitly.
+* v0.7.0 P03D — every local-transcript path is developer-only (``config.toml`` ``[development] developer_mode``, default
+  false). In normal mode an explicit ``override=``, the ``ACT_QWEN3_TRANSCRIPTS`` variable and any selection are refused or
+  ignored. In developer mode a local text is used for narration only after a deliberate per-voice selection
+  (:func:`override_selection_path`) bound to the voice id, the recording's hash and the text's hash; a stale or damaged
+  selection fails that clone closed instead of quietly falling back.
 
 Nothing here downloads, installs or loads a model. That is ``qwen3_setup.py`` (explicit user action) and
 ``qwen3_synth.py`` (a conversion run).
@@ -177,19 +182,53 @@ def worker_script() -> Path:
 
 TRANSCRIPTS_ENV = "ACT_QWEN3_TRANSCRIPTS"
 
+#: What a developer-only transcript operation answers in normal mode (v0.7.0 P03D).
+DEVELOPER_MODE_REQUIRED = ("This is a developer tool for the cloned voices' reference transcripts. It is available only "
+                           "when developer_mode = true is set under [development] in config.toml (restart the app after "
+                           "editing it). The voices themselves need nothing from it.")
+
+
+class DeveloperModeRequired(PermissionError):
+    """A developer-only transcript operation was asked for in normal mode. The message is :data:`DEVELOPER_MODE_REQUIRED`."""
+
+    def __init__(self) -> None:
+        super().__init__(DEVELOPER_MODE_REQUIRED)
+
+
+def developer_mode() -> bool:
+    """``[development] developer_mode`` from ``config.toml`` (v0.7.0 P03D); false whenever it cannot be read as ``true``."""
+    try:
+        from shared import config
+    except ImportError:  # only the GUI side asks; without the app's own modules there is no developer mode
+        return False
+    return config.developer_mode()
+
+
+def require_developer_mode() -> None:
+    """Raise :class:`DeveloperModeRequired` unless developer mode is on. Every restricted transcript operation calls it."""
+    if not developer_mode():
+        raise DeveloperModeRequired()
+
 
 def local_transcripts_path() -> Path:
     return runtime_dir() / "transcripts.json"
 
 
 def local_store_path() -> Path:
-    """The maintainer's local transcript store: the ``ACT_QWEN3_TRANSCRIPTS`` file when set, else the local file.
+    """The maintainer's local transcript store: in developer mode the ``ACT_QWEN3_TRANSCRIPTS`` file when set, else the
+    local file.
 
-    Only the maintainer tools write or read it, and only through an explicit ``load_transcript(..., override=...)``;
-    narration never reads it (v0.7.0 P03C).
+    Only the maintainer tools write or read it, and only in developer mode; narration reads it only for a voice the
+    developer deliberately selected (:func:`override_selection_path`). In normal mode the variable is ignored (P03D).
     """
-    override = os.environ.get(TRANSCRIPTS_ENV)
+    override = os.environ.get(TRANSCRIPTS_ENV) if developer_mode() else None
     return Path(override) if override else local_transcripts_path()
+
+
+def override_selection_path() -> Path:
+    """``files/runtime-data/qwen3/transcript-selection.json``: the developer's deliberate per-voice choice to narrate with a
+    locally approved transcript. Private, untracked, never shipped, read only in developer mode."""
+    return runtime_dir() / "transcript-selection.json"
 
 
 def bundled_transcripts_path() -> Path:
@@ -941,6 +980,8 @@ class Transcript:
     text: str
     reason: str
     source: Optional[Path] = None
+    #: True when the answer comes from (or failed on) a developer's deliberate local selection, not the shipped bundle.
+    developer_override: bool = False
 
 
 MAX_TRANSCRIPT_CHARS = 2000
@@ -1049,27 +1090,120 @@ def bundle_status() -> tuple[bool, str]:
     return True, "ok"
 
 
+OVERRIDE_SCHEMA = 1
+OVERRIDE_TOP_KEYS = frozenset({"schema", "voices"})
+OVERRIDE_ENTRY_KEYS = frozenset({"reference_id", "wav_sha256", "text_sha256"})
+OVERRIDE_MAX_BYTES = 16 * 1024
+
+
+class OverrideSelectionError(ValueError):
+    """The developer's transcript selection file cannot be trusted. The message is a fixed sentence (no file content)."""
+
+
+def read_override_selection(path: Optional[Path] = None) -> dict[str, dict]:
+    """``voice_id -> {"reference_id", "wav_sha256", "text_sha256"}`` from the developer's selection file; ``{}`` if absent.
+
+    The whole file must be exactly ``{"schema": 1, "voices": {...}}`` with one exact entry per selected clone, keyed by its
+    stable voice id; anything else raises :class:`OverrideSelectionError`. Reading this is not using it: callers check
+    developer mode first.
+    """
+    source = Path(path) if path is not None else override_selection_path()
+    damaged = OverrideSelectionError("the developer transcript selection file is damaged; clear it in Developer tools → "
+                                     "Reference transcripts")
+    try:
+        if not os.path.lexists(source):
+            return {}
+        if is_link(source) or not source.is_file() or source.stat().st_size > OVERRIDE_MAX_BYTES:
+            raise damaged
+        data = json.loads(source.read_bytes().decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise damaged from exc
+    if not isinstance(data, dict) or set(data) != OVERRIDE_TOP_KEYS or type(data["schema"]) is not int \
+            or data["schema"] != OVERRIDE_SCHEMA or not isinstance(data["voices"], dict):
+        raise damaged
+    out: dict[str, dict] = {}
+    for voice_id, entry in data["voices"].items():
+        voice = _VOICE_BY_ID.get(voice_id)
+        if voice is None or voice.kind != KIND_CLONE or not isinstance(entry, dict) or set(entry) != OVERRIDE_ENTRY_KEYS:
+            raise damaged
+        if not all(isinstance(entry[key], str) for key in OVERRIDE_ENTRY_KEYS) \
+                or entry["reference_id"] != get_voice(voice_id).reference_name \
+                or not _HEX64.fullmatch(entry["wav_sha256"]) or not _HEX64.fullmatch(entry["text_sha256"]):
+            raise damaged
+        out[voice_id] = dict(entry)
+    return out
+
+
+def _selected_local_transcript(voice: Qwen3Voice) -> Optional[Transcript]:
+    """Developer mode only: the deliberately selected local text for *voice*, ``None`` when it was not selected, or a
+    failed :class:`Transcript` when the selection no longer holds. It never falls back to the bundle."""
+    selection_file = override_selection_path()
+
+    def refused(reason: str, source: Optional[Path] = selection_file) -> Transcript:
+        return Transcript(False, "", reason, source, developer_override=True)
+
+    try:
+        selected = read_override_selection(selection_file).get(voice.voice_id)
+    except OverrideSelectionError as exc:
+        return refused(str(exc))
+    if selected is None:
+        return None
+    if selected["wav_sha256"] != voice.reference_sha256:
+        return refused("the developer transcript selection was made for a different reference recording")
+    store = local_store_path()
+    try:
+        data = json.loads(store.read_text(encoding="utf-8")) if store.is_file() else None
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
+        return refused("the selected local transcript file is missing or could not be read", store)
+    entry = data.get(voice.reference_name)
+    text = entry.get("text") if isinstance(entry, dict) else None
+    if not isinstance(entry, dict) or entry.get("approved") is not True or not isinstance(text, str):
+        return refused("the selected local transcript is no longer approved", store)
+    if entry.get("wav_sha256") != voice.reference_sha256:
+        return refused("the selected local transcript is not bound to the current reference recording", store)
+    problem = _bundle_text_problem(text)
+    if problem:
+        return refused(f"the selected local transcript is unusable ({problem})", store)
+    if transcript_sha256(text) != selected["text_sha256"]:
+        return refused("the selected local transcript changed after it was selected", store)
+    return Transcript(True, text, "developer-selected local transcript", store, developer_override=True)
+
+
 def load_transcript(voice_id: str, *, override: Optional[Path] = None) -> Transcript:
     """The approved reference transcript for one clone, or why there is none. Never approves anything.
 
-    Normal use (no ``override``): the verified bundle shipped with the app, and nothing else — a local store or
-    ``ACT_QWEN3_TRANSCRIPTS`` is never consulted, so stale local state cannot shadow the shipped texts. There is no
-    transcript-free fallback.
+    Normal use (no ``override``, developer mode off): the verified bundle shipped with the app, and nothing else — a
+    local store, ``ACT_QWEN3_TRANSCRIPTS`` or a selection file is never consulted, so stale local state cannot shadow
+    the shipped texts. There is no transcript-free fallback.
+
+    Developer mode (v0.7.0 P03D) changes one thing: a clone the developer deliberately selected
+    (:func:`override_selection_path`) uses its approved local text instead, but only while that text still hashes to the
+    selected digest and is bound to the registered recording; otherwise the clone fails closed. Developer mode alone
+    selects nothing.
 
     ``override`` is a maintainer's explicit choice of one local store (the clone-setup / transcript-review shape:
-    ``{"Female-1": {"text": ..., "approved": true, "wav_sha256": ...}}``). An entry there counts only when ``approved``
-    is the literal ``true`` and it was recorded against exactly the registered recording.
+    ``{"Female-1": {"text": ..., "approved": true, "wav_sha256": ...}}``), refused outside developer mode. An entry
+    there counts only when ``approved`` is the literal ``true`` and it was recorded against exactly the registered
+    recording.
     """
     voice = get_voice(voice_id)
     if voice.kind != KIND_CLONE:
         return Transcript(True, "", "not needed")
     if override is None:
+        if developer_mode():
+            selected = _selected_local_transcript(voice)
+            if selected is not None:
+                return selected
         source = bundled_transcripts_path()
         try:
             return Transcript(True, load_bundle(source)[voice.reference_name], "ok", source)
         except TranscriptBundleError as exc:
             return Transcript(False, "", str(exc), source)
     source = Path(override)
+    if not developer_mode():
+        return Transcript(False, "", DEVELOPER_MODE_REQUIRED, source)
     if not source.is_file():
         return Transcript(False, "", "no approved reference transcript is available in the chosen file", source)
     try:
@@ -1123,6 +1257,10 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
             if not ok:
                 return False, reason
             transcript = load_transcript(voice_id)
+            if not transcript.ok and transcript.developer_override:
+                return False, (f"Setup required for {voice.label}: {transcript.reason}. Select it again or return it to "
+                               "the shipped transcript in Developer tools → Reference transcripts. The other voices are "
+                               "unaffected.")
             if not transcript.ok:
                 return False, (f"Setup required for {voice.label}: {transcript.reason}. Extract a fresh copy of the "
                                "app to restore the files it ships with. The Qwen3 preset voices, Edge, Kokoro and "

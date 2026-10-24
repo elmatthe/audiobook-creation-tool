@@ -7,6 +7,10 @@ Offline: synthetic draft text, a scratch target file. What is pinned:
 * only an explicit ``--write`` of an owner PASS (with "I listened") produces ``approved: true``, bound to the recording's SHA-256,
   in the local untracked transcripts file that the app's own loader then accepts;
 * the Whisper drafts, the recordings and every tracked file are never modified, and no transcript text is echoed in a report.
+
+Since v0.7.0 P03D ``build``, ``apply`` and ``status --store`` are developer-mode operations, so every test here runs in
+developer mode (an isolated fixture ``config.toml``; the tracked one is never edited). ``test_developer_mode`` pins their
+normal-mode refusal and that plain ``status`` (the shipped bundle) works in both modes.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ sys.path.insert(0, str(REPO_ROOT / "files" / "dev-tools"))
 
 import qwen3_transcript_review as review  # noqa: E402
 from tts import qwen3_runtime as rt  # noqa: E402
+
+pytestmark = pytest.mark.usefixtures("developer_mode")
 
 SECRET = "zanzibar marmalade quokka"  # synthetic draft words: must never appear in a report
 

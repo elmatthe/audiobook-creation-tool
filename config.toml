@@ -81,3 +81,21 @@ max_sessions = 30
 # When a folder scan finds more files than this, the application will ask for
 # confirmation before adding them all. Accepted range: 1 to 1000000.
 large_result_warning_threshold = 1000
+
+
+[development]
+# Developer tools. Leave this false: it is what the app ships with, and nothing
+# a normal user does needs it. The six cloned Qwen3 voices already include their
+# reference transcripts, whatever this says.
+#
+# Setting it to true (exactly true, without quotes) shows "Developer tools →
+# Reference transcripts" in "Install / repair Qwen3 voices": the maintainer's
+# local speech-recognizer drafts, review and approval of those transcripts, and a
+# deliberate choice to narrate with a locally approved text on this computer.
+# Nothing is downloaded or transcribed until you ask for it there. Any other
+# value counts as false and is reported.
+#
+# Only this file can switch it on (settings.json and environment variables
+# cannot), and the application never edits it. Restart the application after
+# changing it.
+developer_mode = false

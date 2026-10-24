@@ -17,6 +17,10 @@ byte for byte; each is checked against the SHA-256 the app registered), shows ea
 lets the owner mark PASS or NEEDS CORRECTION. It downloads one decisions file; ``apply`` turns PASS entries into approved
 transcripts. Nothing here approves anything by itself: ``apply`` writes only with ``--write``, only for entries the owner
 marked PASS after saying they listened, and never touches the Whisper drafts, the recordings or any tracked file.
+
+v0.7.0 P03D: ``build``, ``apply`` and ``status --store`` work on local transcripts, so they refuse unless ``config.toml``
+sets ``[development] developer_mode = true`` (the app's own rule, ``tts.qwen3_runtime.require_developer_mode``). Plain
+``status`` reads only the shipped bundle and works in both modes. Recording an approval never changes narration.
 """
 from __future__ import annotations
 
@@ -55,6 +59,13 @@ def _rt():
 def clone_voices() -> list:
     rt = _rt()
     return [v for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE]
+
+
+def require_developer_mode() -> None:
+    """Refuse a local-transcript operation outside developer mode (v0.7.0 P03D)."""
+    rt = _rt()
+    if not rt.developer_mode():
+        raise ReviewError(rt.DEVELOPER_MODE_REQUIRED)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -208,6 +219,7 @@ def render_page(drafts: dict, audio: dict) -> str:
 
 def build(drafts_path: Path = DRAFTS, out: Path = PAGE) -> Path:
     """Write the review page. The recordings are read, hashed against the app's registration and embedded unchanged."""
+    require_developer_mode()
     rt = _rt()
     drafts = load_drafts(drafts_path)
     audio = {}
@@ -287,6 +299,7 @@ def plan_changes(items: list[dict], existing: dict, today: str, *, would: bool =
 def apply(decisions: Path, *, write: bool = False, drafts_path: Path = DRAFTS, target: Path | None = None,
           today: str | None = None) -> list[str]:
     """Check the owner's decisions; with ``write=True`` record them in the local, untracked transcripts file."""
+    require_developer_mode()
     rt = _rt()
     target = Path(target) if target is not None else rt.local_transcripts_path()
     items = read_decisions(decisions, drafts_path)
@@ -314,6 +327,8 @@ def status(target: Path | None = None) -> list[str]:
     """What the app would use (the shipped bundle), or -- with ``target`` -- what one explicitly chosen local store holds."""
     rt = _rt()
     override = Path(target) if target is not None else None
+    if override is not None:
+        require_developer_mode()
     lines = []
     for voice in clone_voices():
         t = rt.load_transcript(voice.voice_id, override=override)

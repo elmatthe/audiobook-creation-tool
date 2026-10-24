@@ -9,6 +9,9 @@ Owner rulings it implements (``Decisions.md``, 2026-10-19, CP6):
   voice panel whenever a Qwen3 voice is selected, and "Check and repair" re-verifies what is installed.
 * Q3/Q4 — it states where Qwen3 will run (GPU or CPU, honestly) and, on a platform where the voices are not yet
   available, offers nothing to install.
+* v0.7.0 P03D — the maintainer's reference-transcript workflow is a developer tool: its button
+  (:data:`DEVELOPER_TOOLS_LABEL`) is created only when ``config.toml`` sets ``developer_mode = true``. Installing,
+  repairing and all eight voices are the same in both modes.
 
 Two layers, so the logic is testable without a display:
 
@@ -31,6 +34,9 @@ from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 
 POLL_MS = 150
+
+#: The one entry point to the reference-transcript tools, shown only in developer mode (v0.7.0 P03D).
+DEVELOPER_TOOLS_LABEL = "Developer tools → Reference transcripts..."
 
 
 # --------------------------------------------------------------------------- #
@@ -142,6 +148,13 @@ def state_lines() -> list[str]:
             ok, reason = rt.bundle_status()
             lines.append("Cloned voice transcripts: included with the app." if ok
                          else f"Cloned voice transcripts: {_short(reason)}")
+            if rt.developer_mode():  # say so whenever a developer's selection, not the bundle, decides (P03D)
+                from tts import qwen3_clone_setup
+
+                selected = qwen3_clone_setup.selected_voice_ids()
+                if selected:
+                    lines.append(f"Developer mode: {len(selected)} cloned voice(s) narrate with a locally selected "
+                                 "transcript on this computer.")
     lines.append(rt.hardware_summary())
     return lines
 
@@ -181,6 +194,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     The returned window exposes what a test needs: ``session``, the buttons (``btn_customvoice``, ``btn_base``,
     ``btn_both``, ``btn_repair``, ``btn_clones``, ``btn_cancel``, ``btn_close``), ``state_var``, ``message_var``, ``progress`` and
     ``poll()`` (one main-thread drain of the worker's queue) / ``refresh()`` (re-read the installed state).
+    ``btn_clones`` is ``None`` unless developer mode is on: in normal mode the button is never created.
 
     ``confirm`` and ``style_name`` are handed in by the host panel (the TTS panel, which has adopted the shared job
     foundation); this module deliberately imports none of that foundation itself. Without ``style_name`` every widget
@@ -226,8 +240,10 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         button.grid(row=0, column=column, padx=(0, 8))
     win.btn_repair = ttk.Button(actions, text="Check and repair", style=st("button"), command=lambda: _repair())
     win.btn_repair.grid(row=1, column=0, sticky="w", pady=(8, 0))
-    win.btn_clones = ttk.Button(actions, text="Set up cloned voices...", style=st("button"), command=lambda: _clones())
-    win.btn_clones.grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
+    win.btn_clones = None
+    if rt.developer_mode():
+        win.btn_clones = ttk.Button(actions, text=DEVELOPER_TOOLS_LABEL, style=st("button"), command=lambda: _clones())
+        win.btn_clones.grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     ttk.Label(body, text=("Nothing is downloaded until you press one of these buttons and confirm. Everything is stored "
                           "inside this app's own folder (the voice engine in .venv-qwen3, the models under "
@@ -259,7 +275,8 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         _set(win.btn_base, enable and not installed["base"])
         _set(win.btn_both, enable and not all(installed.values()))
         _set(win.btn_repair, enable and bool(installed_or_partial_components() or rt.venv_dir().exists()))  # engine-only too
-        _set(win.btn_clones, enable and installed["base"] and rt.environment_status()[0])
+        if win.btn_clones is not None:
+            _set(win.btn_clones, enable and installed["base"] and rt.environment_status()[0])
         _set(win.btn_cancel, running)
         _set(win.btn_close, not running)
 
@@ -303,12 +320,19 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
 
     def _clones() -> None:
         """The maintainer's local transcript workflow for the six clones (its own dialog); normal use needs none."""
+        if not rt.developer_mode():  # the button exists only in developer mode; a stray call is refused too
+            message_var.set(rt.DEVELOPER_MODE_REQUIRED)
+            return
         if open_clones is not None:
             open_clones(win)
         else:
             from tts import qwen3_clone_setup_ui
 
-            qwen3_clone_setup_ui.run_dialog(win, theme=theme, confirm=confirm, style_name=style_name, on_change=on_change)
+            try:
+                qwen3_clone_setup_ui.run_dialog(win, theme=theme, confirm=confirm, style_name=style_name,
+                                                on_change=on_change)
+            except su.SetupError as exc:
+                message_var.set(str(exc))
         refresh()
 
     def poll() -> None:

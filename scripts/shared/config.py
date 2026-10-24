@@ -110,6 +110,7 @@ _SCHEMA: dict[str, frozenset[str]] = {
     "logging": frozenset({"max_sessions"}),
     "importing": frozenset({"large_result_warning_threshold"}),
     "tts": frozenset({"speech_prep"}),
+    "development": frozenset({"developer_mode"}),
 }
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +130,11 @@ DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000
 DEFAULT_SPEECH_PREP = "v1"
 SPEECH_PREP_VALUES: tuple[str, ...] = ("off", "v1")
 
+#: Developer mode (v0.7.0 P03D) exposes the maintainer's reference-transcript tools and lets a developer deliberately
+#: select a reviewed local transcript. It ships ``false``; only a genuine TOML boolean is accepted; it is read from
+#: ``config.toml`` alone (never ``settings.json``, never an environment variable) and takes effect when the app starts.
+DEFAULT_DEVELOPER_MODE = False
+
 MAX_SESSIONS_RANGE = (1, 1000)
 LARGE_RESULT_THRESHOLD_RANGE = (1, 1_000_000)
 
@@ -146,6 +152,7 @@ DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "logging.max_sessions": DEFAULT_MAX_SESSIONS,
         "importing.large_result_warning_threshold": DEFAULT_LARGE_RESULT_WARNING_THRESHOLD,
         "tts.speech_prep": DEFAULT_SPEECH_PREP,
+        "development.developer_mode": DEFAULT_DEVELOPER_MODE,
     }
 )
 
@@ -241,6 +248,12 @@ class TtsConfig:
 
 
 @dataclass(frozen=True)
+class DevelopmentConfig:
+    #: ``True`` only for a literal ``developer_mode = true`` in ``config.toml``; everything else is ``False``.
+    developer_mode: bool = DEFAULT_DEVELOPER_MODE
+
+
+@dataclass(frozen=True)
 class EffectiveConfig:
     """A frozen snapshot. Capture one at run start and it cannot shift underneath."""
 
@@ -252,6 +265,7 @@ class EffectiveConfig:
     sources: Mapping[str, str]
     diagnostics: tuple[Diagnostic, ...]
     tts: TtsConfig = TtsConfig()
+    development: DevelopmentConfig = DevelopmentConfig()
 
     @property
     def has_warnings(self) -> bool:
@@ -455,6 +469,14 @@ class _Builder:
             return
         self.accept(source, key, raw.strip().lower())
 
+    def development_developer_mode(self, source: str, raw: Any) -> None:
+        key = "development.developer_mode"
+        # Exactly a TOML boolean: "true", 1 or "yes" are mistakes, and a mistake must never switch the tools on.
+        if type(raw) is not bool:
+            self.note(source, key, "must be true or false (without quotes); using false", f"got {raw!r}")
+            return
+        self.accept(source, key, raw)
+
 
 _TOML_VALIDATORS = {
     "project.name": _Builder.project_name,
@@ -466,6 +488,7 @@ _TOML_VALIDATORS = {
     "logging.max_sessions": _Builder.logging_max_sessions,
     "importing.large_result_warning_threshold": _Builder.importing_threshold,
     "tts.speech_prep": _Builder.tts_speech_prep,
+    "development.developer_mode": _Builder.development_developer_mode,
 }
 
 
@@ -611,6 +634,7 @@ def load(
         sources=MappingProxyType(dict(builder.sources)),
         diagnostics=tuple(builder.diagnostics),
         tts=TtsConfig(speech_prep=builder.values["tts.speech_prep"]),
+        development=DevelopmentConfig(developer_mode=builder.values["development.developer_mode"] is True),
     )
 
 
@@ -627,6 +651,14 @@ def get_effective() -> EffectiveConfig:
     if _cache is None:
         _cache = load()
     return _cache
+
+
+def developer_mode() -> bool:
+    """Whether this process runs in developer mode: ``development.developer_mode`` of the cached snapshot.
+
+    Read from ``config.toml`` only. The app never writes that file, so a change takes effect when the app is started again.
+    """
+    return get_effective().development.developer_mode is True
 
 
 def invalidate() -> None:

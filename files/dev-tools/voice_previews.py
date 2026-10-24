@@ -21,6 +21,10 @@ Previews are made through the PRODUCTION engine entry points (Kokoro, Chatterbox
 route's own request), with the pauses set to zero and the encode replaced by a lossless 16-bit WAV, so a preview is what
 the app would say, not a different path. A voice's engine is never substituted, and a Qwen3 clone is only generated from
 its owner-approved, reference-bound transcript.
+
+v0.7.0 P03D: ``--provisional-transcripts`` substitutes local drafts, so it refuses unless ``config.toml`` sets
+``[development] developer_mode = true``; and a published preview always records the shipped transcript, so a clone that a
+developer has set to narrate with a local text is refused rather than recorded as owner-approved.
 """
 from __future__ import annotations
 
@@ -558,9 +562,11 @@ def provisional_transcripts(path: Path | None = None) -> dict:
     """``voice_id -> Whisper draft`` for the six clones, each proven bound to the recording the app registered.
 
     Development only. This never approves anything and writes nothing: it only supplies listening-sample text, and a preview made
-    from it is recorded (and labelled in the README) as provisional.
+    from it is recorded (and labelled in the README) as provisional. Developer mode only (v0.7.0 P03D).
     """
     rt = _qwen3_runtime()
+    if not rt.developer_mode():
+        raise PreviewError(rt.DEVELOPER_MODE_REQUIRED)
     try:
         data = json.loads(Path(path or PROVISIONAL_DRAFTS).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -587,6 +593,8 @@ def provisional_loader(texts: dict):
     process sees, and the answer says plainly that it is provisional. Nothing is written to any transcript file or the shipped bundle.
     """
     rt = _qwen3_runtime()
+    if texts and not rt.developer_mode():
+        raise PreviewError(rt.DEVELOPER_MODE_REQUIRED)
     original = rt.load_transcript
 
     def load_transcript(voice_id, *, override=None):
@@ -621,6 +629,9 @@ def transcript_record(voice_id: str, provisional: dict) -> dict:
         return {"status": TRANSCRIPT_PROVISIONAL, "source": PROVISIONAL_SOURCE,
                 "text_sha256": rt.transcript_sha256(provisional[voice_id])}
     transcript = rt.load_transcript(voice_id)
+    if transcript.developer_override:
+        raise PreviewError(f"{voice_id}: narration on this computer is set to a developer-selected local transcript; return "
+                           "it to the shipped transcript before making a preview")
     if not transcript.ok:
         raise PreviewError(f"{voice_id}: no approved transcript to record")
     return {"status": TRANSCRIPT_APPROVED, "text_sha256": rt.transcript_sha256(transcript.text)}

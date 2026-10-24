@@ -23,6 +23,7 @@ import ast
 import hashlib
 import os
 import subprocess
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -90,7 +91,11 @@ def top_level(archive: Path) -> set[str]:
     return {name.split("/", 1)[0] for name in names(archive)}
 
 
-def fake_repo(root: Path) -> Path:
+#: What a shippable root config.toml must state (v0.7.0 P03D); the fixture repository carries it.
+SHIPPABLE_CONFIG = '[project]\nname = "x"\n\n[development]\ndeveloper_mode = false\n'
+
+
+def fake_repo(root: Path, config_text: str = SHIPPABLE_CONFIG) -> Path:
     """A miniature repository carrying every kind of file that must not ship."""
     (root / "scripts" / "shared").mkdir(parents=True)
     (root / "scripts" / "requirements.txt").write_text("pydub==0.25.1\n", encoding="utf-8")
@@ -98,7 +103,7 @@ def fake_repo(root: Path) -> Path:
     (root / "scripts" / "shared" / "version.py").write_text(
         'VERSION = "9.9.9"\n', encoding="utf-8")
     (root / "README.md").write_text("readme\n", encoding="utf-8")
-    (root / "config.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    (root / "config.toml").write_text(config_text, encoding="utf-8")
     (root / "config-template.toml").write_text("# unrelated maintainer file\n", encoding="utf-8")
     for launcher in LAUNCHERS.values():
         (root / launcher).write_text("launcher\n", encoding="utf-8")
@@ -494,6 +499,48 @@ def test_a_staged_but_uncommitted_change_is_refused_too(tmp_path):
     assert run_main(root, tmp_path / "dist") != 0
 
 
+# --------------------------------------------------------------------------- #
+# Developer mode never ships (v0.7.0 P03D)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("config_text", [
+    '[project]\nname = "x"\n',                                              # no [development] section
+    '[project]\nname = "x"\n\n[development]\n',                              # the key is missing
+    '[project]\nname = "x"\n\n[development]\ndeveloper_mode = true\n',       # a developer's local switch
+    '[project]\nname = "x"\n\n[development]\ndeveloper_mode = "false"\n',    # a string is not the boolean
+    '[project]\nname = "x"\n\n[development]\ndeveloper_mode = 0\n',
+    '[project]\nname = "x"\ndevelopment = "developer_mode = false"\n',      # not a section
+    'this is [[ not toml\n',
+], ids=["no-section", "no-key", "true", "string", "integer", "not-a-table", "malformed"])
+def test_a_checkout_that_does_not_ship_developer_mode_false_is_refused(tmp_path, config_text):
+    root = fake_repo(tmp_path / "repo", config_text=config_text)
+    for os_name in OS_NAMES:
+        with pytest.raises(release.ReleaseError, match="config.toml"):
+            build(root, tmp_path / "dist", os_name)
+    assert run_main(root, tmp_path / "dist") != 0
+    assert not list((tmp_path / "dist").glob("*.zip"))
+    assert_no_staging_left(tmp_path / "dist")
+
+
+def test_the_finished_archive_is_checked_for_developer_mode_false_too(tmp_path, monkeypatch):
+    """Not only the source: the config.toml member each archive actually carries is re-read before publication."""
+    root = fake_repo(tmp_path / "repo")
+    seen = []
+    real = release._refuse_developer_mode
+    monkeypatch.setattr(release, "_refuse_developer_mode", lambda data, where: (seen.append((where, data)), real(data, where)))
+    build(root, tmp_path / "dist", "Windows")
+    assert [where for where, _ in seen] == ["the checkout", f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert seen[1][1] == (root / "config.toml").read_bytes()
+    with pytest.raises(release.ReleaseError, match="found True"):
+        real(SHIPPABLE_CONFIG.replace("false", "true").encode("utf-8"), "an archive")
+
+
+def test_the_committed_config_toml_ships_developer_mode_false():
+    """O: the real root file, byte for byte what both archives carry, says exactly ``developer_mode = false``."""
+    release._refuse_developer_mode((REPO_ROOT / "config.toml").read_bytes(), "the repository")
+    data = tomllib.loads((REPO_ROOT / "config.toml").read_text(encoding="utf-8"))
+    assert data["development"] == {"developer_mode": False}
+
+
 def test_a_clean_checkout_builds_both_archives(tmp_path):
     root = fake_repo(tmp_path / "repo")
     (root / "scripts" / "local-helper.py").write_text("x = 2\n", encoding="utf-8")
@@ -699,9 +746,10 @@ def test_the_packager_imports_nothing_from_the_application():
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported.add((node.module or "").split(".")[0])
     # subprocess is for git alone: v0.6.6 Phase 11 packages only committed files. os/tempfile/zlib are the
-    # v0.6.7 no-replace staging, link-based publication and per-member CRC validation.
+    # v0.6.7 no-replace staging, link-based publication and per-member CRC validation; tomllib reads config.toml's
+    # developer_mode (v0.7.0 P03D).
     assert imported <= {"__future__", "subprocess", "sys", "zipfile", "pathlib", "version",
-                        "os", "tempfile", "zlib"}
+                        "os", "tempfile", "zlib", "tomllib"}
 
 
 def test_building_is_not_part_of_application_startup():

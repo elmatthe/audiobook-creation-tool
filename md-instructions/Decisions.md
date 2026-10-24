@@ -4,6 +4,46 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - Developer mode is a typed config.toml boolean, shipped false; the reference-transcript tools and any local override are developer-only
+
+Plan Revision 2 §5.3 config contract and §6 / P03D (owner task "Execute P03D"); recorded by Claude Code.
+
+**Setting.** `config.toml` gains `[development] developer_mode = false`. `shared/config.py` accepts only a genuine TOML boolean
+(`type(raw) is bool`); a missing key or section is the built-in `false`; a string ("true"), number, table, date or malformed file
+resolves to `false` with the normal per-key diagnostic. The typed immutable snapshot carries it as `EffectiveConfig.development.developer_mode`
+with its source layer (`default` or `config.toml`). It is not a `settings.json` overlay (`SETTINGS_OVERLAY` is unchanged, so any settings key
+naming it is reported and ignored), there is no environment-variable shortcut, and the app never writes the TOML. `config.developer_mode()`
+reads the cached snapshot, so an edit takes effect when the app is started again (documented in the TOML). The repository gate
+(`verify.py` config check) fails unless the committed file states `developer_mode = false` explicitly, and the packager refuses a checkout,
+and re-checks each finished archive's own `config.toml` member, unless it says exactly `false`.
+
+**Normal mode (false).** "Install / repair Qwen3 voices" creates no transcript-tool button (`btn_clones is None`); installing, repairing
+and all eight Qwen3 voices are unchanged, and the six clones read only the shipped bundle (P03C). Nothing checks, downloads or runs the speech
+recognizer. Enforcement is in the backend, not only the widget: `qwen3_runtime.require_developer_mode()` (`DeveloperModeRequired`) guards
+every restricted path. `load_transcript(..., override=)` returns a refusal. `ACT_QWEN3_TRANSCRIPTS` is ignored (`local_store_path()` is the
+default file). A selection file is never read. `qwen3_clone_setup` refuses `install_recognizer`, `create_drafts` (through
+`drafting_problem`), `approve`, `write_store`, `select_for_narration` and `return_to_shipped` before touching the store. The clone dialog
+refuses to build. `qwen3_transcript_review.py` refuses `build`, `apply` and `status --store` (plain `status` still reports the bundle), and
+`voice_previews.py` refuses `--provisional-transcripts` and the provisional loader. The calm harness only reads `load_transcript` and needs no
+gate.
+
+**Developer mode (true).** One entry point appears: "Developer tools → Reference transcripts..." (dialog title "Developer tools →
+Reference transcripts"), reusing the existing recognizer-install / local-draft / listen-and-approve workflow and its save-error recovery. The
+dialog states that local approvals do not replace the shipped transcripts. Downloads and transcription still need their own button and
+confirmation. Developer mode alone activates neither the ambient store nor the variable: narration changes only for a clone the developer
+deliberately selects ("4. Narrate with my approved texts...", confirmed; "Use the shipped texts" undoes it). The selection is private state in
+`files/runtime-data/qwen3/transcript-selection.json` (ignored, never packaged): `{"schema": 1, "voices": {<voice_id>: {"reference_id",
+"wav_sha256", "text_sha256"}}}`. It stores no text or path, is keyed by stable voice id, and only an approved local entry for the recording on
+disk can be selected (all or nothing). At use, the local entry must still be literally approved, bound to the registered recording, pass the
+bundle's text rules and hash to the selected digest. Otherwise that clone fails closed with "Developer tools → Reference transcripts" advice and
+never falls back to the bundle. A damaged selection file refuses all six until it is cleared. The bundle file is never written. A preview never
+records a developer-selected text as the shipped one.
+
+**Not changed.** The bundle (`dd953523…7429`, byte-identical), the six reference WAVs, the 28 preview WAVs, speech parameters, P01 tail and
+P02 naming policies, the other engines and tools, version identity 0.6.6.
+
+---
+
 ## 2026-10-24 - The six clone transcripts ship as a curated bundle; narration trusts only that verified bundle
 
 Owner approval 2026-10-24 (plan Revision 2 §5.3 step 5 / P03C, owner rulings Q8, Q13, Q35); recorded by Claude Code.

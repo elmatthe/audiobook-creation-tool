@@ -18,7 +18,9 @@ Checks (all must PASS, else the script exits non-zero):
                    subdirectories. Local archives are not repository inputs.
   5. config      — the committed root config.toml must parse and every key must
                    be valid. The running application deliberately falls back on
-                   a bad value; the repository gate deliberately does not.
+                   a bad value; the repository gate deliberately does not. It
+                   must also state [development] developer_mode = false
+                   (v0.7.0 P03D): developer mode is never committed.
 
 Usage:
     python scripts/verify.py
@@ -295,6 +297,12 @@ def check_config(
             "config",
             f"project.version {effective.project.version!r} != version.py {VERSION!r}",
         )
+    # v0.7.0 P03D: the shipped value is an explicit false. A developer who switched it on locally restores their own
+    # edit before a checkpoint; a deleted line would silently stop documenting the setting.
+    if effective.development.developer_mode:
+        return _fail("config", "developer_mode = true must never be committed; set it back to false under [development]")
+    if effective.source_of("development.developer_mode") != shared_config.SOURCE_TOML:
+        return _fail("config", "config.toml must state developer_mode = false under [development]")
     return _pass(
         "config",
         f"config.toml valid; version {effective.project.version}, "

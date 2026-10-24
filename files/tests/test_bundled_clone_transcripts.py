@@ -273,7 +273,8 @@ def test_a_damaged_bundle_never_falls_back_to_a_valid_local_store(sandbox, bundl
     _assert_all_clones_refused("exactly 6 entries")
 
 
-def test_an_explicit_override_is_the_only_way_to_read_a_local_store(sandbox, monkeypatch):  # noqa: F811
+def test_an_explicit_override_is_the_only_way_to_read_a_local_store(sandbox, monkeypatch, developer_mode):  # noqa: F811
+    """Developer mode (v0.7.0 P03D); in normal mode the same call is refused (``test_developer_mode``)."""
     store = rt.local_transcripts_path()
     _write_store(store, "maintainer words")
     voice = CLONES[0]

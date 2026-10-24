@@ -8,6 +8,9 @@ What is pinned:
 * only the user's own confirmation (text, "I listened", the recording on disk unchanged) writes ``approved: true``, bound to
   the recording's SHA-256, and the app's loader then accepts it;
 * the dialog drives exactly those steps and the install dialog opens it once the Base model is installed.
+
+Since v0.7.0 P03D the whole workflow is a developer tool, so every test here runs in developer mode (an isolated fixture
+``config.toml``; the tracked one is never edited). ``test_developer_mode`` pins the normal-mode refusals and the selection.
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ from tts import qwen3_worker as worker
 from test_qwen3_runtime import (  # noqa: F401
     install_bundle, install_clone_fixture, install_environment, install_model, sandbox)
 from test_tts_importing import tk_root  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("developer_mode")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TINY = {"model.safetensors": b"tiny weights", "config.json": b"{}"}

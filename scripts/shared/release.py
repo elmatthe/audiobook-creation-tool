@@ -58,6 +58,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 import zipfile
 import zlib
 from pathlib import Path
@@ -125,6 +126,24 @@ EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 
 class ReleaseError(RuntimeError):
     """The checkout cannot be packaged as it stands."""
+
+
+def _refuse_developer_mode(config_bytes: bytes, where: str) -> None:
+    """An archive ships ``[development] developer_mode = false`` exactly (v0.7.0 P03D).
+
+    Developer mode exposes the maintainer's transcript tools, so a developer's local ``true`` -- or a file that no
+    longer states the value at all -- must never reach a user. Checked on the source before anything is written and
+    again on the finished archive's own member.
+    """
+    try:
+        data = tomllib.loads(config_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ReleaseError(f"{where}: config.toml cannot be read as TOML ({exc})") from exc
+    section = data.get("development")
+    value = section.get("developer_mode") if isinstance(section, dict) else None
+    if value is not False:
+        raise ReleaseError(f"{where}: config.toml must say developer_mode = false under [development] "
+                           f"(found {value!r}); a release never ships developer mode")
 
 
 def _git(*args: str) -> str:
@@ -222,6 +241,7 @@ def _write_archive(os_name: str, zip_path: Path) -> tuple[list[tuple[str, Path]]
     for required in [entry_file, *root_files]:
         if not required.is_file():
             raise FileNotFoundError(f"Required root file missing: {required}")
+    _refuse_developer_mode((REPO_ROOT / "config.toml").read_bytes(), "the checkout")
     tracked = _tracked_scripts()
     tracked_assets = set(_git("ls-files", "-z", "--", *REFERENCE_ASSETS).split("\0"))
     for name in REFERENCE_ASSETS:
@@ -279,6 +299,7 @@ def _validate_archive(zip_path: Path, written: list[tuple[str, Path]], entry_nam
                     raise ReleaseError(f"{zip_path.name}: member {name} differs from its source")
             if (zf.getinfo(entry_name).external_attr >> 16) != 0o100755:
                 raise ReleaseError(f"{zip_path.name}: the launcher lost its executable mode")
+            _refuse_developer_mode(zf.read("config.toml"), zip_path.name)
     except zipfile.BadZipFile as exc:
         raise ReleaseError(f"{zip_path.name} is not a readable zip: {exc}") from exc
 

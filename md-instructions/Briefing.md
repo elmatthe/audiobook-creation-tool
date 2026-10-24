@@ -25,7 +25,7 @@ release candidate). State at this checkpoint:
   clones narrate at temperature 0.70 / sub-talker 0.80 (`CLONE_GENERATION_REVISION = 1`) with 0.6 s of silence after the reference copy.
 - **Clone transcripts ship with the app (v0.7.0 P03C):** the six owner-approved texts are `scripts/tts/data/bundled_clone_transcripts.json` (bundle revision 1, each bound to
   its recording's SHA-256; generated from the approved review file `48f5dbef…` by `files/dev-tools/clone_transcript_bundle.py`). Narration reads only that verified bundle,
-  never a local store or `ACT_QWEN3_TRANSCRIPTS`; "Set up cloned voices..." is now a maintainer workflow (gated by developer mode at P03D). The previews' Whisper drafts remain provisional.
+  never a local store or `ACT_QWEN3_TRANSCRIPTS`. Since P03D the maintainer workflow is "Developer tools → Reference transcripts...", present only with `[development] developer_mode = true` in `config.toml` (shipped `false`, TOML boolean only, restart to apply); in normal mode its backend steps refuse too, and in developer mode a local text reaches narration only for a clone deliberately selected, bound to voice id + recording and text hashes (`files/runtime-data/qwen3/transcript-selection.json`), failing closed if stale. The previews' Whisper drafts remain provisional.
 - **Reference recordings** are `files/Cloned-Voice-Uploads/Chatterbox - <Female 1 .. Male 4>.wav`, one copy for both engines (moved there at v0.7.0 P03A; the old
   `files/Chatterbox-Voice-Uploads/` keeps only the owner's ignored MP3 originals and is no longer read).
 - **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
@@ -182,6 +182,9 @@ flashing during use.
   stored preference can reach the configuration however it is spelled. Existing user state
   (`last_tool`, remembered dialog directories, voice, bitrate) stays a plain setting and
   deliberately has **no** TOML counterpart.
+  **`[development] developer_mode` (v0.7.0 P03D)** is read from `config.toml` alone: a genuine TOML
+  boolean, default and shipped `false`, never a settings overlay or environment variable;
+  `verify.py` and the packager require the committed/archived file to say `false` explicitly.
   **Every key is validated on its own**, so one bad value never discards a good neighbour, and
   a missing or malformed file can never stop the application from starting: it falls back and
   records a `Diagnostic` (source, key, human-readable fallback, plus technical `detail` kept

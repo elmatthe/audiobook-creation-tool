@@ -15,12 +15,19 @@ originals, and it writes only a local store that narration never reads:
 Everything is stored in the local, untracked store (``qwen3_runtime.local_store_path()``: ``files/runtime-data/qwen3/
 transcripts.json``, or the ``ACT_QWEN3_TRANSCRIPTS`` file), which ``files/runtime-data/`` keeps out of git and out of every
 release archive. It is read back only through an explicit ``load_transcript(..., override=store_path())``.
+
+v0.7.0 P03D: all of this is a **developer tool**. Every step that downloads, transcribes, writes the store or changes the
+narration selection refuses unless ``config.toml`` sets ``[development] developer_mode = true`` -- the hidden button is not
+the only guard. A fourth step exists only there: :func:`select_for_narration` deliberately makes narration on this computer
+use a locally approved text for chosen clones (bound to the voice id, the recording's hash and the text's hash, kept in
+``qwen3_runtime.override_selection_path()``), and :func:`return_to_shipped` undoes it. The shipped bundle never changes.
 No Tk here: ``qwen3_clone_setup_ui`` is the window.
 """
 from __future__ import annotations
 
 import datetime
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,9 +80,18 @@ SAVE_FAILED = ("The approval could not be saved: the transcripts file {name} cou
                "program or out of disk space, then click Approve again.")
 
 
+def require_developer_mode() -> None:
+    """Refuse a developer-only step in normal mode, as the :class:`qwen3_setup.SetupError` every caller already reports."""
+    try:
+        rt.require_developer_mode()
+    except rt.DeveloperModeRequired as exc:
+        raise su.SetupError(str(exc)) from None
+
+
 def write_store(data: dict, path: Optional[Path] = None) -> None:
     """Replace the store atomically. Any filesystem failure becomes a :class:`qwen3_setup.SetupError` (audit ACT67-AUD-007):
-    it used to escape as a raw OSError into the Tk callback, and the user saw nothing at all."""
+    it used to escape as a raw OSError into the Tk callback, and the user saw nothing at all. Developer mode only."""
+    require_developer_mode()
     path = Path(path or store_path())
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,8 +136,9 @@ def recognizer_size() -> int:
 
 def install_recognizer(*, progress=su._noop_progress, cancel_check=None, opener=None, seed_dirs=(),
                        disk_free: Callable[[Path], int] = su.free_bytes) -> su.SetupResult:
-    """Download and verify the pinned speech recognizer (only when the user has asked and confirmed)."""
+    """Download and verify the pinned speech recognizer (only when the user has asked and confirmed). Developer mode only."""
     try:
+        require_developer_mode()
         su.refuse_if_unsupported()
         if rt.transcriber_status()[0]:
             return su.SetupResult(True, "The speech recognizer is already installed.")
@@ -147,6 +164,8 @@ def install_recognizer(*, progress=su._noop_progress, cancel_check=None, opener=
 # --------------------------------------------------------------------------- #
 def drafting_problem() -> Optional[str]:
     """Why drafts cannot be made right now, or ``None``."""
+    if not rt.developer_mode():
+        return rt.DEVELOPER_MODE_REQUIRED
     if not rt.platform_supported():
         return rt.platform_reason()
     ok, reason = rt.environment_status()
@@ -238,8 +257,9 @@ def approve(decisions: dict, *, path: Optional[Path] = None, today: Optional[str
 
     Each approval must say the user listened, carry 1-2000 characters of text, and be for the recording that is on disk now
     (its SHA-256 is checked again). Anything else raises :class:`qwen3_setup.SetupError` and nothing is written. Returns the
-    labels approved.
+    labels approved. Developer mode only; approving never changes what narration uses (see :func:`select_for_narration`).
     """
+    require_developer_mode()
     by_id = {v.voice_id: v for v in clone_voices()}
     data = read_store(path)
     stamp = today or datetime.date.today().isoformat()
@@ -263,3 +283,96 @@ def approve(decisions: dict, *, path: Optional[Path] = None, today: Optional[str
     if approved:
         write_store(data, path)
     return approved
+
+
+# --------------------------------------------------------------------------- #
+# Step 4 (developer mode): narrate with a locally approved text, deliberately
+# --------------------------------------------------------------------------- #
+#: Shown when the selection file cannot be written; the file on disk is still the previous one.
+SELECTION_SAVE_FAILED = ("The choice could not be saved: {name} could not be written ({reason}). Nothing was changed. Check "
+                         "that the app's folder is not read-only, open in another program or out of disk space, then try "
+                         "again.")
+
+
+def _write_selection(voices: dict) -> None:
+    path = rt.override_selection_path()
+    try:
+        if not voices:
+            if os.path.lexists(path):
+                os.remove(path)
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rt.atomic_write_json(path, {"schema": rt.OVERRIDE_SCHEMA, "voices": voices})
+    except (OSError, rt.Qwen3Unavailable) as exc:
+        reason = getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
+        raise su.SetupError(SELECTION_SAVE_FAILED.format(name=path.name, reason=reason)) from exc
+
+
+def _current_selection() -> dict:
+    try:
+        return rt.read_override_selection()
+    except rt.OverrideSelectionError:
+        raise su.SetupError("The developer transcript selection file is damaged. Press \"Use the shipped texts\" to clear "
+                            "it.") from None
+
+
+def selected_voice_ids() -> list[str]:
+    """The clones whose narration on this computer is set to a local text (developer mode; empty otherwise)."""
+    if not rt.developer_mode():
+        return []
+    try:
+        selection = rt.read_override_selection()
+    except rt.OverrideSelectionError:
+        return [v.voice_id for v in clone_voices()]  # unreadable: every clone is refused until it is cleared
+    return [v.voice_id for v in clone_voices() if v.voice_id in selection]
+
+
+def select_for_narration(voice_ids) -> list[str]:
+    """Make narration on this computer use the locally APPROVED text for each of *voice_ids* (developer mode only).
+
+    Each voice must be approved in the local store for the recording on disk now; the choice records the voice id, the
+    recording's hash and the exact text's hash, so a later edit or re-recording refuses that clone instead of using
+    something nobody selected. Anything else raises :class:`qwen3_setup.SetupError` and nothing is written. Returns the
+    labels selected. The shipped bundle is not changed.
+    """
+    require_developer_mode()
+    by_id = {v.voice_id: v for v in clone_voices()}
+    data = read_store()
+    chosen = {}
+    for voice_id in voice_ids:
+        voice = by_id.get(voice_id)
+        if voice is None:
+            raise su.SetupError(f"{voice_id!r} is not one of the six cloned voices.")
+        entry = data.get(voice.reference_name)
+        text = entry.get("text") if isinstance(entry, dict) else None
+        if not isinstance(entry, dict) or entry.get("approved") is not True or not isinstance(text, str) \
+                or entry.get("wav_sha256") != voice.reference_sha256:
+            raise su.SetupError(f"{voice.label}: approve its transcript for the current recording first.")
+        if rt._bundle_text_problem(text):
+            raise su.SetupError(f"{voice.label}: the approved transcript cannot be used ({rt._bundle_text_problem(text)}).")
+        ok, reason = rt.reference_status(voice)
+        if not ok:
+            raise su.SetupError(reason)
+        chosen[voice.voice_id] = {"reference_id": voice.reference_name, "wav_sha256": voice.reference_sha256,
+                                  "text_sha256": rt.transcript_sha256(text)}
+    if not chosen:
+        raise su.SetupError("Choose at least one approved voice.")
+    selection = _current_selection()
+    selection.update(chosen)
+    _write_selection(selection)
+    return [by_id[vid].label for vid in chosen]
+
+
+def return_to_shipped(voice_ids=None) -> None:
+    """Narrate *voice_ids* (default: all six) with the shipped transcripts again by removing them from the selection.
+
+    Developer mode only. A damaged selection file can always be cleared as a whole.
+    """
+    require_developer_mode()
+    if voice_ids is None:
+        _write_selection({})
+        return
+    selection = _current_selection()
+    for voice_id in voice_ids:
+        selection.pop(voice_id, None)
+    _write_selection(selection)
