@@ -12,8 +12,10 @@ Owner rulings it implements (``md-instructions/Decisions.md``, 2026-10-19, CP6):
 
 * Q2 — the two models install independently (CustomVoice enables Aiden and Ryan; Base enables the six clones).
 * Q3/Q4 — Windows first: CPU fallback is stated honestly, and every other platform reports "not yet available".
-* Q5 — the clone transcripts are **never** part of the repository. They are read from a local, untracked file and
-  are accepted only when approved and bound to the exact reference recording.
+* Q8 (v0.7.0 P03C, supersedes the v0.6.7 Q5 local-only rule) — the six owner-approved clone transcripts ship with the
+  app as curated data (``tts/data/bundled_clone_transcripts.json``). Narration uses only that verified bundle, bound to
+  each registered recording's hash; a local store or ``ACT_QWEN3_TRANSCRIPTS`` never shadows it. The local store is
+  maintainer tooling, read only when a caller passes it explicitly.
 
 Nothing here downloads, installs or loads a model. That is ``qwen3_setup.py`` (explicit user action) and
 ``qwen3_synth.py`` (a conversion run).
@@ -178,6 +180,21 @@ TRANSCRIPTS_ENV = "ACT_QWEN3_TRANSCRIPTS"
 
 def local_transcripts_path() -> Path:
     return runtime_dir() / "transcripts.json"
+
+
+def local_store_path() -> Path:
+    """The maintainer's local transcript store: the ``ACT_QWEN3_TRANSCRIPTS`` file when set, else the local file.
+
+    Only the maintainer tools write or read it, and only through an explicit ``load_transcript(..., override=...)``;
+    narration never reads it (v0.7.0 P03C).
+    """
+    override = os.environ.get(TRANSCRIPTS_ENV)
+    return Path(override) if override else local_transcripts_path()
+
+
+def bundled_transcripts_path() -> Path:
+    """The six reference transcripts shipped with the app (tracked under ``scripts/``, so every archive carries it)."""
+    return Path(__file__).resolve().parent / "data" / "bundled_clone_transcripts.json"
 
 
 def reference_path(voice: Qwen3Voice) -> Path:
@@ -928,31 +945,133 @@ class Transcript:
 
 MAX_TRANSCRIPT_CHARS = 2000
 
-
-def transcript_search_paths() -> list[Path]:
-    """An explicit override first (development use), then the local untracked file."""
-    paths: list[Path] = []
-    override = os.environ.get(TRANSCRIPTS_ENV)
-    if override:
-        paths.append(Path(override))
-    paths.append(local_transcripts_path())
-    return paths
+BUNDLE_SCHEMA_VERSION = 1
+BUNDLE_TOP_KEYS = frozenset({"schema_version", "bundle_revision", "entries"})
+BUNDLE_ENTRY_KEYS = frozenset({"reference_id", "voice_id", "wav_sha256", "text", "text_sha256"})
+BUNDLE_MAX_BYTES = 64 * 1024  # six short transcripts; anything larger is not the file the app shipped
+_HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
-def load_transcript(voice_id: str, *, paths: Optional[list[Path]] = None) -> Transcript:
-    """The owner-approved reference transcript for one clone, or why there is none. Never approves anything.
+class TranscriptBundleError(ValueError):
+    """The shipped transcript bundle is missing or not exactly what was approved. The message is a fixed sentence."""
 
-    The accepted shape is the evaluation's ``verified.json``: ``{"Female-1": {"text": ..., "approved": true,
-    "wav_sha256": ...}}``. The first search path that exists is authoritative. An entry counts only when
-    ``approved`` is the literal ``true`` and it was recorded against exactly the registered reference recording —
-    a changed recording needs a fresh verification, never a stale one. There is no transcript-free fallback.
+
+def _reject_duplicate_keys(pairs: list) -> dict:
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise TranscriptBundleError("the reference transcripts shipped with the app are damaged (a repeated field)")
+    return dict(pairs)
+
+
+def _bundle_text_problem(text: str) -> Optional[str]:
+    import unicodedata
+
+    if not text.strip():
+        return "a blank transcript"
+    if len(text) > MAX_TRANSCRIPT_CHARS:
+        return "an implausibly long transcript"
+    if text != text.strip():
+        return "a transcript with leading or trailing spaces"
+    if any(unicodedata.category(ch) == "Cc" for ch in text):
+        return "a transcript with control characters"
+    return None
+
+
+def load_bundle(path: Optional[Path] = None) -> dict[str, str]:
+    """``reference_id -> exact text`` for the six clones, after checking the WHOLE shipped bundle.
+
+    The file must be exactly the approved shape: ``schema_version`` 1, an integer ``bundle_revision`` and exactly six
+    ``entries``, each with exactly ``reference_id``, ``voice_id``, ``wav_sha256``, ``text`` and ``text_sha256``; the six
+    reference ids are the registered clones, each with its registered voice id and recording hash, and each text is
+    non-blank, within the production limit, without outer spaces or control characters, and hashes (UTF-8) to its
+    ``text_sha256``. Anything else raises :class:`TranscriptBundleError` and no clone uses any of it: a damaged shipped
+    file is not trusted in part. The text is returned exactly as stored (no strip, no normalisation). Hashing binds the
+    texts to the recordings; it is integrity, not a publisher signature.
+    """
+    source = Path(path) if path is not None else bundled_transcripts_path()
+    damaged = "the reference transcripts shipped with the app are damaged ({})".format
+    try:
+        if not source.is_file():
+            raise TranscriptBundleError("the reference transcripts shipped with the app are missing")
+        if source.stat().st_size > BUNDLE_MAX_BYTES:
+            raise TranscriptBundleError(damaged("the file is too large"))
+        raw = source.read_bytes()
+    except OSError as exc:
+        raise TranscriptBundleError("the reference transcripts shipped with the app could not be read") from exc
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise TranscriptBundleError(damaged("a byte-order mark"))
+    try:
+        data = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (UnicodeDecodeError, ValueError) as exc:
+        if isinstance(exc, TranscriptBundleError):
+            raise
+        raise TranscriptBundleError(damaged("not valid JSON")) from exc
+    if not isinstance(data, dict) or set(data) != BUNDLE_TOP_KEYS:
+        raise TranscriptBundleError(damaged("unexpected top-level fields"))
+    if type(data["schema_version"]) is not int or data["schema_version"] != BUNDLE_SCHEMA_VERSION:
+        raise TranscriptBundleError(damaged("an unknown schema version"))
+    if type(data["bundle_revision"]) is not int or data["bundle_revision"] < 1:
+        raise TranscriptBundleError(damaged("an invalid bundle revision"))
+    entries = data["entries"]
+    clones = {v.reference_name: get_voice(v.voice_id) for v in QWEN3_VOICES if v.kind == KIND_CLONE}
+    if not isinstance(entries, list) or len(entries) != len(clones):
+        raise TranscriptBundleError(damaged(f"it must hold exactly {len(clones)} entries"))
+    texts: dict[str, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != BUNDLE_ENTRY_KEYS:
+            raise TranscriptBundleError(damaged("an entry with unexpected fields"))
+        if not all(isinstance(entry[key], str) for key in BUNDLE_ENTRY_KEYS):
+            raise TranscriptBundleError(damaged("an entry field that is not text"))
+        voice = clones.get(entry["reference_id"])
+        if voice is None:
+            raise TranscriptBundleError(damaged("an entry for an unknown recording"))
+        if entry["reference_id"] in texts:
+            raise TranscriptBundleError(damaged(f"two entries for {entry['reference_id']}"))
+        if entry["voice_id"] != voice.voice_id:
+            raise TranscriptBundleError(damaged(f"the wrong voice for {entry['reference_id']}"))
+        if entry["wav_sha256"] != voice.reference_sha256:
+            raise TranscriptBundleError(damaged(f"{entry['reference_id']} is bound to a different recording"))
+        problem = _bundle_text_problem(entry["text"])
+        if problem:
+            raise TranscriptBundleError(damaged(f"{problem} for {entry['reference_id']}"))
+        if not _HEX64.fullmatch(entry["text_sha256"]) or entry["text_sha256"] != transcript_sha256(entry["text"]):
+            raise TranscriptBundleError(damaged(f"the transcript for {entry['reference_id']} fails its checksum"))
+        texts[entry["reference_id"]] = entry["text"]
+    return texts
+
+
+def bundle_status() -> tuple[bool, str]:
+    """``(ok, reason)`` for the shipped bundle as a whole. Cheap (one small file), never raises."""
+    try:
+        load_bundle()
+    except TranscriptBundleError as exc:
+        return False, str(exc)
+    return True, "ok"
+
+
+def load_transcript(voice_id: str, *, override: Optional[Path] = None) -> Transcript:
+    """The approved reference transcript for one clone, or why there is none. Never approves anything.
+
+    Normal use (no ``override``): the verified bundle shipped with the app, and nothing else — a local store or
+    ``ACT_QWEN3_TRANSCRIPTS`` is never consulted, so stale local state cannot shadow the shipped texts. There is no
+    transcript-free fallback.
+
+    ``override`` is a maintainer's explicit choice of one local store (the clone-setup / transcript-review shape:
+    ``{"Female-1": {"text": ..., "approved": true, "wav_sha256": ...}}``). An entry there counts only when ``approved``
+    is the literal ``true`` and it was recorded against exactly the registered recording.
     """
     voice = get_voice(voice_id)
     if voice.kind != KIND_CLONE:
         return Transcript(True, "", "not needed")
-    source = next((p for p in (paths if paths is not None else transcript_search_paths()) if p.is_file()), None)
-    if source is None:
-        return Transcript(False, "", "no approved reference transcript is available on this computer")
+    if override is None:
+        source = bundled_transcripts_path()
+        try:
+            return Transcript(True, load_bundle(source)[voice.reference_name], "ok", source)
+        except TranscriptBundleError as exc:
+            return Transcript(False, "", str(exc), source)
+    source = Path(override)
+    if not source.is_file():
+        return Transcript(False, "", "no approved reference transcript is available in the chosen file", source)
     try:
         data = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -1005,10 +1124,9 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
                 return False, reason
             transcript = load_transcript(voice_id)
             if not transcript.ok:
-                return False, (f"Setup required for {voice.label}: {transcript.reason}. Set the cloned voices up once: "
-                               "choose \"Install / repair Qwen3 voices\", then \"Set up cloned voices\" (the app drafts "
-                               "the transcripts on this computer for you to confirm). The Qwen3 preset voices, Edge, "
-                               "Kokoro and Chatterbox are unaffected.")
+                return False, (f"Setup required for {voice.label}: {transcript.reason}. Extract a fresh copy of the "
+                               "app to restore the files it ships with. The Qwen3 preset voices, Edge, Kokoro and "
+                               "Chatterbox are unaffected.")
     except Exception as exc:  # noqa: BLE001 - report it, never crash a panel
         return False, f"This voice could not be checked on this computer ({exc})."
     return True, "ok"

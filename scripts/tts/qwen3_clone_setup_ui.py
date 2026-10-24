@@ -1,7 +1,8 @@
-"""qwen3_clone_setup_ui.py — the "Set up cloned voices" dialog: make the six Qwen3 clones usable, once, in the app.
+"""qwen3_clone_setup_ui.py — the "Set up cloned voices" dialog: the maintainer's local transcript workflow for the six clones.
 
-Reached from "Install / repair Qwen3 voices" once the Base model is installed. Three steps, each only when the user asks
-(``tts.qwen3_clone_setup`` has the rules):
+The app ships the six approved transcripts (v0.7.0 P03C), so normal use needs nothing here; what this dialog approves is kept
+in a local store that narration never reads. Reached from "Install / repair Qwen3 voices" once the Base model is installed.
+Three steps, each only when the user asks (``tts.qwen3_clone_setup`` has the rules):
 
 1. "Install speech recognizer" -- the size is shown and confirmed before anything is downloaded;
 2. "Create drafts" -- the six bundled recordings are transcribed on this computer; nothing is approved by this;
@@ -96,9 +97,11 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
 
     ttk.Label(body, justify=tk.LEFT, wraplength=640, style=st("label"), text=(
         "Each cloned voice copies the speaker of a short recording that comes with the app, and it needs the exact words "
-        "spoken in that recording. Set this up once: install the speech recognizer, let it draft the six transcripts on "
-        "this computer (nothing is sent anywhere), then listen to each recording, correct the text if a word is wrong, tick "
-        "\"I listened\" and approve. Until a voice is approved it stays unavailable.")).pack(anchor="w")
+        "spoken in that recording. The app already includes those words for all six voices, so nothing here is needed to "
+        "use them. This is a maintainer tool: install the speech recognizer, let it draft the six transcripts on this "
+        "computer (nothing is sent anywhere), then listen to each recording, correct the text if a word is wrong, tick "
+        "\"I listened\" and approve. What you approve here is kept on this computer and does not change the voices."
+    )).pack(anchor="w")
 
     actions = ttk.Frame(body, style=st("window"))
     actions.pack(anchor="w", pady=(12, 0))

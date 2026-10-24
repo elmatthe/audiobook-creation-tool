@@ -1,11 +1,14 @@
 """Owner review of the six Qwen3 clone reference transcripts (v0.6.7). Dev-only: never shipped, never imported by the app.
 
 A Qwen3 clone is only ever made from an **owner-approved** transcript of its reference recording, bound to that recording's
-SHA-256 (``tts.qwen3_runtime.load_transcript``). Whisper wrote a draft for each recording; this tool makes the owner's check
-easy and keeps the approval deliberate:
+SHA-256 (``tts.qwen3_runtime.load_transcript``). Since v0.7.0 P03C the app reads only the six approved texts it ships with
+(``scripts/tts/data/bundled_clone_transcripts.json``); the local file this tool writes is a maintainer store the app reads
+only when it is passed explicitly. Whisper wrote a draft for each recording; this tool makes the owner's check easy and keeps
+the approval deliberate:
 
     python files/dev-tools/qwen3_transcript_review.py build            # write the offline review page
-    python files/dev-tools/qwen3_transcript_review.py status           # which clones have an approved transcript
+    python files/dev-tools/qwen3_transcript_review.py status           # which clones the app can use (the shipped bundle)
+    python files/dev-tools/qwen3_transcript_review.py status --store FILE   # the same question for one local store
     python files/dev-tools/qwen3_transcript_review.py apply FILE        # DRY RUN: check the owner's decisions file
     python files/dev-tools/qwen3_transcript_review.py apply FILE --write   # record them in the local, untracked transcripts file
 
@@ -308,11 +311,12 @@ def apply(decisions: Path, *, write: bool = False, drafts_path: Path = DRAFTS, t
 
 
 def status(target: Path | None = None) -> list[str]:
+    """What the app would use (the shipped bundle), or -- with ``target`` -- what one explicitly chosen local store holds."""
     rt = _rt()
-    paths = [Path(target)] if target is not None else None
+    override = Path(target) if target is not None else None
     lines = []
     for voice in clone_voices():
-        t = rt.load_transcript(voice.voice_id, paths=paths)
+        t = rt.load_transcript(voice.voice_id, override=override)
         lines.append(f"{voice.label}: {'approved' if t.ok else 'NOT approved - ' + t.reason}")
     return lines
 
@@ -326,7 +330,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("build")
-    sub.add_parser("status")
+    p_status = sub.add_parser("status")
+    p_status.add_argument("--store", help="check this local transcripts file instead of the shipped bundle")
     p_apply = sub.add_parser("apply")
     p_apply.add_argument("decisions")
     p_apply.add_argument("--write", action="store_true", help="record the decisions (default is a dry run)")
@@ -335,7 +340,7 @@ def main(argv: list[str]) -> int:
         if args.command == "build":
             print(f"Review page: {build()}")
         elif args.command == "status":
-            print("\n".join(status()))
+            print("\n".join(status(Path(args.store) if args.store else None)))
         else:
             print("\n".join(apply(Path(args.decisions), write=args.write)))
     except ReviewError as exc:

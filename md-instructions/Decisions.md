@@ -4,6 +4,55 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - The six clone transcripts ship as a curated bundle; narration trusts only that verified bundle
+
+Owner approval 2026-10-24 (plan Revision 2 §5.3 step 5 / P03C, owner rulings Q8, Q13, Q35); recorded by Claude Code.
+
+**Approval.** The owner personally reviewed and approved the six final Qwen3 clone reference texts in the 4,334-byte private review file with
+SHA-256 `48f5dbeff1e866f94da2b4f93fc91a2842533ed96a5c1b0661605295ab20c236` (not the superseded `c22a9dc5…9b4`), and authorised publishing exactly
+those six texts, only in `scripts/tts/data/bundled_clone_transcripts.json`, with only these fields: top level `schema_version`, `bundle_revision`,
+`entries`; per entry `reference_id`, `voice_id`, `wav_sha256`, `text`, `text_sha256`. No approval record, personal information, original store or
+review artifact is published. The approval does not cover further transcript changes, audio synthesis or P03D. The private review file, the preserved
+store and all review evidence stay ignored.
+
+**Generation.** `files/dev-tools/clone_transcript_bundle.py` (developer only) read the approved file once and refused it unless its SHA-256 equals the
+approved hash. It refused any envelope or entry whose fields were not exactly the expected set, and checked the six registered IDs in order with their
+voice IDs and WAV hashes, each text (non-blank, ≤ 2,000 characters, no outer whitespace or control characters, Male-4 starts with "Hello Arthur.") and
+the six recordings on disk. It then wrote the bundle by exclusive create, copying the texts byte for byte (UTF-8, LF, fixed key order). The model
+never typed or read the texts. The result: bundle revision 1, 3,002 bytes, SHA-256 `dd9535236ca2d09012ffdc1946de78115176dc95902da47e9ae7cdbb51cd7429`. The
+six text digests equal the owner-validated ones (Female-1 `74b8174d…`, Female-2 `dd7cbd39…`, Male-1 `5afea1f7…`, Male-2 `3589fb60…`,
+Male-3 `7be44794…`, Male-4 `a66dcfea…`), and `test_bundled_clone_transcripts.py` pins all six. `--check` mode reproduces the committed file byte for
+byte. `.gitattributes` keeps `scripts/tts/data/*.json` LF on every checkout. Hashing is integrity binding, not a publisher signature.
+
+**Resolution (supersedes the v0.6.7 Q5 "never committed, each user approves locally" rule).** `qwen3_runtime.load_transcript(voice_id)` returns the
+bundle text exactly as stored (no strip, no normalisation) and nothing else: no search path, no `ACT_QWEN3_TRANSCRIPTS`, no local store. A local
+store is read only through an explicit `load_transcript(..., override=path)` (the maintainer tools); `local_store_path()` names where those tools
+keep it. The whole bundle is validated on every read (`load_bundle`): exact top-level and entry field sets, `schema_version` the integer 1, a
+positive integer `bundle_revision`, exactly six entries for the six registered clones with no duplicates, the registered voice ID and recording hash
+for each, text rules as above, and a lowercase `text_sha256` equal to the UTF-8 digest. Duplicate JSON keys, a BOM, invalid UTF-8/JSON and files
+over 64 KiB are refused too. A bundle that fails any check is trusted in no part: all six clones report "Setup required for <label>: the reference
+transcripts shipped with the app are … . Extract a fresh copy of the app to restore the files it ships with." The presets, Edge, Kokoro and
+Chatterbox are unaffected, and nothing falls back to a local store. A recording whose bytes differ from its registered hash still blocks only its own
+clone (Q10, unchanged). A fresh install with the engine, the Base model and the six recordings therefore has six ready clones, with no recognizer, no
+approval and no write.
+
+**Tooling and UI.** The install dialog reports "Cloned voice transcripts: included with the app." (or the bundle problem) instead of a local
+"set up: N of 6" count. "Set up cloned voices…" stays visible until P03D gates it behind developer mode. Its wording and the clone-setup module now
+call it a maintainer workflow whose approvals stay in the local store and do not change the voices. `qwen3_transcript_review.py status` reports the
+bundle, and `status --store FILE` reports one named store. The voice-preview tool's provisional loader takes `override=`, and its README paragraph now says
+the app uses the shipped approved texts (the six clone preview WAVs are unchanged and still labelled provisional). The calm-narration harness already
+used the app's resolution, so it now reads the bundle. The README's "Set up cloned voices" step is removed.
+
+**Packaging.** The packager already ships every tracked file under `scripts/`, so the bundle ships with no packager change. The tests' blanket "no
+member names a transcript" ban becomes a one-path exception for exactly `scripts/tts/data/bundled_clone_transcripts.json`. Near-miss paths and every
+local store, model, environment and log stay refused, and the bundle must appear once in each archive with its committed bytes. A packager-side
+allowlist check stays with P07A.
+
+**Not changed.** Voice identity, recordings (6/6 Appendix A), the 28 preview WAVs, generation parameters, `config.toml` (P03D adds `developer_mode`),
+the extraction helper and the original private store (`8469606c…`, untouched).
+
+---
+
 ## 2026-10-24 - The six clone references live in files/Cloned-Voice-Uploads/, resolved canonical-only; the no-echo extraction helper is tracked developer tooling
 
 Plan Revision 2 §5.3 and §6 / P03A; recorded by Claude Code.

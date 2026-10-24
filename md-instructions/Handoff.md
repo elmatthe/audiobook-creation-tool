@@ -2,6 +2,42 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P03C: the six owner-approved clone transcripts ship as `scripts/tts/data/bundled_clone_transcripts.json`; narration trusts only that verified bundle; NEXT is P03D only when authorised (2026-10-24, Claude Code)
+
+Authority: owner approval 2026-10-24 of review file `48f5dbef…c236` (4,334 B), publication of the six texts only in the bundle with only the five
+entry fields, and P03C implementation/verification (not further transcript changes, synthesis or P03D); plan Revision 2 §5.3 step 5 and §6 / P03C.
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `bcf1677`. Identity stays 0.6.6. Not merged, tagged or packaged. Decision: Decisions
+2026-10-24 (P03C).
+
+- **Done:** `files/dev-tools/clone_transcript_bundle.py` (new, developer only) generated the bundle from the approved file. It refuses any other
+  hash, exact field sets only, registry IDs/voices/WAV hashes, text rules, Male-4 prefix, recordings on disk, exclusive create, metadata-only output,
+  and `--check` re-proves it byte for byte. Bundle revision 1, 3,002 B, `dd953523…7429`, ASCII, LF (`.gitattributes` pins `scripts/tts/data/*.json`
+  LF). The six text digests equal the owner-validated ones. The model never typed or read the texts.
+- **Runtime:** `qwen3_runtime.load_bundle` validates the whole file on each read; `load_transcript(voice_id)` returns the exact bundle text and
+  nothing else (no `ACT_QWEN3_TRANSCRIPTS`, no local store, no fallback). A local store is read only via explicit `override=`;
+  `local_store_path()` replaces `transcript_search_paths()`. A damaged/missing bundle blocks all six clones with "Extract a fresh copy of the app";
+  a changed WAV blocks only its clone. A fresh install with the engine + Base + six WAVs has six ready clones (no recognizer, approval or write).
+- **UI/tooling/docs:** install dialog line "Cloned voice transcripts: included with the app."; clone-setup wording = maintainer workflow (button
+  stays until P03D); transcript-review `status` = bundle, `status --store FILE` = a named store; preview tool `override=` + README paragraph
+  regenerated (preview WAVs unchanged); calm harness now reads the bundle via the app; README drops the "Set up cloned voices" step.
+- **Tests:** new `test_bundled_clone_transcripts.py` (owner-approved digest pins, exact fields/bytes/no private record, 30+ damaged-bundle cases,
+  env/local-store isolation, no fallback, zero-touch fresh install, per-WAV fail closed, repair advice) and `test_clone_transcript_bundle.py`
+  (35 synthetic cases, both review formats, no text on stdout/stderr). Replaced contracts (Q5 → Q8/Q35, old = negative control):
+  `test_qwen3_runtime` (override reader, normal-mode precedence, one tracked transcript file), `test_qwen3_clone_setup` (approvals stay local,
+  narration still bundle, install-dialog line), `test_qwen3_packaging` (blanket transcript ban → exact one-path exception + bundle ships once with
+  committed bytes), `test_voice_previews`, `test_qwen3_transcript_review`, `test_qwen3_calm_harness`.
+- **Verification:** focused 51 modules **2,480 passed / 2 skipped (pre-existing link-privilege) / 0 failed** on the code tree; the re-run on the
+  final tree with these docs is in `checkpoints/P03C.md`. Negative controls: **24/25 mutations killed, 1 equivalent** (strip on return; outer
+  whitespace is already refused), restored byte-exact. No full gate (P03D owns it).
+- **Assets/private data:** six WAVs = Appendix A; 28 preview WAVs unchanged; private store `8469606c…` and approved file `48f5dbef…` unchanged
+  and untracked; no live local store; nothing private staged.
+- **Open:** P01B/P01C owner listening and combined 28-voice listening **NOT RUN/OPEN**; the six clone preview WAVs still come from provisional
+  drafts (not regenerated — synthesis not authorised); stray 0-byte file in the private review folder (P03B Minor) untouched; earlier carried items
+  unchanged (launcher "— ready." after a failed tool load, long stems in engine temp paths, Andrew `NoAudioReceived`, −58 dBFS trim, WinError 206 /
+  AUD-004, -005, -008, -009).
+- **Evidence (ignored):** `checkpoints/P03C.md`, `p03c/` (generate/check reports, focused logs/JUnit, `mutation.json`).
+- **Next:** review of P03C, then P03D (typed developer mode and gated tools) only when authorised.
+
 ## CURRENT STATE — v0.7.0 P03A: six reference WAVs moved to `files/Cloned-Voice-Uploads/` (canonical-only); no-echo extraction helper tracked and synthetic-tested; NEXT is P03B only when authorised (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.3 and §6 / P03A (owner task "Execute P03A: Six-WAV Reference Migration and No-Echo Tooling"). HOME-PC, branch

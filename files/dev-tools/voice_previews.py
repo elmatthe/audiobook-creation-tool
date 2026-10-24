@@ -584,15 +584,15 @@ def provisional_loader(texts: dict):
     """For the duration of one synthesis, let ``load_transcript`` answer with these drafts for exactly these voices.
 
     The production rule is unchanged for every other voice and outside the ``with``: this only changes what the preview tool's own
-    process sees, and the answer says plainly that it is provisional. Nothing is written to the approved-transcripts file.
+    process sees, and the answer says plainly that it is provisional. Nothing is written to any transcript file or the shipped bundle.
     """
     rt = _qwen3_runtime()
     original = rt.load_transcript
 
-    def load_transcript(voice_id, *, paths=None):
+    def load_transcript(voice_id, *, override=None):
         if voice_id in texts:
             return rt.Transcript(True, texts[voice_id], "provisional Whisper draft (NOT owner-approved)")
-        return original(voice_id, paths=paths)
+        return original(voice_id, override=override)
 
     rt.load_transcript = load_transcript
     try:
@@ -710,11 +710,9 @@ def render_readme(data: dict) -> str:
         provisional = [v for v in clones if v["preview"]["transcript"]["status"] == TRANSCRIPT_PROVISIONAL]
         if provisional:
             lines += [f"**{len(provisional)} of the clone previews use a provisional reference transcript:** Whisper's draft of the "
-                      "recording, which the owner has not approved. They are listening samples only. The application still refuses to "
-                      "make a clone without an approved, reference-bound transcript, and these previews do not approve one. In "
-                      "the app, each person sets the cloned voices up once on their own computer (TTS Audiobook, \"Install / "
-                      "repair Qwen3 voices...\", then \"Set up cloned voices...\"): the app drafts each transcript locally, and "
-                      "the person listens, corrects and approves it.", ""]
+                      "recording, not an owner-approved text. They are listening samples only. The application itself makes a clone "
+                      "only from the owner-approved transcript that ships with it (`scripts/tts/data/bundled_clone_transcripts.json`), "
+                      "bound to the recording's SHA-256; these previews neither change nor approve those texts.", ""]
     pending = [v for v in data["voices"] if v["preview"]["status"] == PREVIEW_PENDING and v["rights"]["status"] in AUTHORIZED]
     if pending:
         lines += ["## Pending previews", ""]
@@ -722,12 +720,9 @@ def render_readme(data: dict) -> str:
         clones = [v["voice_id"] for v in pending if v["backend"] == "qwen3"]
         if clones:
             lines += [
-                "", "To finish the pending Qwen3 clones: listen to each reference recording, correct its draft transcript so "
-                "it matches exactly what is spoken, set that entry's `approved` to `true` (with the recording's `wav_sha256`), "
-                "and keep the file at `files/runtime-data/qwen3/transcripts.json` (untracked; or point "
-                "`ACT_QWEN3_TRANSCRIPTS` at it). Then run "
-                f"`python files/dev-tools/voice_previews.py generate {' '.join(clones)}` and commit the new files. "
-                "The transcript itself is never committed.", ""]
+                "", "To finish the pending Qwen3 clones (each uses the owner-approved transcript shipped in "
+                "`scripts/tts/data/bundled_clone_transcripts.json`, exactly as the app does), run "
+                f"`python files/dev-tools/voice_previews.py generate {' '.join(clones)}` and commit the new files.", ""]
         else:
             lines.append("")
     lines += [

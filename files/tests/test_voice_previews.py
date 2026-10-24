@@ -489,7 +489,10 @@ def test_unavailable_reason_asks_the_apps_own_availability_and_never_substitutes
 
 
 def test_a_clone_preview_cannot_be_made_without_an_approved_reference_bound_transcript(tmp_path):
-    """The real availability rule the generator relies on: an unapproved or unbound draft is not a transcript."""
+    """An explicitly named local store keeps the strict rule: an unapproved or unbound draft is not a transcript.
+
+    (Since v0.7.0 P03C the generator's clones use the shipped bundle, exactly like the app; see the provisional test.)
+    """
     from tts import qwen3_runtime as rt
 
     voice = rt.get_voice("qwen3-female-1")
@@ -497,14 +500,14 @@ def test_a_clone_preview_cannot_be_made_without_an_approved_reference_bound_tran
 
     def load(entry):
         path.write_text(json.dumps({voice.reference_name: entry}), encoding="utf-8")
-        return rt.load_transcript("qwen3-female-1", paths=[path])
+        return rt.load_transcript("qwen3-female-1", override=path)
 
     draft = {"text": "draft words", "approved": False, "wav_sha256": voice.reference_sha256}
     assert not load(draft).ok and "not been approved" in load(draft).reason
     assert not load({**draft, "approved": True, "wav_sha256": "0" * 64}).ok  # approved, but for a different recording
     assert not load({**draft, "approved": "true"}).ok  # only the literal true counts
     assert load({**draft, "approved": True}).ok  # the owner's approval, bound to this exact recording
-    assert not rt.load_transcript("qwen3-female-1", paths=[tmp_path / "missing.json"]).ok
+    assert not rt.load_transcript("qwen3-female-1", override=tmp_path / "missing.json").ok
 
 
 def test_a_voice_that_fails_is_reported_and_does_not_lose_the_others(folder, monkeypatch):
@@ -986,14 +989,19 @@ def test_the_provisional_loader_answers_only_for_its_voices_and_only_inside_the_
     from tts import qwen3_runtime as rt
 
     original = rt.load_transcript
-    none = tmp_path / "none.json"  # no approved transcripts anywhere
+    none = tmp_path / "none.json"  # no approved local transcripts anywhere
+    shipped = rt.load_bundle()
     with vp.provisional_loader({"qwen3-male-1": "draft words"}):
         got = rt.load_transcript("qwen3-male-1")
         assert got.ok and got.text == "draft words" and "NOT owner-approved" in got.reason
-        assert not rt.load_transcript("qwen3-male-2", paths=[none]).ok  # every other clone still needs a real approval
+        other = rt.load_transcript("qwen3-male-2")  # every other clone still reads the shipped, approved text
+        assert other.ok and other.reason == "ok" and other.text == shipped["Male-2"]
+        assert not rt.load_transcript("qwen3-male-2", override=none).ok  # and a named store is still strict
         assert rt.load_transcript("qwen3-aiden").ok  # presets need none, as always
     assert rt.load_transcript is original  # restored
-    assert not rt.load_transcript("qwen3-male-1", paths=[none]).ok  # and production approval is exactly as strict as before
+    after = rt.load_transcript("qwen3-male-1")  # and production resolution is exactly as before: the bundle
+    assert after.ok and after.reason == "ok" and after.text == shipped["Male-1"]
+    assert not rt.load_transcript("qwen3-male-1", override=none).ok
     with pytest.raises(RuntimeError):
         with vp.provisional_loader({"qwen3-male-1": "x"}):
             raise RuntimeError("synthesis failed")
@@ -1026,7 +1034,8 @@ def test_a_provisional_run_makes_clones_labels_them_and_never_writes_an_approval
     assert "Provisional words" not in json.dumps(data) and "Provisional words" not in vp.README.read_text("utf-8")
     readme = vp.README.read_text("utf-8")
     assert "(provisional transcript)" in readme and "use a provisional reference transcript" in readme
-    assert "still refuses to make a clone without an approved" in readme
+    assert "makes a clone only from the owner-approved transcript that ships with it" in readme
+    assert "Set up cloned voices" not in readme  # the v0.6.7 per-computer setup is no longer the app's path (P03C)
     assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []
 
 

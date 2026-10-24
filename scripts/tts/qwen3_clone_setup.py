@@ -1,9 +1,9 @@
-"""qwen3_clone_setup.py — setting the six cloned Qwen3 voices up: their reference transcripts, made and confirmed in the app.
+"""qwen3_clone_setup.py — the maintainer's workflow for the six cloned Qwen3 voices' reference transcripts.
 
-A Qwen3 clone is conditioned on its reference recording AND the exact words spoken in it, and the application will only use
-a transcript that the person at this computer has approved for exactly that recording (``qwen3_runtime.load_transcript``:
-``approved`` must be the literal ``true`` and ``wav_sha256`` the registered recording's hash). The transcripts are short
-excerpts of the narrators' books, so they are never shipped (owner ruling Q5): each installation makes its own, here:
+A Qwen3 clone is conditioned on its reference recording AND the exact words spoken in it. Since v0.7.0 (P03C, owner ruling
+Q8) the six owner-approved transcripts ship with the app (``qwen3_runtime.load_bundle``), so a normal installation needs
+nothing from here: narration reads only that verified bundle. This module is the local maintainer workflow that made the
+originals, and it writes only a local store that narration never reads:
 
 1. **Install the speech recognizer** -- the pinned Whisper small.en (``qwen3_models.json``, "transcriber"), downloaded only
    when the user asks, with its size shown first, verified file by file like the voice models.
@@ -12,8 +12,9 @@ excerpts of the narrators' books, so they are never shipped (owner ruling Q5): e
 3. **Confirm** -- the user plays each recording, corrects the text if needed, ticks "I listened" and approves. Only that
    writes ``approved: true``, bound to the recording's SHA-256, with who approved it and when.
 
-Everything is stored in the same local, untracked file the app reads (``files/runtime-data/qwen3/transcripts.json``, or the
-``ACT_QWEN3_TRANSCRIPTS`` override), which ``files/runtime-data/`` keeps out of git and out of every release archive.
+Everything is stored in the local, untracked store (``qwen3_runtime.local_store_path()``: ``files/runtime-data/qwen3/
+transcripts.json``, or the ``ACT_QWEN3_TRANSCRIPTS`` file), which ``files/runtime-data/`` keeps out of git and out of every
+release archive. It is read back only through an explicit ``load_transcript(..., override=store_path())``.
 No Tk here: ``qwen3_clone_setup_ui`` is the window.
 """
 from __future__ import annotations
@@ -48,8 +49,8 @@ def clone_voices() -> list:
 
 
 def store_path() -> Path:
-    """Where transcripts are written: the same file the loader reads (the override, if one is set, else the local file)."""
-    return rt.transcript_search_paths()[0]
+    """Where this workflow keeps its transcripts: the maintainer's local store, never read by narration."""
+    return rt.local_store_path()
 
 
 def read_store(path: Optional[Path] = None) -> dict:

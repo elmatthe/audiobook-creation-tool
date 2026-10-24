@@ -102,6 +102,21 @@ def install_clone_fixture(root: Path, monkeypatch, voice_id: str = "qwen3-male-1
     return patched
 
 
+def install_bundle(root: Path, monkeypatch, texts: dict | None = None) -> Path:
+    """A valid shipped-bundle stand-in for the CURRENT (possibly patched) voice table, used instead of the real one."""
+    clones = [rt.get_voice(v.voice_id) for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE]
+    texts = texts or {v.reference_name: f"bundled words for {v.reference_name}" for v in clones}
+    doc = {"schema_version": 1, "bundle_revision": 1,
+           "entries": [{"reference_id": v.reference_name, "voice_id": v.voice_id, "wav_sha256": v.reference_sha256,
+                        "text": texts[v.reference_name], "text_sha256": _sha(texts[v.reference_name].encode("utf-8"))}
+                       for v in clones]}
+    path = root / "bundle" / "bundled_clone_transcripts.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    monkeypatch.setattr(rt, "bundled_transcripts_path", lambda: path)
+    return path
+
+
 def write_transcripts(path: Path, voice: rt.Qwen3Voice, **overrides) -> None:
     entry = {"text": "synthetic fixture words", "approved": True, "wav_sha256": voice.reference_sha256,
              "approved_by": "unit test"}
@@ -326,15 +341,17 @@ def test_a_missing_or_changed_reference_blocks_a_clone_with_its_own_message(sand
     assert not ok and "does not match" in reason
 
 
-def test_transcript_is_accepted_only_when_approved_literally_and_bound_to_the_recording(sandbox, monkeypatch):
+def test_an_explicit_local_store_is_accepted_only_when_approved_literally_and_bound_to_the_recording(sandbox,
+                                                                                                     monkeypatch):
+    """The maintainer's override reader (v0.7.0 P03C): the same strict rules as the v0.6.7 local loader, one named file."""
     voice = install_clone_fixture(sandbox, monkeypatch)
     path = rt.local_transcripts_path()
 
-    assert not rt.load_transcript(voice.voice_id).ok  # no file at all
-    assert "no approved reference transcript" in rt.load_transcript(voice.voice_id).reason
+    assert not rt.load_transcript(voice.voice_id, override=path).ok  # no file at all
+    assert "no approved reference transcript" in rt.load_transcript(voice.voice_id, override=path).reason
 
     write_transcripts(path, voice)
-    ok = rt.load_transcript(voice.voice_id)
+    ok = rt.load_transcript(voice.voice_id, override=path)
     assert ok.ok and ok.text == "synthetic fixture words" and ok.source == path
 
     for bad, why in [({"approved": False}, "not been approved"),
@@ -346,35 +363,38 @@ def test_transcript_is_accepted_only_when_approved_literally_and_bound_to_the_re
                      ({"text": None}, "empty"),
                      ({"text": "x" * (rt.MAX_TRANSCRIPT_CHARS + 1)}, "implausibly long")]:
         write_transcripts(path, voice, **bad)
-        result = rt.load_transcript(voice.voice_id)
+        result = rt.load_transcript(voice.voice_id, override=path)
         assert not result.ok and why in result.reason, (bad, result)
 
     path.write_text("{not json", encoding="utf-8")
-    assert "could not be read" in rt.load_transcript(voice.voice_id).reason
+    assert "could not be read" in rt.load_transcript(voice.voice_id, override=path).reason
     path.write_text(json.dumps({"Female-2": {}}), encoding="utf-8")
-    assert "no entry for Male-1" in rt.load_transcript(voice.voice_id).reason
+    assert "no entry for Male-1" in rt.load_transcript(voice.voice_id, override=path).reason
     path.write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
-    assert not rt.load_transcript(voice.voice_id).ok
+    assert not rt.load_transcript(voice.voice_id, override=path).ok
 
 
-def test_the_environment_override_wins_and_a_preset_never_needs_a_transcript(sandbox, monkeypatch, tmp_path):
+def test_normal_resolution_reads_the_bundle_never_the_environment_or_local_store(sandbox, monkeypatch, tmp_path):
+    """v0.7.0 P03C (Q8/Q35) replaces the v0.6.7 rule "the ACT_QWEN3_TRANSCRIPTS file wins, then the local file"."""
     voice = install_clone_fixture(sandbox, monkeypatch)
+    install_bundle(sandbox, monkeypatch)
     write_transcripts(rt.local_transcripts_path(), voice, text="from the local file")
     override = tmp_path / "elsewhere" / "dev-transcripts.json"
     write_transcripts(override, voice, text="from the override")
+    assert rt.local_store_path() == rt.local_transcripts_path()
     monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(override))
-    assert rt.load_transcript(voice.voice_id).text == "from the override"
-    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(tmp_path / "does-not-exist.json"))
-    assert rt.load_transcript(voice.voice_id).text == "from the local file"  # a missing override falls through
+    assert rt.local_store_path() == override  # where the maintainer tools keep their store ...
+    assert rt.load_transcript(voice.voice_id).text == "bundled words for Male-1"  # ... is never what narration reads
+    assert rt.load_transcript(voice.voice_id, override=override).text == "from the override"  # only when named
     assert rt.load_transcript("qwen3-aiden") == rt.Transcript(True, "", "not needed")
 
 
-def test_no_transcript_text_is_tracked_in_the_repository():
-    """Q5: the six verified transcripts are not cleared for public redistribution, so none may be committed."""
+def test_the_only_tracked_transcript_file_is_the_shipped_bundle():
+    """Q8 (v0.7.0 P03C) replaces the v0.6.7 Q5 ban: exactly the curated bundle is committed, nothing else."""
     tracked = subprocess.run(["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout
     offenders = [line for line in tracked.splitlines()
                  if re.search(r"transcript", line, re.IGNORECASE) and line.startswith(("scripts/", "files/runtime-data"))]
-    assert offenders == []
+    assert offenders == ["scripts/tts/data/bundled_clone_transcripts.json"]
     ignored = subprocess.run(["git", "check-ignore", "files/runtime-data/qwen3/transcripts.json"], cwd=REPO_ROOT,
                              capture_output=True, text=True)
     assert ignored.returncode == 0  # the default local location can never be staged by accident
@@ -397,11 +417,13 @@ def test_voice_availability_walks_engine_then_model_then_reference_then_transcri
     assert not ok and "reference recording" in reason
 
     install_clone_fixture(sandbox, monkeypatch)
+    monkeypatch.setattr(rt, "bundled_transcripts_path", lambda: sandbox / "no-bundle.json")
+    write_transcripts(rt.local_transcripts_path(), rt.get_voice("qwen3-male-1"))  # a local store is no substitute
     ok, reason = rt.voice_availability("qwen3-male-1")
-    assert not ok and "approved reference transcript" in reason and "Setup required for Qwen3 - Male 1" in reason
-    assert "Edge, Kokoro and Chatterbox are unaffected" in reason
+    assert not ok and "shipped with the app are missing" in reason and "Setup required for Qwen3 - Male 1" in reason
+    assert "Extract a fresh copy of the app" in reason and "Edge, Kokoro and Chatterbox are unaffected" in reason
 
-    write_transcripts(rt.local_transcripts_path(), rt.get_voice("qwen3-male-1"))
+    install_bundle(sandbox, monkeypatch)
     assert rt.voice_availability("qwen3-male-1") == (True, "ok")
 
     install_model(sandbox, "customvoice")

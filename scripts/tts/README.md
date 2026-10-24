@@ -31,7 +31,7 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 | Kokoro (local) | `kokoro_synth.py` | nine voices; Kokoro's own G2P handles numbers |
 | Chatterbox Turbo (local, cloned) | `chatterbox_synth.py` | six voices from the bundled reference recordings; 300-character chunks |
 | Shared speech preparation | `speech/document.py` | one decode and `Title:`/`Author:`/`#` structure loader for Kokoro, Chatterbox and Qwen3 (A1); standard library only |
-| Qwen3-TTS (local, optional, Windows first) | `qwen3_runtime.py`, `qwen3_synth.py`, `qwen3_worker.py`, `qwen3_process.py`, `qwen3_setup.py`, `qwen3_install_ui.py`, `qwen3_clone_setup.py`, `qwen3_clone_setup_ui.py`, `qwen3_models.json` | eight voices in a separate `.venv-qwen3`; only `qwen3_worker.py` runs inside it. The six clones are set up once in the app: `qwen3_clone_setup` drafts their reference transcripts locally with a pinned speech recognizer and records the user's approval |
+| Qwen3-TTS (local, optional, Windows first) | `qwen3_runtime.py`, `qwen3_synth.py`, `qwen3_worker.py`, `qwen3_process.py`, `qwen3_setup.py`, `qwen3_install_ui.py`, `qwen3_clone_setup.py`, `qwen3_clone_setup_ui.py`, `qwen3_models.json`, `data/bundled_clone_transcripts.json` | eight voices in a separate `.venv-qwen3`; only `qwen3_worker.py` runs inside it. The six clones' owner-approved reference transcripts ship in `data/bundled_clone_transcripts.json`, each bound to its recording's SHA-256 (v0.7.0 P03C); `qwen3_runtime.load_bundle` checks the whole file and narration reads nothing else. `qwen3_clone_setup` is the maintainer's local draft-and-approve workflow; what it records is never used for narration |
 
 ## Text-route baselines
 

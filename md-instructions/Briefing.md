@@ -23,9 +23,9 @@ release candidate). State at this checkpoint:
 
 - **Voices.** 28 registered: Edge 5, Kokoro 9, Chatterbox 6, Qwen3 8 (Aiden, Ryan, six Base clones). The owner listened to all 28 published previews and approved their audio; the
   clones narrate at temperature 0.70 / sub-talker 0.80 (`CLONE_GENERATION_REVISION = 1`) with 0.6 s of silence after the reference copy.
-- **Clone transcripts are per user, in the app:** TTS Audiobook → "Install / repair Qwen3 voices..." → "Set up cloned voices..." (`tts/qwen3_clone_setup.py`, `tts/qwen3_clone_setup_ui.py`):
-  pinned Whisper small.en recognizer (about 971 MB, on confirmation), local drafts, then the person listens, corrects and approves each one. Stored in the ignored
-  `files/runtime-data/qwen3/transcripts.json`, bound to the recording's SHA-256. No transcript is ever committed; the previews' Whisper drafts remain provisional.
+- **Clone transcripts ship with the app (v0.7.0 P03C):** the six owner-approved texts are `scripts/tts/data/bundled_clone_transcripts.json` (bundle revision 1, each bound to
+  its recording's SHA-256; generated from the approved review file `48f5dbef…` by `files/dev-tools/clone_transcript_bundle.py`). Narration reads only that verified bundle,
+  never a local store or `ACT_QWEN3_TRANSCRIPTS`; "Set up cloned voices..." is now a maintainer workflow (gated by developer mode at P03D). The previews' Whisper drafts remain provisional.
 - **Reference recordings** are `files/Cloned-Voice-Uploads/Chatterbox - <Female 1 .. Male 4>.wav`, one copy for both engines (moved there at v0.7.0 P03A; the old
   `files/Chatterbox-Voice-Uploads/` keeps only the owner's ignored MP3 originals and is no longer read).
 - **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
@@ -655,15 +655,15 @@ rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries);
   (install/verify/repair), `qwen3_install_ui.py` (the dialog), `qwen3_models.json` (pinned model manifest).
 - **Voice previews (documentation, not shipped).** `files/voice-previews/` holds the ten-second sample of each voice, one per registered voice, with a
   per-voice record (`previews.json`) and README; `files/dev-tools/voice_previews.py` makes them through each voice's own engine. Since 2026-10-20 the owner has authorized
-  publishing previews for all 28 voices (a publication decision, not a verified third-party license finding; transcripts and reference recordings are still never committed).
+  publishing previews for all 28 voices (a publication decision, not a verified third-party license finding; the previews folder publishes neither transcripts nor reference recordings).
   All 28 exist; the six Qwen3 clone previews were made with provisional (Whisper-draft, not owner-approved) transcripts for listening review, and the app still requires an approved transcript before it uses a clone. On 2026-10-20 the owner listened to all 28 and approved their audio quality (not any transcript). Previews are never in the release archives.
 - **Models** live under `files/runtime-data/models/qwen3-tts/<Model>-<rev8>/`, loaded offline from the pinned snapshot; CustomVoice and
   Base install independently, the nine shared files are linked, and a `ACT-VERIFIED.json` marker is written only after every file is
   verified by size and SHA-256. Status checks only stat files; full hashing is for install and repair.
 - **Availability** is one question (`qwen3_runtime.voice_availability`): platform (Windows), environment, model, and for a clone the
-  reference recording and an approved transcript. The transcript is read from `files/runtime-data/qwen3/transcripts.json` (or
-  `ACT_QWEN3_TRANSCRIPTS`), accepted only with `"approved": true` and the exact reference SHA-256; no transcript is ever committed. Each user makes their own
-  once in the app ("Set up cloned voices...": pinned Whisper small.en recognizer, local drafts, listen/correct/approve; `qwen3_clone_setup.py`).
+  reference recording and its transcript. Since v0.7.0 P03C the transcript comes only from the shipped bundle `tts/data/bundled_clone_transcripts.json`,
+  validated whole on every read (`qwen3_runtime.load_bundle`: exact fields, the six clones, registered voice IDs and recording hashes, text digests); a damaged bundle blocks all six
+  clones with "extract a fresh copy" advice and never falls back. The local store (`qwen3_clone_setup.py`) is read only through an explicit `override=`.
 - **Conversion** mirrors the other local engines: the voice preset's paragraph pause after every chunk, the end pause once, one final
   encode (ffmpeg run directly so every scratch file stays in the job folder). Progress is per source file, with the current-item
   message refreshed per chunk. Cancellation: a flag file, then after a 3-second grace the whole process tree is killed; the job folder
@@ -674,7 +674,7 @@ rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries);
   `.venv-qwen3` must be a real folder in the repo; pip runs `--isolated --require-virtualenv --require-hashes`.
 - **Measured (HOME-PC, Windows 11):** GPU RTX 5070 about 1.37x real time (peak +5.6 GB VRAM); CPU (CUDA hidden) about 2.2x, 5.6 GB RAM on a
   Ryzen 7 9800X3D (one machine only); install about 7 minutes with a fast link. macOS is untested and not claimed.
-- **Known limits.** English only; a clone needs the user's own approved transcript (set up in the app); no new bootstrap step;
+- **Known limits.** English only; a clone uses only the six shipped transcripts (no customer-recorded voices); no new bootstrap step;
   `.venv-qwen3` is not covered by the data-cleanup tool; a fresh-clone install on a second machine, a weaker CPU and long-form clone
   speed are not yet measured (S5).
 

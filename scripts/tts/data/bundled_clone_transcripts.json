@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "bundle_revision": 1,
+  "entries": [
+    {
+      "reference_id": "Female-1",
+      "voice_id": "qwen3-female-1",
+      "wav_sha256": "b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4",
+      "text": "It had already been several weeks since I'd gone to town. After we came home, Tanya and the rest of the servants were quite cross with me, but the trip had been incredibly beneficial. Afterward, we worked on reinforcing the duchy's border.",
+      "text_sha256": "74b8174dc59272c09e70e4c3f5404eeb16a5552adde8e91333c23a97d616c09c"
+    },
+    {
+      "reference_id": "Female-2",
+      "voice_id": "qwen3-female-2",
+      "wav_sha256": "428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205",
+      "text": "Vice Chancellor Cloud Legan Barth, his direct superior, the Lord Chancellor Marquess Jorg Reclentos, and his new subordinate, Count Hughes Rudelberg, stood to the side of the dance floor chatting amicably. This marked Cloud's first",
+      "text_sha256": "dd7cbd39f94e746b2554cb48710ea0afa8e75eb17514989e33d2c327125680b8"
+    },
+    {
+      "reference_id": "Male-1",
+      "voice_id": "qwen3-male-1",
+      "wav_sha256": "45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58",
+      "text": "Zeth, Sun Sun, Balano, truthless of Shinovar, sat atop the highest tower in the world and contemplated the end of all things. The souls of the people he had murdered lurked in the shadows.",
+      "text_sha256": "5afea1f7de940a148339dc84e69965348a16f8a28a8c5c054522b0c25eae3f59"
+    },
+    {
+      "reference_id": "Male-2",
+      "voice_id": "qwen3-male-2",
+      "wav_sha256": "592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355",
+      "text": "Three carriages rattled down a narrow road, surrounded by a dense, dark wood. This was the Worm's Whiskers, a forest that separated the kingdom of Asura's northern border from the valley known as the Red Worm's Upper Jaw.",
+      "text_sha256": "3589fb60ebd9d2f6d4e15e981a2700be3994fabfbf3e1677c6d86f57eb2a887d"
+    },
+    {
+      "reference_id": "Male-3",
+      "voice_id": "qwen3-male-3",
+      "wav_sha256": "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80",
+      "text": "Klein didn't stand on ceremony and said directly, I wish to borrow the magic wishing lamp for a day. Bernadette nodded gently and raised her hand to pick up the magic wishing lamp beside her.",
+      "text_sha256": "7be44794203b1952805a11d35d36fa65b1deccc9dd7c29a405ca5a9a376996ce"
+    },
+    {
+      "reference_id": "Male-4",
+      "voice_id": "qwen3-male-4",
+      "wav_sha256": "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad",
+      "text": "Hello Arthur. The voice drifted to me through a haze, distant and ethereal but familiar. I was drowsing, nestled deep within a cozy blanket of thoughtless fatigue. There was something exciting about the familiar voice",
+      "text_sha256": "a66dcfeae9e9df2a3da66b5967725073b1ada28b9d2fb02309458f6517ed7a0d"
+    }
+  ]
+}

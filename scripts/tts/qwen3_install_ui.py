@@ -138,12 +138,10 @@ def state_lines() -> list[str]:
         else:
             voices = "the six cloned voices"
         lines.append(f"{spec.label} model ({voices}): " + ("installed." if ok else _short(reason)))
-        if key == rt.MODEL_BASE and ok:
-            from tts import qwen3_clone_setup as qt
-
-            approved = sum(r.state == qt.STATE_APPROVED for r in qt.rows())
-            lines.append(f"Cloned voices set up: {approved} of 6"
-                         + ("." if approved == 6 else " (use \"Set up cloned voices\" to finish)."))
+        if key == rt.MODEL_BASE and ok:  # the shipped transcripts (v0.7.0 P03C), never a local store
+            ok, reason = rt.bundle_status()
+            lines.append("Cloned voice transcripts: included with the app." if ok
+                         else f"Cloned voice transcripts: {_short(reason)}")
     lines.append(rt.hardware_summary())
     return lines
 
@@ -304,7 +302,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         _set(win.btn_cancel, False)
 
     def _clones() -> None:
-        """The six cloned voices need their reference transcripts set up once (its own dialog)."""
+        """The maintainer's local transcript workflow for the six clones (its own dialog); normal use needs none."""
         if open_clones is not None:
             open_clones(win)
         else:

@@ -296,17 +296,23 @@ def test_the_presets_are_refused_for_being_presets_not_by_accident(voice_id):
         exp.check_ready(voice_id, availability=lambda v: (True, "ok"))
 
 
-@pytest.fixture()
-def approved(tmp_path, monkeypatch):
-    """A local transcripts file approving all six clones with synthetic words, bound to the registered recordings."""
-    path = tmp_path / "transcripts.json"
-    entries = {}
+def synthetic_bundle(path, texts=None) -> None:
+    """A valid shipped-bundle stand-in with synthetic words, bound to the registered recordings (v0.7.0 P03C)."""
+    entries = []
     for voice_id in CLONES:
         voice = rt.get_voice(voice_id)
-        entries[voice.reference_name] = {"text": f"Synthetic words for {voice.reference_name}.", "approved": True,
-                                         "wav_sha256": voice.reference_sha256}
-    path.write_text(json.dumps(entries), encoding="utf-8")
-    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(path))
+        text = (texts or {}).get(voice.reference_name, f"Synthetic words for {voice.reference_name}.")
+        entries.append({"reference_id": voice.reference_name, "voice_id": voice_id, "wav_sha256": voice.reference_sha256,
+                        "text": text, "text_sha256": rt.transcript_sha256(text)})
+    path.write_text(json.dumps({"schema_version": 1, "bundle_revision": 1, "entries": entries}), encoding="utf-8")
+
+
+@pytest.fixture()
+def approved(tmp_path, monkeypatch):
+    """The app's transcript authority -- the shipped bundle -- replaced by one with synthetic words for all six clones."""
+    path = tmp_path / "bundled_clone_transcripts.json"
+    synthetic_bundle(path)
+    monkeypatch.setattr(rt, "bundled_transcripts_path", lambda: path)
     return path
 
 
@@ -317,21 +323,25 @@ def engine_ready(monkeypatch):
     monkeypatch.setattr(rt, "model_status", lambda key: (True, "ok"))
 
 
-def test_a_clone_without_an_approved_transcript_is_refused_for_the_apps_own_reason(tmp_path, monkeypatch, engine_ready):
-    path = tmp_path / "t.json"
+def test_a_clone_without_a_valid_shipped_transcript_is_refused_for_the_apps_own_reason(tmp_path, monkeypatch, engine_ready):
+    """v0.7.0 P03C: the experiment uses the app's own resolution -- the shipped bundle, never a local store."""
+    bundle = tmp_path / "bundled_clone_transcripts.json"
+    monkeypatch.setattr(rt, "bundled_transcripts_path", lambda: bundle)
+    store = tmp_path / "t.json"  # a valid local approval is no substitute for the bundle
     voice = rt.get_voice("qwen3-female-1")
-    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(path))
-    monkeypatch.setattr(rt, "local_transcripts_path", lambda: tmp_path / "no-local-store.json")  # never the machine's own
-    with pytest.raises(exp.ExperimentError, match="no approved reference transcript"):
-        exp.check_ready("qwen3-female-1")  # no file at all
-    for entry, reason in (({"text": "draft", "approved": False, "wav_sha256": voice.reference_sha256}, "not been approved"),
-                          ({"text": "x", "approved": "true", "wav_sha256": voice.reference_sha256}, "not been approved"),
-                          ({"text": "x", "approved": True, "wav_sha256": "0" * 64}, "not bound to the current reference")):
-        path.write_text(json.dumps({voice.reference_name: entry}), encoding="utf-8")
-        with pytest.raises(exp.ExperimentError, match=reason):
-            exp.check_ready("qwen3-female-1")
-    path.write_text(json.dumps({voice.reference_name: {"text": "Words.", "approved": True, "wav_sha256": voice.reference_sha256}}),
-                    encoding="utf-8")
+    store.write_text(json.dumps({voice.reference_name: {"text": "Words.", "approved": True,
+                                                        "wav_sha256": voice.reference_sha256}}), encoding="utf-8")
+    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(store))
+    with pytest.raises(exp.ExperimentError, match="shipped with the app are missing"):
+        exp.check_ready("qwen3-female-1")  # no bundle at all
+    synthetic_bundle(bundle, texts={"Female-1": " Words."})
+    with pytest.raises(exp.ExperimentError, match="leading or trailing spaces"):
+        exp.check_ready("qwen3-female-1")
+    synthetic_bundle(bundle)
+    bundle.write_text(bundle.read_text(encoding="utf-8").replace(voice.reference_sha256, "0" * 64), encoding="utf-8")
+    with pytest.raises(exp.ExperimentError, match="bound to a different recording"):
+        exp.check_ready("qwen3-female-1")
+    synthetic_bundle(bundle)
     assert exp.check_ready("qwen3-female-1").voice_id == "qwen3-female-1"
 
 

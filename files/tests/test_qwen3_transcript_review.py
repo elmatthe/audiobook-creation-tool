@@ -138,7 +138,7 @@ def test_a_dry_run_changes_nothing_and_does_not_sound_like_an_approval(tmp_path,
     assert report[0].startswith("DRY RUN") and all("would be" in line for line in report[1:])
 
 
-def test_write_records_only_owner_passes_bound_to_the_recording_and_the_app_then_accepts_them(tmp_path, drafts):
+def test_write_records_only_owner_passes_bound_to_the_recording_and_the_named_store_accepts_them(tmp_path, drafts):
     target = tmp_path / "transcripts.json"
     path = decisions_file(tmp_path, drafts, decisions={
         "qwen3-male-4": {"decision": review.NEEDS_CORRECTION, "text": "still unsure"},
@@ -146,7 +146,8 @@ def test_write_records_only_owner_passes_bound_to_the_recording_and_the_app_then
     report = review.apply(path, write=True, drafts_path=drafts, target=target, today="2026-10-21")
     saved = json.loads(target.read_text("utf-8"))
     for voice in review.clone_voices():
-        loaded = rt.load_transcript(voice.voice_id, paths=[target])
+        loaded = rt.load_transcript(voice.voice_id, override=target)
+        assert rt.load_transcript(voice.voice_id).text == rt.load_bundle()[voice.reference_name]  # narration: bundle
         if voice.voice_id == "qwen3-male-4":
             assert saved[voice.reference_name]["approved"] is False and not loaded.ok  # a correction request is not an approval
         elif voice.voice_id == "qwen3-male-3":
@@ -233,13 +234,16 @@ def test_apply_never_touches_the_drafts_or_the_recordings(tmp_path, drafts):
     assert all(json.loads(drafts.read_text("utf-8"))[v.reference_name]["approved"] is False for v in review.clone_voices())
 
 
-def test_the_real_destination_is_the_local_untracked_file_the_app_reads():
+def test_the_real_destination_is_the_local_untracked_maintainer_store():
     target = rt.local_transcripts_path()
     assert target.name == "transcripts.json" and "runtime-data" in target.parts
     assert subprocess.run(["git", "check-ignore", "-q", str(target)], cwd=REPO_ROOT).returncode == 0
     assert subprocess.run(["git", "check-ignore", "-q", str(review.PAGE)], cwd=REPO_ROOT).returncode == 0  # the page holds drafts: ignored too
-    tracked = subprocess.run(["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True).stdout
-    assert "transcripts.json" not in tracked and "review.html" not in tracked
+    tracked = subprocess.run(["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True).stdout.splitlines()
+    # v0.7.0 P03C: the curated bundle is the one tracked transcript file; no local store or review page is.
+    assert not [t for t in tracked if t.rsplit("/", 1)[-1] in ("transcripts.json", "review.html")]
+    assert [t for t in tracked if "transcripts" in t and t.startswith("scripts/")] == [
+        "scripts/tts/data/bundled_clone_transcripts.json"]
 
 
 def test_status_reports_without_printing_text(tmp_path, drafts):
@@ -248,4 +252,7 @@ def test_status_reports_without_printing_text(tmp_path, drafts):
                  write=True, drafts_path=drafts, target=target)
     lines = review.status(target)
     assert len(lines) == 6 and lines[2].startswith("Qwen3 - Male 1: NOT approved") and lines[0].endswith("approved")
+    shipped = review.status()  # no store named: what the app uses, the shipped bundle (v0.7.0 P03C)
+    assert shipped == [f"{v.label}: approved" for v in review.clone_voices()]
+    assert not any(text in "\n".join(shipped) for text in rt.load_bundle().values())
     assert not any("Corrected words" in line for line in lines)

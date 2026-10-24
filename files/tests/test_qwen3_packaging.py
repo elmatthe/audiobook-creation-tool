@@ -1,9 +1,10 @@
 """v0.6.7 CP6 — what the release archives carry of the Qwen3 voices, and what they must never carry.
 
 The application code, the pinned model manifest and the pinned requirements ship (they are tracked under ``scripts/``).
-The isolated environment, the models, the install record, per-run job folders and any transcript do not: they are
-created on the user's machine, only when the user asks, and the transcripts are not cleared for public redistribution
-(owner ruling Q5). The release build itself is not changed beyond naming the environment folder in its exclusion set.
+The isolated environment, the models, the install record, per-run job folders and any local transcript do not: they are
+created on the user's machine, only when the user asks. The one exception is the curated, owner-approved clone transcript
+bundle (owner ruling Q8, v0.7.0 P03C). The release build itself is not changed beyond naming the environment folder in its
+exclusion set.
 """
 
 from __future__ import annotations
@@ -36,8 +37,39 @@ SHIPPED = (
     "scripts/qwen3-requirements.txt",
 )
 
-NEVER = re.compile(r"(\.venv-qwen3|runtime-data|qwen3-tts[/\\]|\.safetensors|transcript|last-failure|ACT-VERIFIED"
-                   r"|install\.lock|/cache/)", re.IGNORECASE)
+_NEVER = re.compile(r"(\.venv-qwen3|runtime-data|qwen3-tts[/\\]|\.safetensors|transcript|last-failure|ACT-VERIFIED"
+                    r"|install\.lock|/cache/)", re.IGNORECASE)
+#: The one transcript file that ships (owner ruling Q8, v0.7.0 P03C): the curated, owner-approved bundle. This narrow
+#: exception replaces the v0.6.7 blanket ban on any member naming a transcript; every other one is still refused.
+BUNDLE = "scripts/tts/data/bundled_clone_transcripts.json"
+
+
+class _Never:
+    @staticmethod
+    def search(member: str):
+        return None if member == BUNDLE else _NEVER.search(member)
+
+
+NEVER = _Never()
+
+
+def test_the_bundle_exception_is_exactly_one_path():
+    assert NEVER.search(BUNDLE) is None
+    for near_miss in ("scripts/tts/data/bundled_clone_transcripts.json.bak", "scripts/tts/bundled_clone_transcripts.json",
+                      "scripts/tts/data/transcripts.json", "Scripts/tts/data/bundled_clone_transcripts.json",
+                      "scripts/tts/data/bundled_clone_transcripts.JSON", "files/runtime-data/qwen3/transcripts.json"):
+        assert NEVER.search(near_miss), near_miss
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_the_shipped_bundle_is_in_both_archives_once_with_its_committed_bytes(archives, os_name):
+    import zipfile
+
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        members = zf.namelist()
+        assert members.count(BUNDLE) == 1
+        assert zf.read(BUNDLE) == (REPO_ROOT / BUNDLE).read_bytes()
+    assert [m for m in members if "transcript" in m.lower()] == [BUNDLE]
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
