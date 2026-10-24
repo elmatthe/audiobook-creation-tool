@@ -445,6 +445,7 @@ def build_job(voice: rt.Qwen3Voice, chunks: list[Chunk], *, job_dir: Path, model
         "schema": 1, "kind": "synth", "voice_id": voice.voice_id, "mode": voice.kind,
         "model_dir": str(model_dir), "language": LANGUAGE, "dtype": DTYPE, "attn": ATTENTION, "device": device,
         "out_dir": str(job_dir / "chunks"), "cancel_file": str(job_dir / "cancel"),
+        "engine_lock": str(rt.engine_lock_path()),
         "chunks": [{"index": c.index, "text": c.text, "seed": derive_seed(voice.voice_id, c)} for c in chunks],
     }
     if voice.kind == rt.KIND_PRESET:
@@ -665,6 +666,8 @@ def failure_message(terminal: dict) -> str:
     """A user-fit sentence for a worker ``failed`` event."""
     stage = terminal.get("stage")
     detail = str(terminal.get("message") or "no further detail")
+    if stage == "engine":  # the worker refused to start (in use, or moved with a repair); its sentence is the message
+        return detail
     if terminal.get("oom"):
         return ("The Qwen3 voice ran out of memory. Close other programs that use the GPU (or memory) and try "
                 f"again. ({detail})")

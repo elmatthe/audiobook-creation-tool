@@ -14,6 +14,11 @@ Job kinds
 ``transcribe``  draft the words spoken in each clone's reference recording with the pinned local speech recognizer
            (``tts.qwen3_clone_setup``), offline; the text goes to a file in the job folder, never to stdout.
 
+Before anything else the worker takes the job's ``engine_lock`` (v0.7.0 P04C, ``shared.engine_lease``) and holds it until
+it exits, so a repair of the app's environment sees an engine in use even when the app that started it has gone; it
+refuses to start while that lock is held (a repair, or another engine), when the job names none, and when it finds
+itself running from an environment a repair set aside. Those refusals are ``failed`` events with stage ``engine``.
+
 Terminal events (exactly one per run): ``done``, ``failed``, ``canceled``. A run that ends without one is a failure the
 reader reports as such. Cancellation is a flag file checked before the load, before each chunk and after it; the parent
 also kills the process tree if the worker does not stop promptly, so nothing here has to be interruptible mid-chunk.
@@ -25,18 +30,97 @@ after a failure — a GPU that fails fails the file with a clear message.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import traceback
 from pathlib import Path
+from typing import Optional
 
 EVENT_PREFIX = "@@EVENT "
 EXIT_OK, EXIT_FAILED, EXIT_CANCELED = 0, 2, 130
+
+#: The job key naming the file this worker locks for as long as it runs (``shared.engine_lease.ENGINE_LOCK``).
+ENGINE_LOCK_KEY = "engine_lock"
+#: The names the app's environment has while a repair replaces it (``shared.bootstrap``). An engine whose interpreter
+#: lies inside one was moved with its parent and is never run from there: it only ever runs at its own final path.
+SET_ASIDE_NAMES = (".venv.replaced", ".venv.discarded")
+
+ENGINE_BUSY_MESSAGE = ("The Qwen3 voice engine is in use by another conversion, or the app's environment is being "
+                       "repaired, right now. Try again when that has finished.")
+SET_ASIDE_MESSAGE = ("The Qwen3 voice engine was started from a copy of the app's environment that a repair had set "
+                     "aside, so it was not run; it only ever runs from its own folder. Let the repair finish, then "
+                     "try again.")
+NO_ENGINE_LOCK_MESSAGE = ("This job does not name the Qwen3 engine lock, so the engine was not started: it never runs "
+                          "where a repair of the app's environment could not see it.")
+
+_engine_fd: Optional[int] = None
 
 
 def emit(event: dict) -> None:
     sys.stdout.write(EVENT_PREFIX + json.dumps(event, ensure_ascii=True) + "\n")
     sys.stdout.flush()
+
+
+def _set_aside_component(prefix: str) -> Optional[str]:
+    for part in Path(prefix).parts:
+        folded = part.casefold()
+        if any(folded == name or folded.startswith(name + "-") for name in SET_ASIDE_NAMES):
+            return part
+    return None
+
+
+def claim_engine(job: dict) -> Optional[str]:
+    """Take this run's engine lock and keep it until :func:`release_engine` or the process ends; the reason not, or None.
+
+    The same protocol as ``tts.qwen3_runtime.FileLock``: a non-blocking exclusive lock on the first byte, which the
+    operating system drops when the process dies however it dies. Nothing heavy is imported first.
+    """
+    global _engine_fd
+    if _set_aside_component(sys.prefix) is not None:
+        return SET_ASIDE_MESSAGE
+    if _engine_fd is not None:
+        return None
+    path = job.get(ENGINE_LOCK_KEY)
+    if not path:
+        return NO_ENGINE_LOCK_MESSAGE
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR)
+    except OSError as exc:
+        return (f"The Qwen3 voice engine could not check that it is free to run ({exc.strerror or exc}), so it was not "
+                "started.")
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return ENGINE_BUSY_MESSAGE
+    _engine_fd = fd
+    return None
+
+
+def release_engine() -> None:
+    global _engine_fd
+    if _engine_fd is None:
+        return
+    fd, _engine_fd = _engine_fd, None
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def _cancelled(job: dict) -> bool:
@@ -340,6 +424,10 @@ def main(argv: list[str]) -> int:
     try:
         sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
         job = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+        refusal = claim_engine(job)
+        if refusal is not None:
+            emit({"event": "failed", "stage": "engine", "message": refusal})
+            return EXIT_FAILED
         kind = job.get("kind")
         if kind == "synth":
             return run_synth(job)
@@ -353,6 +441,8 @@ def main(argv: list[str]) -> int:
         emit({"event": "failed", "stage": "worker", "message": f"{type(exc).__name__}: {exc}",
               "trace": traceback.format_exc()[-1500:]})
         return EXIT_FAILED
+    finally:
+        release_engine()
 
 
 if __name__ == "__main__":

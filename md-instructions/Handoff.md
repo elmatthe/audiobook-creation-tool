@@ -2,6 +2,44 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04C Stage 1: a main repair now refuses, changing nothing, while a nested Qwen3 engine is in use, and nothing can start using it during a repair; requalified natively in the P04B copy; production path NOT flipped; NEXT is owner/ChatGPT review (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.5, §6 / P04C, owner authorisation to pursue the nested topology (Stage 1 = lock safety only).
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `0f51db0`. Identity 0.6.6. Not merged/tagged; P05 not started.
+
+- **Fix (closes the P04B FAIL row):** new `shared/engine_lease.py` (stdlib only) takes `setup.lock` → `inference.lock` → `engine.lock`
+  of the copy's `files/runtime-data/qwen3/` non-blocking, all or none, released in reverse; same byte-0 protocol as
+  `qwen3_runtime.FileLock` (proved interoperable). `repair_venv` and `run_setup` take it BEFORE recovery or any rename whenever `.venv` or
+  `.venv.replaced` holds anything under `engines/`, and hold it through replacement, rollback, commit and cleanup. Busy, denied or a
+  linked runtime folder = immediate refusal, "Nothing was changed". The worker now holds `engine.lock` itself for its whole run (path
+  from the job; all three app job builders write it; a job without it is refused) and refuses before any heavy import when that lock is
+  held or when its prefix is inside `.venv.replaced*`/`.venv.discarded*`. MachineGuard deliberately NOT taken by repair (ADR).
+- **Partial aside:** a superseded aside is renamed to `.venv.discarded` before deletion; a leftover is logged `[!!]` and the repair message
+  says so (never a clean success); recovery only ever finishes deleting `.venv.discarded`, never restores it. An open handle keeps the
+  aside whole under its own name. Legacy layout (nothing held): no lock file touched, behaviour as before.
+- **Tests:** new `test_qwen3_lifecycle_locks.py` (39: real cross-process holders — worker claim, real `inference_lease`, real
+  `InstallLock`, guard, lease; kill → OS release; real tiny venvs inside an aside; denied/link/busy; rollback/crash release; partial
+  aside incl. a real Windows handle). Red first (26 failed on the unfixed source), 14/14 mutations killed. Fixture updates only:
+  P04A `_protected` seeds the three empty lock files; two worker `main()` tests name an engine lock.
+- **Native (ignored copy `files/dev-work/P04B q/`, corrected source synced, evidence `act070-remediation/p04c/`):** P04B I3 rerun
+  (production worker alone, chunk 1/12, damaged parent) → refused in <0.1 s, worker 12/12 on cuda:0; I3b rerun (real app conversion) →
+  refused, 103.6 s narration completed; during a real repair a second lease, a conversion, an install, the worker at the final lock and a
+  worker from the aside all refused, repair ok 101 s; repair killed mid-pip (own Job object) → locks free in 0.22 s → recovery under the
+  lease restored + rebuilt; idle process with mapped parent DLLs → honest leftover (15 files) in `.venv.discarded`, removed by the next
+  repair. Child content digest `9b036d…` and NTFS file IDs identical across 11 snapshots; final narration byte-identical to P04B.
+  Production preservation diff empty; Code Integrity 0 events 22:20Z–22:41Z (SAC enforced). One disclosed harness defect: N1 attempt 1
+  used a one-chunk job that finished before the repair began (repair correctly proceeded); rerun with the 12-chunk job.
+- **Report:** `files/dev-work/act070-remediation/checkpoints/P04C-LOCKS.md` (ignored). Full `verify.py` gate run on this exact tree before
+  the commit; its result is in the commit message and the report.
+- **Still open for P04C adoption (not done here):** path authority flip, base-interpreter child creation + recorded identity wired into
+  `environment_status`, PATH scrub in `worker_environment`, main-stack hash/constraint pinning, model copy vs hard-link policy, migration
+  of `.venv-qwen3`. Once the installer can create a nested child, repair must take the lease unconditionally (today it is taken only when
+  something is held). P04B's L row (standard user, restricted ACL, long paths off, clean-machine SAC, other GPUs) still unproven.
+- **Carried unchanged:** P01B/P01C + 28-voice owner listening NOT RUN/OPEN; provisional clone previews; developer-mode display walk-through;
+  stray 0-byte private review file; AUD-004/-005/-008/-009. `.venv-qwen3`, production `.venv` and the P04B copy (18 GB) untouched/retained.
+- **Next:** STOP for owner/ChatGPT review of `checkpoints/P04C-LOCKS.md`. Do not flip `qwen3_runtime.venv_dir()`, migrate or delete any
+  environment or the qualification copy, change pins/models, start P05, bump the version, merge or tag without approval.
+
 ## CURRENT STATE — v0.7.0 P04B: native nested Qwen3 qualification ran on HOME-PC; verdict FAIL on one lifecycle row (main repair does not refuse while Qwen3 is in use), everything else proven; nothing adopted; NEXT is the owner topology decision (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.5, §6 / P04B, owner approval of O1–O9 (O2c constraints yes, O3 copy cache, O5 independent model copies).

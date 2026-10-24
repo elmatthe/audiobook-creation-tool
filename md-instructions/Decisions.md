@@ -4,6 +4,37 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - A voice engine held inside .venv is protected by its users' own locks, taken together before any change to the environment (v0.7.0 P04C Stage 1)
+
+Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Supersedes P04A's assumption that a running engine would make a repair
+fail safely: P04B proved natively that Windows renames a folder whose programs are mapped into memory, so file-system refusals protect
+nothing here.
+
+**Protocol.** Three lock files in the copy's `files/runtime-data/qwen3/`, all with `qwen3_runtime.FileLock`'s non-blocking byte-0
+protocol: `setup.lock` (engine install/repair, `InstallLock`), `inference.lock` (every conversion, transcription and model check, held by
+the app for the run; `InstallLock` takes it too) and `engine.lock` (held by the worker process itself, so an engine whose app has gone is
+still seen). `shared/engine_lease.Lease` takes them in exactly that order, never waits, and on any refusal releases what it took in
+reverse. The operating system drops them when a process dies (measured: free 0.22 s after a kill). Taking a lock creates its empty file
+and writes nothing else.
+
+**Who takes it.** `repair_venv` and `run_setup`, before recovery or any rename, whenever `.venv` or `.venv.replaced` holds anything under
+`engines/`, held until commit/rollback/cleanup end. Busy, denied, unreadable or reached through a link is an immediate refusal with
+nothing changed. With nothing held (the shipped `.venv-qwen3` layout) no lock is consulted and behaviour is unchanged. When the nested
+layout is adopted and the installer can create the child, the lease must be taken unconditionally (adoption stage).
+
+**Machine guard excluded.** `MachineGuard` keeps every copy of the app on the computer to one model on the GPU at a time; it protects no
+file of this copy, and every user of this copy's engine already holds `inference.lock` or `engine.lock`. Taking it would refuse this
+copy's environment repair because another copy (or another Windows user) is converting, and its `denied` case could block the repair
+of a broken app indefinitely. Reversible: one more lock in `ORDER` if the owner rules otherwise.
+
+**Worker.** Refuses (stage `engine`) before any heavy import when its job names no `engine_lock`, when that lock is held, or when its
+interpreter's prefix lies inside `.venv.replaced*` or `.venv.discarded*`: an engine only ever runs at its own final path.
+
+**Superseded environments.** Renamed to `.venv.discarded` before deletion, so a deletion cut short (mapped DLLs, a crash) can only be
+finished, never restored as last-known-good. A leftover is reported in the log and the repair message (still a successful repair — the
+new environment launches — but never a clean one); recovery finishes deleting it. A rename refused by an open handle keeps the old
+environment whole under its own name.
+
 ## 2026-10-24 - The app environment's own lifecycle keeps anything held under .venv/engines/; the nested Qwen3 layout stays a candidate, not adopted
 
 Plan Revision 2 §5.5 and §6 / P04A (owner task "Execute P04A: Nested Environment Lifecycle Safety and Recovery Tests"); recorded by

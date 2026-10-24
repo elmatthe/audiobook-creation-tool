@@ -384,7 +384,8 @@ def test_main_dispatches_the_transcribe_kind(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(worker, "run_transcribe", lambda job: seen.append(job["kind"]) or 0)
     path = tmp_path / "job.json"
-    path.write_text(json.dumps({"kind": "transcribe"}), encoding="utf-8")
+    path.write_text(json.dumps({"kind": "transcribe", "engine_lock": str(tmp_path / "engine.lock")}),
+                    encoding="utf-8")
     assert worker.main(["w", str(path)]) == 0 and seen == ["transcribe"]
 
 

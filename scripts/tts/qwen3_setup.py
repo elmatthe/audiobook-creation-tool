@@ -726,7 +726,8 @@ def probe_environment(*, model_dir: Optional[Path] = None, runner: Optional[Comm
     step = "verify"
     jobs = rt.ensure_runtime_dir(rt.runtime_dir() / "probe")
     job_path = jobs / f"probe-job-{os.getpid()}-{uuid.uuid4().hex[:8]}.json"  # unique: two probes never share a job file
-    job = {"kind": "probe", "device": "auto", "dtype": "bfloat16", "attn": "sdpa"}
+    job = {"kind": "probe", "device": "auto", "dtype": "bfloat16", "attn": "sdpa",
+           "engine_lock": str(rt.engine_lock_path())}
     if model_dir is not None:
         job["model_dir"] = str(model_dir)
     job_path.write_text(json.dumps(job), encoding="utf-8")

@@ -84,6 +84,8 @@ if str(SCRIPTS_DIR) not in sys.path:
 from shared import ffmpeg_health  # noqa: E402
 from shared import ffmpeg_portable  # noqa: E402
 from shared import venv_layout  # noqa: E402
+# v0.7.0 P04C: the locks that say a voice engine held inside the venv is in use. Standard library only, like the rest.
+from shared import engine_lease  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -1539,6 +1541,47 @@ def _venv_aside_path() -> Path:
     return VENV_DIR.with_name(VENV_DIR.name + VENV_ASIDE_SUFFIX)
 
 
+#: Where a superseded environment is deleted from. Never restored: a leftover there is only ever finished off.
+VENV_DISCARD_SUFFIX = ".discarded"
+
+
+def _venv_discard_path() -> Path:
+    return VENV_DIR.with_name(VENV_DIR.name + VENV_DISCARD_SUFFIX)
+
+
+def _qwen3_lock_dir() -> Path:
+    """The Qwen3 runtime folder of the copy of the app this ``.venv`` belongs to (``tts.qwen3_runtime.runtime_dir``).
+
+    Derived from the environment's own location, not ``REPO_ROOT``, so it is always the folder whose locks the users
+    of the engine this transaction would move actually hold.
+    """
+    return engine_lease.runtime_dir(VENV_DIR.parent)
+
+
+def _take_held_engines_lease(log, refused_prefix: str
+                             ) -> tuple[Optional[engine_lease.Lease], Optional[str]]:
+    """Before ANY change to the environment: the right to move what it holds under ``engines/``. (lease, refusal).
+
+    v0.7.0 P04C. P04B proved that a running engine does not stop its parent being renamed aside (Windows allows that
+    while its programs are mapped), so the engine's own locks are the only protection. When the environment, or the
+    one a repair set aside, holds anything there, all of ``shared.engine_lease`` is taken now -- before recovery, the
+    aside, the rebuild, commit or rollback -- and the caller holds it until the transaction is over. It never waits:
+    busy, denied or uncheckable is an immediate refusal with nothing changed. With nothing held (the ``.venv-qwen3``
+    layout) there is nothing to move, no lock file is touched, and the result is ``(None, None)`` as before.
+    """
+    if not (venv_layout.holds_environments(VENV_DIR) or venv_layout.holds_environments(_venv_aside_path())):
+        return None, None
+    lease = engine_lease.Lease(_qwen3_lock_dir(), root=VENV_DIR.parent)
+    try:
+        lease.take()
+    except engine_lease.Refused as refused:
+        log.line(f"  [!!] The environment holds a separately installed voice engine that is in use, so it was not "
+                 f"touched: {refused}")
+        return None, f"{refused_prefix} {refused}"
+    log.line("  The separately installed voice engine is not in use; it is held still until this is finished.")
+    return lease, None
+
+
 #: Windows refusals worth one more try: ERROR_ACCESS_DENIED and
 #: ERROR_SHARING_VIOLATION, which is what a rename gets while another process
 #: (an indexer, a scanner, a file watcher) briefly has the directory open.
@@ -1689,15 +1732,55 @@ def _discard_venv_aside(aside: Optional[Path], log=None) -> bool:
     """Delete a superseded environment, never one that still holds a separately installed voice engine.
 
     Returns False when it had to be kept: it may hold the only copy of that engine.
+
+    It is first renamed to :func:`_venv_discard_path`, a name recovery never restores, so a deletion cut short -- a
+    program still has one of its DLLs mapped, the process dies -- can only ever be finished off, never mistaken for
+    the last-known-good environment. Anything left is said in the log and returns False, never a quiet success
+    (v0.7.0 P04B saw 17 mapped DLLs survive a "successful" repair). A rename refused because a program has a file in
+    it open keeps it whole, under its own name.
     """
     if aside is None:
         return True
+    log = log or _NoLog()
     if venv_layout.holds_environments(aside):
-        (log or _NoLog()).line(f"  [!!] Kept {aside.name}: it still holds a separately installed voice engine "
-                               "that could not be moved back, so it was not deleted.")
+        log.line(f"  [!!] Kept {aside.name}: it still holds a separately installed voice engine "
+                 "that could not be moved back, so it was not deleted.")
         return False
-    shutil.rmtree(aside, ignore_errors=True)
+    doomed = _venv_discard_path()
+    if os.path.lexists(doomed):
+        _finish_discarding(log)  # an earlier leftover first
+        if os.path.lexists(doomed):
+            doomed = doomed.with_name(f"{doomed.name}-{int(time.time())}")
+    attempts, error = _replace_retrying(aside, doomed, appeared=lambda: os.path.lexists(doomed))
+    if error is not None:
+        log.line(f"  [!!] Could not delete the previous environment {aside.name} (attempts: {attempts}): {error}. "
+                 "A program probably still has a file in it open; it was kept whole and is removed the next time "
+                 "the environment is repaired.")
+        return False
+    shutil.rmtree(doomed, ignore_errors=True)
+    if os.path.lexists(doomed):
+        log.line(f"  [!!] Part of the previous environment could not be deleted (a program probably still has files "
+                 f"in it open). What is left is in {doomed.name}; it is never used again and is removed the next "
+                 "time the environment is repaired.")
+        return False
     return True
+
+
+def _finish_discarding(log) -> None:
+    """Finish deleting what an earlier discard left in :func:`_venv_discard_path`. Never restored, never used."""
+    doomed = _venv_discard_path()
+    if not os.path.lexists(doomed):
+        return
+    if venv_layout.is_link(doomed) or venv_layout.holds_environments(doomed):
+        log.line(f"  [!!] Kept {doomed.name}: it is a link or holds a separately installed voice engine, so it was "
+                 "not deleted.")
+        return
+    shutil.rmtree(doomed, ignore_errors=True)
+    if os.path.lexists(doomed):
+        log.line(f"  [!!] {doomed.name}, left over from an earlier repair, still could not be deleted; it is never "
+                 "used and is tried again next time.")
+    else:
+        log.line(f"  Removed {doomed.name}, left over from an earlier repair.")
 
 
 class VenvReplacement:
@@ -1797,7 +1880,15 @@ def recover_interrupted_replacement(log: SetupLog, *,
     one that still holds a separately installed voice engine (``engines/``,
     see :func:`_carry_held_environments`): a superseded aside hands it to the
     candidate first, and a restore takes back whatever the candidate holds.
+
+    What an earlier discard left (:func:`_venv_discard_path`) is only ever
+    finished off here, whether or not an environment exists: it was superseded
+    before its deletion began, so it is never put back.
+
+    Callers hold ``_take_held_engines_lease`` around this (v0.7.0 P04C): it
+    renames environments that may hold an engine.
     """
+    _finish_discarding(log)
     aside = _venv_aside_path()
     if not aside.exists():
         return
@@ -2094,70 +2185,87 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     """
     log.line("Repairing the Python environment (packages only — no other setup)…")
 
-    # A previous attempt may have been interrupted mid-transaction. Resolve that
-    # before starting a new one, so an aside is never treated as scrap. Same Tk
-    # context this repair will judge its own result by.
-    recover_interrupted_replacement(log, require_tk=not headless)
+    # v0.7.0 P04C: before anything below can rename this environment -- recovery
+    # included -- take the right to move what it holds under engines/. A busy
+    # engine is a refusal with nothing changed, never a repair around it.
+    lease, refusal = _take_held_engines_lease(log, "The app's environment was not repaired.")
+    if refusal is not None:
+        return False, refusal
+    try:
+        # A previous attempt may have been interrupted mid-transaction. Resolve that
+        # before starting a new one, so an aside is never treated as scrap. Same Tk
+        # context this repair will judge its own result by.
+        recover_interrupted_replacement(log, require_tk=not headless)
 
-    py_argv = find_suitable_python(log, prefer_tk=not headless)
-    if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
-        log.line("  The Python found is not fully compatible — trying to obtain 3.12…")
-        better = install_python(log, prefer_tk=not headless)
-        if better is not None and is_full_feature_python(_interp_version_argv(better)):
-            py_argv = better
-    if py_argv is None:
-        py_argv = install_python(log, prefer_tk=not headless)
-    if py_argv is None:
-        return False, ("No suitable Python could be found or installed, so the "
-                       "app's environment could not be repaired.")
+        py_argv = find_suitable_python(log, prefer_tk=not headless)
+        if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
+            log.line("  The Python found is not fully compatible — trying to obtain 3.12…")
+            better = install_python(log, prefer_tk=not headless)
+            if better is not None and is_full_feature_python(_interp_version_argv(better)):
+                py_argv = better
+        if py_argv is None:
+            py_argv = install_python(log, prefer_tk=not headless)
+        if py_argv is None:
+            return False, ("No suitable Python could be found or installed, so the "
+                           "app's environment could not be repaired.")
 
-    # One transaction, spanning the whole proof. The replacement does not take
-    # over until its packages install *and* really import — a venv whose
-    # interpreter starts but whose dependencies will not install is not a
-    # replacement, and discovering that after the old environment had been
-    # deleted would leave nothing to go back to.
-    txn = VenvReplacement()
-    failure: Optional[str] = None
+        # One transaction, spanning the whole proof. The replacement does not take
+        # over until its packages install *and* really import — a venv whose
+        # interpreter starts but whose dependencies will not install is not a
+        # replacement, and discovering that after the old environment had been
+        # deleted would leave nothing to go back to.
+        txn = VenvReplacement()
+        failure: Optional[str] = None
 
-    if not _create_validated_venv(py_argv, log, headless, txn=txn):
-        failure = "The app's Python environment could not be rebuilt."
-    else:
-        ok, reason = reconcile_requirements(log)
-        if not ok:
-            failure = (
-                "The environment was rebuilt but its packages could not be "
-                "imported." if reason == RECONCILE_IMPORT_FAILED else
-                "The environment was rebuilt but its packages could not be "
-                "installed.")
+        if not _create_validated_venv(py_argv, log, headless, txn=txn):
+            failure = "The app's Python environment could not be rebuilt."
+        else:
+            ok, reason = reconcile_requirements(log)
+            if not ok:
+                failure = (
+                    "The environment was rebuilt but its packages could not be "
+                    "imported." if reason == RECONCILE_IMPORT_FAILED else
+                    "The environment was rebuilt but its packages could not be "
+                    "installed.")
 
-    if failure is None:
-        # Judge the environment that now exists, never the base interpreter that
-        # was selected to build it. Those are different claims, and reporting the
-        # base's version would hide a replacement that silently did not happen.
-        health = assess_venv_health(require_tk=not headless,
-                                    compatible_base_available=False)
-        if not health.can_launch:
-            failure = f"The rebuilt environment is still not usable: {health.detail}"
+        if failure is None:
+            # Judge the environment that now exists, never the base interpreter that
+            # was selected to build it. Those are different claims, and reporting the
+            # base's version would hide a replacement that silently did not happen.
+            health = assess_venv_health(require_tk=not headless,
+                                        compatible_base_available=False)
+            if not health.can_launch:
+                failure = f"The rebuilt environment is still not usable: {health.detail}"
 
-    if failure is not None:
-        restored = txn.rollback(log)
-        if restored:
-            return False, (f"{failure} The previous environment was put back, and "
-                           "this will be retried next time.")
-        if txn.aside is not None:
-            return False, (f"{failure} The previous environment could not be put "
-                           "back either — see the log.")
-        return False, f"{failure} It will be retried next time."
+        if failure is not None:
+            restored = txn.rollback(log)
+            if restored:
+                return False, (f"{failure} The previous environment was put back, and "
+                               "this will be retried next time.")
+            if txn.aside is not None:
+                return False, (f"{failure} The previous environment could not be put "
+                               "back either — see the log.")
+            return False, f"{failure} It will be retried next time."
 
-    kept = "" if txn.commit(log) else (
-        " The previous environment folder was kept because it still holds a "
-        "separately installed voice engine that could not be moved back; nothing "
-        "was deleted, and this is retried next time.")
-    if not health.is_fully_healthy:
-        return True, (f"The environment was rebuilt, with limits: {health.detail}{kept}")
-    shown = (f"{health.version[0]}.{health.version[1]}"
-             if health.version else "unknown")
-    return True, f"The app's Python environment was repaired (Python {shown}).{kept}"
+        if txn.commit(log):
+            kept = ""
+        elif txn.retained is not None and venv_layout.holds_environments(txn.retained):
+            kept = (" The previous environment folder was kept because it still holds a "
+                    "separately installed voice engine that could not be moved back; nothing "
+                    "was deleted, and this is retried next time.")
+        else:
+            # Never a clean success: something of the old environment is still on disk.
+            kept = (" The previous environment could not be deleted completely because a "
+                    "program still has files in it open. It is never used again and is "
+                    "removed the next time the environment is repaired.")
+        if not health.is_fully_healthy:
+            return True, (f"The environment was rebuilt, with limits: {health.detail}{kept}")
+        shown = (f"{health.version[0]}.{health.version[1]}"
+                 if health.version else "unknown")
+        return True, f"The app's Python environment was repaired (Python {shown}).{kept}"
+    finally:
+        if lease is not None:
+            lease.release()
 
 
 def pip_install_requirements(log: SetupLog) -> bool:
@@ -2674,41 +2782,51 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         steps.append("Downloading Chatterbox voice model")
     total = len(steps)
 
-    # An interrupted repair can leave no ``.venv`` at all, which looks exactly
-    # like a fresh machine and would land here. Put the environment it set aside
-    # back first, so a first run never starts by discarding one that worked.
-    recover_interrupted_replacement(log, require_tk=not headless)
+    # v0.7.0 P04C: recovery and the environment's own replacement both rename
+    # environments that may hold a voice engine, so the same lease as a repair
+    # is held across them (and released before the long package and FFmpeg steps).
+    lease, refusal = _take_held_engines_lease(log, "Setup was not started.")
+    if refusal is not None:
+        return False, refusal
+    try:
+        # An interrupted repair can leave no ``.venv`` at all, which looks exactly
+        # like a fresh machine and would land here. Put the environment it set aside
+        # back first, so a first run never starts by discarding one that worked.
+        recover_interrupted_replacement(log, require_tk=not headless)
 
-    progress(0, "Locating a suitable Python…")
-    py_argv = find_suitable_python(log, prefer_tk=not headless)
-    if py_argv is not None:
-        # A >=3.13 interpreter can build a venv but loses Kokoro (its wheels
-        # require <3.13). Before accepting it, try to install 3.12; keep the
-        # newer interpreter only if 3.12 truly cannot be had.
-        sel_ver = _interp_version_argv(py_argv)
-        if sel_ver is not None and not _is_kokoro_compatible(sel_ver):
-            log.line(f"Python {sel_ver[0]}.{sel_ver[1]} is too new for Kokoro "
-                     "(needs <3.13) — attempting to install Python 3.12…")
-            fixed = install_python(log, prefer_tk=not headless)
-            fixed_ver = _interp_version_argv(fixed) if fixed is not None else None
-            if _is_kokoro_compatible(fixed_ver):
-                py_argv = fixed
-            else:
-                log.line(f"  Python 3.12 could not be installed — continuing on "
-                         f"{sel_ver[0]}.{sel_ver[1]} — Edge TTS works, Kokoro "
-                         "voices disabled.")
-    if py_argv is None:
-        py_argv = install_python(log, prefer_tk=not headless)
-    if py_argv is None:
-        return False, ("Python 3.12 could not be found or installed automatically.\n"
-                       "Please install Python 3.12 from python.org and run setup again.")
+        progress(0, "Locating a suitable Python…")
+        py_argv = find_suitable_python(log, prefer_tk=not headless)
+        if py_argv is not None:
+            # A >=3.13 interpreter can build a venv but loses Kokoro (its wheels
+            # require <3.13). Before accepting it, try to install 3.12; keep the
+            # newer interpreter only if 3.12 truly cannot be had.
+            sel_ver = _interp_version_argv(py_argv)
+            if sel_ver is not None and not _is_kokoro_compatible(sel_ver):
+                log.line(f"Python {sel_ver[0]}.{sel_ver[1]} is too new for Kokoro "
+                         "(needs <3.13) — attempting to install Python 3.12…")
+                fixed = install_python(log, prefer_tk=not headless)
+                fixed_ver = _interp_version_argv(fixed) if fixed is not None else None
+                if _is_kokoro_compatible(fixed_ver):
+                    py_argv = fixed
+                else:
+                    log.line(f"  Python 3.12 could not be installed — continuing on "
+                             f"{sel_ver[0]}.{sel_ver[1]} — Edge TTS works, Kokoro "
+                             "voices disabled.")
+        if py_argv is None:
+            py_argv = install_python(log, prefer_tk=not headless)
+        if py_argv is None:
+            return False, ("Python 3.12 could not be found or installed automatically.\n"
+                           "Please install Python 3.12 from python.org and run setup again.")
 
-    # Surface the chosen interpreter's capabilities up front (audit preflight).
-    preflight_report(py_argv, log)
+        # Surface the chosen interpreter's capabilities up front (audit preflight).
+        preflight_report(py_argv, log)
 
-    progress(1, "Creating the virtual environment…")
-    if not _create_validated_venv(py_argv, log, headless):
-        return False, "Failed to create a working virtual environment (see the log)."
+        progress(1, "Creating the virtual environment…")
+        if not _create_validated_venv(py_argv, log, headless):
+            return False, "Failed to create a working virtual environment (see the log)."
+    finally:
+        if lease is not None:
+            lease.release()
 
     progress(2, "Installing packages (largest step — please wait)…")
     # One owner for pip → real import proof → stamp, shared with the drift path.

@@ -300,7 +300,8 @@ def test_main_validates_its_arguments_and_always_ends_with_a_terminal_event(tmp_
     capsys.readouterr()
 
     job = tmp_path / "job.json"
-    job.write_text(json.dumps({"kind": "dance"}), encoding="utf-8")
+    lock = str(tmp_path / "engine.lock")  # every job names the lock the worker holds while it runs (v0.7.0 P04C)
+    job.write_text(json.dumps({"kind": "dance", "engine_lock": lock}), encoding="utf-8")
     assert worker.main(["worker", str(job)]) == worker.EXIT_FAILED
     assert "unknown job kind" in events(capsys)[-1]["message"]
 
@@ -309,7 +310,7 @@ def test_main_validates_its_arguments_and_always_ends_with_a_terminal_event(tmp_
     assert events(capsys)[-1]["event"] == "failed"
 
     install_fakes(monkeypatch)
-    job.write_text(json.dumps(job_for(tmp_path)), encoding="utf-8")
+    job.write_text(json.dumps(job_for(tmp_path, engine_lock=lock)), encoding="utf-8")
     assert worker.main(["worker", str(job)]) == worker.EXIT_OK
     assert events(capsys)[-1]["event"] == "done"
 

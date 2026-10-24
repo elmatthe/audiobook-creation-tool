@@ -210,7 +210,8 @@ def create_drafts(*, progress=su._noop_progress, cancel_check=None, run_worker=N
             items.append({"name": voice.reference_name, "wav": str(copy)})
         out_file = job_dir / "transcripts.json"
         job = {"schema": 1, "kind": "transcribe", "model_dir": str(rt.model_spec(rt.TRANSCRIBER).directory),
-               "device": "auto", "items": items, "out_file": str(out_file), "cancel_file": str(job_dir / "cancel")}
+               "device": "auto", "items": items, "out_file": str(out_file), "cancel_file": str(job_dir / "cancel"),
+               "engine_lock": str(rt.engine_lock_path())}
         progress(su.Progress("drafts", "Loading the speech recognizer and transcribing the six recordings...", 0, 0))
         with rt.inference_lease():
             run = run_worker(job, job_dir, python=rt.venv_python(), script=rt.worker_script(),

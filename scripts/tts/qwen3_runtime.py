@@ -176,6 +176,12 @@ def setup_lock_path() -> Path:
     return runtime_dir() / "setup.lock"
 
 
+def engine_lock_path() -> Path:
+    """Held by the worker process itself for as long as it runs (v0.7.0 P04C), so a repair of the app's environment
+    sees an engine in use even when the app that started it has gone (``shared.engine_lease``)."""
+    return runtime_dir() / "engine.lock"
+
+
 def worker_script() -> Path:
     return Path(__file__).resolve().with_name("qwen3_worker.py")
 
