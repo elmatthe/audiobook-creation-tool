@@ -26,7 +26,8 @@ release candidate). State at this checkpoint:
 - **Clone transcripts are per user, in the app:** TTS Audiobook → "Install / repair Qwen3 voices..." → "Set up cloned voices..." (`tts/qwen3_clone_setup.py`, `tts/qwen3_clone_setup_ui.py`):
   pinned Whisper small.en recognizer (about 971 MB, on confirmation), local drafts, then the person listens, corrects and approves each one. Stored in the ignored
   `files/runtime-data/qwen3/transcripts.json`, bound to the recording's SHA-256. No transcript is ever committed; the previews' Whisper drafts remain provisional.
-- **Reference recordings** are `files/Chatterbox-Voice-Uploads/Chatterbox - <Female 1 .. Male 4>.wav`, one copy for both engines.
+- **Reference recordings** are `files/Cloned-Voice-Uploads/Chatterbox - <Female 1 .. Male 4>.wav`, one copy for both engines (moved there at v0.7.0 P03A; the old
+  `files/Chatterbox-Voice-Uploads/` keeps only the owner's ignored MP3 originals and is no longer read).
 - **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
 - **Code layout after B2:** `scripts/{launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/}`; each package has a README module map.
 - **Qualification evidence** (S5 runtime, the extracted-ZIP test) and what remains unproven are in `Handoff.md` (current-state block of 2026-10-20) and `Decisions.md`.
@@ -1013,8 +1014,9 @@ Audiobook-Creation-Tool/
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
     ├── Archives/               ← maintainer-local planning/code archives (gitignored,
     │                             optional, unpackaged, excluded from test collection)
-    ├── Chatterbox-Voice-Uploads/ ← six tracked/bundled WAVs plus six ignored local MP3s
+    ├── Cloned-Voice-Uploads/   ← the six tracked/bundled reference WAVs (v0.7.0 P03A)
     │                             (derivatives/caches remain in runtime-data)
+    ├── Chatterbox-Voice-Uploads/ ← pre-v0.7.0 folder: six ignored local MP3s only, never read
     ├── UI-Tool-Screenshots/     ← current upstream Light/Dark references (14 images,
     │                             tracked at kickoff d2be236; retired screenshots remain history)
     └── release-history/        ← one-shot docs from past releases (v0.3.1 set)

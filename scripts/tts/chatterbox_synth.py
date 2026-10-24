@@ -21,7 +21,7 @@ input is longer than 5 seconds. Derivatives here are therefore a deterministic
 consults. It also normalises loudness itself (to about -27 LUFS), so this module
 must not pre-normalise; doing it twice would be wrong.
 
-**Bundled reference assets.** ``files/Chatterbox-Voice-Uploads/`` holds
+**Bundled reference assets.** ``files/Cloned-Voice-Uploads/`` (``voice_registry.REFERENCE_DIRECTORY``) holds
 six distributable WAV references made from the approved curated local MP3s,
 authorized by the maintainer for bundled Chatterbox use. They are strictly
 read-only inputs: this module verifies each one's SHA-256 before use, never writes into that directory,
@@ -71,7 +71,7 @@ from pydub import AudioSegment
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts.speech.document import read_source_text
-from tts.voice_registry import label_for, reference_recording_filename
+from tts.voice_registry import REFERENCE_DIRECTORY, label_for, reference_recording_filename
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import CHATTERBOX as CHATTERBOX_ROUTE
 
@@ -719,7 +719,7 @@ def _runtime_root() -> Path:
 
 def protected_uploads_dir() -> Path:
     """The read-only source recordings. Nothing in this module ever writes here."""
-    return _repo_root() / "files" / "Chatterbox-Voice-Uploads"
+    return _repo_root().joinpath(*REFERENCE_DIRECTORY)
 
 
 def reference_clips_dir() -> Path:

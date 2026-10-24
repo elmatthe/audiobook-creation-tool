@@ -347,7 +347,7 @@ def test_the_six_original_recordings_are_the_registered_ones_and_stay_that_way()
     for voice_id in CLONES:
         voice = rt.get_voice(voice_id)
         path = rt.reference_path(voice)
-        assert path.parent.name == "Chatterbox-Voice-Uploads" and path.name == f"Chatterbox - {voice.label.removeprefix('Qwen3 - ')}.wav"
+        assert path.parent.name == "Cloned-Voice-Uploads" and path.name == f"Chatterbox - {voice.label.removeprefix('Qwen3 - ')}.wav"
         assert rt.sha256_file(path) == voice.reference_sha256
 
 

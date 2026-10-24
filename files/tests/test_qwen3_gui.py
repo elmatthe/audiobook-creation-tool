@@ -452,7 +452,7 @@ def test_the_panel_imports_only_the_qwen3_seams_it_is_allowed_and_no_model_stack
 def test_the_panel_reimplements_none_of_the_engines_checks():
     body = ast.unparse(panel_tree())
     for forbidden in ("venv_python", "model_status", "load_transcript", "transcripts.json", "worker_environment",
-                      "Chatterbox-Voice-Uploads", "taskkill"):
+                      "Chatterbox-Voice-Uploads", "Cloned-Voice-Uploads", "REFERENCE_DIRECTORY", "taskkill"):
         assert forbidden not in body, forbidden
 
 

@@ -321,6 +321,7 @@ def test_the_pre_existing_required_imports_are_untouched():
 def test_missing_local_recordings_are_not_a_setup_requirement():
     """A machine may have the package and no references — it must still launch."""
     assert "Chatterbox-Voice-Uploads" not in BOOTSTRAP_SRC
+    assert "Cloned-Voice-Uploads" not in BOOTSTRAP_SRC
 
 
 def test_the_launch_fast_path_still_only_health_checks_kokoro(monkeypatch):

@@ -2,6 +2,36 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P03A: six reference WAVs moved to `files/Cloned-Voice-Uploads/` (canonical-only); no-echo extraction helper tracked and synthetic-tested; NEXT is P03B only when authorised (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.3 and §6 / P03A (owner task "Execute P03A: Six-WAV Reference Migration and No-Echo Tooling"). HOME-PC, branch
+`feature/0.7.0-release-remediation`, parent `66064af`. Identity stays 0.6.6. Not merged, tagged or packaged. Decision: Decisions 2026-10-24 (P03A).
+
+- **Done:** six scoped `git mv` renames (100%) `files/Chatterbox-Voice-Uploads/` → `files/Cloned-Voice-Uploads/`, basenames and bytes unchanged; the
+  old folder keeps the owner's six ignored MP3s (untouched, hashes identical). `voice_registry.REFERENCE_DIRECTORY` is the one path for Chatterbox and
+  Qwen3; `release.REFERENCE_ASSETS` lists the six canonical paths. Canonical-only: no supported workflow needs a legacy lookup (fresh archive, overlay
+  and git checkout all bring the new path; no updater; caches keyed by hash; P12 restores no references) — missing = setup required, wrong hash = fail
+  closed, old copy never read. `.gitignore`: canonical folder ignored except the six exact names; old folder ignored whole (fixes H4).
+- **No-echo tooling:** `files/dev-tools/clone_transcript_extract.py` (§5.3 steps 1–3, 6), adapted from the ignored private tool: manifest by argument,
+  tag from `preservation-<tag>.json`, canonical folder, owner-only access in both modes, size cap, overwrite refusal; pinned registry test-checked
+  against the app. **Not run on the real store or owner artifact.** Transcript resolution unchanged (P03C introduces the bundle loader).
+- **Tests:** new `test_reference_directory.py` (canonical paths/hashes, legacy-only copy → setup required, corrupt canonical + good legacy → fail
+  closed, legacy never opened, no extra-upload discovery, AST single-authority guards) and `test_clone_transcript_extract.py` (67 synthetic cases:
+  literal approval, IDs/duplicates/shape, WAV/text digests, exact text incl. outer whitespace/NFD/CRLF, Male-4 final vs review-pending, manifest
+  tag/state/repository, junctions, not-ignored destination, overwrite, mid-run tamper, redacted exceptions, ACL failure cleanup; secrets never in
+  stdout/stderr/metadata). Updated: `test_chatterbox_boundaries` (stale H4 check rewritten), `test_release_packaging` (planted committed legacy
+  duplicates + MP3s; six canonical members exactly once), `test_voice_labels`, `test_qwen3_calm_harness`, and old+new folder names in the negative
+  source checks of `test_chatterbox_{engine,integration,bootstrap,evaluation}` and `test_qwen3_gui`.
+- **Verification:** focused 42 modules **2,225 passed / 3 skipped (pre-existing link-privilege and empty-fixture skips) / 0 failed / 0 xfail**; zero
+  ACT070 markers. Negative controls on a disposable mirror: **34/34 mutations killed**. No full gate (P03D owns it).
+- **Assets:** six WAVs = Appendix A SHA-256 and same git blobs before/after; 28 preview WAVs match `previews.json`, `git diff` empty.
+- **Open:** clone transcript approval still **OPEN** — the previously validated private artifact remains VALIDATED, UNAPPROVED, NOT FOR SYNTHESIS
+  (identity in ignored evidence only); the earlier exceptional review is not P03B/P03C authorisation. P01B/P01C owner listening and combined 28-voice
+  listening **NOT RUN/OPEN**; earlier carried items unchanged (launcher "— ready." after a failed tool load, long stems in engine temp paths, Andrew
+  `NoAudioReceived`, −58 dBFS trim, WinError 206 / AUD-004, -005, -008, -009).
+- **Evidence (ignored):** `checkpoints/P03A.md`, `p03a/` (asset hashes before/after, MP3 fingerprints, focused logs/JUnit, `mutation.json`).
+- **Next:** ChatGPT review of P03A, then P03B (owner-gated extraction) only when authorised.
+
 ## CURRENT STATE — v0.7.0 P02B: one TTS output name `<source-stem>-<frozen label>.mp3` on every route; collisions numbered; registry error diagnosed at launch; NEXT is P03A after review (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.2 and §6 / P02B (owner task "P02B: Unified TTS Output Naming and Collision Safety", with the bounded P02A

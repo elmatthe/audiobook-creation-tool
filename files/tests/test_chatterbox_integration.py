@@ -612,7 +612,7 @@ def test_the_panel_asks_the_engine_and_reimplements_none_of_its_checks():
     """§23: no hashing, no derivative naming, no manifest reading in the GUI."""
     body = unparse_panel()
     for forbidden in ("sha256", "hashlib", "manifest", "conditionals",
-                      "reference_clips_dir", "Chatterbox-Voice-Uploads",
+                      "reference_clips_dir", "Chatterbox-Voice-Uploads", "Cloned-Voice-Uploads",
                       "protected_uploads_dir", "derivative_path"):
         assert forbidden not in body, forbidden
 

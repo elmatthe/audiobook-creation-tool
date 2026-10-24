@@ -41,13 +41,14 @@ LAUNCHERS = {
 }
 ROOT_MEMBERS = {"README.md", "config.toml"}
 REFERENCE_MEMBERS = {
-    "files/Chatterbox-Voice-Uploads/Chatterbox - Female 1.wav",
-    "files/Chatterbox-Voice-Uploads/Chatterbox - Female 2.wav",
-    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 1.wav",
-    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 2.wav",
-    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 3.wav",
-    "files/Chatterbox-Voice-Uploads/Chatterbox - Male 4.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox - Female 1.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox - Female 2.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox - Male 1.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox - Male 2.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox - Male 3.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox - Male 4.wav",
 }
+LEGACY_REFERENCE_DIR = "files/Chatterbox-Voice-Uploads"
 
 
 # --------------------------------------------------------------------------- #
@@ -106,10 +107,16 @@ def fake_repo(root: Path) -> Path:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((REPO_ROOT / name).read_bytes())
-    # Even accidentally tracked extra audio/state must not broaden the allowlist.
-    for name in ["Female-1.mp3", "Male-4.mp3", "Extra.wav", "Another.WAV",
-                 "derivative.wav", "conditional.pt", "manifest.json"]:
-        (root / "files/Chatterbox-Voice-Uploads" / name).write_bytes(b"excluded")
+    # Even accidentally tracked extra audio/state must not broaden the allowlist -- in the canonical folder, and
+    # in the pre-v0.7.0 folder, where a byte-identical old copy of every reference is planted too (v0.7.0 P03A).
+    legacy = root / LEGACY_REFERENCE_DIR
+    legacy.mkdir(parents=True)
+    for name in REFERENCE_MEMBERS:
+        (legacy / Path(name).name).write_bytes((REPO_ROOT / name).read_bytes())
+    for folder in (root / "files/Cloned-Voice-Uploads", legacy):
+        for name in ["Female-1.mp3", "Male-4.mp3", "Extra.wav", "Another.WAV",
+                     "derivative.wav", "conditional.pt", "manifest.json"]:
+            (folder / name).write_bytes(b"excluded")
     (root / "files/arbitrary.txt").write_text("excluded", encoding="utf-8")
 
     # Everything below is developer or runtime state and must stay behind.
@@ -275,8 +282,18 @@ def test_reference_assets_are_a_closed_allowlist_matching_production():
 
     assert len(release.REFERENCE_ASSETS) == 6
     assert set(release.REFERENCE_ASSETS) == REFERENCE_MEMBERS
-    assert {f"files/Chatterbox-Voice-Uploads/{v.source_name}"
+    from tts import qwen3_runtime as rt
+    from tts import voice_registry as vr
+
+    assert {f"files/Cloned-Voice-Uploads/{v.source_name}"
             for v in cbx.REFERENCE_VOICES.values()} == REFERENCE_MEMBERS
+    # One authority: the packaged paths are exactly where both engines look.
+    assert "/".join(vr.REFERENCE_DIRECTORY) == "files/Cloned-Voice-Uploads"
+    assert {cbx.reference_source_path(v).relative_to(REPO_ROOT).as_posix()
+            for v in cbx.REFERENCE_VOICES} == REFERENCE_MEMBERS
+    assert {rt.reference_path(v).relative_to(REPO_ROOT).as_posix()
+            for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE} == REFERENCE_MEMBERS
+    assert not any(LEGACY_REFERENCE_DIR in name for name in release.REFERENCE_ASSETS)
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -287,7 +304,7 @@ def test_bundled_wav_bytes_and_hashes_match_production(archives, os_name):
         assert zf.testzip() is None
         assert {m for m in zf.namelist() if m.startswith("files/")} == REFERENCE_MEMBERS
         for voice in cbx.REFERENCE_VOICES.values():
-            member = f"files/Chatterbox-Voice-Uploads/{voice.source_name}"
+            member = f"files/Cloned-Voice-Uploads/{voice.source_name}"
             data = zf.read(member)
             assert data == (REPO_ROOT / member).read_bytes()
             assert hashlib.sha256(data).hexdigest() == voice.source_sha256
@@ -401,7 +418,9 @@ def test_a_repository_full_of_state_still_ships_nothing_extra(tmp_path, os_name)
     """The synthetic root plants every forbidden artifact; none may appear."""
     root = fake_repo(tmp_path / "repo")
     members = names(build(root, tmp_path / "dist", os_name))
-    assert {m for m in members if m.startswith("files/")} == REFERENCE_MEMBERS
+    # Each canonical reference exactly once; the planted, committed pre-v0.7.0 duplicates and MP3s never.
+    assert sorted(m for m in members if m.startswith("files/")) == sorted(REFERENCE_MEMBERS)
+    assert not any(m.startswith(LEGACY_REFERENCE_DIR) for m in members)
     for member in members:
         assert not member.startswith(LEAKY_PREFIXES), member
         for fragment in LEAKY_FRAGMENTS:

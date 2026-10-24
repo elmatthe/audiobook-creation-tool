@@ -441,15 +441,38 @@ def test_the_ordinary_chatterbox_branch_is_not_the_edge_branch():
 # --------------------------------------------------------------------------- #
 # Bundled references are the only tracked assets; originals stay local
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("stem", ["Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4"])
-def test_original_mp3_is_ignored_and_bundled_wav_is_not(stem):
+def _ignored(relative: str) -> bool:
+    """``git check-ignore --no-index``: the rules alone decide, whether or not the path is tracked today."""
     import subprocess
 
-    for suffix, expected in [("mp3", 0), ("wav", 1)]:
-        ignored = subprocess.run(
-            ["git", "check-ignore", "--no-index", "-q", "--",
-             f"files/Chatterbox-Voice-Uploads/{stem}.{suffix}"], cwd=REPO_ROOT)
-        assert ignored.returncode == expected
+    done = subprocess.run(["git", "check-ignore", "--no-index", "-q", "--", relative], cwd=REPO_ROOT)
+    assert done.returncode in (0, 1), relative
+    return done.returncode == 0
+
+
+@pytest.mark.parametrize("stem", ["Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4"])
+def test_original_mp3_is_ignored_and_bundled_wav_is_not(stem):
+    """v0.7.0 P03A: the six canonical WAVs are re-addable by exact name; everything else in either folder is ignored.
+
+    (The pre-P03A whitelist named ``Female-1.wav``-style files that never existed, so the real WAVs matched the
+    ignore rule and stayed tracked only because they were already in the index.)
+    """
+    from tts import voice_registry as vr
+
+    wav = vr.REFERENCE_RECORDINGS[stem]
+    assert not _ignored(f"files/Cloned-Voice-Uploads/{wav}")
+    for local_only in (f"files/Chatterbox-Voice-Uploads/{stem}.mp3", f"files/Cloned-Voice-Uploads/{stem}.mp3",
+                       f"files/Chatterbox-Voice-Uploads/{wav}", f"files/Chatterbox-Voice-Uploads/{stem}.wav",
+                       f"files/Cloned-Voice-Uploads/{stem}.wav"):
+        assert _ignored(local_only), local_only
+
+
+def test_nothing_else_placed_in_the_reference_folder_can_be_staged_by_accident():
+    for relative in ("files/Cloned-Voice-Uploads/Extra.wav", "files/Cloned-Voice-Uploads/notes.txt",
+                     "files/Cloned-Voice-Uploads/Chatterbox - Female 1.wav.bak",
+                     "files/Cloned-Voice-Uploads/sub/Chatterbox - Female 1.wav",
+                     "files/Chatterbox-Voice-Uploads/anything.json"):
+        assert _ignored(relative), relative
 
 
 def test_the_runtime_data_tree_holding_derivatives_is_ignored():
@@ -462,13 +485,13 @@ def test_exactly_six_canonical_wavs_and_no_runtime_data_are_tracked():
     from tts import chatterbox_synth as cbx
 
     tracked = subprocess.run(
-        ["git", "ls-files", "files/Chatterbox-Voice-Uploads/", "files/runtime-data/"],
+        ["git", "ls-files", "files/Cloned-Voice-Uploads/", "files/Chatterbox-Voice-Uploads/", "files/runtime-data/"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     )
-    expected = {f"files/Chatterbox-Voice-Uploads/Chatterbox - {stem}.wav" for stem in
+    expected = {f"files/Cloned-Voice-Uploads/Chatterbox - {stem}.wav" for stem in
                 ["Female 1", "Female 2", "Male 1", "Male 2", "Male 3", "Male 4"]}
-    assert set(tracked.stdout.splitlines()) == expected
-    assert {f"files/Chatterbox-Voice-Uploads/{v.source_name}"
+    assert set(tracked.stdout.splitlines()) == expected  # and nothing at the pre-v0.7.0 path
+    assert {f"files/Cloned-Voice-Uploads/{v.source_name}"
             for v in cbx.REFERENCE_VOICES.values()} == expected
 
 

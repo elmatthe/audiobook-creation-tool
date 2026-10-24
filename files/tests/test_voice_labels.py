@@ -275,7 +275,7 @@ def test_the_panel_starts_on_the_default_voice_rather_than_a_stored_one():
 # --------------------------------------------------------------------------- #
 # 8. v0.7.0 P02A — stable identities and the six fixed reference recordings
 # --------------------------------------------------------------------------- #
-UPLOADS = Path(__file__).resolve().parents[2] / "files" / "Chatterbox-Voice-Uploads"
+UPLOADS = Path(__file__).resolve().parents[2] / "files" / "Cloned-Voice-Uploads"
 
 #: Plan Revision 2, Appendix A, written out literally: stable reference id, fixed basename, the Chatterbox and Qwen3
 #: voices that share it, and the recording's content SHA-256. Nothing here may follow a display label.

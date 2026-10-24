@@ -153,7 +153,7 @@ def test_importing_the_engine_creates_no_directories_and_reads_no_reference():
         "builtins.open = lambda f, *a, **k: (opened.append(str(f)), _real(f, *a, **k))[1];"
         "import tts.chatterbox_synth;"
         "builtins.open = _real;"
-        "print('|'.join(o for o in opened if 'Chatterbox-Voice-Uploads' in o))"
+        "print('|'.join(o for o in opened if 'Voice-Uploads' in o))"
         % SCRIPTS_ROOT
     )
     r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)

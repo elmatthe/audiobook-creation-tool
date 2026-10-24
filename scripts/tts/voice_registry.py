@@ -476,6 +476,11 @@ REFERENCE_RECORDINGS: dict[str, str] = {
     "Male-4": "Chatterbox - Male 4.wav",
 }
 
+#: Where the six recordings live, repo-relative (v0.7.0 P03A). The only place either engine looks: there is no
+#: fallback to the pre-v0.7.0 ``files/Chatterbox-Voice-Uploads/`` folder, because every supported install (a fresh
+#: archive, or a git checkout) brings the recordings here itself.
+REFERENCE_DIRECTORY: tuple[str, ...] = ("files", "Cloned-Voice-Uploads")
+
 #: Which recording a cloned voice is conditioned on, by stable ``(backend, voice_id)``. A Chatterbox voice and the
 #: Qwen3 clone of the same speaker share the recording and nothing else: their engines, ids and models stay separate.
 VOICE_REFERENCES: dict[tuple[str, str], str] = {

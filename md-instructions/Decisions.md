@@ -4,6 +4,42 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - The six clone references live in files/Cloned-Voice-Uploads/, resolved canonical-only; the no-echo extraction helper is tracked developer tooling
+
+Plan Revision 2 §5.3 and §6 / P03A; recorded by Claude Code.
+
+**Move.** The six tracked WAVs moved by scoped `git mv` from `files/Chatterbox-Voice-Uploads/` to `files/Cloned-Voice-Uploads/`; basenames and bytes
+unchanged (SHA-256 = plan Appendix A, 6/6). The old folder was not moved or emptied: it keeps the owner's six ignored MP3 originals.
+`voice_registry.REFERENCE_DIRECTORY` is the one path authority for both engines; `release.REFERENCE_ASSETS` keeps its own literal closed allowlist (the
+packager imports nothing from the app) and a test pins the two together. This completes the 2026-10-24 P02A note that the directory stays until P03A.
+
+**Canonical-only; no legacy lookup.** No supported workflow leaves the recordings at the old path: a fresh archive ships them at the new path and an
+archive extracted over an older folder writes them there too; a git checkout moves them with the commit; there is no in-app updater and the README
+documents fresh extraction only; the P12 restoration covers `.venv`, `.venv-qwen3` and `files/runtime-data`, never the references; Chatterbox
+derivatives/conditionals and Qwen3 transcript bindings are keyed by WAV SHA-256, not by path (the clip manifest's `source_path` is never read back). So a
+missing canonical file is "setup required", a canonical file with the wrong hash fails closed, and an old copy is never consulted, opened or deleted.
+Revisit only if a supported path that needs a lookup is found; then it must be exact-basename, hash-matched, canonical-preferred and report conflicts.
+
+**Ignore rules.** `files/Cloned-Voice-Uploads/*` with exact-basename exceptions for the six WAVs; `files/Chatterbox-Voice-Uploads/` ignored whole, so a
+WAV cannot be re-added at the old path. Fixes baseline hazard H4 (the exceptions named non-existent `Female-1.wav`-style files; the real WAVs were
+tracked only because they were already indexed). Git on Windows matches case-insensitively (`core.ignorecase`), so a case variant of a canonical name
+matches its exception; on that filesystem it is the same file.
+
+**No-echo helper.** `files/dev-tools/clone_transcript_extract.py` implements §5.3 steps 1–3 and 6: store found only through the named preservation
+manifest, read once read-only and fingerprinted before/after, exactly six IDs with literal `approved: true`, registered WAV and text digests, Male-4
+opening check, exact text copied without strip or normalisation, exclusive-create owner-only ignored output, link/escape/overwrite refusals, and
+metadata-only stdout/stderr/report (unexpected exceptions by type name only). Adapted from the ignored private tool used for the earlier exceptional
+review, with: the manifest named by argument and its tag read from `preservation-<tag>.json` (no owner-specific constant in tracked code); the
+canonical folder; owner-only access in both modes (the private tool restricted only review-pending); a store size cap; a fixed refusal for an existing
+run folder. Its registry is pinned and test-checked against the app. Tested on synthetic fixtures only (`test_clone_transcript_extract.py`); it has
+not been run on the real store. P03B runs it unchanged, and only when authorised. The private tool and its owner-edit validator stay ignored.
+
+**Not changed.** Transcript resolution (`qwen3_runtime.load_transcript` and its search paths), voice identity, naming, timing and generation parameters.
+The previously validated private review artifact stays UNAPPROVED and NOT FOR SYNTHESIS (identity in ignored evidence only); that exceptional review is
+not P03B or P03C authorisation.
+
+---
+
 ## 2026-10-24 - One TTS output name: <source-stem>-<frozen display label>.mp3; collisions numbered; an invalid voice list is a registry error
 
 Owner decisions Q4/Q5/Q6 (plan §2 and §5.2), implemented at P02B; recorded by Claude Code.

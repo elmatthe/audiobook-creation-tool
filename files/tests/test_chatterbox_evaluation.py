@@ -631,6 +631,7 @@ def test_the_evaluation_adds_no_file_to_the_protected_folder(engine, tmp_path):
 def test_the_generator_names_no_write_target_inside_the_protected_folder():
     src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
     assert "Chatterbox-Voice-Uploads" not in src
+    assert "Cloned-Voice-Uploads" not in src
     assert "protected_uploads_dir" not in src
 
 
