@@ -593,8 +593,8 @@ def check_python() -> None:
 def safe_to_remove_environment(path: Path) -> bool:
     """Only the app's own Qwen3 environment folder, only if it really is a virtual environment, only inside the repo."""
     try:
-        if rt.is_link(Path(path)):
-            return False  # deleting through a link/junction could remove somebody else's folder
+        if rt.is_link(Path(path)) or rt.link_below_root(Path(path)) is not None:
+            return False  # deleting through a link/junction, here or in any folder above it, could remove somebody else's
         resolved = Path(path).resolve()
         return (resolved == rt.venv_dir().resolve() and (resolved / "pyvenv.cfg").is_file()
                 and resolved.is_relative_to(rt.repo_root().resolve()))

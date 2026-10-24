@@ -4,6 +4,50 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - The app environment's own lifecycle keeps anything held under .venv/engines/; the nested Qwen3 layout stays a candidate, not adopted
+
+Plan Revision 2 §5.5 and §6 / P04A (owner task "Execute P04A: Nested Environment Lifecycle Safety and Recovery Tests"); recorded by
+Claude Code.
+
+**Not a topology change.** Qwen3 still runs from `.venv-qwen3` (`qwen3_runtime.venv_dir()` unchanged). `.venv/engines/qwen3/` is a
+candidate only: nothing installs there, nothing is migrated, and adoption needs P04B's real proof and the owner's decision.
+
+**Vocabulary.** New `shared/venv_layout.py` (read-only, standard library only, imported by the bootstrap and the cleanup
+coordinator). Anything under `<parent>/engines/` is *held*: a folder, a file or a link, with an unreadable folder counting as holding
+something. A child environment is identified, never assumed: at its own final path, reached through no link below the repository
+root, `include-system-site-packages = false`, interpreter present, not built from the parent's interpreter, still where `pyvenv.cfg`
+`command` says it was created, and matching a recorded base-interpreter identity (home, version, executable, its size and mtime).
+Missing, changed or unrecorded evidence is `unverified`, never healthy, and identity is not engine health (the import probe is still
+required). The two Qwen3 locations are named exactly; both present is reported, never resolved by deleting one.
+
+**Bootstrap transaction** (inert today because nothing is held). `VenvReplacement.commit` first moves `engines/` from the set-aside
+environment into the replacement (one `os.replace`, so it is in exactly one place at every instant and returns to the same absolute
+path), with the same bounded Windows WinError 5/32 retry as setting a venv aside (now one helper, `_replace_retrying`). An aside that
+still holds anything is never deleted; commit keeps it (`retained`), the repair still succeeds and says the folder was kept, and the
+next recovery retries. A rollback moves whatever the candidate holds back into the aside before deleting the candidate and refuses to
+delete if it cannot; it now removes the candidate's import proof before deleting anything, so an interrupted rollback can never be
+mistaken for a finished repair. Recovery applies the same rules in every branch. A link, a conflict (both sides hold something) or a
+refused rename leaves both sides as they were. The main repair cannot reach the Qwen3 installer.
+
+**Cleanup.** The "Private Python environment" item is refused while `.venv` holds anything under `engines/`, both in the inventory (row
+present, not selectable, with the reason) and again in the coordinator immediately before acting: "dependencies rebuild on the next
+launch" is not true of a voice engine. The catalog is still exactly four items; including or separately offering a held engine is a
+P04C/owner decision. The coordinator's module set grows by `venv_layout.py`.
+
+**Qwen3 removal.** `safe_to_remove_environment` and `environment_location_problem` also refuse a link in any folder between the
+repository root and the environment (`qwen3_runtime.link_below_root`). For `.venv-qwen3` this is exactly the old leaf check; for a
+nested path it closes a bypass in which a junction at `.venv` or `.venv/engines` to another folder inside the repository passed both
+old checks and a rebuild would have deleted that folder's contents.
+
+**Not chosen:** copying or renaming an installed environment into the nested path (environments are not relocatable; the identity check
+rejects a moved one); merging or choosing between two held copies; deleting a backup that holds the only copy; force-stopping
+processes, elevation, ACL or antivirus/Smart App Control changes to make a rename succeed; widening retries beyond the existing 250 ms.
+
+**Not changed.** Production paths, model pins, generation parameters, TTS behaviour, the transcript bundle, the six WAVs, the 28
+previews, version identity 0.6.6.
+
+---
+
 ## 2026-10-24 - Developer mode is a typed config.toml boolean, shipped false; the reference-transcript tools and any local override are developer-only
 
 Plan Revision 2 §5.3 config contract and §6 / P03D (owner task "Execute P03D"); recorded by Claude Code.

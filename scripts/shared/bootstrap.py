@@ -83,6 +83,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 from shared import ffmpeg_health  # noqa: E402
 from shared import ffmpeg_portable  # noqa: E402
+from shared import venv_layout  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -1576,16 +1577,34 @@ def _move_venv_aside(log: SetupLog) -> Optional[Path]:
     aside = _venv_aside_path()
     if aside.exists():
         aside = aside.with_name(f"{aside.name}-{int(time.time())}")
+    attempts, error = _replace_retrying(VENV_DIR, aside, appeared=aside.exists)
+    if error is None:
+        if attempts > 1:
+            log.line(f"  Set the existing environment aside on attempt {attempts}.")
+        return aside
+    # Typically the running interpreter is inside it (Windows locks it).
+    log.line(f"  Could not set the existing environment aside "
+             f"(attempts: {attempts}): {error}")
+    return None
+
+
+def _replace_retrying(source: Path, destination: Path, *,
+                      appeared: Callable[[], bool]) -> tuple[int, Optional[OSError]]:
+    """``os.replace`` with the bounded Windows retry. Returns (attempts, the last error or None).
+
+    Retries only on Windows, only for :data:`_ASIDE_TRANSIENT_WINERRORS`, inside
+    :data:`_ASIDE_RETRY_BUDGET_S`, and stops as soon as ``appeared()`` says the
+    destination now exists. Shared by setting a venv aside and by carrying held
+    voice engines between environments, which meet the same brief refusals.
+    """
     deadline = _aside_monotonic() + _ASIDE_RETRY_BUDGET_S
     delays = iter(_ASIDE_RETRY_DELAYS_S)
     attempts = 0
     while True:
         attempts += 1
         try:
-            os.replace(VENV_DIR, aside)
-            if attempts > 1:
-                log.line(f"  Set the existing environment aside on attempt {attempts}.")
-            return aside
+            os.replace(source, destination)
+            return attempts, None
         except OSError as exc:
             error = exc
         delay = next(delays, None)
@@ -1595,18 +1614,67 @@ def _move_venv_aside(log: SetupLog) -> Optional[Path]:
                 or _aside_monotonic() + delay > deadline):
             break
         _aside_sleep(delay)
-        if _aside_monotonic() > deadline or aside.exists():
+        if _aside_monotonic() > deadline or appeared():
             break
-    # Typically the running interpreter is inside it (Windows locks it).
-    log.line(f"  Could not set the existing environment aside "
-             f"(attempts: {attempts}): {error}")
-    return None
+    return attempts, error
+
+
+class _NoLog:
+    def line(self, text: str) -> None:
+        pass
+
+
+def _carry_held_environments(source: Path, destination: Path, log) -> bool:
+    """Move everything ``source`` holds under ``engines/`` to ``destination/engines`` in one rename.
+
+    How an independent child environment kept inside the venv (``shared.venv_layout``; a candidate layout, not
+    adopted) survives its parent being replaced: it is renamed back into the environment that will hold it, so it is
+    only ever *used* at its one final absolute path. One ``os.replace`` of the whole folder, so the children are in
+    exactly one of the two places at every instant. Refused, leaving both sides exactly as they were, when the source
+    folder is a link, the destination already holds something (two copies are never merged or chosen between), or the
+    rename fails (after the same bounded Windows retry as setting a venv aside). Returns True when ``source`` holds
+    nothing afterwards.
+    """
+    if not venv_layout.holds_environments(source):
+        return True
+    held, target = venv_layout.engines_dir(source), venv_layout.engines_dir(destination)
+    if venv_layout.is_link(held) or venv_layout.held_entries(source) is None:
+        log.line(f"  [!!] {source.name}/{held.name} is a link or cannot be read, so it was left exactly where it is.")
+        return False
+    if os.path.lexists(target):
+        log.line(f"  [!!] {source.name} and {destination.name} both hold separately installed voice engines; "
+                 "neither was moved or deleted.")
+        return False
+    if venv_layout.is_link(destination) or not destination.is_dir():
+        log.line(f"  [!!] {destination.name} is not a folder that can hold the voice engines; they were left in "
+                 f"{source.name}.")
+        return False
+    attempts, error = _replace_retrying(held, target, appeared=lambda: os.path.lexists(target))
+    if error is not None:
+        log.line(f"  [!!] Could not move the separately installed voice engines from {source.name} to "
+                 f"{destination.name} (attempts: {attempts}): {error}; they were left where they were.")
+        return False
+    log.line(f"  Moved the separately installed voice engines from {source.name} to {destination.name}.")
+    return True
 
 
 def _restore_venv(aside: Optional[Path], log: SetupLog) -> bool:
-    """Put a set-aside environment back. Returns True if the venv is restored."""
+    """Put a set-aside environment back. Returns True if the venv is restored.
+
+    Whatever the replacement holds under ``engines/`` goes back with the environment being restored before the
+    replacement is deleted; if it cannot, nothing is deleted and both are kept. The replacement's import proof is
+    removed first, so a rollback that is itself interrupted is never mistaken for a finished repair.
+    """
     if aside is None or not aside.exists():
         return False
+    if venv_layout.holds_environments(VENV_DIR) and not _carry_held_environments(VENV_DIR, aside, log):
+        log.line("  [!!] Could not restore the previous environment without deleting a separately installed voice "
+                 "engine held in the replacement, so both were kept and nothing was deleted.")
+        return False
+    try:
+        import_proof_path().unlink(missing_ok=True)
+    except OSError:
+        pass
     shutil.rmtree(VENV_DIR, ignore_errors=True)
     try:
         os.replace(aside, VENV_DIR)
@@ -1617,9 +1685,19 @@ def _restore_venv(aside: Optional[Path], log: SetupLog) -> bool:
         return False
 
 
-def _discard_venv_aside(aside: Optional[Path]) -> None:
-    if aside is not None:
-        shutil.rmtree(aside, ignore_errors=True)
+def _discard_venv_aside(aside: Optional[Path], log=None) -> bool:
+    """Delete a superseded environment, never one that still holds a separately installed voice engine.
+
+    Returns False when it had to be kept: it may hold the only copy of that engine.
+    """
+    if aside is None:
+        return True
+    if venv_layout.holds_environments(aside):
+        (log or _NoLog()).line(f"  [!!] Kept {aside.name}: it still holds a separately installed voice engine "
+                               "that could not be moved back, so it was not deleted.")
+        return False
+    shutil.rmtree(aside, ignore_errors=True)
+    return True
 
 
 class VenvReplacement:
@@ -1638,21 +1716,34 @@ class VenvReplacement:
     setup behaving exactly as before.
     """
 
-    __slots__ = ("aside", "committed")
+    __slots__ = ("aside", "committed", "retained")
 
     def __init__(self, aside: Optional[Path] = None) -> None:
         self.aside = aside
         self.committed = False
+        #: The previous environment, when commit had to keep it because it still holds a voice engine.
+        self.retained: Optional[Path] = None
 
     @property
     def has_previous(self) -> bool:
         return self.aside is not None and self.aside.exists()
 
-    def commit(self) -> None:
-        """Accept the replacement and discard the environment it replaced."""
-        _discard_venv_aside(self.aside)
+    def commit(self, log=None) -> bool:
+        """Accept the replacement and discard the environment it replaced.
+
+        Anything the previous environment held under ``engines/`` is first moved into the replacement, at the same
+        absolute path it had before. If that cannot be done the previous environment is kept (``retained``) rather
+        than deleted with it, and False is returned; the replacement itself stands either way, and
+        :func:`recover_interrupted_replacement` tries again next time.
+        """
+        log = log or _NoLog()
+        if self.has_previous:
+            _carry_held_environments(self.aside, VENV_DIR, log)
+        discarded = _discard_venv_aside(self.aside, log)
+        self.retained = None if discarded else self.aside
         self.aside = None
         self.committed = True
+        return discarded
 
     def rollback(self, log: SetupLog) -> bool:
         """Put the previous environment back. True if it is in place again.
@@ -1702,7 +1793,10 @@ def recover_interrupted_replacement(log: SetupLog, *,
     ``require_tk`` carries the caller's context, because an interrupted headless
     repair must not be judged against a GUI standard it never claimed to meet.
 
-    Nothing here deletes an aside that has not been positively superseded.
+    Nothing here deletes an aside that has not been positively superseded, nor
+    one that still holds a separately installed voice engine (``engines/``,
+    see :func:`_carry_held_environments`): a superseded aside hands it to the
+    candidate first, and a restore takes back whatever the candidate holds.
     """
     aside = _venv_aside_path()
     if not aside.exists():
@@ -1720,7 +1814,8 @@ def recover_interrupted_replacement(log: SetupLog, *,
         if health.can_launch:
             log.line("A previous environment repair had reached its commit "
                      "condition — discarding the environment it replaced.")
-            _discard_venv_aside(aside)
+            _carry_held_environments(aside, VENV_DIR, log)
+            _discard_venv_aside(aside, log)
             return
         log.line("A previous environment repair proved its packages but left an "
                  f"environment that cannot run ({health.detail}) — restoring the "
@@ -1820,7 +1915,7 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog, headless: bool,
                  "app window may not open. Setup will finish; install Tk support "
                  "(macOS: brew install python-tk@3.12) and re-run to enable the GUI.")
     if own_txn:
-        txn.commit()
+        txn.commit(log)
     log.line(f"  venv ready (ssl={caps['ssl']}, tkinter={caps['tcl_tk_functional']}).")
     return True
 
@@ -2054,12 +2149,15 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
                            "back either — see the log.")
         return False, f"{failure} It will be retried next time."
 
-    txn.commit()
+    kept = "" if txn.commit(log) else (
+        " The previous environment folder was kept because it still holds a "
+        "separately installed voice engine that could not be moved back; nothing "
+        "was deleted, and this is retried next time.")
     if not health.is_fully_healthy:
-        return True, (f"The environment was rebuilt, with limits: {health.detail}")
+        return True, (f"The environment was rebuilt, with limits: {health.detail}{kept}")
     shown = (f"{health.version[0]}.{health.version[1]}"
              if health.version else "unknown")
-    return True, f"The app's Python environment was repaired (Python {shown})."
+    return True, f"The app's Python environment was repaired (Python {shown}).{kept}"
 
 
 def pip_install_requirements(log: SetupLog) -> bool:

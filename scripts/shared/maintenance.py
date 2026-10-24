@@ -28,6 +28,10 @@ The safety model is deliberately narrow:
   an explicitly supplied repository root, and only after the result is proven to
   be the exact compiled target, inside the root, not the root itself, not a
   protected location, and not reached through a link.
+* An environment item (``.venv``) is refused while it holds anything under its
+  ``engines`` folder (``shared.venv_layout``): a separately installed voice
+  engine kept there is not rebuilt with the app's dependencies, so "rebuilt on
+  the next launch" would not be true of it. Refused, not silently included.
 """
 
 from __future__ import annotations
@@ -40,6 +44,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Iterable, Mapping, Sequence
+
+from . import venv_layout
 
 # --------------------------------------------------------------------------- #
 # Errors
@@ -175,6 +181,15 @@ PROTECTED_RELATIVE: tuple[str, ...] = (
     "AI-WORKSPACE.md",
     "Setup_and_Run-audiobook-creation-tool.bat",
     "Setup_and_Run-audiobook-creation-tool.command",
+)
+
+
+#: Why an environment item that holds a separately installed engine is not offered.
+HELD_ENVIRONMENT_PROBLEM = (
+    "This folder also holds a separately installed voice engine (its engines "
+    "folder). Removing it would delete that engine too, and the engine is not "
+    "rebuilt with the app's dependencies, so this item is not offered. Nothing "
+    "was removed."
 )
 
 
@@ -338,6 +353,8 @@ def authorized_target(asset_id, repo_root) -> Path:
             raise UnsafeTargetError(
                 "this item is a shortcut or link, which is never followed or removed"
             )
+    if asset(asset_id).removes_target_itself and venv_layout.holds_environments(target):
+        raise UnsafeTargetError(HELD_ENVIRONMENT_PROBLEM)
     return target
 
 

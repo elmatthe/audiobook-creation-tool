@@ -33,9 +33,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MODULE = Path(worker.__file__)
 UTC = timezone.utc
 
-#: The four modules a coordinator needs, and nothing else.
+#: The five modules a coordinator needs, and nothing else. ``venv_layout.py``
+#: joined at v0.7.0 P04A: ``maintenance`` refuses an environment holding an engine.
 COORDINATOR_MODULES = ("__init__.py", "maintenance.py", "cleanup_state.py",
-                       "cleanup_worker.py")
+                       "cleanup_worker.py", "venv_layout.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -710,7 +711,7 @@ def test_the_summary_carries_no_path():
 
 
 def disposable_copy(tmp_path: Path, *, name="disposable-repo") -> Path:
-    """A fake root carrying its own copy of the coordinator's four modules."""
+    """A fake root carrying its own copy of the coordinator's modules."""
     root = fake_root(tmp_path, name=name)
     source = REPO_ROOT / "scripts" / "shared"
     destination = root / "scripts" / "shared"
@@ -890,3 +891,65 @@ def test_no_test_in_this_module_deletes_from_the_real_repository():
         for argument in list(call.args) + [k.value for k in call.keywords]:
             assert not any(isinstance(n, ast.Name) and n.id == "REPO_ROOT"
                            for n in ast.walk(argument)), name
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P04A — a voice engine held inside ``.venv`` is never cleared with it
+# --------------------------------------------------------------------------- #
+def _plant_engine(root: Path) -> Path:
+    engine = root / ".venv" / "engines" / "qwen3"
+    write(engine / "pyvenv.cfg", b"home = x\n")
+    write(engine / "Lib" / "site-packages" / "torch.bin", b"t" * 300)
+    return engine
+
+
+def test_the_coordinator_refuses_an_environment_that_holds_a_voice_engine(tmp_path):
+    root = fake_root(tmp_path)
+    _plant_engine(root)
+    before = snapshot(root)
+
+    outcome = worker.process_asset("virtual_environment", root)
+
+    assert outcome.status == "refused" and outcome.bytes_freed == 0
+    assert outcome.message == mnt.HELD_ENVIRONMENT_PROBLEM
+    assert snapshot(root) == before
+
+
+def test_an_engine_installed_after_the_review_still_stops_the_removal(tmp_path):
+    """The dialog offered ``.venv`` when it held nothing; an engine arrived before the coordinator ran."""
+    root = fake_root(tmp_path)
+    assert {i.asset_id: i for i in mnt.inventory(root)}["virtual_environment"].selectable
+    request = scheduled(root, ("virtual_environment", "application_logs"))
+    _plant_engine(root)
+    venv_before = {k: v for k, v in snapshot(root).items() if k.startswith(".venv/")}
+
+    result = worker.run(root, request.request_id, wait=exits_immediately)
+
+    outcomes = outcomes_by_id(result)
+    assert outcomes["virtual_environment"].status == "refused"
+    assert outcomes["application_logs"].status == "removed"
+    assert {k: v for k, v in snapshot(root).items() if k.startswith(".venv/")} == venv_before
+
+
+def test_clearing_the_app_environment_never_reaches_the_legacy_engine_beside_it(tmp_path):
+    root = fake_root(tmp_path)
+    write(root / ".venv-qwen3" / "pyvenv.cfg", b"home = x\n")
+    write(root / ".venv-qwen3" / "Lib" / "torch.bin", b"t" * 300)
+    legacy_before = {k: v for k, v in snapshot(root).items() if k.startswith(".venv-qwen3/")}
+
+    outcome = worker.process_asset("virtual_environment", root)
+
+    assert outcome.status == "removed" and not (root / ".venv").exists()
+    assert {k: v for k, v in snapshot(root).items() if k.startswith(".venv-qwen3/")} == legacy_before
+
+
+@pytest.mark.skipif(os.name != "nt", reason="an open handle only blocks deletion on Windows")
+def test_an_interrupted_environment_removal_is_finished_by_a_second_run_and_reports_truthfully(tmp_path):
+    """A locked file stops the first pass part-way (an interruption the user can see); the retry completes it."""
+    root = fake_root(tmp_path)
+    locked = root / ".venv" / "Lib" / "site-packages" / "thing.py"
+    with open(locked, "rb"):
+        first = worker.process_asset("virtual_environment", root)
+    assert first.status == "failed" and "thing.py" in first.message
+    second = worker.process_asset("virtual_environment", root)
+    assert second.status == "removed" and not (root / ".venv").exists()

@@ -30,6 +30,7 @@ installs anything, or provisions FFmpeg.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import shutil
@@ -41,6 +42,7 @@ from types import SimpleNamespace
 import pytest
 
 from shared import bootstrap  # noqa: E402
+from shared import venv_layout  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BAT = REPO_ROOT / "Setup_and_Run-audiobook-creation-tool.bat"
@@ -1637,3 +1639,479 @@ def test_a_degraded_environment_is_still_kept_without_any_rename(env, monkeypatc
     assert ok is True
     assert attempts == []
     assert keepsake.read_text(encoding="utf-8") == "previous"
+
+
+# --------------------------------------------------------------------------- #
+# K. An engine held inside the venv survives every step of the venv's own
+#    replacement (v0.7.0 P04A, plan Revision 2 §5.5)
+#
+# The candidate layout keeps an independent Qwen3 environment at
+# ``.venv/engines/qwen3``. It is not adopted, but the parent's transaction
+# already had to be safe for it, and was not: setting ``.venv`` aside carries
+# the child into ``.venv.replaced``, and ``commit`` then ``rmtree``'d that whole
+# folder — a multi-gigabyte engine gone with the old app environment, never
+# rebuilt with it. Now commit moves ``engines/`` home first (one rename, so it
+# is in exactly one place at every instant, at the same absolute path as
+# before), an aside still holding anything is never deleted, a rollback takes
+# the engine back before the candidate goes, and recovery uses the same rules.
+#
+# The matrix: before the parent is set aside; after; before the engine is
+# reattached; after, but before commit; after commit, before cleanup; during the
+# rollback; during cleanup; and with each rename or delete refused. Every engine
+# here is a synthetic folder whose bytes are hashed before and after.
+# --------------------------------------------------------------------------- #
+_ENGINE = ("engines", "qwen3")
+
+
+def _tree(root: Path) -> dict[str, str]:
+    """Every file under ``root`` by relative path, with its SHA-256."""
+    return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def _engine_in(parent: Path) -> Path:
+    return parent.joinpath(*_ENGINE)
+
+
+def _plant_engine(parent: Path, marker: str = "engine") -> dict[str, str]:
+    """A held child environment's worth of identifiable files. Returns their hashes."""
+    child = _engine_in(parent)
+    (child / "Lib" / "site-packages" / "torch").mkdir(parents=True)
+    (child / "pyvenv.cfg").write_text("home = C:/base\ninclude-system-site-packages = false\n", encoding="utf-8")
+    (child / "Scripts").mkdir()
+    (child / "Scripts" / "python.exe").write_bytes(b"child interpreter " + marker.encode())
+    (child / "Lib" / "site-packages" / "torch" / "weights.bin").write_bytes(marker.encode() * 4096)
+    return _tree(child)
+
+
+def _protected(env) -> dict[str, str]:
+    """Models, transcripts, settings, caches and logs: outside every environment, and hashed."""
+    data = env.tmp / "files" / "runtime-data"
+    for relative, payload in (("models/qwen3/base/model.safetensors", b"model" * 512),
+                              ("qwen3/transcript-selection.json", b'{"schema": 1, "voices": {}}'),
+                              ("qwen3/cache/hf/blob", b"cache"),
+                              ("settings.json", b"{}"),
+                              ("logs/session.log", b"log")):
+        target = data / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    return _tree(data)
+
+
+def _protected_after(env) -> dict[str, str]:
+    return _tree(env.tmp / "files" / "runtime-data")
+
+
+def _successful_repair_fakes(monkeypatch, *, reconcile=None):
+    """Everything ``repair_venv`` calls out to, faked so the real transaction runs."""
+    monkeypatch.setattr(bootstrap, "find_suitable_python", lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    if reconcile is None:
+        _reconcile_spy(monkeypatch)
+    else:
+        monkeypatch.setattr(bootstrap, "reconcile_requirements", reconcile)
+    monkeypatch.setattr(bootstrap, "probe_venv",
+                        lambda py: _probe() if (bootstrap.VENV_DIR / "candidate.txt").exists() else None)
+
+
+def _refusing_engine_rename(monkeypatch, refusals) -> list:
+    """``os.replace`` that refuses to move an ``engines`` folder, then really moves it."""
+    real_replace = os.replace
+    pending = iter(refusals)
+    attempts: list = []
+
+    def fake_replace(src, dst, *args, **kwargs):
+        if Path(src).name == venv_layout.ENGINES_DIRNAME:
+            attempts.append(str(dst))
+            exc = next(pending, None)
+            if exc is not None:
+                raise exc
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(bootstrap.os, "replace", fake_replace)
+    return attempts
+
+
+# --- the whole repair ------------------------------------------------------ #
+def test_a_repair_brings_a_held_engine_home_to_the_same_absolute_path(env, monkeypatch):
+    keepsake = _existing_venv(env)
+    engine = _plant_engine(env.venv)
+    final = _engine_in(env.venv)
+    protected = _protected(env)
+    _successful_repair_fakes(monkeypatch)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is True and "repaired" in message and "kept" not in message
+    assert not keepsake.exists() and (env.venv / "candidate.txt").exists()  # really replaced
+    assert _engine_in(env.venv) == final and _tree(final) == engine  # home, at its own path, byte-identical
+    assert not bootstrap._venv_aside_path().exists()
+    assert _protected_after(env) == protected
+
+
+def test_if_the_engine_cannot_be_moved_home_the_old_folder_is_kept_not_deleted(env, monkeypatch):
+    """Defence in depth: the discard refuses on its own, whatever the carry did."""
+    _existing_venv(env)
+    engine = _plant_engine(env.venv)
+    _successful_repair_fakes(monkeypatch)
+    monkeypatch.setattr(bootstrap, "_carry_held_environments", lambda source, destination, log: False)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    aside = bootstrap._venv_aside_path()
+    assert ok is True  # the app environment itself was repaired
+    assert "kept" in message and "nothing was deleted" in message
+    assert _tree(_engine_in(aside)) == engine
+    assert not _engine_in(env.venv).exists()  # and it is not pretended to be installed
+
+
+def test_first_run_setup_carries_a_held_engine_through_its_own_replacement(env, monkeypatch):
+    """``_create_validated_venv`` owning the transaction (first-run setup) commits the same way."""
+    _existing_venv(env)
+    engine = _plant_engine(env.venv)
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "probe_venv",
+                        lambda py: _probe() if (bootstrap.VENV_DIR / "candidate.txt").exists() else None)
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+
+    assert bootstrap._create_validated_venv(["py", "-3.12"], _Log(), False) is True
+
+    assert (env.venv / "candidate.txt").exists() and _tree(_engine_in(env.venv)) == engine
+    assert not bootstrap._venv_aside_path().exists()
+
+
+# --- 1. before the parent is replaced -------------------------------------- #
+def test_a_refused_aside_leaves_the_parent_and_its_engine_exactly_where_they_were(env, monkeypatch):
+    keepsake = _existing_venv(env)
+    engine = _plant_engine(env.venv)
+    _successful_repair_fakes(monkeypatch)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    _controlled_time(monkeypatch)
+    _refusing_rename(monkeypatch, _always(5))
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is False and "could not be rebuilt" in message
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert _tree(_engine_in(env.venv)) == engine
+    assert _no_aside_exists(env)
+
+
+@pytest.mark.skipif(not bootstrap.IS_WINDOWS, reason="an open handle only blocks a rename on Windows")
+def test_a_running_engine_holds_its_parent_in_place_and_nothing_is_lost(env):
+    """A real Windows handle inside the child (a worker still running), not a simulated refusal."""
+    keepsake = _existing_venv(env)
+    engine = _plant_engine(env.venv)
+    weights = _engine_in(env.venv) / "Lib" / "site-packages" / "torch" / "weights.bin"
+    log = _Log()
+    with open(weights, "rb"):
+        assert bootstrap._move_venv_aside(log) is None
+    assert "Could not set the existing environment aside" in log.text
+    assert keepsake.exists() and _tree(_engine_in(env.venv)) == engine
+    assert _no_aside_exists(env)
+
+
+# --- 2. after the parent was set aside ------------------------------------- #
+def test_interrupted_after_the_aside_the_parent_comes_back_with_its_engine(env):
+    aside = bootstrap._venv_aside_path()
+    _seed_interpreter(aside)
+    (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
+    engine = _plant_engine(aside)
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "keepsake.txt").exists() and _tree(_engine_in(env.venv)) == engine
+    assert not aside.exists()
+
+
+# --- 3. before the engine is reattached ------------------------------------ #
+def test_interrupted_before_reattachment_a_proved_candidate_receives_the_engine(env, monkeypatch):
+    aside = _interrupted_both(env)
+    engine = _plant_engine(aside)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "candidate.txt").exists() and _tree(_engine_in(env.venv)) == engine
+    assert not aside.exists()
+
+
+def test_interrupted_before_reattachment_an_unproved_candidate_loses_and_the_engine_is_intact(env, monkeypatch):
+    aside = _interrupted_both(env, proved=False)
+    engine = _plant_engine(aside)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "keepsake.txt").exists() and not (env.venv / "candidate.txt").exists()
+    assert _tree(_engine_in(env.venv)) == engine
+    assert not aside.exists()
+
+
+# --- 4. after reattachment, before commit ----------------------------------- #
+def test_interrupted_after_reattachment_a_proved_candidate_keeps_the_engine(env, monkeypatch):
+    aside = _interrupted_both(env)
+    engine = _plant_engine(env.venv)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "candidate.txt").exists() and _tree(_engine_in(env.venv)) == engine
+    assert not aside.exists()
+
+
+def test_interrupted_after_reattachment_a_losing_candidate_hands_the_engine_back(env, monkeypatch):
+    """The candidate holds the engine and is about to be deleted: the engine must leave with the restore."""
+    aside = _interrupted_both(env)
+    engine = _plant_engine(env.venv)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(ssl=False))  # proved, but cannot run
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "keepsake.txt").exists() and not (env.venv / "candidate.txt").exists()
+    assert _tree(_engine_in(env.venv)) == engine
+    assert not aside.exists()
+
+
+# --- 5. after commit, before / during cleanup ------------------------------- #
+def test_interrupted_during_cleanup_a_half_deleted_aside_is_finished_off(env, monkeypatch):
+    """Commit had moved the engine home; the aside's deletion was cut short."""
+    aside = bootstrap._venv_aside_path()
+    (aside / "Lib" / "leftover").mkdir(parents=True)
+    (aside / "Lib" / "leftover" / "half.pyc").write_bytes(b"x")
+    _fake_interpreter(env)
+    (env.venv / "candidate.txt").write_text("candidate", encoding="utf-8")
+    bootstrap.record_import_proof("3.12.10")
+    engine = _plant_engine(env.venv)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert not aside.exists() and _tree(_engine_in(env.venv)) == engine
+
+
+# --- 6. during the rollback ------------------------------------------------- #
+class _Killed(BaseException):
+    """The process dying mid-step: not an error anything may catch."""
+
+
+def test_a_rollback_killed_while_deleting_the_candidate_is_not_mistaken_for_a_finished_repair(env, monkeypatch):
+    aside = _interrupted_both(env)  # the candidate carries a current proof
+    engine = _plant_engine(env.venv)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    def killed(*args, **kwargs):
+        raise _Killed()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(bootstrap.shutil, "rmtree", killed)
+        with pytest.raises(_Killed):
+            bootstrap._restore_venv(aside, _Log())
+
+    # The engine went back to the aside first, and the candidate's proof went before any deletion began.
+    assert _tree(_engine_in(aside)) == engine and not _engine_in(env.venv).exists()
+    assert not bootstrap.import_proof_is_current()
+
+    bootstrap.recover_interrupted_replacement(_Log())  # the next run: a healthy-looking candidate must not win
+
+    assert (env.venv / "keepsake.txt").exists() and _tree(_engine_in(env.venv)) == engine
+    assert not aside.exists()
+
+
+def test_a_rollback_never_deletes_a_candidate_whose_engine_cannot_go_back(env, monkeypatch):
+    """Both hold an engine (one was installed into the candidate meanwhile): nothing is chosen or deleted."""
+    keepsake = _existing_venv(env)
+    old_engine = _plant_engine(env.venv, "old")
+    protected = _protected(env)
+    new_engine: dict = {}
+
+    def reconcile_installs_an_engine_then_fails(log):
+        new_engine.update(_plant_engine(bootstrap.VENV_DIR, "new"))
+        return False, "pip failed"
+
+    _successful_repair_fakes(monkeypatch, reconcile=reconcile_installs_an_engine_then_fails)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    aside = bootstrap._venv_aside_path()
+    assert ok is False and "could not be put back either" in message
+    assert _tree(_engine_in(aside)) == old_engine and (aside / keepsake.name).exists()
+    assert _tree(_engine_in(env.venv)) == new_engine
+    assert _protected_after(env) == protected
+
+
+# --- 7. refused renames and deletes ---------------------------------------- #
+def test_a_refused_carry_keeps_the_old_folder_and_the_next_run_brings_the_engine_home(env, monkeypatch):
+    _existing_venv(env)
+    engine = _plant_engine(env.venv)
+    protected = _protected(env)
+    _successful_repair_fakes(monkeypatch)
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    _controlled_time(monkeypatch)
+    with monkeypatch.context() as patch:
+        attempts = _refusing_engine_rename(patch, _always(32))
+        ok, message = bootstrap.repair_venv(_Log())
+
+    aside = bootstrap._venv_aside_path()
+    assert ok is True and "kept" in message
+    assert 1 < len(attempts) <= 1 + len(bootstrap._ASIDE_RETRY_DELAYS_S)  # retried inside the bounded window
+    assert _tree(_engine_in(aside)) == engine and not _engine_in(env.venv).exists()
+
+    bootstrap.recover_interrupted_replacement(_Log())  # the rename works again
+
+    assert _tree(_engine_in(env.venv)) == engine and not aside.exists()
+    assert _protected_after(env) == protected
+
+
+def test_a_momentary_carry_refusal_is_retried_and_the_engine_still_comes_home(env, monkeypatch):
+    aside = _interrupted_both(env)
+    engine = _plant_engine(aside)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    _controlled_time(monkeypatch)
+    attempts = _refusing_engine_rename(monkeypatch, [_win_error(5)])
+    log = _Log()
+
+    bootstrap.recover_interrupted_replacement(log)
+
+    assert len(attempts) == 2 and _tree(_engine_in(env.venv)) == engine and not aside.exists()
+
+
+def test_a_carry_refusal_that_is_not_transient_is_not_retried(env, monkeypatch):
+    aside = _interrupted_both(env)
+    engine = _plant_engine(aside)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    _controlled_time(monkeypatch)
+    attempts = _refusing_engine_rename(monkeypatch, _always(1392))  # ERROR_FILE_CORRUPT
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert len(attempts) == 1
+    assert _tree(_engine_in(aside)) == engine and (env.venv / "candidate.txt").exists()
+
+
+@pytest.mark.skipif(not bootstrap.IS_WINDOWS, reason="an open handle only blocks a rename on Windows")
+def test_a_real_handle_on_the_held_engine_keeps_it_in_the_aside_until_it_is_released(env, monkeypatch):
+    aside = _interrupted_both(env)
+    engine = _plant_engine(aside)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    weights = _engine_in(aside) / "Lib" / "site-packages" / "torch" / "weights.bin"
+    log = _Log()
+    with open(weights, "rb"):
+        bootstrap.recover_interrupted_replacement(log)
+    assert "Could not move the separately installed voice engines" in log.text
+    assert "Kept .venv.replaced" in log.text
+    assert _tree(_engine_in(aside)) == engine
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert _tree(_engine_in(env.venv)) == engine and not aside.exists()
+
+
+def test_a_backup_holding_the_only_copy_of_an_engine_is_never_deleted(env):
+    aside = bootstrap._venv_aside_path()
+    _seed_interpreter(aside)
+    engine = _plant_engine(aside)
+    txn = bootstrap.VenvReplacement(aside)
+    _fake_interpreter(env)
+    (env.venv / "engines").mkdir()
+    (env.venv / "engines" / "something").write_text("already here", encoding="utf-8")  # the carry must refuse
+
+    assert txn.commit(_Log()) is False
+    assert txn.retained == aside and txn.committed
+    assert _tree(_engine_in(aside)) == engine
+    assert bootstrap._discard_venv_aside(aside, _Log()) is False and _tree(_engine_in(aside)) == engine
+
+
+def test_when_both_hold_an_engine_recovery_keeps_both_and_chooses_neither(env, monkeypatch):
+    aside = _interrupted_both(env)
+    old_engine = _plant_engine(aside, "old")
+    new_engine = _plant_engine(env.venv, "new")
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    log = _Log()
+
+    bootstrap.recover_interrupted_replacement(log)
+
+    assert "both hold separately installed voice engines" in log.text
+    assert _tree(_engine_in(aside)) == old_engine and _tree(_engine_in(env.venv)) == new_engine
+
+
+def test_an_unreadable_engines_folder_is_never_deleted_with_its_parent(env, monkeypatch):
+    aside = bootstrap._venv_aside_path()
+    (aside / "engines" / "qwen3").mkdir(parents=True)
+    real_scandir = os.scandir
+
+    def refused(path):
+        if Path(path).name == "engines":
+            raise PermissionError(13, "Access is denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(venv_layout.os, "scandir", refused)
+    assert bootstrap._discard_venv_aside(aside, _Log()) is False
+    assert (aside / "engines" / "qwen3").is_dir()
+
+
+@pytest.mark.skipif(not bootstrap.IS_WINDOWS, reason="junctions are a Windows mechanism")
+def test_an_engines_junction_is_neither_followed_nor_moved_nor_deleted_through(env, monkeypatch):
+    from test_qwen3_runtime import make_junction
+
+    elsewhere = env.tmp / "somebody-elses-folder"
+    elsewhere.mkdir()
+    (elsewhere / "precious.txt").write_text("keep", encoding="utf-8")
+    aside = _interrupted_both(env)
+    make_junction(aside / "engines", elsewhere)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    log = _Log()
+
+    bootstrap.recover_interrupted_replacement(log)
+
+    assert "is a link or cannot be read" in log.text
+    assert venv_layout.is_link(aside / "engines") and not (env.venv / "engines").exists()
+    assert (elsewhere / "precious.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_a_uniquely_named_older_aside_holding_an_engine_is_never_touched(env, monkeypatch):
+    """``_move_venv_aside`` never overwrites an aside; recovery only ever resolves the canonical one."""
+    stranded = env.tmp / (bootstrap._venv_aside_path().name + "-1790000000")
+    _seed_interpreter(stranded)
+    engine = _plant_engine(stranded)
+    _fake_interpreter(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert _tree(_engine_in(stranded)) == engine
+
+
+# --- boundaries ------------------------------------------------------------ #
+def test_the_app_environment_repair_can_never_reach_the_qwen3_installer():
+    """A main repair must not be able to start a multi-gigabyte engine acquisition."""
+    tree = ast.parse(Path(bootstrap.__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+    assert not any(name == "tts" or name.startswith("tts.") for name in imported), imported
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | \
+        {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    for installer in ("qwen3_setup", "install_environment", "install_model", "qwen3_runtime"):
+        assert installer not in names, installer
+
+
+def test_every_delete_of_a_whole_environment_is_guarded_by_the_held_engine_check():
+    """The two places that delete a set-aside or replaced parent ask first; the recreate deletes only its own candidate."""
+    from source_probe import function
+
+    for name in ("_discard_venv_aside", "_restore_venv"):
+        node = function("shared/bootstrap.py", name)
+        calls = [n for n in ast.walk(node) if isinstance(n, ast.Call)]
+        asks = [n.lineno for n in calls
+                if isinstance(n.func, ast.Attribute) and n.func.attr == "holds_environments"]
+        deletes = [n.lineno for n in calls if isinstance(n.func, ast.Attribute) and n.func.attr == "rmtree"]
+        assert asks and deletes and min(asks) < min(deletes), name

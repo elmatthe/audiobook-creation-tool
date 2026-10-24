@@ -2,6 +2,45 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04A: the app environment's replacement, rollback, recovery and cleanup keep anything held under `.venv/engines/`; nested Qwen3 layout NOT adopted; NEXT is review, then P04B only when authorised (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.5 and §6 / P04A (owner task "Execute P04A: Nested Environment Lifecycle Safety and Recovery Tests").
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `7d4011e`. Identity stays 0.6.6. Not merged, tagged or packaged.
+Decision: Decisions 2026-10-24 (P04A).
+
+- **Not a topology change:** Qwen3 still runs from `.venv-qwen3`; `.venv/engines/qwen3/` is a candidate only. No real environment was
+  activated, repaired, moved or deleted; nothing was installed or downloaded; no real Qwen3 run.
+- **Done:** new `shared/venv_layout.py` (read-only: what `engines/` holds, fail closed; links below the root; child identity →
+  identity-ok / unverified / broken / absent; the two Qwen3 locations by exact name). `bootstrap`: commit carries `engines/` home to the
+  same absolute path before discarding the aside (bounded WinError 5/32 retry, shared `_replace_retrying`); an aside still holding
+  anything is never deleted (`retained`, repair message says so, next recovery retries); rollback carries it back first and removes the
+  candidate's import proof before deleting anything; recovery uses the same rules. `maintenance`: the `.venv` item is refused while it
+  holds an engine (inventory and coordinator). `qwen3_runtime.link_below_root` + `qwen3_setup.safe_to_remove_environment`: a link in any
+  folder above the environment is refused (no-op for `.venv-qwen3`; closes a nested-path bypass).
+- **Tests:** new `test_qwen3_environment_layout.py` (36; real tiny venvs from the base interpreter: distinct prefixes, no parent
+  packages, contaminated `PYTHONPATH`/`PYTHONHOME`/`VIRTUAL_ENV`/`PIP_*` scrubbed, detached/moved/changed-base/unrecorded/linked children
+  never accepted, exact layout names). `test_venv_recovery.py` section K (24: the interruption matrix — before aside, after aside, before
+  and after reattachment, during cleanup, during rollback, refused/transient/real-handle renames, only-copy backup, both-hold, unreadable,
+  junction, stranded unique aside, no path to the Qwen3 installer). `test_qwen3_setup.py` (6), `test_maintenance.py` (8),
+  `test_cleanup_worker.py` (4; coordinator module set now includes `venv_layout.py`).
+- **Negative controls:** 26/26 mutations killed (22 guard removals + HEAD's original bootstrap, maintenance, qwen3_setup, qwen3_runtime
+  against the new tests; HEAD bootstrap deletes the held engine outright; the HEAD qwen3_runtime row fails on a missing symbol, its
+  behavioural control is the leaf-only mutation); tree restored byte-exact.
+- **Windows observations:** a fresh venv folder refused its first rename with WinError 5 in 3 of 12 tries, clearing on the next within
+  ~16 ms; a fresh `python.exe` once refused deletion; a real open handle inside the child blocks both the parent's rename and the carry
+  (fails safe). No Smart App Control failure seen (Code Integrity log not queried). `VIRTUAL_ENV` was inherited by this session; tests
+  used the explicit interpreter and scrubbed subprocess environments.
+- **Verification:** focused P04A exit-table and affected suites; exact commands and counts in `checkpoints/P04A.md` (this block is
+  written before that run so the committed tree is the tested tree). No full gate (P04C owns it if nesting is adopted).
+- **Open for P04B/P04C:** a retained aside is only resolved by repair/setup, not a healthy launch (a stranded engine would look
+  uninstalled); `assess_child`/base identity is not yet wired into `environment_status`; main repair does not take the Qwen3 locks (a
+  running worker makes it fail generically, safely); fuller cleanup design for a held engine; unique-named older asides are never
+  recovered (pre-existing). Real nested native proof not started. Earlier carried items unchanged (P01B/P01C and combined 28-voice owner
+  listening NOT RUN/OPEN; provisional clone previews; developer-mode real-display walk-through; stray 0-byte private review file;
+  launcher "— ready."; long stems in engine temp paths; Andrew `NoAudioReceived`; −58 dBFS trim; WinError 206 / AUD-004, -005, -008, -009).
+- **Evidence (ignored):** `checkpoints/P04A.md`, `p04a/` (`mutate.py`, `mutation.json`, focused logs/JUnit).
+- **Next:** review of P04A, then P04B (real nested proof) only when the owner authorises acquisitions/runtime tests.
+
 ## CURRENT STATE — v0.7.0 P03D: typed developer mode (shipped false) gates the reference-transcript tools in UI and backend; deliberate, hash-bound local override; P03 full gate; NEXT is review, then P04A only when authorised (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.3 (config contract) and §6 / P03D (owner task "Execute P03D: Developer Mode, Transcript Tool Gating and Full P03

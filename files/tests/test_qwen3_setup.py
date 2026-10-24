@@ -1569,3 +1569,97 @@ def test_a_load_check_runs_nothing_when_the_machine_wide_guard_cannot_be_had(san
         su.probe_environment(model_dir=sandbox / "some-model", runner=lambda cmd, **kw: calls.append(cmd) or runner(cmd, **kw))
     assert str(raised.value) == expected + " Everything downloaded so far is kept."
     assert calls == []
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P04A — removing the engine's environment at the candidate nested path
+#
+# The candidate layout (``.venv/engines/qwen3``) is not adopted; here the path
+# authority is pointed at it inside a disposable root only. A check on the last
+# path component alone cannot see a link one folder up, and with the engine
+# inside ``.venv`` there are now folders in between: a junction at ``.venv`` (or
+# ``.venv/engines``) leading somewhere else inside the app folder passed every
+# old check, and a rebuild would have deleted whatever was there.
+# --------------------------------------------------------------------------- #
+def _tree(root: Path) -> dict[str, bytes]:
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+@pytest.fixture()
+def nested_engine(sandbox, monkeypatch):
+    """The parent ``.venv`` with an app package, and the Qwen3 authority aimed at its ``engines/qwen3``."""
+    parent = sandbox / ".venv"
+    (parent / "Lib" / "site-packages").mkdir(parents=True)
+    (parent / "pyvenv.cfg").write_text("home = x\ninclude-system-site-packages = false\n", encoding="utf-8")
+    (parent / "Lib" / "site-packages" / "app_package.py").write_text("WHO = 'app'\n", encoding="utf-8")
+    monkeypatch.setattr(rt, "venv_dir", lambda: sandbox / ".venv" / "engines" / "qwen3")
+    return parent
+
+
+def test_a_nested_engine_is_removable_only_as_itself_never_through_its_parent(nested_engine, sandbox):
+    install_environment(sandbox)
+    assert su.safe_to_remove_environment(rt.venv_dir())
+    assert not su.safe_to_remove_environment(nested_engine)  # the parent is a venv, but not this one
+    assert not su.safe_to_remove_environment(nested_engine / "engines")
+
+
+def test_rebuilding_a_nested_engine_removes_only_its_own_folder(nested_engine, sandbox, runner):
+    install_environment(sandbox)
+    (rt.venv_dir() / "old-engine-marker").write_text("x", encoding="utf-8")
+    legacy = sandbox / ".venv-qwen3"
+    (legacy / "Lib").mkdir(parents=True)
+    (legacy / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
+    (legacy / "Lib" / "legacy.bin").write_bytes(b"legacy engine")
+    parent_before = {k: v for k, v in _tree(nested_engine).items() if not k.startswith("engines/")}
+    legacy_before = _tree(legacy)
+
+    su.install_environment(runner=runner, rebuild=True)
+
+    assert not (rt.venv_dir() / "old-engine-marker").exists() and rt.venv_python().is_file()
+    assert {k: v for k, v in _tree(nested_engine).items() if not k.startswith("engines/")} == parent_before
+    assert _tree(legacy) == legacy_before  # both layouts present: the other one is never touched
+
+
+def test_rebuilding_the_legacy_engine_never_touches_a_nested_one(sandbox, runner):
+    nested = sandbox / ".venv" / "engines" / "qwen3"
+    (nested / "Lib").mkdir(parents=True)
+    (nested / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
+    (nested / "Lib" / "nested.bin").write_bytes(b"nested engine")
+    before = _tree(sandbox / ".venv")
+    install_environment(sandbox)  # the legacy one, at the unchanged production path
+
+    su.install_environment(runner=runner, rebuild=True)
+
+    assert rt.venv_dir() == sandbox / ".venv-qwen3"
+    assert _tree(sandbox / ".venv") == before
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows mechanism")
+@pytest.mark.parametrize("linked", [".venv", ".venv/engines"])
+def test_a_linked_ancestor_is_refused_and_nothing_is_deleted_through_it(sandbox, runner, monkeypatch, linked):
+    """The decoy is *inside* the app folder, so resolving the path and checking containment cannot catch it."""
+    decoy = sandbox / "files" / "runtime-data" / "models" / "decoy"
+    engine_in_decoy = decoy / "engines" / "qwen3" if linked == ".venv" else decoy / "qwen3"
+    (engine_in_decoy / "Scripts").mkdir(parents=True)
+    (engine_in_decoy / "Scripts" / "python.exe").write_bytes(b"")
+    (engine_in_decoy / "pyvenv.cfg").write_text(f"home = {sandbox}\n", encoding="utf-8")
+    (engine_in_decoy / "precious-model.safetensors").write_bytes(b"somebody's model")
+    link = sandbox.joinpath(*linked.split("/"))
+    link.parent.mkdir(parents=True, exist_ok=True)
+    make_junction(link, decoy)
+    monkeypatch.setattr(rt, "venv_dir", lambda: sandbox / ".venv" / "engines" / "qwen3")
+    before = _tree(decoy)
+
+    assert rt.link_below_root(rt.venv_dir()) == link
+    assert su.safe_to_remove_environment(rt.venv_dir()) is False
+    assert "reached through a link" in rt.environment_location_problem()
+    assert rt.environment_status()[0] is False
+    with pytest.raises(su.SetupError, match="reached through a link"):
+        su.install_environment(runner=runner, rebuild=True)
+    assert runner.commands == [] and _tree(decoy) == before
+
+
+def test_the_legacy_location_has_no_ancestor_to_check(sandbox):
+    """For ``.venv-qwen3`` the new check is exactly the old leaf check: nothing changes for today's layout."""
+    assert rt.link_below_root(rt.venv_dir()) is None
+    assert rt.link_below_root(sandbox.parent / "outside") == sandbox.parent / "outside"

@@ -457,6 +457,25 @@ def is_link(path: Path) -> bool:
         return True
 
 
+def link_below_root(path: Path) -> Optional[Path]:
+    """The first component from just below the repository root down to ``path`` that is a link, or ``None``.
+
+    ``path`` itself when it is not inside the root at all. A check on the last component alone misses a link one or
+    more folders up (an environment kept inside another folder), which would lead the same path somewhere else.
+    """
+    root, target = Path(os.path.abspath(repo_root())), Path(os.path.abspath(path))
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        return target
+    walked = root
+    for part in relative.parts:
+        walked = walked / part
+        if is_link(walked):
+            return walked
+    return None
+
+
 def remove_entry(path: Path) -> None:
     """Remove a leftover file, or a link itself, without ever following a link (a junction goes as a directory).
 
@@ -654,6 +673,10 @@ def environment_location_problem() -> str:
     if is_link(folder):
         return (".venv-qwen3 is a link to another folder. Remove the link (not its target) so the app can create its "
                 "own environment.")
+    linked = link_below_root(folder)
+    if linked is not None:
+        return (f"The Qwen3 environment is reached through a link ({linked.name}); refusing to use it. Remove the "
+                "link (not its target) so the app can create its own environment.")
     real_root = os.path.realpath(repo_root())
     try:
         inside = os.path.commonpath([real_root, os.path.realpath(folder)]) == real_root

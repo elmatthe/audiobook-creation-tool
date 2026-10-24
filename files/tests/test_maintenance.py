@@ -1173,3 +1173,95 @@ def test_no_test_in_this_module_measures_the_real_repository():
             assert not names_repo_root(argument), (
                 f"{name}() was handed the real repository root"
             )
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P04A — the environment item never takes a held voice engine with it
+#
+# "Private Python environment: dependencies will be rebuilt on the next launch"
+# is true of the app's packages and false of a voice engine kept inside
+# ``.venv/engines/`` (the candidate nested layout, not adopted): nothing rebuilds
+# that automatically. Rather than delete it under that promise, the item is not
+# offered while anything is held there, and the coordinator re-checks before
+# acting. The legacy ``.venv-qwen3`` beside it was never a catalog target.
+# --------------------------------------------------------------------------- #
+def _plant_held(root: Path, kind: str) -> Path:
+    engines = root / ".venv" / "engines"
+    if kind == "engine":
+        write(engines / "qwen3" / "pyvenv.cfg", b"home = x\n")
+        write(engines / "qwen3" / "Lib" / "site-packages" / "torch.bin", b"t" * 300)
+    elif kind == "stray-file":
+        write(engines / "notes.txt", b"x")
+    elif kind == "engines-is-a-file":
+        write(engines, b"x")
+    return engines
+
+
+@pytest.mark.parametrize("kind", ["engine", "stray-file", "engines-is-a-file"])
+def test_an_environment_holding_a_voice_engine_is_refused_and_not_offered(tmp_path, kind):
+    root = fake_root(tmp_path)
+    _plant_held(root, kind)
+    with pytest.raises(mnt.UnsafeTargetError) as refused:
+        mnt.authorized_target("virtual_environment", root)
+    assert str(refused.value) == mnt.HELD_ENVIRONMENT_PROBLEM
+    row = {i.asset_id: i for i in mnt.inventory(root)}["virtual_environment"]
+    assert row.present and not row.selectable and row.problem == mnt.HELD_ENVIRONMENT_PROBLEM
+    with pytest.raises(mnt.SelectionError, match="not available"):
+        mnt.summarise_selection(mnt.inventory(root), ["virtual_environment"])
+
+
+def test_the_refusal_says_what_would_be_lost_and_that_nothing_was_removed():
+    text = mnt.HELD_ENVIRONMENT_PROBLEM
+    assert "voice engine" in text and "not rebuilt" in text and "Nothing was removed" in text
+
+
+def test_an_empty_engines_folder_does_not_block_the_environment_item(tmp_path):
+    root = fake_root(tmp_path)
+    (root / ".venv" / "engines").mkdir()
+    assert mnt.authorized_target("virtual_environment", root) == root / ".venv"
+    assert {i.asset_id: i for i in mnt.inventory(root)}["virtual_environment"].selectable
+
+
+def test_a_held_engine_affects_only_the_environment_item(tmp_path):
+    root = fake_root(tmp_path)
+    _plant_held(root, "engine")
+    rows = {i.asset_id: i for i in mnt.inventory(root)}
+    for other in ("portable_binaries", "downloaded_models", "application_logs"):
+        assert rows[other].selectable and rows[other].problem is None, other
+
+
+def test_an_unreadable_engines_folder_is_refused_too(tmp_path, monkeypatch):
+    from shared import venv_layout
+
+    root = fake_root(tmp_path)
+    (root / ".venv" / "engines").mkdir()
+    real_scandir = os.scandir
+
+    def refused(path):
+        if Path(path).name == "engines":
+            raise PermissionError(13, "Access is denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(venv_layout.os, "scandir", refused)
+    with pytest.raises(mnt.UnsafeTargetError):
+        mnt.authorized_target("virtual_environment", root)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are a Windows mechanism")
+def test_an_engines_junction_inside_the_environment_is_refused(tmp_path):
+    root = fake_root(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    if not make_junction(root / ".venv" / "engines", elsewhere):
+        pytest.skip("cannot create a junction here")
+    with pytest.raises(mnt.UnsafeTargetError) as refused:
+        mnt.authorized_target("virtual_environment", root)
+    assert str(refused.value) == mnt.HELD_ENVIRONMENT_PROBLEM
+
+
+def test_the_legacy_qwen3_environment_is_not_a_catalog_target(tmp_path):
+    root = fake_root(tmp_path)
+    write(root / ".venv-qwen3" / "pyvenv.cfg", b"home = x\n")
+    targets = {mnt.compiled_target(i, root) for i in mnt.ASSET_IDS}
+    assert all(not mnt.same_path(t, root / ".venv-qwen3") and not mnt.is_within(t, root / ".venv-qwen3")
+               for t in targets)

@@ -29,6 +29,7 @@ release candidate). State at this checkpoint:
 - **Reference recordings** are `files/Cloned-Voice-Uploads/Chatterbox - <Female 1 .. Male 4>.wav`, one copy for both engines (moved there at v0.7.0 P03A; the old
   `files/Chatterbox-Voice-Uploads/` keeps only the owner's ignored MP3 originals and is no longer read).
 - **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
+- **Environment layout (v0.7.0 P04A):** Qwen3 still runs from `.venv-qwen3` beside `.venv`; the candidate nested `.venv/engines/qwen3/` is not adopted (P04B real proof and an owner decision first). `shared/venv_layout.py` names what `.venv/engines/` holds, and the main venv's replacement, rollback and recovery (bootstrap) and the data-cleanup `.venv` item already keep it: moved home at the same absolute path, never deleted with an old copy, cleanup refused.
 - **Code layout after B2:** `scripts/{launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/}`; each package has a README module map.
 - **Qualification evidence** (S5 runtime, the extracted-ZIP test) and what remains unproven are in `Handoff.md` (current-state block of 2026-10-20) and `Decisions.md`.
 - **Codex audit remediation (2026-10-21):** no-clobber release packaging, proved Kokoro health and constrained repair, a cross-installation Qwen3 guard
