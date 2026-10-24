@@ -2,6 +2,35 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04B: native nested Qwen3 qualification ran on HOME-PC; verdict FAIL on one lifecycle row (main repair does not refuse while Qwen3 is in use), everything else proven; nothing adopted; NEXT is the owner topology decision (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.5, §6 / P04B, owner approval of O1–O9 (O2c constraints yes, O3 copy cache, O5 independent model copies).
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `9b38751`. Identity 0.6.6. No production source change; not merged/tagged.
+
+- **Where:** disposable copy `files/dev-work/P04B q/` (git archive of `9b38751`, 426/426 blobs verified, path with a space); evidence
+  and harness `files/dev-work/act070-remediation/p04b/`; report `checkpoints/P04B.md` (A–L matrix). Both ignored and retained (18.15 GB).
+- **Proven natively:** qualification `.venv` built by the copy's own `repair_venv` from base 3.12.10 under production freeze constraints
+  (171/171 versions = production; unconstrained control would drift 10). Child `.venv/engines/qwen3` created from the base interpreter by
+  the production installer (two in-process overrides: `venv_dir`, `console_python`): cancel mid-install → honest "not installed
+  completely" → retry ok; 89/89 pins, `pip check`, 29,701 RECORD files verified; no DLL from parent/production envs even with a
+  contaminated PATH. Both model families reused by independent copy (0 downloaded, 0 shared file IDs); GPU loads; `qwen3-ryan` and
+  `qwen3-male-1` narration via `qwen3_file_to_mp3`, byte-identical before/after repairs. Six real parent repairs: child carried back to
+  the same absolute path with identical content digest and NTFS file IDs; held handle → safe refusal; two harness-owned Job-object
+  interruptions → restored, rebuilt, child intact. Code Integrity: 0 events 20:10Z–21:00Z (SAC enforced). Production workspace
+  before/after fingerprint diff empty.
+- **FAIL row (new finding):** a running Qwen3 worker, or an app conversion holding `inference.lock` + MachineGuard, does NOT stop main
+  `repair_venv`: the parent was set aside and rebuilt around the running child (child at the aside path ~99 s; work survived), and the
+  app case left a partial aside while reporting success. P04A's "fails generically, safely" assumption is disproved. Nested-specific;
+  a P04C lock/refusal fix, not proof that nesting is infeasible.
+- **P04C inputs if nesting is chosen:** path authority, base-interpreter child creation + recorded identity wired into
+  `environment_status`, repair takes Qwen3 setup/inference locks + MachineGuard (or refuses), honest partial-aside reporting, PATH scrub in
+  `worker_environment`, hash/constraint pinning of the main stack, model copy vs hard-link policy.
+- **Not proven here:** true standard user, restricted ACL, long paths disabled, clean-machine SAC reputation, other GPUs.
+- **Carried unchanged:** P01B/P01C + 28-voice owner listening NOT RUN/OPEN; provisional clone previews; developer-mode display walk-through;
+  stray 0-byte private review file; AUD-004/-005/-008/-009.
+- **Next:** owner/ChatGPT review of `checkpoints/P04B.md`, then the owner's explicit topology decision (adopt nested with the P04C fix, or
+  retain legacy). Do not start P04C/P05, delete `.venv-qwen3`, or delete the qualification copy (O10) without that approval.
+
 ## CURRENT STATE — v0.7.0 P04A: the app environment's replacement, rollback, recovery and cleanup keep anything held under `.venv/engines/`; nested Qwen3 layout NOT adopted; NEXT is review, then P04B only when authorised (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.5 and §6 / P04A (owner task "Execute P04A: Nested Environment Lifecycle Safety and Recovery Tests").
