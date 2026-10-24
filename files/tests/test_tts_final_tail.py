@@ -279,7 +279,8 @@ def _frozen_params(voice_id: str, run_directory: Path | None = None) -> dict:
             "trim_silence_db": float(preset["trim_dbfs"]),
         }
     params = gui.freeze_tts_options(
-        speaker=voice_id, backend=entry.backend, voice_id=voice_id, rate="+0%", resume=False, overwrite=False,
+        speaker=voice_id, backend=entry.backend, voice_id=voice_id, label=entry.display_label, rate="+0%",
+        resume=False, overwrite=False,
         bitrate="192k", workers=1, kokoro_speed=1.0, end_pause=int(preset["end_pause"]),
         paragraph_pause=int(preset["paragraphpause"]), pause_kw=pause_kw)
     params["run_directory"] = run_directory

@@ -453,7 +453,8 @@ def test_folder_a_failing_file_leaves_a_completed_sibling_untouched(tmp_path, mo
     monkeypatch.setattr(time, "sleep", lambda s: None)
     ok, fail, error_log = bc.run_batch_convert(src, out, workers=1, use_tqdm=False, log=lambda s: None)
     assert (ok, fail) == (1, 1)
-    assert (out / "a good.mp3").is_file() and not (out / "b bad.mp3").exists()
+    label = "Edge Male - Steffan (en-US)"  # v0.7.0 P02B: <stem>-<display label>.mp3
+    assert (out / f"a good-{label}.mp3").is_file() and not (out / f"b bad-{label}.mp3").exists()
     logged = error_log.read_text(encoding="utf-8")
     assert "refused the connection" in logged and not any(secret in logged for secret in SECRET_PARTS)
     assert not (out / ".tmp_chunks").exists()

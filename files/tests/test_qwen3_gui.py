@@ -321,7 +321,9 @@ def test_all_eight_voices_route_to_the_qwen3_engine_by_voice_id(
     params = run_attempt(panel)
     assert params["backend"] == "qwen3"
     assert [c["voice_id"] for c in qwen3.calls] == [voice_id]
-    assert relative(qwen3.calls[0]["output"], params["run_directory"]) == "one.mp3"
+    # v0.7.0 P02B: presets and clones alike are named by the frozen label; never the voice id or the backend.
+    assert relative(qwen3.calls[0]["output"], params["run_directory"]) == f"one-{label}.mp3"
+    assert voice_id not in qwen3.calls[0]["output"]
     assert stubs.conversion_jobs == [] and stubs.kokoro_calls == []
 
 
@@ -357,14 +359,15 @@ def test_a_direct_pdf_goes_through_the_existing_extractor_first(make_panel, outp
     params = run_attempt(panel)
     assert [source for source, _target in stubs.extracted] == [str(chosen[0])]
     assert qwen3.calls[0]["source"].endswith(".txt") and qwen3.calls[0]["source"] != str(chosen[0])
-    assert relative(qwen3.calls[0]["output"], params["run_directory"]) == "book.mp3"
+    assert relative(qwen3.calls[0]["output"], params["run_directory"]) == f"book-{AIDEN}.mp3"
 
 
 def test_folder_imported_files_mirror_their_root(make_panel, output_base, tmp_path, stubs, qwen3):
     panel, _folders = folder_panel(make_panel, tmp_path, **panel_kwargs(qwen3))
     select(panel)
     params = run_attempt(panel)
-    assert sorted(relative(c["output"], params["run_directory"]) for c in qwen3.calls) == ["01.mp3", "Book A/02.mp3"]
+    assert sorted(relative(c["output"], params["run_directory"]) for c in qwen3.calls) == [
+        f"01-{AIDEN}.mp3", f"Book A/02-{AIDEN}.mp3"]
     assert stubs.batch_items == [], "the Edge batch worker was not used"
 
 
@@ -430,7 +433,7 @@ def test_one_failing_file_fails_that_file_only(make_panel, output_base, tmp_path
     select(panel)
     params = run_attempt(panel)
     outputs = sorted(item["destination"].name for item in params["items"] if item["destination"].exists())
-    assert outputs == ["good.mp3"]
+    assert outputs == [f"good-{AIDEN}.mp3"]
 
 
 # --------------------------------------------------------------------------- #

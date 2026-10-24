@@ -10,13 +10,14 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 | `voice_registry.py` | The single list of every voice (id, label, engine, timing preset) and the order they appear in; identity is engine + id (labels and order are cosmetic, checked on import), plus the fixed table of the six reference recordings |
 | `generate_voice_samples.py` | Developer helper: one short sample per registered voice, for listening checks |
 | `quality_corpus.py` | Copyright-safe test passages used by the quality work and the A0 characterization baselines |
+| `output_names.py` | The one output file name every route uses (v0.7.0 P02B): `<source-stem>-<display label>.mp3`, with the label frozen when the run starts. Stem and label are cleaned separately (forbidden characters and separators become `_`, Unicode NFC, device names guarded); only the stem is shortened, and only when the name, a `-N` collision suffix and an engine's temporary publish name would not fit; an impossible name is refused before synthesis. Clashes are numbered `-1`, `-2` by the shared planner |
 
 ## Getting text in
 
 | Module | Role |
 |---|---|
 | `pdf_extractor.py` | PDF → plain text (PyMuPDF), including dehyphenation and page-gap repair |
-| `batch_convert.py` | Edge **folder** route: raw text, 3000-character chunks, one MP3 per source file |
+| `batch_convert.py` | Edge **folder** route: raw text, 3000-character chunks, one MP3 per source file. Run standalone, it names files the same way (`--label`, defaulting to the speaker's registered label) and never overwrites an earlier file |
 | `edge_failures.py` | Edge failure classification shared by both Edge routes: what is retried, the one-line recovery advice, token-free diagnostics |
 | `epub2tts_edge/epub2tts_edge.py` | Edge **direct** route: `Title:`/`Author:`/`#` structure, sentence splitting, comma/ellipsis/dash pauses, paragraph and chapter assembly |
 | `epub2tts_edge/runner.py` | Runs one direct Edge conversion in a private working folder |

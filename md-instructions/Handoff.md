@@ -2,6 +2,38 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P02B: one TTS output name `<source-stem>-<frozen label>.mp3` on every route; collisions numbered; registry error diagnosed at launch; NEXT is P03A after review (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.2 and §6 / P02B (owner task "P02B: Unified TTS Output Naming and Collision Safety", with the bounded P02A
+diagnostic carryover). HOME-PC, branch `feature/0.7.0-release-remediation`, parent `4d721ee`. Identity stays 0.6.6. Not merged, tagged or packaged.
+Decision: Decisions 2026-10-24 (P02B).
+
+- **Done:** new `tts/output_names.py`; every route — Edge direct and folder, Kokoro, Chatterbox, Qwen3 presets and clones, standalone
+  `batch_convert.py` — names its file `<source-stem>-<display label>.mp3` (was Edge direct `<stem> (<speaker>).mp3`, others `<stem>.mp3`). The
+  label is frozen in the run's options and destinations are planned from it once; retry reuses them. Stem and label cleaned separately (NFC,
+  controls dropped, forbidden characters/separators → `_`, device names guarded only where Windows sees one); only the stem is shortened, leaving
+  room for `-10000` and the Qwen3 `.part` name; an impossible name is refused before synthesis and the empty run folder released. Collisions use the
+  shared planner's `-1` numbering; `shared/output_paths.py` and the five other tools are unchanged. Standalone helper: `--label` (defaults to the
+  speaker's registered label), never overwrites an earlier file; the Edge folder scratch folder is a 16-hex digest. Launcher: a genuine
+  `VoiceRegistryError` shows the registry message and "correct scripts/tts/voice_registry.py" instead of the reinstall advice; TTS stays
+  unavailable, the other five tools load.
+- **Tests:** new `test_tts_output_names.py` (all 28 voices shipped/reversed/interleaved through the real panel, sanitation, Unicode, device names,
+  sanitised/case/NFC collisions, long names and headroom, same-stem PDF/TXT, mixed direct/folder, multiple roots, duplicates, existing files and
+  inputs, retry after relabel/reorder for Edge and a Qwen3 clone, frozen options, non-TTS isolation, launcher diagnostic end-to-end on a disposable
+  invalid registry) + 6 helper tests in `test_batch_convert_folders.py`. Old-name assertions replaced by the new contract (old name = negative
+  control) in `test_tts_jobs`, `test_tts_importing`, `test_chatterbox_integration`, `test_qwen3_gui`, `test_edge_failures`, `test_batch_convert_folders`.
+- **Verification:** focused 88 modules 5,018 passed / 7 skipped (pre-existing symlink-privilege and empty-fixture skips) / 1 failed — my new
+  guard used a raw `rglob`; fixed to `source_probe`, both modules then 89 passed. Negative controls on a disposable copy: **21/21 mutations killed**.
+- **P02 full gate:** `verify/P02B-4d721ee-20261024T033120Z`, run once on this exact tree; result, counts and fingerprint are in
+  `checkpoints/P02B.md` (this block is written before the gate so the committed tree is the tested tree).
+- **Assets:** six reference WAVs and 28 preview WAVs byte-identical to P02A; no transcript read.
+- **Open:** clone transcript approval still **OPEN** (artifact validated, UNAPPROVED; identity in ignored evidence only); P01B/P01C owner listening
+  and the combined 28-voice listening **NOT RUN/OPEN**; launcher status bar still reads "— ready." after any failed tool load (pre-existing, Minor);
+  long source stems still reach engine temp paths unshortened (pre-existing); earlier carried items unchanged (Andrew `NoAudioReceived`, −58 dBFS
+  trim, WinError 206 / AUD-004, -005, -008, -009).
+- **Evidence (ignored):** `checkpoints/P02B.md`, `p02b/` (focused log/JUnit, `mutation.json`, `asset-hashes.json`).
+- **Next:** ChatGPT review of P02B, then P03A only when authorised.
+
 ## CURRENT STATE — v0.7.0 P02A: stable voice identity and labels DONE; 28-label/permutation stress PASS; 6 references + 28 previews byte-identical; NEXT is P02B after review (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.2 and §6 / P02A (owner task "Execute P02A: Stable Voice Identity and Labels"). HOME-PC, branch

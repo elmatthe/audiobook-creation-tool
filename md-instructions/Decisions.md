@@ -4,6 +4,39 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - One TTS output name: <source-stem>-<frozen display label>.mp3; collisions numbered; an invalid voice list is a registry error
+
+Owner decisions Q4/Q5/Q6 (plan §2 and §5.2), implemented at P02B; recorded by Claude Code.
+
+**Name.** Every narration route (Edge direct and folder, Kokoro, Chatterbox, Qwen3 presets and clones, standalone `batch_convert.py`) names its file
+`<source-stem>-<display label>.mp3` through `tts/output_names.py`. Superseded: Edge direct `<stem> (<speaker>).mp3` and every other route's `<stem>.mp3`.
+The label is frozen by value in the run's tool options (`freeze_tts_options(label=...)`) and destinations are planned from that frozen value once, at
+run start; a retry reuses the planned destinations, so a renamed or reordered registry moves no run. The label is only ever text in a file name. No
+backend or voice-id suffix is added; clashes (existing files, case-only, Unicode-composition and sanitised duplicates, same-stem PDF/TXT, duplicate
+occurrences, mixed direct/folder) are numbered by the shared `DestinationPlanner` (`stem-1.mp3`). The Edge direct engine still writes its private
+`<stem> (<speaker>).mp3` inside a temporary folder; only the planned name is ever published.
+
+**Sanitation (TTS-local, on top of `shared.output_paths`).** Stem and label are cleaned separately (so `AC/DC` is `AC_DC`, not a name cut at the `/`):
+NFC, control characters dropped, Windows-forbidden characters and separators and unpaired surrogates become `_`, outer whitespace stripped; spaces,
+punctuation and Unicode kept. A device name is guarded with `_` only where Windows would see one (before the first dot: `nul.backup-…`); `CON-Label.mp3`
+is legal and kept.
+
+**Length.** A planned name leaves room for the longest collision suffix (`-10000`) and the longest temporary publish name (`.<8 hex>.part`, Qwen3):
+20 units in the 255 component and, where the platform limits it, in the whole path (Windows without long-path support: 259, folders 247, counted in
+UTF-16 units; macOS/Linux: 1023 UTF-8 bytes; Windows with `RtlAreLongPathsEnabled`: component only). Only the source stem is shortened, from its end;
+the label is never cut. If even one stem character cannot fit, or the folder itself is too deep, planning raises `OutputNameError` (an
+`OutputPathError`) before anything is synthesised, and the panel releases the empty run folder it had reserved.
+
+**Standalone helper.** `run_batch_convert(label=None)` defaults to the registered label of the Edge `speaker` and refuses an unregistered speaker
+without an explicit label (`--label`). Without `--resume` an existing file is never overwritten (the new file is numbered); with it, names are planned
+without the disk so an earlier output is found under its own name and skipped. The Edge folder route's scratch folder is now a 16-hex digest of the
+destination (the joined relative path could exceed one 255 component). Non-TTS tools' names and `shared/output_paths.py` are unchanged.
+
+**Registry error at launch.** The launcher's per-tool error panel recognises a genuine `tts.voice_registry.VoiceRegistryError` (class name, defining
+module and `ValueError` base; the exception itself only) and shows its message with "correct the listed entries in scripts/tts/voice_registry.py"
+instead of "a dependency is missing … reinstall requirements". TTS stays unavailable (no fallback, no skipped voice); the other five tools load. Every
+other load failure keeps the original advice and traceback. The status bar still reads "— ready." after any failed load, as before (pre-existing).
+
 ## 2026-10-24 - Voice identity is (backend, voice_id); labels and order are cosmetic; the six recordings are fixed by table
 
 Owner decisions Q5/Q31 (plan §5.2), implemented at P02A; recorded by Claude Code.

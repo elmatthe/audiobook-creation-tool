@@ -628,6 +628,7 @@ def _capture_edge_path_evidence(
     import tempfile
 
     from tts import batch_convert
+    from tts import output_names
     from tts import quality_corpus as qc
     from tts.epub2tts_edge import runner as edge_runner
 
@@ -658,7 +659,8 @@ def _capture_edge_path_evidence(
 
         # 2. Folder/batch path.
         batch_out = edge_dir / "folder_batch"
-        produced_batch = batch_out / "structural_stress.mp3"
+        # v0.7.0 P02B: the helper names its file <stem>-<voice label>.mp3, like the app.
+        produced_batch = batch_out / output_names.canonical_name(src_txt, v.display_label)
 
         def _run_batch() -> str:
             ok, fail, _errlog = batch_convert.run_batch_convert(

@@ -857,7 +857,7 @@ def test_a_direct_txt_converts_with_chatterbox_and_lands_flat(
     call = chatterbox.calls[0]
     assert call["source"] == str(chosen[0]), "a TXT is handed over as it stands"
     assert call["voice_id"] == "chatterbox-female-1"
-    assert relative(call["output"], params["run_directory"]) == "solo.mp3"
+    assert relative(call["output"], params["run_directory"]) == f"solo-{FEMALE_1}.mp3"
     assert stubs.conversion_jobs == [] and stubs.batch_items == []
 
 
@@ -874,20 +874,21 @@ def test_a_direct_pdf_goes_through_the_existing_extractor_first(
     assert chatterbox.calls[0]["source"] != str(chosen[0]), "a temp .txt is used"
     assert chatterbox.calls[0]["source"].endswith(".txt")
     assert relative(chatterbox.calls[0]["output"],
-                    params["run_directory"]) == "book.mp3"
+                    params["run_directory"]) == f"book-{FEMALE_1}.mp3"
 
 
 def test_a_direct_chatterbox_output_is_named_like_the_other_local_engine(
     make_panel, output_base, tmp_path, stubs, chatterbox
 ):
-    """No Edge speaker-in-filename convention: local engines write ``<stem>.mp3``."""
+    """v0.7.0 P02B: every engine writes ``<stem>-<frozen display label>.mp3`` (was ``<stem>.mp3`` for local engines)."""
     panel, _chosen = direct_panel(make_panel, tmp_path, "solo.txt",
                                   chatterbox_status=chatterbox.status)
     select(panel)
     params = run_attempt(panel)
     names = [item["destination"].name for item in params["items"]]
-    assert names == ["solo.mp3"]
-    assert not any("(" in name for name in names)
+    assert names == [f"solo-{FEMALE_1}.mp3"]
+    # Negative controls: no voice id, no backend name, no Edge "(speaker)" suffix.
+    assert not any("chatterbox-female-1" in name or "(" in name for name in names)
 
 
 def test_two_deliberate_duplicates_stay_two_collision_safe_outputs(
@@ -921,7 +922,7 @@ def test_all_four_approved_voices_route_identically_by_voice_id(
     assert params["backend"] == "chatterbox"
     assert [call["voice_id"] for call in chatterbox.calls] == [voice_id]
     assert relative(chatterbox.calls[0]["output"],
-                    params["run_directory"]) == "one.mp3"
+                    params["run_directory"]) == f"one-{label}.mp3"
 
 
 # --------------------------------------------------------------------------- #
@@ -939,7 +940,7 @@ def test_folder_imported_files_mirror_their_root_with_chatterbox(
 
     outputs = sorted(relative(call["output"], params["run_directory"])
                      for call in chatterbox.calls)
-    assert outputs == ["01.mp3", "Book A/02.mp3"]
+    assert outputs == [f"01-{FEMALE_1}.mp3", f"Book A/02-{FEMALE_1}.mp3"]
     assert stubs.batch_items == [], "the Edge batch worker was not used"
 
 
@@ -957,7 +958,7 @@ def test_a_nested_folder_pdf_is_extracted_then_synthesised_in_place(
 
     assert len(stubs.extracted) == 1
     assert relative(chatterbox.calls[0]["output"],
-                    params["run_directory"]) == "Series/Book One/ch1.mp3"
+                    params["run_directory"]) == f"Series/Book One/ch1-{FEMALE_1}.mp3"
 
 
 def test_the_same_stem_in_two_subfolders_stays_two_outputs(
@@ -975,7 +976,7 @@ def test_the_same_stem_in_two_subfolders_stays_two_outputs(
 
     outputs = sorted(relative(call["output"], params["run_directory"])
                      for call in chatterbox.calls)
-    assert outputs == ["A/same.mp3", "B/same.mp3"]
+    assert outputs == [f"A/same-{FEMALE_1}.mp3", f"B/same-{FEMALE_1}.mp3"]
 
 
 def test_the_worker_never_rescans_a_folder(make_panel):
@@ -1002,7 +1003,8 @@ def test_a_mixed_chatterbox_run_places_each_half_by_its_provenance(
 
     outputs = sorted(relative(call["output"], params["run_directory"])
                      for call in chatterbox.calls)
-    assert outputs == ["01.mp3", "Book A/02.mp3", "notes.mp3", "solo.mp3"]
+    assert outputs == [f"01-{FEMALE_1}.mp3", f"Book A/02-{FEMALE_1}.mp3",
+                       f"notes-{FEMALE_1}.mp3", f"solo-{FEMALE_1}.mp3"]
     assert len(chatterbox.calls) == 4, "one run, one queue"
     assert {call["voice_id"] for call in chatterbox.calls} == {"chatterbox-female-1"}
     assert stubs.conversion_jobs == [] and stubs.batch_items == []
@@ -1019,9 +1021,9 @@ def test_a_mixed_multi_root_chatterbox_run_keeps_each_root_in_its_container(
     outputs = sorted(relative(call["output"], params["run_directory"])
                      for call in chatterbox.calls)
     assert outputs == [
-        "Library 1/01.mp3", "Library 1/Book A/02.mp3",
-        "Library 2/01.mp3", "Library 2/Book A/02.mp3",
-        "notes.mp3", "solo.mp3",
+        f"Library 1/01-{FEMALE_1}.mp3", f"Library 1/Book A/02-{FEMALE_1}.mp3",
+        f"Library 2/01-{FEMALE_1}.mp3", f"Library 2/Book A/02-{FEMALE_1}.mp3",
+        f"notes-{FEMALE_1}.mp3", f"solo-{FEMALE_1}.mp3",
     ]
     assert len(folders) == 2
 
@@ -1231,14 +1233,14 @@ def test_a_mixed_run_retry_keeps_each_half_of_the_queue_in_its_own_place(
     assert panel._result.state is JobState.COMPLETED_WITH_FAILURES
     failed_id = panel._result.retryable_ids[0]
     planned = panel.destinations()[failed_id]
-    assert relative(planned.destination, run_root) == "Book A/02.mp3"
+    assert relative(planned.destination, run_root) == f"Book A/02-{FEMALE_1}.mp3"
     assert planned.direct is False
 
     stub.failing = "never"
     second = run_attempt(panel, panel.retry_failed)
     assert [item["item_id"] for item in second["items"]] == [failed_id]
     assert second["run_directory"] == run_root
-    assert relative(second["items"][0]["destination"], run_root) == "Book A/02.mp3"
+    assert relative(second["items"][0]["destination"], run_root) == f"Book A/02-{FEMALE_1}.mp3"
 
 
 def test_retiring_the_first_attempt_keeps_its_reports_off_the_live_queue(
@@ -1297,8 +1299,8 @@ def test_an_edge_run_is_untouched_by_the_new_backend(
     assert params["pause_kw"]["sentencepause"] == 800
     names = sorted(item["destination"].name for item in params["items"]
                    if item["direct"])
-    assert names == ["notes (en-US-SteffanNeural).mp3",
-                     "solo (en-US-SteffanNeural).mp3"]
+    assert names == ["notes-Edge Male - Steffan (en-US).mp3",
+                     "solo-Edge Male - Steffan (en-US).mp3"]
 
 
 def test_a_kokoro_run_is_untouched_by_the_new_backend(
@@ -1317,7 +1319,8 @@ def test_a_kokoro_run_is_untouched_by_the_new_backend(
     assert chatterbox.calls == []
     assert sorted(relative(call["output"], params["run_directory"])
                   for call in stubs.kokoro_calls) == [
-        "01.mp3", "Book A/02.mp3", "notes.mp3", "solo.mp3"]
+        f"01-{kokoro.display_label}.mp3", f"Book A/02-{kokoro.display_label}.mp3",
+        f"notes-{kokoro.display_label}.mp3", f"solo-{kokoro.display_label}.mp3"]
 
 
 def test_no_chatterbox_symbol_reached_the_engines_themselves():

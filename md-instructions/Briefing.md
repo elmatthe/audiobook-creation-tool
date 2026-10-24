@@ -870,7 +870,7 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
   unified queue** in which direct files and whole folders coexist in a single run — folder-derived
   items are mirrored into the output so same-named files in different books never collide, direct
   files are placed flat, and occurrence identity, deliberate duplicates, provenance and natural
-  ordering all survive the run's frozen snapshot and a Retry Failed; Plan 3's shared job controls
+  ordering all survive the run's frozen snapshot and a Retry Failed; every route (Edge direct and folder, Kokoro, Chatterbox, Qwen3, and the standalone `batch_convert.py`) names its file `<source-stem>-<display label>.mp3` with the label frozen when the run starts, clashes numbered `-1`, `-2` (v0.7.0 P02B, `tts/output_names.py`); Plan 3's shared job controls
   (Pause/Resume, Cancel, Summary/Details, progress, current-run ETA, Retry Failed); per-chunk
   retry. **The module name is historical**: `epub2tts_gui` / `epub2tts_edge` keep the upstream
   GPL-3.0 provenance of the surviving Edge engine and no longer imply EPUB support.

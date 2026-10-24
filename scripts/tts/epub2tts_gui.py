@@ -141,6 +141,7 @@ from shared.job_control import (
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
+from tts import output_names
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -557,22 +558,6 @@ def _default_timing_preset() -> dict:
     }
 
 
-def direct_output_name(source: Path, speaker: str) -> str:
-    """The filename the rich Edge engine will actually write for a direct file.
-
-    ``make_mp3`` names its artifact ``<stem> (<speaker>).mp3`` and the runner moves
-    that name into the destination directory, so a destination has to be planned
-    under it. Planning ``<stem>.mp3`` would reserve a name nothing occupies and
-    leave the real one unchecked.
-    """
-    return f"{Path(source).stem} ({speaker}).mp3"
-
-
-def mp3_output_name(source: Path) -> str:
-    """``<stem>.mp3`` — what the batch worker and the Kokoro path both write."""
-    return f"{Path(source).stem}.mp3"
-
-
 def _identity_buckets(snapshot):
     """Split a snapshot's occurrence ids the way :func:`planning_groups` splits paths.
 
@@ -623,9 +608,13 @@ def _pair(occurrence_ids, plan, sources, lookup, *, direct: bool) -> dict:
     return mapping
 
 
-def plan_destinations(snapshot, run_root: Path, *, direct_rename, grouped_rename,
-                      planner=None) -> dict:
+def plan_destinations(snapshot, run_root: Path, *, label: str, planner=None,
+                      budget=None) -> dict:
     """Where every occurrence of *snapshot* writes inside *run_root*.
+
+    v0.7.0 P02B: every route — Edge direct and folder, Kokoro, Chatterbox, Qwen3 —
+    names its file ``<source-stem>-<label>.mp3`` (:mod:`tts.output_names`), where
+    *label* is the display label the run froze. The engine does not change the name.
 
     :func:`~shared.importing.planning_groups` is the only bridge from the imported
     queue to Plan 2, and the three approved planners are the only things that decide
@@ -649,18 +638,19 @@ def plan_destinations(snapshot, run_root: Path, *, direct_rename, grouped_rename
     direct_ids, grouped_ids = _identity_buckets(snapshot)
     lookup = {entry.occurrence_id: entry.path for entry in snapshot.files}
 
+    named = {"label": label, "planner": tracker, "budget": budget}
+
     mapping: dict[str, PlannedOutput] = {}
     if groups.direct:
-        plan = plan_flat(root, groups.direct, planner=tracker, rename=direct_rename)
+        plan = output_names.plan_named(plan_flat, root, groups.direct, **named)
         mapping.update(_pair(direct_ids, plan, groups.direct, lookup, direct=True))
     if groups.grouped:
         if groups.needs_multi_root:
-            plan = plan_multi_root(root, groups.grouped, planner=tracker,
-                                   rename=grouped_rename)
+            plan = output_names.plan_named(plan_multi_root, root, groups.grouped, **named)
         else:
             source_root, group_sources = groups.grouped[0]
-            plan = plan_mirrored(root, group_sources, source_root, planner=tracker,
-                                 rename=grouped_rename)
+            plan = output_names.plan_named(plan_mirrored, root, group_sources, source_root,
+                                           **named)
         flattened_ids = tuple(entry for group in grouped_ids for entry in group)
         flattened_sources = tuple(
             entry for _root, group in groups.grouped for entry in group)
@@ -693,7 +683,7 @@ def speech_prep_kwargs(params) -> dict:
 
 
 def freeze_tts_options(
-    *, speaker: str, backend: str, voice_id: str, rate: str, resume: bool,
+    *, speaker: str, backend: str, voice_id: str, label: str, rate: str, resume: bool,
     overwrite: bool, bitrate: str, workers: int, kokoro_speed: float,
     end_pause: int, paragraph_pause: int, pause_kw: dict,
     speech_prep: "speech_pipeline.SpeechPrepSnapshot | None" = None,
@@ -711,6 +701,9 @@ def freeze_tts_options(
     label, because a display label is a name shown to a person and names change —
     the maintainer may rename a voice without any run behaving differently.
 
+    ``label`` is the display label chosen when the run was accepted, kept by value
+    (v0.7.0 P02B). It is only ever text in the output file names; it selects nothing.
+
     ``speech_prep`` is the run's speech-preparation snapshot (Plan 01B 4.7): the mode cells and the validated glossary
     themselves, by value, so a glossary edited mid-run or before Retry Failed cannot reach this run.
     """
@@ -719,6 +712,7 @@ def freeze_tts_options(
         "speaker": str(speaker),
         "backend": str(backend),
         "voice_id": str(voice_id),
+        "label": str(label),
         "rate": str(rate),
         "resume": bool(resume),
         "overwrite": bool(overwrite),
@@ -2503,6 +2497,7 @@ class TtsPanel(ttk.Frame):
                 speaker=speaker,
                 backend=backend,
                 voice_id=voice_id,
+                label=current_voice_entry.display_label,
                 rate=self.rate_var.get().strip() or "+0%",
                 resume=self.resume_var.get(),
                 overwrite=self.overwrite_var.get(),
@@ -2529,21 +2524,18 @@ class TtsPanel(ttk.Frame):
         # Every destination is decided here, on the main thread, through Plan 2's
         # planners and one shared collision tracker — so two occurrences can never
         # be planned onto the same path, whichever half of the queue they came from.
-        # Keyed by occurrence id, because that is the identity a retry needs.
+        # Keyed by occurrence id, because that is the identity a retry needs. Every
+        # engine's file is named from the label frozen above, never today's dropdown.
         try:
             destinations = plan_destinations(
                 snapshot.files,
                 run_directory,
-                # Only the Edge engine names its own artifact after the speaker.
-                # Every local engine writes ``<stem>.mp3``, so they share one shape.
-                direct_rename=(
-                    (lambda source: direct_output_name(source, speaker))
-                    if backend == "edge" else mp3_output_name
-                ),
-                grouped_rename=mp3_output_name,
+                label=snapshot.tool_options["label"],
                 planner=reservation.planner(),
             )
         except output_paths.OutputPathError as exc:
+            # Refused before anything was synthesised; the empty folder is not left behind.
+            output_paths.release_if_empty(reservation)
             messagebox.showerror("Output folder", exc.message)
             return
 
@@ -3064,10 +3056,11 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
 
     The engine names its own artifact — ``<stem> (<speaker>).mp3`` — and moves it
     into whatever directory it is handed. It is therefore handed a private staging
-    directory, and the finished file is moved to the destination the shared planner
-    reserved. That is what keeps two directly added files with the same stem from
-    writing the same name: the one queue can now hold both, where the retired
-    single-file mode could only ever hold one.
+    directory, so that engine-private name is never published: the finished file
+    is moved straight onto the ``<stem>-<label>.mp3`` destination the shared planner
+    reserved for this occurrence (v0.7.0 P02B). That is what keeps two directly
+    added files with the same stem from writing the same name: the one queue can
+    now hold both, where the retired single-file mode could only ever hold one.
 
     ``progress_callback`` is deliberately not supplied. The run has one progress
     model now — the shared job status view, counting completed *source files* — and

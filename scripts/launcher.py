@@ -149,6 +149,44 @@ _TOOL_GLYPHS = {
 }
 
 
+#: Where the voice table lives, as a maintainer would open it.
+VOICE_REGISTRY_FILE = "scripts/tts/voice_registry.py"
+
+
+def is_voice_registry_error(exc: BaseException) -> bool:
+    """True only for the registry's own refusal (v0.7.0 P02B).
+
+    ``tts.voice_registry`` checks itself on import, so when it refuses, the module
+    is gone from ``sys.modules`` and its class cannot be imported to compare
+    against; the class is recognised by where it was defined instead. Only the
+    exception itself counts: a dependency failure that merely happened while
+    handling another error keeps the ordinary advice.
+    """
+    cls = type(exc)
+    return (cls.__name__ == "VoiceRegistryError" and cls.__module__ == "tts.voice_registry"
+            and isinstance(exc, ValueError))
+
+
+def load_error_message(spec: ToolSpec, exc: BaseException, details: str) -> str:
+    """What a tool's error panel says. An invalid voice list is a registry edit to correct, not a missing dependency."""
+    if is_voice_registry_error(exc):
+        return (
+            f"Could not load '{spec.title}'.\n\n"
+            f"{exc}\n\n"
+            f"Correct the entries listed above in {VOICE_REGISTRY_FILE}, then restart "
+            f"the application. '{spec.title}' stays unavailable until the voice list is "
+            "valid; no voice is skipped or swapped for another. The other tools are not "
+            "affected."
+        )
+    return (
+        f"Could not load '{spec.title}'.\n\n"
+        f"{type(exc).__name__}: {exc}\n\n"
+        "This usually means a dependency is missing. Try running the setup "
+        "launcher again to reinstall requirements.\n\n"
+        f"{details}"
+    )
+
+
 class LauncherApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -656,13 +694,7 @@ class LauncherApp:
             return True  # keep the container so the error message stays visible
 
     def _show_load_error(self, container: ttk.Frame, spec: ToolSpec, exc: Exception):
-        msg = (
-            f"Could not load '{spec.title}'.\n\n"
-            f"{type(exc).__name__}: {exc}\n\n"
-            "This usually means a dependency is missing. Try running the setup "
-            "launcher again to reinstall requirements.\n\n"
-            f"{traceback.format_exc()}"
-        )
+        msg = load_error_message(spec, exc, traceback.format_exc())
         # This panel is launcher-owned chrome, not tool content, so on Windows
         # it is themed. It is the one thing inside a tool container that may
         # carry an ACT.* style — and it only exists when that tool failed to

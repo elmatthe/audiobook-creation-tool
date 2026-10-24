@@ -352,7 +352,7 @@ def test_the_configuration_key_is_validated_and_defaults_to_v1_since_a5(tmp_path
 def test_the_panel_freezes_the_snapshot_and_hands_it_on_only_when_on(tmp_path):
     from tts import epub2tts_gui as gui
 
-    base = dict(speaker="s", backend="kokoro", voice_id="v", rate="+0%", resume=False, overwrite=False, bitrate="128k",
+    base = dict(speaker="s", backend="kokoro", voice_id="v", label="Voice", rate="+0%", resume=False, overwrite=False, bitrate="128k",
                 workers=1, kokoro_speed=1.0, end_pause=1, paragraph_pause=1, pause_kw={})
     assert gui.freeze_tts_options(**base)["speech_prep"] is OFF
     run = rollout_snapshot(user_dir=write_user(tmp_path / "u", glossary="{bad"))

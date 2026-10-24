@@ -91,6 +91,10 @@ from test_tts_importing import (  # noqa: E402,F401
 #: instead of agreeing with whatever the module happens to define.
 STAGE = "converting"
 
+#: v0.7.0 P02B: every route names its file ``<source-stem>-<display label>.mp3``, the label being the one the run
+#: froze. The default voice's label, as a literal for the same reason as ``STAGE``.
+STEFFAN = "Edge Male - Steffan (en-US)"
+
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -678,10 +682,11 @@ def test_a_directly_added_file_lands_flat_in_the_run(
     panel, _chosen = direct_panel(make_panel, tmp_path, "solo.txt", "notes.txt")
     params = run_attempt(panel)
     run = params["run_directory"]
-    speaker = "en-US-SteffanNeural"
 
     placed = [relative(item["destination"], run) for item in params["items"]]
-    assert placed == [f"solo ({speaker}).mp3", f"notes ({speaker}).mp3"]
+    assert placed == [f"solo-{STEFFAN}.mp3", f"notes-{STEFFAN}.mp3"]
+    # Negative control: the engine-private "<stem> (<speaker>).mp3" name is never what is published.
+    assert not any("(en-US-SteffanNeural)" in name for name in placed)
     for item in params["items"]:
         assert item["destination"].exists()
 
@@ -694,7 +699,7 @@ def test_one_folder_root_still_mirrors_its_relative_parents(
     run = params["run_directory"]
 
     placed = sorted(relative(item["destination"], run) for item in params["items"])
-    assert placed == ["01.mp3", "Book A/02.mp3"]
+    assert placed == [f"01-{STEFFAN}.mp3", f"Book A/02-{STEFFAN}.mp3"]
 
 
 def test_several_folder_roots_each_get_a_collision_safe_container(
@@ -706,10 +711,10 @@ def test_several_folder_roots_each_get_a_collision_safe_container(
 
     placed = sorted(relative(item["destination"], run) for item in params["items"])
     assert placed == [
-        f"{folders[0].name}/01.mp3",
-        f"{folders[0].name}/Book A/02.mp3",
-        f"{folders[1].name}/01.mp3",
-        f"{folders[1].name}/Book A/02.mp3",
+        f"{folders[0].name}/01-{STEFFAN}.mp3",
+        f"{folders[0].name}/Book A/02-{STEFFAN}.mp3",
+        f"{folders[1].name}/01-{STEFFAN}.mp3",
+        f"{folders[1].name}/Book A/02-{STEFFAN}.mp3",
     ]
 
 
@@ -719,14 +724,13 @@ def test_direct_and_folder_items_share_one_run_and_one_reservation(
     panel, _direct, _folders = mixed_panel(make_panel, tmp_path)
     params = run_attempt(panel)
     run = params["run_directory"]
-    speaker = "en-US-SteffanNeural"
 
     placed = [relative(item["destination"], run) for item in params["items"]]
     assert placed == [
-        f"solo ({speaker}).mp3",
-        f"notes ({speaker}).mp3",
-        "01.mp3",
-        "Book A/02.mp3",
+        f"solo-{STEFFAN}.mp3",
+        f"notes-{STEFFAN}.mp3",
+        f"01-{STEFFAN}.mp3",
+        f"Book A/02-{STEFFAN}.mp3",
     ]
     assert len({item["destination"] for item in params["items"]}) == 4
     assert len([p for p in output_base.iterdir() if p.is_dir()]) == 1
@@ -754,7 +758,9 @@ def test_a_direct_and_a_grouped_file_cannot_be_planned_onto_one_path(
     params = run_attempt(panel)
     run = params["run_directory"]
     placed = [relative(item["destination"], run) for item in params["items"]]
-    assert placed == ["01.mp3", "01-1.mp3"], placed
+    label = "Kokoro Female (Default) - Heart (en-US)"
+    assert kokoro.display_label == label
+    assert placed == [f"01-{label}.mp3", f"01-{label}-1.mp3"], placed
     assert len(set(placed)) == 2
 
 
@@ -777,7 +783,11 @@ def test_edge_and_kokoro_receive_identical_placement_for_one_source_tree(
     kokoro_layout = sorted(
         relative(item["destination"], kok["run_directory"]) for item in kok["items"])
 
-    assert edge_layout == kokoro_layout == ["01.mp3", "Book A/02.mp3"]
+    # The same placement; only the frozen label in each name differs (v0.7.0 P02B).
+    assert edge_layout == [f"01-{STEFFAN}.mp3", f"Book A/02-{STEFFAN}.mp3"]
+    assert kokoro_layout == [f"01-{kokoro.display_label}.mp3", f"Book A/02-{kokoro.display_label}.mp3"]
+    assert [p.replace(STEFFAN, "<label>") for p in edge_layout] == [
+        p.replace(kokoro.display_label, "<label>") for p in kokoro_layout]
 
 
 def test_the_panel_owns_no_second_planner_and_no_inline_mirroring():
@@ -838,9 +848,8 @@ def test_deliberate_duplicates_stay_distinct_with_two_safe_destinations(
     assert planned[first].source == planned[second].source
     assert planned[first].destination != planned[second].destination
     run = params["run_directory"]
-    speaker = "en-US-SteffanNeural"
     assert sorted(relative(entry.destination, run) for entry in planned.values()) == [
-        f"solo ({speaker})-1.mp3", f"solo ({speaker}).mp3"]
+        f"solo-{STEFFAN}-1.mp3", f"solo-{STEFFAN}.mp3"]
 
 
 def test_a_mismatched_pairing_is_refused_loudly_rather_than_guessed(
@@ -1453,10 +1462,10 @@ def test_nested_folders_still_mirror_and_same_stems_stay_separate(
     run = params["run_directory"]
     placed = sorted(relative(item["destination"], run) for item in params["items"])
     assert placed == [
-        "Book A/Chapter 1.mp3",
-        "Book A/deep/Chapter 2.mp3",
-        "Book B/Chapter 1.mp3",
-        "root chapter.mp3",
+        f"Book A/Chapter 1-{STEFFAN}.mp3",
+        f"Book A/deep/Chapter 2-{STEFFAN}.mp3",
+        f"Book B/Chapter 1-{STEFFAN}.mp3",
+        f"root chapter-{STEFFAN}.mp3",
     ]
 
 
@@ -1472,7 +1481,7 @@ def test_a_flat_folder_import_still_produces_a_flat_output(
     params = run_attempt(panel)
     run = params["run_directory"]
     placed = sorted(relative(item["destination"], run) for item in params["items"])
-    assert placed == ["one.mp3", "two.mp3"]
+    assert placed == [f"one-{STEFFAN}.mp3", f"two-{STEFFAN}.mp3"]
     assert not [p for p in run.iterdir() if p.is_dir()]
 
 

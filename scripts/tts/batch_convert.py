@@ -1,15 +1,21 @@
 """Batch convert a folder of PDFs and/or TXT files to one MP3 per file.
 
 Nested input subfolders are mirrored under the output folder (a PDF at
-``input/Book 1/Chapter 1.pdf`` becomes ``output/Book 1/Chapter 1.mp3``), so
-same-named files in different subfolders never overwrite each other. Files
+``input/Book 1/Chapter 1.pdf`` becomes ``output/Book 1/Chapter 1-<voice label>.mp3``),
+so same-named files in different subfolders never overwrite each other. Files
 directly in the input folder keep the original flat output layout.
+
+v0.7.0 P02B: the standalone helper names its files like the app does,
+``<source-stem>-<display label>.mp3`` (:mod:`tts.output_names`), through the
+shared collision planner — so a PDF and a TXT with one stem, or an output left by
+an earlier run, get ``-1``/``-2`` instead of being overwritten.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import re as _re
 import shutil
 import threading
@@ -32,8 +38,8 @@ _SCRIPTS_ROOT = _Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import ffmpeg_utils
-from tts import audio_tail, edge_failures
+from shared import ffmpeg_utils, output_paths
+from tts import audio_tail, edge_failures, output_names
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -156,11 +162,14 @@ def convert_single_pdf(
     if out_mp3 is None:
         out_mp3 = output_dir / f"{stem}.mp3"
     # Temp dir must be unique per SOURCE, not per stem — two same-named files in
-    # different subfolders would otherwise share (and clobber) one chunk dir.
+    # different subfolders would otherwise share (and clobber) one chunk dir. It is
+    # a short digest of the destination (v0.7.0 P02B): the joined relative path was
+    # one folder name that a deep tree or a long voice label could push past 255.
     try:
-        tmp_key = "__".join(out_mp3.relative_to(output_dir).with_suffix("").parts)
+        relative = out_mp3.relative_to(output_dir).as_posix()
     except ValueError:  # out_mp3 not under output_dir (direct caller)
-        tmp_key = stem
+        relative = out_mp3.name
+    tmp_key = hashlib.sha256(relative.encode("utf-8", "surrogatepass")).hexdigest()[:16]
     tmp_root = output_dir / ".tmp_chunks" / tmp_key
     last_err: str | None = None
 
@@ -268,9 +277,26 @@ def run_batch_convert(
     log=print,
     progress_callback: Callable[[str, int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    label: str | None = None,
 ) -> tuple[int, int, Path]:
     """Convert each PDF/TXT under input_dir to an MP3 in output_dir, mirroring
-    any input subfolder structure. Returns (ok, fail, error_log_path)."""
+    any input subfolder structure. Returns (ok, fail, error_log_path).
+
+    Each file is ``<stem>-<label>.mp3``. ``label`` defaults to the registered
+    display label of the Edge voice ``speaker``; an unregistered speaker needs an
+    explicit one. Every name is planned before anything is synthesised, and a name
+    that cannot fit is refused (:class:`shared.output_paths.OutputPathError`).
+    ``resume`` skips a source whose planned file already exists; without it an
+    existing file is never overwritten — the new one is numbered instead.
+    """
+    if label is None:
+        from tts.voice_registry import voice_by_key
+
+        entry = voice_by_key("edge", speaker)
+        if entry is None:
+            raise ValueError(f"{speaker} is not a registered Edge voice; give the output files a label "
+                             "(run_batch_convert(label=...), or --label on the command line)")
+        label = entry.display_label
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -299,9 +325,14 @@ def run_batch_convert(
     )
     # Mirror each source's path relative to input_dir under output_dir; files
     # directly in input_dir keep the original flat layout (rel has no parent).
-    jobs: list[tuple[Path, Path]] = [
-        (p, output_dir / p.relative_to(input_dir).with_suffix(".mp3")) for p in sources
-    ]
+    # One shared planner names them all, so no two sources share a file. Resume
+    # plans without looking at the disk, so an earlier run's file is found under
+    # the very name it was given and skipped; otherwise the disk is consulted and
+    # nothing that already exists is ever chosen.
+    planner = output_paths.DestinationPlanner(output_dir, check_filesystem=not resume)
+    plan = output_names.plan_named(output_paths.plan_mirrored, output_dir, sources, input_dir,
+                                   label=label, planner=planner)
+    jobs: list[tuple[Path, Path]] = [(item.source, item.destination) for item in plan.items]
     if resume:
         kept: list[tuple[Path, Path]] = []
         for p, target in jobs:
@@ -406,16 +437,26 @@ def main() -> None:
         action="store_true",
         help="Skip files that already have a matching MP3 in the output folder",
     )
-    args = parser.parse_args()
-    run_batch_convert(
-        args.input,
-        args.output,
-        speaker=args.speaker,
-        workers=args.workers,
-        rate=args.rate,
-        resume=args.resume,
-        use_tqdm=True,
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="Voice name in the output file names (<stem>-<label>.mp3); "
+             "defaults to the registered label of --speaker",
     )
+    args = parser.parse_args()
+    try:
+        run_batch_convert(
+            args.input,
+            args.output,
+            speaker=args.speaker,
+            workers=args.workers,
+            rate=args.rate,
+            resume=args.resume,
+            use_tqdm=True,
+            label=args.label,
+        )
+    except (ValueError, output_paths.OutputPathError) as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":

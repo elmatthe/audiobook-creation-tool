@@ -1031,12 +1031,13 @@ def test_direct_files_land_flat_and_folder_files_mirror(
         str(item["destination"].relative_to(run)).replace("\\", "/")
         for item in captured["params"]["items"]
     ]
-    speaker = captured["params"]["speaker"]
+    # v0.7.0 P02B: every route is named <source-stem>-<frozen display label>.mp3.
+    label = "Edge Male - Steffan (en-US)"
     assert relatives == [
-        f"solo ({speaker}).mp3",       # direct, flat (Decision 31A)
-        f"notes ({speaker}).mp3",      # direct, flat
-        "01.mp3",                      # folder root, flat inside the root
-        "Book A/02.mp3",               # folder root, mirrored (Decision 7A)
+        f"solo-{label}.mp3",           # direct, flat (Decision 31A)
+        f"notes-{label}.mp3",          # direct, flat
+        f"01-{label}.mp3",             # folder root, flat inside the root
+        f"Book A/02-{label}.mp3",      # folder root, mirrored (Decision 7A)
     ]
     assert len(folders) == 1
 
@@ -1055,9 +1056,10 @@ def test_two_folder_roots_each_get_their_own_container(
         str(item["destination"].relative_to(run)).replace("\\", "/")
         for item in captured["params"]["items"] if not item["direct"]
     ]
+    label = "Edge Male - Steffan (en-US)"
     assert relatives == [
-        "Library 1/01.mp3", "Library 1/Book A/02.mp3",
-        "Library 2/01.mp3", "Library 2/Book A/02.mp3",
+        f"Library 1/01-{label}.mp3", f"Library 1/Book A/02-{label}.mp3",
+        f"Library 2/01-{label}.mp3", f"Library 2/Book A/02-{label}.mp3",
     ]
 
 
@@ -1285,7 +1287,8 @@ def test_a_folder_derived_file_still_reaches_the_batch_worker_with_its_target(
     targets = sorted(
         str(Path(item["out_mp3"]).relative_to(run)).replace("\\", "/")
         for item in stubs.batch_items)
-    assert targets == ["01.mp3", "Book A/02.mp3"]
+    label = "Edge Male - Steffan (en-US)"
+    assert targets == [f"01-{label}.mp3", f"Book A/02-{label}.mp3"]
     for item in stubs.batch_items:
         assert Path(item["output_dir"]) == run, (
             "the batch worker still keys its temp-chunk dir on the run root")
@@ -1327,7 +1330,8 @@ def test_a_kokoro_voice_still_takes_the_kokoro_engine_for_both_provenances(
     relatives = sorted(
         str(Path(call["output"]).relative_to(run)).replace("\\", "/")
         for call in stubs.kokoro_calls)
-    assert relatives == ["01.mp3", "Book A/02.mp3", "notes.mp3", "solo.mp3"]
+    label = kokoro.display_label
+    assert relatives == [f"01-{label}.mp3", f"Book A/02-{label}.mp3", f"notes-{label}.mp3", f"solo-{label}.mp3"]
 
 
 def test_a_kokoro_pdf_still_goes_through_the_extractor_first(
