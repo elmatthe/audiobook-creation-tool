@@ -153,7 +153,7 @@ from tts.epub2tts_edge.epub2tts_edge import (
     ensure_punkt,
 )
 from tts.voice_registry import (
-    DEFAULT_VOICE_LABEL,
+    default_voice_label,
     get_voice,
     display_labels,
 )
@@ -1002,7 +1002,7 @@ class TtsPanel(ttk.Frame):
         # them) and still take their per-voice default from the same preset.
         self.rate_var = tk.StringVar(value="+0%")
         self.kokoro_speed_var = tk.StringVar(value="1.0")
-        self.selected_voice_label = tk.StringVar(value=DEFAULT_VOICE_LABEL)
+        self.selected_voice_label = tk.StringVar(value=default_voice_label())
 
         # ---- the shared importing foundation ------------------------------ #
         # One pump owns this panel's whole scheduled-callback chain: the import
@@ -2426,6 +2426,12 @@ class TtsPanel(ttk.Frame):
         # registry entry, never from the label the user sees, and a run carries it
         # frozen so a retry cannot be answered by today's dropdown.
         current_voice_entry = get_voice(self.selected_voice_label.get())
+        if current_voice_entry is None:
+            # v0.7.0 P02A: a label that names no registered voice is refused, never run as an Edge voice by default:
+            # a renamed or reordered registry must not be able to switch the engine behind the person's back.
+            messagebox.showwarning("Voice not recognised",
+                                   "The selected voice is not in the voice list. Choose a voice, then start again.")
+            return
         speaker = self.voice_var.get().strip() or DEFAULT_SPEAKER
         backend = "edge" if current_voice_entry is None else current_voice_entry.backend
         voice_id = (speaker if current_voice_entry is None

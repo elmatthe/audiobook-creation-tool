@@ -120,7 +120,6 @@ def synthetic_candidate(monkeypatch):
     though no real candidate is currently pending."""
     fake = cbx.ReferenceVoice(
         voice_id="chatterbox-synthetic-test-voice",
-        label="Chatterbox — Synthetic Test Voice (candidate)",
         source_name="Synthetic-Test.mp3",
         source_sha256="0" * 64,
     )
@@ -165,8 +164,10 @@ def test_the_production_reference_set_now_holds_six():
     """Four at Phase 10, plus Male 3 and Male 4 both moved in on final
     approval — neither retains any candidate-only marker."""
     assert len(cbx.REFERENCE_VOICES) == 6
-    assert cbx.REFERENCE_VOICES["chatterbox-male-3"].label == "Chatterbox — Male 3"
-    assert cbx.REFERENCE_VOICES["chatterbox-male-4"].label == "Chatterbox — Male 4"
+    # v0.7.0 P02A: the engine no longer keeps its own copy of a label; it shows the registry's current one.
+    assert cbx.REFERENCE_VOICES["chatterbox-male-3"].label == voice_registry.label_for("chatterbox", "chatterbox-male-3")
+    assert cbx.REFERENCE_VOICES["chatterbox-male-4"].label == voice_registry.label_for("chatterbox", "chatterbox-male-4")
+    assert cbx.REFERENCE_VOICES["chatterbox-male-4"].label == "Chatterbox - Male 4"
 
 
 def test_the_candidate_pool_is_currently_empty():

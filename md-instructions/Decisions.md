@@ -4,6 +4,41 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-24 - Voice identity is (backend, voice_id); labels and order are cosmetic; the six recordings are fixed by table
+
+Owner decisions Q5/Q31 (plan §5.2), implemented at P02A; recorded by Claude Code.
+
+**Identity.** `VoiceEntry.key == (backend, voice_id)` is the durable identity. `display_label` and row position may be edited freely: the dropdown is
+`VOICES` order exactly (engine groups may interleave; nothing regroups or sorts), the default is `DEFAULT_VOICE_KEY` (Steffan) under whatever label he
+carries (`default_voice_label()`), and lookups (`voice_by_key`, `label_for`, `get_voice`) read `VOICES` at call time.
+
+**Recordings by table, not by label.** `reference_recording_filename(voice_id)` (which built `"<Chatterbox label>.wav"`) is replaced by explicit data:
+`VOICE_REFERENCES[(backend, voice_id)]` → stable reference id (`Female-1` … `Male-4`, which is also the Qwen3 transcript key `reference_name`) →
+`REFERENCE_RECORDINGS` fixed basename (`Chatterbox - Female 1.wav` … `Chatterbox - Male 4.wav`, unchanged). `reference_recording_filename(backend,
+voice_id)` now takes the backend. `CLONE_REFERENCE_VOICE` (qwen→chatterbox id map) is removed; the shared recording is found through the reference id.
+The directory stays `files/Chatterbox-Voice-Uploads/` until P03A. This supersedes the 2026-10-20 "reference recordings named after their labels" wording
+(the files, bytes and hashes are untouched).
+
+**One label authority.** `qwen3_runtime.Qwen3Voice` and `chatterbox_synth.ReferenceVoice` no longer store a label; `.label` is a property reading the
+registry by stable key (lazy import in `qwen3_runtime`, so the registry never imports an engine). Visible consequences: Chatterbox engine log/status text
+now says `Chatterbox - Female 1` (the registry label) instead of the engine's own em-dash `Chatterbox — Female 1`, and the Qwen3 install dialog lists
+the presets as `Qwen3 - Aiden and Qwen3 - Ryan` (was the fixed `Aiden and Ryan`). An unregistered Chatterbox evaluation candidate is shown by its id.
+Model descriptions (`CustomVoice`, `Base`), preset speaker tokens (`Aiden`, `Ryan`) and the clone generation profile are unchanged.
+
+**Validation (`registry_problems` / `check_registry`, run on import).** Refused, each with the stable keys named: unknown backend; a voice id that is not
+a plain token; the same `(backend, voice_id)` twice; the same voice id under two backends (preview files and the panel's voice code key on the id alone);
+an empty, padded or control-character label; two labels equal after Unicode NFC (displayed text is kept exactly as written; case-only differences are a
+P02B filename concern, not a label duplicate); a missing default voice; a Chatterbox row with no reference mapping. On import failure the launcher's
+existing per-tool error panel shows the message for TTS only; other tools load (bootstrap never imports the registry).
+
+**Panel.** `run_job` refuses a label that resolves to no registered voice ("Voice not recognised") instead of the old silent fallback to backend `edge`
+with the last voice id. `_default_timing_preset` is now unreachable from `run_job`; it is left in place (P01 tests pin it) for a later cleanup decision.
+
+**Previews.** `files/dev-tools/voice_previews.py sync-labels` is a metadata-only operation: it copies registry labels and order into `previews.json`
+and re-renders the README; it reads no WAV, calls no engine, downloads nothing, refuses a roster or engine change, and its result must pass
+`label_sync_problems` (only per-voice `label` and voice order may differ) before anything is written. `check` now also reports labels that differ from
+the registry ("run sync-labels"). The existing `sync` was measured as a no-op on the committed manifest and is unchanged.
+
 ## 2026-10-23 - P01C before the combined owner listening session (checkpoint order only; acceptance unchanged)
 
 Owner direction 2026-10-23 ("ACT v0.7.0 — P01C Edge EOF remediation and five-voice listening evidence"); recorded by Claude Code.

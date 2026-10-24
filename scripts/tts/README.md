@@ -7,7 +7,7 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 | Module | Role |
 |---|---|
 | `epub2tts_gui.py` | The TTS panel (Tk): the queue, options, run/cancel/retry, and the one dispatch that sends each file to an engine |
-| `voice_registry.py` | The single list of every voice (id, label, engine, timing preset) and the order they appear in |
+| `voice_registry.py` | The single list of every voice (id, label, engine, timing preset) and the order they appear in; identity is engine + id (labels and order are cosmetic, checked on import), plus the fixed table of the six reference recordings |
 | `generate_voice_samples.py` | Developer helper: one short sample per registered voice, for listening checks |
 | `quality_corpus.py` | Copyright-safe test passages used by the quality work and the A0 characterization baselines |
 

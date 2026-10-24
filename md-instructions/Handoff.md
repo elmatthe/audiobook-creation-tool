@@ -2,6 +2,27 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P02A: stable voice identity and labels DONE; 28-label/permutation stress PASS; 6 references + 28 previews byte-identical; NEXT is P02B after review (2026-10-24, Claude Code)
+
+Authority: plan Revision 2 §5.2 and §6 / P02A (owner task "Execute P02A: Stable Voice Identity and Labels"). HOME-PC, branch
+`feature/0.7.0-release-remediation`, parent `37f4040`. Identity stays 0.6.6. Not merged, tagged or packaged. Decision: Decisions 2026-10-24.
+
+- **Done:** `(backend, voice_id)` identity; explicit `VOICE_REFERENCES` → reference id → `REFERENCE_RECORDINGS` basename (label derivation removed);
+  registry validation on import (empty/padded/control/NFC-duplicate labels, duplicate or malformed ids, missing default, unmapped clone); Qwen3 and
+  Chatterbox engine labels read from the registry; installer preset names derived; panel refuses an unresolvable label (no silent Edge fallback);
+  `voice_previews.py sync-labels` metadata-only sync + `check` flags stale labels.
+- **Stress:** in-memory registries relabelled "1".."28", shipped/reversed/interleaved: dropdown order exact, every label dispatches through the real
+  `TtsPanel` and stubbed engine entry points to its own `(backend, voice_id)` (28/28 per order), default stays Steffan, six reference bindings/hashes and
+  transcript keys unchanged; punctuation/Unicode labels kept verbatim. Tracked registry and preview files were never edited for it.
+- **Verification:** focused 65 modules **4,115 passed, 3 skipped (symlink privilege, pre-existing), 0 failed, 0 xfail**. Negative controls on a
+  disposable copy: **17/17 mutations killed**. No full gate (P02 full gate is P02B).
+- **Assets:** six reference WAVs = Appendix A SHA-256; 28 preview WAVs match `previews.json`; `git diff` on both folders empty.
+- **Open:** transcript approval for the six clones remains **OPEN** (private artifact validated, UNAPPROVED, identity in ignored evidence; not read, not bundled); P01B/P01C
+  owner listening and combined 28-voice listening still **NOT RUN/OPEN**; earlier carried items unchanged (Andrew `NoAudioReceived`, −58 dBFS trim,
+  WinError 206 / AUD-004, -005, -008, -009).
+- **Evidence (ignored):** `checkpoints/P02A.md`, `p02a/` (focused log/JUnit, `mutation.json`, `asset-hashes.json`, `preview-metadata-diff.json`).
+- **Next:** ChatGPT review of P02A, then P02B (planned output naming + P02 full gate) only when authorised.
+
 ## CURRENT STATE — v0.7.0 P01C: Edge endings fixed; 0 ACT070 xfails; P01 full gate PASS; 5 Edge samples made (22/28 playable); owner listening OPEN (2026-10-23, Claude Code)
 
 Authority: `files/plans/ACT-v0.7.0-Final-Release-QA-Remediation-Implementation-Plan.md` Revision 2, §5.1 and §6 / P01C; owner task "P01C Edge EOF

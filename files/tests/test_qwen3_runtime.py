@@ -151,12 +151,18 @@ def test_exactly_eight_voices_with_the_owners_labels_and_model_split():
 
 def test_clone_reference_hashes_agree_with_the_chatterbox_registry_without_importing_it():
     from tts import chatterbox_synth as cs
+    from tts import voice_registry as vr
 
     for voice in rt.QWEN3_VOICES:
         if voice.kind != rt.KIND_CLONE:
             continue
-        twin = cs.REFERENCE_VOICES["chatterbox-" + voice.voice_id.removeprefix("qwen3-")]
-        # one bundled copy, named after the Chatterbox label, bound to the same hash
+        # v0.7.0 P02A: the twin is found through the explicit reference table, never by rewriting an id or a label
+        ref = vr.reference_id("qwen3", voice.voice_id)
+        assert ref == voice.reference_name  # the reference id IS the stable transcript key
+        twins = [cid for (backend, cid), r in vr.VOICE_REFERENCES.items() if backend == "chatterbox" and r == ref]
+        assert len(twins) == 1
+        twin = cs.REFERENCE_VOICES[twins[0]]
+        # one bundled copy with a fixed basename, bound to the same hash
         assert (rt.reference_path(voice).name, voice.reference_sha256) == (twin.source_name, twin.source_sha256)
     source = (REPO_ROOT / "scripts" / "tts" / "qwen3_runtime.py").read_text("utf-8")
     assert "chatterbox_synth" not in source.replace("``chatterbox_synth.REFERENCE_VOICES``", "")  # independent

@@ -22,6 +22,10 @@ The last section proves the fact that makes the rename safe without a migration:
 nothing persists a chosen voice by its label. If that ever changes, the test that
 says so fails, and whoever changes it has to decide what happens to labels stored
 by an older version.
+
+v0.7.0 P02A (sections 8-10) makes labels and order cosmetic: identity is ``(backend, voice_id)``, the six reference
+recordings are fixed by an explicit table, and disposable in-memory registries relabelled "1".."28" and reordered
+prove that nothing else moves. The shipped labels above remain the initial values and are still pinned verbatim.
 """
 
 from __future__ import annotations
@@ -263,31 +267,261 @@ def test_the_panel_starts_on_the_default_voice_rather_than_a_stored_one():
     """Confirms the same fact from the panel's side, without building a window."""
     source = (Path(vr.__file__).resolve().parent / "epub2tts_gui.py").read_text(
         encoding="utf-8")
-    assert "self.selected_voice_label = tk.StringVar(value=DEFAULT_VOICE_LABEL)" in source
+    # v0.7.0 P02A: the start label is the default voice's *current* label, asked of the registry by stable key
+    assert "self.selected_voice_label = tk.StringVar(value=default_voice_label())" in source
+    assert vr.DEFAULT_VOICE_KEY == ("edge", "en-US-SteffanNeural")
 
 
-def test_the_six_reference_recordings_are_named_after_the_chatterbox_labels_and_shared_by_the_qwen3_clones():
-    """One bundled copy per speaker, named exactly like its Chatterbox dropdown label; each Qwen3 clone resolves to it."""
+# --------------------------------------------------------------------------- #
+# 8. v0.7.0 P02A — stable identities and the six fixed reference recordings
+# --------------------------------------------------------------------------- #
+UPLOADS = Path(__file__).resolve().parents[2] / "files" / "Chatterbox-Voice-Uploads"
+
+#: Plan Revision 2, Appendix A, written out literally: stable reference id, fixed basename, the Chatterbox and Qwen3
+#: voices that share it, and the recording's content SHA-256. Nothing here may follow a display label.
+REFERENCES = [
+    ("Female-1", "Chatterbox - Female 1.wav", "chatterbox-female-1", "qwen3-female-1",
+     "b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4"),
+    ("Female-2", "Chatterbox - Female 2.wav", "chatterbox-female-2", "qwen3-female-2",
+     "428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205"),
+    ("Male-1", "Chatterbox - Male 1.wav", "chatterbox-male-1", "qwen3-male-1",
+     "45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58"),
+    ("Male-2", "Chatterbox - Male 2.wav", "chatterbox-male-2", "qwen3-male-2",
+     "592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355"),
+    ("Male-3", "Chatterbox - Male 3.wav", "chatterbox-male-3", "qwen3-male-3",
+     "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
+    ("Male-4", "Chatterbox - Male 4.wav", "chatterbox-male-4", "qwen3-male-4",
+     "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
+]
+
+#: The 28 durable identities in shipped order (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3).
+SHIPPED_KEYS = [(b, v) for b, v in zip(BACKENDS + ["qwen3"] * 8, VOICE_IDS + QWEN3_IDS)]
+
+
+def _sha(path: Path) -> str:
     import hashlib
-    from pathlib import Path
 
-    from tts import chatterbox_synth as cbx, qwen3_runtime as rt, voice_registry as vr
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
-    uploads = Path(__file__).resolve().parents[2] / "files" / "Chatterbox-Voice-Uploads"
-    chatterbox = [v for v in vr.VOICES if v.backend == "chatterbox"]
-    assert sorted(p.name for p in uploads.glob("*.wav")) == sorted(f"{v.display_label}.wav" for v in chatterbox)
-    for entry in chatterbox:
-        assert vr.reference_recording_filename(entry.voice_id) == f"{entry.display_label}.wav"
-        assert cbx.reference_source_path(entry.voice_id) == uploads / f"{entry.display_label}.wav"
-    assert sorted(vr.CLONE_REFERENCE_VOICE) == sorted(v.voice_id for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE)
-    for clone_id, chatterbox_id in vr.CLONE_REFERENCE_VOICE.items():
-        voice = rt.get_voice(clone_id)
-        path = rt.reference_path(voice)
-        assert path == cbx.reference_source_path(chatterbox_id)  # the same single file, not a copy
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == voice.reference_sha256 == cbx.REFERENCE_VOICES[chatterbox_id].source_sha256
-        assert voice.label.removeprefix("Qwen3 - ") == vr.get_voice(path.stem).display_label.removeprefix("Chatterbox - ")
-    import pytest
 
-    for voice_id in ("qwen3-aiden", "af_heart", "en-US-AriaNeural", "nobody"):
+def reference_bindings() -> list[tuple]:
+    """Everything that binds a cloned voice to its recording, as the engines themselves resolve it today."""
+    from tts import chatterbox_synth as cbx, qwen3_runtime as rt
+
+    rows = []
+    for _ref, _name, chatterbox_id, qwen_id, _sha256 in REFERENCES:
+        clone = rt.get_voice(qwen_id)
+        twin = cbx.REFERENCE_VOICES[chatterbox_id]
+        rows.append((vr.reference_id("chatterbox", chatterbox_id), vr.reference_id("qwen3", qwen_id), clone.reference_name,
+                     cbx.reference_source_path(chatterbox_id).name, rt.reference_path(clone).name,
+                     twin.source_sha256, clone.reference_sha256, clone.model_key, clone.kind))
+    return rows
+
+
+EXPECTED_BINDINGS = [(ref, ref, ref, name, name, sha, sha, "base", "clone") for ref, name, _c, _q, sha in REFERENCES]
+
+
+def test_the_28_stable_identities_are_exactly_the_shipped_roster():
+    assert [v.key for v in vr.VOICES] == SHIPPED_KEYS and len(set(SHIPPED_KEYS)) == 28
+    assert [b for b, _v in SHIPPED_KEYS].count("edge") == 5 and [b for b, _v in SHIPPED_KEYS].count("kokoro") == 9
+    assert [b for b, _v in SHIPPED_KEYS].count("chatterbox") == 6 and [b for b, _v in SHIPPED_KEYS].count("qwen3") == 8
+    assert vr.registry_problems(vr.VOICES) == [] and vr.reference_table_problems() == []
+
+
+def test_the_six_recordings_are_fixed_by_explicit_tables_not_by_labels():
+    assert vr.REFERENCE_RECORDINGS == {ref: name for ref, name, *_ in REFERENCES}
+    assert vr.VOICE_REFERENCES == {**{("chatterbox", c): ref for ref, _n, c, _q, _s in REFERENCES},
+                                   **{("qwen3", q): ref for ref, _n, _c, q, _s in REFERENCES}}
+    assert reference_bindings() == EXPECTED_BINDINGS
+    # the six tracked files are exactly these bytes (recomputed, not copied from the code under test)
+    assert sorted(p.name for p in UPLOADS.glob("*.wav")) == sorted(name for _r, name, *_ in REFERENCES)
+    for _ref, name, chatterbox_id, qwen_id, sha in REFERENCES:
+        from tts import chatterbox_synth as cbx, qwen3_runtime as rt
+
+        assert _sha(UPLOADS / name) == sha
+        assert rt.reference_path(rt.get_voice(qwen_id)) == cbx.reference_source_path(chatterbox_id) == UPLOADS / name
+    for backend, voice_id in (("qwen3", "qwen3-aiden"), ("kokoro", "af_heart"), ("edge", "en-US-AriaNeural"),
+                              ("qwen3", "chatterbox-female-1"), ("chatterbox", "qwen3-female-1"), ("qwen3", "nobody")):
         with pytest.raises(KeyError):
-            vr.reference_recording_filename(voice_id)
+            vr.reference_recording_filename(backend, voice_id)
+
+
+def test_no_production_module_derives_a_file_name_or_engine_from_a_label():
+    """The pre-P02A ``f"{entry.display_label}.wav"`` derivation, and fixed engine copies of labels, are gone for good."""
+    scripts = Path(vr.__file__).resolve().parents[1]
+    offenders = []
+    for path in application_python_files(scripts):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.JoinedStr) and "display_label" in ast.unparse(node) and ".wav" in ast.unparse(node):
+                offenders.append(f"{path.name}: {ast.unparse(node)}")
+            if isinstance(node, ast.keyword) and node.arg == "label" and isinstance(node.value, ast.Constant) \
+                    and str(node.value.value).startswith(("Chatterbox", "Qwen3")):
+                offenders.append(f"{path.name}: label={node.value.value!r}")
+    assert offenders == []
+
+
+def test_qwen3_engine_data_is_unchanged_by_the_label_work():
+    """Preset speaker tokens, model keys, transcript keys and the clone generation profile (owner Q31: tuning frozen)."""
+    from tts import qwen3_runtime as rt, qwen3_synth
+
+    assert [(v.voice_id, v.kind, v.model_key, v.speaker, v.reference_name) for v in rt.QWEN3_VOICES] == [
+        ("qwen3-aiden", "custom_voice", "customvoice", "Aiden", ""),
+        ("qwen3-ryan", "custom_voice", "customvoice", "Ryan", ""),
+        *[(q, "clone", "base", "", ref) for ref, _n, _c, q, _s in REFERENCES]]
+    assert qwen3_synth.CLONE_GENERATION == {"temperature": 0.70, "subtalker_temperature": 0.80}
+    assert qwen3_synth.CLONE_GENERATION_REVISION == 1 and qwen3_synth.CLONE_REFERENCE_TAIL_SILENCE_S == 0.6
+
+
+# --------------------------------------------------------------------------- #
+# 9. v0.7.0 P02A — arbitrary labels and order are cosmetic (disposable in-memory registries only)
+# --------------------------------------------------------------------------- #
+def relabelled(order: list[int], labels: list[str] | None = None) -> list:
+    """The shipped rows in ``order`` (indexes into VOICES), relabelled ``labels`` (default "1".."28" by new position)."""
+    from dataclasses import replace
+
+    labels = labels or [str(n) for n in range(1, len(order) + 1)]
+    return [replace(vr.VOICES[i], display_label=labels[n]) for n, i in enumerate(order)]
+
+
+REVERSED = list(range(27, -1, -1))
+#: Engines interleaved (shipped row indexes): Qwen3, Edge, Chatterbox, Kokoro, Qwen3, Edge, ... until each row is placed once.
+INTERLEAVED = [20, 0, 14, 5, 21, 1, 15, 6, 22, 2, 16, 7, 23, 3, 17, 8, 24, 4, 18, 9, 25, 19, 10, 26, 11, 27, 12, 13]
+PERMUTATIONS = {"shipped": list(range(28)), "reversed": REVERSED, "interleaved": INTERLEAVED}
+
+
+def test_the_interleaved_order_really_interleaves_every_engine():
+    assert sorted(INTERLEAVED) == list(range(28))
+    backends = [vr.VOICES[i].backend for i in INTERLEAVED]
+    assert backends[:4] == ["qwen3", "edge", "chatterbox", "kokoro"]
+    runs = sum(1 for a, b in zip(backends, backends[1:]) if a != b)
+    assert runs >= 16  # not merely four contiguous engine blocks in a new order
+
+
+@pytest.mark.parametrize("name", PERMUTATIONS)
+def test_numbered_labels_in_any_order_keep_every_identity_reference_and_engine_label(monkeypatch, name):
+    from tts import chatterbox_synth as cbx, qwen3_runtime as rt
+
+    order = PERMUTATIONS[name]
+    shipped = list(vr.VOICES)
+    voices = relabelled(order)
+    assert vr.registry_problems(voices) == []
+    monkeypatch.setattr(vr, "VOICES", voices)
+
+    def numbered(key) -> str:  # the label the stress registry gives a stable key: its new position
+        return str(order.index(SHIPPED_KEYS.index(key)) + 1)
+
+    # the dropdown is exactly the edited order, labels "1".."28", never regrouped or sorted
+    assert vr.display_labels() == [str(n) for n in range(1, 29)]
+    for n, index in enumerate(order, start=1):
+        entry = vr.get_voice(str(n))
+        assert entry.key == SHIPPED_KEYS[index]  # the label "n" selects the voice placed there, nothing else
+        assert entry.timing_preset == shipped[index].timing_preset and entry.group_label == shipped[index].group_label
+    # the default is still Steffan, now under whatever label he carries
+    assert vr.default_voice_label() == numbered(("edge", "en-US-SteffanNeural"))
+    # recordings, hashes, transcript keys and models are untouched
+    assert reference_bindings() == EXPECTED_BINDINGS
+    # every visible engine label follows the registry
+    for clone in rt.QWEN3_VOICES:
+        assert clone.label == numbered(("qwen3", clone.voice_id))
+    for voice in cbx.REFERENCE_VOICES.values():
+        assert voice.label == numbered(("chatterbox", voice.voice_id))
+
+
+def test_the_shipped_tables_are_not_edited_by_a_disposable_registry(monkeypatch):
+    before = [(v.key, v.display_label) for v in vr.VOICES]
+    monkeypatch.setattr(vr, "VOICES", relabelled(REVERSED))
+    monkeypatch.undo()
+    assert [(v.key, v.display_label) for v in vr.VOICES] == before
+    source = Path(vr.__file__).read_text(encoding="utf-8")
+    assert all(f'display_label="{label}"' in source for label in ALL_LABELS)
+
+
+def test_punctuation_and_unicode_labels_are_kept_exactly_as_written(monkeypatch):
+    labels = ["Ärger (Test) #1!", "日本語の声", "Zoë — the narrator", "A/B: \"quoted\"", "Ω", "Café"]
+    labels += [f"voice {n}" for n in range(len(labels) + 1, 29)]
+    voices = relabelled(list(range(28)), labels)
+    assert vr.registry_problems(voices) == []
+    monkeypatch.setattr(vr, "VOICES", voices)
+    assert vr.display_labels() == labels  # displayed text is not normalised or escaped
+    assert vr.get_voice("日本語の声").key == SHIPPED_KEYS[1]
+
+
+# --------------------------------------------------------------------------- #
+# 10. v0.7.0 P02A — an invalid or ambiguous registry is refused with the stable keys named
+# --------------------------------------------------------------------------- #
+def with_label(index: int, label: str) -> list:
+    from dataclasses import replace
+
+    return [replace(v, display_label=label) if i == index else v for i, v in enumerate(vr.VOICES)]
+
+
+@pytest.mark.parametrize("label,expected", [
+    ("", "is empty"),
+    ("   ", "is empty"),
+    (" Padded", "starts or ends with whitespace"),
+    ("Padded\t", "starts or ends with whitespace"),
+    ("Two\nlines", "control character"),
+    ("Edge Male - Steffan (en-US)", "is used by 2 voices"),
+])
+def test_a_bad_label_is_refused_naming_the_voice(label, expected):
+    problems = vr.registry_problems(with_label(5, label))
+    assert any(expected in p for p in problems), problems
+    assert any("kokoro/af_heart" in p for p in problems), problems
+    with pytest.raises(vr.VoiceRegistryError, match="kokoro/af_heart"):
+        vr.check_registry(with_label(5, label))
+
+
+def test_labels_that_differ_only_in_unicode_composition_are_duplicates():
+    composed, decomposed = "Café", "Café"
+    assert composed != decomposed  # different code points, same text on screen
+    voices = with_label(0, composed)
+    voices = [*voices[:1], *with_label(1, decomposed)[1:]]
+    problems = vr.registry_problems(voices)
+    assert any("is used by 2 voices" in p and "edge/en-US-SteffanNeural" in p and "edge/en-US-AndrewNeural" in p
+               for p in problems), problems
+    assert vr.registry_problems(with_label(1, "Cafe")) == []  # different text is not a duplicate
+
+
+def test_a_duplicate_or_malformed_identity_is_refused():
+    from dataclasses import replace
+
+    voices = list(vr.VOICES)
+    twice = voices + [replace(voices[3], display_label="Ava again")]
+    assert any("listed twice" in p and "edge/en-US-AvaNeural" in p for p in vr.registry_problems(twice))
+    shared_id = voices + [replace(voices[5], backend="qwen3", display_label="Heart elsewhere")]
+    assert any("also used by the kokoro backend" in p for p in vr.registry_problems(shared_id))
+    bad_id = [replace(voices[6], voice_id="af bella")] + voices[7:] + voices[:6]
+    assert any("not a plain token" in p for p in vr.registry_problems(bad_id))
+    bad_backend = [replace(voices[6], backend="piper")] + voices[7:] + voices[:6]
+    assert any("unknown backend 'piper'" in p for p in vr.registry_problems(bad_backend))
+    no_default = voices[1:]
+    assert any("default voice edge/en-US-SteffanNeural is not registered" in p for p in vr.registry_problems(no_default))
+    unmapped = voices + [replace(voices[14], voice_id="chatterbox-female-9", display_label="New clone")]
+    assert any("chatterbox/chatterbox-female-9: no reference recording is mapped" in p for p in vr.registry_problems(unmapped))
+    assert vr.registry_problems([]) == ["no voices are registered"]
+
+
+def _load_copy(tmp_path, monkeypatch, text: str):
+    import importlib.util
+    import sys
+
+    copy = tmp_path / "voice_registry_copy.py"
+    copy.write_text(text, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("voice_registry_copy", copy)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "voice_registry_copy", module)  # dataclasses look their module up while defining
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_module_refuses_to_load_an_invalid_registry(tmp_path, monkeypatch):
+    """Negative control on a disposable copy of the real module: one duplicated label stops the import, with keys named."""
+    source = Path(vr.__file__).read_text(encoding="utf-8")
+    assert _load_copy(tmp_path, monkeypatch, source).display_labels() == ALL_LABELS  # the unedited copy loads
+    broken = source.replace('display_label="Edge Male - Andrew (en-US)"', 'display_label="Edge Male - Steffan (en-US)"', 1)
+    assert broken != source
+    with pytest.raises(Exception) as caught:
+        _load_copy(tmp_path, monkeypatch, broken)
+    assert type(caught.value).__name__ == "VoiceRegistryError"
+    assert "edge/en-US-SteffanNeural" in str(caught.value) and "edge/en-US-AndrewNeural" in str(caught.value)

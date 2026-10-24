@@ -196,12 +196,26 @@ def test_the_buttons_carry_the_real_sizes():
 def test_state_lines_describe_the_engine_each_model_and_where_it_will_run(sandbox):
     text = "\n".join(ui.state_lines())
     assert "Voice engine: The Qwen3 voice engine is not installed" in text
-    assert "CustomVoice model (Aiden and Ryan): The Qwen3 CustomVoice model" in text
+    assert "CustomVoice model (Qwen3 - Aiden and Qwen3 - Ryan): The Qwen3 CustomVoice model" in text
     assert "Base model (the six cloned voices)" in text and "No NVIDIA GPU" in text
     install_environment(sandbox)
     install_model(sandbox, "customvoice")
     text = "\n".join(ui.state_lines())
-    assert "Voice engine: installed." in text and "CustomVoice model (Aiden and Ryan): installed." in text
+    assert "Voice engine: installed." in text and "CustomVoice model (Qwen3 - Aiden and Qwen3 - Ryan): installed." in text
+
+
+def test_state_lines_name_the_preset_voices_by_their_current_registry_labels(sandbox, monkeypatch):
+    """v0.7.0 P02A: renaming a registry row renames it in the installer too; no fixed voice name remains."""
+    from dataclasses import replace
+
+    from tts import voice_registry as vr
+
+    renamed = {"qwen3-aiden": "Preset One", "qwen3-ryan": "Preset Two"}
+    monkeypatch.setattr(vr, "VOICES", [replace(v, display_label=renamed.get(v.voice_id, v.display_label))
+                                       for v in vr.VOICES])
+    text = "\n".join(ui.state_lines())
+    assert "CustomVoice model (Preset One and Preset Two):" in text
+    assert "Aiden" not in text and "Ryan" not in text
 
 
 def test_on_an_unsupported_platform_the_dialog_says_so_and_nothing_else(sandbox, monkeypatch):

@@ -71,7 +71,7 @@ from pydub import AudioSegment
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts.speech.document import read_source_text
-from tts.voice_registry import reference_recording_filename
+from tts.voice_registry import label_for, reference_recording_filename
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import CHATTERBOX as CHATTERBOX_ROUTE
 
@@ -627,9 +627,19 @@ class ChatterboxPathologicalSilence(RuntimeError):
 @dataclass(frozen=True)
 class ReferenceVoice:
     voice_id: str
-    label: str
     source_name: str
     source_sha256: str
+
+    @property
+    def label(self) -> str:
+        """The name shown to people: the voice's *current* registry label (v0.7.0 P02A), never a second copy here.
+
+        An unregistered evaluation candidate has no label yet, so it is called by its id.
+        """
+        try:
+            return label_for("chatterbox", self.voice_id)
+        except KeyError:
+            return self.voice_id
 
 
 # The closed set of six (drop §5.7 plus v0.6.5 Phase 2's approved Male 3 and
@@ -640,26 +650,22 @@ class ReferenceVoice:
 REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-female-1": ReferenceVoice(
         voice_id="chatterbox-female-1",
-        label="Chatterbox — Female 1",
-        source_name=reference_recording_filename("chatterbox-female-1"),
+        source_name=reference_recording_filename("chatterbox", "chatterbox-female-1"),
         source_sha256="b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4",
     ),
     "chatterbox-female-2": ReferenceVoice(
         voice_id="chatterbox-female-2",
-        label="Chatterbox — Female 2",
-        source_name=reference_recording_filename("chatterbox-female-2"),
+        source_name=reference_recording_filename("chatterbox", "chatterbox-female-2"),
         source_sha256="428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205",
     ),
     "chatterbox-male-1": ReferenceVoice(
         voice_id="chatterbox-male-1",
-        label="Chatterbox — Male 1",
-        source_name=reference_recording_filename("chatterbox-male-1"),
+        source_name=reference_recording_filename("chatterbox", "chatterbox-male-1"),
         source_sha256="45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58",
     ),
     "chatterbox-male-2": ReferenceVoice(
         voice_id="chatterbox-male-2",
-        label="Chatterbox — Male 2",
-        source_name=reference_recording_filename("chatterbox-male-2"),
+        source_name=reference_recording_filename("chatterbox", "chatterbox-male-2"),
         source_sha256="592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355",
     ),
     # v0.6.5 Phase 2: approved by the maintainer's final listening ruling on
@@ -670,8 +676,7 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     # maintainer-authorized bundling uses the curated MP3's leading WAV window.
     "chatterbox-male-3": ReferenceVoice(
         voice_id="chatterbox-male-3",
-        label="Chatterbox — Male 3",
-        source_name=reference_recording_filename("chatterbox-male-3"),
+        source_name=reference_recording_filename("chatterbox", "chatterbox-male-3"),
         source_sha256="4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80",
     ),
     # v0.6.5 Phase 2: approved by the maintainer's listening gate (Section 5)
@@ -679,8 +684,7 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     # from the curated MP3, preserving the voice ID and label.
     "chatterbox-male-4": ReferenceVoice(
         voice_id="chatterbox-male-4",
-        label="Chatterbox — Male 4",
-        source_name=reference_recording_filename("chatterbox-male-4"),
+        source_name=reference_recording_filename("chatterbox", "chatterbox-male-4"),
         source_sha256="47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad",
     ),
 }

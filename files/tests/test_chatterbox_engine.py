@@ -296,7 +296,7 @@ def test_a_correct_hash_is_accepted(monkeypatch, tmp_path):
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
     # ReferenceVoice is frozen — swap the whole entry instead of mutating it
     voice = cbx.ReferenceVoice(
-        voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
+        voice_id="chatterbox-male-1",
         source_name="Chatterbox - Male 1.wav", source_sha256=hashlib.sha256(payload).hexdigest(),
     )
     monkeypatch.setitem(cbx.REFERENCE_VOICES, "chatterbox-male-1", voice)
@@ -487,7 +487,7 @@ def test_preparing_a_reference_writes_a_manifest_tracing_it_to_its_source(
     uploads.mkdir()
     source = _write_source_audio(uploads / "Chatterbox - Male 1.wav", seconds=25)
     voice = cbx.ReferenceVoice(
-        voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
+        voice_id="chatterbox-male-1",
         source_name="Chatterbox - Male 1.wav", source_sha256=_sha(source),
     )
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
@@ -509,7 +509,7 @@ def test_a_prepared_derivative_is_reused_rather_than_rebuilt(
     uploads.mkdir()
     source = _write_source_audio(uploads / "Chatterbox - Male 1.wav", seconds=25)
     voice = cbx.ReferenceVoice(
-        voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
+        voice_id="chatterbox-male-1",
         source_name="Chatterbox - Male 1.wav", source_sha256=_sha(source),
     )
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
@@ -530,7 +530,7 @@ def _prepared_voice(monkeypatch, tmp_path):
     uploads.mkdir()
     source = _write_source_audio(uploads / "Chatterbox - Male 1.wav", seconds=25)
     voice = cbx.ReferenceVoice(
-        voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
+        voice_id="chatterbox-male-1",
         source_name="Chatterbox - Male 1.wav", source_sha256=_sha(source),
     )
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
@@ -582,7 +582,7 @@ def test_a_source_hash_change_makes_the_cached_conditional_stale(
     stale = cbx.conditionals_path("chatterbox-male-1", voice.source_sha256)
 
     changed = cbx.ReferenceVoice(
-        voice_id=voice.voice_id, label=voice.label,
+        voice_id=voice.voice_id,
         source_name=voice.source_name, source_sha256="d" * 64,
     )
     monkeypatch.setitem(cbx.REFERENCE_VOICES, "chatterbox-male-1", changed)

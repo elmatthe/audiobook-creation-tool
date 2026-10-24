@@ -1345,3 +1345,119 @@ def test_a_clone_preview_must_record_the_removed_leftover_and_only_a_clone_does(
     clone["leading_fragment_trimmed_ms"] = 0
     record_of("af_heart", data)["preview"]["leading_fragment_trimmed_ms"] = 0
     assert any("only a Qwen3 clone preview" in p for p in vp.manifest_problems(data))
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P02A: a metadata-only label sync (cosmetic registry edits need new metadata, never new audio)
+# --------------------------------------------------------------------------- #
+def _audio_hashes(folder_path: Path) -> dict:
+    return {p.name: vp.sha256_file(p) for p in sorted(folder_path.glob("*.wav"))}
+
+
+def _stress_registry(monkeypatch, name="interleaved"):
+    """The 28 shipped rows relabelled "1".."28" and reordered, in memory only."""
+    from test_voice_labels import PERMUTATIONS, relabelled
+    from tts import voice_registry
+
+    voices = relabelled(PERMUTATIONS[name])
+    monkeypatch.setattr(voice_registry, "VOICES", voices)
+    return voices
+
+
+def _no_audio_path(monkeypatch):
+    """Every way the tool can make, read or download audio raises, so a sync that tried would fail loudly."""
+    def refuse(*_a, **_k):
+        raise AssertionError("a metadata-only sync touched an audio path")
+
+    for name in ("synthesize", "_synthesize_edge", "generate", "publish", "audio_problems", "read_back_problems",
+                 "unavailable_reason", "trim_edges", "strip_leading_fragment"):
+        monkeypatch.setattr(vp, name, refuse)
+
+
+@pytest.mark.parametrize("name", ["reversed", "interleaved"])
+def test_a_label_sync_changes_only_labels_and_order_and_never_the_audio(folder, monkeypatch, name):
+    live = {p: p.read_bytes() for p in (REPO_ROOT / "files" / "voice-previews").iterdir()}
+    before = manifest()
+    audio = _audio_hashes(folder)
+    voices = _stress_registry(monkeypatch, name)
+    _no_audio_path(monkeypatch)
+
+    assert vp.main(["sync-labels"]) == 0
+    after = manifest()
+    assert [v["voice_id"] for v in after["voices"]] == [e.voice_id for e in voices]  # the edited order
+    assert [v["label"] for v in after["voices"]] == [str(n) for n in range(1, 29)]  # the edited labels
+    assert vp.label_sync_problems(before, after) == []  # nothing else moved: files, hashes, history, rights
+    old = {v["voice_id"]: v for v in before["voices"]}
+    for record in after["voices"]:
+        assert {**record, "label": None} == {**old[record["voice_id"]], "label": None}
+    assert _audio_hashes(folder) == audio  # all 28 WAVs byte-identical
+    readme = vp.README.read_text("utf-8")
+    assert readme == vp.render_readme(after) and "| 1 |" in readme and "Edge Male - Steffan" not in readme
+    # the live, tracked folder was never written
+    assert {p: p.read_bytes() for p in (REPO_ROOT / "files" / "voice-previews").iterdir()} == live
+
+
+def test_after_a_label_sync_the_folder_checks_clean_and_before_it_the_stale_labels_are_named(folder, monkeypatch):
+    _stress_registry(monkeypatch)
+    problems = vp.check()
+    assert any("labels differ from the registry" in p and "run sync-labels" in p for p in problems), problems
+    data = vp.sync_labels(manifest())
+    vp.save_manifest(data)
+    vp.write_readme(data)
+    assert vp.check() == []
+
+
+def test_the_committed_manifest_already_carries_the_registrys_labels():
+    """Negative control for the check above: with the shipped registry, nothing is stale."""
+    from tts import voice_registry
+
+    assert [v["label"] for v in manifest()["voices"]] == [e.display_label for e in voice_registry.VOICES]
+    assert vp.sync_labels(manifest()) == manifest()  # a label sync of an up-to-date manifest is a no-op
+
+
+def test_a_label_sync_refuses_a_roster_or_engine_change_and_leaves_the_data_alone(monkeypatch):
+    from dataclasses import replace
+
+    from tts import voice_registry
+
+    data = manifest()
+    snapshot = json.dumps(data, sort_keys=True)
+    shipped = list(voice_registry.VOICES)
+    extra = replace(shipped[0], voice_id="en-US-NewNeural", display_label="Edge - New")
+    for voices, expected in ((shipped[:-1], "list different voices"), (shipped + [extra], "list different voices"),
+                             ([replace(shipped[5], backend="qwen3")] + shipped[:5] + shipped[6:], "identity change")):
+        with pytest.raises(vp.PreviewError, match=expected):
+            vp.sync_labels(data, voices)
+        assert json.dumps(data, sort_keys=True) == snapshot
+
+
+def test_the_label_sync_guard_catches_every_non_cosmetic_change():
+    """Negative controls on the guard itself: each of these edits must be reported."""
+    before = manifest()
+    edits = {
+        "file": lambda d: d["voices"][0]["preview"].__setitem__("file", "other.wav"),
+        "sha256": lambda d: d["voices"][1]["preview"].__setitem__("sha256", "0" * 64),
+        "rights": lambda d: d["voices"][2]["rights"].__setitem__("status", vp.RIGHTS_UNRESOLVED),
+        "backend": lambda d: d["voices"][3].__setitem__("backend", "kokoro"),
+        "transcript": lambda d: next(v for v in d["voices"] if vp.is_clone(v))["preview"]["transcript"].__setitem__(
+            "status", vp.TRANSCRIPT_APPROVED),
+        "sample_text": lambda d: d.__setitem__("sample_text", "Different words."),
+        "owner_decision": lambda d: d["owner_decision"].__setitem__("date", "2099-01-01"),
+        "dropped voice": lambda d: d["voices"].pop(),
+    }
+    for what, edit in edits.items():
+        after = json.loads(json.dumps(before))
+        edit(after)
+        assert vp.label_sync_problems(before, after), what
+    relabelled = json.loads(json.dumps(before))
+    relabelled["voices"].reverse()
+    relabelled["voices"][0]["label"] = "Renamed"
+    assert vp.label_sync_problems(before, relabelled) == []  # labels and order alone are fine
+
+
+def test_a_label_sync_whose_result_fails_the_guard_writes_nothing(folder, monkeypatch):
+    _stress_registry(monkeypatch)
+    monkeypatch.setattr(vp, "label_sync_problems", lambda before, after: ["simulated stray change"])
+    manifest_bytes, readme_bytes = vp.MANIFEST.read_bytes(), vp.README.read_bytes()
+    assert vp.main(["sync-labels"]) == 3
+    assert vp.MANIFEST.read_bytes() == manifest_bytes and vp.README.read_bytes() == readme_bytes

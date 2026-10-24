@@ -133,7 +133,10 @@ def state_lines() -> list[str]:
     for key in rt.MODEL_KEYS:
         spec = rt.model_spec(key)
         ok, reason = rt.model_status(key)
-        voices = "Aiden and Ryan" if key == rt.MODEL_CUSTOMVOICE else "the six cloned voices"
+        if key == rt.MODEL_CUSTOMVOICE:  # the presets by their current registry labels (v0.7.0 P02A), never a fixed name
+            voices = " and ".join(v.label for v in rt.QWEN3_VOICES if v.model_key == key)
+        else:
+            voices = "the six cloned voices"
         lines.append(f"{spec.label} model ({voices}): " + ("installed." if ok else _short(reason)))
         if key == rt.MODEL_BASE and ok:
             from tts import qwen3_clone_setup as qt

@@ -12,6 +12,7 @@ preview it finds, regenerates the folder's README from the manifest, and states 
     python files/dev-tools/voice_previews.py status              # counts, and why each missing preview is missing
     python files/dev-tools/voice_previews.py check               # validate manifest + files + README (exit 1 on a problem)
     python files/dev-tools/voice_previews.py sync                # list exactly the registry's voices; migrate the old block
+    python files/dev-tools/voice_previews.py sync-labels         # metadata only: copy registry labels/order; never touches audio
     python files/dev-tools/voice_previews.py generate [VOICE_ID ...]   # make previews for authorized voices that lack one
     python files/dev-tools/voice_previews.py generate --provisional-transcripts [VOICE_ID ...]   # clones from Whisper drafts (labelled)
     python files/dev-tools/voice_previews.py readme              # rewrite the folder README from the manifest
@@ -243,6 +244,55 @@ def sync(data: dict) -> dict:
     return data
 
 
+#: The only per-voice field a metadata-only label sync may change. Everything else -- the file, its SHA-256, durations,
+#: dates, seeds, transcript provenance, rights -- is history of how the audio was made and stays byte-for-byte.
+LABEL_SYNC_FIELDS = frozenset({"label"})
+
+
+def sync_labels(data: dict, voices: list | None = None) -> dict:
+    """v0.7.0 P02A: carry cosmetic registry edits (display labels, row order) into the manifest. Nothing else.
+
+    It cannot make audio: it reads no WAV, calls no engine and downloads nothing. It refuses -- leaving ``data``
+    untouched -- when the registry and the manifest disagree about *which* voices exist or which engine a voice belongs
+    to, because that is not a cosmetic edit (use ``sync`` and ``generate`` for a roster change). The result is
+    checked by ``label_sync_problems`` before it is returned, so a change outside the label/order contract can never
+    be written. Returns a new dict; the README is then re-rendered from it.
+    """
+    voices = registry_voices() if voices is None else list(voices)
+    records = {r["voice_id"]: r for r in data.get("voices", [])}
+    wanted = [entry.voice_id for entry in voices]
+    if sorted(records) != sorted(wanted) or len(records) != len(data.get("voices", [])):
+        raise PreviewError("the registry and the manifest list different voices; a label sync only renames and reorders "
+                           "(run sync for a roster change)")
+    for entry in voices:
+        if records[entry.voice_id]["backend"] != entry.backend:
+            raise PreviewError(f"{entry.voice_id}: the manifest records it as {records[entry.voice_id]['backend']!r} but the "
+                               f"registry as {entry.backend!r}; that is an identity change, not a label edit")
+    synced = json.loads(json.dumps(data))  # a deep copy: the caller's dict is never half-updated
+    copies = {r["voice_id"]: r for r in synced["voices"]}
+    synced["voices"] = [{**copies[e.voice_id], "label": e.display_label} for e in voices]
+    problems = label_sync_problems(data, synced)
+    if problems:
+        raise PreviewError("refusing a label sync that would change more than labels and order: " + "; ".join(problems))
+    return synced
+
+
+def label_sync_problems(before: dict, after: dict) -> list[str]:
+    """Every difference between two manifests other than per-voice labels and the order of the voices."""
+    problems = [f"top-level field {key!r} changed" for key in sorted(set(before) | set(after))
+                if key != "voices" and before.get(key) != after.get(key)]
+    old = {r["voice_id"]: r for r in before.get("voices", [])}
+    new = {r["voice_id"]: r for r in after.get("voices", [])}
+    if sorted(old) != sorted(new) or len(new) != len(after.get("voices", [])):
+        problems.append("the set of voices changed")
+    for vid in sorted(set(old) & set(new)):
+        changed = sorted(k for k in set(old[vid]) | set(new[vid])
+                         if k not in LABEL_SYNC_FIELDS and old[vid].get(k) != new[vid].get(k))
+        if changed:
+            problems.append(f"{vid}: {', '.join(changed)} changed")
+    return problems
+
+
 # --------------------------------------------------------------------------- #
 # Audio checks and trimming
 # --------------------------------------------------------------------------- #
@@ -452,6 +502,10 @@ def check(data: dict | None = None, preview_dir: Path = PREVIEW_DIR) -> list[str
     problems = manifest_problems(data)
     if ids != [e.voice_id for e in registry]:
         problems.append("the manifest does not list exactly the registry's voices in registry order (run sync)")
+    labels = {v["voice_id"]: v.get("label") for v in data.get("voices", [])}
+    stale = [e.voice_id for e in registry if e.voice_id in labels and labels[e.voice_id] != e.display_label]
+    if stale:
+        problems.append(f"the manifest's labels differ from the registry's for {', '.join(stale)} (run sync-labels)")
     if data.get("sample_text") != SAMPLE_TEXT:
         problems.append("the manifest's sample text differs from the tool's")
     if data.get("schema") != SCHEMA:
@@ -932,6 +986,12 @@ def main(argv: list[str]) -> int:
     try:
         if command == "sync":
             data = sync(load_manifest())
+            save_manifest(data)
+            write_readme(data)
+            print(json.dumps(counts(data)))
+            return 0
+        if command == "sync-labels":
+            data = sync_labels(load_manifest())
             save_manifest(data)
             write_readme(data)
             print(json.dumps(counts(data)))

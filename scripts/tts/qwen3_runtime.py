@@ -34,8 +34,8 @@ from typing import Callable, Optional
 # --------------------------------------------------------------------------- #
 # Identity of the eight voices
 # --------------------------------------------------------------------------- #
-#: The voice ids and labels are the owner's (Decision B, 2026-10-19). ``voice_registry`` owns what the GUI shows;
-#: this table owns what the engine needs, and a test keeps the two in step.
+#: The voice ids are the owner's (Decision B, 2026-10-19). ``voice_registry`` owns what people see (each voice's label
+#: is read from it by stable id, so a renamed row renames every message); this table owns what the engine needs.
 KIND_PRESET = "custom_voice"
 KIND_CLONE = "clone"
 
@@ -51,30 +51,39 @@ TRANSCRIBER = "transcriber"
 @dataclass(frozen=True)
 class Qwen3Voice:
     voice_id: str
-    label: str
     kind: str  # KIND_PRESET | KIND_CLONE
     model_key: str  # MODEL_CUSTOMVOICE | MODEL_BASE
     speaker: str = ""  # the model's own preset speaker name (presets only)
     reference_name: str = ""  # stable key of a clone's reference (transcripts are stored under it), e.g. "Female-1"
     reference_sha256: str = ""  # the recording this clone was approved against (clones only)
 
+    @property
+    def label(self) -> str:
+        """The name shown to people: this voice's *current* registry label (v0.7.0 P02A), looked up when asked.
+
+        Imported here rather than at module level so the registry never depends on an engine module.
+        """
+        from tts.voice_registry import label_for
+
+        return label_for("qwen3", self.voice_id)
+
 
 #: Same bytes as ``chatterbox_synth.REFERENCE_VOICES`` (a test pins that they agree). They are repeated here, not
 #: imported, because a Qwen clone is independent of its Chatterbox counterpart: it shares only the recording.
 QWEN3_VOICES: tuple[Qwen3Voice, ...] = (
-    Qwen3Voice("qwen3-aiden", "Qwen3 - Aiden", KIND_PRESET, MODEL_CUSTOMVOICE, speaker="Aiden"),
-    Qwen3Voice("qwen3-ryan", "Qwen3 - Ryan", KIND_PRESET, MODEL_CUSTOMVOICE, speaker="Ryan"),
-    Qwen3Voice("qwen3-female-1", "Qwen3 - Female 1", KIND_CLONE, MODEL_BASE, reference_name="Female-1",
+    Qwen3Voice("qwen3-aiden", KIND_PRESET, MODEL_CUSTOMVOICE, speaker="Aiden"),
+    Qwen3Voice("qwen3-ryan", KIND_PRESET, MODEL_CUSTOMVOICE, speaker="Ryan"),
+    Qwen3Voice("qwen3-female-1", KIND_CLONE, MODEL_BASE, reference_name="Female-1",
                reference_sha256="b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4"),
-    Qwen3Voice("qwen3-female-2", "Qwen3 - Female 2", KIND_CLONE, MODEL_BASE, reference_name="Female-2",
+    Qwen3Voice("qwen3-female-2", KIND_CLONE, MODEL_BASE, reference_name="Female-2",
                reference_sha256="428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205"),
-    Qwen3Voice("qwen3-male-1", "Qwen3 - Male 1", KIND_CLONE, MODEL_BASE, reference_name="Male-1",
+    Qwen3Voice("qwen3-male-1", KIND_CLONE, MODEL_BASE, reference_name="Male-1",
                reference_sha256="45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58"),
-    Qwen3Voice("qwen3-male-2", "Qwen3 - Male 2", KIND_CLONE, MODEL_BASE, reference_name="Male-2",
+    Qwen3Voice("qwen3-male-2", KIND_CLONE, MODEL_BASE, reference_name="Male-2",
                reference_sha256="592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355"),
-    Qwen3Voice("qwen3-male-3", "Qwen3 - Male 3", KIND_CLONE, MODEL_BASE, reference_name="Male-3",
+    Qwen3Voice("qwen3-male-3", KIND_CLONE, MODEL_BASE, reference_name="Male-3",
                reference_sha256="4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
-    Qwen3Voice("qwen3-male-4", "Qwen3 - Male 4", KIND_CLONE, MODEL_BASE, reference_name="Male-4",
+    Qwen3Voice("qwen3-male-4", KIND_CLONE, MODEL_BASE, reference_name="Male-4",
                reference_sha256="47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 )
 _VOICE_BY_ID = {v.voice_id: v for v in QWEN3_VOICES}
@@ -172,10 +181,13 @@ def local_transcripts_path() -> Path:
 
 
 def reference_path(voice: Qwen3Voice) -> Path:
-    """The ONE bundled copy of the recording, shared with the Chatterbox voice of the same speaker (named by its label)."""
+    """The ONE bundled copy of the recording, shared with the Chatterbox voice of the same speaker.
+
+    Its file name comes from the registry's explicit reference table (by stable id), never from a display label.
+    """
     from tts.voice_registry import reference_recording_filename
 
-    return repo_root() / "files" / "Chatterbox-Voice-Uploads" / reference_recording_filename(voice.voice_id)
+    return repo_root() / "files" / "Chatterbox-Voice-Uploads" / reference_recording_filename("qwen3", voice.voice_id)
 
 
 # --------------------------------------------------------------------------- #

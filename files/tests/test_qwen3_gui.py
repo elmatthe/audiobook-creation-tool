@@ -605,3 +605,54 @@ def test_the_default_dialog_is_handed_the_panels_confirmation_and_style_so_it_im
     epub2tts_gui._default_qwen3_setup_dialog(panel)
     assert seen["parent"] is panel and seen["confirm"] is job_ui.ask_confirm and seen["style_name"] is job_ui.style_name
     assert seen["theme"] is panel.appearance_bundle and seen["on_change"] == panel._on_qwen3_setup_changed
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P02A: labels and order are cosmetic, through the real panel and stubbed engine entry points
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("name", ["reversed", "interleaved"])
+def test_numbered_labels_in_any_order_reach_the_same_engine_and_voice_through_the_panel(
+        make_panel, output_base, tmp_path, stubs, monkeypatch, name):
+    """All 28 rows relabelled "1".."28" in a disposable in-memory registry, reordered, then run one by one."""
+    from test_voice_labels import PERMUTATIONS, SHIPPED_KEYS, relabelled
+
+    order = PERMUTATIONS[name]
+    chatterbox = ChatterboxStub().install(monkeypatch)
+    qwen3 = Qwen3Stub().install(monkeypatch)
+    stubs.install_kokoro(monkeypatch)
+    monkeypatch.setattr(vr, "VOICES", relabelled(order))
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", **panel_kwargs(qwen3, chatterbox))
+
+    assert [str(v) for v in panel.voice_combo.cget("values")] == [str(n) for n in range(1, 29)]  # exact edited order
+    assert vr.get_voice(panel.selected_voice_label.get()).key == ("edge", "en-US-SteffanNeural")  # default by identity
+
+    engines = {"edge": (stubs.conversion_jobs, "speaker"), "kokoro": (stubs.kokoro_calls, "voice_id"),
+               "chatterbox": (chatterbox.calls, "voice_id"), "qwen3": (qwen3.calls, "voice_id")}
+    reached = []
+    for n in range(1, 29):
+        before = {backend: len(calls) for backend, (calls, _field) in engines.items()}
+        select(panel, str(n))
+        params = run_attempt(panel)
+        options = params["snapshot"].tool_options
+        called = [(backend, calls[-1][field]) for backend, (calls, field) in engines.items()
+                  if len(calls) == before[backend] + 1]
+        assert len(called) == 1, (n, called)  # exactly one engine ran, once
+        assert called[0] == (options["backend"], options["voice_id"]) == (params["backend"], options["voice_id"])
+        reached.append(called[0])
+    assert reached == [SHIPPED_KEYS[i] for i in order]
+
+
+def test_a_label_that_names_no_registered_voice_is_refused_not_run_as_an_edge_voice(
+        make_panel, output_base, tmp_path, stubs, monkeypatch):
+    """Before P02A an unresolvable label fell back to backend "edge" with the last voice id: a silent engine switch."""
+    from tkinter import messagebox
+
+    warned = []
+    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: warned.append(a))
+    qwen3 = Qwen3Stub().install(monkeypatch)
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", **panel_kwargs(qwen3))
+    select(panel, AIDEN)
+    panel.selected_voice_label.set("Qwen3 - Aiden (renamed elsewhere)")  # a label the registry no longer has
+    assert accept(panel) == {}, "the panel must decline to start"
+    assert [w[0] for w in warned] == ["Voice not recognised"]
+    assert stubs.conversion_jobs == [] and stubs.kokoro_calls == [] and qwen3.calls == []

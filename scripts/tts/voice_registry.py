@@ -65,14 +65,28 @@ question, owned by ``tts/chatterbox_synth.py`` — the Chatterbox voices are bac
 local, maintainer-supplied reference recordings that exist on one machine only. A
 missing recording leaves the row in place and reports "setup required"; it never
 removes a voice, substitutes another, or fetches anything.
+
+**v0.7.0 P02A (owner Q5): identity is ``(backend, voice_id)``; labels and order are cosmetic.**
+``display_label`` and the position of a row may be edited freely: the dropdown shows the rows in
+``VOICES`` order exactly as written (engine groups may interleave), and no engine, model, preset
+speaker or reference recording is ever chosen by a label. The six cloned voices' recordings are
+named by the explicit ``VOICE_REFERENCES`` → ``REFERENCE_RECORDINGS`` tables below, so renaming
+"Chatterbox - Female 1" changes no file name. Every visible engine label (Chatterbox and Qwen3 status,
+setup and error text) is looked up here by stable key. The module checks itself on import and refuses
+an empty, padded, duplicate (NFC-compared) or otherwise ambiguous registry with a message naming the
+stable keys involved, rather than silently taking the first match.
 """
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
 BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3"]
+#: The engines a row may name. Adding one is an engine change, never a registry edit.
+BACKENDS: tuple[str, ...] = ("edge", "kokoro", "chatterbox", "qwen3")
 
 
 @dataclass(frozen=True)
@@ -82,6 +96,11 @@ class VoiceEntry:
     display_label: str  # shown in the Combobox
     group_label: str  # category separator label
     timing_preset: dict  # GUI field values to load when this voice is selected
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """The durable identity ``(backend, voice_id)``. The label and the row's position are not part of it."""
+        return (self.backend, self.voice_id)
 
 
 def _edge_preset(
@@ -438,39 +457,168 @@ VOICES: list[VoiceEntry] = [
 ]
 
 
-def get_voice(display_label: str) -> VoiceEntry | None:
-    """Return the VoiceEntry for a given display_label, or None if not found."""
-    return next((v for v in VOICES if v.display_label == display_label), None)
+#: The voice the panel starts on, by identity: Steffan stays the default wherever his row sits and whatever it is called.
+DEFAULT_VOICE_KEY: tuple[str, str] = ("edge", "en-US-SteffanNeural")
 
 
-#: The six bundled reference recordings are shared by the Chatterbox voices and the Qwen3 clones made from the same
-#: speakers. Each Qwen3 clone names the Chatterbox voice whose recording it is cloned from; there is one copy of each file.
-CLONE_REFERENCE_VOICE: dict[str, str] = {
-    "qwen3-female-1": "chatterbox-female-1",
-    "qwen3-female-2": "chatterbox-female-2",
-    "qwen3-male-1": "chatterbox-male-1",
-    "qwen3-male-2": "chatterbox-male-2",
-    "qwen3-male-3": "chatterbox-male-3",
-    "qwen3-male-4": "chatterbox-male-4",
+# --------------------------------------------------------------------------- #
+# The six bundled reference recordings (v0.7.0 P02A): explicit data, never derived from a label
+# --------------------------------------------------------------------------- #
+#: Stable reference id -> the fixed basename of its one bundled copy. The ids are the Qwen3 transcript keys
+#: (``qwen3_runtime.Qwen3Voice.reference_name``); the basenames are the v0.6.7 file names, kept byte-for-byte (owner
+#: Q31) even though they read like the Chatterbox labels. Renaming a voice never renames its recording.
+REFERENCE_RECORDINGS: dict[str, str] = {
+    "Female-1": "Chatterbox - Female 1.wav",
+    "Female-2": "Chatterbox - Female 2.wav",
+    "Male-1": "Chatterbox - Male 1.wav",
+    "Male-2": "Chatterbox - Male 2.wav",
+    "Male-3": "Chatterbox - Male 3.wav",
+    "Male-4": "Chatterbox - Male 4.wav",
+}
+
+#: Which recording a cloned voice is conditioned on, by stable ``(backend, voice_id)``. A Chatterbox voice and the
+#: Qwen3 clone of the same speaker share the recording and nothing else: their engines, ids and models stay separate.
+VOICE_REFERENCES: dict[tuple[str, str], str] = {
+    ("chatterbox", "chatterbox-female-1"): "Female-1",
+    ("chatterbox", "chatterbox-female-2"): "Female-2",
+    ("chatterbox", "chatterbox-male-1"): "Male-1",
+    ("chatterbox", "chatterbox-male-2"): "Male-2",
+    ("chatterbox", "chatterbox-male-3"): "Male-3",
+    ("chatterbox", "chatterbox-male-4"): "Male-4",
+    ("qwen3", "qwen3-female-1"): "Female-1",
+    ("qwen3", "qwen3-female-2"): "Female-2",
+    ("qwen3", "qwen3-male-1"): "Male-1",
+    ("qwen3", "qwen3-male-2"): "Male-2",
+    ("qwen3", "qwen3-male-3"): "Male-3",
+    ("qwen3", "qwen3-male-4"): "Male-4",
 }
 
 
-def reference_recording_filename(voice_id: str) -> str:
-    """The bundled reference recording's file name: the Chatterbox voice's display label plus ``.wav``.
+def reference_id(backend: str, voice_id: str) -> str:
+    """The stable reference id (``"Female-1"``) a cloned voice uses. ``KeyError`` for a voice that clones nothing."""
+    try:
+        return VOICE_REFERENCES[(backend, voice_id)]
+    except KeyError:
+        raise KeyError(f"{backend}/{voice_id} has no bundled reference recording") from None
 
-    ``files/Chatterbox-Voice-Uploads/Chatterbox - Female 1.wav`` and so on. A Qwen3 clone resolves to its Chatterbox voice's
-    recording. The registry label is the single source of the name, so the file and the dropdown can never disagree.
+
+def reference_recording_filename(backend: str, voice_id: str) -> str:
+    """The fixed basename of the recording ``backend``/``voice_id`` is cloned from, e.g. ``"Chatterbox - Female 1.wav"``."""
+    return REFERENCE_RECORDINGS[reference_id(backend, voice_id)]
+
+
+# --------------------------------------------------------------------------- #
+# Validation: an edited registry is refused, never half-used
+# --------------------------------------------------------------------------- #
+class VoiceRegistryError(ValueError):
+    """The voice table cannot be used as written. The message names every problem and the stable keys involved."""
+
+
+#: A voice id is passed straight to an engine and names preview files, so it is a plain token.
+_VOICE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+
+
+def _label_key(label: str) -> str:
+    """How two labels are compared for sameness: Unicode NFC. The displayed text itself is kept exactly as written."""
+    return unicodedata.normalize("NFC", label)
+
+
+def registry_problems(voices: list[VoiceEntry]) -> list[str]:
+    """Every reason ``voices`` cannot be offered, as sentences that name the stable keys. ``[]`` means usable."""
+    problems: list[str] = []
+    seen_keys: set[tuple[str, str]] = set()
+    seen_ids: dict[str, str] = {}
+    labels: dict[str, list[str]] = {}
+    for index, entry in enumerate(voices):
+        where = f"row {index + 1} ({entry.backend}/{entry.voice_id})"
+        if entry.backend not in BACKENDS:
+            problems.append(f"{where}: unknown backend {entry.backend!r}; use one of {', '.join(BACKENDS)}")
+        if not isinstance(entry.voice_id, str) or not _VOICE_ID.fullmatch(entry.voice_id):
+            problems.append(f"{where}: the voice id {entry.voice_id!r} is not a plain token "
+                            "(letters, digits, '_', '.', '-'; no spaces)")
+        if entry.key in seen_keys:
+            problems.append(f"{where}: this voice is listed twice; each (backend, voice_id) may appear once")
+        elif entry.voice_id in seen_ids and seen_ids[entry.voice_id] != entry.backend:
+            problems.append(f"{where}: the voice id is also used by the {seen_ids[entry.voice_id]} backend; "
+                            "a voice id may belong to one backend only")
+        seen_keys.add(entry.key)
+        seen_ids.setdefault(entry.voice_id, entry.backend)
+        label = entry.display_label
+        if not isinstance(label, str) or not label.strip():
+            problems.append(f"{where}: the display label is empty; give it visible text")
+            continue
+        if label != label.strip():
+            problems.append(f"{where}: the display label {label!r} starts or ends with whitespace; remove it")
+        if any(unicodedata.category(ch) == "Cc" for ch in label):
+            problems.append(f"{where}: the display label {label!r} contains a control character (e.g. a line break)")
+        labels.setdefault(_label_key(label), []).append(f"{entry.backend}/{entry.voice_id}")
+    for label, owners in labels.items():
+        if len(owners) > 1:
+            problems.append(f"the display label {label!r} is used by {len(owners)} voices ({', '.join(owners)}); "
+                            "labels must differ (compared after Unicode NFC normalisation)")
+    if voices and DEFAULT_VOICE_KEY not in seen_keys:
+        problems.append(f"the default voice {DEFAULT_VOICE_KEY[0]}/{DEFAULT_VOICE_KEY[1]} is not registered")
+    for entry in voices:
+        if entry.backend == "chatterbox" and entry.key not in VOICE_REFERENCES:
+            problems.append(f"{entry.backend}/{entry.voice_id}: no reference recording is mapped for this cloned voice "
+                            "(add it to VOICE_REFERENCES)")
+    if not voices:
+        problems.append("no voices are registered")
+    return problems
+
+
+def reference_table_problems() -> list[str]:
+    """Contradictions inside the two reference tables themselves (independent of labels and order)."""
+    problems = [f"{backend}/{voice_id}: unknown reference id {ref!r}"
+                for (backend, voice_id), ref in VOICE_REFERENCES.items() if ref not in REFERENCE_RECORDINGS]
+    names = list(REFERENCE_RECORDINGS.values())
+    if len({n.casefold() for n in names}) != len(names):
+        problems.append("two reference ids name the same recording file")
+    return problems
+
+
+def check_registry(voices: list[VoiceEntry]) -> None:
+    """Raise ``VoiceRegistryError`` listing every problem, or return quietly."""
+    problems = registry_problems(voices) + reference_table_problems()
+    if problems:
+        raise VoiceRegistryError("The voice list in tts/voice_registry.py cannot be used:\n- " + "\n- ".join(problems))
+
+
+# --------------------------------------------------------------------------- #
+# Lookups. Each reads VOICES at call time; none caches a label.
+# --------------------------------------------------------------------------- #
+def get_voice(display_label: str) -> VoiceEntry | None:
+    """Return the VoiceEntry for a given display_label, or None if not found.
+
+    The panel's dropdown holds labels, so this is the one place a label is turned back into an identity. Labels are
+    validated unique, so at most one row can match.
     """
-    source = CLONE_REFERENCE_VOICE.get(voice_id, voice_id)
-    entry = next((v for v in VOICES if v.voice_id == source and v.backend == "chatterbox"), None)
+    return next((v for v in VOICES if v.display_label == display_label), None)
+
+
+def voice_by_key(backend: str, voice_id: str) -> VoiceEntry | None:
+    """The row for a stable identity, wherever it sits and whatever it is called."""
+    return next((v for v in VOICES if v.key == (backend, voice_id)), None)
+
+
+def label_for(backend: str, voice_id: str) -> str:
+    """The current display label of ``backend``/``voice_id``; ``KeyError`` if that voice is not registered."""
+    entry = voice_by_key(backend, voice_id)
     if entry is None:
-        raise KeyError(f"{voice_id!r} has no bundled reference recording")
-    return f"{entry.display_label}.wav"
+        raise KeyError(f"{backend}/{voice_id} is not a registered voice")
+    return entry.display_label
 
 
 def display_labels() -> list[str]:
-    """Ordered list of display labels for the Combobox values."""
+    """Ordered list of display labels for the Combobox values: ``VOICES`` order exactly, never regrouped or sorted."""
     return [v.display_label for v in VOICES]
 
 
-DEFAULT_VOICE_LABEL: str = VOICES[0].display_label
+def default_voice_label() -> str:
+    """The label the panel starts on: the default voice's *current* label."""
+    return label_for(*DEFAULT_VOICE_KEY)
+
+
+check_registry(VOICES)
+
+DEFAULT_VOICE_LABEL: str = default_voice_label()
