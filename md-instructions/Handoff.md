@@ -2,6 +2,42 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P05B Stage 3: independent review BLOCKED closure on consent-scope escapes; P05B OPEN; STOP for ChatGPT review (2026-10-25, Codex)
+
+Authority: assigned independent P05B closing review; plan Revision 2 §5.4 and §6 / P05B. Starting commit
+`e54f06ec4182bd14c93087555e46a18c05521933`, branch `feature/0.7.0-release-remediation`, HOME-PC.
+Production identity remains 0.6.6. The earlier Stage 2 success report below does not establish P05B closure.
+
+- **Blocking reproductions (tiny disposable fixtures, real worker/lifecycle/acquirer/installer, fake package commands):**
+  1. An unmarked Qwen model with correctly sized corrupt weights is offered as a zero-byte install; installation hashes
+     the weights, downloads their replacement and reports success. The confirmed byte limit is not enforced during acquisition.
+  2. Consent for a Qwen model repair excludes `qwen3-engine`, but the installer's subsequent engine probe can cause
+     `repair()` to remove/recreate the engine and run package installation. The acquirer's scoped model opener does not
+     constrain those commands. This can expand both the acquisition and destructive repair scope.
+  3. A Chatterbox file disappearing between the worker's fresh plan and acquisition under `InstallLock` expands the
+     confirmed download without renewed consent (7 → 307 bytes in the synthetic fixture; real weights are much larger).
+- **Mutation correction:** Stage 2's M20 (`O_CREAT` added to the read-only lock probe) is not equivalent when a lock
+  disappears between the existence check and `open`. Current source passes that race control; the mutant creates a file.
+- **Isolation remains incomplete:** a process-lifetime guard around the related suites refused attempts to create
+  directories in the real Qwen runtime/cache. Stage 2's opt-in fixture covers the optional-setup modules, not every
+  related test or collection/teardown boundary. The review retained the protection and recorded the attempts; it did
+  not allow writes to make the run green. Exact results and limitations are in the ignored checkpoint.
+- **Verification:** 34 focused modules: 1,373 passed / 4 existing link-privilege skips, but the outer safety wrapper
+  exits failed for 60 refused production mkdir attempts. New safety controls: 3 failed / 2 passed. No xfails, skipped
+  checks or assertions were added/changed to obtain green. Preservation: 769,093 entries / 25 hashes identical;
+  production optional-setup exchange remains absent. These results do not meet P05B exit criteria.
+- **Disposition:** stop under the assignment's significant-safety-problem rule. No production code correction or wider
+  installer redesign attempted. ChatGPT must approve the bounded remediation contract before implementation resumes.
+- **Evidence:** ignored `files/dev-work/act070-remediation/checkpoints/P05B.md` and
+  `files/run-temp/p05b-stage3/` contain exact commands, test outcomes, consent/result traces and preservation checks.
+  The new safety controls fail intentionally against the reviewed commit; they are evidence of unresolved defects,
+  not xfails or accepted green checks. No full `verify.py` gate.
+- **Boundary:** P06A owns replacement of bootstrap's `predownload_kokoro`/`warmup_kokoro_pipeline` and
+  `predownload_chatterbox`/`warmup_chatterbox` routes with the consented worker. Whole-application first-run acquisition
+  is not yet consent-safe. Edge `nltk.download` debt and later manual acquisition/display/listening gates remain open.
+- **Next:** STOP FOR CHATGPT REVIEW. P06 and later checkpoints are not started; no real acquisition, pip install,
+  synthesis, environment repair, cleanup, merge, tag or version bump is authorized by this review.
+
 ## CURRENT STATE — v0.7.0 P05B Stage 2: consented acquisition is integrated — the setup worker acquires Kokoro, Chatterbox Turbo, the approved spaCy English model and Qwen3 only under a spent consent and only from pinned sources, and inference loads only verified local files; nothing was downloaded or installed on HOME-PC; P05B stays OPEN; NEXT is ChatGPT closure review (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.4, §6 / P05B; owner spaCy ruling 2026-10-25. HOME-PC, branch `feature/0.7.0-release-remediation`, parent `d09566d`.
