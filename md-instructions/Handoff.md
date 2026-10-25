@@ -2,6 +2,51 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P05B Stage 2: consented acquisition is integrated — the setup worker acquires Kokoro, Chatterbox Turbo, the approved spaCy English model and Qwen3 only under a spent consent and only from pinned sources, and inference loads only verified local files; nothing was downloaded or installed on HOME-PC; P05B stays OPEN; NEXT is ChatGPT closure review (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.4, §6 / P05B; owner spaCy ruling 2026-10-25. HOME-PC, branch `feature/0.7.0-release-remediation`, parent `d09566d`.
+Identity 0.6.6. Not merged/tagged. P04C closed; P05A and P05B Stage 1 accepted; MachineGuard, leases and the Qwen3 installer unchanged.
+
+- **Pinned sources (`tts/model_assets.py`, new, standard library):** Kokoro `hexgrad/Kokoro-82M@f3ff3571…` (config, weights, 9 roster
+  voices) and Chatterbox Turbo `ResembleAI/chatterbox-turbo@749d1c1a…` (the 9 files `from_local` reads; `s3gen.safetensors`, never
+  loaded by Turbo, is no longer counted or acquired: −1.06 GB) by commit, size and SHA-256 (the small non-LFS files' SHA-256 derived from
+  cached copies whose git blob SHA-1 was rechecked); the approved spaCy wheel `en_core_web_sm-3.8.0-py3-none-any.whl` (12,806,118 B,
+  SHA-256 `1932429d…fb85`, spaCy `>=3.8.0,<3.9.0`). Copies live in the pinned commit's folder of the in-tree HF cache — `refs/main` is
+  never read. A file of another size or content is now **damaged** (repairable), not "maybe newer". A record of proved files
+  (`files/runtime-data/models/verified/`, written only by the acquirer) lets an unchanged file skip re-hashing.
+- **Acquirer (`tts/optional_setup_acquire.py`, new; the worker's default since Stage 2):** acts only for units in the spent consent whose
+  plan source equals the pinned one; network only through a scoped opener (exact confirmed URLs, pinned commit, never `main`); disk
+  preflight; Kokoro/Chatterbox/spaCy under the Qwen3 `InstallLock` (setup → inference, running engine refused); Qwen3 through
+  `qwen3_setup.install`/`repair` (one call for both models, its own lock, manifest, hash lock and load proof); each destination proved
+  inside its folder with no link at the write itself; files via `qwen3_setup.download_file` (resumes a rehashed `.part`, size+SHA-256)
+  then re-hashed independently; spaCy: wheel verified first, then `pip install --isolated --require-virtualenv --no-deps --no-index
+  --require-hashes` from that local file, version read back. One component's failure does not stop the others; a proved-broken local
+  engine gets no download (model files cannot repair packages).
+- **Health/busy (`tts/optional_setup_health.py`, new):** the launcher's own Kokoro proof / Chatterbox import probe, run contained
+  (`run_command`, Job Object), offline (`HF_HUB_OFFLINE=1`), bounded (300 s / 180 s) and cancellable; timeout/cancel/cannot-run =
+  unverified, never healthy or broken; nothing recorded. Busy from `setup.lock` (all) and `inference.lock`/`engine.lock` (Qwen3), read
+  without creating a lock file. Plans carry `engine` (proved/broken/unproved) per local component (`PLAN_SCHEMA` 3).
+- **Lifecycle/worker:** facts gathered after `started`; an incomplete acquisition is still proved per component (failed result names
+  what works); a cancel during the proof is `cancelled`; exactly one terminal result; retry/resume = new plan + new consent.
+- **First use cannot download:** Kokoro builds `KModel(config=, model=)` from verified files and loads each voice from its verified `.pt`
+  (by id, through the pipeline instance); a missing spaCy model is refused before misaki could run `spacy.cli.download`; Chatterbox uses
+  `from_local(<verified folder>)`, never `from_pretrained`. Refusal = `model_assets.AssetsUnavailable` ("Nothing was downloaded"; not a
+  RuntimeError, so no retry and no forgotten dependency proof). On HOME-PC every pinned file hashes ready (see checkpoint).
+- **Test isolation (Task A):** `files/tests/write_tripwire.py` + conftest `production_writes_refused` refuse (before it happens) any
+  write-capable operation under the real `.venv`, `.venv-qwen3`, `files/runtime-data`, act67 copy, references, previews, P04B/P04C copies,
+  bundle and config; both optional-setup modules opt in; an AST guard forbids `monkeypatch.undo()` there; the Stage 1 slip is reproduced
+  against a synthetic root and stopped at `mkdir`.
+- **Checks:** optional-setup modules 235 passed / 1 skipped (file symlink); related suites 3,325 passed / 4 skipped (link privileges) / 0 failed; 27 of 28 (the survivor is an equivalent mutant; its guard is caught by two targeted mutations) source mutations caught; lightweight
+  `verify.py` checks and `git diff --check` clean. No full gate (P05 is focused-only). No real download, pip, model load or synthesis.
+- **Production:** fingerprint of 769,092 entries (both environments, runtime data, models, references, previews, qualification copies,
+  evidence) identical before/after; exchange root still absent.
+- **Carried to P06 (not P05B):** bootstrap's first-run checkboxes still pre-download Kokoro/Chatterbox at `main`
+  (`predownload_*`/`warmup_*`) — P06 must route them through the worker, or a fresh install whose upstream moved would fetch into an
+  unpinned folder that synthesis refuses. Wizard/Install & Continue wording for `AssetsUnavailable`, `engine: broken`, `source-unpinned`,
+  3.11 main env. Edge `nltk.download` stays carried debt (outside the four).
+- **Evidence (ignored):** `checkpoints/P05B-STAGE2.md`, `p05b-stage2/`.
+- **Next:** STOP for ChatGPT closure review of P05B. P06 not started; no optional install executed.
+
 ## CURRENT STATE — v0.7.0 P05B Stage 1: a consent is bound to the plan that was shown, the setup worker's whole process tree is contained and ended, results are published atomically or not at all, and one GUI-independent operation lifecycle answers every request; real Kokoro/Chatterbox/Qwen3 acquisition is still DISABLED; NEXT is ChatGPT review, then P05B Stage 2 only when authorised (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.4, §6 / P05B; Q14–Q20, Q32. HOME-PC, branch `feature/0.7.0-release-remediation`, parent `aaaf36b`.

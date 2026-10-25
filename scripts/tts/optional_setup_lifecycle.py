@@ -13,16 +13,17 @@ request through. The states, in order::
   sources). Then the acquirer must be available, and the consent is spent (``claim``) so it can never start a second
   acquisition. Until here nothing has changed anywhere.
 * **acquiring** -- only units the consent covers, with progress and cancellation; a stop, a failure, an incomplete
-  report or anything outside the plan ends in cancelled/failed, never in success.
+  report or anything outside the plan ends in cancelled/failed, never in success. After an incomplete acquisition the
+  components are still proved one by one, so the failed result names those that do work (``verified``).
 * **verifying** -- the plan is made again, with the post-install health facts. Success only when every chosen component
   is then ready, i.e. proved working; otherwise failed (``health-unproved``), naming what was proved.
 
 Failure is recoverable by design: nothing here touches the app's own environment, the base app stays launchable, and
 a retry is a new plan and a new confirmation (a spent consent is never reused).
 
-**This build acquires nothing.** The default acquirer is :class:`DisabledAcquirer`: an install request that would need
-an acquisition is refused with ``acquisition-unavailable`` after its consent is checked and before it is spent. Real
-Kokoro, Chatterbox and Qwen3 acquisition is P05B Stage 2.
+P05B Stage 1 built this with :class:`DisabledAcquirer` as its only acquirer. Since Stage 2 the setup worker hands it the
+real one (``tts.optional_setup_acquire.RealAcquirer``); an ``Operation`` built without an acquirer still gets the
+disabled one, which refuses with ``acquisition-unavailable`` after the consent is checked and before it is spent.
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ class AcquisitionReport:
 
 
 class Acquirer(Protocol):
-    """Fetches the units of a plan under a checked, spent consent (P05B Stage 2 implements the real ones)."""
+    """Fetches the units of a plan under a checked, spent consent (``tts.optional_setup_acquire.RealAcquirer``)."""
 
     available: bool
 
@@ -61,7 +62,7 @@ class Acquirer(Protocol):
 
 
 class DisabledAcquirer:
-    """This build's acquirer: there is none. Asked anyway, it refuses loudly rather than pretend."""
+    """No acquirer: the default of an ``Operation`` not given one. Asked anyway, it refuses loudly rather than pretend."""
 
     available = False
 
@@ -190,24 +191,33 @@ class Operation:
                 proto.CANCELLED, "Cancelled. Anything partly downloaded is checked again before it is ever used."))
         if not isinstance(report, AcquisitionReport) or not report.completed:
             detail = getattr(report, "detail", "") or "it did not finish"
-            return self._finish(proto.FAILED, plan=data, error=(proto.ACQUISITION_FAILED,
-                                                                f"The download did not complete: {detail}."))
+            return self._verify(data, failure=(proto.ACQUISITION_FAILED, f"The download did not complete: {detail}."))
         if set(report.units) != set(data["acquire_units"]):
             return self._finish(proto.FAILED, plan=data, error=(
                 proto.ACQUISITION_FAILED, "The download did not match the confirmed plan, so it is not trusted."))
         return None
 
-    def _verify(self, data: dict) -> dict:
+    def _verify(self, data: dict, *, failure: Optional[tuple[str, str]] = None) -> dict:
+        """Prove which components work now. With *failure* (an incomplete acquisition) the outcome is that failure
+        whatever is proved; the proof only says which components work despite it."""
         self._enter(VERIFYING)
         components = self.request.components
         try:
             facts = dict(self._health(components))
             after = self._planner(facts)
         except Exception as exc:  # noqa: BLE001 - an unproved install is a failure, not a success
-            return self._finish(proto.FAILED, plan=data, error=(
+            return self._finish(proto.FAILED, plan=data, error=failure or (
                 proto.HEALTH_UNPROVED, f"The voices could not be checked afterwards ({type(exc).__name__}: {exc})."))
+        if failure is None and self._cancel_check():  # a probe stopped by the cancel proved nothing either way
+            return self._finish(proto.CANCELLED_STATE, plan=data, error=(
+                proto.CANCELLED, "Cancelled while the voices were being checked. Everything downloaded is kept and "
+                                 "checked again before it is used."))
         states = {c["id"]: c["readiness"] for c in after["components"] if c["selected"]}
         proved = tuple(c for c in components if states.get(c) == proto.READY)
+        if failure is not None:
+            working = ", ".join(proto.LABELS[c] for c in proved)
+            return self._finish(proto.FAILED, plan=after, verified=proved, error=(
+                failure[0], failure[1] + (f" Working now: {working}." if working else "")))
         if proved == components:
             return self._finish(proto.SUCCEEDED, plan=after, verified=proved)
         unproved = ", ".join(f"{proto.LABELS[c]} ({states.get(c, 'unknown')})" for c in components if c not in proved)

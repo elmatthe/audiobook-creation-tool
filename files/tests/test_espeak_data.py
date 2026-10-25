@@ -255,21 +255,29 @@ def test_the_runtime_configures_after_importing_kokoro_and_before_the_pipeline()
     events: list[str] = []
 
     class FakeKPipeline:
-        def __init__(self, lang_code):
+        # v0.7.0 P05B Stage 2: built with the verified local model (repo_id=, model=), never one it downloads.
+        def __init__(self, lang_code, repo_id=None, model=None):
             events.append(f"pipeline:{lang_code}")
+            self.voices = {}
+
+        def load_single_voice(self, voice):
+            return voice
 
     fake_module = type(sys)("kokoro")
     fake_module.KPipeline = FakeKPipeline
     sys.modules["kokoro"] = fake_module
     original = espeak_data.configure
+    original_model = kokoro_synth._local_model
     try:
         espeak_data.configure = lambda *a, **k: events.append("configure")
+        kokoro_synth._local_model = lambda: events.append("local model") or "model"
         kokoro_synth._instantiate_pipeline("a")
     finally:
         espeak_data.configure = original
+        kokoro_synth._local_model = original_model
         sys.modules.pop("kokoro", None)
 
-    assert events == ["configure", "pipeline:a"]
+    assert events == ["local model", "configure", "pipeline:a"]
 
 
 def _sys_path_insert_argument(source: str) -> str:

@@ -9,16 +9,18 @@ need as temporary headroom; what the always-installed base packages cost on top;
 Two contexts, matching the approved execution home:
 
 * :func:`estimate` -- **pre-venv** (the first-run wizard, a base interpreter, before the app's environment exists).
-  Manifest-derived upper bounds only: it reads the tracked Qwen3 manifest and this module's measured tables, stats no
-  model, probes nothing and proves nothing, so every supported component is ``unverified`` and every figure is the most
-  that selection could cost. Imports nothing beyond the standard library, ``shared.optional_setup_protocol``,
-  ``shared.venv_layout``, ``tts.qwen3_runtime`` and ``tts.voice_registry`` (a test proves this in a bare interpreter).
+  Manifest-derived upper bounds only: it reads the tracked Qwen3 manifest and the pinned tables, stats no model,
+  probes nothing and proves nothing, so every supported component is ``unverified`` and every figure is the most that
+  selection could cost. Imports nothing beyond the standard library, ``shared.optional_setup_protocol``,
+  ``shared.venv_layout``, ``tts.model_assets``, ``tts.qwen3_runtime`` and ``tts.voice_registry`` (a test proves this in
+  a bare interpreter).
 * :func:`plan` -- **main** (the setup worker or the app, in the verified ``.venv``). Reads the real state through the
   existing authorities: ``qwen3_runtime`` for the engine path, statuses, bundle and references, and
   ``qwen3_setup.plan_install`` for the exact per-file Qwen3 plan (reused, shared and downloaded bytes, the shared
-  files counted once). Kokoro and Chatterbox files are looked up in the in-tree Hugging Face cache without importing
-  either library. Engine health that only a probe can prove is a fact the caller supplies; without it the component is
-  ``unverified``, never assumed healthy.
+  files counted once). Kokoro and Chatterbox files are checked against their pinned identities (``tts.model_assets``:
+  repository, commit, size, SHA-256) in the in-tree Hugging Face cache without importing either library. Engine health
+  that only a probe can prove is a fact the caller supplies; without it the component is ``unverified``, never assumed
+  healthy.
 
 Nothing here downloads, installs, loads a model, opens a socket or starts a process -- except the optional, bounded
 ``nvidia-smi`` query when a caller asks for hardware facts (``probe_hardware=True``). Acquisition is P05B.
@@ -27,6 +29,11 @@ P05B Stage 1: every unit names the exact *source* it would be acquired from (a H
 Qwen3 manifest, the hash-locked Qwen3 requirements) or ``None`` when no exact source is pinned yet -- the spaCy English
 model, pending the owner's ruling -- and a plan carries the fingerprint of its acquisition terms, which a consent is
 bound to (``shared.optional_setup_protocol.consent_covers``).
+
+P05B Stage 2: the Kokoro, Chatterbox Turbo and spaCy sources are pinned (``tts.model_assets``), so their sizes are
+exact identities (``manifest``), a present file of another size or content is ``damaged`` (repairable), and the plan
+looks in the pinned commit's folder only -- a moved upstream ``main`` can never change what it reports. Chatterbox's
+``s3gen.safetensors``, which Turbo never loads, is no longer counted or acquired.
 """
 
 from __future__ import annotations
@@ -34,7 +41,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,50 +51,29 @@ from shared import venv_layout
 from shared.optional_setup_protocol import (APPROXIMATE, BAD_BUNDLE, CHATTERBOX, DAMAGED, EXACT, KOKORO, MANIFEST,
                                             MISSING, NOT_KNOWN, QWEN3_BASE, QWEN3_CUSTOMVOICE, READY, UNSUPPORTED,
                                             UNVERIFIED, ZERO, Figure)
+from tts import model_assets as assets
 from tts import qwen3_runtime as rt
 from tts import voice_registry
 
 CONTEXT_PRE_VENV = proto.CONTEXT_PRE_VENV
 CONTEXT_MAIN = proto.CONTEXT_MAIN
-#: 1 = P05A; 2 = P05B Stage 1 (units name their source; the plan carries its acquisition fingerprint).
-PLAN_SCHEMA = 2
+#: 1 = P05A; 2 = P05B Stage 1 (units name their source; the plan carries its acquisition fingerprint); 3 = P05B
+#: Stage 2 (each local engine's component says whether its packages were proved to load: ``engine``).
+PLAN_SCHEMA = 3
 
 # --------------------------------------------------------------------------- #
-# What the libraries fetch on first use, measured
+# What the libraries would fetch on first use -- now pinned (``tts.model_assets``)
 # --------------------------------------------------------------------------- #
-#: kokoro 0.9.4 downloads from ``hexgrad/Kokoro-82M`` at whatever revision ``main`` names, through ``hf_hub_download``:
-#: ``config.json`` and the weights when a pipeline is built, one ``voices/<id>.pt`` the first time each voice speaks.
-#: Sizes measured from the in-tree cache on HOME-PC, 2026-10-25, at the revision below. Approximate by definition: the
-#: upstream repository can change, and nothing here can tell without asking the network. The plan names this revision
-#: as the unit's source, so a consented acquisition is bound to it rather than to whatever ``main`` names later
-#: (P05B Stage 1; Stage 2 must fetch at exactly this commit).
-KOKORO_REPO = "hexgrad/Kokoro-82M"
-KOKORO_MEASURED_REVISION = "f3ff3571791e39611d31c381e3a41a3af07b4987"
-KOKORO_MODEL_FILES: dict[str, int] = {"config.json": 2_351, "kokoro-v1_0.pth": 327_212_226}
-KOKORO_VOICE_FILES: dict[str, int] = {
-    "af_bella": 523_425, "af_heart": 523_425, "am_fenrir": 523_430, "am_michael": 523_435, "am_onyx": 523_420,
-    "am_puck": 523_420, "bf_emma": 523_420, "bm_daniel": 523_430, "bm_george": 523_430,
-}
-#: misaki's English G2P (both Kokoro English pipelines) runs ``spacy.cli.download("en_core_web_sm")`` -- a pip install
-#: from outside PyPI's pinned set -- when the package is absent. Installed size measured on HOME-PC (3.8.0); its download
-#: size is not recorded anywhere local. Its source is not pinned until the owner rules on it (P05B Stage 1 proposal),
-#: so the plan names none and no consent can acquire it.
-SPACY_ENGLISH = "en_core_web_sm"
+#: kokoro 0.9.4 would download ``config.json``, the weights and one ``voices/<id>.pt`` per voice from
+#: ``hexgrad/Kokoro-82M`` at whatever ``main`` names; chatterbox-tts 0.1.7 ``from_pretrained`` would snapshot
+#: ``ResembleAI/chatterbox-turbo`` at ``main``; misaki would pip-install ``en_core_web_sm`` from outside any pinned set.
+#: Since P05B Stage 2 every one of those is a pinned identity in ``tts.model_assets`` (repository, commit, size, SHA-256;
+#: the spaCy wheel by URL, size and SHA-256), acquired only under consent, and the only thing inference loads.
+KOKORO_REPO = assets.KOKORO_REPO
+CHATTERBOX_REPO = assets.CHATTERBOX_REPO
+SPACY_ENGLISH = assets.SPACY_ENGLISH
+#: The English model's installed size, measured on HOME-PC (3.8.0): the disk figure (pip unpacks the wheel).
 SPACY_ENGLISH_INSTALLED_BYTES = 15_248_495
-
-#: chatterbox-tts 0.1.7 ``ChatterboxTurboTTS.from_pretrained`` (and the setup pre-download) fetch
-#: ``ResembleAI/chatterbox-turbo`` at ``main`` with the patterns ``*.safetensors *.json *.txt *.pt *.model``. Measured
-#: from the in-tree cache on HOME-PC, 2026-10-25. ``from_local`` loads every file but ``s3gen.safetensors``, which the
-#: patterns still fetch (P05B may drop it).
-CHATTERBOX_REPO = "ResembleAI/chatterbox-turbo"
-CHATTERBOX_MEASURED_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"
-CHATTERBOX_FILES: dict[str, int] = {
-    "added_tokens.json": 418, "conds.pt": 169_454, "merges.txt": 456_318, "s3gen.safetensors": 1_056_484_620,
-    "s3gen_meanflow.safetensors": 1_064_875_036, "special_tokens_map.json": 470,
-    "t3_turbo_v1.safetensors": 1_915_480_052, "tokenizer_config.json": 3_878, "ve.safetensors": 5_695_784,
-    "vocab.json": 999_186,
-}
-CHATTERBOX_UNUSED_BY_TURBO = frozenset({"s3gen.safetensors"})
 
 #: The app's own ``.venv`` (main requirements, Kokoro and Chatterbox packages included; the Qwen3 engine under
 #: ``engines/`` excluded), measured on HOME-PC 2026-10-25: 53,417 files. What pip downloads to build it is not recorded
@@ -105,7 +90,7 @@ LOCAL_ENGINE_PYTHON = ((3, 11), (3, 12))
 
 def hf_hub_root() -> Path:
     """The in-tree Hugging Face cache the app always points Kokoro and Chatterbox at (``bootstrap._configure_hf_cache``)."""
-    return rt.repo_root() / "files" / "runtime-data" / "models" / "huggingface" / "hub"
+    return assets.hf_hub_root()
 
 
 def kokoro_roster() -> tuple[str, ...]:
@@ -143,11 +128,11 @@ def hf_source(repo_id: str, revision: str) -> str:
 
 
 def kokoro_source() -> str:
-    return hf_source(KOKORO_REPO, KOKORO_MEASURED_REVISION)
+    return hf_source(assets.KOKORO_REPO, assets.KOKORO_REVISION)
 
 
 def chatterbox_source() -> str:
-    return hf_source(CHATTERBOX_REPO, CHATTERBOX_MEASURED_REVISION)
+    return hf_source(assets.CHATTERBOX_REPO, assets.CHATTERBOX_REVISION)
 
 
 def qwen_engine_source() -> Optional[str]:
@@ -168,6 +153,8 @@ class ComponentPlan:
     readiness: str
     reason: str
     units: list[str] = field(default_factory=list)
+    #: Kokoro/Chatterbox only: "proved" (its packages load), "broken" (proved not to), "unproved"; None otherwise.
+    engine: Optional[str] = None
 
     @property
     def consent_scope(self) -> Optional[str]:
@@ -177,63 +164,30 @@ class ComponentPlan:
 _UNIT_STATES = (READY, MISSING, DAMAGED, UNVERIFIED)
 
 
-def _files_unit(unit_id: str, label: str, component: str, folder: Optional[Path], files: Mapping[str, int],
-                *, source: str, unreachable: str = "", optional: Iterable[str] = ()) -> Unit:
-    """A unit of upstream files measured at one revision: missing, present at the measured size, or unverifiable.
-
-    A file of another size is not called damaged -- the upstream repository is unpinned, so it may simply be newer --
-    and is not called healthy either: the unit is unverified.
-    """
-    if unreachable:
-        return Unit(unit_id, label, [component], UNVERIFIED, note=unreachable, source=source)
-    optional = set(optional)
-    missing, odd, present = [], [], 0
-    for name, size in files.items():
-        path = None if folder is None else folder.joinpath(*name.split("/"))
-        try:
-            actual = path.stat().st_size if path is not None and path.is_file() else None
-        except OSError:
-            actual = None
-        if actual is None:
-            missing.append((name, size))
-        elif actual != size:
-            odd.append(name)
-        else:
-            present += actual
-    if odd:
-        return Unit(unit_id, label, [component], UNVERIFIED, source=source,
-                    note=f"{', '.join(odd)} differ from the size measured upstream, so they cannot be verified here")
-    needed = [(n, s) for n, s in missing if n not in optional]
-    if not needed:
+def _asset_unit(unit_id: str, label: str, component: str, files: assets.AssetSet, names: Iterable[str]) -> Unit:
+    """A unit of pinned upstream files (``tts.model_assets``): ready (every file is exactly the approved bytes), missing,
+    damaged (a file of another size or content -- the identity is pinned, so that is not "maybe newer"), or unverified
+    (reached through a link, or unreadable: nothing here can vouch for it, so nothing is acquired over it)."""
+    names = tuple(names)
+    source = hf_source(files.repo, files.revision)
+    states = assets.assess(files, names)
+    unverified = [detail for state, detail in states.values() if state == UNVERIFIED]
+    if unverified:
+        return Unit(unit_id, label, [component], UNVERIFIED, note=unverified[0], source=source)
+    damaged = [name for name in names if states[name][0] == DAMAGED]
+    missing = [name for name in names if states[name][0] == MISSING]
+    present = files.size(name for name in names if states[name][0] == READY)
+    if not damaged and not missing:
         return Unit(unit_id, label, [component], READY, reused=Figure(present, EXACT), source=source)
-    fetched = sum(s for _, s in missing)  # the library fetches the optional files too while it is at it
-    return Unit(unit_id, label, [component], MISSING, download=Figure(fetched, APPROXIMATE),
-                reused=Figure(present, EXACT), disk=Figure(fetched, APPROXIMATE), temp=Figure(0, APPROXIMATE),
-                source=source, note=f"{len(needed)} of {len(files)} files to download (sizes measured upstream)")
-
-
-def _hf_snapshot(repo_id: str) -> tuple[Optional[Path], str]:
-    """``(snapshot folder or None, unreachable reason)`` for *repo_id* in the in-tree cache. Reads two small things."""
-    folder = hf_hub_root() / ("models--" + repo_id.replace("/", "--"))
-    if venv_layout.unsafe_component(rt.repo_root(), folder) is not None:
-        return None, "the model cache is reached through a link, so its contents cannot be vouched for"
-    try:
-        revision = (folder / "refs" / "main").read_text(encoding="ascii").strip()
-    except (OSError, UnicodeDecodeError):
-        return None, ""
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        return None, ""
-    snapshot = folder / "snapshots" / revision
-    if venv_layout.unsafe_component(rt.repo_root(), snapshot) is not None:
-        return None, "the model cache is reached through a link, so its contents cannot be vouched for"
-    return (snapshot if snapshot.is_dir() else None), ""
-
-
-def _package_present(name: str) -> bool:
-    """Whether a top-level package is installed in this interpreter's environment (found, not imported)."""
-    import importlib.util
-
-    return importlib.util.find_spec(name) is not None
+    # A damaged file is replaced in place once its download is verified: its old copy stays until then (temporary
+    # space), while a missing file's partial download simply becomes the file (new disk space).
+    note = f"{len(damaged) + len(missing)} of {len(names)} files to download (approved sizes)"
+    if damaged:
+        note = f"{states[damaged[0]][1]}; " + note
+    return Unit(unit_id, label, [component], DAMAGED if damaged else MISSING,
+                download=Figure(files.size(damaged + missing), MANIFEST), reused=Figure(present, EXACT),
+                disk=Figure(files.size(missing), MANIFEST), temp=Figure(files.size(damaged), MANIFEST),
+                source=source, note=note)
 
 
 # --------------------------------------------------------------------------- #
@@ -249,7 +203,8 @@ class Facts:
     python: tuple = tuple(sys.version_info[:2])
     is_64bit: bool = sys.maxsize > 2**32
     probe_hardware: bool = False
-    package_present: Callable[[str], bool] = _package_present
+    #: The installed version of a distribution in the app's environment, or ``None`` (metadata only, never imported).
+    package_version: Callable[[str], Optional[str]] = assets.installed_version
 
 
 def _health_state(facts: Facts, component: str) -> tuple[str, str]:
@@ -257,7 +212,9 @@ def _health_state(facts: Facts, component: str) -> tuple[str, str]:
     if proved is True:
         return READY, ""
     if proved is False:
-        return DAMAGED, f"the {proto.LABELS[component]} engine was proved not to load; it needs repair"
+        return DAMAGED, (f"the {proto.LABELS[component]} engine's packages were proved not to load in the app's "
+                         "environment; the app's own repair (restart it through Setup_and_Run) fixes them -- "
+                         "downloading models cannot")
     return UNVERIFIED, f"the {proto.LABELS[component]} engine has not been proved to load on this computer yet"
 
 
@@ -284,34 +241,34 @@ def _reference_problem() -> str:
 # The main-context units, from the real state
 # --------------------------------------------------------------------------- #
 def _kokoro_units(facts: Facts) -> list[Unit]:
-    snapshot, unreachable = _hf_snapshot(KOKORO_REPO)
-    source = kokoro_source()
-    units = [_files_unit("kokoro-model", "Kokoro model", KOKORO, snapshot, KOKORO_MODEL_FILES, source=source,
-                         unreachable=unreachable)]
+    files = assets.kokoro_set()
+    units = [_asset_unit("kokoro-model", "Kokoro model", KOKORO, files, assets.KOKORO_MODEL_NAMES)]
     for voice in kokoro_roster():
-        unit_id = f"kokoro-voice:{voice}"
-        if voice not in KOKORO_VOICE_FILES:
-            present = snapshot is not None and (snapshot / "voices" / f"{voice}.pt").is_file()
+        unit_id, name = f"kokoro-voice:{voice}", assets.kokoro_voice_name(voice)
+        if name not in files.files:  # a roster voice with no approved identity: never acquired, never vouched for
+            present = (assets.snapshot_dir(files) / name).is_file()
             units.append(Unit(unit_id, f"Kokoro voice {voice}", [KOKORO], UNVERIFIED if present else MISSING,
                               download=ZERO if present else NOT_KNOWN, disk=ZERO if present else NOT_KNOWN,
-                              note="no measured size for this voice", source=source))
+                              note="no approved identity for this voice", source=None))
             continue
-        units.append(_files_unit(unit_id, f"Kokoro voice {voice}", KOKORO, snapshot,
-                                 {f"voices/{voice}.pt": KOKORO_VOICE_FILES[voice]}, source=source,
-                                 unreachable=unreachable))
-    if facts.package_present(SPACY_ENGLISH):
-        units.append(Unit("spacy-english", "spaCy English model", [KOKORO], READY))
+        units.append(_asset_unit(unit_id, f"Kokoro voice {voice}", KOKORO, files, (name,)))
+    state, detail = assets.spacy_english_state(facts.package_version)
+    if state == MISSING:
+        units.append(Unit("spacy-english", "spaCy English model", [KOKORO], MISSING,
+                          download=Figure(assets.SPACY_WHEEL_SIZE, MANIFEST),
+                          disk=Figure(SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE),
+                          temp=Figure(assets.SPACY_WHEEL_SIZE + SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE),
+                          source=assets.spacy_source(),
+                          note="the approved wheel, installed with pip (no dependencies, hash checked)"))
     else:
-        units.append(Unit("spacy-english", "spaCy English model", [KOKORO], MISSING, download=NOT_KNOWN,
-                          disk=Figure(SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE), temp=NOT_KNOWN,
-                          note="a Python package misaki installs with pip on first use; download size not known locally"))
+        units.append(Unit("spacy-english", "spaCy English model", [KOKORO], state, note=detail,
+                          source=assets.spacy_source()))
     return units
 
 
 def _chatterbox_units() -> list[Unit]:
-    snapshot, unreachable = _hf_snapshot(CHATTERBOX_REPO)
-    return [_files_unit("chatterbox-model", "Chatterbox Turbo model", CHATTERBOX, snapshot, CHATTERBOX_FILES,
-                        source=chatterbox_source(), unreachable=unreachable, optional=CHATTERBOX_UNUSED_BY_TURBO)]
+    return [_asset_unit("chatterbox-model", "Chatterbox Turbo model", CHATTERBOX, assets.chatterbox_set(),
+                        assets.CHATTERBOX_FILES)]
 
 
 def _qwen_engine_unit() -> tuple[Unit, str]:
@@ -372,21 +329,25 @@ def _qwen_model_units(selected: tuple[str, ...]) -> list[Unit]:
 def _estimated_units(selected: tuple[str, ...]) -> list[Unit]:
     units: list[Unit] = []
     if KOKORO in selected:
-        model = sum(KOKORO_MODEL_FILES.values())
-        units.append(Unit("kokoro-model", "Kokoro model", [KOKORO], MISSING, download=Figure(model, APPROXIMATE),
-                          disk=Figure(model, APPROXIMATE), temp=Figure(0, APPROXIMATE), source=kokoro_source()))
+        kokoro = assets.kokoro_set()
+        model = kokoro.size(assets.KOKORO_MODEL_NAMES)
+        units.append(Unit("kokoro-model", "Kokoro model", [KOKORO], MISSING, download=Figure(model, MANIFEST),
+                          disk=Figure(model, MANIFEST), source=kokoro_source()))
         for voice in kokoro_roster():
-            size = KOKORO_VOICE_FILES.get(voice)
-            figure = NOT_KNOWN if size is None else Figure(size, APPROXIMATE)
+            name = assets.kokoro_voice_name(voice)
+            pinned = name in kokoro.files
+            figure = Figure(kokoro.files[name][0], MANIFEST) if pinned else NOT_KNOWN
             units.append(Unit(f"kokoro-voice:{voice}", f"Kokoro voice {voice}", [KOKORO], MISSING, download=figure,
-                              disk=figure, source=kokoro_source()))
-        units.append(Unit("spacy-english", "spaCy English model", [KOKORO], MISSING, download=NOT_KNOWN,
-                          disk=Figure(SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE), temp=NOT_KNOWN))
+                              disk=figure, source=kokoro_source() if pinned else None))
+        units.append(Unit("spacy-english", "spaCy English model", [KOKORO], MISSING,
+                          download=Figure(assets.SPACY_WHEEL_SIZE, MANIFEST),
+                          disk=Figure(SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE),
+                          temp=Figure(assets.SPACY_WHEEL_SIZE + SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE),
+                          source=assets.spacy_source()))
     if CHATTERBOX in selected:
-        total = sum(CHATTERBOX_FILES.values())
+        total = assets.chatterbox_set().size(assets.CHATTERBOX_FILES)
         units.append(Unit("chatterbox-model", "Chatterbox Turbo model", [CHATTERBOX], MISSING,
-                          download=Figure(total, APPROXIMATE), disk=Figure(total, APPROXIMATE),
-                          temp=Figure(0, APPROXIMATE), source=chatterbox_source()))
+                          download=Figure(total, MANIFEST), disk=Figure(total, MANIFEST), source=chatterbox_source()))
     qwen = [c for c in (QWEN3_CUSTOMVOICE, QWEN3_BASE) if c in selected]
     if qwen and rt.platform_supported():
         download = rt.environment_download_bytes()
@@ -481,6 +442,9 @@ def _hardware(facts: Facts, context: str) -> dict:
     }
 
 
+_ENGINE = {True: "proved", False: "broken", None: "unproved"}
+
+
 def _assemble(context: str, selected: tuple[str, ...], states: dict[str, tuple[str, str]], units: list[Unit],
               facts: Facts, upper_bound: bool) -> Plan:
     merged: dict[str, Unit] = {}
@@ -492,8 +456,10 @@ def _assemble(context: str, selected: tuple[str, ...], states: dict[str, tuple[s
     components = []
     for name in proto.COMPONENTS:
         readiness, reason = states.get(name, (UNVERIFIED, "not selected, so not checked"))
+        engine = _ENGINE[facts.health.get(name)] if context == CONTEXT_MAIN and name in (KOKORO, CHATTERBOX) \
+            and name in selected else None
         components.append(ComponentPlan(name, name in selected, readiness, reason,
-                                        [u.id for u in merged.values() if name in u.components]))
+                                        [u.id for u in merged.values() if name in u.components], engine))
     notes = ["Sizes use decimal units (1 GB = 1,000,000,000 bytes)."]
     if upper_bound:
         notes.append("These are the most each choice could cost. Files already on this computer are found and reused "
@@ -599,7 +565,7 @@ def plan_to_json(plan_: Plan) -> dict:
         "defaults": dict(proto.WIZARD_DEFAULTS),
         "components": [{"id": c.id, "label": proto.LABELS[c.id], "selected": c.selected,
                         "default": proto.WIZARD_DEFAULTS[c.id], "readiness": c.readiness, "reason": c.reason,
-                        "consent_scope": c.consent_scope, "units": list(c.units),
+                        "consent_scope": c.consent_scope, "units": list(c.units), "engine": c.engine,
                         "download": plan_.total("download", c.units).to_json()} for c in plan_.components],
         "units": [u.to_json() for u in plan_.units],
         "acquire_units": acquire,

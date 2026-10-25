@@ -91,6 +91,9 @@ PRODUCTION_TTS_SOURCES = (
     "tts/optional_setup.py",
     "tts/optional_setup_worker.py",
     "tts/optional_setup_lifecycle.py",
+    "tts/optional_setup_acquire.py",
+    "tts/optional_setup_health.py",
+    "tts/model_assets.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

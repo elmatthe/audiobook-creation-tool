@@ -10,9 +10,11 @@ CPython 3.12 environment; then it reports readiness and the plan as progress eve
 result. A cancel flag in the request's folder is honoured at every checkpoint.
 
 Every request is answered through ``tts.optional_setup_lifecycle.Operation`` (fresh plan, consent check against it,
-the consent spent once, acquisition, post-install proof). This build's acquirer is disabled: ``install`` requests that
-would need an acquisition are refused (``acquisition-unavailable``) after the consent is checked and before it is
-spent. Installing is P05B Stage 2. A second worker started on a request that already has one refuses to run.
+the consent spent once, acquisition, post-install proof). Since P05B Stage 2 the facts the plan needs are this
+computer's own (``tts.optional_setup_health``: bounded offline Kokoro/Chatterbox probes, held locks), the acquirer is
+``tts.optional_setup_acquire.RealAcquirer`` -- which acts only for a consent that covers the fresh plan and has just
+been spent -- and the post-install proof is a fresh probe. A second worker started on a request that already has one
+refuses to run.
 """
 
 from __future__ import annotations
@@ -26,27 +28,50 @@ from typing import Callable, Mapping, Optional
 
 from shared import optional_setup_protocol as proto
 from tts import optional_setup
+from tts import optional_setup_health
 from tts import optional_setup_lifecycle as lifecycle
 from tts import qwen3_runtime as rt
 
 
 def run(request: proto.Request, *, emit: Callable[[str, dict], None], cancel_check: Callable[[], bool],
         facts: Optional[optional_setup.Facts] = None, acquirer: Optional[lifecycle.Acquirer] = None,
-        health: Optional[Callable[[tuple], Mapping]] = None, claim: Optional[Callable[[str], bool]] = None) -> dict:
-    """Answer *request* (already validated); return its terminal result. Never raises for an expected outcome."""
-    facts = facts or optional_setup.Facts(probe_hardware=request.probe_hardware)
+        health: Optional[Callable[[tuple], Mapping]] = None, claim: Optional[Callable[[str], bool]] = None,
+        probe_runner: Optional[Callable[..., int]] = None) -> dict:
+    """Answer *request* (already validated); return its terminal result. Never raises for an expected outcome.
+
+    Without *facts* this computer's are gathered (probes and locks) when the plan is first made -- after ``started``
+    is reported, under the same cancellation. Without *acquirer* the real one is used; without *health* the
+    post-install proof is a fresh probe."""
+    root = rt.repo_root()
+    known: dict = {}
+
+    def base_facts() -> optional_setup.Facts:
+        if "facts" not in known:
+            known["facts"] = facts or optional_setup_health.facts(
+                root, request.components, probe_hardware=request.probe_hardware, cancel_check=cancel_check,
+                runner=probe_runner)
+        return known["facts"]
 
     def planner(health_facts: Optional[Mapping]) -> dict:
         # After acquiring, the proof made then replaces whatever was known about health before.
-        current = facts if health_facts is None else dataclasses.replace(facts, health=dict(health_facts))
+        current = base_facts() if health_facts is None else dataclasses.replace(base_facts(), health=dict(health_facts))
         return optional_setup.plan_to_json(optional_setup.plan(request.components, facts=current))
 
     def estimator() -> dict:  # the first-run estimate for the same choices, reproduced here (it is deterministic)
-        return optional_setup.plan_to_json(optional_setup.estimate(request.components,
-                                                                   facts=optional_setup.Facts(is_64bit=facts.is_64bit)))
+        return optional_setup.plan_to_json(optional_setup.estimate(
+            request.components, facts=optional_setup.Facts(is_64bit=base_facts().is_64bit)))
 
+    def proof(components: tuple) -> Mapping:
+        if health is not None:
+            return health(components)
+        return optional_setup_health.local_health(root, components, cancel_check=cancel_check, runner=probe_runner)
+
+    if acquirer is None:
+        from tts import optional_setup_acquire
+
+        acquirer = optional_setup_acquire.RealAcquirer()
     return lifecycle.Operation(request, planner=planner, estimator=estimator, emit=emit, cancel_check=cancel_check,
-                               acquirer=acquirer, health=health, claim=claim).run()
+                               acquirer=acquirer, health=proof, claim=claim).run()
 
 
 def _publish(result_path: Path, result: dict) -> int:

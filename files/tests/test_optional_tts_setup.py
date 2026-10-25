@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import errno
+import hashlib
 import json
 import os
 import shutil
@@ -27,12 +28,17 @@ import pytest
 
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
+from tts import model_assets as assets
 from tts import optional_setup as osu
+from tts import optional_setup_health as osh
 from tts import optional_setup_lifecycle as osl
 from tts import optional_setup_worker as worker
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 from test_qwen3_runtime import install_environment, install_model, make_engine, sandbox  # noqa: F401
+
+#: P05B Stage 2 (Task A): every test here is refused, at the write itself, any write to the real installation.
+pytestmark = pytest.mark.usefixtures("production_writes_refused")
 
 REPO = Path(__file__).resolve().parents[2]
 ALL = proto.COMPONENTS
@@ -69,19 +75,45 @@ def tripwire(monkeypatch):
     return calls
 
 
+def pin(size: int, fill: bytes = b"k") -> tuple[int, str]:
+    """A pinned identity for a stand-in file of *size* bytes of *fill*."""
+    return size, hashlib.sha256(fill * size).hexdigest()
+
+
+#: The stand-in spaCy wheel: 13 bytes of "w".
+WHEEL = b"w" * 13
+
+
 @pytest.fixture
 def tiny_assets(monkeypatch):
-    """Tiny stand-ins for the measured upstream tables, so a 'model' is a few bytes."""
-    monkeypatch.setattr(osu, "KOKORO_MODEL_FILES", {"config.json": 4, "kokoro-v1_0.pth": 40})
-    monkeypatch.setattr(osu, "KOKORO_VOICE_FILES", {v: 5 for v in osu.kokoro_roster()})
-    monkeypatch.setattr(osu, "CHATTERBOX_FILES", {"t3_turbo_v1.safetensors": 300, "s3gen.safetensors": 200,
-                                                  "s3gen_meanflow.safetensors": 100, "vocab.json": 7})
+    """Tiny stand-ins for the pinned upstream tables (``tts.model_assets``), so a 'model' is a few bytes of b"k"."""
+    monkeypatch.setattr(assets, "KOKORO_FILES", {"config.json": pin(4), "kokoro-v1_0.pth": pin(40),
+                                                 **{assets.kokoro_voice_name(v): pin(5) for v in osu.kokoro_roster()}})
+    monkeypatch.setattr(assets, "CHATTERBOX_FILES", {"t3_turbo_v1.safetensors": pin(300),
+                                                     "s3gen_meanflow.safetensors": pin(100), "vocab.json": pin(7)})
+    monkeypatch.setattr(assets, "SPACY_WHEEL_SIZE", len(WHEEL))
+    monkeypatch.setattr(assets, "SPACY_WHEEL_SHA256", hashlib.sha256(WHEEL).hexdigest())
     monkeypatch.setattr(osu, "SPACY_ENGLISH_INSTALLED_BYTES", 11)
     monkeypatch.setattr(osu, "BASE_PACKAGES_INSTALLED_BYTES", 1000)
 
 
+@pytest.fixture(autouse=True)
+def probes_are_explicit(monkeypatch):
+    """No in-process test here runs a real engine probe: unless a test supplies its own facts or proof, the worker's
+    Kokoro/Chatterbox health is "not proved" (as in Stage 1), and every probe asked for is recorded."""
+    asked: list[tuple] = []
+
+    def unproved(root, components, **kwargs):
+        asked.append(tuple(components))
+        return {}
+
+    monkeypatch.setattr(osh, "local_health", unproved)
+    return asked
+
+
 KOKORO_ALL = 44 + 5 * 9  # model + nine roster voices
-CHATTERBOX_ALL = 607
+SPACY_WHEEL = len(WHEEL)
+CHATTERBOX_ALL = 407  # the three stand-in files Turbo loads (no s3gen.safetensors: never acquired)
 
 
 @pytest.fixture
@@ -95,34 +127,39 @@ def world(sandbox, tiny_assets, monkeypatch):  # noqa: F811 - pytest fixture inj
     return sandbox
 
 
-def facts(*, health=None, busy=(), spacy=False, python=(3, 12), is_64bit=True, probe=False) -> osu.Facts:
+def versions(*, spacy_model=None, spacy="3.8.16"):
+    return lambda name: {assets.SPACY_ENGLISH: spacy_model, "spacy": spacy}.get(name)
+
+
+def facts(*, health=None, busy=(), spacy=False, python=(3, 12), is_64bit=True, probe=False,
+          spacy_version="3.8.16") -> osu.Facts:
     return osu.Facts(health=health or {}, busy=frozenset(busy), python=python, is_64bit=is_64bit,
-                     probe_hardware=probe, package_present=lambda name: spacy and name == osu.SPACY_ENGLISH)
+                     probe_hardware=probe,
+                     package_version=versions(spacy_model="3.8.0" if spacy else None, spacy=spacy_version))
 
 
 HEALTHY = {K: True, C: True}
 
 
-def hf_snapshot(root: Path, repo: str, files: dict[str, int], *, revision: str = "1" * 40) -> Path:
-    folder = root / "files" / "runtime-data" / "models" / "huggingface" / "hub" / ("models--" + repo.replace("/", "--"))
-    (folder / "refs").mkdir(parents=True, exist_ok=True)
-    (folder / "refs" / "main").write_text(revision, encoding="ascii")
-    snapshot = folder / "snapshots" / revision
-    for name, size in files.items():
+def hf_snapshot(root: Path, files: assets.AssetSet, *, without=()) -> Path:
+    """The pinned files of *files* in the sandbox's cache, in the pinned commit's folder (b"k" * size each)."""
+    assert rt.repo_root() == root  # never anywhere but the sandbox
+    snapshot = assets.snapshot_dir(files)
+    for name, (size, _) in files.files.items():
+        if name in without:
+            continue
         path = snapshot.joinpath(*name.split("/"))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"k" * size)
     return snapshot
 
 
-def install_kokoro(root: Path) -> Path:
-    files = dict(osu.KOKORO_MODEL_FILES)
-    files.update({f"voices/{v}.pt": size for v, size in osu.KOKORO_VOICE_FILES.items()})
-    return hf_snapshot(root, osu.KOKORO_REPO, files)
+def install_kokoro(root: Path, *, without=()) -> Path:
+    return hf_snapshot(root, assets.kokoro_set(), without=without)
 
 
 def install_chatterbox(root: Path, *, without=()) -> Path:
-    return hf_snapshot(root, osu.CHATTERBOX_REPO, {n: s for n, s in osu.CHATTERBOX_FILES.items() if n not in without})
+    return hf_snapshot(root, assets.chatterbox_set(), without=without)
 
 
 def as_json(components, **kwargs) -> dict:
@@ -159,7 +196,8 @@ def test_constants_repeated_for_the_pre_venv_path_agree_with_their_authorities()
     assert proto.MAIN_PYTHON == su.SUPPORTED_PYTHON
     assert osu.hf_hub_root() == rt.repo_root() / Path(bootstrap.RESOURCES_DIR, "models", "huggingface", "hub") \
         .relative_to(bootstrap.REPO_ROOT)
-    assert set(osu.kokoro_roster()) <= set(osu.KOKORO_VOICE_FILES), "every roster voice needs a measured size"
+    assert {assets.kokoro_voice_name(v) for v in osu.kokoro_roster()} <= set(assets.KOKORO_FILES), \
+        "every roster voice needs a pinned identity"
     assert len(osu.kokoro_roster()) == 9
 
 
@@ -210,23 +248,26 @@ def test_nothing_selected_costs_nothing_but_the_base_packages_are_still_disclose
     assert tripwire == []
 
 
-def test_kokoro_alone_lists_model_voices_and_the_lazy_spacy_package(world, tripwire):
+def test_kokoro_alone_lists_model_voices_and_the_pinned_spacy_wheel(world, tripwire):
     data = as_json([K], health={K: True})
     kokoro = component(data, K)
     assert kokoro["readiness"] == proto.MISSING and kokoro["consent_scope"] == proto.SCOPE_INSTALL
     assert data["acquire_units"] == ["kokoro-model", *(f"kokoro-voice:{v}" for v in osu.kokoro_roster()),
                                      "spacy-english"]
-    assert data["totals"]["download"] == fig(KOKORO_ALL, proto.AT_LEAST)  # the spaCy wheel's size is not known
+    assert data["totals"]["download"] == fig(KOKORO_ALL + SPACY_WHEEL, proto.MANIFEST)  # every size is pinned now
     assert data["totals"]["disk"] == fig(KOKORO_ALL + 11, proto.APPROXIMATE)
-    assert unit(data, "spacy-english")["download"] == fig(None, proto.UNKNOWN)
+    spacy = unit(data, "spacy-english")
+    assert spacy["download"] == fig(SPACY_WHEEL, proto.MANIFEST) and spacy["source"] == assets.spacy_source()
+    assert spacy["source"].startswith("wheel:https://github.com/explosion/spacy-models/releases/download/")
     assert tripwire == []
 
 
-def test_chatterbox_alone_counts_the_file_turbo_does_not_need_but_the_library_still_fetches(world):
+def test_chatterbox_alone_counts_only_the_files_turbo_loads(world):
     data = as_json([C], health={C: True})
     assert component(data, C)["readiness"] == proto.MISSING
-    assert data["totals"]["download"] == fig(CHATTERBOX_ALL, proto.APPROXIMATE)
-    install_chatterbox(world, without={"s3gen.safetensors"})  # everything Turbo loads is here
+    assert data["totals"]["download"] == fig(CHATTERBOX_ALL, proto.MANIFEST)
+    assert "s3gen.safetensors" not in assets.CHATTERBOX_FILES  # in the repository, never loaded, never acquired
+    install_chatterbox(world)
     data = as_json([C], health={C: True})
     assert component(data, C)["readiness"] == proto.READY and data["acquire_units"] == []
 
@@ -259,8 +300,8 @@ def test_both_qwen3_components_count_the_engine_and_the_shared_model_files_once(
 def test_all_four_together_is_the_deduplicated_union(world):
     data = as_json(list(reversed(ALL)), health=HEALTHY)  # any input order; the plan is canonical
     assert data["selected"] == list(ALL)
-    expected = KOKORO_ALL + CHATTERBOX_ALL + ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES
-    assert data["totals"]["download"] == fig(expected, proto.AT_LEAST)
+    expected = KOKORO_ALL + SPACY_WHEEL + CHATTERBOX_ALL + ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES
+    assert data["totals"]["download"] == fig(expected, proto.APPROXIMATE)  # only the engine is an estimate now
     assert len(data["acquire_units"]) == len(set(data["acquire_units"])) == 15
 
 
@@ -296,12 +337,25 @@ def test_present_files_without_a_health_proof_stay_unverified(world):
     assert all(component(data, n)["consent_scope"] is None for n in (K, C))
 
 
-def test_a_file_of_another_size_is_unverified_not_damaged_and_not_healthy(world):
+@pytest.mark.parametrize("content", [b"x" * 41, b"x" * 40], ids=["another-size", "same-size-other-content"])
+def test_a_file_that_is_not_the_pinned_one_is_damaged_and_fetched_again_only_under_repair_consent(world, content):
     snapshot = install_kokoro(world)
-    (snapshot / "kokoro-v1_0.pth").write_bytes(b"x" * 41)  # upstream is unpinned: maybe just newer
+    (snapshot / "kokoro-v1_0.pth").write_bytes(content)  # the identity is pinned: this is not "maybe newer"
     data = as_json([K], health={K: True}, spacy=True)
-    assert unit(data, "kokoro-model")["state"] == proto.UNVERIFIED
-    assert component(data, K)["readiness"] == proto.UNVERIFIED and data["acquire_units"] == []
+    assert unit(data, "kokoro-model")["state"] == proto.DAMAGED
+    assert component(data, K)["readiness"] == proto.DAMAGED and component(data, K)["consent_scope"] == "repair"
+    assert data["acquire_units"] == ["kokoro-model"]
+    assert unit(data, "kokoro-model")["download"] == fig(40, proto.MANIFEST)  # only the wrong file, never the config
+    assert unit(data, "kokoro-model")["temp"] == fig(40, proto.MANIFEST)  # the old copy stays until the new one is proved
+
+
+def test_a_moved_refs_main_never_changes_what_the_plan_reports(world):
+    snapshot = install_kokoro(world)
+    folder = snapshot.parent.parent
+    (folder / "refs").mkdir(parents=True)
+    (folder / "refs" / "main").write_text("9" * 40, encoding="ascii")  # a lazy fetch once moved main elsewhere
+    data = as_json([K], health={K: True}, spacy=True)
+    assert component(data, K)["readiness"] == proto.READY  # the pinned commit's folder is the only one looked at
 
 
 def test_mixed_states_each_get_their_own_answer_and_only_installable_or_repairable_work_is_planned(world, monkeypatch):
@@ -362,9 +416,10 @@ def test_busy_and_bad_bundle_are_reported_and_never_acquire(world, monkeypatch):
 
 def test_unknown_and_changed_estimates_are_never_passed_off_as_known(world, monkeypatch):
     roster = osu.kokoro_roster()
-    monkeypatch.setattr(osu, "KOKORO_VOICE_FILES", {v: 5 for v in roster[1:]})  # one voice without a measurement
+    monkeypatch.delitem(assets.KOKORO_FILES, assets.kokoro_voice_name(roster[0]))  # a voice with no pinned identity
     data = as_json([K], health={K: True}, spacy=True)
     assert unit(data, f"kokoro-voice:{roster[0]}")["download"] == fig(None, proto.UNKNOWN)
+    assert unit(data, f"kokoro-voice:{roster[0]}")["source"] is None  # so no consent can acquire it
     assert data["totals"]["download"]["basis"] == proto.AT_LEAST
     before = as_json([CV])
     manifest = rt.load_manifest()
@@ -407,8 +462,8 @@ def test_the_pre_venv_estimate_is_a_manifest_upper_bound_that_proves_nothing(wor
     assert data["context"] == osu.CONTEXT_PRE_VENV and data["upper_bound"] is True
     assert all(c["readiness"] == proto.UNVERIFIED and c["consent_scope"] is None for c in data["components"])
     assert data["hardware"]["python"] is None and data["hardware"]["gpu"]["probed"] is False
-    expected = KOKORO_ALL + CHATTERBOX_ALL + ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES
-    assert data["totals"]["download"] == fig(expected, proto.AT_LEAST)
+    expected = KOKORO_ALL + SPACY_WHEEL + CHATTERBOX_ALL + ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES
+    assert data["totals"]["download"] == fig(expected, proto.APPROXIMATE)
     assert data["acquire_units"].count("qwen3-engine") == 1
     assert unit(data, "qwen3-model:base")["local_copy"] == fig(SHARED_BYTES, proto.MANIFEST)
     assert any("most each choice could cost" in n for n in data["notes"])
@@ -759,9 +814,10 @@ def test_the_worker_answers_a_plan_request_with_events_and_one_result(world, tri
 
 
 def test_an_install_request_is_checked_and_then_refused_without_acquiring_anything(world, tripwire, no_acquisition):
+    """An ``Operation`` given the disabled acquirer (the default when it is given none) checks, then refuses."""
     consent = osu.consent_for(osu.plan_to_json(osu.plan([K, CV], facts=facts(health=HEALTHY, spacy=True))))
     request = proto.new_request(proto.ACTION_INSTALL, [K, CV], session=SESSION, consent=consent)
-    code, result = run_main(world, request, facts=facts(health=HEALTHY, spacy=True))
+    code, result = run_main(world, request, facts=facts(health=HEALTHY, spacy=True), acquirer=osl.DisabledAcquirer())
     assert code == proto.EXIT_CODES[proto.REFUSED]
     assert result["error"]["code"] == proto.ACQUISITION_UNAVAILABLE and "Nothing was downloaded" in result["error"]["message"]
     assert result["verified"] == []
@@ -851,12 +907,17 @@ def test_a_result_path_outside_its_place_writes_nothing(world, tmp_path):
 # Task C — the real bridge: a child process in a disposable copy of the app
 # --------------------------------------------------------------------------- #
 SITECUSTOMIZE = '''\
-import atexit, json, os, sys
+import atexit, json, os, subprocess, sys
 _LOG = os.path.join(sys.prefix, "act-tripwire.log")
-_WATCH = ("socket.", "subprocess.Popen", "os.system", "os.startfile", "os.spawn", "os.posix_spawn", "os.exec",
-          "urllib.Request", "http.client.connect")
+_PROCESSES = os.path.join(sys.prefix, "act-processes.log")
+_WATCH = ("socket.", "os.system", "os.startfile", "os.spawn", "os.posix_spawn", "os.exec", "urllib.Request",
+          "http.client.connect")
 def _hook(event, args):
-    if event.startswith(_WATCH):
+    if event == "subprocess.Popen":  # recorded, not refused: planning runs bounded engine probes (P05B Stage 2)
+        with open(_PROCESSES, "a", encoding="utf-8") as handle:
+            line = args[1] if isinstance(args[1], str) else subprocess.list2cmdline([str(a) for a in args[1]])
+            handle.write(json.dumps(line[:400]) + "\\n")  # Windows audits the command line as one string
+    elif event.startswith(_WATCH):
         with open(_LOG, "a", encoding="utf-8") as handle:
             handle.write(event + "\\n")
         raise RuntimeError("tripwire: " + event)
@@ -924,6 +985,14 @@ def tripped(root: Path) -> str:
     return log.read_text(encoding="utf-8") if log.exists() else ""
 
 
+def started_processes(root: Path, *, clear: bool = True) -> list[list[str]]:
+    log = root / ".venv" / "act-processes.log"
+    lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+    if clear and log.exists():
+        log.unlink()
+    return lines
+
+
 def launch(root: Path, request: proto.Request, *, session: str) -> proto.WorkerRun:
     path = proto.write_request(root, request)
     run = proto.WorkerRun(root, proto.worker_launch(root, path, session), request)
@@ -932,6 +1001,7 @@ def launch(root: Path, request: proto.Request, *, session: str) -> proto.WorkerR
 
 
 def test_the_worker_runs_in_the_apps_environment_and_acquires_nothing(app):
+    started_processes(app)
     session = proto.new_token()
     request = proto.new_request(proto.ACTION_PLAN, ALL, session=session)
     started = time.monotonic()
@@ -943,9 +1013,14 @@ def test_the_worker_runs_in_the_apps_environment_and_acquires_nothing(app):
     plan = result["plan"]
     assert plan["context"] == osu.CONTEXT_MAIN
     got = {c["id"]: c["readiness"] for c in plan["components"]}
-    # The copy has no references, no models and a pip-less environment: nothing is ready and nothing is assumed.
-    assert got == {K: proto.UNVERIFIED, C: proto.BAD_BUNDLE, CV: proto.MISSING, B: proto.BAD_BUNDLE}
-    assert tripped(app) == ""
+    # The copy has no references, no models and a pip-less environment: the real probes prove the Kokoro and
+    # Chatterbox packages absent (broken, not "unverified"), nothing is ready and nothing is assumed.
+    assert got == {K: proto.DAMAGED, C: proto.BAD_BUNDLE, CV: proto.MISSING, B: proto.BAD_BUNDLE}
+    assert {c["id"]: c["engine"] for c in plan["components"]} == {K: "broken", C: "broken", CV: None, B: None}
+    assert tripped(app) == ""  # no network
+    probes = started_processes(app)  # the only processes: the two bounded engine probes, in the app's own Python
+    head = subprocess.list2cmdline([str(proto.main_console_python(app)), "-E", "-s", "-c"])
+    assert len(probes) == 2 and all(p.startswith(head + " ") for p in probes), probes
     modules = child_modules(app, run.process.pid)
     assert not [m for m in modules if m.split(".")[0] in HEAVY]
     ours = {m: f for m, f in modules.items() if m.split(".")[0] in ("shared", "tts") and f}
@@ -1033,8 +1108,8 @@ def test_negative_control_an_ambient_pythonpath_cannot_choose_the_workers_code(a
 # --------------------------------------------------------------------------- #
 FORBIDDEN_PRE_VENV = ("subprocess", "socket", "ssl", "urllib.request", "http.client", "tkinter", "_tkinter",
                       "threading", "ctypes", "tts.qwen3_setup", "tts.qwen3_process", "shared.bootstrap")
-ALLOWED_PROJECT = {"shared", "shared.optional_setup_protocol", "shared.venv_layout", "tts", "tts.optional_setup",
-                   "tts.qwen3_runtime", "tts.voice_registry"}
+ALLOWED_PROJECT = {"shared", "shared.optional_setup_protocol", "shared.venv_layout", "tts", "tts.model_assets",
+                   "tts.optional_setup", "tts.qwen3_runtime", "tts.voice_registry"}
 PRE_VENV_PROBE = '''\
 import json, sys
 sys.path.insert(0, {scripts!r})
@@ -1118,19 +1193,20 @@ def altered(plan: dict, unit_id: str, **changes) -> dict:
     return plan
 
 
-def test_every_unit_names_its_exact_source_and_only_spacy_is_unpinned(world):
+def test_every_unit_names_its_exact_pinned_source(world):
     data = as_json(ALL, health=HEALTHY)
     sources = {u["id"]: u["source"] for u in data["units"]}
-    assert sources["kokoro-model"] == f"hf:{osu.KOKORO_REPO}@{osu.KOKORO_MEASURED_REVISION}"
+    assert sources["kokoro-model"] == f"hf:{assets.KOKORO_REPO}@{assets.KOKORO_REVISION}"
     assert sources["kokoro-voice:af_heart"] == sources["kokoro-model"]
-    assert sources["chatterbox-model"] == f"hf:{osu.CHATTERBOX_REPO}@{osu.CHATTERBOX_MEASURED_REVISION}"
+    assert sources["chatterbox-model"] == f"hf:{assets.CHATTERBOX_REPO}@{assets.CHATTERBOX_REVISION}"
+    assert sources["spacy-english"] == f"wheel:{assets.SPACY_WHEEL_URL}#sha256:{assets.SPACY_WHEEL_SHA256}"
     assert sources["qwen3-engine"] == f"pip-lock:qwen3-requirements.txt@sha256:{rt.requirements_sha256()}"
     spec = rt.model_spec("base")
     assert sources["qwen3-model:base"] == f"hf:{spec.repo}@{spec.revision}#manifest-sha256:{spec.manifest_sha256()}"
-    assert [u for u, s in sources.items() if s is None] == ["spacy-english"]
+    assert [u for u, s in sources.items() if s is None] == []  # spaCy's English model is pinned since Stage 2
     shown = {u["id"]: u["source"] for u in estimate_json(ALL)["units"]}
     assert shown == {u: sources[u] for u in shown}  # the estimate names exactly the same sources
-    assert data["schema"] == osu.PLAN_SCHEMA == 2
+    assert data["schema"] == osu.PLAN_SCHEMA == 3
     assert data["acquisition_fingerprint"] == proto.acquisition_fingerprint(data)
 
 
@@ -1162,7 +1238,7 @@ def test_same_units_and_bytes_but_a_changed_source_or_scope_is_a_different_plan(
     exact, pre = osu.consent_for(before), osu.consent_for(shown)
     # Scoped, never monkeypatch.undo(): that would also undo the sandbox's repo_root and reach the real installation.
     with monkeypatch.context() as patch:
-        patch.setattr(osu, "KOKORO_MEASURED_REVISION", "9" * 40)  # upstream moved; same files, same sizes
+        patch.setattr(assets, "KOKORO_REVISION", "9" * 40)  # another commit; same files, same sizes
         after = as_json([K], health={K: True}, spacy=True)
         assert after["acquire_units"] == before["acquire_units"] and after["totals"] == before["totals"]
         assert covers(exact, after)[:2] == (False, proto.CONSENT_STALE)
@@ -1193,7 +1269,7 @@ def test_a_legitimate_estimate_refines_into_a_smaller_main_plan(world, tripwire)
     consent = osu.consent_for(shown)
     install_environment(world)
     install_model(world, "customvoice")
-    hf_snapshot(world, osu.KOKORO_REPO, {"config.json": 4, "kokoro-v1_0.pth": 40})  # the model, not the voices
+    install_kokoro(world, without={assets.kokoro_voice_name(v) for v in osu.kokoro_roster()})  # the model only
     data = as_json(ALL, health=HEALTHY, spacy=True)
     assert component(data, CV)["readiness"] == proto.READY
     assert not {"qwen3-engine", "kokoro-model", "spacy-english"} & set(data["acquire_units"])
@@ -1224,20 +1300,20 @@ def test_an_estimate_consent_never_stretches_to_cover_more(world):
 
 
 def test_unknown_size_is_listed_and_agreed_never_counted_as_zero(world, monkeypatch):
-    roster = osu.kokoro_roster()
-    monkeypatch.setattr(osu, "KOKORO_VOICE_FILES", {v: 5 for v in roster[1:]})  # one voice has no measured size
-    voice = f"kokoro-voice:{roster[0]}"
-    data = as_json([K], health={K: True}, spacy=True)
+    # Every Kokoro size is pinned since Stage 2, so the rule is exercised on what a plan can say: a pinned unit whose
+    # size is shown as unknown (a Qwen3 repair below is the real case).
+    voice = f"kokoro-voice:{osu.kokoro_roster()[0]}"
+    data = altered(as_json([K], health={K: True}, spacy=True), voice, download=fig(None, proto.UNKNOWN))
     consent = osu.consent_for(data)
     assert consent.unknown_units == (voice,) and voice in consent.units
     assert consent.download_bytes == 44 + 5 * 8  # the known part only: the unknown voice is not a zero
     assert covers(consent, data) == (True, "", "ok")
     assert covers(dataclasses.replace(consent, unknown_units=()), data)[:2] == (False, proto.BAD_CONSENT)
-    shown = estimate_json([K])
+    shown = altered(estimate_json([K]), voice, download=fig(None, proto.UNKNOWN))
     pre = osu.consent_for(shown)
     assert voice in pre.unknown_units
     assert covers(pre, data, shown) == (True, "", "ok")  # shown as unknown, agreed as unknown, still unknown
-    ok, code, why = covers(pre, altered(data, voice, download=fig(5, proto.APPROXIMATE)), shown)
+    ok, code, why = covers(pre, altered(data, voice, download=fig(5, proto.MANIFEST)), shown)
     assert (ok, code) == (False, proto.CONSENT_STALE) and "must be confirmed" in why  # unknown -> known is new terms
     # A repair whose size only a full check can tell: listed as unknown, and the known total is not presented as all.
     install_environment(world)
@@ -1248,13 +1324,15 @@ def test_unknown_size_is_listed_and_agreed_never_counted_as_zero(world, monkeypa
     assert repair.download_bytes == 0 and repair.units == ("qwen3-model:customvoice",)
 
 
-def test_an_unpinned_source_is_refused_whoever_confirmed_it(world):
+def test_an_unpinned_source_is_refused_whoever_confirmed_it(world, monkeypatch):
+    roster = osu.kokoro_roster()
+    monkeypatch.delitem(assets.KOKORO_FILES, assets.kokoro_voice_name(roster[0]))  # a voice with no pinned identity
     shown = estimate_json([K])
-    data = as_json([K], health={K: True})  # spaCy's English model is absent
-    assert "spacy-english" in data["acquire_units"]
+    data = as_json([K], health={K: True}, spacy=True)
+    assert f"kokoro-voice:{roster[0]}" in data["acquire_units"]
     for consent, estimate in ((osu.consent_for(data), None), (osu.consent_for(shown), shown)):
         ok, code, why = covers(consent, data, estimate)
-        assert (ok, code) == (False, proto.SOURCE_UNPINNED) and "spaCy" in why
+        assert (ok, code) == (False, proto.SOURCE_UNPINNED) and roster[0] in why
     (world / "scripts" / "qwen3-requirements.txt").unlink()  # no lock file: the engine has no pinned source either
     data = as_json([CV])
     assert unit(data, "qwen3-engine")["source"] is None
@@ -1470,15 +1548,18 @@ def test_without_a_post_install_proof_there_is_no_success(world, proof):
     assert result["error"]["code"] == proto.HEALTH_UNPROVED and result["verified"] == []
 
 
-@pytest.mark.parametrize("kwargs", [{"complete": False}, {"units": ("chatterbox-model", "qwen3-engine")}, {"units": ()},
-                                    {"error": OSError(28, "No space left on device")}],
+@pytest.mark.parametrize("kwargs, working", [({"complete": False}, [C]),
+                                             ({"units": ("chatterbox-model", "qwen3-engine")}, []), ({"units": ()}, []),
+                                             ({"error": OSError(28, "No space left on device")}, [])],
                          ids=["incomplete", "more-than-planned", "less-than-planned", "error"])
-def test_an_incomplete_failed_or_unexpected_acquisition_is_never_a_success(world, kwargs):
+def test_an_incomplete_failed_or_unexpected_acquisition_is_never_a_success(world, kwargs, working):
     request = install_request([C], health=PROVED)
     code, result = run_main(world, request, facts=facts(health=PROVED), acquirer=StandInAcquirer(world, **kwargs),
                             health=lambda c: PROVED)
     assert code == proto.EXIT_CODES[proto.FAILED] and result["state"] == proto.FAILED
-    assert result["error"]["code"] == proto.ACQUISITION_FAILED and result["verified"] == []
+    # An incomplete report is still a failure, but the components that do work are named (proved afresh, Stage 2);
+    # an acquisition outside the plan, or one that raised, is not trusted enough to be proved at all.
+    assert result["error"]["code"] == proto.ACQUISITION_FAILED and result["verified"] == working
 
 
 def test_cancel_reaches_an_active_acquisition_and_ends_it_cancelled(world):
@@ -1541,13 +1622,14 @@ def test_an_operation_settles_exactly_one_terminal_outcome_and_never_goes_back(w
         osl.DisabledAcquirer().acquire({}, None, progress=print, cancel_check=lambda: False)
 
 
-def test_the_worker_has_no_way_to_enable_acquisition_from_its_command_line():
+def test_the_worker_command_line_cannot_steer_acquisition_and_only_a_consent_can_start_one():
     import inspect
     import re
 
     options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(worker.main))
-    assert options == ["--request", "--result", "--session"]
-    assert inspect.signature(worker.main).parameters["acquirer"].default is None
+    assert options == ["--request", "--result", "--session"]  # nothing to choose a source, a unit or skip a check
+    assert inspect.signature(worker.main).parameters["acquirer"].default is None  # None = the real acquirer (Stage 2)
+    assert "RealAcquirer()" in inspect.getsource(worker.run)
     assert isinstance(osl.Operation(proto.new_request(proto.ACTION_PLAN, [K], session=SESSION), planner=dict,
                                     estimator=dict, emit=print, cancel_check=bool).acquirer, osl.DisabledAcquirer)
 

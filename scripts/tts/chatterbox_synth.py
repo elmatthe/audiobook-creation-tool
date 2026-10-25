@@ -70,6 +70,7 @@ from pydub import AudioSegment
 
 from shared import ffmpeg_utils
 from tts import audio_tail
+from tts import model_assets
 from tts.speech.document import read_source_text
 from tts.voice_registry import REFERENCE_DIRECTORY, label_for, reference_recording_filename
 from tts.speech.pipeline import prepare
@@ -1102,12 +1103,19 @@ def _instantiate_model(device: str):
     Imports ``chatterbox.tts_turbo`` directly: the 0.1.7 package root exports only
     ChatterboxTTS / ChatterboxVC / ChatterboxMultilingualTTS, so importing the
     Turbo class from the root would raise ImportError.
+
+    v0.7.0 P05B Stage 2: built with ``from_local`` from the pinned, verified folder
+    (``tts.model_assets``), never ``from_pretrained`` -- which would query the Hub
+    and snapshot whatever ``main`` names on every load. A missing or wrong file is
+    refused (``AssetsUnavailable``), not downloaded; the device was already chosen
+    by ``select_device`` (``from_pretrained``'s own MPS fallback is not needed).
     """
+    folder = model_assets.chatterbox_model_dir()
     import chatterbox.tts_turbo as tts_turbo
     from chatterbox.tts_turbo import ChatterboxTurboTTS
 
     _ensure_structural_colon_patch(tts_turbo)
-    return ChatterboxTurboTTS.from_pretrained(device)
+    return ChatterboxTurboTTS.from_local(folder, device)
 
 
 def _conditionals_class():
@@ -1120,8 +1128,9 @@ def _conditionals_class():
 def _get_model(device: str | None = None):
     """Load (once per device) the Turbo model, allowing one first-load re-attempt.
 
-    The weights are ~3.86 GiB and are fetched into the in-tree HuggingFace cache on
-    the first call, so this can be slow the first time and fast afterwards.
+    The weights (~3 GB) are loaded from the verified in-tree copy only (acquired
+    beforehand by the consented optional setup), so the first load is slow and
+    later ones are cached; nothing is downloaded here.
     """
     global _first_model_load_attempted
 

@@ -1,11 +1,15 @@
 """
 kokoro_synth.py — Local Kokoro TTS synthesis helpers for epub2tts-edge v1.1.
 
-Kokoro-82M model is downloaded automatically (~300 MB) from HuggingFace on
-first use. The bootstrap/launcher redirect the HuggingFace cache into the project
-tree (``files/runtime-data/models/huggingface/``); the fallback below covers the
-standalone CLI/debug path where neither set ``HF_HOME`` first, so the model still
-stays in the project folder rather than ``~/.cache/huggingface/``.
+Since v0.7.0 P05B Stage 2 nothing here downloads anything. The Kokoro-82M model,
+each roster voice and spaCy's English model are acquired only by the consented
+optional setup; synthesis loads exactly the pinned, verified local files
+(``tts.model_assets``: ``KModel(config=, model=)`` and each voice's own ``.pt``) and
+refuses with ``model_assets.AssetsUnavailable`` when one is missing or is not the
+approved file -- before ``kokoro`` could call ``hf_hub_download`` or misaki could
+run ``spacy.cli.download``. The bootstrap/launcher redirect the HuggingFace cache
+into the project tree (``files/runtime-data/models/huggingface/``); the fallback
+below covers the standalone CLI/debug path where neither set ``HF_HOME`` first.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from pydub import AudioSegment
 from shared import espeak_data
 from shared import ffmpeg_utils
 from tts import audio_tail
+from tts import model_assets
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import KOKORO as KOKORO_ROUTE
@@ -113,9 +118,47 @@ def _lang_code_for_voice(voice_id: str) -> str:
     return "a"
 
 
+def _local_model():
+    """The Kokoro model built from the pinned, verified local files only -- or ``AssetsUnavailable``, never a download.
+
+    Also refuses when spaCy's English model is absent: misaki's English G2P (built with every English pipeline)
+    would otherwise pip-install it from an unpinned source. Same device choice as ``KPipeline`` makes for itself.
+    """
+    config, weights = model_assets.kokoro_model_paths()
+    model_assets.require_spacy_english()
+    import torch  # type: ignore
+    from kokoro import KModel  # type: ignore
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return KModel(repo_id=model_assets.KOKORO_REPO, config=str(config), model=str(weights)).to(device).eval()
+
+
+def _contain_voice_loading(pipeline):
+    """Make *pipeline* load a voice named by id from its verified local ``.pt`` instead of ``hf_hub_download``.
+
+    ``KPipeline.load_voice`` asks ``self.load_single_voice`` for each voice; a path ending in ``.pt`` is read
+    straight from disk, a bare id is fetched from the Hub at ``main``. This instance's ``load_single_voice`` turns an
+    id into its verified path first (``AssetsUnavailable`` if it is missing or not the approved file) and caches the
+    voice under its id, so callers keep passing ``voice=<id>``.
+    """
+    load_path = pipeline.load_single_voice
+
+    def load_single_voice(voice: str):
+        if voice.endswith(".pt"):
+            return load_path(voice)
+        pack = load_path(str(model_assets.kokoro_voice_path(voice)))
+        pipeline.voices[voice] = pack
+        return pack
+
+    pipeline.load_single_voice = load_single_voice
+    return pipeline
+
+
 def _instantiate_pipeline(lang_code: str):
-    """Lazy-import kokoro and build a KPipeline (defers loading torch to first use)."""
+    """Lazy-import kokoro and build a KPipeline (defers loading torch to first use) from verified local files."""
     from kokoro import KPipeline  # type: ignore
+
+    model = _local_model()  # before anything that could fetch: a missing or wrong file is refused, not downloaded
 
     # Between the import and the construction on purpose. Importing kokoro pulls
     # in misaki, which hands phonemizer the espeak wheel's own data directory;
@@ -126,7 +169,7 @@ def _instantiate_pipeline(lang_code: str):
     # re-points it at the same bundled data through a path that fits, and does
     # nothing at all where the real one already does. See shared.espeak_data.
     espeak_data.configure()
-    return KPipeline(lang_code=lang_code)
+    return _contain_voice_loading(KPipeline(lang_code=lang_code, repo_id=model_assets.KOKORO_REPO, model=model))
 
 
 def _get_pipeline(lang_code: str):
@@ -189,6 +232,8 @@ def synthesize_text_to_mp3(
     lang_code = _lang_code_for_voice(voice_id)
     try:
         pipeline = _get_pipeline(lang_code)
+    except model_assets.AssetsUnavailable:
+        raise  # says exactly which approved file is missing; not an installation problem
     except Exception as e:
         raise RuntimeError(
             f"Could not load Kokoro pipeline. Make sure 'kokoro' is installed "
@@ -296,6 +341,8 @@ def kokoro_file_to_mp3(
     lang_code = _lang_code_for_voice(voice_id)
     try:
         pipeline = _get_pipeline(lang_code)
+    except model_assets.AssetsUnavailable:
+        raise  # says exactly which approved file is missing; not an installation problem
     except Exception as e:
         raise RuntimeError(
             f"Could not load Kokoro pipeline. Install with: pip install kokoro soundfile scipy\n{e}"

@@ -758,6 +758,40 @@ def _no_production_state_writes():
                     + "; ".join(changed) + _ADVICE)
 
 
+#: v0.7.0 P05B Stage 2 (Task A): what a write-capable optional-setup test must never write, refused at the write itself
+#: (``write_tripwire``) rather than noticed afterwards. Both environments, all runtime data (models and the Hugging Face
+#: cache, Qwen3 state and locks, the optional-setup exchange, settings), the preserved act67 copy, the bundled reference
+#: recordings and transcript bundle, previews, the P04B/P04C qualification copies and the tracked config.
+PRODUCTION_WRITE_ROOTS = (
+    REPO_ROOT / ".venv",
+    REPO_ROOT / ".venv-qwen3",
+    REPO_ROOT / "files" / "runtime-data",
+    *sorted((REPO_ROOT / "files").glob("runtime-data.act67-preserved-*")),
+    REPO_ROOT / "files" / "Cloned-Voice-Uploads",
+    REPO_ROOT / "files" / "Chatterbox-Voice-Uploads",
+    REPO_ROOT / "files" / "voice-previews",
+    REPO_ROOT / "files" / "dev-work" / "P04B q",
+    REPO_ROOT / "files" / "dev-work" / "P04C q",
+    REPO_ROOT / "scripts" / "tts" / "data",
+    REPO_ROOT / "config.toml",
+)
+
+
+@pytest.fixture
+def production_writes_refused():
+    """Refuse (``PermissionError``, before it happens) any write under :data:`PRODUCTION_WRITE_ROOTS` during the test,
+    and fail the test if one was even attempted -- however the attempt came about (a sandbox redirect undone by
+    ``monkeypatch.undo()``, a mock restored too early, a fault injected mid-test). Opt in with
+    ``pytestmark = pytest.mark.usefixtures("production_writes_refused")``."""
+    import write_tripwire
+
+    with write_tripwire.armed(PRODUCTION_WRITE_ROOTS) as attempts:
+        yield
+    if attempts:
+        pytest.fail("this test attempted to write production paths (refused before anything changed): "
+                    + "; ".join(f"{event} {path}" for event, path in attempts[:5]))
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_production_log_writes():
     """The same contract for the log directory and the canonical Qwen3 engine's whole tree, checked once for the session.

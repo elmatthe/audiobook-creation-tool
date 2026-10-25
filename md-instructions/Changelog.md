@@ -15,6 +15,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 P05B Stage 2 — optional voices can be installed under consent, from approved sources only (2026-10-25) — not released; identity stays 0.6.6
+
+- **Added (internal, no screen yet):** the optional-setup worker can now download and install Kokoro, Chatterbox Turbo, Kokoro's English
+  pronunciation model and the Qwen3 voices — only after a confirmation of the exact plan, only the approved files (each checked by size
+  and SHA-256), and only from the exact approved versions. Files already on the computer are checked and kept; an interrupted download
+  resumes after a new confirmation.
+- **Changed:** Kokoro and Chatterbox now load only their approved, verified local files and never download anything on first use; a
+  missing or damaged file is reported ("Nothing was downloaded") instead. Chatterbox no longer needs the 1.06 GB file Turbo never used.
+- No download or install was run by this change; the first-run setup and the in-app Install & Continue are unchanged (P06).
+
 ### v0.7.0 P05B Stage 1 — optional voice setup made safe for consented installs (2026-10-25) — not released; identity stays 0.6.6
 
 - **Changed (internal):** a confirmation now covers exactly the plan that was shown — what would be fetched, from which exact source,

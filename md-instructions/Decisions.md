@@ -4,6 +4,41 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - Optional voices are acquired only from pinned identities, under a spent consent, and inference loads only verified local copies; Chatterbox's unused s3gen file is dropped (v0.7.0 P05B Stage 2)
+
+Plan Revision 2 §5.4 and §6 / P05B; owner spaCy ruling 2026-10-25; recorded by Claude Code.
+
+**Identity, not location.** Kokoro and Chatterbox Turbo files are pinned by repository, commit, size and SHA-256 in one table
+(`tts/model_assets.py`) that the planner, the acquirer and inference all read. URLs name the commit; `refs/main` is never consulted, so a
+moved upstream cannot change what is reported, fetched or loaded. Because the identity is pinned, a file of another size or content is
+`damaged` (repairable under repair consent), replacing the P05A "unverified, maybe newer". The spaCy model is the owner-approved wheel:
+verified before pip, installed with `--no-index --no-deps --require-hashes` into a compatible spaCy that is never changed; not added to
+`requirements.txt`.
+
+**One acquirer, existing machinery.** Qwen3 goes through `qwen3_setup.install`/`repair` (one call for both models) rather than a second
+installer; Kokoro/Chatterbox files through the same resumable, hash-verified `download_file`, behind an opener that refuses any URL outside
+the confirmed files; local work under the existing Qwen3 `InstallLock`, so it is serialized with Qwen3 installs, Qwen3 conversions and
+repairs of the app's own environment in the order they already use. Each destination is checked at the write. A proved-broken local engine
+gets no download: model files cannot repair packages, which is the launcher's job.
+
+**Inference refuses instead of fetching.** Kokoro is built from the verified local files (`KModel(config=, model=)`, voices from their
+`.pt` through the pipeline instance), a missing spaCy model is refused before misaki's `spacy.cli.download`, Chatterbox uses `from_local`.
+The refusal is its own exception type so it is never retried as an Application Control block nor taken as proof the packages broke.
+
+**Health is a bounded fact.** The launcher's own proofs run contained, offline and time-limited; an inconclusive probe is unverified,
+never healthy and never broken, and is not recorded.
+
+**Chatterbox `s3gen.safetensors` dropped** (Stage 1 open item 7): `from_local` never reads it; acquiring 1.06 GB nobody loads would be an
+unexpected file outside the required set.
+
+**Tests refuse production writes at the write.** An audit-hook tripwire (tests only) turns any write-capable operation under the real
+installation into `PermissionError` before it happens, for the optional-setup modules; after-the-fact fingerprints remain the suite-wide
+guard.
+
+**Not chosen.** `HF_HUB_OFFLINE` alone (offline mode resolves whatever `refs/main` names and verifies nothing); hashing on every load
+without a record (gigabytes per Chatterbox load); repairing Kokoro/Chatterbox packages from optional setup (that is the base stack, Q32);
+wiring bootstrap's first-run pre-downloads or any UI (P06).
+
 ## 2026-10-25 - A consent is bound to the acquisition terms of the plan that was shown; the setup worker's process tree is contained; results are atomic or absent (v0.7.0 P05B Stage 1)
 
 Plan Revision 2 §5.4 and §6 / P05B; owner rulings Q14–Q20; recorded by Claude Code.
