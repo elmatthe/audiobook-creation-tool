@@ -2,6 +2,42 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P05A: one acquisition-free planner for the four optional voice choices and the setup-worker protocol (GUI-independent, dry-run only); nothing installs yet; NEXT is ChatGPT/owner review, then P05B only when authorised (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.4, §6 / P05A exit row; Q14–Q20, Q32. HOME-PC, branch `feature/0.7.0-release-remediation`, parent `b509dc8`.
+Identity 0.6.6. Not merged/tagged. P04C stays closed; MachineGuard and the Qwen3 lease contracts are unchanged.
+
+- **Three new modules, no dependency change:** `shared/optional_setup_protocol.py` (standard library; the four components in the order
+  Kokoro → Chatterbox Turbo → Qwen3 CustomVoice → Qwen3 Cloned Voices / Base, approved defaults Kokoro on / the rest off, readiness,
+  consent scopes, figure bases, the v1 JSON request/event/result protocol, exchange-path containment, exactly-once results, the
+  execution-home check, `worker_launch` and `WorkerRun`); `tts/optional_setup.py` (`estimate()` pre-venv upper bounds from manifests and
+  measurements, `plan()` in the app environment from the runtime statuses and `qwen3_setup.plan_install`); `tts/optional_setup_worker.py`
+  (answers `plan`; refuses `install` with `acquisition-unavailable` after checking the consent still covers the plan). The wizard,
+  bootstrap, Qwen3 installer and runtime are untouched.
+- **Readiness:** unsupported > bad-bundle > busy > damaged > unverified > missing > ready; only missing → install consent, only damaged →
+  repair consent. Kokoro/Chatterbox engine health is a caller-supplied fact; absent means unverified. HOME-PC today: Qwen3 CustomVoice
+  and Base ready; Kokoro and Chatterbox unverified with every file present (no proof supplied) — intended.
+- **Sizes:** each unit once (one shared engine; the 686,752,126 B both Qwen3 models share are a local copy/link). Qwen3 model bytes from
+  the pinned manifest; engine ≈3.1 GB download/≈5.3 GB installed (approximate); Kokoro ≈332 MB (model + 9 roster voices) and Chatterbox
+  Turbo ≈4.04 GB (incl. 1.06 GB `s3gen.safetensors` Turbo never loads) measured from HOME-PC's cache at recorded revisions, approximate
+  because upstream is unpinned; spaCy `en_core_web_sm` download unknown. Base packages separate (≈2.49 GB installed measured, download
+  unknown), always including the Kokoro/Chatterbox packages (Q32). Temp: pip cache ≈ engine download + the installer's 2 GB margin.
+- **Execution home:** `.venv/Scripts/python.exe -E -s -m tts.optional_setup_worker --request --result --session`, cwd `scripts/`,
+  CPython 3.12 in `.venv` only (a 3.11 main environment cannot run it); exchange `files/runtime-data/optional-setup/<id>/`; a request
+  is bound to its launcher's session token and expires after 10 minutes; one terminal result, hard-link published, never replaced.
+  Pre-venv imports proved standard-library-only in a bare `-I -S` base interpreter.
+- **Lazy acquisition found, not changed (P05B/P06):** Kokoro `hf_hub_download` on every pipeline build and per voice (no offline mode),
+  misaki's `spacy.cli.download("en_core_web_sm")` pip install when absent (**owner ruling needed on its pinned source**), Chatterbox
+  `snapshot_download` at `main` on every load, the first-run "auto-downloads on first synthesis" path, Edge `nltk.download` (outside the
+  four). All containable through the plan (offline env, `from_local`, pre-checks); no P05A blocker.
+- **Checks:** `test_optional_tts_setup.py` 111 passed / 1 skipped (file symlinks need Developer Mode; junctions covered); 11/11 source
+  mutations caught; relevant suites 1,063 passed / 3 skipped / 0 failed; concurrency/job-control 338 passed; lightweight `verify.py`
+  checks and `git diff --check` clean. No full gate (P05 is focused-only). Child processes ran only in a disposable app copy.
+- **Production:** untouched — no download, install, repair, synthesis, environment, model, cache or state change (test-pinned).
+- **Evidence (ignored):** `checkpoints/P05A.md` (contract, protocol, inventory, sizes, tests, deferrals), `p05a/`.
+- **Next:** STOP for ChatGPT/owner review. P05B only when authorised: consented lifecycle, real `busy` from locks, Kokoro/Chatterbox health
+  proofs into the plan, lazy-path containment after the spaCy source ruling. P06 owns the wizard and Install & Continue.
+
 ## CURRENT STATE — v0.7.0 P04C Stage 5C: HOME-PC runs on the canonical Qwen3 engine .venv/engines/qwen3 (legacy .venv-qwen3 kept, unused, for rollback); P04C closing documentation and its one full gate; P04C closes only on that gate's PASS (see checkpoints/P04C.md); NEXT is ChatGPT/owner review, then P05A only when authorised (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.5, §6 / P04C exit row; Stages 1–5A accepted, Stage 5B (HOME-PC adoption) accepted on its evidence.

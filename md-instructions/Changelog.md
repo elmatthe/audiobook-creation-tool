@@ -15,6 +15,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 P05A — optional voice setup planning (2026-10-25) — not released; identity stays 0.6.6
+
+- **Added (internal, nothing visible yet):** one planner for the four optional voice choices (Kokoro, Chatterbox Turbo, Qwen3
+  CustomVoice, Qwen3 Cloned Voices / Base). Before anything is downloaded it says what is ready, missing, damaged, unsupported, busy,
+  blocked by a bad bundled recording or transcript, or not yet proved, and what each choice would download, reuse, copy and occupy. The
+  app's own packages are shown separately, and every size says whether it is exact, from a manifest, approximate or unknown.
+- **Added (internal):** the optional-setup worker and its versioned request/result protocol. It runs only in the app's own Python 3.12
+  environment and, in this build, plans but never installs.
+- Nothing is downloaded or installed by this change; the first-run setup and the Qwen3 install dialog are unchanged (P05B/P06).
+
 ### v0.7.0 P04C — Qwen3 voice engine moves inside the app environment (2026-10-25) — not released; identity stays 0.6.6
 
 - **Changed:** a new or rebuilt Qwen3 voice engine is installed at `.venv/engines/qwen3`, built by the verified base Python 3.12 rather than

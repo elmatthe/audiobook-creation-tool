@@ -4,6 +4,31 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - Optional voice setup is planned by one acquisition-free planner and answered by a worker that runs only in the app's own CPython 3.12 environment; what is not proved stays unverified (v0.7.0 P05A)
+
+Plan Revision 2 §5.4 and §6 / P05A exit row; owner rulings Q14–Q20, Q32; recorded by Claude Code.
+
+**Contract.** Four components in a fixed order (Kokoro, Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices / Base), with Kokoro
+checked and the other three unchecked as the approved first-run defaults; the wizard itself changes in P06. Seven readiness states with a
+fixed precedence: unsupported, bad-bundle, busy, damaged, unverified, missing, ready. Only *missing* can lead to an install and only
+*damaged* to a repair, each under its own consent. A component with any unproved part is unverified: never installable, never healthy.
+Engine health that needs a probe is a fact the caller supplies; files being present do not prove it.
+
+**Sizes.** Every acquisition is a unit counted once (the shared Qwen3 engine; the Qwen3 files both models share, which are copied or
+linked locally). Every figure states its basis: exact, manifest, approximate, at-least or unknown. Kokoro and Chatterbox sizes are
+measured from HOME-PC's cache at recorded revisions and stay approximate because upstream is unpinned; what cannot be known without the
+network (the spaCy package, the base-package download) is reported as unknown. Base application packages are always disclosed
+separately and include the Kokoro and Chatterbox packages (Q32).
+
+**Execution home.** Before the app environment exists only a manifest-derived upper-bound estimate runs (standard library, imports proved
+in a bare interpreter). The worker runs as `.venv/Scripts/python.exe -E -s -m tts.optional_setup_worker` from `scripts/`, refuses any
+other interpreter itself, accepts one contained request bound to its launcher's session token and at most 10 minutes old, and publishes
+exactly one terminal result, which nothing replaces. A consent lists its units and known download; a plan that grows beyond it is stale.
+
+**Not chosen.** Importing `qwen3_setup` into the pre-venv path (the exact Qwen3 plan runs in the worker, reusing `plan_install`); a
+second Qwen3 planner; inferring Kokoro/Chatterbox health from file presence; reusing the old ~300 MB / ~3.9 GB strings as totals;
+probing locks for `busy` in P05A (it would create lock files; P05B wires real locks).
+
 ## 2026-10-25 - P04C closes on the nested Qwen3 layout: .venv/engines/qwen3 is canonical, HOME-PC runs on it, the legacy .venv-qwen3 is kept unused for rollback; MachineGuard stays out of repair and cleanup; residual debt is assigned, not closed (v0.7.0 P04C Stage 5C)
 
 Plan Revision 2 §5.5 and §6 / P04C exit row; owner rulings on P04C Stage 4 (Option B, MachineGuard, pinning, classifications); recorded
