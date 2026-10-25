@@ -4,6 +4,24 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - The Qwen3 dialog states the engine in use and the destination of a new one from the path authority; a real canonical engine is guarded per test by its identity and top level, and walked whole once per session (v0.7.0 P04C Stage 5A)
+
+Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Source + tests only; no environment created or changed.
+
+**Dialog.** The install dialog no longer names a fixed engine folder. `qwen3_install_ui.location_text()` asks the runtime
+(`venv_dir`, `is_nested`, `environment_status`) and keeps two facts apart: the engine in use (an earlier version's `.venv-qwen3`,
+never said to have moved, or `.venv/engines/qwen3`, healthy or needing repair) and where a new or rebuilt engine goes (always
+`.venv/engines/qwen3`). It no longer invites deleting folders, and says the engine is not part of the app's own dependencies.
+
+**Test guard.** Walking `.venv/engines` around every test is free while it is absent and about an hour per gate once a real engine is
+installed. Per test it is now fingerprinted by what identifies and lays out an engine (one-level listings of `engines`, the engine and
+`site-packages`; `pyvenv.cfg` by hash; `Scripts` in full); the whole tree is walked once at the session boundary without following
+links. Listings record names, kinds and the folder's own `stat` mtime, never the entries' listing timestamps, which NTFS lets lag.
+Accepted limits: no package content is hashed, and a deep edit is reported for the run rather than the test. Nothing in the engine is
+exempted; lock files live outside it and keep their own guard.
+
+**Not chosen.** Hashing the engine (5.5 GB); a per-test recursive walk of `site-packages`; exempting `__pycache__`.
+
 ## 2026-10-25 - Clear Downloaded Data removes the app environment and the models only under the Qwen3 engine lease; nested engines and repair asides can never be packaged or staged (v0.7.0 P04C Stage 3)
 
 Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Source + tests only; no live environment changed.

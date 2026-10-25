@@ -57,6 +57,64 @@ if str(SCRIPTS_ROOT) not in sys.path:
 #  It was found by hand, afterwards. All three are now guarded, and the absence
 #  of the last two is itself the thing being protected, because Phase 7's real
 #  acceptance depends on this machine still having no FFmpeg.
+# --------------------------------------------------------------------------- #
+#  v0.7.0 P04C: the canonical Qwen3 engine, ``.venv/engines/qwen3``.
+#
+#  Until a real engine is installed there, ``.venv/engines`` does not exist and
+#  a full recursive walk of it cost one failed scandir per test. An installed
+#  engine is ~44,000 files and ~5.5 GB, and two full walks around each of
+#  ~11,000 tests would add hours to a gate. So it is split by cost, like the
+#  logs above:
+#
+#  * Per test (attributed to the test): the ``engines`` folder and the engine's
+#    top level as one-level listings (creation, removal, a link, a new or
+#    removed top-level folder); ``pyvenv.cfg`` by content hash (the identity
+#    ``venv_layout.assess_child`` trusts); ``Scripts`` recursively (the
+#    interpreter and the launchers, ~40 flat entries); and ``Lib/site-packages``
+#    as a one-level listing -- installing or removing a package adds or removes
+#    its folders and ``.dist-info`` there and changes that folder's own mtime.
+#  * Once per session: every file under ``.venv/engines`` (path, size, mtime),
+#    never following a link or junction. This is what catches an edit to an
+#    existing file deep inside a package, or a file added or removed below the
+#    top level of ``site-packages``, reported for the run rather than for one
+#    test.
+#
+#  Measured on a synthetic 43,000-file engine: the per-test entries cost a few
+#  scandir calls (well under a millisecond); the old recursive walk of
+#  ``.venv/engines`` around every test would have cost ~0.3 s per test (about an
+#  hour over a gate); the session walk runs twice per run.
+#
+#  The trade-off, stated so it is not mistaken for more: no package file
+#  content is hashed (5.5 GB), so a same-size rewrite deep in a package with
+#  its timestamp restored is not seen; and a deep edit is attributed to the
+#  session, not to a test. Nothing inside the engine is exempted. The Qwen3
+#  lock files are not engine files: they live in ``files/runtime-data/qwen3``,
+#  are opened without being written (taking a lock changes no fingerprint),
+#  and keep their own guard (``engine.lock``) below.
+# --------------------------------------------------------------------------- #
+#: The engine's guarded paths fingerprinted as one-level listings, not trees.
+_SHALLOW_GUARDED = frozenset({"the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout",
+                              "the real canonical Qwen3 engine packages"})
+
+#: Trees walked without following links or junctions (an engine must not be able to send the walk elsewhere).
+_LINK_SAFE_TREES = frozenset({"the real canonical Qwen3 engine launchers", "the real canonical Qwen3 engine tree"})
+
+
+def _canonical_engine_guard(root: Path) -> dict:
+    """The guarded paths of a canonical engine under *root* (the real checkout, or a test's synthetic one)."""
+    engines = root / ".venv" / "engines"
+    engine = engines / "qwen3"
+    return {
+        "the real nested Qwen3 engines folder": engines,
+        "the real canonical Qwen3 engine layout": engine,
+        "the real canonical Qwen3 engine marker": engine / "pyvenv.cfg",
+        "the real canonical Qwen3 engine launchers": engine / "Scripts",
+        "the real canonical Qwen3 engine packages": engine / "Lib" / "site-packages",
+        # session-scoped (not in _PER_TEST_GUARDED): the whole tree, once before and once after the run
+        "the real canonical Qwen3 engine tree": engines,
+    }
+
+
 _GUARDED_PATHS = {
     "the real requirements stamp": REPO_ROOT / ".venv" / ".requirements-state.json",
     "the real import proof": REPO_ROOT / ".venv" / ".import-proof.json",
@@ -76,9 +134,8 @@ _GUARDED_PATHS = {
     # pip writes a launcher into Scripts for most packages it installs, so this ~40-entry folder notices a package
     # change that the marker file alone cannot.
     "the real Qwen3 environment launchers": REPO_ROOT / ".venv-qwen3" / "Scripts",
-    # v0.7.0 P04C Stage 2: the canonical engine is created at .venv/engines/qwen3. On a machine whose only engine is
-    # the legacy one this folder does not exist, so a test that creates anything there (or an engine) is caught.
-    "the real nested Qwen3 engines folder": REPO_ROOT / ".venv" / "engines",
+    # v0.7.0 P04C: the canonical engine at .venv/engines/qwen3 -- see _canonical_engine_guard below.
+    **_canonical_engine_guard(REPO_ROOT),
     "the real Qwen3 install record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                       / "state.json"),
     # v0.7.0 P04C Stage 2: a repair or setup now always takes the engine lease. Locking an existing lock file changes
@@ -97,9 +154,11 @@ _GUARDED_PATHS = {
     "the real Qwen3 failure record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                       / "last-failure.txt"),
 }
-#  Everything except the log directory is checked around every test, so a
-#  violation names the test that caused it. That is affordable because each is
-#  either one small file or — for the two FFmpeg trees — a path that does not
+#  Everything except the log directory and the canonical Qwen3 engine's full
+#  tree (see the note above ``_canonical_engine_guard``) is checked around every
+#  test, so a violation names the test that caused it. That is affordable because
+#  each is either one small file, a short one-level listing, or — for the two
+#  FFmpeg trees — a path that does not
 #  exist on a machine in the preserved condition, which costs a single failed
 #  stat. The log directory keeps its session-scoped check: ~80 entries either
 #  side of ~5500 tests is over ten thousand scans, and paying that per test is
@@ -109,7 +168,9 @@ _PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof", "th
                      "the real FFmpeg pin", "the real installed FFmpeg build",
                      "the real FFmpeg staging tree",
                      "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
-                     "the real nested Qwen3 engines folder",
+                     "the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout",
+                     "the real canonical Qwen3 engine marker", "the real canonical Qwen3 engine launchers",
+                     "the real canonical Qwen3 engine packages",
                      "the real Qwen3 install record", "the real Qwen3 engine lock",
                      "the real Qwen3 local transcripts", "the real Qwen3 transcript selection",
                      "the real Qwen3 model folder",
@@ -123,7 +184,7 @@ _REAL_SCANDIR = os.scandir
 _REAL_STAT = os.stat
 
 
-def _fingerprint(path: Path):
+def _fingerprint(path: Path, *, follow_links: bool = True):
     """(size, mtime_ns, sha256) for a file, or the metadata equivalent for a directory.
 
     A missing path fingerprints as ``None``, so a machine with no ``.venv`` and a
@@ -150,9 +211,12 @@ def _fingerprint(path: Path):
     ``os.scandir`` rather than ``Path.iterdir`` + ``Path.stat``: on Windows
     scandir carries size and timestamps back from the directory enumeration
     itself instead of paying a separate stat syscall per entry.
+
+    ``follow_links=False`` (the engine trees) records a link or junction inside
+    the tree as an entry of its own and does not descend into it.
     """
     try:
-        return tuple(sorted(_walk(path, "")))
+        return tuple(sorted(_walk(path, "", follow_links=follow_links)))
     except NotADirectoryError:
         pass
     except OSError:
@@ -166,7 +230,7 @@ def _fingerprint(path: Path):
         return None
 
 
-def _walk(directory: Path, prefix: str):
+def _walk(directory: Path, prefix: str, *, follow_links: bool = True):
     """Every file under ``directory``, recursively, as (relpath, size, mtime).
 
     Raises ``NotADirectoryError`` for a file so :func:`_fingerprint` can fall
@@ -176,14 +240,52 @@ def _walk(directory: Path, prefix: str):
     with _REAL_SCANDIR(directory) as entries:
         for entry in entries:
             name = f"{prefix}{entry.name}"
-            if entry.is_dir():
+            if not follow_links and _is_link(entry):
+                yield (name + "@", -2, -2)
+            elif entry.is_dir():
                 # A directory that exists but is empty still has to register,
                 # or an emptied tree would look identical to an absent one.
                 yield (name + "/", -1, -1)
-                yield from _walk(Path(entry.path), name + "/")
+                yield from _walk(Path(entry.path), name + "/", follow_links=follow_links)
             elif entry.is_file():
                 info = entry.stat()
                 yield (name, info.st_size, info.st_mtime_ns)
+
+
+def _is_link(entry) -> bool:
+    return entry.is_symlink() or bool(getattr(entry, "is_junction", lambda: False)())
+
+
+def _listing(path: Path):
+    """A one-level fingerprint of a directory: its own mtime and each entry's name and kind, without descending.
+
+    The directory's own mtime is read with a real ``stat`` of the directory, which changes whenever an entry is created,
+    removed or renamed in it. Entry timestamps are deliberately not used: on NTFS the copy a directory listing carries
+    for a child folder lags behind the folder itself, so it can differ between two snapshots with nothing changed (a
+    false alarm measured while writing this guard). A file where a folder is expected falls through to
+    :func:`_fingerprint`; a missing path is ``None``.
+    """
+    try:
+        with _REAL_SCANDIR(path) as entries:
+            rows = tuple(sorted((entry.name, "link" if _is_link(entry) else "dir" if entry.is_dir() else "file")
+                                for entry in entries))
+        return (_REAL_STAT(path).st_mtime_ns, rows)
+    except NotADirectoryError:
+        return ("not a directory", _fingerprint(path))
+    except OSError:
+        return None
+
+
+def _fingerprint_named(name: str, path: Path):
+    """The fingerprint the guard uses for the guarded path called *name*."""
+    if name in _SHALLOW_GUARDED:
+        return _listing(path)
+    return _fingerprint(path, follow_links=name not in _LINK_SAFE_TREES)
+
+
+def _snapshot(paths: dict, names) -> dict:
+    """``{name: fingerprint}`` for the named entries of *paths*."""
+    return {name: _fingerprint_named(name, paths[name]) for name in names}
 
 
 @pytest.fixture
@@ -598,11 +700,12 @@ def _isolated_setup_log(_isolated_runtime_data, _sandbox_logs_dir, _sandbox_setu
             setattr(module, name, original)
 
 
-def _violations(before: dict) -> list[str]:
+def _violations(before: dict, paths: dict | None = None) -> list[str]:
+    paths = _GUARDED_PATHS if paths is None else paths
     return [
-        f"{name} ({_GUARDED_PATHS[name]})"
+        f"{name} ({paths[name]})"
         for name, snapshot in before.items()
-        if _fingerprint(_GUARDED_PATHS[name]) != snapshot
+        if _fingerprint_named(name, paths[name]) != snapshot
     ]
 
 
@@ -647,8 +750,7 @@ def _no_production_state_writes():
     acceptance, and a test that can quietly create ``files/bin`` or pin an
     FFmpeg pair has spent that acceptance rather than merely made a mess.
     """
-    before = {name: _fingerprint(_GUARDED_PATHS[name])
-              for name in _PER_TEST_GUARDED}
+    before = _snapshot(_GUARDED_PATHS, _PER_TEST_GUARDED)
     yield
     changed = _violations(before)
     if changed:
@@ -658,12 +760,11 @@ def _no_production_state_writes():
 
 @pytest.fixture(scope="session", autouse=True)
 def _no_production_log_writes():
-    """The same contract for the log directory, checked once for the session.
+    """The same contract for the log directory and the canonical Qwen3 engine's whole tree, checked once for the session.
 
-    Session-scoped purely for cost — see the note beside ``_GUARDED_PATHS``.
+    Session-scoped purely for cost — see the notes beside ``_GUARDED_PATHS`` and ``_canonical_engine_guard``.
     """
-    watched = {name: _fingerprint(path) for name, path in _GUARDED_PATHS.items()
-               if name not in _PER_TEST_GUARDED}
+    watched = _snapshot(_GUARDED_PATHS, [name for name in _GUARDED_PATHS if name not in _PER_TEST_GUARDED])
     yield
     changed = _violations(watched)
     if changed:

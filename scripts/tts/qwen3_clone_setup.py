@@ -7,8 +7,10 @@ originals, and it writes only a local store that narration never reads:
 
 1. **Install the speech recognizer** -- the pinned Whisper small.en (``qwen3_models.json``, "transcriber"), downloaded only
    when the user asks, with its size shown first, verified file by file like the voice models.
-2. **Create drafts** -- the recognizer transcribes the six bundled recordings ON THIS COMPUTER inside ``.venv-qwen3``
-   (nothing is sent anywhere). Each draft is saved with ``approved: false``; an approval already given is never replaced.
+2. **Create drafts** -- the recognizer transcribes the six bundled recordings ON THIS COMPUTER inside the Qwen3 voice
+   engine in use (``qwen3_runtime.venv_python()``: ``.venv/engines/qwen3``, or an earlier version's ``.venv-qwen3``
+   while that is the only one present), never in the app's own interpreter (nothing is sent anywhere). Each draft is
+   saved with ``approved: false``; an approval already given is never replaced.
 3. **Confirm** -- the user plays each recording, corrects the text if needed, ticks "I listened" and approves. Only that
    writes ``approved: true``, bound to the recording's SHA-256, with who approved it and when.
 

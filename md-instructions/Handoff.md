@@ -2,6 +2,34 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04C Stage 5A: the Qwen3 install dialog now says which engine is in use and where a new one goes, for every layout; the test guard protects a real canonical engine without walking it around every test; still NO HOME-PC install; P04C OPEN; NEXT is ChatGPT/owner review, then Stage 5B only with consents B1–B6 (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.5, §6 / P04C; Stage 4 accepted with Option B ruled (install itself not authorised). Source + tests only.
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `3c65fc7`. Identity 0.6.6. Not merged/tagged; P05 not started.
+
+- **F1 dialog:** `qwen3_install_ui.location_text()` (no Tk) replaces the static "the voice engine in .venv/engines/qwen3 … deleting
+  those folders removes it again" text; read from `rt.venv_dir`/`rt.is_nested`/`environment_status` on every `refresh()`. Legacy-only:
+  "This copy uses the voice engine an earlier version installed in .venv-qwen3; it has not been moved. A new or rebuilt engine is
+  installed in .venv\engines\qwen3 instead…"; both present: canonical "in use", older "no longer used" (healthy) or "not used in its
+  place" + "needs to be repaired" (damaged/half-made); always: no-download promise, models path, "The voice engine is not part of the
+  app's own dependencies: rebuilding or clearing those leaves it alone." No deletion invitation.
+- **F2:** `qwen3_clone_setup.py` docstring: the recognizer runs in the engine in use (`rt.venv_python()`), either layout.
+- **F3 guard (`files/tests/conftest.py`):** `.venv/engines` was walked recursively around every test (fine while absent; ~0.3 s per
+  test ≈ 1 h per gate once a 44k-file engine exists). Now per test: `engines` and `qwen3` as one-level listings (names/kinds + the
+  folder's own real-stat mtime), `pyvenv.cfg` content hash, `Scripts` recursive, `Lib/site-packages` one-level; once per session: the
+  whole `.venv/engines` tree (size+mtime, links/junctions recorded, never followed). Synthetic 43k-file engine: 5 scandir calls,
+  0.64 ms per snapshot; session walk 0.16 s. Measured pitfall: NTFS listing timestamps of child folders lag → not used (false alarms).
+  Trade-off: no package content hashed; a deep edit is attributed to the session, not a test. All earlier guards unchanged.
+- **Tests:** `test_qwen3_install_ui.py` +9 (7-layout matrix, refresh re-read, unsupported platform; old static-text test tightened);
+  `test_suite_isolation.py` +11 (no false alarm incl. lock files beside the engine, create/delete, package add/remove, deep edit at
+  session, identity same-size+restored-mtime, launcher, layout, file-for-folder, scan-count bound, junction not followed, all old guards
+  kept). Mutations 13/13 killed (F1 5, F3 8), restored byte-exact. Focused 31 modules: see the report.
+- **Report:** `files/dev-work/act070-remediation/checkpoints/P04C-PRE-ADOPTION.md` (ignored), incl. Stage 5B consent summary,
+  network-traffic caveat and exact rollback state. Full `verify.py` gate NOT run (owed at P04C close).
+- **Retained:** production `.venv`, `.venv-qwen3`, `state.json`, models, references, previews, preserved dirs, Q and Q2 untouched;
+  `.venv/engines` still absent; no install, repair, synthesis or download.
+- **Next:** STOP for ChatGPT/owner review. Stage 5B (HOME-PC canonical install) only with explicit consents B1–B6.
+
 ## CURRENT STATE — v0.7.0 P04C Stage 3: Clear Downloaded Data now takes the Qwen3 engine lease before it re-checks or removes the app environment or the models, so it can no longer race a first Qwen3 install, a conversion or a worker; release packaging/ignore rules proven against force-committed nested engines; P04C still OPEN; NEXT is owner/ChatGPT review (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.5, §6 / P04C (Stage 3 = maintenance, cleanup and packaging safety; no live migration, no full gate).

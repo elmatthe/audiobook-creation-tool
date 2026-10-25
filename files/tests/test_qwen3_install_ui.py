@@ -516,6 +516,94 @@ def test_the_dialog_states_that_nothing_is_downloaded_until_asked_and_where_thin
             walk(child)
 
     walk(win)
-    joined = " ".join(texts)
+    joined = " ".join(texts) + " " + win.location_var.get()
     assert "Nothing is downloaded until you press one of these buttons and confirm" in joined
-    assert ".venv/engines/qwen3" in joined and "files/runtime-data/models/qwen3-tts" in joined
+    assert rt.shown_path(rt.nested_venv_dir()) in joined and rt.shown_path(rt.models_root()) in joined
+    # v0.7.0 P04C: no widget hard-codes an engine path; the one that names it is driven by the path authority
+    assert ".venv/engines/qwen3" not in " ".join(texts) and ".venv-qwen3" not in " ".join(texts)
+    assert "deleting those folders" not in joined
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P04C (F1): which engine is in use, and where a new one goes, for every layout
+# --------------------------------------------------------------------------- #
+def _legacy(root: Path) -> None:
+    (root / ".venv-qwen3").mkdir()
+    install_environment(root)  # healthy legacy-only engine (the canonical folder is absent)
+
+
+def _canonical(root: Path) -> None:
+    root.joinpath(".venv", "engines", "qwen3").mkdir(parents=True)
+    install_environment(root)  # healthy canonical engine
+
+
+def _damage_canonical(root: Path) -> None:
+    from shared import venv_layout
+
+    venv_layout.interpreter(root.joinpath(".venv", "engines", "qwen3")).unlink()
+
+
+LAYOUTS = {
+    # name: (build(root), healthy engine expected)
+    "nothing installed": (lambda root: None, False),
+    "legacy only": (_legacy, True),
+    "canonical only, healthy": (_canonical, True),
+    "canonical only, damaged": (lambda root: (_canonical(root), _damage_canonical(root)), False),
+    "both, canonical healthy": (lambda root: (_legacy(root), _canonical(root)), True),
+    "both, canonical damaged": (lambda root: (_legacy(root), _canonical(root), _damage_canonical(root)), False),
+    "both, canonical half-made": (lambda root: (_legacy(root), root.joinpath(".venv", "engines", "qwen3").mkdir(
+        parents=True)), False),
+}
+
+
+@pytest.mark.parametrize("layout", list(LAYOUTS))
+def test_the_location_text_follows_the_path_authority_for_every_layout(sandbox, layout):
+    build, healthy = LAYOUTS[layout]
+    build(sandbox)
+    assert rt.environment_status()[0] is healthy  # the fixture is the layout it claims to be
+    text = ui.location_text()
+    new, old = rt.shown_path(rt.nested_venv_dir()), rt.shown_path(rt.legacy_venv_dir())
+    in_use_is_legacy = not rt.is_nested(rt.venv_dir())
+
+    # always: the no-download promise, the destination of a new engine, the models, and no false removal claim
+    assert text.startswith("Nothing is downloaded until you press one of these buttons and confirm.")
+    assert new in text and rt.shown_path(rt.models_root()) in text
+    assert "The voice engine is not part of the app's own dependencies: rebuilding or clearing those leaves it alone." \
+        in text
+    assert "deleting" not in text and "removes it" not in text
+    assert ("moved to" not in text) and ("has moved" not in text)  # the legacy engine is never said to have moved
+
+    if layout == "nothing installed":
+        assert f"The voice engine will be installed in {new}." in text and old not in text
+    elif layout == "legacy only":
+        assert in_use_is_legacy
+        assert f"This copy uses the voice engine an earlier version installed in {old}; it has not been moved." in text
+        assert f"A new or rebuilt engine is installed in {new} instead, and {old} is then left as it is." in text
+        assert "in use is in" not in text and "will be installed" not in text
+    elif layout.startswith("canonical only"):
+        assert f"The voice engine is in {new}." in text and old not in text  # the status line above names any damage
+    elif layout == "both, canonical healthy":
+        assert f"The voice engine in use is in {new}." in text
+        assert f"The older engine in {old} is no longer used; this app does not change or delete it." in text
+        assert "repaired" not in text
+    else:  # both present, the canonical one unusable: still the one in use, never replaced by the older one
+        assert not in_use_is_legacy
+        assert f"The voice engine in use is in {new}, and it needs to be repaired (see above)." in text
+        assert f"The older engine in {old} is not used in its place; this app does not change or delete it." in text
+        assert "no longer used" not in text
+
+
+def test_the_location_text_is_read_again_when_the_engine_in_use_changes(dialog, sandbox):
+    _legacy(sandbox)
+    win = dialog()
+    old, new = rt.shown_path(rt.legacy_venv_dir()), rt.shown_path(rt.nested_venv_dir())
+    assert f"This copy uses the voice engine an earlier version installed in {old}" in win.location_var.get()
+    _canonical(sandbox)  # what an install or a repair of the legacy engine leaves behind
+    win.refresh()
+    assert f"The voice engine in use is in {new}." in win.location_var.get()
+    assert win.location_var.get() == ui.location_text()
+
+
+def test_the_location_text_names_no_engine_where_qwen3_is_not_offered(sandbox, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert ui.location_text() == "Nothing is downloaded until you press one of these buttons and confirm."

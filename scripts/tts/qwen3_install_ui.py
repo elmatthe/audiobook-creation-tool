@@ -9,6 +9,8 @@ Owner rulings it implements (``Decisions.md``, 2026-10-19, CP6):
   voice panel whenever a Qwen3 voice is selected, and "Check and repair" re-verifies what is installed.
 * Q3/Q4 — it states where Qwen3 will run (GPU or CPU, honestly) and, on a platform where the voices are not yet
   available, offers nothing to install.
+* v0.7.0 P04C — it says which voice engine is in use (an earlier version's ``.venv-qwen3`` or ``.venv/engines/qwen3``)
+  and, separately, where a new one is installed (:func:`location_text`), from the runtime's path authority.
 * v0.7.0 P03D — the maintainer's reference-transcript workflow is a developer tool: its button
   (:data:`DEVELOPER_TOOLS_LABEL`) is created only when ``config.toml`` sets ``developer_mode = true``. Installing,
   repairing and all eight voices are the same in both modes.
@@ -23,6 +25,7 @@ Two layers, so the logic is testable without a display:
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import tkinter as tk
@@ -159,6 +162,36 @@ def state_lines() -> list[str]:
     return lines
 
 
+def location_text() -> str:
+    """Where the voice engine in use is, where a new one goes, and where the models are (v0.7.0 P04C).
+
+    Read from the runtime's path authority (``rt.venv_dir``/``rt.is_nested``) and status, never inferred here: on a copy
+    an earlier version set up, the engine in use is the older ``.venv-qwen3``, which has not moved; a new or rebuilt
+    engine always goes to ``.venv/engines/qwen3``; once that one exists it is the one in use, healthy or not, and the
+    older folder is never used in its place. Nothing here invites deleting folders inside the app's environment.
+    """
+    if not rt.platform_supported():
+        return "Nothing is downloaded until you press one of these buttons and confirm."
+    in_use, canonical, legacy = rt.venv_dir(), rt.nested_venv_dir(), rt.legacy_venv_dir()
+    new_place, old_place = rt.shown_path(canonical), rt.shown_path(legacy)
+    if not rt.is_nested(in_use):
+        engine = (f"This copy uses the voice engine an earlier version installed in {old_place}; it has not been moved. "
+                  f"A new or rebuilt engine is installed in {new_place} instead, and {old_place} is then left as it is.")
+    elif not os.path.lexists(canonical):
+        engine = f"The voice engine will be installed in {new_place}."
+    elif not os.path.lexists(legacy):
+        engine = f"The voice engine is in {new_place}."
+    elif rt.environment_status()[0]:
+        engine = (f"The voice engine in use is in {new_place}. The older engine in {old_place} is no longer used; this "
+                  "app does not change or delete it.")
+    else:
+        engine = (f"The voice engine in use is in {new_place}, and it needs to be repaired (see above). The older engine "
+                  f"in {old_place} is not used in its place; this app does not change or delete it.")
+    return (f"Nothing is downloaded until you press one of these buttons and confirm. {engine} The models are under "
+            f"{rt.shown_path(rt.models_root())}. The voice engine is not part of the app's own dependencies: "
+            "rebuilding or clearing those leaves it alone.")
+
+
 def _short(reason: str) -> str:
     """The first sentence of a status reason, without its instruction (the buttons below are the instruction)."""
     first = reason.split(". ")[0].rstrip(".")
@@ -245,10 +278,10 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         win.btn_clones = ttk.Button(actions, text=DEVELOPER_TOOLS_LABEL, style=st("button"), command=lambda: _clones())
         win.btn_clones.grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
-    ttk.Label(body, text=("Nothing is downloaded until you press one of these buttons and confirm. Everything is stored "
-                          "inside this app's own folder (the voice engine in .venv/engines/qwen3, the models under "
-                          "files/runtime-data/models/qwen3-tts), so deleting those folders removes it again."),
-              justify=tk.LEFT, wraplength=520, style=st("secondary_label") or st("label")).pack(anchor="w", pady=(12, 0))
+    location_var = tk.StringVar(value="")
+    win.location_var = location_var
+    ttk.Label(body, textvariable=location_var, justify=tk.LEFT, wraplength=520,
+              style=st("secondary_label") or st("label")).pack(anchor="w", pady=(12, 0))
 
     win.progress = ttk.Progressbar(body, orient=tk.HORIZONTAL, mode="determinate", maximum=1000, length=520,
                                    style=st("progressbar"))
@@ -267,6 +300,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
 
     def refresh() -> None:
         state_var.set("\n".join(line for line in state_lines() if line))
+        location_var.set(location_text())  # re-read: an install or repair can change which engine is in use
         running = session.running
         supported = rt.platform_supported()
         installed = {key: rt.model_status(key)[0] for key in rt.MODEL_KEYS}

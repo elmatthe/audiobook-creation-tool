@@ -26,6 +26,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -594,3 +596,213 @@ def test_a_stand_in_pydub_is_left_alone():
             del sys.modules["pydub.utils"]
         else:
             sys.modules["pydub.utils"] = saved
+
+
+# --------------------------------------------------------------------------- #
+# G. v0.7.0 P04C (F3) -- the real canonical Qwen3 engine, guarded without walking it around every test
+#
+# Every engine here is a small synthetic one in tmp_path, fingerprinted through the guard's own functions with the paths
+# ``conftest._canonical_engine_guard`` derives for that root. The real engine is never scanned or changed by a test.
+# --------------------------------------------------------------------------- #
+ENGINE_PER_TEST = ("the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout",
+                   "the real canonical Qwen3 engine marker", "the real canonical Qwen3 engine launchers",
+                   "the real canonical Qwen3 engine packages")
+ENGINE_SESSION = ("the real canonical Qwen3 engine tree",)
+
+
+def make_installed_engine(root: Path) -> Path:
+    """A miniature of an installed canonical engine: identity file, launchers, packages several folders deep."""
+    engine = root / ".venv" / "engines" / "qwen3"
+    (engine / "Scripts").mkdir(parents=True)
+    for name in ("python.exe", "pythonw.exe", "pip.exe", "activate.bat"):
+        (engine / "Scripts" / name).write_bytes(b"launcher " + name.encode())
+    (engine / "pyvenv.cfg").write_text("home = C:/base\ninclude-system-site-packages = false\nversion = 3.12.10\n",
+                                       encoding="utf-8")
+    (engine / "Include").mkdir()
+    packages = engine / "Lib" / "site-packages"
+    for package in ("torch", "transformers"):
+        (packages / f"{package}-1.0.dist-info").mkdir(parents=True)
+        (packages / f"{package}-1.0.dist-info" / "RECORD").write_text(f"{package}/__init__.py,,\n", encoding="utf-8")
+        deep = packages / package / "nn" / "modules" / "__pycache__"
+        deep.mkdir(parents=True)
+        (packages / package / "__init__.py").write_text("import os\n", encoding="utf-8")
+        (packages / package / "nn" / "modules" / "linear.py").write_text("WEIGHT = 1\n", encoding="utf-8")
+        (deep / "linear.cpython-312.pyc").write_bytes(b"compiled")
+    return engine
+
+
+def engine_snapshots(root: Path):
+    paths = conftest._canonical_engine_guard(root)
+    return paths, conftest._snapshot(paths, ENGINE_PER_TEST), conftest._snapshot(paths, ENGINE_SESSION)
+
+
+def changed(root: Path, per_test: dict, session: dict) -> tuple[set, set]:
+    """The names of the engine entries that changed since the snapshots: (per-test ones, session ones)."""
+    paths = conftest._canonical_engine_guard(root)
+
+    def names(rows):
+        return {row.split(" (")[0] for row in rows}
+
+    return names(conftest._violations(per_test, paths)), names(conftest._violations(session, paths))
+
+
+def test_the_real_engine_paths_are_the_ones_the_guard_watches_and_split_by_cost():
+    expected = conftest._canonical_engine_guard(REPO_ROOT)
+    assert expected["the real canonical Qwen3 engine layout"] == REPO_ROOT / ".venv" / "engines" / "qwen3"
+    for name, path in expected.items():
+        assert conftest._GUARDED_PATHS[name] == path
+    assert set(ENGINE_PER_TEST) <= set(conftest._PER_TEST_GUARDED)
+    assert not set(ENGINE_SESSION) & set(conftest._PER_TEST_GUARDED)  # the whole tree only at the session boundary
+    assert set(ENGINE_PER_TEST) | set(ENGINE_SESSION) == set(expected)
+
+
+def test_an_unchanged_installed_engine_raises_no_alarm_and_lock_files_beside_it_are_not_engine_files(tmp_path):
+    make_installed_engine(tmp_path)
+    _, per_test, session = engine_snapshots(tmp_path)
+    assert all(value is not None for value in (*per_test.values(), *session.values()))
+    # what a real lock acquisition leaves: the three empty lock files in the runtime folder, outside the engine
+    locks = tmp_path / "files" / "runtime-data" / "qwen3"
+    locks.mkdir(parents=True)
+    for name in ("setup.lock", "inference.lock", "engine.lock"):
+        (locks / name).write_bytes(b"")
+    assert changed(tmp_path, per_test, session) == (set(), set())
+    # ...while a lock file keeps its own (file) guard, which does see one appear
+    assert conftest._fingerprint(locks / "engine.lock") != conftest._fingerprint(locks / "never-made.lock")
+
+
+def test_an_engine_appearing_or_disappearing_is_attributed_to_the_test(tmp_path):
+    _, per_test, session = engine_snapshots(tmp_path)  # nothing installed: every entry is "absent"
+    assert set(per_test.values()) == {None}
+    engine = make_installed_engine(tmp_path)
+    per, whole = changed(tmp_path, per_test, session)
+    assert per == set(ENGINE_PER_TEST) and whole == set(ENGINE_SESSION)
+
+    _, per_test, session = engine_snapshots(tmp_path)
+    shutil.rmtree(engine)
+    per, whole = changed(tmp_path, per_test, session)
+    assert per == set(ENGINE_PER_TEST) and whole == set(ENGINE_SESSION)
+
+
+def test_a_package_installed_or_removed_is_attributed_to_the_test(tmp_path):
+    engine = make_installed_engine(tmp_path)
+    packages = engine / "Lib" / "site-packages"
+    _, per_test, session = engine_snapshots(tmp_path)
+    (packages / "numpy-2.5.4.dist-info").mkdir()
+    assert "the real canonical Qwen3 engine packages" in changed(tmp_path, per_test, session)[0]
+
+    _, per_test, session = engine_snapshots(tmp_path)
+    shutil.rmtree(packages / "transformers-1.0.dist-info")
+    assert "the real canonical Qwen3 engine packages" in changed(tmp_path, per_test, session)[0]
+
+    _, per_test, session = engine_snapshots(tmp_path)
+    (packages / "torch" / "extra.py").write_text("x\n", encoding="utf-8")  # a file added inside a package folder
+    assert changed(tmp_path, per_test, session)[1] == set(ENGINE_SESSION)  # below the top level: the session walk
+
+
+def test_two_snapshots_of_an_untouched_engine_are_equal_however_far_apart(tmp_path):
+    """No false alarm from directory-listing timestamps: NTFS lets a listing's copy of a child folder's mtime lag."""
+    engine = make_installed_engine(tmp_path)
+    (engine / "Lib" / "site-packages" / "torch" / "late.py").write_text("x\n", encoding="utf-8")
+    _, per_test, session = engine_snapshots(tmp_path)
+    for _ in range(3):
+        assert changed(tmp_path, per_test, session) == (set(), set())
+
+
+def test_an_edit_deep_inside_a_package_is_caught_at_the_session_boundary(tmp_path):
+    """The documented trade-off: a deep in-place edit changes no listing a test pays for; the session walk sees it."""
+    engine = make_installed_engine(tmp_path)
+    _, per_test, session = engine_snapshots(tmp_path)
+    (engine / "Lib" / "site-packages" / "torch" / "nn" / "modules" / "linear.py").write_text("WEIGHT = 222\n",
+                                                                                           encoding="utf-8")
+    per, whole = changed(tmp_path, per_test, session)
+    assert whole == set(ENGINE_SESSION)
+    assert per == set(), "a per-test entry that walks the packages would be the multi-GB cost this split avoids"
+
+
+def test_a_changed_identity_or_launcher_is_attributed_to_the_test(tmp_path):
+    engine = make_installed_engine(tmp_path)
+    cfg = engine / "pyvenv.cfg"
+    _, per_test, session = engine_snapshots(tmp_path)
+    stat = cfg.stat()
+    cfg.write_text(cfg.read_text(encoding="utf-8").replace("false", "FALSE"), encoding="utf-8")  # same size
+    os.utime(cfg, ns=(stat.st_atime_ns, stat.st_mtime_ns))  # and the timestamp put back
+    assert "the real canonical Qwen3 engine marker" in changed(tmp_path, per_test, session)[0]
+
+    _, per_test, session = engine_snapshots(tmp_path)
+    (engine / "Scripts" / "python.exe").write_bytes(b"a different interpreter")
+    assert "the real canonical Qwen3 engine launchers" in changed(tmp_path, per_test, session)[0]
+
+    _, per_test, session = engine_snapshots(tmp_path)
+    (engine / "share").mkdir()  # a new top-level folder in the engine
+    assert "the real canonical Qwen3 engine layout" in changed(tmp_path, per_test, session)[0]
+
+
+def test_an_engine_folder_replaced_by_a_file_is_detected(tmp_path):
+    engines = tmp_path / ".venv" / "engines"
+    engines.mkdir(parents=True)
+    _, per_test, session = engine_snapshots(tmp_path)
+    (engines / "qwen3").write_bytes(b"not an environment")
+    per, _ = changed(tmp_path, per_test, session)
+    assert {"the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout"} <= per
+
+
+def test_the_per_test_check_never_walks_the_packages(tmp_path, monkeypatch):
+    engine = make_installed_engine(tmp_path)
+    packages = engine / "Lib" / "site-packages"
+    paths = conftest._canonical_engine_guard(tmp_path)
+    scanned = []
+    real = conftest._REAL_SCANDIR
+
+    def counting(path):
+        scanned.append(Path(path))
+        return real(path)
+
+    monkeypatch.setattr(conftest, "_REAL_SCANDIR", counting)
+    conftest._snapshot(paths, ENGINE_PER_TEST)
+    folders = {p for p in scanned if p.is_dir()}  # (pyvenv.cfg is offered to scandir once, refused as a file, hashed)
+    assert folders == {engine.parent, engine, engine / "Scripts", packages}  # one level each; Scripts is flat
+    assert not any(p.is_relative_to(packages) and p != packages for p in scanned)
+
+    scanned.clear()
+    conftest._snapshot(paths, ENGINE_SESSION)  # the session walk, by contrast, goes all the way down
+    assert packages / "torch" / "nn" / "modules" / "__pycache__" in set(scanned)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are a Windows construct")
+def test_the_engine_walks_do_not_follow_a_junction_out_of_the_engine(tmp_path):
+    engine = make_installed_engine(tmp_path)
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents=True)
+    (outside / "deep" / "big.bin").write_bytes(b"x")
+    link = engine / "Lib" / "site-packages" / "escape"
+    made = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], capture_output=True).returncode == 0
+    if not made:
+        pytest.skip("this account may not create a junction")
+    _, per_test, session = engine_snapshots(tmp_path)
+    tree = session["the real canonical Qwen3 engine tree"]
+    assert ("qwen3/Lib/site-packages/escape@", -2, -2) in tree
+    assert not any("big.bin" in row[0] for row in tree)
+    _, rows = per_test["the real canonical Qwen3 engine packages"]
+    kinds = dict(rows)
+    assert kinds["escape"] == "link"
+    (outside / "deep" / "big.bin").write_bytes(b"changed outside the engine")
+    assert changed(tmp_path, per_test, session) == (set(), set())
+
+
+def test_every_previously_guarded_path_is_still_guarded_with_the_same_attribution():
+    per_test = set(conftest._PER_TEST_GUARDED)
+    for name in ("the real requirements stamp", "the real import proof", "the real Kokoro proof",
+                 "the real FFmpeg pin", "the real installed FFmpeg build", "the real FFmpeg staging tree",
+                 "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
+                 "the real nested Qwen3 engines folder", "the real Qwen3 install record", "the real Qwen3 engine lock",
+                 "the real Qwen3 local transcripts", "the real Qwen3 transcript selection",
+                 "the real Qwen3 model folder", "the real Qwen3 job folder", "the real Qwen3 failure record"):
+        assert name in per_test and name in conftest._GUARDED_PATHS
+    assert "the real setup log directory" not in per_test
+    assert conftest._GUARDED_PATHS["the real Qwen3 environment marker"] == REPO_ROOT / ".venv-qwen3" / "pyvenv.cfg"
+    assert conftest._GUARDED_PATHS["the real Qwen3 engine lock"] == \
+        REPO_ROOT / "files" / "runtime-data" / "qwen3" / "engine.lock"
+    # every entry outside the engine keeps the full, link-following fingerprint it always had
+    for name in conftest._GUARDED_PATHS:
+        if name not in set(ENGINE_PER_TEST) | set(ENGINE_SESSION):
+            assert name not in conftest._SHALLOW_GUARDED and name not in conftest._LINK_SAFE_TREES
