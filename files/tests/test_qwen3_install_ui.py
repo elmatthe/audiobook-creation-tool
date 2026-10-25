@@ -518,4 +518,4 @@ def test_the_dialog_states_that_nothing_is_downloaded_until_asked_and_where_thin
     walk(win)
     joined = " ".join(texts)
     assert "Nothing is downloaded until you press one of these buttons and confirm" in joined
-    assert ".venv-qwen3" in joined and "files/runtime-data/models/qwen3-tts" in joined
+    assert ".venv/engines/qwen3" in joined and "files/runtime-data/models/qwen3-tts" in joined

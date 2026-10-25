@@ -76,8 +76,15 @@ _GUARDED_PATHS = {
     # pip writes a launcher into Scripts for most packages it installs, so this ~40-entry folder notices a package
     # change that the marker file alone cannot.
     "the real Qwen3 environment launchers": REPO_ROOT / ".venv-qwen3" / "Scripts",
+    # v0.7.0 P04C Stage 2: the canonical engine is created at .venv/engines/qwen3. On a machine whose only engine is
+    # the legacy one this folder does not exist, so a test that creates anything there (or an engine) is caught.
+    "the real nested Qwen3 engines folder": REPO_ROOT / ".venv" / "engines",
     "the real Qwen3 install record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                       / "state.json"),
+    # v0.7.0 P04C Stage 2: a repair or setup now always takes the engine lease. Locking an existing lock file changes
+    # nothing a fingerprint sees, but on a machine whose engine has never run this file does not exist, so a test that
+    # leases the real runtime folder (instead of its own) is caught here.
+    "the real Qwen3 engine lock": REPO_ROOT / "files" / "runtime-data" / "qwen3" / "engine.lock",
     "the real Qwen3 local transcripts": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                          / "transcripts.json"),
     # v0.7.0 P03D: a developer's choice to narrate a clone with a local transcript.
@@ -102,7 +109,8 @@ _PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof", "th
                      "the real FFmpeg pin", "the real installed FFmpeg build",
                      "the real FFmpeg staging tree",
                      "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
-                     "the real Qwen3 install record",
+                     "the real nested Qwen3 engines folder",
+                     "the real Qwen3 install record", "the real Qwen3 engine lock",
                      "the real Qwen3 local transcripts", "the real Qwen3 transcript selection",
                      "the real Qwen3 model folder",
                      "the real Qwen3 job folder", "the real Qwen3 failure record")

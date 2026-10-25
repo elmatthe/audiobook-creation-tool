@@ -1,11 +1,10 @@
 """Environments held inside the app's environment: where they may be, and what keeps them safe.
 
-v0.7.0 P04A (plan Revision 2 §5.5). The app runs in ``.venv``; the Qwen3 engine runs in a second, independent
-environment, today ``.venv-qwen3`` beside it. A *candidate* layout puts such an engine inside the parent, at
-``.venv/engines/<name>/``. **That layout is not adopted.** Nothing installs there and the Qwen3 path authority
-(``tts.qwen3_runtime.venv_dir``) is unchanged. This module is the vocabulary the parent's own lifecycle needs so
-that, if anything is ever there, replacing, restoring or clearing the parent can never delete it, strand it in a
-backup, or run it from a place it was not built.
+v0.7.0 P04A (plan Revision 2 §5.5); adopted in P04C Stage 2. The app runs in ``.venv``; the Qwen3 engine runs in a
+second, independent environment held inside it, at ``.venv/engines/qwen3`` (``tts.qwen3_runtime.venv_dir`` is the
+path authority, and an older ``.venv-qwen3`` beside the parent is still used while it is the only one). This module
+is the vocabulary the parent's own lifecycle needs so that replacing, restoring or clearing the parent can never
+delete what is held there, strand it in a backup, or run it from a place it was not built.
 
 The rules it encodes:
 
@@ -32,9 +31,9 @@ from typing import Optional
 
 #: The one folder inside a parent environment where an independent child environment may be held.
 ENGINES_DIRNAME = "engines"
-#: The two Qwen3 locations, relative to the repository root. Only the legacy one is in use.
+#: The two Qwen3 locations, relative to the repository root. New installs go to the nested (canonical) one only.
 LEGACY_QWEN3 = ".venv-qwen3"
-NESTED_QWEN3 = ".venv/engines/qwen3"  # candidate only (P04A); not adopted
+NESTED_QWEN3 = ".venv/engines/qwen3"  # canonical since P04C Stage 2
 
 IDENTITY_OK = "identity-ok"
 UNVERIFIED = "unverified"

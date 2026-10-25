@@ -598,24 +598,40 @@ def test_a_real_open_handle_in_the_previous_environment_keeps_it_whole_and_is_re
 
 
 # --------------------------------------------------------------------------- #
-# F. The legacy layout: nothing held, nothing locked, behaviour as before
+# F. Nothing held yet, or only a legacy engine: the lease is taken all the same (P04C Stage 2)
+#
+# Since the canonical engine is created inside .venv, "nothing under engines/" no longer means "nothing to protect": an
+# install holding setup.lock may be about to create it. So the lease no longer depends on what the parent holds.
 # --------------------------------------------------------------------------- #
-def test_with_nothing_held_a_repair_touches_no_lock_and_still_works(env, monkeypatch):
+def test_with_nothing_held_a_repair_still_takes_the_whole_lease_and_still_works(env, monkeypatch):
     keepsake = _existing_venv(env)
     _successful_repair_fakes(monkeypatch)
-    monkeypatch.setattr(el.Lease, "take", lambda self: pytest.fail("a legacy repair took the Qwen3 locks"))
+    taken: list[list[str]] = []
+    real_take = el.Lease.take
+
+    def spy(self):
+        real_take(self)
+        taken.append(list(self.taken))
+
+    monkeypatch.setattr(el.Lease, "take", spy)
     ok, message = bootstrap.repair_venv(_Log(), headless=True)
     assert ok is True and not keepsake.exists() and (env.venv / "candidate.txt").exists()
-    assert not lock_dir(env).exists()
+    assert taken == [list(el.ORDER)]
+    assert sorted(p.name for p in lock_dir(env).iterdir()) == sorted(el.ORDER)  # the three lock files and nothing else
+    assert all((lock_dir(env) / name).stat().st_size == 0 for name in el.ORDER)
+    assert free(lock_dir(env)) == ALL_FREE  # and all three given back
 
 
-def test_with_nothing_held_a_legacy_conversion_does_not_change_the_repair(env, monkeypatch):
-    """A ``.venv-qwen3`` conversion never moves with the parent, so its locks were never the parent's concern."""
+def test_a_legacy_engine_s_conversion_now_refuses_the_repair_and_changes_nothing(env, monkeypatch):
+    """A ``.venv-qwen3`` conversion never moves with the parent, but its ``inference.lock`` is the same lock an install
+    of the canonical engine holds; the repair cannot tell them apart, so it waits for either rather than race one."""
     keepsake = _existing_venv(env)
     _successful_repair_fakes(monkeypatch)
     with held_by_another_process("conversion", lock_dir(env)):
         ok, message = bootstrap.repair_venv(_Log(), headless=True)
-    assert ok is True and not keepsake.exists()
+    assert ok is False and "conversion" in message and "Nothing was changed" in message
+    assert keepsake.read_text(encoding="utf-8") == "previous" and not (env.venv / "candidate.txt").exists()
+    assert not os.path.lexists(bootstrap._venv_aside_path())
 
 
 # --------------------------------------------------------------------------- #

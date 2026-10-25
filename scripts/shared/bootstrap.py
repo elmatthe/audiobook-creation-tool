@@ -1558,27 +1558,29 @@ def _qwen3_lock_dir() -> Path:
     return engine_lease.runtime_dir(VENV_DIR.parent)
 
 
-def _take_held_engines_lease(log, refused_prefix: str
-                             ) -> tuple[Optional[engine_lease.Lease], Optional[str]]:
-    """Before ANY change to the environment: the right to move what it holds under ``engines/``. (lease, refusal).
+def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.Lease], Optional[str]]:
+    """Before ANY change to the environment: the right to move what it holds, or will hold, under ``engines/``.
 
-    v0.7.0 P04C. P04B proved that a running engine does not stop its parent being renamed aside (Windows allows that
-    while its programs are mapped), so the engine's own locks are the only protection. When the environment, or the
-    one a repair set aside, holds anything there, all of ``shared.engine_lease`` is taken now -- before recovery, the
-    aside, the rebuild, commit or rollback -- and the caller holds it until the transaction is over. It never waits:
-    busy, denied or uncheckable is an immediate refusal with nothing changed. With nothing held (the ``.venv-qwen3``
-    layout) there is nothing to move, no lock file is touched, and the result is ``(None, None)`` as before.
+    (lease, refusal). v0.7.0 P04C. P04B proved that a running engine does not stop its parent being renamed aside
+    (Windows allows that while its programs are mapped), so the engine's own locks are the only protection. All of
+    ``shared.engine_lease`` is taken now -- before recovery, the aside, the rebuild, commit or rollback -- and the
+    caller holds it until the transaction is over. It never waits: busy, denied or uncheckable is an immediate refusal
+    with nothing changed.
+
+    Since the canonical Qwen3 engine lives at ``.venv/engines/qwen3`` (P04C Stage 2) the lease is taken even when
+    nothing is held there yet: an install creates that folder while it holds ``setup.lock``, so taking ``setup.lock``
+    first is what stops a repair setting the parent aside under a first install that has just begun -- and stops a
+    first install starting under a repair. A copy whose only engine is the legacy ``.venv-qwen3`` is leased the same
+    way, so a repair also waits for that engine's conversion to finish rather than racing a new install.
     """
-    if not (venv_layout.holds_environments(VENV_DIR) or venv_layout.holds_environments(_venv_aside_path())):
-        return None, None
     lease = engine_lease.Lease(_qwen3_lock_dir(), root=VENV_DIR.parent)
     try:
         lease.take()
     except engine_lease.Refused as refused:
-        log.line(f"  [!!] The environment holds a separately installed voice engine that is in use, so it was not "
-                 f"touched: {refused}")
+        log.line(f"  [!!] The Qwen3 voice engine of this copy is in use or being installed, so the environment was "
+                 f"not touched: {refused}")
         return None, f"{refused_prefix} {refused}"
-    log.line("  The separately installed voice engine is not in use; it is held still until this is finished.")
+    log.line("  The Qwen3 voice engine is not in use or being installed; it is held still until this is finished.")
     return lease, None
 
 
@@ -1885,7 +1887,7 @@ def recover_interrupted_replacement(log: SetupLog, *,
     finished off here, whether or not an environment exists: it was superseded
     before its deletion began, so it is never put back.
 
-    Callers hold ``_take_held_engines_lease`` around this (v0.7.0 P04C): it
+    Callers hold ``_take_engine_lease`` around this (v0.7.0 P04C): it
     renames environments that may hold an engine.
     """
     _finish_discarding(log)
@@ -2186,9 +2188,10 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     log.line("Repairing the Python environment (packages only — no other setup)…")
 
     # v0.7.0 P04C: before anything below can rename this environment -- recovery
-    # included -- take the right to move what it holds under engines/. A busy
-    # engine is a refusal with nothing changed, never a repair around it.
-    lease, refusal = _take_held_engines_lease(log, "The app's environment was not repaired.")
+    # included -- take the right to move what it holds, or is about to hold,
+    # under engines/. A busy engine or an install under way is a refusal with
+    # nothing changed, never a repair around it.
+    lease, refusal = _take_engine_lease(log, "The app's environment was not repaired.")
     if refusal is not None:
         return False, refusal
     try:
@@ -2785,7 +2788,7 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
     # v0.7.0 P04C: recovery and the environment's own replacement both rename
     # environments that may hold a voice engine, so the same lease as a repair
     # is held across them (and released before the long package and FFmpeg steps).
-    lease, refusal = _take_held_engines_lease(log, "Setup was not started.")
+    lease, refusal = _take_engine_lease(log, "Setup was not started.")
     if refusal is not None:
         return False, refusal
     try:

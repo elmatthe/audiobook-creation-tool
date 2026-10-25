@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from shared import venv_layout
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 
@@ -28,6 +29,7 @@ from test_qwen3_runtime import (  # noqa: F401  (the sandbox fixture and its bui
     CUSTOM_ONLY,
     TINY_FILES,
     install_environment,
+    make_engine,
     install_model,
     sandbox,
 )
@@ -140,8 +142,17 @@ def no_sleep(seconds: float) -> None:
 # Fake pip / venv / probe
 # --------------------------------------------------------------------------- #
 class FakeRunner:
+    """pip, venv and the probe, faked. *base* is the folder of the base interpreter the engine is built from; it must lie
+    outside the sandboxed app folder (``qwen3_setup.verified_base_python`` refuses one inside it), and gets a
+    ``python.exe`` that the base check run (recorded in ``base_probes``, not ``commands``) reports as CPython 3.12."""
+
     def __init__(self, base: Path):
         self.base = base
+        self.python = base / "python.exe"
+        base.mkdir(parents=True, exist_ok=True)
+        self.python.write_bytes(b"base interpreter")
+        self.base_report: dict = {}
+        self.base_probes: list[list[str]] = []
         self.commands: list[dict] = []
         self.fail_pip = False
         self.cancel_during_pip = False
@@ -150,17 +161,19 @@ class FakeRunner:
         self.probe_jobs: list[dict] = []
 
     def __call__(self, cmd, *, env, cwd, on_line, cancel_check=None):
+        if [str(c) for c in cmd[1:3]] == ["-I", "-c"] and su._BASE_PROBE_MARK in str(cmd[3]):
+            self.base_probes.append([str(c) for c in cmd])
+            report = {"version": [3, 12, 10], "implementation": "cpython", "prefix": str(Path(cmd[0]).parent),
+                      "base_prefix": str(Path(cmd[0]).parent), "executable": str(cmd[0]), **self.base_report}
+            on_line(su._BASE_PROBE_MARK + json.dumps(report))
+            return 0
         self.commands.append({"cmd": [str(c) for c in cmd], "env": env, "cwd": cwd})
         text = " ".join(str(c) for c in cmd)
         if " -m venv " in f" {text} ":
             if self.fail_venv:
                 on_line("Error: venv exploded")
                 return 1
-            python = rt.venv_python()
-            python.parent.mkdir(parents=True, exist_ok=True)
-            python.write_bytes(b"")
-            self.base.mkdir(exist_ok=True)
-            (rt.venv_dir() / "pyvenv.cfg").write_text(f"home = {self.base}\nversion = 3.12.10\n", encoding="utf-8")
+            make_engine(Path(cmd[-1]), Path(cmd[0]).parent)  # where the command says, from the interpreter it ran
             return 0
         if "pip" in text:
             su.pip_cache_dir().mkdir(parents=True, exist_ok=True)
@@ -190,10 +203,18 @@ class FakeRunner:
         raise AssertionError(f"unexpected command {cmd}")
 
 
+def fake_runner(sandbox: Path, monkeypatch, name: str = "base-python") -> FakeRunner:
+    """A FakeRunner whose base interpreter (beside, not inside, the sandboxed app folder) is the one the installer
+    picks."""
+    fake = FakeRunner(sandbox.parent / f"{sandbox.name}-{name}")
+    monkeypatch.setattr(su, "base_python_candidate", lambda: fake.python)
+    return fake
+
+
 @pytest.fixture()
-def runner(sandbox):
+def runner(sandbox, monkeypatch):
     (sandbox / "scripts" / "qwen3-requirements.txt").write_bytes(b"torch==1.0\n")
-    return FakeRunner(sandbox / "base-python")
+    return fake_runner(sandbox, monkeypatch)
 
 
 # --------------------------------------------------------------------------- #
@@ -503,7 +524,12 @@ def test_the_environment_install_runs_venv_then_pinned_pip_then_a_probe_and_reco
     events = []
     probe = su.install_environment(progress=events.append, runner=runner)
     venv_cmd, pip_cmd, probe_cmd = [c["cmd"] for c in runner.commands]
-    assert venv_cmd[1:3] == ["-m", "venv"] and venv_cmd[3] == str(rt.venv_dir())
+    # v0.7.0 P04C: created at the canonical final path, by the verified base interpreter (isolated), never the app's
+    assert venv_cmd == [str(runner.python), "-I", "-m", "venv", str(rt.nested_venv_dir())]
+    assert rt.venv_dir() == rt.nested_venv_dir() and runner.base_probes and runner.base_probes[0][0] == str(runner.python)
+    assert rt.environment_record()["stage"] == rt.STAGE_INSTALLED
+    assert rt.environment_record()["base"] == venv_layout.base_identity(rt.nested_venv_dir())
+    assert rt.nested_assessment().identity_ok
     assert pip_cmd[:3] == [str(rt.venv_python()), "-m", "pip"] and "--no-deps" in pip_cmd
     for flag in ("--isolated", "--require-virtualenv", "--require-hashes"):
         assert flag in pip_cmd, flag  # ignore ambient pip settings; only a venv; only the exact hashed artifacts
@@ -526,6 +552,8 @@ def test_a_failed_pip_reports_its_own_words_keeps_the_download_cache_and_records
         su.install_environment(runner=runner)
     assert su.pip_cache_dir().exists()  # a retry continues instead of starting over
     assert rt.environment_status()[0] is False and "environment" not in rt.read_state()
+    record = rt.environment_record()  # the canonical record says only that the folder was created and verified
+    assert record["stage"] == rt.STAGE_CREATED and "probe_ok" not in record and "requirements_sha256" not in record
 
 
 def test_a_failed_venv_creation_stops_before_pip(sandbox, runner):
@@ -565,10 +593,22 @@ def test_a_missing_requirements_file_is_a_clear_error(sandbox, runner):
 def test_pythonw_is_replaced_by_python_for_the_child_so_output_is_not_lost(tmp_path, monkeypatch):
     (tmp_path / "pythonw.exe").write_bytes(b"")
     (tmp_path / "python.exe").write_bytes(b"")
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "pythonw.exe"))
-    assert su.console_python() == tmp_path / "python.exe"
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
-    assert su.console_python() == tmp_path / "python.exe"
+    monkeypatch.setattr(sys, "_base_executable", str(tmp_path / "pythonw.exe"), raising=False)
+    assert su.base_python_candidate() == tmp_path / "python.exe"
+    monkeypatch.setattr(sys, "_base_executable", str(tmp_path / "python.exe"), raising=False)
+    assert su.base_python_candidate() == tmp_path / "python.exe"
+
+
+def test_the_engine_is_built_from_the_base_interpreter_not_the_app_s_own_venv_python(tmp_path, monkeypatch):
+    """P04B: ``.venv-qwen3`` was built from ``.venv\\Scripts\\python.exe`` (``sys.executable``); the canonical engine must
+    not depend on the environment that holds it, so the base the app's environment was built from is the candidate."""
+    (tmp_path / "venv" / "Scripts").mkdir(parents=True)
+    (tmp_path / "venv" / "Scripts" / "python.exe").write_bytes(b"")
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "python.exe").write_bytes(b"")
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "venv" / "Scripts" / "python.exe"))
+    monkeypatch.setattr(sys, "_base_executable", str(tmp_path / "base" / "python.exe"), raising=False)
+    assert su.base_python_candidate() == tmp_path / "base" / "python.exe"
 
 
 def test_only_the_apps_own_environment_folder_may_be_deleted(sandbox, tmp_path):
@@ -969,7 +1009,7 @@ def test_a_hostile_manifest_name_stops_an_install_before_any_file_is_touched(hub
     manifest = json.loads(json.dumps(rt.load_manifest()))
     manifest["models"]["customvoice"]["files"][f"../../../{victim.name}"] = {"size": 8, "sha256": "0" * 64}
     monkeypatch.setattr(rt, "load_manifest", lambda: manifest)
-    result = su.install(["customvoice"], opener=opener, sleep=no_sleep, runner=FakeRunner(sandbox / "b"),
+    result = su.install(["customvoice"], opener=opener, sleep=no_sleep, runner=fake_runner(sandbox, monkeypatch, "b"),
                         disk_free=lambda p: 10**12)
     assert not result.ok and "model list is invalid" in result.message
     assert victim.read_text() == "precious" and hub.requests == []
@@ -982,13 +1022,13 @@ def make_junction(link, target):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows mechanism")
-def test_an_install_refuses_to_write_through_a_junction_inside_a_model_folder(hub, sandbox, tmp_path):
+def test_an_install_refuses_to_write_through_a_junction_inside_a_model_folder(hub, sandbox, tmp_path, monkeypatch):
     spec = rt.model_spec("customvoice")
     outside = tmp_path / "outside"
     outside.mkdir()
     spec.directory.mkdir(parents=True)
     make_junction(spec.directory / "speech_tokenizer", outside)
-    result = su.install(["customvoice"], opener=opener, sleep=no_sleep, runner=FakeRunner(sandbox / "b"),
+    result = su.install(["customvoice"], opener=opener, sleep=no_sleep, runner=fake_runner(sandbox, monkeypatch, "b"),
                         disk_free=lambda p: 10**12)
     assert not result.ok and "contains a link" in result.message
     assert list(outside.iterdir()) == []
@@ -1620,18 +1660,22 @@ def test_rebuilding_a_nested_engine_removes_only_its_own_folder(nested_engine, s
     assert _tree(legacy) == legacy_before  # both layouts present: the other one is never touched
 
 
-def test_rebuilding_the_legacy_engine_never_touches_a_nested_one(sandbox, runner):
-    nested = sandbox / ".venv" / "engines" / "qwen3"
-    (nested / "Lib").mkdir(parents=True)
-    (nested / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
-    (nested / "Lib" / "nested.bin").write_bytes(b"nested engine")
-    before = _tree(sandbox / ".venv")
-    install_environment(sandbox)  # the legacy one, at the unchanged production path
+def test_a_rebuild_on_a_legacy_only_copy_builds_the_canonical_engine_and_never_touches_the_legacy_one(sandbox, runner):
+    """v0.7.0 P04C: the app never rebuilds, installs into or deletes ``.venv-qwen3``; it builds the canonical one."""
+    legacy = sandbox / ".venv-qwen3"
+    legacy.mkdir()
+    install_environment(sandbox)  # the legacy-only engine an earlier version left
+    assert rt.venv_dir() == legacy and rt.environment_status() == (True, "ok")
+    (legacy / "Lib").mkdir()
+    (legacy / "Lib" / "legacy.bin").write_bytes(b"legacy engine")
+    before = _tree(legacy)
+    legacy_record = dict(rt.read_state()["environment"])
+    assert su.safe_to_remove_environment(legacy) is False
 
     su.install_environment(runner=runner, rebuild=True)
 
-    assert rt.venv_dir() == sandbox / ".venv-qwen3"
-    assert _tree(sandbox / ".venv") == before
+    assert _tree(legacy) == before and rt.read_state()["environment"] == legacy_record
+    assert rt.venv_dir() == rt.nested_venv_dir() and rt.environment_status() == (True, "ok")
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows mechanism")
@@ -1645,6 +1689,9 @@ def test_a_linked_ancestor_is_refused_and_nothing_is_deleted_through_it(sandbox,
     (engine_in_decoy / "pyvenv.cfg").write_text(f"home = {sandbox}\n", encoding="utf-8")
     (engine_in_decoy / "precious-model.safetensors").write_bytes(b"somebody's model")
     link = sandbox.joinpath(*linked.split("/"))
+    if linked == ".venv":  # the sandbox's stand-in parent gives way to the junction
+        (sandbox / ".venv" / "pyvenv.cfg").unlink()
+        (sandbox / ".venv").rmdir()
     link.parent.mkdir(parents=True, exist_ok=True)
     make_junction(link, decoy)
     monkeypatch.setattr(rt, "venv_dir", lambda: sandbox / ".venv" / "engines" / "qwen3")

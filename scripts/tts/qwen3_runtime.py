@@ -1,8 +1,11 @@
 """qwen3_runtime.py — what the Qwen3-TTS voices need on this computer, and whether it is there.
 
 Qwen3-TTS cannot live in the application's own environment: its package pins ``transformers==4.57.3`` while the
-application pins 5.2.0. It therefore runs in a **second, isolated environment** (``.venv-qwen3`` at the repository
-root) inside a worker subprocess (``qwen3_worker.py``), one subprocess per source file. This module is the GUI-side
+application pins 5.2.0. It therefore runs in a **second, isolated environment** inside a worker subprocess
+(``qwen3_worker.py``), one subprocess per source file. Since v0.7.0 P04C that environment is installed at
+``.venv/engines/qwen3`` -- held inside the app's environment but independent of it (its own interpreter, packages and
+``pyvenv.cfg``); an engine installed by an earlier version at ``.venv-qwen3`` keeps working while it is the only one
+(:func:`venv_dir`). This module is the GUI-side
 half of that arrangement that only *asks questions*: where things live, whether they are present and intact, and
 what a person should be told when they are not. It imports nothing heavy (no torch, no numpy, no network) so it is
 safe to call from a GUI build on a machine with nothing installed, and it never raises for a missing asset — a
@@ -37,6 +40,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+
+from shared import venv_layout
 
 # --------------------------------------------------------------------------- #
 # Identity of the eight voices
@@ -128,9 +133,46 @@ def runtime_dir() -> Path:
     return repo_root() / "files" / "runtime-data" / "qwen3"
 
 
+def parent_venv_dir() -> Path:
+    """The application's own environment, ``.venv``, which holds the engine's (v0.7.0 P04C)."""
+    return repo_root() / ".venv"
+
+
+def nested_venv_dir() -> Path:
+    """``.venv/engines/qwen3``: where the engine is installed, always. An independent environment of its own."""
+    return repo_root().joinpath(*venv_layout.NESTED_QWEN3.split("/"))
+
+
+def legacy_venv_dir() -> Path:
+    """``.venv-qwen3``: where versions before v0.7.0 installed the engine. Used while it is the only one present; this
+    app never installs into, rebuilds or deletes it (removing it is the owner's decision)."""
+    return repo_root() / venv_layout.LEGACY_QWEN3
+
+
 def venv_dir() -> Path:
-    """The isolated environment. Beside, never inside, the application's own ``.venv``."""
-    return repo_root() / ".venv-qwen3"
+    """The engine environment the app uses: the legacy ``.venv-qwen3`` only while nothing is at the canonical
+    ``.venv/engines/qwen3``, the canonical one otherwise -- whatever state it is in.
+
+    Anything at the canonical path (a link, an empty or broken folder included) makes it the one judged, so a damaged
+    new engine is reported as damaged instead of being hidden behind an older one. Nothing else is searched for.
+    """
+    layouts = venv_layout.qwen3_layouts(repo_root())
+    if layouts.legacy is not None and layouts.nested is None:
+        return legacy_venv_dir()
+    return nested_venv_dir()
+
+
+def is_nested(folder: Optional[Path] = None) -> bool:
+    """Whether *folder* (default: the one in use) is the canonical ``.venv/engines/qwen3``."""
+    return venv_layout.same_path(venv_dir() if folder is None else folder, nested_venv_dir())
+
+
+def shown_path(folder: Path) -> str:
+    """*folder* relative to the app's folder, the way a person would type it (``.venv\\engines\\qwen3``)."""
+    try:
+        return str(Path(os.path.abspath(folder)).relative_to(Path(os.path.abspath(repo_root()))))
+    except ValueError:
+        return str(folder)
 
 
 def venv_python() -> Path:
@@ -636,27 +678,102 @@ def read_state() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def write_environment_state(probe: dict) -> None:
-    """Record a successful install: the requirements it was built from and what the load probe reported."""
+#: The install record of each layout, in ``state.json`` -- outside the parent environment a repair may replace. The
+#: legacy key keeps its pre-v0.7.0 name and shape, so an existing ``.venv-qwen3`` install stays recognised as it is.
+LEGACY_RECORD = "environment"
+NESTED_RECORD = "nested_environment"
+#: How far an install of the canonical engine got: set before ``python -m venv`` runs, after it is verified, after
+#: the probe passed; and while a rebuild deletes it. A record names the folder it is for and is never borrowed.
+STAGE_CREATING = "creating"
+STAGE_CREATED = "created"
+STAGE_INSTALLED = "installed"
+STAGE_REMOVING = "removing"
+
+_INSTALL_ACTION = "Choose \"Install / repair Qwen3 voices\""
+NOT_INSTALLED_MESSAGE = ("The Qwen3 voice engine is not installed on this computer (about {size} to download). "
+                         + _INSTALL_ACTION + " to install it; nothing is downloaded until you ask.")
+INCOMPLETE_MESSAGE = "The Qwen3 voice engine was not installed completely. " + _INSTALL_ACTION + " to finish it."
+OUT_OF_DATE_MESSAGE = ("The installed Qwen3 voice engine is out of date for this version of the app. "
+                       + _INSTALL_ACTION + " to update it.")
+
+
+def _utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _record_key(folder: Optional[Path]) -> str:
+    return NESTED_RECORD if is_nested(folder) else LEGACY_RECORD
+
+
+def environment_record(folder: Optional[Path] = None) -> dict:
+    """The install record of *folder* (default: the environment in use), or ``{}``.
+
+    A canonical record that names another folder is not this one's (``{}``): a copied ``state.json`` cannot vouch for
+    an environment it was not written for.
+    """
+    key = _record_key(folder)
+    record = read_state().get(key)
+    if not isinstance(record, dict):
+        return {}
+    if key == NESTED_RECORD:
+        named = record.get("path")
+        if not isinstance(named, str) or not venv_layout.same_path(named, nested_venv_dir()):
+            return {}
+    return record
+
+
+def _write_record(key: str, record: Optional[dict]) -> None:
     state = read_state()
-    state["schema"] = 1
-    state["environment"] = {
-        "requirements_sha256": requirements_sha256(), "probe": probe, "probe_ok": True,
-        "recorded_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
+    if record is None:
+        if key not in state:
+            return
+        del state[key]
+    else:
+        state["schema"] = 1
+        state[key] = record
     atomic_write_json(state_path(), state)
 
 
-def clear_environment_state() -> None:
-    state = read_state()
-    if "environment" in state:
-        del state["environment"]
-        atomic_write_json(state_path(), state)
+def record_environment_stage(folder: Path, stage: str) -> None:
+    """Record that an install of the canonical engine at *folder* reached *stage*.
+
+    :data:`STAGE_CREATING` and :data:`STAGE_REMOVING` are written before the step they name, so an interruption leaves
+    a record of what was under way. :data:`STAGE_CREATED` captures the identity of the Python *folder* was just built
+    from (``venv_layout.base_identity``); a later change of that Python is how a status notices a stale engine.
+    """
+    if not venv_layout.same_path(folder, nested_venv_dir()):
+        raise ValueError(f"{folder} is not the canonical Qwen3 environment")
+    record = {"path": os.path.normpath(os.path.abspath(folder)), "stage": stage, "recorded_utc": _utc_now()}
+    if stage == STAGE_CREATED:
+        base = venv_layout.base_identity(folder)
+        if base is None:
+            raise ValueError(f"{folder} names no Python it was built from")
+        record["base"] = base
+    _write_record(NESTED_RECORD, record)
 
 
-def _venv_home_exists() -> bool:
+def write_environment_state(probe: dict, folder: Optional[Path] = None) -> None:
+    """Record a successful install of *folder* (default: the one in use): its requirements and the load probe's report.
+
+    The canonical record keeps the base identity captured when the folder was created; the legacy one keeps its old
+    shape.
+    """
+    key = _record_key(folder)
+    record = dict(environment_record(folder)) if key == NESTED_RECORD else {}
+    record.update({"requirements_sha256": requirements_sha256(), "probe": probe, "probe_ok": True,
+                   "recorded_utc": _utc_now()})
+    if key == NESTED_RECORD:
+        record.update({"path": os.path.normpath(os.path.abspath(nested_venv_dir())), "stage": STAGE_INSTALLED})
+    _write_record(key, record)
+
+
+def clear_environment_state(folder: Optional[Path] = None) -> None:
+    _write_record(_record_key(folder), None)
+
+
+def _venv_home_exists(folder: Path) -> bool:
     """A venv is only as good as the interpreter it was created from; ``pyvenv.cfg`` names that interpreter."""
-    cfg = venv_dir() / "pyvenv.cfg"
+    cfg = folder / "pyvenv.cfg"
     try:
         for line in cfg.read_text(encoding="utf-8").splitlines():
             key, _, value = line.partition("=")
@@ -667,54 +784,98 @@ def _venv_home_exists() -> bool:
     return False
 
 
-def environment_location_problem() -> str:
-    """Why the environment folder cannot be trusted as the app's own, or ``""``.
+def environment_location_problem(folder: Optional[Path] = None) -> str:
+    """Why *folder* (default: the environment in use) cannot be trusted as the app's own, or ``""``.
 
-    ``.venv-qwen3`` must be a real folder inside the repository tree. A link or junction to somewhere else would make
-    the installer run pip in, and the worker run code from, an environment this app did not create.
+    It must be a real folder inside the repository tree, reached through no link. A link or junction -- at the folder
+    or at any folder above it, ``.venv`` and ``.venv/engines`` included -- would make the installer run pip in, and the
+    worker run code from, an environment this app did not create. The folders above are checked even before the
+    environment exists, so an install can never create one through a link either.
     """
-    folder = venv_dir()
+    folder = venv_dir() if folder is None else folder
+    name = shown_path(folder)
+    linked = link_below_root(folder)
+    if linked is not None and not venv_layout.same_path(linked, folder):
+        return (f"The Qwen3 environment is reached through a link ({linked.name}); refusing to use it. Remove the "
+                "link (not its target) so the app can create its own environment.")
     if not (folder.exists() or folder.is_symlink()):
         return ""
     if is_link(folder):
-        return (".venv-qwen3 is a link to another folder. Remove the link (not its target) so the app can create its "
+        return (f"{name} is a link to another folder. Remove the link (not its target) so the app can create its "
                 "own environment.")
-    linked = link_below_root(folder)
-    if linked is not None:
-        return (f"The Qwen3 environment is reached through a link ({linked.name}); refusing to use it. Remove the "
-                "link (not its target) so the app can create its own environment.")
     real_root = os.path.realpath(repo_root())
     try:
         inside = os.path.commonpath([real_root, os.path.realpath(folder)]) == real_root
     except ValueError:
         inside = False
-    return "" if inside else ".venv-qwen3 resolves outside this app's folder; refusing to use it."
+    return "" if inside else f"{name} resolves outside this app's folder; refusing to use it."
+
+
+def nested_assessment(folder: Optional[Path] = None) -> venv_layout.ChildAssessment:
+    """``venv_layout.assess_child`` for the canonical engine, against the base identity recorded when it was created."""
+    folder = nested_venv_dir() if folder is None else folder
+    return venv_layout.assess_child(folder, final_path=nested_venv_dir(), root=repo_root(),
+                                    parent=parent_venv_dir(), recorded_base=environment_record(folder).get("base"))
+
+
+def _nested_status(folder: Path) -> tuple[bool, str]:
+    if not os.path.lexists(folder):
+        return False, NOT_INSTALLED_MESSAGE.format(size=format_bytes(environment_download_bytes()))
+    record = environment_record(folder)
+    if record.get("stage") in (STAGE_CREATING, STAGE_REMOVING):
+        return False, INCOMPLETE_MESSAGE
+    assessment = nested_assessment(folder)
+    if assessment.state == venv_layout.BROKEN:
+        return False, (f"The Qwen3 voice engine's Python environment is broken ({assessment.reason}). "
+                       f"{_INSTALL_ACTION} to rebuild it.")
+    if not assessment.identity_ok:
+        return False, (f"The Qwen3 voice engine in {shown_path(folder)} cannot be verified ({assessment.reason}), so it "
+                       f"is not used. {_INSTALL_ACTION} to rebuild it.")
+    if not record.get("probe_ok"):
+        return False, INCOMPLETE_MESSAGE
+    if record.get("requirements_sha256") != requirements_sha256():
+        return False, OUT_OF_DATE_MESSAGE
+    return True, "ok"
+
+
+def _legacy_status(folder: Path) -> tuple[bool, str]:
+    if not venv_layout.interpreter(folder).is_file():
+        return False, NOT_INSTALLED_MESSAGE.format(size=format_bytes(environment_download_bytes()))
+    if not _venv_home_exists(folder):
+        return False, ("The Qwen3 voice engine's Python environment is broken (the Python it was built from is "
+                       f"gone). {_INSTALL_ACTION} to rebuild it.")
+    record = environment_record(folder)
+    if not record.get("probe_ok"):
+        return False, INCOMPLETE_MESSAGE
+    if record.get("requirements_sha256") != requirements_sha256():
+        return False, OUT_OF_DATE_MESSAGE
+    return True, "ok"
 
 
 def environment_status() -> tuple[bool, str]:
-    problem = environment_location_problem()
+    """Whether the engine in use can run, and if not, a sentence saying what to do.
+
+    The canonical engine is trusted only with its identity proved (``venv_layout.assess_child``: final path, no link,
+    isolated, built from a base interpreter whose identity still matches the one recorded at creation) and a complete
+    install record. When it is unusable the older ``.venv-qwen3`` is never used in its place, and the sentence says so.
+    """
+    folder = venv_dir()
+    problem = environment_location_problem(folder)
     if problem:
-        return False, f"The Qwen3 voice engine cannot be used: {problem}"
-    if not venv_python().is_file():
-        return False, (f"The Qwen3 voice engine is not installed on this computer (about "
-                       f"{format_bytes(environment_download_bytes())} to download). Choose \"Install / repair "
-                       "Qwen3 voices\" to install it; nothing is downloaded until you ask.")
-    if not _venv_home_exists():
-        return False, ("The Qwen3 voice engine's Python environment is broken (the Python it was built from is "
-                       "gone). Choose \"Install / repair Qwen3 voices\" to rebuild it.")
-    env = read_state().get("environment") or {}
-    if not env.get("probe_ok"):
-        return False, ("The Qwen3 voice engine was not installed completely. "
-                       "Choose \"Install / repair Qwen3 voices\" to finish it.")
-    if env.get("requirements_sha256") != requirements_sha256():
-        return False, ("The installed Qwen3 voice engine is out of date for this version of the app. "
-                       "Choose \"Install / repair Qwen3 voices\" to update it.")
-    return True, "ok"
+        ok, message = False, f"The Qwen3 voice engine cannot be used: {problem}"
+    elif is_nested(folder):
+        ok, message = _nested_status(folder)
+    else:
+        return _legacy_status(folder)
+    if not ok and os.path.lexists(folder) and os.path.lexists(legacy_venv_dir()):
+        message += (f" (The older engine in {venv_layout.LEGACY_QWEN3} is not used while {shown_path(folder)} is "
+                    "present.)")
+    return ok, message
 
 
 def installed_probe() -> dict:
     """What the install-time load probe reported (torch/CUDA/device), or ``{}``."""
-    return (read_state().get("environment") or {}).get("probe") or {}
+    return environment_record().get("probe") or {}
 
 
 # --------------------------------------------------------------------------- #
@@ -1299,15 +1460,51 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
     return True, "ok"
 
 
+#: Inherited variables that steer which Python runs, what it imports or where pip installs, besides every ``PYTHON*`` and
+#: ``PIP_*`` one: an activated venv or conda environment in the terminal (or IDE) that started the app sets these.
+_INHERITED_STEERING = frozenset({"VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT", "__PYVENV_LAUNCHER__", "CONDA_PREFIX",
+                                 "CONDA_DEFAULT_ENV", "CONDA_PYTHON_EXE", "CONDA_EXE", "CONDA_SHLVL",
+                                 "CONDA_PROMPT_MODIFIER"})
+
+
+def _foreign_environment(entry: str, own: Path) -> bool:
+    """Whether a ``PATH`` entry belongs to a Python environment other than *own*: a venv's ``Scripts``/``bin`` (its
+    folder or the one above holds ``pyvenv.cfg``) or a conda environment's folders (``conda-meta`` up to two levels
+    above, which covers ``Library\\bin``). Ordinary folders -- Windows, the GPU driver, CUDA, a base Python -- are not."""
+    folder = Path(entry.strip().strip('"'))
+    candidates = (folder, folder.parent, folder.parent.parent)
+    try:
+        for candidate in candidates[:2]:
+            if (candidate / "pyvenv.cfg").is_file():
+                return not venv_layout.same_path(candidate, own)
+        return any((candidate / "conda-meta").is_dir() for candidate in candidates)
+    except OSError:
+        return False
+
+
+def scrubbed_path(value: str, own: Path) -> str:
+    """*value* (a ``PATH``) without empty entries and without folders of any other Python environment (the app's own
+    ``.venv`` included). Order is kept; nothing is added."""
+    return os.pathsep.join(entry for entry in value.split(os.pathsep)
+                           if entry.strip() and not _foreign_environment(entry, own))
+
+
 def worker_environment(base: Optional[dict] = None) -> dict:
     """The environment a Qwen3 worker or installer subprocess runs in.
 
     Isolated from the application's interpreter settings, offline for model loading, and with every cache pointed
-    inside the repository tree so nothing is written to the user's profile.
+    inside the repository tree so nothing is written to the user's profile. Every inherited ``PYTHON*``/``PIP_*``
+    setting and activation variable is dropped, and ``PATH`` loses the folders of every other Python environment, so
+    the engine's interpreter loads nothing of the app's ``.venv`` or of an environment activated where the app was
+    started. Everything else on ``PATH`` (Windows, the GPU driver, CUDA) is kept as it was.
     """
     env = dict(os.environ if base is None else base)
-    for name in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "PYTHONSTARTUP"):
-        env.pop(name, None)
+    for name in list(env):
+        upper = name.upper()
+        if upper.startswith(("PYTHON", "PIP_")) or upper in _INHERITED_STEERING:
+            del env[name]
+        elif upper == "PATH":
+            env[name] = scrubbed_path(env[name], venv_dir())
     cache, scratch = cache_root(), ensure_runtime_dir(tmp_root())
     for name in ("hf", "torch", "numba", "xdg", "pip"):
         ensure_runtime_dir(cache / name)  # every cache destination handed to a subprocess is proved local first

@@ -246,7 +246,7 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
         win.btn_clones.grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     ttk.Label(body, text=("Nothing is downloaded until you press one of these buttons and confirm. Everything is stored "
-                          "inside this app's own folder (the voice engine in .venv-qwen3, the models under "
+                          "inside this app's own folder (the voice engine in .venv/engines/qwen3, the models under "
                           "files/runtime-data/models/qwen3-tts), so deleting those folders removes it again."),
               justify=tk.LEFT, wraplength=520, style=st("secondary_label") or st("label")).pack(anchor="w", pady=(12, 0))
 

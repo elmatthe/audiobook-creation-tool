@@ -4,6 +4,52 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - The Qwen3 engine is installed at .venv/engines/qwen3, built from the verified base Python; a repair always takes the engine lease first (v0.7.0 P04C Stage 2)
+
+Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Source integration only: no live HOME-PC environment was migrated, rebuilt or
+removed. Extends the Stage 1 entry below (its "taken only when something is held" rule is superseded by the unconditional lease here).
+
+**Path authority.** `qwen3_runtime.venv_dir()` is `.venv/engines/qwen3` unless only the legacy `.venv-qwen3` is present. Anything at the
+canonical path (a link, an empty or half-made folder included) makes it the one judged, so a damaged new engine is reported, never hidden
+behind an older one; when both exist and the canonical one is unusable, the status sentence says the older one is not used. Nothing else
+is searched for.
+
+**Creation.** The installer always targets the canonical path, never the legacy one. It creates the engine there directly with
+`<base> -I -m venv <final absolute path>`, where `<base>` is `sys._base_executable` (as `python.exe`) proved first on disk (a file, not a
+link, outside the app folder, no `pyvenv.cfg` beside or above it) and then by running it isolated (CPython 3.12, `prefix == base_prefix`,
+itself as executable). The new `pyvenv.cfg` must name that base. Identity lives outside the replaceable parent, in `state.json` under
+`nested_environment`: path, stage (`creating` before `-m venv`, `created` with `venv_layout.base_identity` after it, `installed` after the
+probe, `removing` before a rebuild deletes it). `environment_status` trusts the canonical engine only when `venv_layout.assess_child`
+proves identity against that recorded base and the record is complete. The legacy record keeps its old key and shape.
+
+**Legacy.** Never installed into, rebuilt or deleted by the app (`safe_to_remove_environment` accepts only the canonical folder). A
+healthy legacy-only engine keeps working; adding a model does not reinstall the engine. If it needs rebuilding, the repair builds the
+canonical one instead and the plan says so ("installed in its new place … the older .venv-qwen3 … is not changed or deleted"). Removing
+`.venv-qwen3` stays the owner's decision. Flagged for review: on such a copy the old folder's disk space (about 5 GB) is not reclaimed.
+
+**First-install race.** `bootstrap._take_engine_lease` (renamed from `_take_held_engines_lease`) takes `setup` → `inference` → `engine`
+before any parent mutation even when nothing is under `engines/`. `install_environment` holds `InstallLock` (setup → inference) from its
+first check to its last record, taking it itself when the caller does not and reusing one this thread already holds (never two handles on
+one lock, which would refuse itself). So whichever starts first wins and the other refuses with nothing changed. `InstallLock` also
+checks `engine.lock` is free and gives it back at once: every worker this copy starts is started under `inference.lock`, which the
+installer holds, so only an orphan worker can hold it, and the installer's own probe must be able to take it. Order and non-blocking
+refusal are unchanged; MachineGuard stays out of the repair lease (Stage 1 ADR). Consequence: a conversion on a legacy engine now also
+refuses a main repair, because its `inference.lock` cannot be told apart from an install's.
+
+**Refusals added.** The engine is never created in a parent without `pyvenv.cfg`, reached through a link, or with a `.venv.replaced*`
+pending (only setup/repair resolves that); pip is never run into a canonical engine that cannot be verified (it is left alone until a
+repair rebuilds it); an interrupted creation or removal is cleared and redone by the next install.
+
+**Subprocess environment.** `worker_environment` (and so `installer_environment`) drops every inherited `PYTHON*` and `PIP_*` variable and
+the venv/conda activation variables, and removes from `PATH` the folders of any other Python environment (a folder whose own or parent
+folder holds `pyvenv.cfg`, or with `conda-meta` up to two levels up), the app's `.venv\Scripts` included. Everything else on `PATH`
+(Windows, GPU driver, CUDA, a base Python) is kept in order.
+
+**Not decided here.** Migration or removal of `.venv-qwen3` on HOME-PC; maintenance/cleanup wording and the packaging check for the nested
+layout; main-stack pinning. Each is a later P04C stage behind owner review.
+
+---
+
 ## 2026-10-24 - A voice engine held inside .venv is protected by its users' own locks, taken together before any change to the environment (v0.7.0 P04C Stage 1)
 
 Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Supersedes P04A's assumption that a running engine would make a repair

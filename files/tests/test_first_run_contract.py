@@ -195,7 +195,10 @@ def test_installing_python_re_probes_even_if_winget_reports_a_problem(monkeypatc
     assert probed == [1], "the re-probe must happen regardless of the exit code"
 
 
-def test_no_python_at_all_produces_a_truthful_setup_failure(monkeypatch):
+def test_no_python_at_all_produces_a_truthful_setup_failure(monkeypatch, tmp_path):
+    # v0.7.0 P04C Stage 2: run_setup always takes the Qwen3 engine lease beside VENV_DIR (and recovers it first), so the
+    # environment it would set up is one of this test's own, never the developer's real one.
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
     monkeypatch.setattr(bootstrap, "find_suitable_python", lambda log, prefer_tk=True: None)
     monkeypatch.setattr(bootstrap, "install_python", lambda log, prefer_tk=True: None)
     ok, message = bootstrap.run_setup(False, lambda step, text: None, Log())

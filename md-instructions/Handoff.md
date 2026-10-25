@@ -2,6 +2,48 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04C Stage 2: the Qwen3 engine's canonical place is now .venv/engines/qwen3 (created there by the verified base Python, identity recorded outside .venv); a first install and a repair can no longer overlap; legacy .venv-qwen3 still used where it is the only engine; HOME-PC NOT migrated; NEXT is owner/ChatGPT review (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.5, §6 / P04C (Stage 2 = source integration, focused tests, isolated native checks; no live migration).
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `b76a809`. Identity 0.6.6. Not merged/tagged; P05 not started.
+
+- **Path authority:** `qwen3_runtime.venv_dir()` = `.venv/engines/qwen3` unless only `.venv-qwen3` exists; anything at the canonical path
+  makes it the one judged (a damaged one is reported, never hidden behind the legacy one; the sentence says the older one is not used).
+- **Creation:** `qwen3_setup.install_environment` always targets the canonical path: `verified_base_python()` (`sys._base_executable`,
+  disk checks + isolated self-report CPython 3.12, not a venv) → `<base> -I -m venv <final path>` → cfg must name the base → stages
+  `creating`/`created`(+`venv_layout.base_identity`)/`installed`/`removing` in `state.json` `nested_environment` (legacy `environment`
+  record untouched). `environment_status` trusts the canonical engine only via `assess_child` against that record. Refuses a parent
+  without `pyvenv.cfg`, a linked parent/ancestor (checked even before the folder exists), or a pending `.venv.replaced*`; never pips into
+  an unverified engine (repair rebuilds it); clears and redoes an interrupted creation/removal. `.venv-qwen3` is never installed into,
+  rebuilt or deleted; a repair of a broken legacy-only copy builds the canonical engine and the plan says so.
+- **Race closed:** `bootstrap._take_engine_lease` (renamed) is unconditional; `install_environment` holds `InstallLock` from first check
+  to last record (takes it if absent, reuses this thread's); `InstallLock` also checks `engine.lock` (orphan worker) and releases it.
+  Consequence: a legacy conversion now also refuses a main repair (nothing changed).
+- **Subprocess env:** `worker_environment`/`installer_environment` drop all `PYTHON*`/`PIP_*`/venv+conda activation variables and other
+  environments' PATH folders (app `.venv\Scripts` included); Windows/driver/CUDA/base-Python entries kept in order.
+- **Tests:** new `test_qwen3_nested_adoption.py` (68 passed, 1 symlink skip): selection matrix, 12 damages × legacy present/absent,
+  base-interpreter refusals, parent/link/pending refusals, interruption, legacy never touched, lock reuse/engine check, both race orders
+  with the folder absent (real subprocess installer), crash release, denied lock, env scrub. Contract tests moved to the new contract
+  (nothing weakened); `test_first_run_contract`'s `run_setup` test now has its own `VENV_DIR` (it had leased the real runtime folder);
+  conftest guards real `.venv/engines` and real `qwen3/engine.lock`. 20/20 mutations killed. Focused 75 modules: 5,837 passed / 48
+  skipped / 0 failed (final-tree rerun result in the commit message). Full `verify.py` gate NOT run (owed at P04C close).
+- **Native (new ignored copy `files/dev-work/P04C q/`, source byte-identical; evidence `act070-remediation/p04c-integration/`):** production
+  first install at the canonical path 149 s, 0 downloads, 89/89 pins, identity-ok. Repair-first race (real repair 111 s): installs at
+  "parent set aside" and "rebuilt parent started" refused 0.0 s, nothing created under either. Install-first race: repairs at "`-m venv`
+  started, folder absent" and "pip running" refused 0.0 s, nothing changed. Interrupted install resumed (0 downloads). Child isolated
+  (transformers 4.57.3 vs parent 5.2.0); preset + clone narration byte-identical to Stage 1/P04B. Both-present: canonical chosen; changed
+  base → refused, no fallback. Production read-only: legacy `.venv-qwen3` still chosen and ok.
+- **Incidents (in the report):** one test created the real (empty) `engine.lock` — removed, test fixed, guard added; first native race run
+  invalid (pip-less starting parent; harness did not abort) — rerun valid; production deletes the pip cache after a success, so a second
+  install began downloading — stopped at ≈135 MB before torch, cache re-copied; pip touched ~4 bytes of the user pip cache's HTTP entries.
+- **Report:** `files/dev-work/act070-remediation/checkpoints/P04C-INTEGRATION.md` (ignored).
+- **Still open (later P04C stages, owner-gated):** HOME-PC deployment/migration and `.venv-qwen3` retirement; maintenance/cleanup wording and
+  the `.venv`-with-engines refusal; explicit packaging test for `.venv/engines/**`; main-stack pinning recommendation; full gate; P04B L row
+  (standard user, ACLs, long paths off, clean SAC); MachineGuard ADR review; repair cannot recover a pip-less venv (pre-existing).
+- **Retained:** production `.venv`, `.venv-qwen3`, act67 dirs, models, private records untouched; Q (18 GB) and Q2 retained.
+- **Next:** STOP for owner/ChatGPT review of `checkpoints/P04C-INTEGRATION.md`. No live migration, cleanup, deletion of Q/Q2, pin change,
+  P05, version bump, merge or tag without approval.
+
 ## CURRENT STATE — v0.7.0 P04C Stage 1: a main repair now refuses, changing nothing, while a nested Qwen3 engine is in use, and nothing can start using it during a repair; requalified natively in the P04B copy; production path NOT flipped; NEXT is owner/ChatGPT review (2026-10-24, Claude Code)
 
 Authority: plan Revision 2 §5.5, §6 / P04C, owner authorisation to pursue the nested topology (Stage 1 = lock safety only).

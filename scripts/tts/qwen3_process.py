@@ -1,6 +1,6 @@
 """qwen3_process.py — start a child process so that it, and everything it starts, can always be stopped.
 
-The Qwen3 worker runs under ``.venv-qwen3``. On Windows that environment's ``python.exe`` is a small *launcher* that
+The Qwen3 worker runs under the engine's own environment. On Windows that environment's ``python.exe`` is a small *launcher* that
 starts the real interpreter as a child. Killing only the launcher leaves inference (and GPU memory) running, and
 ``taskkill /T`` cannot find the child once the launcher has exited, because the tree is discovered through the parent
 link. So the worker is started **suspended**, placed in a Windows *Job Object* configured to kill every member when it

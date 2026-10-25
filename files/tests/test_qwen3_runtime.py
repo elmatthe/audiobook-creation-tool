@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from shared import venv_layout
 from tts import qwen3_runtime as rt
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -61,7 +62,33 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(rt, "gpu_probe", lambda: None)
     rt._GPU_CACHE.clear()
+    make_parent(tmp_path)  # the app's own .venv, which the canonical engine is created inside
     return tmp_path
+
+
+def make_parent(root: Path) -> Path:
+    """A stand-in for the app's ``.venv``: a folder with a ``pyvenv.cfg``, nothing held in it."""
+    parent = root / ".venv"
+    parent.mkdir(exist_ok=True)
+    (parent / "pyvenv.cfg").write_text("home = C:/base\ninclude-system-site-packages = false\n", encoding="utf-8")
+    return parent
+
+
+def make_engine(env: Path, base: Path) -> Path:
+    """Files that make *env* look like an environment ``python -m venv`` built from *base*'s ``python.exe``: an
+    interpreter, and a ``pyvenv.cfg`` naming that base and the folder it was created at (``venv_layout.assess_child``
+    checks both). *base* gets a ``python.exe`` so the base identity can be measured."""
+    base.mkdir(parents=True, exist_ok=True)
+    executable = base / "python.exe"
+    if not executable.exists():
+        executable.write_bytes(b"base interpreter")
+    python = venv_layout.interpreter(env)
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.write_bytes(b"")
+    (env / "pyvenv.cfg").write_text(f"home = {base}\ninclude-system-site-packages = false\nversion = 3.12.10\n"
+                                    f"executable = {executable}\ncommand = {executable} -m venv {env}\n",
+                                    encoding="utf-8")
+    return env
 
 
 def install_model(root: Path, key: str, *, corrupt: str | None = None, marker: bool = True) -> Path:
@@ -79,14 +106,14 @@ def install_model(root: Path, key: str, *, corrupt: str | None = None, marker: b
 
 
 def install_environment(root: Path, *, requirements: str = "torch==1.0\n") -> None:
+    """A complete install of the engine in use (the canonical one unless a legacy-only folder is already there), as the
+    installer leaves it: environment files, the creation record (canonical only) and the probe's install record."""
     # bytes, not write_text: on Windows write_text would silently turn these LFs into CRLFs
     (root / "scripts" / "qwen3-requirements.txt").write_bytes(requirements.encode("utf-8"))
-    python = rt.venv_python()
-    python.parent.mkdir(parents=True, exist_ok=True)
-    python.write_bytes(b"")
-    base = root / "base-python"
-    base.mkdir(exist_ok=True)
-    (rt.venv_dir() / "pyvenv.cfg").write_text(f"home = {base}\nversion = 3.12.10\n", encoding="utf-8")
+    env = rt.venv_dir()
+    make_engine(env, root / "base-python")
+    if rt.is_nested(env):
+        rt.record_environment_stage(env, rt.STAGE_CREATED)
     rt.write_environment_state({"torch": "2.10.0+cu128", "cuda_available": True})
 
 
@@ -196,8 +223,12 @@ def test_environment_missing_says_how_to_install_and_that_nothing_downloads_unas
     assert not ok and "not installed" in reason and "3.1 GB" in reason and "nothing is downloaded until you ask" in reason
 
 
-def test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_matching_requirements(sandbox):
+@pytest.mark.parametrize("layout", ["canonical", "legacy-only"])
+def test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_matching_requirements(sandbox, layout):
+    if layout == "legacy-only":
+        (sandbox / ".venv-qwen3").mkdir()  # an engine an earlier version installed, and nothing at the canonical path
     install_environment(sandbox)
+    assert rt.is_nested() is (layout == "canonical")
     assert rt.environment_status() == (True, "ok")
 
     (sandbox / "scripts" / "qwen3-requirements.txt").write_bytes(b"torch==2.0\n")  # pins moved on
@@ -209,12 +240,20 @@ def test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_
 
     rt.clear_environment_state()
     ok, reason = rt.environment_status()
+    if layout == "canonical":  # the record that is gone also held the base identity: nothing vouches for the folder
+        assert not ok and "cannot be verified" in reason and "no base-interpreter identity" in reason
+        rt.record_environment_stage(rt.venv_dir(), rt.STAGE_CREATED)  # created and verified, but never probed
+        ok, reason = rt.environment_status()
     assert not ok and "not installed completely" in reason
 
     install_environment(sandbox)
+    (sandbox / "base-python" / "python.exe").unlink()
     (sandbox / "base-python").rmdir()
     ok, reason = rt.environment_status()
-    assert not ok and "broken" in reason and "rebuild" in reason
+    if layout == "canonical":
+        assert not ok and "the Python it was built from is missing" in reason and "rebuild" in reason
+    else:
+        assert not ok and "broken" in reason and "rebuild" in reason
 
 
 # --------------------------------------------------------------------------- #
@@ -560,6 +599,7 @@ def test_every_name_in_the_real_manifest_passes_the_same_validation():
 def make_junction(link: Path, target: Path) -> None:
     import subprocess
 
+    link.parent.mkdir(parents=True, exist_ok=True)  # e.g. .venv/engines above the canonical engine; never the link itself
     result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
     if result.returncode != 0:
         pytest.skip(f"cannot create a junction here: {result.stdout} {result.stderr}")
@@ -625,12 +665,17 @@ def test_a_real_environment_folder_inside_the_repository_is_fine(sandbox):
     assert rt.environment_location_problem() == ""
 
 
-def test_an_environment_that_resolves_outside_the_repository_is_refused(sandbox, monkeypatch, tmp_path):
+@pytest.mark.parametrize("layout", ["canonical", "legacy-only"])
+def test_an_environment_that_resolves_outside_the_repository_is_refused(sandbox, monkeypatch, tmp_path, layout):
+    if layout == "legacy-only":
+        (sandbox / ".venv-qwen3").mkdir()
     install_environment(sandbox)
     real = os.path.realpath
+    target = os.path.normcase(str(rt.venv_dir()))
     elsewhere = tmp_path.parent / "elsewhere"  # (the sandbox repository IS tmp_path, so this is genuinely outside it)
-    monkeypatch.setattr(os.path, "realpath", lambda p: str(elsewhere) if str(p).endswith(".venv-qwen3") else real(p))
+    monkeypatch.setattr(os.path, "realpath", lambda p: str(elsewhere) if os.path.normcase(str(p)) == target else real(p))
     assert "outside this app's folder" in rt.environment_location_problem()
+    assert rt.environment_status()[0] is False
 
 
 # ---- the operating-system lock -------------------------------------------------------------------------------------

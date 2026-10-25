@@ -1,8 +1,9 @@
-"""qwen3_worker.py — the Qwen3-TTS worker. Runs ONLY inside ``.venv-qwen3``, never in the application's interpreter.
+"""qwen3_worker.py — the Qwen3-TTS worker. Runs ONLY inside the engine's own environment (``.venv/engines/qwen3``, or a
+legacy ``.venv-qwen3``), never in the application's interpreter.
 
 One subprocess per source file. ``qwen3_synth`` writes a job file, starts::
 
-    <.venv-qwen3 python> qwen3_worker.py <job.json>
+    <engine environment python> qwen3_worker.py <job.json>
 
 and reads ``@@EVENT <json>`` lines from stdout. Everything else the libraries print is ignored by the reader.
 

@@ -347,9 +347,22 @@ def test_an_unreadable_engines_folder_counts_as_holding_something(tmp_path, monk
 # --------------------------------------------------------------------------- #
 # The two Qwen3 locations, exactly
 # --------------------------------------------------------------------------- #
-def test_the_two_locations_are_named_exactly_and_the_production_path_is_still_legacy():
+@pytest.mark.parametrize("present, chosen", [
+    ((), vl.NESTED_QWEN3),
+    ((vl.LEGACY_QWEN3,), vl.LEGACY_QWEN3),
+    ((vl.NESTED_QWEN3,), vl.NESTED_QWEN3),
+    ((vl.LEGACY_QWEN3, vl.NESTED_QWEN3), vl.NESTED_QWEN3),
+])
+def test_the_two_locations_are_named_exactly_and_the_canonical_one_is_chosen_unless_legacy_is_alone(
+        tmp_path, monkeypatch, present, chosen):
+    """P04C Stage 2 flips the path authority: new installs and both-present copies use ``.venv/engines/qwen3``."""
     assert vl.LEGACY_QWEN3 == ".venv-qwen3" and vl.NESTED_QWEN3 == ".venv/engines/qwen3"
-    assert rt.venv_dir() == rt.repo_root() / vl.LEGACY_QWEN3  # P04A flips nothing
+    monkeypatch.setattr(rt, "repo_root", lambda: tmp_path)
+    for relative in present:
+        tmp_path.joinpath(*relative.split("/")).mkdir(parents=True)
+    assert rt.nested_venv_dir() == tmp_path / ".venv" / "engines" / "qwen3"
+    assert rt.legacy_venv_dir() == tmp_path / ".venv-qwen3"
+    assert rt.venv_dir() == tmp_path.joinpath(*chosen.split("/"))
 
 
 @pytest.mark.parametrize("present, legacy, nested", [
