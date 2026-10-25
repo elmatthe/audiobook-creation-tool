@@ -15,6 +15,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 P04C — Qwen3 voice engine moves inside the app environment (2026-10-25) — not released; identity stays 0.6.6
+
+- **Changed:** a new or rebuilt Qwen3 voice engine is installed at `.venv/engines/qwen3`, built by the verified base Python 3.12 rather than
+  the app's own interpreter. A copy that already has the older `.venv-qwen3` keeps using it until that engine needs rebuilding; the app
+  never changes or deletes `.venv-qwen3`.
+- **Changed:** the Qwen3 install dialog says which engine is in use and where a new one goes, and no longer suggests deleting folders.
+- **Fixed:** repairing the app's own dependencies and first-run setup now refuse, changing nothing, while a Qwen3 install, conversion or
+  worker is using the engine, and a first install and a repair can no longer overlap. Clear Downloaded Data leaves the app environment
+  and the downloaded models alone, and says so, while the engine is busy, and never removes the engine with the app's dependencies.
+- **Fixed:** an engine inside `.venv`, and repair leftovers such as `.venv.replaced*` / `.venv.discarded*`, can never be packaged or staged.
+- Not yet qualified on a clean PC, a standard user account, other GPUs or with long paths disabled (release qualification, P10).
+
 ### v0.6.7 closure corrections (2026-10-21) — not released; identity stays 0.6.6
 
 Four findings from the second independent Codex closure audit (`ACT67-CLR-001` to `-004`). Nothing here changes narration, voices, previews,

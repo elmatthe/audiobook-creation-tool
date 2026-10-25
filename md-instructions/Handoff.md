@@ -2,6 +2,42 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04C Stage 5C: HOME-PC runs on the canonical Qwen3 engine .venv/engines/qwen3 (legacy .venv-qwen3 kept, unused, for rollback); P04C closing documentation and its one full gate; P04C closes only on that gate's PASS (see checkpoints/P04C.md); NEXT is ChatGPT/owner review, then P05A only when authorised (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.5, §6 / P04C exit row; Stages 1–5A accepted, Stage 5B (HOME-PC adoption) accepted on its evidence.
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `808390b`. Identity 0.6.6. Not merged/tagged; P05 not started.
+
+- **Layout (approved, adopted):** new and rebuilt Qwen3 engines live at `.venv/engines/qwen3/`, an independent venv made by the verified
+  base CPython 3.12 at its final path; its identity record (`nested_environment`) lives in `files/runtime-data/qwen3/state.json`, outside
+  `.venv`. A copy with only `.venv-qwen3` keeps using it; when both exist the canonical one is judged and used, never silently replaced by
+  or swapped for the legacy one. No automatic migration; the legacy engine is never installed into, rebuilt or deleted by the app.
+- **HOME-PC (Stage 5B, 2026-10-25):** the production `qwen3_setup.install_environment()` (called from a harness; the dialog plans nothing
+  on a healthy legacy copy) built the canonical engine: 89/89 locked packages from a staged verified cache, 0 package bodies downloaded
+  (index traffic occurred, unmeasured), GPU start-up probe PASS (`cuda:0`, RTX 5070, torch 2.10.0+cu128). Preset `qwen3-ryan` and clone
+  `qwen3-male-1` narrations byte-identical to the Stage 2 goldens (`910f0a57…`, `abfecc05…`). `state.json` gained only `nested_environment`.
+  Stage 5C re-verified this directly and read-only (selection, status, identity, pins, `pip check`, isolation, models, recorded probe,
+  golden bytes) and fingerprinted everything unchanged since 5B; nothing was reinstalled or re-synthesised.
+- **Rollback / legacy:** `.venv-qwen3` (≈ 5.1 GB) is intact, content-identical to before 5B, and unused. Rollback = take the engine lease,
+  rename the canonical folder to an ignored quarantine (never a `.venv.discarded*` name), remove only the `nested_environment` record; the
+  legacy engine is then selected again. Retiring `.venv-qwen3`, the Q/Q2 qualification copies and the O3 cache needs separate approvals.
+- **Protections in place:** main repair/setup take the engine lease (setup → inference → engine, all or none, never waiting) and carry
+  `engines/` home; Clear Downloaded Data removes `.venv` or models only under that lease and refuses a `.venv` holding an engine; the
+  install dialog states the engine in use from the path authority; nested engines, repair asides and preserved copies are never packaged
+  or staged; the test suite guards the real canonical engine per test (identity/launchers/top level) and walks its tree once per session.
+- **Decisions carried:** MachineGuard stays out of repair/cleanup (ADR); main-stack transitive pinning stays deferred (AUD-010); pip-less
+  parent repair gap and Kokoro/Chatterbox model-cleanup concurrency → P07; P04B L cases (true standard user, restricted ACL, long paths
+  off, clean-machine SAC, other GPUs/CPU-only, cross-user `denied`) → P10 / AUD-004, all UNPROVED.
+- **P04C full gate:** `verify/P04C-CLOSE-808390bc-20261025T163049Z`, run once on this exact tree, the first with a real 44,022-file canonical
+  engine at its production path; its result, counts, fingerprint and the post-gate preservation comparison are in `checkpoints/P04C.md`
+  (this block is written before the gate so the committed tree is the tested tree).
+- **Open release/manual gates (unchanged, none PASS here):** P01B/P01C owner listening and the combined 28-voice listening NOT RUN; clone
+  previews still from provisional drafts; P10 owner qualification incl. AUD-004 (clean Windows/bootstrap, the L cases above), AUD-005
+  provenance, AUD-009 actual acquisition, macOS HOLD; P11 identity/RC; earlier carried Minors unchanged.
+- **Evidence (ignored):** `checkpoints/P04C.md` (exit record), `p04c-close/5c-20261025T162521Z/` (harness, identity, fingerprints),
+  Stage 5B `p04c-home-pc-adoption/5b-20261025T151904Z/`.
+- **Next:** STOP for ChatGPT/owner review of `checkpoints/P04C.md`. Then P05A only when authorised. No P05B, legacy retirement, cleanup,
+  version bump, merge, tag or release.
+
 ## CURRENT STATE — v0.7.0 P04C Stage 5A: the Qwen3 install dialog now says which engine is in use and where a new one goes, for every layout; the test guard protects a real canonical engine without walking it around every test; still NO HOME-PC install; P04C OPEN; NEXT is ChatGPT/owner review, then Stage 5B only with consents B1–B6 (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.5, §6 / P04C; Stage 4 accepted with Option B ruled (install itself not authorised). Source + tests only.

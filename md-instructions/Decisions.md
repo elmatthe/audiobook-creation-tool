@@ -4,6 +4,35 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - P04C closes on the nested Qwen3 layout: .venv/engines/qwen3 is canonical, HOME-PC runs on it, the legacy .venv-qwen3 is kept unused for rollback; MachineGuard stays out of repair and cleanup; residual debt is assigned, not closed (v0.7.0 P04C Stage 5C)
+
+Plan Revision 2 §5.5 and §6 / P04C exit row; owner rulings on P04C Stage 4 (Option B, MachineGuard, pinning, classifications); recorded
+by Claude Code. Closure is conditional on the P04C full gate recorded in `checkpoints/P04C.md`.
+
+**Topology.** The nested layout is adopted: a Qwen3 engine is an independent venv at `.venv/engines/qwen3`, created at that final path by
+the verified base CPython 3.12, its identity kept outside `.venv`. Legacy `.venv-qwen3` copies keep working while they are the only engine;
+when both exist the canonical one is used and judged, and the legacy one is never installed into, rebuilt or deleted. No automatic
+migration, and no relocation of an existing environment.
+
+**HOME-PC.** Stage 5B satisfied the exit's "create/verify canonical environment at final destination; retain legacy environment": the
+production installer built the canonical engine (89/89 locked, 0 package bodies downloaded, GPU probe PASS), and the preset and clone
+narrations matched the Stage 2 goldens byte for byte. `.venv-qwen3` is retained untouched as the rollback target (lease, rename the
+canonical folder to an ignored quarantine, remove only `nested_environment`). Its retirement, and deletion of the Q/Q2 qualification copies
+and the O3 cache, are separate owner approvals.
+
+**MachineGuard: retained outside repair and cleanup.** Every holder of the guard in a copy already holds that copy's `inference.lock`
+(conversion, clone transcription) or `InstallLock` (probe), both inside the engine lease, and an orphan worker holds `engine.lock`. Adding
+the guard would add no file safety and would let another copy or another Windows user's conversion (or a `denied` guard) block repair of
+a broken app.
+
+**Assigned, not closed.** Main-stack transitive pinning stays deferred (AUD-010; P07/P10 fresh-ZIP qualification covers the drift
+risk). Pip-less parent repair (Minor) and Kokoro/Chatterbox model removal under a second window of the same copy (Minor) → P07. The P04B
+L cases (true standard user, restricted ACL, long paths disabled, clean-machine SAC, other GPUs/CPU-only, cross-user MachineGuard `denied`)
+are UNPROVED → P10 / AUD-004.
+
+**Not chosen.** Option A (closing on the Q2 qualification copy with an exit amendment); migrating `.venv-qwen3` by rename or copy;
+deleting the legacy engine at adoption; taking MachineGuard in the repair/cleanup lease.
+
 ## 2026-10-25 - The Qwen3 dialog states the engine in use and the destination of a new one from the path authority; a real canonical engine is guarded per test by its identity and top level, and walked whole once per session (v0.7.0 P04C Stage 5A)
 
 Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Source + tests only; no environment created or changed.
