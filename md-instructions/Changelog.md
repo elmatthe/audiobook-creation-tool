@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 P05B Stage 1 — optional voice setup made safe for consented installs (2026-10-25) — not released; identity stays 0.6.6
+
+- **Changed (internal):** a confirmation now covers exactly the plan that was shown — what would be fetched, from which exact source,
+  at what size, as an install or a repair — and is used once. A plan that changed, grew, moved source or needs a repair asks again.
+- **Changed (internal):** the setup worker and anything it starts are always stopped together on Cancel or time-out, and its answer is
+  written completely or not at all; a success is only reported once the voices are proved to work afterwards.
+- Nothing is downloaded or installed by this change; optional-voice installation stays disabled (P05B Stage 2).
+
 ### v0.7.0 P05A — optional voice setup planning (2026-10-25) — not released; identity stays 0.6.6
 
 - **Added (internal, nothing visible yet):** one planner for the four optional voice choices (Kokoro, Chatterbox Turbo, Qwen3

@@ -1,4 +1,5 @@
-"""v0.7.0 P05A — optional voice setup: the planning contract, honest sizes, the worker protocol and its execution home.
+"""v0.7.0 P05A/P05B Stage 1 — optional voice setup: the planning contract, honest sizes, the worker protocol and its
+execution home; consent bound to the plan shown, worker containment, fail-closed results and the operation lifecycle.
 
 Plan Revision 2 §5.4 (Q14-Q20, Q32). Everything runs offline. The planner is driven against the Qwen3 runtime sandbox
 (``test_qwen3_runtime.sandbox``: a fake repository root with a tiny model manifest) plus a fake in-tree Hugging Face
@@ -10,12 +11,15 @@ No real model, cache, environment or state file is written.
 
 from __future__ import annotations
 
+import dataclasses
+import errno
 import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -24,6 +28,7 @@ import pytest
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from tts import optional_setup as osu
+from tts import optional_setup_lifecycle as osl
 from tts import optional_setup_worker as worker
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
@@ -81,9 +86,12 @@ CHATTERBOX_ALL = 607
 
 @pytest.fixture
 def world(sandbox, tiny_assets, monkeypatch):  # noqa: F811 - pytest fixture injection
-    """The sandbox with the bundled references and transcript bundle reported intact (their own tests prove those)."""
+    """The sandbox with the bundled references and transcript bundle reported intact (their own tests prove those),
+    and a stand-in hash-locked Qwen3 requirements file, so the engine has a pinned source."""
     monkeypatch.setattr(rt, "reference_status", lambda voice: (True, "ok"))
     monkeypatch.setattr(rt, "bundle_status", lambda: (True, "ok"))
+    (sandbox / "scripts" / "qwen3-requirements.txt").write_text("tiny==1.0 --hash=sha256:" + "0" * 64 + "\n",
+                                                               encoding="utf-8")
     return sandbox
 
 
@@ -363,8 +371,9 @@ def test_unknown_and_changed_estimates_are_never_passed_off_as_known(world, monk
     monkeypatch.setitem(manifest, "environment", {"approx_download_bytes": ENV_DOWNLOAD + 1, "approx_installed_bytes": 1})
     after = as_json([CV])
     assert after["fingerprint"] != before["fingerprint"]
-    assert proto.consent_covers(osu.consent_for(before), after) == (
-        False, "the download is now larger than was agreed (or no longer known)")
+    assert after["acquisition_fingerprint"] != before["acquisition_fingerprint"]
+    ok, code, why = proto.consent_covers(osu.consent_for(before), after)
+    assert (ok, code) == (False, proto.CONSENT_STALE) and "not the one that was confirmed" in why
 
 
 def test_hardware_is_described_without_probing_unless_asked(world, tripwire, monkeypatch):
@@ -413,24 +422,31 @@ def test_the_pre_venv_estimate_on_another_platform_offers_no_qwen3(world, monkey
     assert not any(u.startswith("qwen3") for u in data["acquire_units"])
 
 
+def estimate_json(components) -> dict:
+    return osu.plan_to_json(osu.estimate(components))
+
+
 def test_consent_from_the_wizard_estimate_covers_the_exact_plan_and_nothing_more(world, monkeypatch):
-    consent = osu.consent_for(osu.plan_to_json(osu.estimate(ALL)))
-    assert consent.scope == proto.SCOPE_INSTALL and consent.components == ALL
-    assert proto.consent_covers(consent, as_json(ALL, health=HEALTHY)) == (True, "ok")
+    shown = estimate_json(ALL)
+    consent = osu.consent_for(shown)
+    assert consent.plan_context == proto.CONTEXT_PRE_VENV and consent.components == ALL
+    assert consent.scopes == {c: proto.SCOPE_INSTALL for c in ALL}
+    assert proto.consent_covers(consent, as_json(ALL, health=HEALTHY, spacy=True), estimate=shown) == (True, "", "ok")
     install_environment(world)
     install_model(world, "customvoice")
     (rt.model_spec("customvoice").directory / "model.safetensors").unlink()
-    ok, why = proto.consent_covers(consent, as_json(ALL, health=HEALTHY))
-    assert not ok and "repair consent" in why  # a repair is a different agreement
-    narrower = osu.consent_for(osu.plan_to_json(osu.estimate([K])))
-    ok, why = proto.consent_covers(narrower, as_json([K, CV], health=HEALTHY))
-    assert not ok
+    ok, code, why = proto.consent_covers(consent, as_json(ALL, health=HEALTHY, spacy=True), estimate=shown)
+    assert (ok, code) == (False, proto.CONSENT_STALE) and "repair" in why  # a repair is a different agreement
+    narrower = osu.consent_for(estimate_json([K]))
+    ok, code, why = proto.consent_covers(narrower, as_json([K, CV], health=HEALTHY, spacy=True),
+                                         estimate=estimate_json([K]))
+    assert not ok and code == proto.CONSENT_STALE
 
 
 def test_consent_never_covers_an_unverified_component(world):
-    consent = osu.consent_for(osu.plan_to_json(osu.estimate([K])))
-    ok, why = proto.consent_covers(consent, as_json([K]))  # Kokoro's engine not proved
-    assert not ok and "unverified" in why
+    shown = estimate_json([K])
+    ok, code, why = proto.consent_covers(osu.consent_for(shown), as_json([K]), estimate=shown)  # engine not proved
+    assert (ok, code) == (False, proto.NOT_ACQUIRABLE) and "unverified" in why
 
 
 # --------------------------------------------------------------------------- #
@@ -446,8 +462,9 @@ def request_json(**changes) -> dict:
 
 
 def install_json(**consent_changes) -> dict:
-    consent = {"scope": "install", "components": [K], "units": ["kokoro-model"], "download_bytes": 10,
-               "plan_fingerprint": "f" * 64}
+    consent = {"consent_id": "c" * 32, "plan_context": "main", "components": [K], "scopes": {K: "install"},
+               "units": ["kokoro-model", "kokoro-voice:af_heart"], "unknown_units": ["kokoro-voice:af_heart"],
+               "download_bytes": 10, "acquisition_fingerprint": "f" * 64}
     consent.update(consent_changes)
     return request_json(action="install", components=[K], consent=consent)
 
@@ -489,8 +506,10 @@ def test_missing_keys_are_refused():
     refuse(message, proto.MALFORMED)
 
 
-@pytest.mark.parametrize("version", [0, 2, 99])
+@pytest.mark.parametrize("version", [0, 1, 3, 99])
 def test_other_protocol_versions_are_refused(version):
+    """Version 1 included: a P05A consent named a fingerprint nothing checked, so it is refused, never upgraded."""
+    assert proto.PROTOCOL_VERSION == 2
     refuse(request_json(version=version), proto.UNSUPPORTED_VERSION)
 
 
@@ -508,20 +527,34 @@ def test_only_the_four_allowlisted_components_once_each(components, code):
     lambda: request_json(consent={"scope": "install"}),  # a plan carries no consent
     lambda: request_json(action="install", components=[K], consent=None),
     lambda: request_json(action="install", components=[], consent=None),
-    lambda: install_json(scope="everything"), lambda: install_json(components=[K, C]),
+    lambda: install_json(scopes={K: "everything"}), lambda: install_json(scopes={}),
+    lambda: install_json(scopes={K: "install", C: "install"}), lambda: install_json(components=[K, C]),
+    lambda: install_json(plan_context="pre-venv", scopes={K: "repair"}),
+    lambda: install_json(plan_context="pre-venv", scopes={K: None}), lambda: install_json(plan_context="later"),
+    lambda: install_json(consent_id="C" * 32), lambda: install_json(consent_id=None),
     lambda: install_json(units=["../x"]), lambda: install_json(units=["a", "a"]),
+    lambda: install_json(unknown_units=["spacy-english"]), lambda: install_json(unknown_units="kokoro-model"),
     lambda: install_json(download_bytes=-1), lambda: install_json(download_bytes=1.5),
-    lambda: install_json(plan_fingerprint="0" * 63), lambda: install_json(extra=True),
-])
+    lambda: install_json(download_bytes=None), lambda: install_json(acquisition_fingerprint="0" * 63),
+    lambda: install_json(extra=True),
+], ids=lambda m: "consent")
 def test_consent_must_be_explicit_and_exact(message):
     built = message()
     code = proto.MALFORMED if built["action"] == "install" and not built["components"] else proto.BAD_CONSENT
     refuse(built, code)
 
 
+def test_a_v1_consent_shape_is_refused_even_under_the_current_version():
+    v1 = {"scope": "install", "components": [K], "units": ["kokoro-model"], "download_bytes": 10,
+          "plan_fingerprint": "f" * 64}
+    refuse(request_json(action="install", components=[K], consent=v1), proto.BAD_CONSENT)
+
+
 def test_a_complete_install_request_is_accepted():
     request = proto.decode_request(json.dumps(install_json()).encode(), session=SESSION)
-    assert request.consent == proto.Consent("install", (K,), ("kokoro-model",), 10, "f" * 64)
+    assert request.consent == proto.Consent("c" * 32, "main", (K,), {K: "install"},
+                                            ("kokoro-model", "kokoro-voice:af_heart"), ("kokoro-voice:af_heart",), 10,
+                                            "f" * 64)
 
 
 def test_old_consent_is_never_replayed_another_session_or_a_stale_time():
@@ -726,22 +759,23 @@ def test_the_worker_answers_a_plan_request_with_events_and_one_result(world, tri
 
 
 def test_an_install_request_is_checked_and_then_refused_without_acquiring_anything(world, tripwire, no_acquisition):
-    consent = osu.consent_for(osu.plan_to_json(osu.plan([K, CV], facts=facts(health=HEALTHY))))
+    consent = osu.consent_for(osu.plan_to_json(osu.plan([K, CV], facts=facts(health=HEALTHY, spacy=True))))
     request = proto.new_request(proto.ACTION_INSTALL, [K, CV], session=SESSION, consent=consent)
-    code, result = run_main(world, request, facts=facts(health=HEALTHY))
+    code, result = run_main(world, request, facts=facts(health=HEALTHY, spacy=True))
     assert code == proto.EXIT_CODES[proto.REFUSED]
     assert result["error"]["code"] == proto.ACQUISITION_UNAVAILABLE and "Nothing was downloaded" in result["error"]["message"]
+    assert result["verified"] == []
     assert not (world / ".venv" / "engines").exists() and not rt.models_root().exists()
+    assert not (proto.exchange_root(world) / proto.CONSENTS_DIR).exists()  # checked, but never spent
     assert tripwire == []
 
 
-def test_an_install_request_whose_plan_grew_is_refused_as_stale_consent(world, no_acquisition):
+def test_an_install_request_whose_consent_was_altered_is_refused(world, no_acquisition):
     consent = osu.consent_for(osu.plan_to_json(osu.plan([CV], facts=facts())))
-    smaller = proto.Consent(consent.scope, consent.components, consent.units, consent.download_bytes - 1,
-                            consent.plan_fingerprint)
+    smaller = dataclasses.replace(consent, download_bytes=consent.download_bytes - 1)
     request = proto.new_request(proto.ACTION_INSTALL, [CV], session=SESSION, consent=smaller)
     code, result = run_main(world, request, facts=facts())
-    assert result["state"] == proto.REFUSED and result["error"]["code"] == proto.CONSENT_STALE
+    assert result["state"] == proto.REFUSED and result["error"]["code"] == proto.BAD_CONSENT
 
 
 @pytest.mark.parametrize("stop_at, kinds", [(1, ["started"]), (2, ["started"]), (3, ["started", "readiness", "plan"])])
@@ -947,7 +981,8 @@ def test_a_hung_child_is_ended_within_its_bound_and_given_one_forced_result(app,
     result = run.wait(1.0, cancel_grace_s=1.0)
     assert time.monotonic() - started < 40 and run.process.poll() is not None
     assert process_gone(int(pid_file.read_text()))  # the real interpreter, not just a venv redirector, is gone
-    assert result["state"] == proto.CANCELLED_STATE and result["forced"] is True
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.TIMED_OUT and result["forced"] is True
+    assert run.timed_out and run.terminated and run.lingering == 0
     assert proto.publish_once(spec.result_path, b"late") is False  # a late writer can never replace it
     assert run.result() == result
 
@@ -1066,3 +1101,587 @@ def test_planning_the_real_installation_is_read_only_offline_and_never_claims_un
     assert all(c["readiness"] in proto.READINESS for c in data["components"])
     assert component(data, K)["readiness"] != proto.READY and component(data, C)["readiness"] != proto.READY
     assert data["hardware"]["gpu"]["probed"] is False
+
+
+# =========================================================================== #
+# P05B Stage 1 — Task A: a consent is bound to the plan that was shown
+# =========================================================================== #
+def covers(consent, plan, shown=None):
+    return proto.consent_covers(consent, plan, estimate=shown)
+
+
+def altered(plan: dict, unit_id: str, **changes) -> dict:
+    """*plan* as the caller's own fresh plan, with one unit changed (the rule is tested against what a plan can say)."""
+    plan = json.loads(json.dumps(plan))
+    unit(plan, unit_id).update(changes)
+    plan["acquisition_fingerprint"] = proto.acquisition_fingerprint(plan)
+    return plan
+
+
+def test_every_unit_names_its_exact_source_and_only_spacy_is_unpinned(world):
+    data = as_json(ALL, health=HEALTHY)
+    sources = {u["id"]: u["source"] for u in data["units"]}
+    assert sources["kokoro-model"] == f"hf:{osu.KOKORO_REPO}@{osu.KOKORO_MEASURED_REVISION}"
+    assert sources["kokoro-voice:af_heart"] == sources["kokoro-model"]
+    assert sources["chatterbox-model"] == f"hf:{osu.CHATTERBOX_REPO}@{osu.CHATTERBOX_MEASURED_REVISION}"
+    assert sources["qwen3-engine"] == f"pip-lock:qwen3-requirements.txt@sha256:{rt.requirements_sha256()}"
+    spec = rt.model_spec("base")
+    assert sources["qwen3-model:base"] == f"hf:{spec.repo}@{spec.revision}#manifest-sha256:{spec.manifest_sha256()}"
+    assert [u for u, s in sources.items() if s is None] == ["spacy-english"]
+    shown = {u["id"]: u["source"] for u in estimate_json(ALL)["units"]}
+    assert shown == {u: sources[u] for u in shown}  # the estimate names exactly the same sources
+    assert data["schema"] == osu.PLAN_SCHEMA == 2
+    assert data["acquisition_fingerprint"] == proto.acquisition_fingerprint(data)
+
+
+def test_a_forged_or_unrelated_fingerprint_authorises_nothing(world, tripwire):
+    data = as_json([C], health=HEALTHY)
+    real = osu.consent_for(data)
+    assert covers(real, data) == (True, "", "ok")
+    other = osu.consent_for(as_json([C, CV], health=HEALTHY))  # a real fingerprint, of another plan
+    for forged in ("0" * 64, "f" * 64, other.acquisition_fingerprint, data["fingerprint"]):
+        ok, code, _ = covers(dataclasses.replace(real, acquisition_fingerprint=forged), data)
+        assert (ok, code) == (False, proto.CONSENT_STALE), forged
+    # The right fingerprint with terms that are not the plan's (more units, more bytes): refused too.
+    inflated = dataclasses.replace(real, units=real.units + ("qwen3-engine",), download_bytes=real.download_bytes * 9)
+    assert covers(inflated, data)[:2] == (False, proto.BAD_CONSENT)
+    shown = estimate_json([C])
+    pre = osu.consent_for(shown)
+    for forged in ("0" * 64, real.acquisition_fingerprint):
+        assert covers(dataclasses.replace(pre, acquisition_fingerprint=forged), data, shown)[:2] == (
+            False, proto.BAD_CONSENT)
+    assert covers(pre, data)[:2] == (False, proto.BAD_CONSENT)  # an estimate consent needs the reproduced estimate
+    assert covers(pre, data, estimate_json([C, K]))[:2] == (False, proto.BAD_CONSENT)  # ...for the same choices
+    assert covers(pre, estimate_json([C]), shown)[:2] == (False, proto.MALFORMED)  # checked only against a main plan
+    assert tripwire == []
+
+
+def test_same_units_and_bytes_but_a_changed_source_or_scope_is_a_different_plan(world, monkeypatch):
+    before = as_json([K], health={K: True}, spacy=True)
+    shown = estimate_json([K])
+    exact, pre = osu.consent_for(before), osu.consent_for(shown)
+    # Scoped, never monkeypatch.undo(): that would also undo the sandbox's repo_root and reach the real installation.
+    with monkeypatch.context() as patch:
+        patch.setattr(osu, "KOKORO_MEASURED_REVISION", "9" * 40)  # upstream moved; same files, same sizes
+        after = as_json([K], health={K: True}, spacy=True)
+        assert after["acquire_units"] == before["acquire_units"] and after["totals"] == before["totals"]
+        assert covers(exact, after)[:2] == (False, proto.CONSENT_STALE)
+        assert covers(pre, after, estimate_json([K]))[:2] == (False, proto.BAD_CONSENT)  # not the estimate given to
+    assert rt.repo_root() == world  # still inside the sandbox
+    before = as_json([CV])
+    rt.nested_venv_dir().mkdir(parents=True)  # the missing engine becomes a broken one: same units, same bytes
+    after = as_json([CV])
+    assert after["acquire_units"] == before["acquire_units"]
+    assert after["totals"]["download"] == before["totals"]["download"]
+    assert (component(before, CV)["consent_scope"], component(after, CV)["consent_scope"]) == ("install", "repair")
+    assert covers(osu.consent_for(before), after)[:2] == (False, proto.CONSENT_STALE)
+
+
+def test_immaterial_changes_do_not_invalidate_an_exact_consent(world, monkeypatch):
+    before = as_json([CV])
+    consent = osu.consent_for(before)
+    monkeypatch.setattr(rt, "gpu_probe", lambda: rt.GpuInfo("RTX Test", 12288))
+    rt._GPU_CACHE.clear()
+    after = as_json([CV], probe=True)  # different hardware facts and wording; nothing that would be fetched changed
+    assert after["fingerprint"] != before["fingerprint"]
+    assert after["acquisition_fingerprint"] == before["acquisition_fingerprint"]
+    assert covers(consent, after) == (True, "", "ok")
+
+
+def test_a_legitimate_estimate_refines_into_a_smaller_main_plan(world, tripwire):
+    shown = estimate_json(ALL)
+    consent = osu.consent_for(shown)
+    install_environment(world)
+    install_model(world, "customvoice")
+    hf_snapshot(world, osu.KOKORO_REPO, {"config.json": 4, "kokoro-v1_0.pth": 40})  # the model, not the voices
+    data = as_json(ALL, health=HEALTHY, spacy=True)
+    assert component(data, CV)["readiness"] == proto.READY
+    assert not {"qwen3-engine", "kokoro-model", "spacy-english"} & set(data["acquire_units"])
+    assert data["totals"]["download"]["bytes"] < consent.download_bytes
+    assert covers(consent, data, shown) == (True, "", "ok")
+    assert tripwire == []
+
+
+def test_an_estimate_consent_never_stretches_to_cover_more(world):
+    shown = estimate_json(ALL)
+    consent = osu.consent_for(shown)
+    data = as_json(ALL, health=HEALTHY, spacy=True)
+    assert covers(consent, data, shown)[0]
+    cases = {
+        "more than was confirmed": altered(data, "chatterbox-model", download=fig(CHATTERBOX_ALL + 1, proto.APPROXIMATE)),
+        "is not known": altered(data, "kokoro-model", download=fig(None, proto.UNKNOWN)),
+        "different source": altered(data, "qwen3-model:base", source="hf:someone/else@" + "1" * 40),
+        "serves a choice": altered(data, "kokoro-model", components=[K, C]),
+    }
+    extra = json.loads(json.dumps(data))
+    extra["units"].append({**unit(data, "kokoro-model"), "id": "kokoro-voice:zz_new", "label": "Kokoro voice zz_new"})
+    extra["acquire_units"].append("kokoro-voice:zz_new")
+    extra["acquisition_fingerprint"] = proto.acquisition_fingerprint(extra)
+    cases["was not confirmed"] = extra
+    for words, plan_ in cases.items():
+        ok, code, why = covers(consent, plan_, shown)
+        assert (ok, code) == (False, proto.CONSENT_STALE) and words in why, (words, why)
+
+
+def test_unknown_size_is_listed_and_agreed_never_counted_as_zero(world, monkeypatch):
+    roster = osu.kokoro_roster()
+    monkeypatch.setattr(osu, "KOKORO_VOICE_FILES", {v: 5 for v in roster[1:]})  # one voice has no measured size
+    voice = f"kokoro-voice:{roster[0]}"
+    data = as_json([K], health={K: True}, spacy=True)
+    consent = osu.consent_for(data)
+    assert consent.unknown_units == (voice,) and voice in consent.units
+    assert consent.download_bytes == 44 + 5 * 8  # the known part only: the unknown voice is not a zero
+    assert covers(consent, data) == (True, "", "ok")
+    assert covers(dataclasses.replace(consent, unknown_units=()), data)[:2] == (False, proto.BAD_CONSENT)
+    shown = estimate_json([K])
+    pre = osu.consent_for(shown)
+    assert voice in pre.unknown_units
+    assert covers(pre, data, shown) == (True, "", "ok")  # shown as unknown, agreed as unknown, still unknown
+    ok, code, why = covers(pre, altered(data, voice, download=fig(5, proto.APPROXIMATE)), shown)
+    assert (ok, code) == (False, proto.CONSENT_STALE) and "must be confirmed" in why  # unknown -> known is new terms
+    # A repair whose size only a full check can tell: listed as unknown, and the known total is not presented as all.
+    install_environment(world)
+    install_model(world, "customvoice")
+    (rt.model_spec("customvoice").directory / "model.safetensors").unlink()
+    repair = osu.consent_for(as_json([CV]))
+    assert repair.scopes == {CV: "repair"} and repair.unknown_units == ("qwen3-model:customvoice",)
+    assert repair.download_bytes == 0 and repair.units == ("qwen3-model:customvoice",)
+
+
+def test_an_unpinned_source_is_refused_whoever_confirmed_it(world):
+    shown = estimate_json([K])
+    data = as_json([K], health={K: True})  # spaCy's English model is absent
+    assert "spacy-english" in data["acquire_units"]
+    for consent, estimate in ((osu.consent_for(data), None), (osu.consent_for(shown), shown)):
+        ok, code, why = covers(consent, data, estimate)
+        assert (ok, code) == (False, proto.SOURCE_UNPINNED) and "spaCy" in why
+    (world / "scripts" / "qwen3-requirements.txt").unlink()  # no lock file: the engine has no pinned source either
+    data = as_json([CV])
+    assert unit(data, "qwen3-engine")["source"] is None
+    assert covers(osu.consent_for(data), data)[:2] == (False, proto.SOURCE_UNPINNED)
+
+
+def test_install_and_repair_are_agreed_per_component_and_never_stretched(world):
+    install_environment(world)
+    install_model(world, "customvoice")
+    (rt.model_spec("customvoice").directory / "model.safetensors").unlink()  # verified once, now damaged
+    data = as_json([C, CV], health=HEALTHY)
+    consent = osu.consent_for(data)
+    assert consent.scopes == {C: proto.SCOPE_INSTALL, CV: proto.SCOPE_REPAIR}
+    assert covers(consent, data) == (True, "", "ok")
+    for scopes in ({C: "install", CV: "install"}, {C: "repair", CV: "repair"}, {C: "install", CV: None}):
+        assert covers(dataclasses.replace(consent, scopes=scopes), data)[:2] == (False, proto.BAD_CONSENT), scopes
+    shown = estimate_json([C, CV])
+    ok, code, why = covers(osu.consent_for(shown), data, shown)
+    assert (ok, code) == (False, proto.CONSENT_STALE) and "repair" in why
+
+
+@pytest.mark.parametrize("state", [proto.UNVERIFIED, proto.BUSY, proto.BAD_BUNDLE, proto.UNSUPPORTED])
+def test_states_that_permit_no_acquisition_stay_distinct_and_cannot_be_consented(world, monkeypatch, state):
+    kwargs = {"health": HEALTHY, "spacy": True}
+    if state == proto.UNVERIFIED:
+        kwargs["health"] = {}
+    elif state == proto.BUSY:
+        kwargs["busy"] = [C]
+    elif state == proto.UNSUPPORTED:
+        kwargs["python"] = (3, 13)
+    else:
+        monkeypatch.setattr(rt, "reference_status", lambda voice: (False, "Male 4's recording is missing."))
+    data = as_json([C], **kwargs)
+    assert component(data, C)["readiness"] == state and component(data, C)["consent_scope"] is None
+    with pytest.raises(proto.ProtocolError) as caught:
+        osu.consent_for(data)
+    assert caught.value.code == proto.NOT_ACQUIRABLE and f"is {state}" in str(caught.value)
+    shown = estimate_json([C])
+    ok, code, why = covers(osu.consent_for(shown), data, shown)
+    assert (ok, code) == (False, proto.NOT_ACQUIRABLE) and f"is {state}" in why
+
+
+def test_an_unsupported_choice_cannot_be_consented_even_from_the_estimate(world, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    with pytest.raises(proto.ProtocolError) as caught:
+        osu.consent_for(estimate_json([K, CV]))
+    assert caught.value.code == proto.NOT_ACQUIRABLE
+
+
+# =========================================================================== #
+# P05B Stage 1 — Task B: fail-closed publication, claims, untrustworthy results
+# =========================================================================== #
+def stand_in_spec(root: Path, request_path: Path) -> proto.LaunchSpec:
+    return proto.LaunchSpec(("never-started",), root / "scripts", {}, request_path,
+                            request_path.with_name(proto.RESULT_NAME))
+
+
+def install_request(components, *, session=SESSION, **plan_kwargs) -> proto.Request:
+    consent = osu.consent_for(as_json(components, **plan_kwargs))
+    return proto.new_request(proto.ACTION_INSTALL, components, session=session, consent=consent)
+
+
+def test_without_atomic_publication_nothing_is_published_never_half(tmp_path, monkeypatch):
+    def no_links(*args, **kwargs):
+        raise OSError(errno.EXDEV, "hard links are not supported here")
+    monkeypatch.setattr(os, "link", no_links)
+    path = tmp_path / "result.json"
+    with pytest.raises(proto.ProtocolError) as caught:
+        proto.publish_once(path, b'{"state": "succeeded"}')
+    assert caught.value.code == proto.PUBLICATION_UNAVAILABLE
+    assert list(tmp_path.iterdir()) == []  # neither the result nor its temporary
+    with pytest.raises(proto.ProtocolError):
+        proto.write_request(tmp_path, proto.new_request(proto.ACTION_PLAN, [K], session=SESSION))
+    assert not [p for p in tmp_path.rglob("*") if p.is_file()]  # no request, so no worker could ever start
+
+
+def test_a_worker_that_cannot_publish_atomically_publishes_nothing_and_the_parent_fails_closed(world, monkeypatch):
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=SESSION)
+    path = proto.write_request(world, request)
+    real_link = os.link
+
+    def no_result_links(src, dst, *args, **kwargs):
+        if Path(dst).name == proto.RESULT_NAME:
+            raise OSError(errno.EXDEV, "hard links are not supported here")
+        return real_link(src, dst, *args, **kwargs)
+    monkeypatch.setattr(os, "link", no_result_links)
+    code = worker.main(["--request", str(path), "--result", str(path.with_name("result.json")), "--session", SESSION],
+                       repo_root=world, home_check=lambda r: "", facts=facts())
+    assert code == proto.EXIT_NO_RESULT and sorted(p.name for p in path.parent.iterdir()) == ["claim", "request.json"]
+    result = proto.WorkerRun(world, stand_in_spec(world, path), request).result()
+    assert result["state"] == proto.FAILED and result["forced"] and "could not be recorded" in result["error"]["message"]
+    assert not path.with_name("result.json").exists()
+
+
+SUCCESS_WITHOUT_PROOF = "success-without-proof"
+
+
+@pytest.mark.parametrize("content", [b'{"protocol": "act-optional-setup", "vers', b"", b"[]", SUCCESS_WITHOUT_PROOF],
+                         ids=["truncated", "empty", "not-an-object", "success-without-proof"])
+def test_a_partial_or_unproved_success_is_never_accepted(world, content):
+    request = install_request([C], health={C: True})
+    path = proto.write_request(world, request)
+    if content == SUCCESS_WITHOUT_PROOF:
+        content = proto.encode(proto.make_result(request.request_id, proto.SUCCEEDED, plan={}))
+    path.with_name("result.json").write_bytes(content)  # a writer that bypassed the atomic publication
+    result = proto.WorkerRun(world, stand_in_spec(world, path), request).result()
+    assert result["state"] == proto.FAILED and result["forced"] and result["error"]["code"] == proto.MALFORMED
+
+
+def test_results_vouch_only_for_what_was_requested(world):
+    plan_request = proto.new_request(proto.ACTION_PLAN, [C], session=SESSION)
+    rid = plan_request.request_id
+    for bad in (proto.make_result(rid, proto.SUCCEEDED, plan={}, verified=[C]),
+                proto.make_result(rid, proto.FAILED, error=(proto.INTERNAL, "x"), verified=[K])):
+        with pytest.raises(proto.ProtocolError):
+            proto.decode_result(proto.encode(bad), request_id=rid, request=plan_request)
+    request = install_request([C], health={C: True})
+    rid = request.request_id
+    proto.decode_result(proto.encode(proto.make_result(rid, proto.SUCCEEDED, plan={}, verified=[C])), request_id=rid,
+                        request=request)
+    partial = proto.make_result(rid, proto.FAILED, error=(proto.HEALTH_UNPROVED, "x"), verified=[C])
+    assert proto.decode_result(proto.encode(partial), request_id=rid, request=request)["verified"] == [C]
+    with pytest.raises(ValueError):
+        proto.make_result(rid, proto.SUCCEEDED, verified=["edge"])
+
+
+def test_a_result_reached_through_a_junction_is_never_believed(tmp_path):
+    root, outside = tmp_path / "app", tmp_path / "outside"
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=SESSION)
+    forged = outside / request.request_id
+    forged.mkdir(parents=True)
+    (forged / "result.json").write_bytes(proto.encode(proto.make_result(request.request_id, proto.SUCCEEDED,
+                                                                        plan={})))
+    proto.exchange_root(root).mkdir(parents=True)
+    if not _junction(proto.exchange_dir(root, request.request_id), forged):
+        pytest.skip("this account cannot create a junction")
+    result = proto.WorkerRun(root, stand_in_spec(root, proto.exchange_dir(root, request.request_id) / "request.json"),
+                             request).result()
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.UNSAFE_PATH
+
+
+def test_a_consent_record_folder_reached_through_a_junction_is_refused(tmp_path):
+    root, outside = tmp_path / "app", tmp_path / "outside"
+    outside.mkdir()
+    proto.exchange_root(root).mkdir(parents=True)
+    if not _junction(proto.exchange_root(root) / proto.CONSENTS_DIR, outside):
+        pytest.skip("this account cannot create a junction")
+    with pytest.raises(proto.ProtocolError) as caught:
+        proto.claim_consent(root, "a" * 32, "b" * 32)
+    assert caught.value.code == proto.UNSAFE_PATH and list(outside.iterdir()) == []
+    with pytest.raises(proto.ProtocolError):
+        proto.claim_consent(root, "../" + "a" * 29, "b" * 32)
+
+
+def test_a_second_worker_on_the_same_request_never_runs_it(world, no_acquisition):
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=SESSION)
+    path = proto.write_request(world, request)
+    assert proto.claim_request(world, request.request_id) is True  # the first worker
+    assert proto.claim_request(world, request.request_id) is False
+    code = worker.main(["--request", str(path), "--result", str(path.with_name("result.json")), "--session", SESSION],
+                       repo_root=world, home_check=lambda r: "", facts=facts())
+    assert code == proto.EXIT_NO_RESULT and not path.with_name("result.json").exists()
+
+
+# =========================================================================== #
+# P05B Stage 1 — Task D: the operation lifecycle (stand-in acquirers only; nothing is ever fetched)
+# =========================================================================== #
+class StandInAcquirer:
+    """Puts the planned Chatterbox files into the sandbox -- a few bytes, never a download."""
+
+    available = True
+
+    def __init__(self, root: Path, *, complete=True, units=None, error=None, write=True, wait_for_cancel=False):
+        self.root, self.complete, self.units, self.error = root, complete, units, error
+        self.write, self.wait_for_cancel = write, wait_for_cancel
+        self.calls = 0
+
+    def acquire(self, plan, consent, *, progress, cancel_check):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        if self.wait_for_cancel:
+            deadline = time.monotonic() + 10
+            while not cancel_check() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            return osl.AcquisitionReport(False, (), "stopped")
+        if self.write:
+            install_chatterbox(self.root)
+        progress({"unit": "chatterbox-model", "done": 1, "total": 1})
+        return osl.AcquisitionReport(self.complete, tuple(plan["acquire_units"]) if self.units is None else self.units)
+
+
+PROVED = {C: True}
+
+
+def test_a_consented_acquisition_succeeds_only_once_its_components_are_proved_working(world, tripwire, capsys):
+    request = install_request([C], health=PROVED)
+    acquirer = StandInAcquirer(world)
+    code, result = run_main(world, request, facts=facts(health=PROVED), acquirer=acquirer, health=lambda c: PROVED)
+    assert code == 0 and result["state"] == proto.SUCCEEDED and result["verified"] == [C] and acquirer.calls == 1
+    assert component(result["plan"], C)["readiness"] == proto.READY
+    assert [e["kind"] for e in events(capsys, request.request_id)] == ["started", "readiness", "plan", "progress"]
+    assert (proto.exchange_root(world) / proto.CONSENTS_DIR / request.consent.consent_id).is_file()  # spent
+    assert tripwire == []
+
+
+@pytest.mark.parametrize("proof", [{}, {C: None}, {C: False}], ids=["none", "unproved", "broken"])
+def test_without_a_post_install_proof_there_is_no_success(world, proof):
+    request = install_request([C], health=PROVED)
+    code, result = run_main(world, request, facts=facts(health=PROVED), acquirer=StandInAcquirer(world),
+                            health=lambda c: proof)
+    assert code == proto.EXIT_CODES[proto.FAILED]
+    assert result["error"]["code"] == proto.HEALTH_UNPROVED and result["verified"] == []
+
+
+@pytest.mark.parametrize("kwargs", [{"complete": False}, {"units": ("chatterbox-model", "qwen3-engine")}, {"units": ()},
+                                    {"error": OSError(28, "No space left on device")}],
+                         ids=["incomplete", "more-than-planned", "less-than-planned", "error"])
+def test_an_incomplete_failed_or_unexpected_acquisition_is_never_a_success(world, kwargs):
+    request = install_request([C], health=PROVED)
+    code, result = run_main(world, request, facts=facts(health=PROVED), acquirer=StandInAcquirer(world, **kwargs),
+                            health=lambda c: PROVED)
+    assert code == proto.EXIT_CODES[proto.FAILED] and result["state"] == proto.FAILED
+    assert result["error"]["code"] == proto.ACQUISITION_FAILED and result["verified"] == []
+
+
+def test_cancel_reaches_an_active_acquisition_and_ends_it_cancelled(world):
+    request = install_request([C], health=PROVED)
+    path = proto.write_request(world, request)
+    acquirer = StandInAcquirer(world, wait_for_cancel=True)
+    timer = threading.Timer(0.3, lambda: proto.publish_once(path.with_name(proto.CANCEL_NAME), b"cancel\n"))
+    timer.start()
+    code = worker.main(["--request", str(path), "--result", str(path.with_name("result.json")), "--session", SESSION],
+                       repo_root=world, home_check=lambda r: "", facts=facts(health=PROVED), acquirer=acquirer,
+                       health=lambda c: PROVED)
+    timer.join()
+    result = proto.decode_result(proto.read_message_file(path.with_name("result.json")),
+                                 request_id=request.request_id, request=request)
+    assert code == proto.EXIT_CODES[proto.CANCELLED_STATE] and result["state"] == proto.CANCELLED_STATE
+    assert acquirer.calls == 1 and result["verified"] == []
+
+
+def test_a_consent_is_acted_on_once_and_never_replayed(world):
+    consent = osu.consent_for(as_json([C], health=PROVED))
+    acquirer = StandInAcquirer(world, write=False)  # reports done but leaves the plan unchanged
+    first = proto.new_request(proto.ACTION_INSTALL, [C], session=SESSION, consent=consent)
+    _, result = run_main(world, first, facts=facts(health=PROVED), acquirer=acquirer, health=lambda c: PROVED)
+    assert result["error"]["code"] == proto.HEALTH_UNPROVED and acquirer.calls == 1
+    duplicate = proto.new_request(proto.ACTION_INSTALL, [C], session=SESSION, consent=consent)  # same confirmation
+    _, result = run_main(world, duplicate, facts=facts(health=PROVED), acquirer=acquirer, health=lambda c: PROVED)
+    assert result["error"]["code"] == proto.CONSENT_USED and acquirer.calls == 1  # never acquired twice
+    after_restart = proto.new_request(proto.ACTION_INSTALL, [C], session=SESSION, consent=consent)
+    _, result = run_main(world, after_restart, session="b" * 32, facts=facts(health=PROVED), acquirer=acquirer)
+    assert result["error"]["code"] == proto.WRONG_SESSION and acquirer.calls == 1
+
+
+def test_an_install_with_nothing_to_acquire_is_proved_not_performed(world, no_acquisition):
+    install_chatterbox(world)
+    request = install_request([C], health=PROVED)
+    assert request.consent.units == ()
+    code, result = run_main(world, request, facts=facts(health=PROVED), health=lambda c: PROVED)  # disabled acquirer
+    assert code == 0 and result["state"] == proto.SUCCEEDED and result["verified"] == [C]
+    assert not (proto.exchange_root(world) / proto.CONSENTS_DIR).exists()
+
+
+def test_an_operation_settles_exactly_one_terminal_outcome_and_never_goes_back(world):
+    request = proto.new_request(proto.ACTION_PLAN, [C], session=SESSION)
+
+    def operation():
+        return osl.Operation(request, planner=lambda health: as_json([C]), estimator=dict, emit=lambda k, p: None,
+                             cancel_check=lambda: False)
+    op = operation()
+    assert op.run()["state"] == proto.SUCCEEDED and op.history == ["planning", "validating", "succeeded"]
+    with pytest.raises(RuntimeError):
+        op._finish(proto.FAILED, error=(proto.INTERNAL, "a second outcome"))
+    with pytest.raises(RuntimeError):
+        op._enter(osl.ACQUIRING)
+    fresh = operation()
+    fresh._enter(osl.VALIDATING)
+    with pytest.raises(RuntimeError):
+        fresh._enter(osl.VALIDATING)
+    assert osl.DisabledAcquirer.available is False
+    with pytest.raises(RuntimeError):
+        osl.DisabledAcquirer().acquire({}, None, progress=print, cancel_check=lambda: False)
+
+
+def test_the_worker_has_no_way_to_enable_acquisition_from_its_command_line():
+    import inspect
+    import re
+
+    options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(worker.main))
+    assert options == ["--request", "--result", "--session"]
+    assert inspect.signature(worker.main).parameters["acquirer"].default is None
+    assert isinstance(osl.Operation(proto.new_request(proto.ACTION_PLAN, [K], session=SESSION), planner=dict,
+                                    estimator=dict, emit=print, cancel_check=bool).acquirer, osl.DisabledAcquirer)
+
+
+# =========================================================================== #
+# P05B Stage 1 — Task B: the real process tree, contained and ended (a second disposable app, no tripwire)
+# =========================================================================== #
+@pytest.fixture(scope="module")
+def plain_app(tmp_path_factory):
+    """Another disposable copy of the app with a pip-less ``.venv`` and no tripwire: these tests start grandchildren
+    on purpose, to prove that cancelling, timing out or finishing a run ends every one of them."""
+    base = Path(getattr(sys, "_base_executable", "") or sys.executable)
+    root = tmp_path_factory.mktemp("disposable-plain-app")
+    for package in ("shared", "tts"):
+        shutil.copytree(REPO / "scripts" / package, root / "scripts" / package,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+    (root / "files").mkdir()
+    made = subprocess.run([str(base), "-I", "-m", "venv", "--without-pip", str(root / ".venv")], capture_output=True,
+                          text=True, timeout=300)
+    assert made.returncode == 0, made.stderr
+    return root
+
+
+GRANDCHILD_CODE = "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(45)"
+
+
+def wait_for_pid(path: Path, bound_s: float = 30.0) -> int:
+    deadline = time.monotonic() + bound_s
+    while time.monotonic() < deadline:
+        try:
+            text = path.read_text()
+        except OSError:
+            text = ""
+        if text:
+            return int(text)
+        time.sleep(0.02)
+    raise AssertionError(f"{path.name} never appeared")
+
+
+def tree_run(app: Path, tmp_path: Path, then: str, *, on_event=None) -> tuple[proto.WorkerRun, int, int]:
+    """A stand-in worker that starts a grandchild (through the venv launcher, as an installer would) and then does
+    *then*. Returns the run and the real interpreter PIDs of the worker and of the grandchild."""
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    path = proto.write_request(app, request)
+    spec = proto.worker_launch(app, path, session)
+    own, grand = tmp_path / "own.pid", tmp_path / "grand.pid"
+    script = ("import os, subprocess, sys, time\n"
+              f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD_CODE!r}, {str(grand)!r}])\n"
+              f"open({str(own)!r}, 'w').write(str(os.getpid()))\n"
+              f"while not (os.path.exists({str(grand)!r}) and open({str(grand)!r}).read()): time.sleep(0.02)\n"
+              + then)
+    stand_in = proto.LaunchSpec((spec.argv[0], "-c", script), spec.cwd, spec.env, spec.request_path, spec.result_path)
+    run = proto.WorkerRun(app, stand_in, request, on_event=on_event)
+    run.start()
+    return run, wait_for_pid(own), wait_for_pid(grand)
+
+
+def test_a_timed_out_worker_and_its_grandchild_are_ended_and_the_job_is_left_empty(plain_app, tmp_path):
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "time.sleep(120)\n")
+    started = time.monotonic()
+    result = run.wait(1.0, cancel_grace_s=1.0)
+    assert time.monotonic() - started < 30
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.TIMED_OUT and result["forced"]
+    if os.name == "nt":  # every launcher and interpreter was a member, and none is left
+        assert run.lingering == 0 and run.members_seen >= 3
+
+
+def test_stopping_a_worker_ends_its_grandchild_too(plain_app, tmp_path):
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "time.sleep(120)\n")
+    result = run.stop(grace_s=1.0)
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert result["state"] == proto.CANCELLED_STATE and result["forced"] and run.terminated
+
+
+def test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run(plain_app, tmp_path):
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "")  # the worker exits; its child would live on
+    started = time.monotonic()
+    result = run.wait(60)
+    assert time.monotonic() - started < 30  # not held up by the grandchild's copy of the output pipe
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert not run.terminated and not run.timed_out
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
+
+
+def test_a_failing_event_callback_cannot_strand_the_worker(plain_app, tmp_path):
+    count = 3000  # far more than a pipe buffer holds: a dead reader would block the worker for good
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    path = proto.write_request(plain_app, request)
+    spec = proto.worker_launch(plain_app, path, session)
+    cancel = str(path.with_name(proto.CANCEL_NAME))
+    script = ("import os, time\n"
+              "from shared import optional_setup_protocol as p\n"
+              f"for i in range({count}):\n"
+              f"    print(p.encode_event({request.request_id!r}, i, 'progress', {{'i': i, 'pad': 'x' * 100}}), "
+              "flush=True)\n"
+              "deadline = time.monotonic() + 30\n"
+              f"while not os.path.exists({cancel!r}) and time.monotonic() < deadline: time.sleep(0.02)\n")
+    stand_in = proto.LaunchSpec((spec.argv[0], "-c", script), spec.cwd, spec.env, spec.request_path, spec.result_path)
+    calls = []
+
+    def broken(event):
+        calls.append(event["seq"])
+        raise RuntimeError("the progress display went away")
+    run = proto.WorkerRun(plain_app, stand_in, request, on_event=broken)
+    run.start()
+    result = run.wait(25)
+    assert not run.timed_out and not run.terminated  # it was cancelled and stopped by itself, promptly
+    assert calls == [0] and len(run.events) == count and run.callback_errors == [
+        "RuntimeError: the progress display went away"]
+    assert run.cancel_sent and result["state"] == proto.CANCELLED_STATE
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object containment")
+def test_a_worker_that_cannot_be_contained_is_never_run(plain_app, tmp_path, monkeypatch):
+    from tts import qwen3_process
+
+    def refused():
+        raise OSError(5, "job objects are not allowed here")
+    monkeypatch.setattr(qwen3_process, "ProcessJob", refused)
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    path = proto.write_request(plain_app, request)
+    spec = proto.worker_launch(plain_app, path, session)
+    marker = tmp_path / "RAN"
+    stand_in = proto.LaunchSpec((spec.argv[0], "-c", f"open({str(marker)!r}, 'w').close()"), spec.cwd, spec.env,
+                                spec.request_path, spec.result_path)
+    run = proto.WorkerRun(plain_app, stand_in, request)
+    with pytest.raises(qwen3_process.ContainmentUnavailable):
+        run.start()
+    time.sleep(1.0)
+    assert not marker.exists() and run.process is None
+    result = run.result()
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_UNAVAILABLE
+    assert proto.decode_result(proto.read_message_file(spec.result_path), request_id=request.request_id) == result

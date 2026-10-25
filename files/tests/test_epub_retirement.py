@@ -86,6 +86,11 @@ PRODUCTION_TTS_SOURCES = (
     "tts/audio_tail.py",
     # Added by v0.7.0 P02B: the one TTS output filename policy every route names its file through.
     "tts/output_names.py",
+    # Added by v0.7.0 P05B Stage 1: the optional-voice planner and setup worker (both shipped by P05A without being
+    # listed here, which already failed this allow-list check) and the operation lifecycle the worker answers through.
+    "tts/optional_setup.py",
+    "tts/optional_setup_worker.py",
+    "tts/optional_setup_lifecycle.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

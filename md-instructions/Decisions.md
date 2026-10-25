@@ -4,6 +4,31 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - A consent is bound to the acquisition terms of the plan that was shown; the setup worker's process tree is contained; results are atomic or absent (v0.7.0 P05B Stage 1)
+
+Plan Revision 2 §5.4 and §6 / P05B; owner rulings Q14–Q20; recorded by Claude Code.
+
+**Consent.** The P05A consent named a plan fingerprint that nothing checked. Protocol v2 binds a consent to the SHA-256 of the plan's
+acquisition terms (selection; each chosen component's readiness and scope; every acquired unit's components, state, source and download
+figure) and carries those terms; the worker recomputes the plan and compares both. Unconditional fingerprint equality was not chosen:
+the approved first run confirms a pre-venv estimate and only later sees the exact plan. A pre-venv consent must name the estimate the
+worker reproduces (it is deterministic) and covers the main plan only as a per-unit bounded refinement; anything else, and any repair,
+needs a renewed confirmation. Scopes are per component, so a mixed install/repair plan is agreed explicitly, never under one scope.
+Unknown sizes are listed and agreed as unknown, never counted as zero. Version 1 is refused rather than upgraded. A consent is spent once
+just before acquiring; a request has one worker.
+
+**Provenance.** A unit is acquirable only from an exact source: a Hugging Face commit, the Qwen3 manifest, or the hash-locked Qwen3
+requirements. The spaCy English model has none until the owner rules, so it cannot be acquired through the plan.
+
+**Process and results.** The worker is started through the existing `qwen3_process.spawn(require_job=True)` (suspended, Job Object,
+resumed) rather than a second containment implementation; cancel, timeout and the end of every run end the whole tree and confirm the
+job empty. Results are published only by hard link; where that is impossible nothing is published (the P05A exclusive-create fallback
+could expose a partial file). An install success must name every component proved working afterwards.
+
+**Not chosen.** An HMAC over the consent (the session token is already on the command line, and any process that can write the exchange
+folder runs as the same user; the binding to a recomputed plan is the protection that matters); killing by PID or `taskkill /T` for the
+worker; enabling any acquirer in this stage; adopting the spaCy wheel before the owner's ruling.
+
 ## 2026-10-25 - Optional voice setup is planned by one acquisition-free planner and answered by a worker that runs only in the app's own CPython 3.12 environment; what is not proved stays unverified (v0.7.0 P05A)
 
 Plan Revision 2 §5.4 and §6 / P05A exit row; owner rulings Q14–Q20, Q32; recorded by Claude Code.

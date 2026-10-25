@@ -50,6 +50,17 @@ class _ExtendedLimits(ctypes.Structure):
                 ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
 
 
+_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS = 1
+
+
+class _BasicAccounting(ctypes.Structure):
+    _fields_ = [
+        ("TotalUserTime", ctypes.c_int64), ("TotalKernelTime", ctypes.c_int64),
+        ("ThisPeriodTotalUserTime", ctypes.c_int64), ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+        ("TotalPageFaultCount", wintypes.DWORD), ("TotalProcesses", wintypes.DWORD),
+        ("ActiveProcesses", wintypes.DWORD), ("TotalTerminatedProcesses", wintypes.DWORD)]
+
+
 def _kernel32():
     k = ctypes.WinDLL("kernel32", use_last_error=True)
     k.CreateJobObjectW.restype = wintypes.HANDLE
@@ -60,6 +71,9 @@ def _kernel32():
     k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     k.TerminateJobObject.restype = wintypes.BOOL
     k.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    k.QueryInformationJobObject.restype = wintypes.BOOL
+    k.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                            ctypes.POINTER(wintypes.DWORD)]
     k.CloseHandle.restype = wintypes.BOOL
     k.CloseHandle.argtypes = [wintypes.HANDLE]
     return k
@@ -88,6 +102,16 @@ class ProcessJob:
     def terminate(self) -> None:
         if self.handle:
             self._k.TerminateJobObject(self.handle, _TERMINATE_EXIT_CODE)
+
+    def accounting(self) -> tuple[int, int]:
+        """``(members alive now, members ever)``: how a caller confirms that ending the job really ended everything."""
+        if not self.handle:
+            raise OSError("the job is already closed")
+        info = _BasicAccounting()
+        if not self._k.QueryInformationJobObject(self.handle, _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS,
+                                                 ctypes.byref(info), ctypes.sizeof(info), None):
+            raise OSError(ctypes.get_last_error(), "QueryInformationJobObject failed")
+        return int(info.ActiveProcesses), int(info.TotalProcesses)
 
     def close(self) -> None:
         """Closing the last handle kills any member still alive (KILL_ON_JOB_CLOSE)."""

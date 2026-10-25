@@ -22,6 +22,11 @@ Two contexts, matching the approved execution home:
 
 Nothing here downloads, installs, loads a model, opens a socket or starts a process -- except the optional, bounded
 ``nvidia-smi`` query when a caller asks for hardware facts (``probe_hardware=True``). Acquisition is P05B.
+
+P05B Stage 1: every unit names the exact *source* it would be acquired from (a Hugging Face repository at a commit, the
+Qwen3 manifest, the hash-locked Qwen3 requirements) or ``None`` when no exact source is pinned yet -- the spaCy English
+model, pending the owner's ruling -- and a plan carries the fingerprint of its acquisition terms, which a consent is
+bound to (``shared.optional_setup_protocol.consent_covers``).
 """
 
 from __future__ import annotations
@@ -43,17 +48,20 @@ from shared.optional_setup_protocol import (APPROXIMATE, BAD_BUNDLE, CHATTERBOX,
 from tts import qwen3_runtime as rt
 from tts import voice_registry
 
-CONTEXT_PRE_VENV = "pre-venv"
-CONTEXT_MAIN = "main"
-PLAN_SCHEMA = 1
+CONTEXT_PRE_VENV = proto.CONTEXT_PRE_VENV
+CONTEXT_MAIN = proto.CONTEXT_MAIN
+#: 1 = P05A; 2 = P05B Stage 1 (units name their source; the plan carries its acquisition fingerprint).
+PLAN_SCHEMA = 2
 
 # --------------------------------------------------------------------------- #
-# What the libraries fetch on first use, measured (the app pins none of these revisions)
+# What the libraries fetch on first use, measured
 # --------------------------------------------------------------------------- #
 #: kokoro 0.9.4 downloads from ``hexgrad/Kokoro-82M`` at whatever revision ``main`` names, through ``hf_hub_download``:
 #: ``config.json`` and the weights when a pipeline is built, one ``voices/<id>.pt`` the first time each voice speaks.
 #: Sizes measured from the in-tree cache on HOME-PC, 2026-10-25, at the revision below. Approximate by definition: the
-#: upstream repository can change, and nothing here can tell without asking the network.
+#: upstream repository can change, and nothing here can tell without asking the network. The plan names this revision
+#: as the unit's source, so a consented acquisition is bound to it rather than to whatever ``main`` names later
+#: (P05B Stage 1; Stage 2 must fetch at exactly this commit).
 KOKORO_REPO = "hexgrad/Kokoro-82M"
 KOKORO_MEASURED_REVISION = "f3ff3571791e39611d31c381e3a41a3af07b4987"
 KOKORO_MODEL_FILES: dict[str, int] = {"config.json": 2_351, "kokoro-v1_0.pth": 327_212_226}
@@ -63,7 +71,8 @@ KOKORO_VOICE_FILES: dict[str, int] = {
 }
 #: misaki's English G2P (both Kokoro English pipelines) runs ``spacy.cli.download("en_core_web_sm")`` -- a pip install
 #: from outside PyPI's pinned set -- when the package is absent. Installed size measured on HOME-PC (3.8.0); its download
-#: size is not recorded anywhere local.
+#: size is not recorded anywhere local. Its source is not pinned until the owner rules on it (P05B Stage 1 proposal),
+#: so the plan names none and no consent can acquire it.
 SPACY_ENGLISH = "en_core_web_sm"
 SPACY_ENGLISH_INSTALLED_BYTES = 15_248_495
 
@@ -119,12 +128,37 @@ class Unit:
     disk: Figure = ZERO  # newly occupied once installed (an upper bound where a link would cost nothing)
     temp: Figure = ZERO  # extra free space needed while installing, released afterwards
     note: str = ""
+    source: Optional[str] = None  # the exact thing it would be acquired from; None = not pinned (cannot be acquired)
 
     def to_json(self) -> dict:
         return {"id": self.id, "label": self.label, "components": list(self.components), "state": self.state,
-                "download": self.download.to_json(), "reused": self.reused.to_json(),
+                "source": self.source, "download": self.download.to_json(), "reused": self.reused.to_json(),
                 "local_copy": self.local_copy.to_json(), "disk": self.disk.to_json(), "temp": self.temp.to_json(),
                 "note": self.note}
+
+
+def hf_source(repo_id: str, revision: str) -> str:
+    """A Hugging Face repository at one commit: the only form of upstream model source a consent can be bound to."""
+    return f"hf:{repo_id}@{revision}"
+
+
+def kokoro_source() -> str:
+    return hf_source(KOKORO_REPO, KOKORO_MEASURED_REVISION)
+
+
+def chatterbox_source() -> str:
+    return hf_source(CHATTERBOX_REPO, CHATTERBOX_MEASURED_REVISION)
+
+
+def qwen_engine_source() -> Optional[str]:
+    """The hash-locked Qwen3 requirements (pip ``--require-hashes``), by the hash of the lock itself."""
+    digest = rt.requirements_sha256()
+    return f"pip-lock:qwen3-requirements.txt@sha256:{digest}" if digest else None
+
+
+def qwen_model_source(spec: "rt.ModelSpec") -> str:
+    """A Qwen3 model: its repository at the manifest's commit, and the manifest entry that lists every file's hash."""
+    return f"{hf_source(spec.repo, spec.revision)}#manifest-sha256:{spec.manifest_sha256()}"
 
 
 @dataclass
@@ -144,14 +178,14 @@ _UNIT_STATES = (READY, MISSING, DAMAGED, UNVERIFIED)
 
 
 def _files_unit(unit_id: str, label: str, component: str, folder: Optional[Path], files: Mapping[str, int],
-                *, unreachable: str = "", optional: Iterable[str] = ()) -> Unit:
+                *, source: str, unreachable: str = "", optional: Iterable[str] = ()) -> Unit:
     """A unit of upstream files measured at one revision: missing, present at the measured size, or unverifiable.
 
     A file of another size is not called damaged -- the upstream repository is unpinned, so it may simply be newer --
     and is not called healthy either: the unit is unverified.
     """
     if unreachable:
-        return Unit(unit_id, label, [component], UNVERIFIED, note=unreachable)
+        return Unit(unit_id, label, [component], UNVERIFIED, note=unreachable, source=source)
     optional = set(optional)
     missing, odd, present = [], [], 0
     for name, size in files.items():
@@ -167,15 +201,15 @@ def _files_unit(unit_id: str, label: str, component: str, folder: Optional[Path]
         else:
             present += actual
     if odd:
-        return Unit(unit_id, label, [component], UNVERIFIED,
+        return Unit(unit_id, label, [component], UNVERIFIED, source=source,
                     note=f"{', '.join(odd)} differ from the size measured upstream, so they cannot be verified here")
     needed = [(n, s) for n, s in missing if n not in optional]
     if not needed:
-        return Unit(unit_id, label, [component], READY, reused=Figure(present, EXACT))
+        return Unit(unit_id, label, [component], READY, reused=Figure(present, EXACT), source=source)
     fetched = sum(s for _, s in missing)  # the library fetches the optional files too while it is at it
     return Unit(unit_id, label, [component], MISSING, download=Figure(fetched, APPROXIMATE),
                 reused=Figure(present, EXACT), disk=Figure(fetched, APPROXIMATE), temp=Figure(0, APPROXIMATE),
-                note=f"{len(needed)} of {len(files)} files to download (sizes measured upstream; not pinned)")
+                source=source, note=f"{len(needed)} of {len(files)} files to download (sizes measured upstream)")
 
 
 def _hf_snapshot(repo_id: str) -> tuple[Optional[Path], str]:
@@ -251,7 +285,8 @@ def _reference_problem() -> str:
 # --------------------------------------------------------------------------- #
 def _kokoro_units(facts: Facts) -> list[Unit]:
     snapshot, unreachable = _hf_snapshot(KOKORO_REPO)
-    units = [_files_unit("kokoro-model", "Kokoro model", KOKORO, snapshot, KOKORO_MODEL_FILES,
+    source = kokoro_source()
+    units = [_files_unit("kokoro-model", "Kokoro model", KOKORO, snapshot, KOKORO_MODEL_FILES, source=source,
                          unreachable=unreachable)]
     for voice in kokoro_roster():
         unit_id = f"kokoro-voice:{voice}"
@@ -259,10 +294,11 @@ def _kokoro_units(facts: Facts) -> list[Unit]:
             present = snapshot is not None and (snapshot / "voices" / f"{voice}.pt").is_file()
             units.append(Unit(unit_id, f"Kokoro voice {voice}", [KOKORO], UNVERIFIED if present else MISSING,
                               download=ZERO if present else NOT_KNOWN, disk=ZERO if present else NOT_KNOWN,
-                              note="no measured size for this voice"))
+                              note="no measured size for this voice", source=source))
             continue
         units.append(_files_unit(unit_id, f"Kokoro voice {voice}", KOKORO, snapshot,
-                                 {f"voices/{voice}.pt": KOKORO_VOICE_FILES[voice]}, unreachable=unreachable))
+                                 {f"voices/{voice}.pt": KOKORO_VOICE_FILES[voice]}, source=source,
+                                 unreachable=unreachable))
     if facts.package_present(SPACY_ENGLISH):
         units.append(Unit("spacy-english", "spaCy English model", [KOKORO], READY))
     else:
@@ -275,30 +311,31 @@ def _kokoro_units(facts: Facts) -> list[Unit]:
 def _chatterbox_units() -> list[Unit]:
     snapshot, unreachable = _hf_snapshot(CHATTERBOX_REPO)
     return [_files_unit("chatterbox-model", "Chatterbox Turbo model", CHATTERBOX, snapshot, CHATTERBOX_FILES,
-                        unreachable=unreachable, optional=CHATTERBOX_UNUSED_BY_TURBO)]
+                        source=chatterbox_source(), unreachable=unreachable, optional=CHATTERBOX_UNUSED_BY_TURBO)]
 
 
 def _qwen_engine_unit() -> tuple[Unit, str]:
     """The shared engine as a unit, with the reason when it is not ready. Judged by ``qwen3_runtime`` alone."""
     unit_id, label = "qwen3-engine", "Qwen3 voice engine (shared)"
     folder = rt.venv_dir()
+    source = qwen_engine_source()
     ok, reason = rt.environment_status()
     if ok:
-        return Unit(unit_id, label, [], READY), ""
+        return Unit(unit_id, label, [], READY, source=source), ""
     install = dict(download=Figure(rt.environment_download_bytes(), APPROXIMATE),
                    disk=Figure(rt.environment_installed_bytes(), APPROXIMATE),
                    temp=Figure(rt.environment_download_bytes(), APPROXIMATE),
-                   note="the locked packages; pip's download cache is kept until the install succeeds")
+                   note="the locked packages; pip's download cache is kept until the install succeeds", source=source)
     problem = rt.environment_location_problem(folder)
     if problem:  # a link or an outside location: no install can fix that, and nothing here can vouch for it
-        return Unit(unit_id, label, [], UNVERIFIED, note=problem), reason
+        return Unit(unit_id, label, [], UNVERIFIED, note=problem, source=source), reason
     if not os.path.lexists(folder):
         return Unit(unit_id, label, [], MISSING, **install), reason
     if rt.is_nested(folder) and rt.environment_record(folder).get("stage") not in (rt.STAGE_CREATING,
                                                                                     rt.STAGE_REMOVING):
         assessment = rt.nested_assessment(folder)
         if assessment.state == venv_layout.UNVERIFIED:
-            return Unit(unit_id, label, [], UNVERIFIED, note=assessment.reason), reason
+            return Unit(unit_id, label, [], UNVERIFIED, note=assessment.reason, source=source), reason
     return Unit(unit_id, label, [], DAMAGED, **install), reason
 
 
@@ -311,18 +348,20 @@ def _qwen_model_units(selected: tuple[str, ...]) -> list[Unit]:
     units = []
     for component, model in zip(selected, install_plan.models):
         unit_id, label = f"qwen3-model:{model.key}", f"Qwen3 {model.label} model"
+        source = qwen_model_source(rt.model_spec(model.key))
         ok, reason = rt.model_status(model.key)
         if ok:
-            units.append(Unit(unit_id, label, [component], READY, reused=Figure(model.total_bytes, MANIFEST)))
+            units.append(Unit(unit_id, label, [component], READY, reused=Figure(model.total_bytes, MANIFEST),
+                              source=source))
             continue
         if rt.marker_path(model.key).is_file():
-            units.append(Unit(unit_id, label, [component], DAMAGED, download=NOT_KNOWN, disk=NOT_KNOWN,
+            units.append(Unit(unit_id, label, [component], DAMAGED, download=NOT_KNOWN, disk=NOT_KNOWN, source=source,
                               note=reason + " A full check decides what is fetched again (at most the whole model)."))
             continue
         have = sum(f.size for f in model.files if f.action == "have")
         units.append(Unit(unit_id, label, [component], MISSING, download=Figure(model.download_bytes, MANIFEST),
                           reused=Figure(have, MANIFEST), local_copy=Figure(model.shared_bytes, MANIFEST),
-                          disk=Figure(model.download_bytes + model.shared_bytes, MANIFEST),
+                          disk=Figure(model.download_bytes + model.shared_bytes, MANIFEST), source=source,
                           note="shared files are linked from the other model where possible, otherwise copied"))
     return units
 
@@ -335,33 +374,33 @@ def _estimated_units(selected: tuple[str, ...]) -> list[Unit]:
     if KOKORO in selected:
         model = sum(KOKORO_MODEL_FILES.values())
         units.append(Unit("kokoro-model", "Kokoro model", [KOKORO], MISSING, download=Figure(model, APPROXIMATE),
-                          disk=Figure(model, APPROXIMATE), temp=Figure(0, APPROXIMATE)))
+                          disk=Figure(model, APPROXIMATE), temp=Figure(0, APPROXIMATE), source=kokoro_source()))
         for voice in kokoro_roster():
             size = KOKORO_VOICE_FILES.get(voice)
             figure = NOT_KNOWN if size is None else Figure(size, APPROXIMATE)
             units.append(Unit(f"kokoro-voice:{voice}", f"Kokoro voice {voice}", [KOKORO], MISSING, download=figure,
-                              disk=figure))
+                              disk=figure, source=kokoro_source()))
         units.append(Unit("spacy-english", "spaCy English model", [KOKORO], MISSING, download=NOT_KNOWN,
                           disk=Figure(SPACY_ENGLISH_INSTALLED_BYTES, APPROXIMATE), temp=NOT_KNOWN))
     if CHATTERBOX in selected:
         total = sum(CHATTERBOX_FILES.values())
         units.append(Unit("chatterbox-model", "Chatterbox Turbo model", [CHATTERBOX], MISSING,
                           download=Figure(total, APPROXIMATE), disk=Figure(total, APPROXIMATE),
-                          temp=Figure(0, APPROXIMATE)))
+                          temp=Figure(0, APPROXIMATE), source=chatterbox_source()))
     qwen = [c for c in (QWEN3_CUSTOMVOICE, QWEN3_BASE) if c in selected]
     if qwen and rt.platform_supported():
         download = rt.environment_download_bytes()
         units.append(Unit("qwen3-engine", "Qwen3 voice engine (shared)", qwen, MISSING,
                           download=Figure(download, APPROXIMATE), disk=Figure(rt.environment_installed_bytes(),
                                                                                  APPROXIMATE),
-                          temp=Figure(download, APPROXIMATE)))
+                          temp=Figure(download, APPROXIMATE), source=qwen_engine_source()))
         shared = rt.shared_file_bytes()
         for index, component in enumerate(qwen):
             spec = rt.model_spec(proto.QWEN3_MODEL_KEYS[component])
             copy = shared if index else 0  # the second model takes the shared files from the first, locally
             units.append(Unit(f"qwen3-model:{spec.key}", f"Qwen3 {spec.label} model", [component], MISSING,
                               download=Figure(spec.total_bytes - copy, MANIFEST), local_copy=Figure(copy, MANIFEST),
-                              disk=Figure(spec.total_bytes, MANIFEST)))
+                              disk=Figure(spec.total_bytes, MANIFEST), source=qwen_model_source(spec)))
     return units
 
 
@@ -571,6 +610,7 @@ def plan_to_json(plan_: Plan) -> dict:
         "hardware": plan_.hardware,
         "notes": list(plan_.notes),
     }
+    data["acquisition_fingerprint"] = proto.acquisition_fingerprint(data)
     data["fingerprint"] = fingerprint(data)
     return data
 
@@ -581,11 +621,18 @@ def fingerprint(data: dict) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def consent_for(data: dict, scope: str = proto.SCOPE_INSTALL) -> proto.Consent:
-    """The consent a person gives by confirming *data* (a :func:`plan_to_json` plan) for its selected components."""
-    download = data["totals"]["download"]["bytes"]
-    return proto.Consent(scope, tuple(data["selected"]), tuple(data["acquire_units"]),
-                         0 if download is None else download, data["fingerprint"])
+def consent_for(data: dict) -> proto.Consent:
+    """The consent a person gives by confirming *data* (a :func:`plan_to_json` plan), with a fresh id.
+
+    Its terms are derived from the plan by the same function that later checks them (``proto.consent_fields``): each
+    chosen component's scope, every unit, the units whose size is unknown (listed, never counted as zero), the known
+    download, and the acquisition fingerprint. A plan with a chosen component that cannot be acquired (unverified,
+    busy, unsupported, bad bundle) has no consent: ``ProtocolError`` (``not-acquirable``).
+    """
+    fields = proto.consent_fields(data)
+    return proto.Consent(proto.new_token(), fields["plan_context"], tuple(fields["components"]), fields["scopes"],
+                         tuple(fields["units"]), tuple(fields["unknown_units"]), fields["download_bytes"],
+                         fields["acquisition_fingerprint"])
 
 
 def format_bytes(figure: Figure) -> str:

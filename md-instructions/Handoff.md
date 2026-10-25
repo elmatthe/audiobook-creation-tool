@@ -2,6 +2,49 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P05B Stage 1: a consent is bound to the plan that was shown, the setup worker's whole process tree is contained and ended, results are published atomically or not at all, and one GUI-independent operation lifecycle answers every request; real Kokoro/Chatterbox/Qwen3 acquisition is still DISABLED; NEXT is ChatGPT review, then P05B Stage 2 only when authorised (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.4, §6 / P05B; Q14–Q20, Q32. HOME-PC, branch `feature/0.7.0-release-remediation`, parent `aaaf36b`.
+Identity 0.6.6. Not merged/tagged. P04C stays closed; P05A accepted for its planning/protocol scope; MachineGuard, leases unchanged.
+
+- **Consent (protocol v2; v1 refused, never upgraded):** a consent carries a fresh `consent_id`, the plan context, a scope *per
+  component* (install / repair / null = ready), every unit, the units of unknown size (listed, never counted as zero), the known
+  download, and the SHA-256 of the plan's *acquisition terms* (selection, readiness/scope, and each acquired unit's components, state,
+  source and download figure). The worker recomputes the plan itself: a `main` consent covers only identical terms; a `pre-venv`
+  consent must name the estimate the worker reproduces, then covers the main plan only as a bounded refinement (every unit was in the
+  estimate, same source, no new component, no larger download, unknown only if shown and agreed as unknown; a repair needs its own
+  confirmation). Forged/unrelated fingerprints, altered terms, unpinned sources, and unverified/busy/unsupported/bad-bundle components
+  are refused with distinct codes. A consent is spent once (`consents/<id>`), a request is claimed by one worker, a new session refuses
+  an old request.
+- **Sources:** each plan unit names its exact source — Kokoro/Chatterbox `hf:<repo>@<commit>` (the measured revisions), Qwen3 models
+  `hf:<repo>@<rev>#manifest-sha256:…`, the engine `pip-lock:qwen3-requirements.txt@sha256:…`. The spaCy English model has **no
+  pinned source** until the owner rules, so nothing can acquire it (`source-unpinned`). All 21 cached Kokoro/Chatterbox files on HOME-PC
+  hash to the pinned upstream identities; both upstream `main` refs still equal the measured commits (metadata only).
+- **Worker process:** started through `qwen3_process.spawn(require_job=True)` (suspended → Job Object → resumed); a timeout
+  (`failed`/`timed-out`) or stop (`cancelled`) ends the whole tree, the end of every run ends any leftover member, the job is confirmed
+  empty (`ProcessJob.accounting()`, new), uncontainable → never run. A failing event callback is recorded, cancels the worker and the
+  output keeps draining. Proved with real grandchildren in a disposable app copy.
+- **Results:** atomic hard-link publication only (`publication-unavailable` otherwise, nothing visible); an install success must
+  vouch (`verified`) for every requested component; a truncated, linked, unproved or malformed result is a failure held in memory,
+  never a success.
+- **Lifecycle (`tts/optional_setup_lifecycle.py`):** planning → validating → acquiring → verifying → exactly one terminal outcome;
+  success only after the post-install plan shows every chosen component ready. The acquirer is `DisabledAcquirer`: install requests
+  needing an acquisition are refused (`acquisition-unavailable`) after the consent check and before it is spent.
+- **spaCy proposal (owner ruling needed):** official `en_core_web_sm-3.8.0-py3-none-any.whl` (GitHub release asset, 12,806,118 B,
+  SHA-256 `1932429d…fb85` from the publisher's release notes, matching HOME-PC's own pip install record), installed by the worker
+  with `--no-deps --require-hashes` into `.venv` only after confirming spaCy is `>=3.8.0,<3.9.0` (HOME-PC 3.8.16); no requirements
+  change, no spaCy upgrade, never through `spacy.cli.download`. See `checkpoints/P05B-STAGE1.md`.
+- **Fixed, pre-existing:** `test_epub_retirement`'s production allow-list never listed P05A's two modules, so it already failed at
+  `aaaf36b` (P05A did not run that suite); the three optional-setup modules are now listed.
+- **Checks:** `test_optional_tts_setup.py` + related suites 1,411 passed / 3 skipped / 0 failed (skips: 1 file-symlink, 2 pre-existing link cases); concurrency/job-control 338 passed; 20/20 source mutations caught (one
+  single-layer link mutation survived on a redundant layer, caught when both layers are removed); lightweight `verify.py` checks and
+  `git diff --check` clean. No full gate (P05 is focused-only).
+- **Production:** untouched (timestamps, exchange root absent, audit hook clean). One test-authoring slip (`monkeypatch.undo()` also
+  undid the sandbox redirect) reached `mkdir` of the real `.venv/engines/qwen3`, which refused because it exists; nothing changed and
+  the test now scopes its patch.
+- **Evidence (ignored):** `checkpoints/P05B-STAGE1.md`, `p05b-stage1/`.
+- **Next:** STOP for ChatGPT review. P05B Stage 2 (real acquisition) only when authorised and after the spaCy ruling. P06 owns the wizard.
+
 ## CURRENT STATE — v0.7.0 P05A: one acquisition-free planner for the four optional voice choices and the setup-worker protocol (GUI-independent, dry-run only); nothing installs yet; NEXT is ChatGPT/owner review, then P05B only when authorised (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.4, §6 / P05A exit row; Q14–Q20, Q32. HOME-PC, branch `feature/0.7.0-release-remediation`, parent `b509dc8`.

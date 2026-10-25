@@ -20,9 +20,19 @@ what a component is called, what state it is in, what a person agreed to, or wha
   child is ended. A request is bound to the session token of the process that wrote it and expires quickly, so consent
   given before a restart is never replayed.
 
+**P05B Stage 1 (protocol v2).** A consent is bound to the plan the person was shown: it carries the fingerprint of
+that plan's *acquisition terms* (selection, readiness and scope per component, and every unit to be acquired with its
+source and download figure) plus the terms themselves, and the worker checks both against a plan it computes itself.
+An exact main-context consent covers only an identical set of terms; a consent given to the pre-venv estimate is
+checked against the estimate the worker reproduces, and then covers the main plan only under a bounded refinement
+rule (:func:`consent_covers`). Unknown sizes must have been acknowledged as unknown, an unpinned source is refused, and
+each consent and each request can be acted on once (:func:`claim_consent`, :func:`claim_request`). Results are
+published only atomically -- never a partial file -- and a worker's whole process tree is contained and ended on
+cancel or timeout (:class:`WorkerRun`).
+
 Standard library only, and free of ``subprocess``, ``socket``, ``urllib``, ``http``, ``ssl`` and ``tkinter`` at import
 time: the first-run setup imports it in a base interpreter before the app's environment exists. Starting the worker
-imports ``subprocess`` and ``threading`` when it is asked to, not before.
+imports ``subprocess``, ``threading`` and the app's process-containment module when it is asked to, not before.
 """
 
 from __future__ import annotations
@@ -82,6 +92,12 @@ READINESS: tuple[str, ...] = (UNSUPPORTED, BAD_BUNDLE, BUSY, DAMAGED, UNVERIFIED
 SCOPE_INSTALL = "install"
 SCOPE_REPAIR = "repair"
 SCOPES: tuple[str, ...] = (SCOPE_INSTALL, SCOPE_REPAIR)
+
+#: Where a plan was made: the first-run wizard before the app environment exists (an upper-bound estimate that proves
+#: nothing), or the app environment itself (the real state).
+CONTEXT_PRE_VENV = "pre-venv"
+CONTEXT_MAIN = "main"
+CONTEXTS: tuple[str, ...] = (CONTEXT_PRE_VENV, CONTEXT_MAIN)
 
 
 def combine_readiness(states: Iterable[str]) -> str:
@@ -175,9 +191,19 @@ ACQUISITION_UNAVAILABLE = "acquisition-unavailable"
 CANCELLED = "cancelled"
 NO_RESULT = "no-result"
 INTERNAL = "internal"
+CONSENT_USED = "consent-used"  # this confirmation was already acted on once
+NOT_ACQUIRABLE = "not-acquirable"  # a chosen component is unverified, busy, unsupported or has a bad bundle
+SOURCE_UNPINNED = "source-unpinned"  # something would be acquired from a source that is not pinned to an exact identity
+PUBLICATION_UNAVAILABLE = "publication-unavailable"  # this folder cannot publish a file atomically
+CONTAINMENT_UNAVAILABLE = "containment-unavailable"  # the worker could not be placed where its whole tree can be ended
+TIMED_OUT = "timed-out"
+ACQUISITION_FAILED = "acquisition-failed"  # an acquisition stopped short, failed, or acquired something unexpected
+HEALTH_UNPROVED = "health-unproved"  # the acquisition finished but working components were not proved afterwards
 ERROR_CODES: tuple[str, ...] = (MALFORMED, UNSUPPORTED_VERSION, UNKNOWN_COMPONENT, DUPLICATE_COMPONENT, BAD_CONSENT,
                                 STALE_REQUEST, WRONG_SESSION, UNSAFE_PATH, ALREADY_ANSWERED, WRONG_INTERPRETER,
-                                CONSENT_STALE, ACQUISITION_UNAVAILABLE, CANCELLED, NO_RESULT, INTERNAL)
+                                CONSENT_STALE, ACQUISITION_UNAVAILABLE, CANCELLED, NO_RESULT, INTERNAL, CONSENT_USED,
+                                NOT_ACQUIRABLE, SOURCE_UNPINNED, PUBLICATION_UNAVAILABLE, CONTAINMENT_UNAVAILABLE,
+                                TIMED_OUT, ACQUISITION_FAILED, HEALTH_UNPROVED)
 
 
 def canonical_selection(components: Iterable[object]) -> tuple[str, ...]:
@@ -210,14 +236,17 @@ def _wire_selection(value: object, *, allow_empty: bool) -> tuple[str, ...]:
 # Requests
 # --------------------------------------------------------------------------- #
 PROTOCOL = "act-optional-setup"
-PROTOCOL_VERSION = 1
+#: 1 = P05A (a consent named a fingerprint nothing checked); 2 = P05B Stage 1 (the consent is bound to checked terms).
+#: Only this version is accepted: a v1 consent cannot be trusted, so it is refused, never upgraded.
+PROTOCOL_VERSION = 2
 ACTION_PLAN = "plan"  # report readiness and the plan; acquires nothing
-ACTION_INSTALL = "install"  # acquire under consent (P05B); this build answers it without acquiring anything
+ACTION_INSTALL = "install"  # acquire under consent; this build checks the consent, then acquires nothing
 ACTIONS: tuple[str, ...] = (ACTION_PLAN, ACTION_INSTALL)
 
 REQUEST_KEYS = frozenset({"protocol", "version", "request_id", "session", "issued_utc", "action", "components",
                           "consent", "options"})
-CONSENT_KEYS = frozenset({"scope", "components", "units", "download_bytes", "plan_fingerprint"})
+CONSENT_KEYS = frozenset({"consent_id", "plan_context", "components", "scopes", "units", "unknown_units",
+                          "download_bytes", "acquisition_fingerprint"})
 OPTION_KEYS = frozenset({"probe_hardware"})
 #: Every message is small; anything larger is not one this protocol wrote.
 MAX_MESSAGE_BYTES = 64 * 1024
@@ -242,18 +271,33 @@ def utc_text(when: float) -> str:
 
 @dataclass(frozen=True)
 class Consent:
-    """What a person agreed to: a scope, the components, every plan unit that may be acquired, and the most it may
-    download (the known part; a unit whose size is unknown is covered only by being listed)."""
+    """What a person agreed to by confirming one plan (:func:`consent_fields` derives everything but the id from it).
 
-    scope: str
+    ``consent_id`` is fresh for each confirmation and can be acted on once. ``plan_context`` says which kind of plan was
+    shown. ``scopes`` gives each chosen component's agreement -- install, repair, or ``None`` (it was ready; nothing is
+    acquired for it) -- so a plan mixing an install and a repair is agreed component by component, never under one
+    scope. ``units`` are every unit that may be acquired; ``unknown_units`` those of them whose size was shown as
+    unknown (never counted as zero); ``download_bytes`` the known part. ``acquisition_fingerprint`` binds all of it to
+    the plan's terms (:func:`acquisition_fingerprint`).
+    """
+
+    consent_id: str
+    plan_context: str
     components: tuple[str, ...]
+    scopes: dict
     units: tuple[str, ...]
+    unknown_units: tuple[str, ...]
     download_bytes: int
-    plan_fingerprint: str
+    acquisition_fingerprint: str
+
+    def terms_json(self) -> dict:
+        """Everything but the id: what :func:`consent_fields` derives from the plan it names."""
+        return {"plan_context": self.plan_context, "components": list(self.components), "scopes": dict(self.scopes),
+                "units": list(self.units), "unknown_units": list(self.unknown_units),
+                "download_bytes": self.download_bytes, "acquisition_fingerprint": self.acquisition_fingerprint}
 
     def to_json(self) -> dict:
-        return {"scope": self.scope, "components": list(self.components), "units": list(self.units),
-                "download_bytes": self.download_bytes, "plan_fingerprint": self.plan_fingerprint}
+        return {"consent_id": self.consent_id, **self.terms_json()}
 
 
 @dataclass(frozen=True)
@@ -332,24 +376,40 @@ def _check_header(message: dict) -> None:
         raise ProtocolError(UNSUPPORTED_VERSION, f"protocol version {version} is not supported")
 
 
+def _unit_list(value: object, what: str) -> tuple[str, ...]:
+    if type(value) is not list or any(type(u) is not str or not _UNIT.fullmatch(u) for u in value) \
+            or len(set(value)) != len(value):
+        raise ProtocolError(BAD_CONSENT, f"the consented {what} are not a list of distinct unit ids")
+    return tuple(value)
+
+
 def _decode_consent(value: object, components: tuple[str, ...]) -> Consent:
     if type(value) is not dict or set(value) != CONSENT_KEYS:
         raise ProtocolError(BAD_CONSENT, f"consent must have exactly the keys {sorted(CONSENT_KEYS)}")
     raw = value
-    if raw["scope"] not in SCOPES:
-        raise ProtocolError(BAD_CONSENT, "the consent scope is not install or repair")
+    if type(raw["consent_id"]) is not str or not _TOKEN.fullmatch(raw["consent_id"]):
+        raise ProtocolError(BAD_CONSENT, "the consent id is not a 32-character lowercase hex token")
+    if raw["plan_context"] not in CONTEXTS:
+        raise ProtocolError(BAD_CONSENT, "the consent does not say which kind of plan was shown")
     consented = _wire_selection(raw["components"], allow_empty=False)
     if consented != components:
         raise ProtocolError(BAD_CONSENT, "the consent does not name exactly the requested components")
-    units = raw["units"]
-    if type(units) is not list or any(type(u) is not str or not _UNIT.fullmatch(u) for u in units) \
-            or len(set(units)) != len(units):
-        raise ProtocolError(BAD_CONSENT, "the consented plan units are not a list of distinct unit ids")
+    scopes = raw["scopes"]
+    if type(scopes) is not dict or set(scopes) != set(consented) \
+            or any(s is not None and s not in SCOPES for s in scopes.values()):
+        raise ProtocolError(BAD_CONSENT, "the consent must give each chosen component install, repair or null")
+    if raw["plan_context"] == CONTEXT_PRE_VENV and set(scopes.values()) != {SCOPE_INSTALL}:
+        raise ProtocolError(BAD_CONSENT, "a consent given to the first-run estimate can only be an install consent")
+    units = _unit_list(raw["units"], "plan units")
+    unknown = _unit_list(raw["unknown_units"], "units of unknown size")
+    if not set(unknown) <= set(units):
+        raise ProtocolError(BAD_CONSENT, "a unit of unknown size was not among the consented units")
     if type(raw["download_bytes"]) is not int or raw["download_bytes"] < 0:
         raise ProtocolError(BAD_CONSENT, "the consented download size is not a byte count")
-    if type(raw["plan_fingerprint"]) is not str or not _FINGERPRINT.fullmatch(raw["plan_fingerprint"]):
+    if type(raw["acquisition_fingerprint"]) is not str or not _FINGERPRINT.fullmatch(raw["acquisition_fingerprint"]):
         raise ProtocolError(BAD_CONSENT, "the consent does not carry the fingerprint of the plan that was shown")
-    return Consent(raw["scope"], consented, tuple(units), raw["download_bytes"], raw["plan_fingerprint"])
+    return Consent(raw["consent_id"], raw["plan_context"], consented, dict(scopes), units, unknown,
+                   raw["download_bytes"], raw["acquisition_fingerprint"])
 
 
 def decode_request(raw: bytes, *, session: str, now: Callable[[], float] = time.time) -> Request:
@@ -394,29 +454,156 @@ def decode_request(raw: bytes, *, session: str, now: Callable[[], float] = time.
                    options["probe_hardware"])
 
 
-def consent_covers(consent: Consent, plan: dict) -> tuple[bool, str]:
-    """Whether *consent* still covers *plan* (as :func:`tts.optional_setup.plan_to_json` writes it).
+# --------------------------------------------------------------------------- #
+# Consent bound to a plan's acquisition terms
+# --------------------------------------------------------------------------- #
+#: Domain separation for the terms fingerprint, so it can never be confused with any other hash of the same JSON.
+_TERMS_DOMAIN = b"act-optional-setup/acquisition-terms/1\n"
+_TERM_UNIT_KEYS = ("id", "components", "state", "source", "download")
 
-    Every component that needs work needs exactly the consented scope; every unit to be acquired was listed; the known
-    download is no larger than was agreed. Anything more is new scope, which needs a fresh, visible confirmation.
+
+def acquisition_terms(plan: dict) -> dict:
+    """The part of *plan* (a :func:`tts.optional_setup.plan_to_json` plan) that a consent agrees to.
+
+    The selection, each chosen component's readiness and consent scope, and every unit to be acquired with the
+    components it serves, its state, its source and its download figure. Wording, hardware facts, reused bytes and
+    disk/temp figures are not terms: they can change without changing what would be fetched.
     """
-    components = {c["id"]: c for c in plan.get("components", [])}
-    for name in consent.components:
-        entry = components.get(name)
-        if entry is None or not entry.get("selected"):
-            return False, f"{name} is not part of the current plan"
-        scope = entry.get("consent_scope")
-        if scope is None and entry.get("readiness") != READY:
-            return False, f"{name} is {entry.get('readiness')}; nothing may be acquired for it"
-        if scope is not None and scope != consent.scope:
-            return False, f"{name} now needs {scope} consent, not {consent.scope}"
-    extra = sorted(set(plan.get("acquire_units", [])) - set(consent.units))
-    if extra:
-        return False, "the plan now acquires more than was agreed: " + ", ".join(extra)
-    download = (plan.get("totals") or {}).get("download") or {}
-    if download.get("bytes") is None or download["bytes"] > consent.download_bytes:
-        return False, "the download is now larger than was agreed (or no longer known)"
-    return True, "ok"
+    units = {u["id"]: u for u in plan["units"]}
+    chosen = set(plan["selected"])
+    return {
+        "schema": plan["schema"],
+        "context": plan["context"],
+        "selected": list(plan["selected"]),
+        "components": [{"id": c["id"], "readiness": c["readiness"], "consent_scope": c["consent_scope"]}
+                       for c in plan["components"] if c["id"] in chosen],
+        "acquire": [{key: units[unit_id][key] for key in _TERM_UNIT_KEYS} for unit_id in plan["acquire_units"]],
+    }
+
+
+def acquisition_fingerprint(plan: dict) -> str:
+    """SHA-256 of :func:`acquisition_terms` (canonical JSON, domain-separated): what a consent is bound to."""
+    body = json.dumps(acquisition_terms(plan), sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                      allow_nan=False).encode("ascii")
+    return hashlib.sha256(_TERMS_DOMAIN + body).hexdigest()
+
+
+def _not_acquirable(entry: dict) -> str:
+    label = LABELS.get(entry["id"], entry["id"])
+    reason = (entry.get("reason") or "").strip()
+    return f"{label} is {entry['readiness']}{': ' + reason if reason else ''}. Nothing may be acquired for it."
+
+
+def consent_fields(plan: dict) -> dict:
+    """Everything a consent to *plan* says, except its id (:meth:`Consent.terms_json`), or ``not-acquirable``.
+
+    From the pre-venv estimate every chosen component is an install (nothing is proved yet; an unsupported one cannot be
+    agreed to). From a main plan each chosen component must be ready, missing (install) or damaged (repair): an
+    unverified, busy, unsupported or bad-bundle component cannot be agreed to at all.
+    """
+    context = plan["context"]
+    if context not in CONTEXTS:
+        raise ProtocolError(MALFORMED, "the plan does not say where it was made")
+    scopes: dict = {}
+    for entry in plan["components"]:
+        if not entry["selected"]:
+            continue
+        if context == CONTEXT_PRE_VENV:
+            if entry["readiness"] == UNSUPPORTED:
+                raise ProtocolError(NOT_ACQUIRABLE, _not_acquirable(entry))
+            scopes[entry["id"]] = SCOPE_INSTALL
+        elif entry["readiness"] in (READY, MISSING, DAMAGED):
+            scopes[entry["id"]] = entry["consent_scope"]
+        else:
+            raise ProtocolError(NOT_ACQUIRABLE, _not_acquirable(entry))
+    units = {u["id"]: u for u in plan["units"]}
+    acquire = list(plan["acquire_units"])
+    unknown = [unit_id for unit_id in acquire if units[unit_id]["download"]["bytes"] is None]
+    return {"plan_context": context, "components": list(plan["selected"]), "scopes": scopes, "units": acquire,
+            "unknown_units": unknown,
+            "download_bytes": sum(units[u]["download"]["bytes"] for u in acquire if u not in unknown),
+            "acquisition_fingerprint": acquisition_fingerprint(plan)}
+
+
+def consent_covers(consent: Consent, plan: dict, *, estimate: Optional[dict] = None) -> tuple[bool, str, str]:
+    """``(covered, error code, reason)``: whether *consent* authorises acquiring what the fresh main *plan* needs.
+
+    *plan* is computed by the caller itself, now; nothing in the request is trusted to describe it. The consent must
+    name, by fingerprint and by every term, the plan the person was shown:
+
+    * ``main`` consent: that plan is *plan* itself -- the terms must be identical. Any material change (a component,
+      scope, source, unit or download figure) needs a fresh confirmation.
+    * ``pre-venv`` consent: that plan is the first-run estimate for the same choices, which the caller reproduces and
+      passes as *estimate* (the consent is refused if it names anything else). The main plan is then covered only as a
+      bounded refinement of it: every unit it acquires was in the estimate, serves no new component, comes from the
+      same source and costs no more; a unit of unknown size must have been shown and agreed as unknown; a component
+      that now needs a repair needs its own repair confirmation.
+
+    In both cases each chosen component must be ready or need exactly the agreed scope, nothing unverified, busy,
+    unsupported or blocked by a bad bundle can be acquired, and nothing is acquired from an unpinned source.
+    """
+    if plan.get("context") != CONTEXT_MAIN:
+        return False, MALFORMED, "a consent is checked only against a fresh plan made in the app's environment"
+    if tuple(plan.get("selected", ())) != consent.components:
+        return False, CONSENT_STALE, "the plan is for other choices than the ones that were confirmed"
+    for entry in plan["components"]:
+        if entry["selected"] and entry["readiness"] not in (READY, MISSING, DAMAGED):
+            return False, NOT_ACQUIRABLE, _not_acquirable(entry)
+
+    if consent.plan_context == CONTEXT_MAIN:
+        reference = plan
+    elif estimate is None or estimate.get("context") != CONTEXT_PRE_VENV \
+            or tuple(estimate.get("selected", ())) != consent.components:
+        return False, BAD_CONSENT, "the first-run estimate this consent was given to cannot be reproduced"
+    else:
+        reference = estimate
+    expected_fingerprint = acquisition_fingerprint(reference)
+    if consent.acquisition_fingerprint != expected_fingerprint:
+        if reference is plan:
+            return False, CONSENT_STALE, ("the plan is not the one that was confirmed: it has changed since, or the "
+                                          "confirmation names a different plan")
+        return False, BAD_CONSENT, "the confirmation does not name this installation's estimate for these choices"
+    try:
+        expected = consent_fields(reference)
+    except ProtocolError as exc:
+        return False, exc.code, str(exc)
+    if consent.terms_json() != expected:
+        return False, BAD_CONSENT, "the confirmation's terms do not match the plan it names"
+
+    units = {u["id"]: u for u in plan["units"]}
+    for unit_id in plan["acquire_units"]:
+        if not units[unit_id].get("source"):
+            return False, SOURCE_UNPINNED, (f"{units[unit_id]['label']} would be fetched from a source that is not "
+                                            "pinned to an exact version; it cannot be acquired")
+    if reference is plan:
+        return True, "", "ok"
+
+    for entry in plan["components"]:  # the estimate agreed to installs only
+        if entry["selected"] and entry["consent_scope"] == SCOPE_REPAIR:
+            return False, CONSENT_STALE, (f"{LABELS[entry['id']]} now needs a repair, which needs its own "
+                                          "confirmation")
+    shown = {u["id"]: u for u in estimate["units"]}
+    for unit_id in plan["acquire_units"]:
+        unit, before = units[unit_id], shown.get(unit_id)
+        if before is None or unit_id not in consent.units:
+            return False, CONSENT_STALE, f"{unit['label']} would be acquired, which was not confirmed"
+        if set(unit["components"]) - set(before["components"]):
+            return False, CONSENT_STALE, f"{unit['label']} now serves a choice it was not confirmed for"
+        if unit["source"] != before["source"]:
+            return False, CONSENT_STALE, f"{unit['label']} would now come from a different source"
+        size, agreed = unit["download"]["bytes"], before["download"]["bytes"]
+        if size is None:
+            if agreed is not None or unit_id not in consent.unknown_units:
+                return False, CONSENT_STALE, f"the size of {unit['label']} is not known; confirm it as unknown"
+        elif agreed is None:
+            return False, CONSENT_STALE, (f"{unit['label']} was confirmed with an unknown size; its size is now "
+                                          "known and must be confirmed")
+        elif size > agreed:
+            return False, CONSENT_STALE, f"{unit['label']} would now download more than was confirmed"
+    known = sum(units[u]["download"]["bytes"] or 0 for u in plan["acquire_units"])
+    if known > consent.download_bytes:  # implied by the per-unit bound; kept as the plain statement of the rule
+        return False, CONSENT_STALE, "the download is now larger than was confirmed"
+    return True, "", "ok"
 
 
 # --------------------------------------------------------------------------- #
@@ -431,7 +618,7 @@ FAILED = "failed"
 CANCELLED_STATE = "cancelled"
 REFUSED = "refused"
 TERMINAL_STATES: tuple[str, ...] = (SUCCEEDED, FAILED, CANCELLED_STATE, REFUSED)
-RESULT_KEYS = frozenset({"protocol", "version", "request_id", "state", "error", "plan", "forced"})
+RESULT_KEYS = frozenset({"protocol", "version", "request_id", "state", "error", "plan", "forced", "verified"})
 ERROR_KEYS = frozenset({"code", "message"})
 #: The worker's exit status for each terminal state; 2 means it could not even write a result.
 EXIT_CODES: dict[str, int] = {SUCCEEDED: 0, CANCELLED_STATE: 3, REFUSED: 4, FAILED: 5}
@@ -461,7 +648,9 @@ def decode_event(line: str, *, request_id: str) -> Optional[dict]:
 
 
 def make_result(request_id: str, state: str, *, error: Optional[tuple[str, str]] = None, plan: Optional[dict] = None,
-                forced: bool = False) -> dict:
+                forced: bool = False, verified: Iterable[str] = ()) -> dict:
+    """A terminal result. *verified* names the components proved to work after an install (all of them, for a
+    success); a plan answer verifies nothing."""
     if state not in TERMINAL_STATES:
         raise ValueError(f"unknown terminal state {state!r}")
     if (state == SUCCEEDED) == (error is not None):
@@ -470,10 +659,16 @@ def make_result(request_id: str, state: str, *, error: Optional[tuple[str, str]]
         raise ValueError(f"unknown error code {error[0]!r}")
     return {"protocol": PROTOCOL, "version": PROTOCOL_VERSION, "request_id": request_id, "state": state,
             "error": None if error is None else {"code": error[0], "message": str(error[1])[:2000]},
-            "plan": plan, "forced": forced}
+            "plan": plan, "forced": forced, "verified": list(canonical_selection(verified))}
 
 
-def decode_result(raw: bytes, *, request_id: str) -> dict:
+def decode_result(raw: bytes, *, request_id: str, request: Optional[Request] = None) -> dict:
+    """Parse and check a terminal result, or raise :class:`ProtocolError`.
+
+    Given the *request* it answers, a success is accepted only when it is complete: an install success must name every
+    requested component as proved working afterwards, and a plan answer verifies nothing. So a result that claims
+    success for an acquisition that was not finished and proved is refused, not believed.
+    """
     result = _exact_keys(strict_json(raw), RESULT_KEYS, "a result")
     _check_header(result)
     if result["request_id"] != request_id:
@@ -489,6 +684,14 @@ def decode_result(raw: bytes, *, request_id: str) -> dict:
             raise ProtocolError(MALFORMED, "the result's error is malformed")
     if result["plan"] is not None and type(result["plan"]) is not dict:
         raise ProtocolError(MALFORMED, "the result's plan is malformed")
+    verified = _wire_selection(result["verified"], allow_empty=True)
+    if request is not None:
+        if not set(verified) <= set(request.components):
+            raise ProtocolError(MALFORMED, "the result vouches for a component that was not requested")
+        if request.action == ACTION_PLAN and verified:
+            raise ProtocolError(MALFORMED, "a plan answer cannot vouch for anything")
+        if request.action == ACTION_INSTALL and result["state"] == SUCCEEDED and verified != request.components:
+            raise ProtocolError(MALFORMED, "an install success must prove every requested component works afterwards")
     return result
 
 
@@ -496,7 +699,9 @@ def publish_once(path: Path, data: bytes) -> bool:
     """Publish *data* at *path* atomically, only if nothing is there yet. ``False`` when something already was.
 
     Written beside the target, then hard-linked into place: the link either appears complete or fails because the name
-    is taken, so a reader never sees half a result and a second writer can never replace the first.
+    is taken, so a reader never sees half a result and a second writer can never replace the first. A folder that
+    cannot make the link (no hard links there) raises ``publication-unavailable`` and publishes nothing: there is no
+    fallback that could leave a partly written file visible under the name.
     """
     path = Path(path)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{new_token()[:8]}.tmp")
@@ -509,12 +714,10 @@ def publish_once(path: Path, data: bytes) -> bool:
             os.link(temporary, path)
         except FileExistsError:
             return False
-        except OSError:  # a volume without hard links: an exclusive create is the next best thing
-            try:
-                with open(path, "xb") as handle:
-                    handle.write(data)
-            except FileExistsError:
-                return False
+        except OSError as exc:
+            raise ProtocolError(PUBLICATION_UNAVAILABLE,
+                                f"{path.name} cannot be published atomically in this folder "
+                                f"({exc.strerror or exc}); nothing was published") from None
         return True
     finally:
         try:
@@ -544,7 +747,10 @@ EXCHANGE_DIR: tuple[str, ...] = ("files", "runtime-data", "optional-setup")
 REQUEST_NAME = "request.json"
 RESULT_NAME = "result.json"
 CANCEL_NAME = "cancel"
-_EXCHANGE_NAMES = (REQUEST_NAME, RESULT_NAME, CANCEL_NAME)
+CLAIM_NAME = "claim"  # the worker answering this request (one at most)
+_EXCHANGE_NAMES = (REQUEST_NAME, RESULT_NAME, CANCEL_NAME, CLAIM_NAME)
+#: Under the exchange root: one marker per consent that has been acted on.
+CONSENTS_DIR = "consents"
 
 
 def exchange_root(repo_root: Path) -> Path:
@@ -604,6 +810,35 @@ def write_request(repo_root: Path, request: Request) -> Path:
 
 def cancel_requested(repo_root: Path, request_id: str) -> bool:
     return os.path.lexists(exchange_dir(repo_root, request_id) / CANCEL_NAME)
+
+
+def claim_request(repo_root: Path, request_id: str) -> bool:
+    """Become the one worker answering *request_id*. ``False`` when another run already claimed it."""
+    path, _ = check_exchange_path(repo_root, str(exchange_dir(repo_root, request_id) / CLAIM_NAME), CLAIM_NAME)
+    return publish_once(path, f"{os.getpid()}\n".encode("ascii"))
+
+
+def claim_consent(repo_root: Path, consent_id: str, request_id: str) -> bool:
+    """Spend *consent_id* on *request_id*, once. ``False`` when it was already acted on.
+
+    Called just before anything is acquired, so one confirmation can never start two acquisitions -- not a duplicate
+    request, not a request copied after the first one ran. (A restart cannot replay it either: the request is bound
+    to its session, and a new session means a new confirmation.)
+    """
+    if type(consent_id) is not str or not _TOKEN.fullmatch(consent_id):
+        raise ProtocolError(BAD_CONSENT, "the consent id is not a 32-character lowercase hex token")
+    folder = exchange_root(repo_root) / CONSENTS_DIR
+    if venv_layout.unsafe_component(repo_root, folder) is not None:
+        raise ProtocolError(UNSAFE_PATH, "the consent record folder is reached through a link or lies outside the app")
+    folder.mkdir(parents=True, exist_ok=True)
+    real_root = os.path.realpath(repo_root)
+    try:
+        inside = os.path.commonpath([real_root, os.path.realpath(folder)]) == real_root
+    except ValueError:  # another drive
+        inside = False
+    if venv_layout.unsafe_component(repo_root, folder) is not None or not inside:
+        raise ProtocolError(UNSAFE_PATH, "the consent record folder resolves outside the app")
+    return publish_once(folder / consent_id, f"{request_id}\n".encode("ascii"))
 
 
 # --------------------------------------------------------------------------- #
@@ -690,89 +925,230 @@ def worker_launch(repo_root: Path, request_path: Path, session: str, *, python: 
     return LaunchSpec(argv, Path(repo_root) / "scripts", env, request_path, result_path)
 
 
-#: How long a cancelled worker is given to stop by itself before the known child is ended.
+#: How long a cancelled worker is given to stop by itself before its whole process tree is ended.
 CANCEL_GRACE_S = 10.0
+#: How long ending the tree, and confirming that no member of it is left, may take.
+TERMINATE_WAIT_S = 15.0
+
+
+def _process_control():
+    """The app's one process-containment implementation, ``tts.qwen3_process`` (reused, not duplicated).
+
+    On Windows the worker is started *suspended*, placed in a Job Object that ends every member when it is terminated or
+    closed, and only then resumed: from its first instruction, everything it starts -- the venv launcher's real
+    interpreter, and any installer it runs -- is a member, and nothing outside the job is ever touched. Elsewhere the
+    worker leads a new process group. Imported only when a worker is started, so the pre-venv path stays free of
+    ``ctypes`` and ``subprocess``.
+    """
+    from tts import qwen3_process
+
+    return qwen3_process
+
+
+def _contained_spawn(argv: list, **kwargs):
+    """Start *argv* only if its whole tree can be ended later (``require_job``): otherwise it never runs."""
+    return _process_control().spawn(argv, require_job=True, **kwargs)
 
 
 class WorkerRun:
-    """One worker process for one request: start it, follow its events, cancel it, and get its one terminal result.
+    """One worker process for one request: start it, follow its events, stop it, and get its one terminal result.
 
-    The result file is the authority. If the worker exits (or is ended) without publishing one, this publishes the
-    terminal result in its place -- ``cancelled`` when it was asked to stop, ``failed`` otherwise -- through the same
-    exclusive publication, so whichever comes first is the only result there will ever be.
+    * **Contained.** The worker runs inside a Job Object (a process group elsewhere): a cancel, a timeout, or the end of
+      the run ends it *and every descendant*, then confirms none is left. A worker that cannot be contained is not run.
+    * **One terminal result.** The result file is the authority. If the worker exits (or is ended) without publishing
+      one, this publishes the terminal result in its place -- ``cancelled`` when it was stopped, ``failed`` with
+      ``timed-out`` when it overran, ``failed`` otherwise -- through the same exclusive, atomic publication, so whichever
+      comes first is the only result there will ever be. When nothing trustworthy can be read or written (a link, a
+      malformed or incomplete success, no atomic publication) the answer is a failure held in memory: never a success.
+    * **Never stranded.** A failing event callback is recorded, stops being called, cancels the worker, and its output
+      keeps being drained so the worker cannot block on a full pipe.
     """
 
     def __init__(self, repo_root: Path, spec: LaunchSpec, request: Request, *,
-                 on_event: Optional[Callable[[dict], None]] = None, popen: Optional[Callable] = None):
+                 on_event: Optional[Callable[[dict], None]] = None, spawn: Optional[Callable] = None):
         self.repo_root = Path(repo_root)
         self.spec = spec
         self.request = request
         self.on_event = on_event
-        self._popen = popen
+        self._spawn = spawn
         self.process = None
         self.events: list[dict] = []
         self.protocol_errors: list[str] = []
+        self.callback_errors: list[str] = []
         self.output: list[str] = []
         self.cancel_sent = False
+        self.stop_requested = False
+        self.timed_out = False
+        self.terminated = False
+        #: Members still in the job once the run ended (``None``: not measured -- no job on this platform).
+        self.lingering: Optional[int] = None
+        #: Every process that was ever a member of the job (the worker, the venv launcher's interpreter, children).
+        self.members_seen: Optional[int] = None
         self._reader = None
+        self._outcome: Optional[dict] = None
 
     def start(self) -> None:
         import subprocess
         import threading
 
-        if self.process is not None:
+        if self.process is not None or self._outcome is not None:
             raise RuntimeError("this worker run was already started")
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-        popen = self._popen or subprocess.Popen
-        self.process = popen(list(self.spec.argv), cwd=str(self.spec.cwd), env=self.spec.env,
-                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, encoding="utf-8", errors="replace", creationflags=flags)
+        spawn = self._spawn or _contained_spawn
+        try:
+            self.process = spawn(list(self.spec.argv), cwd=str(self.spec.cwd), env=self.spec.env,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, encoding="utf-8", errors="replace")
+        except Exception as exc:
+            contained = isinstance(exc, _process_control().ContainmentUnavailable)
+            code = CONTAINMENT_UNAVAILABLE if contained else INTERNAL
+            self._outcome = self._forced(FAILED, code, f"The setup worker was not started: {exc}")
+            raise
         self._reader = threading.Thread(target=self._read, name="optional-setup-events", daemon=True)
         self._reader.start()
 
     def _read(self) -> None:
-        for raw in self.process.stdout:
-            line = raw.rstrip("\r\n")
-            try:
-                event = decode_event(line, request_id=self.request.request_id)
-            except ProtocolError as exc:
-                self.protocol_errors.append(str(exc))
-                continue
-            if event is None:
-                self.output.append(line[:500])
-                continue
-            self.events.append(event)
-            if self.on_event is not None:
-                self.on_event(event)
+        try:
+            for raw in self.process.stdout:
+                line = raw.rstrip("\r\n")
+                try:
+                    event = decode_event(line, request_id=self.request.request_id)
+                except ProtocolError as exc:
+                    self.protocol_errors.append(str(exc))
+                    continue
+                if event is None:
+                    self.output.append(line[:500])
+                    continue
+                self.events.append(event)
+                callback = self.on_event
+                if callback is None:
+                    continue
+                try:
+                    callback(event)
+                except Exception as exc:  # noqa: BLE001 - a broken callback must not strand the worker
+                    self.on_event = None
+                    self.callback_errors.append(f"{type(exc).__name__}: {exc}")
+                    try:
+                        self.cancel()
+                    except (ProtocolError, OSError) as cancel_exc:
+                        self.callback_errors.append(f"the cancel request could not be written: {cancel_exc}")
+        except (OSError, ValueError) as exc:  # the pipe broke or was closed under us
+            self.protocol_errors.append(f"the worker's output could not be read: {exc}")
 
     def cancel(self) -> None:
         """Ask the worker to stop at its next checkpoint (a flag file in the request's own folder)."""
         folder = exchange_dir(self.repo_root, self.request.request_id)
         path, _ = check_exchange_path(self.repo_root, str(folder / CANCEL_NAME), CANCEL_NAME)
-        publish_once(path, b"cancel\n")
         self.cancel_sent = True
+        publish_once(path, b"cancel\n")
 
-    def wait(self, timeout_s: float, *, cancel_grace_s: float = CANCEL_GRACE_S) -> dict:
-        """Wait at most *timeout_s* (then cancel, wait *cancel_grace_s*, then end the child); return the one result."""
+    def stop(self, grace_s: float = CANCEL_GRACE_S) -> dict:
+        """Cancel: ask the worker to stop, give it *grace_s*, then end its whole tree. Returns the one result."""
         import subprocess
 
+        if self.process is None:
+            raise RuntimeError("this worker run was never started")
+        self.stop_requested = True
+        if self.process.poll() is None:
+            try:
+                self.cancel()
+                self.process.wait(timeout=grace_s)
+            except (ProtocolError, OSError) as exc:  # the flag could not be written: no point waiting for it
+                self.protocol_errors.append(f"the cancel request could not be written: {exc}")
+                self._terminate()
+            except subprocess.TimeoutExpired:
+                self._terminate()
+        return self._finish()
+
+    def wait(self, timeout_s: float, *, cancel_grace_s: float = CANCEL_GRACE_S) -> dict:
+        """Wait at most *timeout_s*; past it the run is stopped (cancel, grace, end the tree). Returns the one result."""
+        import subprocess
+
+        if self.process is None:
+            raise RuntimeError("this worker run was never started")
         try:
             self.process.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
-            self.cancel()
+            self.timed_out = True
+            return self.stop(cancel_grace_s)
+        return self._finish()
+
+    def _terminate(self) -> None:
+        self.terminated = True
+        _process_control().kill_tree(self.process, wait_s=TERMINATE_WAIT_S)
+
+    def _finish(self) -> dict:
+        """The run is over: end anything the worker left behind, confirm the job is empty, reap, and settle the result."""
+        import subprocess
+        import time as _time
+
+        if self._outcome is not None:
+            return self._outcome
+        job = getattr(self.process, "act_job", None)
+        if job is not None:
+            job.terminate()  # a grandchild that outlived the worker (it may still hold the output pipe) ends here
+            deadline = _time.monotonic() + TERMINATE_WAIT_S
             try:
-                self.process.wait(timeout=cancel_grace_s)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=30)
+                while True:
+                    active, self.members_seen = job.accounting()
+                    if active == 0 or _time.monotonic() >= deadline:
+                        break
+                    _time.sleep(0.05)
+                self.lingering = active
+            except OSError as exc:
+                self.protocol_errors.append(f"the worker's process group could not be measured: {exc}")
+            if self.lingering:
+                self.protocol_errors.append(f"{self.lingering} process(es) of the worker had not ended in time")
+            _process_control().release(self.process)  # closing the job ends any member still there
+        try:
+            self.process.wait(timeout=TERMINATE_WAIT_S)
+        except subprocess.TimeoutExpired:
+            self.protocol_errors.append("the setup worker did not exit")
         if self._reader is not None:
             self._reader.join(timeout=5)
-        return self.result()
+        if self.process.poll() is None:  # pragma: no cover - the OS refused to end it; never pretend it finished
+            self._outcome = self._forced(FAILED, INTERNAL, "The setup worker could not be ended.", publish=False)
+        else:
+            self._outcome = self.result()
+        return self._outcome
+
+    def _forced_terms(self) -> tuple[str, str, str]:
+        status = None if self.process is None else self.process.returncode
+        if self.timed_out:
+            return FAILED, TIMED_OUT, "The setup worker took too long and was stopped."
+        if self.stop_requested or self.cancel_sent:
+            return CANCELLED_STATE, CANCELLED, "Cancelled. The setup worker was stopped before it reported a result."
+        return FAILED, NO_RESULT, f"The setup worker stopped without reporting a result (exit status {status})."
+
+    def _forced(self, state: str, code: str, text: str, *, publish: bool = True) -> dict:
+        """The terminal result written in the worker's place; held in memory if it cannot be published atomically."""
+        rid = self.request.request_id
+        forced = make_result(rid, state, error=(code, text), forced=True)
+        if not publish:
+            return forced
+        try:
+            path, _ = check_exchange_path(self.repo_root, str(self.spec.result_path), RESULT_NAME)
+            if publish_once(path, encode(forced)):
+                return forced
+        except (ProtocolError, OSError) as exc:
+            return make_result(rid, state, error=(code, f"{text} (The result could not be recorded: {exc})"),
+                               forced=True)
+        return self.result()  # the worker's own result arrived first: it is the one
 
     def result(self) -> dict:
-        path = self.spec.result_path
+        """The one terminal result (the worker's own when it published a trustworthy one). Never a partial success."""
+        if self._outcome is not None:
+            return self._outcome
+        if self.process is not None and self.process.poll() is None:
+            raise RuntimeError("the setup worker is still running")
+        rid = self.request.request_id
+        try:
+            path, _ = check_exchange_path(self.repo_root, str(self.spec.result_path), RESULT_NAME)
+        except ProtocolError as exc:
+            return make_result(rid, FAILED, error=(UNSAFE_PATH, f"The result cannot be trusted: {exc}"), forced=True)
         if not os.path.lexists(path):
-            state, code = (CANCELLED_STATE, CANCELLED) if self.cancel_sent else (FAILED, NO_RESULT)
-            text = (f"The setup worker stopped without reporting a result (exit status {self.process.returncode}).")
-            publish_once(path, encode(make_result(self.request.request_id, state, error=(code, text), forced=True)))
-        return decode_result(read_message_file(path), request_id=self.request.request_id)
+            return self._forced(*self._forced_terms())
+        try:
+            return decode_result(read_message_file(path), request_id=rid, request=self.request)
+        except ProtocolError as exc:
+            return make_result(rid, FAILED, error=(MALFORMED, f"The setup worker's result cannot be trusted: {exc}"),
+                               forced=True)
