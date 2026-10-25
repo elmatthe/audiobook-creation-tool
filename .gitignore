@@ -5,8 +5,13 @@
 
 # Virtual environment (repo root; rebuilt fresh by Setup_and_Run on each machine)
 .venv/
-# Isolated Qwen3-TTS environment (created by the in-app "Install / repair Qwen3 voices" action; never committed or packaged)
+# Isolated Qwen3-TTS environment (created by the in-app "Install / repair Qwen3 voices" action; never committed or packaged).
+# Since v0.7.0 P04C it is created inside .venv (.venv/engines/qwen3, covered above); the older location beside it:
 .venv-qwen3/
+# The bootstrap's own set-aside environments during a repair (.venv.replaced, .venv.replaced-<n>, .venv.discarded…).
+# They can hold the Qwen3 engine while it is carried across; never committed or packaged.
+/.venv.replaced*/
+/.venv.discarded*/
 .python_runtime/
 
 # Python bytecode / caches

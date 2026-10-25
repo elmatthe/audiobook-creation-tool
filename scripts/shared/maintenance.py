@@ -32,6 +32,11 @@ The safety model is deliberately narrow:
   ``engines`` folder (``shared.venv_layout``): a separately installed voice
   engine kept there is not rebuilt with the app's dependencies, so "rebuilt on
   the next launch" would not be true of it. Refused, not silently included.
+* An item a Qwen3 install, conversion or worker of this copy could be using at
+  the same moment (``.venv``, where a first install creates the engine, and the
+  models folder) is marked ``requires_engine_lease``: the coordinator re-checks
+  and removes it only while it holds that copy's ``shared.engine_lease``, and
+  otherwise leaves it alone and says why (v0.7.0 P04C).
 """
 
 from __future__ import annotations
@@ -95,6 +100,10 @@ class AssetDefinition:
     #: removes the *contents* and leaves the directory in place. Recorded here
     #: so Phase 7 inherits the semantics rather than reinventing them.
     removes_target_itself: bool
+    #: True when a Qwen3 install, conversion or worker of this copy may be using
+    #: the target while cleanup runs (v0.7.0 P04C): the coordinator takes the
+    #: copy's engine lease before re-authorizing it and holds it until done.
+    requires_engine_lease: bool = False
 
 
 CATALOG: tuple[AssetDefinition, ...] = (
@@ -102,14 +111,19 @@ CATALOG: tuple[AssetDefinition, ...] = (
         asset_id="virtual_environment",
         display_name="Private Python environment",
         relative_target=".venv",
-        consequence="Dependencies rebuild on the next launch.",
+        consequence=(
+            "The app's own dependencies rebuild on the next launch. The Qwen3 voice "
+            "engine is not part of this item."
+        ),
         effect_line=(
-            "Private Python environment: dependencies will be rebuilt on the next "
-            "launch. This may take several minutes and may require a network "
-            "connection."
+            "Private Python environment: the app's own dependencies will be rebuilt "
+            "on the next launch. This may take several minutes and may require a "
+            "network connection. The Qwen3 voice engine is not part of this item and "
+            "is never removed with it."
         ),
         requires_post_exit=True,
         removes_target_itself=True,
+        requires_engine_lease=True,
     ),
     AssetDefinition(
         asset_id="portable_binaries",
@@ -142,6 +156,7 @@ CATALOG: tuple[AssetDefinition, ...] = (
         ),
         requires_post_exit=False,
         removes_target_itself=False,
+        requires_engine_lease=True,
     ),
     AssetDefinition(
         asset_id="application_logs",
@@ -191,6 +206,23 @@ HELD_ENVIRONMENT_PROBLEM = (
     "rebuilt with the app's dependencies, so this item is not offered. Nothing "
     "was removed."
 )
+
+#: Why a ``requires_engine_lease`` item was left alone while the Qwen3 voices of
+#: this copy were busy. Follows the lock's own sentence (``shared.engine_lease``).
+ENGINE_IN_USE_SUFFIX = (
+    "This item was left alone, so nothing in it was removed. Let that finish, or "
+    "close the app that is using it, then clear this item again."
+)
+#: Why one was left alone when the Qwen3 locks could not be checked at all.
+ENGINE_UNCHECKABLE_PROBLEM = (
+    "The cleanup helper could not check whether the Qwen3 voices are in use, so "
+    "this item was left alone. Nothing in it was removed."
+)
+
+
+def engine_in_use_problem(what_is_running: str) -> str:
+    """The outcome message for a leased item refused because *what_is_running*."""
+    return f"{what_is_running} {ENGINE_IN_USE_SUFFIX}"
 
 
 def asset(asset_id) -> AssetDefinition:

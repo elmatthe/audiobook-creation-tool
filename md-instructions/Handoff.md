@@ -2,6 +2,39 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 P04C Stage 3: Clear Downloaded Data now takes the Qwen3 engine lease before it re-checks or removes the app environment or the models, so it can no longer race a first Qwen3 install, a conversion or a worker; release packaging/ignore rules proven against force-committed nested engines; P04C still OPEN; NEXT is owner/ChatGPT review (2026-10-25, Claude Code)
+
+Authority: plan Revision 2 §5.5, §6 / P04C (Stage 3 = maintenance, cleanup and packaging safety; no live migration, no full gate).
+HOME-PC, branch `feature/0.7.0-release-remediation`, parent `cc9d2f9`. Identity 0.6.6. Not merged/tagged; P05 not started.
+
+- **Race closed:** `maintenance.AssetDefinition.requires_engine_lease` is True for `virtual_environment` (`.venv`, where a first install
+  creates the engine) and `downloaded_models`. `cleanup_worker.process_asset` takes `engine_lease.Lease` (setup → inference → engine, never
+  waits) BEFORE `authorized_target` and releases it in `finally` after removal. Busy → `refused`, 0 bytes, the lock's own sentence + "This
+  item was left alone, so nothing in it was removed…"; denied/linked/unmakeable lock folder → `ENGINE_UNCHECKABLE_PROBLEM`. Other selected
+  items (binaries, logs) are processed exactly as before. MachineGuard NOT taken. Coordinator module set += `engine_lease.py`.
+- **Kept:** the fail-closed refusal of a `.venv` holding anything under `engines/` (no detach/recreate/migrate); four-item catalog,
+  asset-id-only request schema, consume-before-delete/replay, link containment, protected list. Main repair (`--repair-venv`) unchanged:
+  lease first, `engines/` carried home, never reaches the Qwen3 installer — still the main-only recovery path.
+- **Wording:** `.venv` item now says "The app's own dependencies rebuild on the next launch. The Qwen3 voice engine is not part of this
+  item." (effect line adds "…is never removed with it."). `preferences_ui.py` unchanged (renders catalog text).
+- **Packaging/ignore:** `release.py` stale `.venv-qwen3` comment rewritten; `EXCLUDED_DIR_PREFIXES = (".venv.", ".venv-")` on directory
+  components. `.gitignore` gains root-anchored `/.venv.replaced*/`, `/.venv.discarded*/` (they were NOT ignored before: a repair aside
+  holding the engine could have been staged).
+- **Tests:** new `test_cleanup_engine_lease.py` (50, 0 skipped): both race orders with no child (real paused/started production installer),
+  models race (real conversion + installer), real holders × both items, killed worker, MachineGuard not blocking, 4 uncheckable cases,
+  canonical healthy/damaged/half-made, legacy-only, both, unexpected `engines` entries, junction escapes, open handle, crash release,
+  result wording, real coordinator process. `test_qwen3_packaging.py` +4 (force-committed `.venv/engines/qwen3/**`, asides, preserved,
+  models, private records at root and inside `scripts/`; ignore proof). Fixtures: `COORDINATOR_MODULES` += `engine_lease.py`; `snapshot`
+  skips the three lease lock files only while empty. 11/11 mutations killed (lease removed → 24 failures; `.venv` exclusion removed → 9).
+  21 focused modules: 1,429 passed / 4 skipped / 0 failed. Full `verify.py` gate NOT run (owed at P04C close).
+- **Report:** `files/dev-work/act070-remediation/checkpoints/P04C-MAINTENANCE.md` (ignored); evidence `act070-remediation/p04c-maintenance/`.
+- **Still open (P04C, owner-gated):** HOME-PC adoption/migration and `.venv-qwen3` retirement; main-stack pinning recommendation;
+  MachineGuard ADR review; final full gate; P04B L row; pip-less venv repair gap. New residual: Kokoro/HF models can still be removed
+  under a second running window of the same copy (pre-existing, no Kokoro lock).
+- **Retained:** production `.venv`, `.venv-qwen3`, models, runtime state, references, previews, preserved dirs untouched; Q and Q2 retained.
+- **Next:** STOP for owner/ChatGPT review of `checkpoints/P04C-MAINTENANCE.md`. No Stage 4, P05, migration, deletion, pin change, version
+  bump, merge or tag without approval.
+
 ## CURRENT STATE — v0.7.0 P04C Stage 2: the Qwen3 engine's canonical place is now .venv/engines/qwen3 (created there by the verified base Python, identity recorded outside .venv); a first install and a repair can no longer overlap; legacy .venv-qwen3 still used where it is the only engine; HOME-PC NOT migrated; NEXT is owner/ChatGPT review (2026-10-25, Claude Code)
 
 Authority: plan Revision 2 §5.5, §6 / P04C (Stage 2 = source integration, focused tests, isolated native checks; no live migration).

@@ -153,3 +153,94 @@ def test_the_voice_previews_never_ship_even_when_committed(archives, tmp_path, o
     git(root, "add", "-A", "-f")
     git(root, "commit", "-q", "-m", "plant the previews")
     assert offenders(names(build(root, tmp_path / "dist", os_name))) == []
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.0 P04C Stage 3 — the canonical engine inside .venv, its set-aside and preserved copies never ship
+# --------------------------------------------------------------------------- #
+PRESERVED_TAG = "20261021-184021-592ae0be"
+#: Environments and private state at the repository root, as a real checkout can hold them.
+ROOT_PLANTS = (
+    ".venv/pyvenv.cfg",
+    ".venv/engines/qwen3/pyvenv.cfg",
+    ".venv/engines/qwen3/Scripts/python.exe",
+    ".venv/engines/qwen3/Lib/site-packages/qwen_tts/__init__.py",
+    ".venv.replaced/engines/qwen3/pyvenv.cfg",
+    ".venv.replaced-1729800000/engines/qwen3/Lib/site-packages/torch/__init__.py",
+    ".venv.discarded/engines/qwen3/Scripts/python.exe",
+    ".venv-qwen3/Lib/site-packages/torch/__init__.py",
+    f".venv.act67-preserved-{PRESERVED_TAG}/Lib/site-packages/app.py",
+    f".venv-qwen3.act67-preserved-{PRESERVED_TAG}/pyvenv.cfg",
+    f"files/runtime-data.act67-preserved-{PRESERVED_TAG}/qwen3/transcripts.json",
+    "files/runtime-data/models/qwen3-tts/CustomVoice-0c0e3051/model.safetensors",
+    "files/runtime-data/models/kokoro/hub/model.bin",
+    "files/runtime-data/qwen3/state.json",
+    "files/runtime-data/qwen3/transcript-selection.json",
+    "files/runtime-data/qwen3/setup.lock",
+    "files/runtime-data/qwen3/engine.lock",
+)
+#: The same kinds of folder force-committed INSIDE ``scripts/`` -- the one tree the packager walks -- where only the
+#: name rules can stop them.
+SCRIPTS_PLANTS = (
+    "scripts/.venv/engines/qwen3/Lib/site-packages/qwen_tts/__init__.py",
+    "scripts/tts/.venv/engines/qwen3/pyvenv.cfg",
+    "scripts/.venv.replaced/engines/qwen3/Lib/site-packages/torch/__init__.py",
+    "scripts/.venv.replaced-1729800000/engines/qwen3/pyvenv.cfg",
+    "scripts/.venv.discarded/engines/qwen3/Scripts/python.exe",
+    "scripts/.venv-qwen3/Lib/site-packages/torch/__init__.py",
+    f"scripts/.venv.act67-preserved-{PRESERVED_TAG}/Lib/app.py",
+    f"scripts/.venv-qwen3.act67-preserved-{PRESERVED_TAG}/pyvenv.cfg",
+)
+_ENVIRONMENT_MEMBER = re.compile(r"(^|/)\.venv([.-][^/]*)?/|engines/qwen3|pyvenv\.cfg|act67-preserved|runtime-data",
+                                 re.IGNORECASE)
+
+
+def _force_committed(root, paths):
+    for rel in paths:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"planted")
+    git(root, "add", "-A", "-f")
+    git(root, "commit", "-q", "-m", "force-commit environments and private state")
+    tracked = set(git(root, "ls-files").splitlines())
+    assert set(paths) <= tracked, set(paths) - tracked  # really tracked: only the packager's own rules can stop them
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_a_force_committed_nested_engine_its_set_aside_and_preserved_copies_never_become_members(tmp_path, os_name):
+    from test_release_packaging import REFERENCE_MEMBERS
+
+    root = fake_repo(tmp_path / "repo")
+    _force_committed(root, ROOT_PLANTS + SCRIPTS_PLANTS)
+    members = names(build(root, tmp_path / "dist", os_name))
+
+    assert [m for m in members if _ENVIRONMENT_MEMBER.search(m)] == []
+    assert not set(members) & set(ROOT_PLANTS + SCRIPTS_PLANTS)
+    assert sorted(m for m in members if m.startswith("files/")) == sorted(REFERENCE_MEMBERS)
+    assert "scripts/launcher.py" in members  # and the application itself still ships
+
+
+@pytest.mark.parametrize("rel", ROOT_PLANTS[:10] + SCRIPTS_PLANTS)
+def test_every_environment_folder_name_is_excluded_wherever_it_appears(rel):
+    assert release._is_excluded(release.Path(rel)), rel
+
+
+@pytest.mark.parametrize("rel", ["scripts/shared/venv_layout.py", "scripts/tts/engines.py", "scripts/engines/qwen3.py",
+                                 "scripts/tts/qwen3_runtime.py", "scripts/qwen3-requirements.txt",
+                                 "scripts/shared/.venv-notes.txt"])
+def test_the_environment_rules_do_not_drop_application_files(rel):
+    assert not release._is_excluded(release.Path(rel)), rel
+
+
+def test_the_repair_s_set_aside_environments_are_gitignored_like_the_rest():
+    import subprocess
+
+    for path in (".venv/engines/qwen3/Scripts/python.exe", ".venv.replaced/engines/qwen3/pyvenv.cfg",
+                 ".venv.replaced-1729800000/engines/qwen3/pyvenv.cfg", ".venv.discarded/engines/qwen3/x.py",
+                 ".venv.discarded-2/x.py", ".venv-qwen3/pyvenv.cfg",
+                 f".venv.act67-preserved-{PRESERVED_TAG}/pyvenv.cfg"):
+        result = subprocess.run(["git", "check-ignore", "-q", "--no-index", path], cwd=REPO_ROOT)
+        assert result.returncode == 0, path
+    for path in ("scripts/shared/venv_layout.py", "scripts/.venv.replaced.py"):
+        result = subprocess.run(["git", "check-ignore", "-q", "--no-index", path], cwd=REPO_ROOT)
+        assert result.returncode == 1, path

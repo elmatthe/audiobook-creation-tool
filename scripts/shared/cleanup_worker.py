@@ -4,8 +4,9 @@ Started as a *separate process* by ``shared.cleanup_state.start_cleanup`` using
 a Python interpreter outside the project folder, because the first thing it may
 be asked to remove is the virtual environment the application itself is running
 from. It is standard-library only through its entire path (plus
-``shared.maintenance`` and ``shared.cleanup_state``, which are themselves
-standard-library only), so it keeps working while ``.venv`` is being deleted.
+``shared.maintenance``, ``shared.cleanup_state``, ``shared.venv_layout`` and
+``shared.engine_lease``, which are themselves standard-library only), so it
+keeps working while ``.venv`` is being deleted.
 
 What it will not do, by construction:
 
@@ -16,6 +17,12 @@ What it will not do, by construction:
   links *immediately* before anything is removed;
 * it does not follow a directory link. A link that turns up inside a target is
   removed as a link; whatever it points at is never walked and never touched;
+* it does not race the Qwen3 voices. An item a Qwen3 install, conversion or
+  worker of this copy could be using (``requires_engine_lease``: ``.venv``, where
+  a first install creates the engine, and the models folder) is re-checked and
+  removed only while this process holds the copy's ``shared.engine_lease``
+  (setup, inference, engine). Busy or uncheckable leaves it alone, untouched;
+  the machine-wide GPU guard is not taken, because it protects no file;
 * it does not run twice. The request is moved aside before the first deletion,
   so a replay finds nothing to execute;
 * it does not retry, relaunch or loop. One attempt, one result, then exit.
@@ -44,7 +51,7 @@ IMPORT_ROOT = _THIS.parent.parent
 if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
-from shared import cleanup_state, maintenance  # noqa: E402
+from shared import cleanup_state, engine_lease, maintenance  # noqa: E402
 
 #: How many individual problems a per-asset message quotes before summarising.
 MAX_REPORTED_PROBLEMS = 3
@@ -255,13 +262,38 @@ def _problem_message(problems: list[str]) -> str:
     return text
 
 
+def hold_engine_still(repo_root, note):
+    """``(lease, None)`` holding this copy's Qwen3 engine lease, or ``(None, problem)``.
+
+    v0.7.0 P04C. A first Qwen3 install creates ``.venv/engines/qwen3`` while it
+    holds ``setup.lock``, and a conversion or a worker reads the models while it
+    holds ``inference.lock`` or ``engine.lock``. Holding all three means none of
+    them is running and none can start until :meth:`engine_lease.Lease.release`.
+    Never waits: busy, denied or a linked lock folder is an immediate refusal.
+    """
+    root = maintenance.absolute(repo_root)
+    lease = engine_lease.Lease(engine_lease.runtime_dir(root), root=root)
+    try:
+        lease.take()
+    except engine_lease.Refused as refused:
+        note(f"left alone — the Qwen3 voices of this copy are in use or uncheckable: {refused}")
+        if refused.reason == engine_lease.BUSY and refused.lock in engine_lease.BUSY_MESSAGES:
+            return None, maintenance.engine_in_use_problem(engine_lease.BUSY_MESSAGES[refused.lock])
+        return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM
+    except OSError as exc:                         # the lock folder itself could not be made
+        note(f"left alone — the Qwen3 locks could not be checked: {exc.strerror or exc}")
+        return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM
+    return lease, None
+
+
 def process_asset(asset_id: str, repo_root, log=None) -> maintenance.AssetOutcome:
     """Re-authorize, then remove exactly what this id is allowed to name.
 
     The inventory the user saw is not authorization: everything is proven again
     here, a moment before acting, so a target that was swapped for a link (or
     made to reach a protected location) in between is refused rather than
-    removed.
+    removed. An item marked ``requires_engine_lease`` is re-authorized and
+    removed only under :func:`hold_engine_still`, taken first and released last.
     """
     definition = maintenance.asset(asset_id)
 
@@ -269,6 +301,19 @@ def process_asset(asset_id: str, repo_root, log=None) -> maintenance.AssetOutcom
         if log is not None:
             log.line(f"  {asset_id}: {message}")
 
+    lease = None
+    if definition.requires_engine_lease:
+        lease, problem = hold_engine_still(repo_root, note)
+        if problem is not None:
+            return maintenance.AssetOutcome(asset_id, "refused", 0, problem)
+    try:
+        return _remove_authorized(asset_id, definition, repo_root, note)
+    finally:
+        if lease is not None:
+            lease.release()
+
+
+def _remove_authorized(asset_id, definition, repo_root, note) -> maintenance.AssetOutcome:
     try:
         target = maintenance.authorized_target(asset_id, repo_root)
         maintenance.assert_authorized(asset_id, repo_root, target)

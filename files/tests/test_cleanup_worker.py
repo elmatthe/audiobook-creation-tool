@@ -33,10 +33,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MODULE = Path(worker.__file__)
 UTC = timezone.utc
 
-#: The five modules a coordinator needs, and nothing else. ``venv_layout.py``
+#: The six modules a coordinator needs, and nothing else. ``venv_layout.py``
 #: joined at v0.7.0 P04A: ``maintenance`` refuses an environment holding an engine.
+#: ``engine_lease.py`` joined at v0.7.0 P04C: the environment and models items are
+#: removed only under this copy's Qwen3 engine lease.
 COORDINATOR_MODULES = ("__init__.py", "maintenance.py", "cleanup_state.py",
-                       "cleanup_worker.py", "venv_layout.py")
+                       "cleanup_worker.py", "venv_layout.py", "engine_lease.py")
+#: The lease's lock files, relative to a root (``shared.engine_lease``).
+LEASE_LOCK_FILES = frozenset(f"files/runtime-data/qwen3/{name}"
+                             for name in ("setup.lock", "inference.lock", "engine.lock"))
 
 
 # --------------------------------------------------------------------------- #
@@ -88,7 +93,9 @@ def snapshot(root: Path) -> dict[str, str]:
     The state folder is deliberately excluded: a run is *supposed* to write a
     request, an acknowledgement and a result there, and including it would turn
     every "nothing changed" assertion into a comparison of the bookkeeping
-    rather than of the data.
+    rather than of the data. So are the three Qwen3 lock files, for the same
+    reason (v0.7.0 P04C: taking the engine lease creates them), but only while
+    they are empty -- a lock file with anything in it is still compared.
     """
     out: dict[str, str] = {}
     skip = "/".join(state.STATE_DIR_PARTS) + "/"
@@ -97,6 +104,8 @@ def snapshot(root: Path) -> dict[str, str]:
             continue
         relative = path.relative_to(root).as_posix()
         if relative.startswith(skip):
+            continue
+        if relative in LEASE_LOCK_FILES and path.stat().st_size == 0:
             continue
         out[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     return out

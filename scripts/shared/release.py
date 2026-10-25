@@ -100,10 +100,17 @@ REFERENCE_ASSETS = (
 )
 
 # Directory names that are excluded wherever they appear in the tree.
-# ``.venv-qwen3`` is the optional Qwen3-TTS environment (v0.6.7 CP6): it lives at the repository root, outside the
-# ``scripts/`` tree the packager walks, so it cannot be reached in the first place; it is named here too so that a
-# future widening of the walk can never package a multi-gigabyte environment by accident.
+# Every Python environment lives at the repository root, outside the ``scripts/`` tree the packager walks, so none
+# can be reached in the first place: the app's ``.venv``, with the optional Qwen3-TTS engine held inside it at
+# ``.venv/engines/qwen3`` (canonical since v0.7.0 P04C), the older ``.venv-qwen3`` beside it (v0.6.7 CP6, still used
+# where it is the only engine), the bootstrap's set-aside ``.venv.replaced*``/``.venv.discarded*`` during a repair,
+# and the owner's preserved ``*.act67-preserved-*`` copies. They are named here too -- exactly, or by the prefixes
+# below -- so that a copy force-committed under ``scripts/`` or a future widening of the walk can never package a
+# multi-gigabyte environment by accident.
 EXCLUDED_DIR_NAMES = {".venv", ".venv-qwen3", "__pycache__", ".pytest_cache"}
+# Directory-name prefixes excluded wherever they appear: ``.venv.replaced``, ``.venv.discarded-…``,
+# ``.venv-qwen3.act67-preserved-…`` and the like.
+EXCLUDED_DIR_PREFIXES = (".venv.", ".venv-")
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # Tracked developer entry points under scripts/ that the application never imports or runs (v0.6.7, audit
@@ -204,6 +211,8 @@ def _is_excluded(rel: Path) -> bool:
     """True if *rel* (relative to the repo root) must not be packaged."""
     parts = set(rel.parts)
     if parts & EXCLUDED_DIR_NAMES:
+        return True
+    if any(part.startswith(EXCLUDED_DIR_PREFIXES) for part in rel.parts[:-1]):
         return True
     if rel.suffix in EXCLUDED_SUFFIXES:
         return True

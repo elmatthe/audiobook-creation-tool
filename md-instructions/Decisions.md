@@ -4,6 +4,28 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-25 - Clear Downloaded Data removes the app environment and the models only under the Qwen3 engine lease; nested engines and repair asides can never be packaged or staged (v0.7.0 P04C Stage 3)
+
+Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Source + tests only; no live environment changed.
+
+**Lease.** The post-exit coordinator only looked for `.venv/engines/`; with no child yet, a first Qwen3 install holding `setup.lock` (folder
+not yet created) passed the look, and an install starting mid-deletion could build inside a half-deleted parent. Models had the same gap
+against a conversion, model check, model install or orphan worker. Catalog items now carry `requires_engine_lease` (True for
+`virtual_environment` and `downloaded_models`); the coordinator takes `shared.engine_lease` (setup → inference → engine, all or none,
+never waiting) before re-authorizing such an item and holds it through removal. Busy, denied, linked or unmakeable locks refuse that item
+(`refused`, nothing removed, lock-specific sentence or "could not check"); every other selected item is handled as before. Taken per item,
+so a refusal never blocks binaries or logs. MachineGuard is not taken (it protects no file; Stage 1 ADR stands).
+
+**Not chosen.** Detaching, recreating or migrating a held engine so `.venv` can be cleared; offering the engine as a fifth item; waiting
+for a busy lock; refusing the whole request when one leased item is busy.
+
+**Wording.** The `.venv` item says it rebuilds "the app's own dependencies" and that "the Qwen3 voice engine is not part of this item"; the
+held-engine refusal is unchanged.
+
+**Packaging/ignore.** The packager already walked only `scripts/`; it now also excludes directory components starting `.venv.` or `.venv-`
+(set-aside and preserved copies) besides `.venv`/`.venv-qwen3`. `.gitignore` gains `/.venv.replaced*/` and `/.venv.discarded*/`, which were
+not ignored. Regression tests force-commit nested engines, asides, preserved copies, models and private records into a fixture repo.
+
 ## 2026-10-25 - The Qwen3 engine is installed at .venv/engines/qwen3, built from the verified base Python; a repair always takes the engine lease first (v0.7.0 P04C Stage 2)
 
 Plan Revision 2 §5.5 and §6 / P04C; recorded by Claude Code. Source integration only: no live HOME-PC environment was migrated, rebuilt or
