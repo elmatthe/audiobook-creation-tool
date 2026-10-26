@@ -9,12 +9,13 @@ it completely (containment, schema, session, freshness, consent) and checks that
 CPython 3.12 environment; then it reports readiness and the plan as progress events and publishes exactly one terminal
 result. A cancel flag in the request's folder is honoured at every checkpoint.
 
-Every request is answered through ``tts.optional_setup_lifecycle.Operation`` (fresh plan, consent check against it,
-the consent spent once, acquisition, post-install proof). Since P05B Stage 2 the facts the plan needs are this
-computer's own (``tts.optional_setup_health``: bounded offline Kokoro/Chatterbox probes, held locks), the acquirer is
-``tts.optional_setup_acquire.RealAcquirer`` -- which acts only for a consent that covers the fresh plan and has just
-been spent -- and the post-install proof is a fresh probe. A second worker started on a request that already has one
-refuses to run.
+Planning and explicitly injected test acquisitions use ``tts.optional_setup_lifecycle.Operation`` (fresh plan,
+consent check, one-time spending, acquisition, post-install proof). Since P05B Stage 2 the facts the plan needs are this
+computer's own (``tts.optional_setup_health``: bounded offline Kokoro/Chatterbox probes, held locks). Stage 4B-1
+temporarily refuses production install/repair requests before planning, probing or spending consent: the v2 real
+acquirer has unresolved consent-scope defects. Explicit injected acquirers remain a disposable test seam only.
+Planning and ordinary synthesis with installed models retain their existing paths. A second worker started on a
+request that already has one refuses to run.
 """
 
 from __future__ import annotations
@@ -40,8 +41,14 @@ def run(request: proto.Request, *, emit: Callable[[str, dict], None], cancel_che
     """Answer *request* (already validated); return its terminal result. Never raises for an expected outcome.
 
     Without *facts* this computer's are gathered (probes and locks) when the plan is first made -- after ``started``
-    is reported, under the same cancellation. Without *acquirer* the real one is used; without *health* the
-    post-install proof is a fresh probe."""
+    is reported, under the same cancellation. Without *acquirer*, install/repair is temporarily disabled; without
+    *health* the post-install proof (for an explicitly injected acquirer) is a fresh probe."""
+    if request.action == proto.ACTION_INSTALL and acquirer is None:
+        return proto.make_result(request.request_id, proto.REFUSED, error=(
+            proto.ACQUISITION_UNAVAILABLE,
+            "Optional voice installation and repair are temporarily disabled while acquisition safety is completed. "
+            "Keep using already installed voices; retry setup after a version with the safety fixes is available. "
+            "Nothing was downloaded or changed; this confirmation was not spent."))
     root = rt.repo_root()
     known: dict = {}
 
@@ -66,10 +73,6 @@ def run(request: proto.Request, *, emit: Callable[[str, dict], None], cancel_che
             return health(components)
         return optional_setup_health.local_health(root, components, cancel_check=cancel_check, runner=probe_runner)
 
-    if acquirer is None:
-        from tts import optional_setup_acquire
-
-        acquirer = optional_setup_acquire.RealAcquirer()
     return lifecycle.Operation(request, planner=planner, estimator=estimator, emit=emit, cancel_check=cancel_check,
                                acquirer=acquirer, health=proof, claim=claim).run()
 

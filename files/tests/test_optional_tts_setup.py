@@ -830,7 +830,7 @@ def test_an_install_request_whose_consent_was_altered_is_refused(world, no_acqui
     consent = osu.consent_for(osu.plan_to_json(osu.plan([CV], facts=facts())))
     smaller = dataclasses.replace(consent, download_bytes=consent.download_bytes - 1)
     request = proto.new_request(proto.ACTION_INSTALL, [CV], session=SESSION, consent=smaller)
-    code, result = run_main(world, request, facts=facts())
+    code, result = run_main(world, request, facts=facts(), acquirer=osl.DisabledAcquirer())
     assert result["state"] == proto.REFUSED and result["error"]["code"] == proto.BAD_CONSENT
 
 
@@ -1596,7 +1596,8 @@ def test_an_install_with_nothing_to_acquire_is_proved_not_performed(world, no_ac
     install_chatterbox(world)
     request = install_request([C], health=PROVED)
     assert request.consent.units == ()
-    code, result = run_main(world, request, facts=facts(health=PROVED), health=lambda c: PROVED)  # disabled acquirer
+    code, result = run_main(world, request, facts=facts(health=PROVED), health=lambda c: PROVED,
+                            acquirer=osl.DisabledAcquirer())  # explicit lifecycle test seam; production is gated
     assert code == 0 and result["state"] == proto.SUCCEEDED and result["verified"] == [C]
     assert not (proto.exchange_root(world) / proto.CONSENTS_DIR).exists()
 
@@ -1628,8 +1629,8 @@ def test_the_worker_command_line_cannot_steer_acquisition_and_only_a_consent_can
 
     options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(worker.main))
     assert options == ["--request", "--result", "--session"]  # nothing to choose a source, a unit or skip a check
-    assert inspect.signature(worker.main).parameters["acquirer"].default is None  # None = the real acquirer (Stage 2)
-    assert "RealAcquirer()" in inspect.getsource(worker.run)
+    assert inspect.signature(worker.main).parameters["acquirer"].default is None  # None = production acquisition disabled
+    assert "RealAcquirer" not in inspect.getsource(worker.run)
     assert isinstance(osl.Operation(proto.new_request(proto.ACTION_PLAN, [K], session=SESSION), planner=dict,
                                     estimator=dict, emit=print, cancel_check=bool).acquirer, osl.DisabledAcquirer)
 

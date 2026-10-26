@@ -239,6 +239,9 @@ PROTOCOL = "act-optional-setup"
 #: 1 = P05A (a consent named a fingerprint nothing checked); 2 = P05B Stage 1 (the consent is bound to checked terms).
 #: Only this version is accepted: a v1 consent cannot be trusted, so it is refused, never upgraded.
 PROTOCOL_VERSION = 2
+# Stage 4B-1: the separately decoded consent foundation in shared.optional_setup_v3. The live request/event/result
+# bridge stays v2; neither decoder upgrades old consent and v3 is not wired to an acquirer.
+ACQUISITION_PROTOCOL_VERSION = 3
 ACTION_PLAN = "plan"  # report readiness and the plan; acquires nothing
 ACTION_INSTALL = "install"  # acquire under consent; this build checks the consent, then acquires nothing
 ACTIONS: tuple[str, ...] = (ACTION_PLAN, ACTION_INSTALL)
@@ -344,9 +347,9 @@ def _reject_constant(name: str):
     raise ProtocolError(MALFORMED, f"{name} is not a number")
 
 
-def strict_json(raw: bytes) -> dict:
-    """One JSON object, at most :data:`MAX_MESSAGE_BYTES`, UTF-8, no repeated keys, no NaN/Infinity."""
-    if type(raw) is not bytes or len(raw) > MAX_MESSAGE_BYTES:
+def strict_json(raw: bytes, *, max_bytes: int = MAX_MESSAGE_BYTES) -> dict:
+    """One UTF-8 JSON object, bounded (64 KiB by default), no repeated keys or NaN/Infinity."""
+    if type(raw) is not bytes or len(raw) > max_bytes:
         raise ProtocolError(MALFORMED, "the message is missing or too large")
     try:
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys,
@@ -412,14 +415,8 @@ def _decode_consent(value: object, components: tuple[str, ...]) -> Consent:
                    raw["download_bytes"], raw["acquisition_fingerprint"])
 
 
-def decode_request(raw: bytes, *, session: str, now: Callable[[], float] = time.time) -> Request:
-    """Parse and check a request completely, or raise :class:`ProtocolError`.
-
-    It must belong to *session* (the token of the process that started this worker) and be fresh, so a request left
-    behind by an earlier run -- with whatever it once consented to -- is refused rather than replayed.
-    """
-    message = _exact_keys(strict_json(raw), REQUEST_KEYS, "a request")
-    _check_header(message)
+def check_session_freshness(message: dict, *, session: str, now: Callable[[], float] = time.time) -> None:
+    """Common session/request identity and freshness checks; confers no version or acquisition authority."""
     for key in ("request_id", "session"):
         if type(message[key]) is not str or not _TOKEN.fullmatch(message[key]):
             raise ProtocolError(MALFORMED, f"{key} is not a 32-character lowercase hex token")
@@ -435,6 +432,17 @@ def decode_request(raw: bytes, *, session: str, now: Callable[[], float] = time.
     age = now() - issued_at
     if age > MAX_REQUEST_AGE_S or age < -MAX_CLOCK_SKEW_S:
         raise ProtocolError(STALE_REQUEST, "the request is too old (or from the future); ask again")
+
+
+def decode_request(raw: bytes, *, session: str, now: Callable[[], float] = time.time) -> Request:
+    """Parse and check a v2 request completely. V3 acquisition consent requires its separate decoder.
+
+    The request must belong to the current session and be fresh; restart consent is never replayed.
+    """
+    message = _exact_keys(strict_json(raw), REQUEST_KEYS, "a request")
+    _check_header(message)
+    check_session_freshness(message, session=session, now=now)
+    issued = message['issued_utc']
     action = message["action"]
     if action not in ACTIONS:
         raise ProtocolError(MALFORMED, "the action is not plan or install")
