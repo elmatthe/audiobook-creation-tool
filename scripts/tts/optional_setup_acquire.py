@@ -1,5 +1,11 @@
 """optional_setup_acquire.py — the consented acquirer: fetches exactly the units of a checked and spent consent.
 
+Stage 4B-3A status: this is the historical v2 adapter, retained only for explicit
+injected compatibility tests behind the disabled production worker. Its legacy
+Qwen repair and post-lock local acquisition are NOT v3 scope/budget authority.
+The independently planned, all-group locked v3 seam is optional_setup_authority;
+no production worker or legacy manual installer is switched to it here.
+
 v0.7.0 P05B Stage 2 (plan Revision 2 §5.4). ``tts.optional_setup_lifecycle.Operation`` calls :class:`RealAcquirer` only
 after the fresh plan was made, the consent was proved to cover it (``consent_covers``) and the consent was spent. The
 acquirer still trusts nothing it is handed:

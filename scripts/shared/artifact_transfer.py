@@ -108,10 +108,21 @@ class TransferLedger:
         A fresh caller must show these records and its new v3 allowance before confirmation.
         Returning a digest alone to a person does not satisfy that caller's disclosure obligation.
         """
-        mkdirs(self.store.repo, self.root)
+        # Planning must not create a transfer/store tree. Check each existing parent
+        # before treating absence as empty; a linked ancestor is never an empty store.
+        def entries(folder):
+            walked = self.store.repo
+            for part in folder.relative_to(walked).parts:
+                walked /= part
+                with boundary(self.store.repo, walked):
+                    if not os.path.lexists(walked):
+                        return []
+                    require(walked.is_dir(), 'unexpected ledger directory')
+            with boundary(self.store.repo, folder / 'probe'):
+                return sorted(folder.iterdir())
+
         history = []
-        with boundary(self.store.repo, self.root / 'probe'):
-            folders = sorted(self.root.iterdir())
+        folders = entries(self.root)
         for folder in folders:
             require(proto._TOKEN.fullmatch(folder.name) is not None, 'unexpected ledger path')
             try:
@@ -123,9 +134,7 @@ class TransferLedger:
                             'sequence': sequence, 'chain': previous})
         partials = []
         folder = self.store.root / 'incomplete'
-        mkdirs(self.store.repo, folder)
-        with boundary(self.store.repo, folder / 'probe'):
-            paths = sorted(folder.iterdir())
+        paths = entries(folder)
         for path in paths:
             require(re.fullmatch(r'[a-f0-9]{32}\.part', path.name) is not None, 'unexpected partial path')
             with checked_open(self.store.repo, path, 'rb') as handle:
@@ -143,6 +152,7 @@ class TransferLedger:
 
         def claim(token):
             nonlocal folder
+            mkdirs(self.store.repo, self.root)
             folder = self.root / token
             with boundary(self.store.repo, folder):
                 try:

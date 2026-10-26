@@ -26,6 +26,7 @@ The three things that can go wrong on a user's machine each have an explicit, bo
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import http.client
 import os
 import queue
@@ -106,7 +107,7 @@ class FilePlan:
     name: str
     size: int
     sha256: str
-    action: str  # "have" (present, size ok) | "share" (copy from the other model) | "download"
+    action: str  # "have" (size/hash verified) | "share" (copy from the other model) | "download"
     source_dir: Optional[Path] = None  # for "share"
 
 
@@ -166,15 +167,15 @@ def normalize_components(components: Iterable[str], *, allow_empty: bool = False
     return tuple(k for k in MODEL_KEYS if k in wanted)
 
 
-def _present_and_sized(spec: rt.ModelSpec, name: str, want: dict) -> bool:
+def _present_and_verified(spec: rt.ModelSpec, name: str, want: dict) -> bool:
     path = rt.safe_model_path(spec, name)
-    return path.is_file() and path.stat().st_size == want["size"]
+    return path.is_file() and path.stat().st_size == want["size"] and rt.sha256_file(path) == want["sha256"]
 
 
 def plan_install(components: Iterable[str]) -> InstallPlan:
-    """What an install of ``components`` would have to acquire. Cheap: stats files, hashes nothing, touches no network.
+    """What an install of ``components`` would have to acquire. Read-only full content proof; no network.
 
-    A file counts as ``have`` when it exists with the right size (the install hashes it before trusting it), as
+    A file counts as ``have`` when its size AND hash match (installation rechecks before trusting it), as
     ``share`` when the other model — installed or being installed in the same request — holds an identical file, and
     as ``download`` otherwise.
     """
@@ -188,18 +189,19 @@ def plan_install(components: Iterable[str]) -> InstallPlan:
         other = specs[MODEL_BASE if key == MODEL_CUSTOMVOICE else MODEL_CUSTOMVOICE]
         files: list[FilePlan] = []
         for name, want in spec.files.items():
-            if _present_and_sized(spec, name, want):
+            if _present_and_verified(spec, name, want):
                 files.append(FilePlan(name, want["size"], want["sha256"], "have"))
                 continue
             identical_in_other = other.files.get(name) == want
-            on_disk = identical_in_other and _present_and_sized(other, name, want)
+            on_disk = identical_in_other and _present_and_verified(other, name, want)
             installed_earlier_in_this_request = (
                 identical_in_other and other.key in keys and keys.index(other.key) < keys.index(key))
             if on_disk or installed_earlier_in_this_request:
                 files.append(FilePlan(name, want["size"], want["sha256"], "share", other.directory))
             else:
                 files.append(FilePlan(name, want["size"], want["sha256"], "download"))
-        plans.append(ModelPlan(key, spec.label, spec.total_bytes, files, installed=ok))
+        plans.append(ModelPlan(key, spec.label, spec.total_bytes, files,
+                               installed=ok and all(f.action == 'have' for f in files)))
     return InstallPlan(
         components=keys, needs_environment=not env_ok,
         environment_download_bytes=rt.environment_download_bytes(),
@@ -489,6 +491,9 @@ def install_model(key: str, *, progress: ProgressCallback = _noop_progress, canc
     ``trusted`` maps file names to ``(size, mtime_ns)`` for files a full check has just proved good: those are not
     hashed again if they are unchanged. Every target path is proved to lie inside this model's own folder first.
     """
+    authority = _MODEL_ACQUISITION.get()
+    if authority is not None:
+        authority.before_model(key)  # before marker deletion or any file/package mutation
     spec = rt.model_spec(key)
     other = rt.model_spec(MODEL_BASE if key == MODEL_CUSTOMVOICE else MODEL_CUSTOMVOICE)
     step = f"model:{key}"
@@ -505,6 +510,10 @@ def install_model(key: str, *, progress: ProgressCallback = _noop_progress, canc
     for name, want in spec.files.items():
         _check_cancel(cancel_check)
         target = rt.safe_model_path(spec, name)
+        if authority is not None:
+            authority.ensure_file(key, name, target)
+            report(f"{name}: verified under v3 authority.", want["size"])
+            continue  # no legacy downloader, twin fallback or implicit retries in the scoped path
         if target.is_file() and target.stat().st_size == want["size"]:
             stat = target.stat()
             if trusted and trusted.get(name) == (stat.st_size, stat.st_mtime_ns):
@@ -527,7 +536,7 @@ def install_model(key: str, *, progress: ProgressCallback = _noop_progress, canc
         download_file(hub_url(spec, name), target, want["size"], want["sha256"], opener=opener,
                       progress=lambda n: report(f"Downloading {name} ({rt.format_bytes(want['size'])})...", n),
                       cancel_check=cancel_check, sleep=sleep)  # reports a resumed .part's bytes on its first call
-    problems = rt.model_file_problems(key)
+    problems = rt.model_file_problems(key, full=authority is not None)
     if problems:
         raise SetupError(f"The {spec.label} model is incomplete after installing ({problems[0]}).")
     rt.write_model_marker(key)
@@ -790,6 +799,25 @@ def install_lock_held():
         yield
 
 
+_MODEL_ACQUISITION = contextvars.ContextVar('qwen3_model_acquisition', default=None)
+
+
+@contextlib.contextmanager
+def scoped_model_acquisition(authority):
+    """Internal 4B-3A contract: caller holds InstallLock, native model files use its authority.
+
+    CLI/manual callers retain their existing contract outside this scope. Environment
+    execution is deliberately forbidden here until 4B-3B, including explicit rebuild terms.
+    """
+    if not InstallLock.held_by_this_thread() or _MODEL_ACQUISITION.get() is not None:
+        raise SetupError('Scoped model acquisition requires one already-held InstallLock.')
+    token = _MODEL_ACQUISITION.set(authority)
+    try:
+        yield
+    finally:
+        _MODEL_ACQUISITION.reset(token)
+
+
 def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_check: Optional[CancelCheck] = None,
                         runner: Optional[CommandRunner] = None, rebuild: bool = False) -> dict:
     """Create the canonical ``.venv/engines/qwen3``, install the pinned stack, prove it imports, and record the result.
@@ -810,6 +838,8 @@ def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_c
 
 def _install_environment(progress: ProgressCallback, cancel_check: Optional[CancelCheck], runner: CommandRunner,
                          rebuild: bool) -> dict:
+    if _MODEL_ACQUISITION.get() is not None:
+        raise SetupError('Environment mutation is not authorized in Stage 4B-3A model acquisition.')
     check_python()
     requirements = rt.requirements_path()
     if not requirements.is_file():

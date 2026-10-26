@@ -9,6 +9,6 @@
 | **Look and feel** | `appearance.py` (Light/Dark), `ui_theme.py` |
 | **Data helpers** | `metadata.py` (M4B/MP4 metadata), `numbering.py` (success numbering), `image_capabilities.py` |
 | **Downloaded-data cleanup** | `maintenance.py` (the catalog), `cleanup_state.py`, `cleanup_worker.py` (the only code that deletes an asset) |
-| **Artifact acquisition foundation** | `artifact_store.py` (reviewed identities and contained local objects), `artifact_transfer.py` (strict HTTPS and persistent v3 transfer accounting). Unused by the production worker/installer; see [Stage 4B-2 contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B2-Artifact-Foundation.md). |
+| **Artifact acquisition foundation** | `artifact_store.py` (reviewed identities and contained local objects), `artifact_transfer.py` (strict HTTPS and persistent v3 transfer accounting; read-only history disclosure). Used only by the disposable v3 model-acquisition seam, not the production worker; see [Stage 4B-2 contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B2-Artifact-Foundation.md) and [Stage 4B-3A contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3A-Authority.md). |
 
 Every path is derived from `paths.py`, except the few modules that must work before the virtual environment exists (`bootstrap.py`, `ffmpeg_health.py`, `ffmpeg_portable.py`); those derive the repository root from their own location and are kept in step with `paths.py` by the layout canary test (files/tests/test_layout_canary.py).

@@ -36,6 +36,10 @@ from test_optional_tts_setup import (ALL, B, C, CV, K, SESSION, WHEEL, as_json, 
                                      tiny_assets, tripwire, unit, world)
 from test_qwen3_runtime import BASE_ONLY, CUSTOM_ONLY, TINY_FILES, install_environment, install_model
 from test_qwen3_setup import Hub, fake_runner, no_sleep, opener, url_path
+from test_optional_setup_authority import (authority_world, b1_zero_consent_control,  # noqa: F401
+                                            b2_model_only_control,
+                                            test_chatterbox_race_is_checked_after_real_lock_before_any_transfer as
+                                            chatterbox_race_control)
 
 pytestmark = pytest.mark.usefixtures("production_writes_refused")
 
@@ -990,3 +994,25 @@ def test_exactly_one_terminal_result_whatever_the_acquirer_does(world, server):
                                      request_id=request.request_id, request=request)
         assert result["state"] in proto.TERMINAL_STATES
         assert proto.publish_once(path.with_name("result.json"), b"{}") is False  # never a second one
+
+
+# =========================================================================== #
+# P05B Stage 3 independent consent-safety reproductions
+# =========================================================================== #
+def test_qwen_same_sized_corruption_cannot_exceed_confirmed_zero_download(authority_world):
+    """Stage 3 B1, migrated to v3 in 4B-3A; original red patch retained in checkpoint evidence.
+
+    Initial corruption now requires repair bytes. Preserve the zero-consent attack
+    by corrupting the same-sized file after legitimate zero-byte confirmation.
+    """
+    b1_zero_consent_control(authority_world)
+
+
+def test_model_only_repair_cannot_rebuild_an_unconsented_engine(authority_world):
+    """A later failed engine probe must stop model-only repair before any package or download action."""
+    b2_model_only_control(authority_world)
+
+
+def test_chatterbox_change_at_lock_cannot_expand_the_confirmed_download(authority_world, monkeypatch):
+    """A previously verified weight disappearing at lock acquisition cannot expand a seven-byte plan."""
+    chatterbox_race_control(authority_world, monkeypatch)

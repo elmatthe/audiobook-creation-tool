@@ -427,4 +427,4 @@ def test_missing_local_reuse_is_refused_before_spending_or_request(tmp_path):
     with pytest.raises(store.ArtifactError):
         ledger.begin(v3.encode_consent(consent), session=SESSION, request_id=REQUEST,
                      disclosed_prior_state=ledger.prior_state(), now=lambda: NOW)
-    assert list(ledger.root.iterdir()) == []
+    assert not ledger.root.exists() or list(ledger.root.iterdir()) == []

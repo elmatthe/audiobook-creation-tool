@@ -25,6 +25,10 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 
 ## The engines
 
+Optional-setup v3 planning and the disposable locked model-acquisition seam live in `optional_setup_authority.py`.
+See the [Stage 4B-3A contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3A-Authority.md).
+Production acquisition remains disabled; package/spaCy installation, offline pip and engine mutation are deferred.
+
 | Engine | Modules | Notes |
 |---|---|---|
 | Edge TTS (network) | `batch_convert.py`, `epub2tts_edge/` | five voices |
