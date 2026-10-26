@@ -40,6 +40,47 @@ from test_qwen3_runtime import install_environment, install_model, make_engine, 
 #: P05B Stage 2 (Task A): every test here is refused, at the write itself, any write to the real installation.
 pytestmark = pytest.mark.usefixtures("production_writes_refused")
 
+
+def test_disappearing_lock_is_never_created_by_read_only_probe(world, monkeypatch):
+    """The lock exists at the initial check, then disappears immediately before the open."""
+    path = rt.setup_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    real_open = os.open
+
+    def disappeared(target, flags, *args, **kwargs):
+        if Path(target) == path:
+            path.unlink()
+        return real_open(target, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", disappeared)
+    assert osh.lock_held(path) is None
+    assert not path.exists()
+
+
+def test_stage2_survivor_is_not_equivalent_when_the_lock_disappears(world, monkeypatch):
+    """An O_CREAT mutant creates the missing lock under the same deterministic race."""
+    import inspect
+
+    source = inspect.getsource(osh.lock_held)
+    assert "os.O_RDWR)" in source
+    namespace = dict(osh.__dict__)
+    mutant = source.replace("os.O_RDWR)", "os.O_RDWR | os.O_CREAT)")
+    exec(compile(mutant, "<M20-lock-disappears>", "exec"), namespace)
+    path = rt.setup_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    real_open = os.open
+
+    def disappeared(target, flags, *args, **kwargs):
+        if Path(target) == path:
+            path.unlink()
+        return real_open(target, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", disappeared)
+    assert namespace["lock_held"](path) is False
+    assert path.exists(), "M20 must be detected because its read-only probe creates a replacement lock"
+
 REPO = Path(__file__).resolve().parents[2]
 ALL = proto.COMPONENTS
 K, C, CV, B = proto.KOKORO, proto.CHATTERBOX, proto.QWEN3_CUSTOMVOICE, proto.QWEN3_BASE

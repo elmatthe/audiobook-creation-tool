@@ -204,10 +204,19 @@ def test_a_junction_in_a_sandbox_cannot_carry_a_write_into_the_protected_tree(pr
 
 
 def test_a_refused_bytecode_cache_write_is_not_reported_as_the_tests_attempt(protected):
-    with write_tripwire.armed([protected]) as attempts:
-        with pytest.raises(PermissionError):
-            (protected / "__pycache__").mkdir()
-    assert attempts == []  # refused (nothing created), but Python's own cache writer is not the test's write
+    import importlib.util
+
+    source = protected / "cache_probe.py"
+    source.write_text("VALUE = 73\n", encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("cache_probe", source)
+    module = importlib.util.module_from_spec(spec)
+    start = len(write_tripwire.refusals)
+    # Exercise the actual frozen CPython writer, even under the guarded runner's -B.
+    with pytest.MonkeyPatch.context() as patch, write_tripwire.armed([protected]) as attempts:
+        patch.setattr(sys, "dont_write_bytecode", False)
+        spec.loader.exec_module(module)
+    assert module.VALUE == 73 and len(write_tripwire.refusals) > start
+    assert attempts == []
     assert not (protected / "__pycache__").exists()
 
 

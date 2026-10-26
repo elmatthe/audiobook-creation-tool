@@ -34,6 +34,31 @@ from source_probe import application_python_files  # noqa: E402
 CLONES = ["qwen3-female-1", "qwen3-female-2", "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"]
 
 
+@pytest.fixture
+def calm_runtime(tmp_path):
+    """Run the real environment builder in a disposable app; keep references read-only.
+
+    Own the patch context so a test's monkeypatch.undo() cannot release containment.
+    Worker entrypoints and their environment construction remain production code.
+    """
+    root = tmp_path / "runtime-app"
+    (root / "scripts").mkdir(parents=True)
+    (root / "files").mkdir()
+    references = {key: rt.reference_path(rt.get_voice(key)) for key in CLONES}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(rt, "repo_root", lambda: root)
+        patch.setattr(rt, "reference_path", lambda voice: references[voice.voice_id])
+        # Redirect inherited paths before even the first real environment build.
+        cache, scratch = rt.cache_root(), rt.tmp_root()
+        destinations = {"TEMP": scratch, "TMP": scratch, "TMPDIR": scratch,
+                        "HF_HOME": cache / "hf", "TORCH_HOME": cache / "torch", "NUMBA_CACHE_DIR": cache / "numba",
+                        "XDG_CACHE_HOME": cache / "xdg", "XDG_CONFIG_HOME": cache / "xdg"}
+        for name, value in destinations.items():
+            patch.setenv(name, str(value))
+        rt.worker_environment()
+        yield root
+
+
 # --------------------------------------------------------------------------- #
 # The dev worker: one argument forwarded, nothing else
 # --------------------------------------------------------------------------- #
@@ -236,7 +261,7 @@ def test_the_comparison_passage_has_prose_dialogue_punctuation_and_paragraphs_an
     assert any(mark in text for mark in (";", "...", ":", "(", "?")) and not text.startswith("The Ninth Bell of Kaerthellin")
 
 
-def test_the_baseline_is_the_production_worker_and_a_candidate_overrides_only_what_it_names():
+def test_the_baseline_is_the_production_worker_and_a_candidate_overrides_only_what_it_names(calm_runtime):
     assert exp.synth_kwargs(0.7) == {}
     kwargs = exp.synth_kwargs(0.9)
     assert set(kwargs) == {"script", "env"} and kwargs["script"] == exp.DEV_WORKER
@@ -266,7 +291,7 @@ class Recorder:
 ALLOWED_SEAMS = {"end_silence_ms", "chunk_pause_ms", "log", "encoder", "script", "env"}
 
 
-def test_each_clip_goes_through_the_production_entry_for_exactly_the_requested_voice(tmp_path):
+def test_each_clip_goes_through_the_production_entry_for_exactly_the_requested_voice(tmp_path, calm_runtime):
     rec = Recorder()
     text = tmp_path / "n.txt"
     text.write_text("Hello.", encoding="utf-8")
@@ -370,7 +395,7 @@ def test_a_run_refuses_before_any_audio_when_a_clone_is_not_ready(tmp_path):
     assert rec.calls == [] and not root.exists()  # all or nothing: not even a folder
 
 
-def test_a_run_makes_baseline_then_candidates_with_identical_seeds_and_records_what_it_did(tmp_path, approved):
+def test_a_run_makes_baseline_then_candidates_with_identical_seeds_and_records_what_it_did(tmp_path, approved, calm_runtime):
     rec = Recorder()
     root = tmp_path / "runs"
     previews_before = sorted(p.name for p in (REPO_ROOT / "files" / "voice-previews").iterdir())
@@ -395,7 +420,7 @@ def test_a_run_makes_baseline_then_candidates_with_identical_seeds_and_records_w
     assert sorted(p.name for p in (REPO_ROOT / "files" / "voice-previews").iterdir()) == previews_before
 
 
-def test_a_run_never_overwrites_another_run(tmp_path, approved):
+def test_a_run_never_overwrites_another_run(tmp_path, approved, calm_runtime):
     kwargs = dict(run_id="same", run_root=tmp_path, synth=Recorder(), availability=lambda v: (True, "ok"),
                   log=lambda m: None, measure=False)
     exp.run(["qwen3-female-1"], [0.8], **kwargs)
@@ -410,7 +435,7 @@ def test_experimental_audio_lives_only_under_ignored_dev_work():
     assert "voice-previews" not in str(exp.RUN_ROOT)
 
 
-def test_the_real_library_merges_an_explicit_baseline_identically_and_temperature_alone_changes_one_value():
+def test_the_real_library_merges_an_explicit_baseline_identically_and_temperature_alone_changes_one_value(request):
     """Against the pinned qwen_tts in .venv-qwen3 (no model, no audio). Skipped where that environment is absent."""
     try:
         venv, model_dir = rt.venv_python(), rt.model_spec("base").directory
@@ -418,7 +443,9 @@ def test_the_real_library_merges_an_explicit_baseline_identically_and_temperatur
         pytest.skip("no Qwen3 environment")
     if not Path(venv).is_file() or not (Path(model_dir) / "generation_config.json").is_file():
         pytest.skip("no Qwen3 environment or Base model on this machine")
-    result = subprocess.run([str(venv), "-I", str(exp.VENV_TOOLS), "selfcheck", str(model_dir)], capture_output=True, text=True,
+    # Resolve the installed library/config for read-only proof before redirecting the runtime.
+    request.getfixturevalue("calm_runtime")
+    result = subprocess.run([str(venv), "-I", "-B", str(exp.VENV_TOOLS), "selfcheck", str(model_dir)], capture_output=True, text=True,
                             env=rt.worker_environment())
     report = json.loads(result.stdout[result.stdout.find("{"):])
     assert report["qwen_tts"] == "0.1.1" and report["generate_voice_clone_forwards_kwargs"] is True

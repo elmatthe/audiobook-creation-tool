@@ -63,7 +63,7 @@ def _disposable_checkout(root: Path, *, settings: bytes | None) -> Path:
     for name in ("config.toml", "pytest.ini"):
         shutil.copy2(REPO_ROOT / name, copy / name)
     (copy / "files" / "tests").mkdir(parents=True)
-    for name in ("conftest.py", "tk_gate.py", "test_launcher_smoke.py"):
+    for name in ("conftest.py", "cache_sandbox.py", "tk_gate.py", "test_launcher_smoke.py"):
         shutil.copy2(TESTS / name, copy / "files" / "tests" / name)
     logs = copy / "files" / "runtime-data" / "logs"
     logs.mkdir(parents=True)
