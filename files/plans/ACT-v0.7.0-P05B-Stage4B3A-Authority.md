@@ -7,6 +7,8 @@ The planner reads the code-pinned package manifest, independently pinned Qwen mo
 engine assets. It hashes existing candidates without trusting mutable cache records. Health comes from a fresh
 bounded observer, with an explicit injected observer in synthetic tests. Missing, damaged, unverified, busy,
 unsupported, bad-bundle and ready remain distinct. An inconclusive engine probe grants no mutation authority.
+The Qwen anchor covers both complete model definitions, including directory/voice metadata; every Qwen artifact's
+v3 version field binds that reviewed manifest digest so it is part of the exact confirmed terms too.
 
 A plan retains immutable request settings, exact v3 terms and the full read-only transfer-history disclosure.
 Confirmation pairs those original disclosures with v3 consent; history is never silently refreshed at execution.

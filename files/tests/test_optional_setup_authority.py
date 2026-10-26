@@ -640,3 +640,25 @@ def test_default_observer_reports_busy_without_starting_a_probe(authority_world,
     monkeypatch.setattr(su, 'probe_environment', lambda **k: pytest.fail('busy engine must not be probed'))
     observed = auth.observe((proto.QWEN3_CUSTOMVOICE,), locked=False, cancelled=lambda: False)
     assert observed.engine == proto.BUSY
+
+
+@pytest.mark.parametrize('field', ['dir', 'voices', 'revision', 'size', 'sha256'])
+def test_changed_actual_model_manifest_cannot_redirect_or_expand_authority(authority_world, field):
+    from tts import optional_setup_authority as auth
+    root, planner, _, calls, _, _ = authority_world
+    confirmation = confirmed(planner, [proto.QWEN3_CUSTOMVOICE])
+    assert all(a['version'] == auth.MODEL_IDENTITIES_SHA256 for a in confirmation.plan.terms['artifacts'])
+    model = rt.load_manifest()['models']['customvoice']
+    if field == 'dir':
+        model['dir'] += '-changed'
+    elif field == 'voices':
+        model['voices'] = []
+    elif field == 'revision':
+        model['revision'] = 'c' * 40
+    elif field == 'size':
+        model['files']['model.safetensors']['size'] += 1
+    else:
+        model['files']['model.safetensors']['sha256'] = '0' * 64
+    result = execute(authority_world, confirmation)
+    assert result.state == proto.REFUSED and not result.consent_spent and calls == []
+    assert not (root / store.STORE).exists()

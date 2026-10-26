@@ -25,12 +25,13 @@ from tts import qwen3_package_manifest as packages
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as setup
 
-MODEL_IDENTITIES_SHA256 = '09af244eaf13528a942bf7702c31ea38c28482cf91df3fc7f67bf748e996a522'
+MODEL_IDENTITIES_SHA256 = 'acc0179f2ac424d7501bdf3112d362cb90899d3967cf9efbca226cb47c4ca810'
 
 
 def model_identities_sha256():
-    return hashlib.sha256(storage.canonical({k: {'repo': s.repo, 'revision': s.revision, 'files': s.files}
-        for k in rt.MODEL_KEYS for s in (rt.model_spec(k),)})).hexdigest()
+    # Include destination directory/voice metadata too: content-only identity
+    # must not permit a mutable manifest to redirect an approved operation.
+    return hashlib.sha256(storage.canonical(rt.load_manifest()['models'])).hexdigest()
 
 
 def reviewed_packages():
@@ -160,7 +161,8 @@ class Planner:
             # Content-shared Qwen files get one immutable source and one transfer.
             artifact_id = group + ':' + digest
             row = {'id': artifact_id, 'kind': 'model', 'components': [component], 'name': group,
-                   'version': 'reviewed', 'filename': Path(name).name, 'size': size, 'sha256': digest,
+                   'version': MODEL_IDENTITIES_SHA256 if group == 'qwen3-file' else 'reviewed',
+                   'filename': Path(name).name, 'size': size, 'sha256': digest,
                    'source': {'kind': 'pinned-https', 'url': url, 'revision': revision}, 'derivative': None}
             item = items.setdefault(artifact_id, {'row': row, 'targets': [], 'candidates': []})
             storage.require(item['row']['size'] == size, 'conflicting shared identity')
