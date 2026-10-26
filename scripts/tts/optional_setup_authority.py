@@ -1,7 +1,8 @@
-"""Authoritative v3 planning and disposable locked model acquisition (P05B 4B-3A).
+"""Authoritative v3 planning and disposable locked acquisition (P05B 4B-3).
 
 No production worker uses this interface. Observers/openers/simulators are trusted
-injected adapters, never request JSON. Package/spaCy installation remains disabled.
+injected adapters, never request JSON. Scoped offline Qwen package execution requires
+an explicit trusted engine runner; spaCy installation remains disabled.
 Legacy manual Qwen install/repair retains its separate contract.
 """
 from __future__ import annotations
@@ -307,9 +308,10 @@ class Planner:
                     reasons.append('BLOCKED: approved local sox supply missing; no build or portable supply')
                 new_disk += (0 if stored else row['size']) + sum(
                     row['size'] for _, _, state in item['targets'] if state != proto.READY)
-            # Preserve full-operation disk disclosure even though wheel consumption
-            # is deferred. These measured installed bounds never authorize payload.
-            new_disk += engine_disk + spacy_disk
+            # Measured installed bounds remain approximate and never authorize payload.
+            # The final sealed package view is an independent copy, simultaneously
+            # retained with the store and the newly installed environment.
+            new_disk += engine_disk + spacy_disk + sum(a['size'] for a in rows if a['kind'] == 'package')
             disk = {'new_bytes': new_disk, 'temporary_headroom_bytes': max(
                 (a['size'] for a in rows), default=0) + spacy_disk + old_plan.QWEN3_DISK_MARGIN_BYTES}
             terms = v3.validate_terms(terms_for(rows, disk))
@@ -322,9 +324,13 @@ class Planner:
                     'installed_disk_bounds': {'engine': {'bytes': engine_disk, 'basis': 'approximate'},
                                               'spacy': {'bytes': spacy_disk, 'basis': 'approximate'}},
                     'operations': {c['id']: c['scope'] or 'none' for c in components}}
+        if engine_action != 'none' and terms is not None:
+            from tts import qwen3_engine_authority
+            document['engine_identity'] = qwen3_engine_authority.snapshot(cancelled=cancelled)
         return Plan(selected, engine_action, storage.canonical(document)), items, reviewed
 
-    def acquire_disposable(self, confirmation, *, opener, cancelled=lambda: False, simulate_engine=None):
+    def acquire_disposable(self, confirmation, *, opener, cancelled=lambda: False, simulate_engine=None,
+                           engine_runner=None):
         """Explicit test seam. No default network or environment executor; no production caller.
 
         All selected groups and original history are checked under ONE existing lock.
@@ -347,7 +353,11 @@ class Planner:
                 storage.require(self.disk_free(rt.repo_root()) >= sum(fresh.terms['disk'].values()),
                                 'insufficient disk/temp headroom')
                 if fresh.engine_action != 'none':
-                    storage.require(simulate_engine is not None, 'engine execution deferred to Stage 4B-3B')
+                    storage.require((simulate_engine is not None) != (engine_runner is not None),
+                                    'exactly one explicit disposable engine adapter required')
+                    if engine_runner is not None:
+                        from tts import qwen3_engine_authority
+                        qwen3_engine_authority.preflight(fresh, cancelled=cancelled)
                 setup._check_cancel(cancelled)
                 object_store = storage.ArtifactStore(rt.repo_root(), storage.Catalog(
                     fresh.terms, package_manifest=reviewed, purpose=self.purpose))
@@ -371,12 +381,20 @@ class Planner:
                     request_id=confirmation.request_id, disclosed_prior_state=confirmation.plan.to_json()['prior_state'])
                 setup._check_cancel(cancelled)
                 with setup.scoped_model_acquisition(native):
-                    if fresh.engine_action != 'none':
+                    if fresh.engine_action != 'none' and simulate_engine is not None:
                         simulate_engine(fresh.terms)  # synthetic inspection only; native env boundary still refuses
                     else:
                         for row in object_store.catalog.artifacts:
                             if not row['verified_reuse_bytes']:
                                 transfer.acquire(object_store, operation, row['id'], opener=opener, cancelled=cancelled)
+                        if fresh.engine_action != 'none':
+                            from tts import qwen3_packages, qwen3_engine_authority
+                            with qwen3_packages.sealed_packages(object_store, operation, reviewed,
+                                                               cancelled=cancelled) as package_set:
+                                with qwen3_engine_authority.execution(self, fresh, operation, package_set):
+                                    setup.install_environment(runner=engine_runner, cancel_check=cancelled,
+                                        rebuild=fresh.engine_action == 'rebuild-canonical')
+                            native.engine_installed = True
                         # All transfers complete before publishing any model changes.
                         for component in fresh.selected:
                             if not next(c['scope'] for c in fresh.terms['components'] if c['id'] == component):
@@ -384,6 +402,10 @@ class Planner:
                             setup._check_cancel(cancelled)
                             if component in proto.QWEN3_MODEL_KEYS:
                                 setup.install_model(proto.QWEN3_MODEL_KEYS[component], cancel_check=cancelled)
+                                if engine_runner is not None:
+                                    setup.probe_environment(model_dir=rt.model_spec(
+                                        proto.QWEN3_MODEL_KEYS[component]).directory,
+                                        runner=engine_runner, cancel_check=cancelled)
                             else:
                                 for row in object_store.catalog.artifacts:
                                     for owner, path, state in items[row['id']]['targets']:
@@ -391,7 +413,8 @@ class Planner:
                                             _publish_model(object_store, row, path, state, cancelled)
                 setup._check_cancel(cancelled)
                 operation.finish()
-                return Result(proto.SUCCEEDED, 'Synthetic engine authority validated' if fresh.engine_action != 'none'
+                return Result(proto.SUCCEEDED, 'Synthetic engine authority validated' if simulate_engine is not None
+                              else 'Offline Qwen engine and model artifacts verified' if fresh.engine_action != 'none'
                               else 'Verified model artifacts acquired; package/spaCy installation remains deferred',
                               True, operation.state)
         except (storage.ArtifactError, packages.ManifestError, proto.ProtocolError, setup.SetupError, rt.Qwen3Unavailable,
@@ -460,6 +483,7 @@ class _NativeAuthority:
     def __init__(self, planner, plan, object_store, items, cancelled):
         self.planner, self.plan, self.store, self.items, self.cancelled = planner, plan, object_store, items, cancelled
         self.engine_action = plan.engine_action
+        self.engine_installed = False
 
     def before_model(self, key):
         storage.require(setup.InstallLock.held_by_this_thread(), 'native mutation requires InstallLock')
@@ -467,7 +491,7 @@ class _NativeAuthority:
         storage.require(any(c['id'] == component and c['scope'] is not None
                             for c in self.plan.terms['components']), 'unconsented native model operation')
         observed = self.planner.observer(self.plan.selected, locked=True, cancelled=self.cancelled)
-        storage.require(self.engine_action == 'none' and observed.engine == proto.READY
+        storage.require((self.engine_action == 'none' or self.engine_installed) and observed.engine == proto.READY
                         and component not in observed.busy,
                         'model-only operation cannot repair an unhealthy or unproved engine')
 

@@ -27,7 +27,10 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 
 Optional-setup v3 planning and the disposable locked model-acquisition seam live in `optional_setup_authority.py`.
 See the [Stage 4B-3A contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3A-Authority.md).
-Production acquisition remains disabled; package/spaCy installation, offline pip and engine mutation are deferred.
+Production acquisition remains disabled. The explicitly injected disposable engine runner uses
+`qwen3_packages.py` (live protected wheel sets) and `qwen3_engine_authority.py` (spent engine mutation authority)
+through the existing installer; see the [Stage 4B-3B contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3B-Offline-Execution.md).
+Manual Qwen install/repair keeps its separate index/cache contract outside v3; spaCy installation remains deferred.
 
 | Engine | Modules | Notes |
 |---|---|---|

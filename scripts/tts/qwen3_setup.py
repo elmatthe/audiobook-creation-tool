@@ -604,7 +604,12 @@ def run_command(cmd: list[str], *, env: dict, cwd: Path, on_line: Callable[[str]
         reader.join(timeout=5)
         if not reader.is_alive() and proc.stdout is not None:
             proc.stdout.close()
-        qwen3_process.release(proc)
+        try:
+            from tts import qwen3_packages
+            if len(cmd) > 4 and cmd[1:5] == ['-I', '-B', '-c', qwen3_packages.OFFLINE_BOOTSTRAP]:
+                qwen3_packages.consumer_finished(proc)
+        finally:
+            qwen3_process.release(proc)
 
 
 def installer_environment() -> dict:
@@ -804,10 +809,10 @@ _MODEL_ACQUISITION = contextvars.ContextVar('qwen3_model_acquisition', default=N
 
 @contextlib.contextmanager
 def scoped_model_acquisition(authority):
-    """Internal 4B-3A contract: caller holds InstallLock, native model files use its authority.
+    """Internal v3 contract: caller holds InstallLock, native model files use its authority.
 
     CLI/manual callers retain their existing contract outside this scope. Environment
-    execution is deliberately forbidden here until 4B-3B, including explicit rebuild terms.
+    mutation also requires the separate live, spent engine/package capability.
     """
     if not InstallLock.held_by_this_thread() or _MODEL_ACQUISITION.get() is not None:
         raise SetupError('Scoped model acquisition requires one already-held InstallLock.')
@@ -827,6 +832,9 @@ def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_c
     :func:`safe_to_remove_environment`; the legacy ``.venv-qwen3`` is never touched). pip's download cache is kept
     after a failure or cancel (so a retry does not start over) and removed after a full success.
 
+    The network/cache behavior above describes manual operation. Inside v3, a separate live
+    engine/package capability supplies only protected local wheels and the effective hash lock.
+
     :class:`InstallLock` is held from the first check to the last record (taken here if the caller does not hold it),
     so a repair of the app's environment -- which needs ``setup.lock`` first -- can never set the parent aside between
     the checks and the creation of the folder inside it. The environment is created at its final path, directly from
@@ -838,8 +846,12 @@ def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_c
 
 def _install_environment(progress: ProgressCallback, cancel_check: Optional[CancelCheck], runner: CommandRunner,
                          rebuild: bool) -> dict:
-    if _MODEL_ACQUISITION.get() is not None:
-        raise SetupError('Environment mutation is not authorized in Stage 4B-3A model acquisition.')
+    from tts import qwen3_engine_authority, qwen3_packages
+    execution = qwen3_engine_authority.current()
+    if _MODEL_ACQUISITION.get() is not None and execution is None:
+        raise SetupError('Environment mutation is not authorized by this model acquisition scope.')
+    if execution is not None:
+        execution.before('entry', rebuild=rebuild)
     check_python()
     requirements = rt.requirements_path()
     if not requirements.is_file():
@@ -863,14 +875,24 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
             progress(Progress(step, shown[:140]))
 
     unfinished = rt.environment_record(venv).get("stage") in (rt.STAGE_CREATING, rt.STAGE_REMOVING)
+    # Scoped operations verify the base BEFORE an approved old engine is removed.
+    # A failed base proof must leave that engine and its recovery record intact.
+    approved_base = verified_base_python(runner=runner, cancel_check=cancel_check) if execution else None
     if os.path.lexists(venv) and (rebuild or unfinished):
         if not safe_to_remove_environment(venv):
             raise SetupError(f"Refusing to delete {venv}: it is not the Qwen3 environment this app created. Move it out "
                              "of the app's folder yourself, then run Install / repair again.")
         progress(Progress(step, "Clearing an install that did not finish..." if unfinished and not rebuild
                           else "Removing the old Qwen3 environment..."))
-        rt.record_environment_stage(venv, rt.STAGE_REMOVING)
-        shutil.rmtree(venv)
+        if execution:
+            with execution.removal() as remove:
+                rt.record_environment_stage(venv, rt.STAGE_REMOVING)
+                remove()
+        else:
+            rt.record_environment_stage(venv, rt.STAGE_REMOVING)
+            shutil.rmtree(venv)
+        if execution:
+            execution.before('removed')
         rt.clear_environment_state(venv)
     elif os.path.lexists(venv):
         assessment = rt.nested_assessment(venv)
@@ -881,8 +903,10 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
     cwd = rt.repo_root()
     python = venv_layout.interpreter(venv)
     if not os.path.lexists(venv):
-        base = verified_base_python(runner=runner, cancel_check=cancel_check)
+        base = approved_base or verified_base_python(runner=runner, cancel_check=cancel_check)
         progress(Progress(step, "Creating the isolated Python environment..."))
+        if execution:
+            execution.claim_creation()
         rt.record_environment_stage(venv, rt.STAGE_CREATING)
         code = runner([str(base), "-I", "-m", "venv", str(venv)], env=env, cwd=cwd, on_line=on_line,
                       cancel_check=cancel_check)
@@ -898,19 +922,33 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
         if not assessment.identity_ok:
             raise SetupError(f"The isolated Python environment could not be verified ({assessment.reason}). Choose "
                              "\"Check and repair\" to rebuild it.")
+        if execution:
+            execution.before('created')
     _check_cancel(cancel_check)
     progress(Progress(step, f"Installing the Qwen3 packages (about {rt.format_bytes(rt.environment_download_bytes())})..."))
-    # --isolated ignores pip configuration files and PIP_* variables; --require-virtualenv refuses to touch anything but a
+    # --isolated ignores user configuration and PIP_* steering; PIP_CONFIG_FILE=NUL disables other config files.
+    # --require-virtualenv refuses to touch anything but a
     # virtual environment; --require-hashes installs only the exact artifacts whose SHA-256 the requirements file lists.
-    code = runner([str(python), "-m", "pip", "install", "--isolated", "--require-virtualenv",
+    if execution:
+        execution.before('pip')
+        command = qwen3_packages.pip_command(python, execution.packages, execution.operation,
+                                           cancelled=cancel_check or (lambda: False))
+    else:
+        command = [str(python), "-m", "pip", "install", "--isolated", "--require-virtualenv",
                    "--require-hashes", "--no-input", "--disable-pip-version-check", "--cache-dir",
                    str(pip_cache_dir()), "--progress-bar", "raw", "--no-deps", "--index-url", PYTORCH_INDEX,
-                   "--extra-index-url", PYPI_INDEX, "-r", str(requirements)],
-                  env=env, cwd=cwd, on_line=on_line, cancel_check=cancel_check)
+                   "--extra-index-url", PYPI_INDEX, "-r", str(requirements)]
+    pip_cwd = qwen3_packages.checked(execution.packages, execution.operation)['wheels'] if execution else cwd
+    code = runner(command, env=env, cwd=pip_cwd, on_line=on_line, cancel_check=cancel_check)
     if code != 0:
+        if execution:
+            raise SetupError('Offline package installation failed; the canonical engine remains incomplete. ' +
+                             _tail_text(tail))
         raise SetupError("Installing the Qwen3 packages failed (check your internet connection, then run "
                          "Install / repair again; your progress is kept). " + _tail_text(tail))
     probe = probe_environment(runner=runner, progress=progress, cancel_check=cancel_check)
+    if execution:
+        execution.before('record')
     rt.write_environment_state(probe, venv)
     shutil.rmtree(pip_cache_dir(), ignore_errors=True)  # a full success gives the download cache's disk space back
     clear_scratch()

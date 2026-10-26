@@ -242,10 +242,11 @@ def read_small(repo, path):
         return handle.read(v3.MAX_MESSAGE_BYTES + 1)
 
 
-def verify_stream(stream, artifact):
+def verify_stream(stream, artifact, *, check_cancel=lambda: None):
     require(os.fstat(stream.fileno()).st_size == artifact['size'], 'wrong artifact size')
     digest, total = hashlib.sha256(), 0
     while block := stream.read(min(BLOCK, artifact['size'] - total + 1)):
+        check_cancel()
         total += len(block)
         require(total <= artifact['size'], 'artifact grew during verification')
         digest.update(block)
@@ -273,14 +274,14 @@ class ArtifactStore:
         key = hashlib.sha256(canonical(identity)).hexdigest()
         return self.root / 'objects' / (key + '.blob'), self.root / 'objects' / (key + '.json')
 
-    def verify(self, artifact_id):
+    def verify(self, artifact_id, *, check_cancel=lambda: None):
         artifact = self.catalog.artifact(artifact_id)
         blob, metadata = self._paths(artifact_id)
         try:
             require(read_small(self.repo, metadata) == canonical(self.catalog.identity(artifact_id)),
                     'metadata identity mismatch')
             with checked_open(self.repo, blob, 'rb') as stream:
-                verify_stream(stream, artifact)
+                verify_stream(stream, artifact, check_cancel=check_cancel)
         except OSError as exc:
             raise ArtifactError(f'artifact unavailable: {exc}') from None
         return Verification(blob.stem, artifact['sha256'], artifact['size'])
