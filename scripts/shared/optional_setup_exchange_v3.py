@@ -265,6 +265,47 @@ class PlanningExchange:
     raw_result: bytes
 
 
+@dataclass(frozen=True)
+class UntrustedPlanningCandidate:
+    """Validated read-only worker bytes, NOT a retained/displayed original.
+
+    Admission proves request/schema/result binding only. It issues no consent,
+    installation instruction or readiness proof. A controller must separately
+    accept, display and retain exact bytes before strict original readback.
+    """
+    raw_disclosure: bytes
+    raw_result: bytes
+
+
+def _read_published_planning_request(repo, *, session, request_id, now=time.time):
+    """Read a request-only exchange through bounded, pinned opened handles."""
+    with _folder(repo, request_id) as folder, contextlib.ExitStack() as stack:
+        control, record = _read(folder, 'request.json', stack)
+        checked = wire.decode_planning_request(control, session=session, request_id=request_id, now=now)
+        _stable(folder, [record], {'request.json'})
+    return checked
+
+
+def _read_untrusted_planning_candidate(repo, *, planning, session, now=time.time):
+    """Non-authorizing candidate admission against an INDEPENDENT trusted request.
+
+    This deliberately cannot substitute for read_planning_exchange's retained
+    original. All three documents must exist, bind completely and remain stable.
+    """
+    _require(type(planning) is wire.PlanningRequest, 'independently retained planning request required')
+    p = planning.to_json()
+    wire.decode_planning_request(planning.raw, session=session, request_id=p.get('request_id'), now=now)
+    with _folder(repo, p['request_id']) as folder, contextlib.ExitStack() as stack:
+        result, a = _read(folder, 'result.json', stack)  # completion required first
+        control, b = _read(folder, 'request.json', stack)
+        plan, c = _read(folder, 'plan.json', stack)
+        _require(control == planning.raw, 'candidate differs from independently retained request')
+        candidate = wire.decode_disclosure(plan, planning=planning, session=session, now=now)
+        _planning_binding(planning, candidate, result, session=session, now=now)
+        _stable(folder, [a, b, c], _PLANNING_FILES)
+    return UntrustedPlanningCandidate(plan, result)
+
+
 def publish_planning_request(repo, raw_request, *, session, request_id, now=time.time):
     request = wire.decode_planning_request(raw_request, session=session, request_id=request_id, now=now)
     with _folder(repo, request_id, create=True) as folder:

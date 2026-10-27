@@ -122,9 +122,20 @@ class FakePlanningRun:
         self.root, self.repo = root, root / 'fake-app'
         self.repo.mkdir()
         self.planning, self.disclosure, self.session = planning, disclosure, session
+        self._configure(now=now, on_event=on_event, timeout_s=timeout_s, cleanup_s=cleanup_s, join_s=join_s)
+        self._scenario = scenario
+        exchange.publish_planning_request(self.repo, planning.raw, session=session,
+            request_id=planning.to_json()['request_id'], now=now)
+        self.result_path = self.repo / exchange.EXCHANGE_ROOT / planning.to_json()['request_id'] / 'result.json'
+        (root / 'shown.bin').write_bytes(disclosure.raw)
+        (root / 'answer.bin').write_bytes(raw_result)
+        (root / 'fake_worker.py').write_text(_FAKE_PROGRAM, encoding='utf-8')
+        return self
+
+    def _configure(self, *, now, on_event, timeout_s, cleanup_s, join_s):
+        """Shared bounded coordination state; no launch authority is added."""
         self._now, self._callback = now, on_event
         self._timeout, self._cleanup, self._join = timeout_s, cleanup_s, join_s
-        self._scenario = scenario
         self._lock = threading.RLock()
         self._done = threading.Event()
         self._wake = threading.Event()
@@ -139,13 +150,11 @@ class FakePlanningRun:
         self._termination_failed = False
         self._joined = False
         self._raw_result = None
-        exchange.publish_planning_request(self.repo, planning.raw, session=session,
-            request_id=planning.to_json()['request_id'], now=now)
-        self.result_path = self.repo / exchange.EXCHANGE_ROOT / planning.to_json()['request_id'] / 'result.json'
-        (root / 'shown.bin').write_bytes(disclosure.raw)
-        (root / 'answer.bin').write_bytes(raw_result)
-        (root / 'fake_worker.py').write_text(_FAKE_PROGRAM, encoding='utf-8')
-        return self
+
+    def _read_exchange(self):
+        # FakePlanningRun keeps its independently retained original contract.
+        return exchange.read_planning_exchange(self.repo, planning=self.planning,
+            expected_disclosure=self.disclosure, session=self.session, now=self._now).raw_result
 
     def _error(self, code):
         # Only fixed local codes: no worker strings, paths or unbounded log.
@@ -361,9 +370,7 @@ class FakePlanningRun:
             if self.process.returncode != 0:
                 self._error('exit-result-disagreement')
             try:
-                checked = exchange.read_planning_exchange(self.repo, planning=self.planning,
-                    expected_disclosure=self.disclosure, session=self.session, now=self._now)
-                self._raw_result = checked.raw_result
+                self._raw_result = self._read_exchange()
             except Exception:
                 self._error('planning-exchange-refused')
         except BaseException:
