@@ -10,9 +10,11 @@ import contextvars
 import ctypes
 import hashlib
 import os
+import stat
 from pathlib import Path
 
 from shared import artifact_store as store
+from shared import artifact_transfer as transfer
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from tts import qwen3_packages as packages
@@ -40,21 +42,58 @@ def preflight(plan, *, cancelled=lambda: False):
         raise store.ArtifactError('model-only engine mutation is not authorized')
 
 
-def snapshot(*, cancelled=lambda: False):
+def snapshot(*, cancelled=lambda: False, budget=None):
     """Read-only canonical/parent identity, including interrupted-install recovery state.
 
     Stat inventory detects changes while packages are staged; no full environment
     package hash/receipt is demanded of an already healthy manual installation.
     """
-    root, canonical = rt.repo_root(), rt.nested_venv_dir()
-    store.require(not rt.environment_location_problem(canonical) and not setup.parent_problem(),
+    with transfer.metadata_budget(budget, cancelled=cancelled) as budget:
+        return _snapshot(budget)
+
+
+def _snapshot(budget):
+    root, canonical, parent = rt.repo_root(), rt.nested_venv_dir(), rt.parent_venv_dir()
+    store.require(not rt.environment_location_problem(canonical)
+                  and venv_layout.unsafe_component(root, parent) is None,
                   'unverified canonical/parent environment')
+    with contextlib.ExitStack() as held:
+        # Pin existing ancestors even for absent state/canonical leaves. No mkdir.
+        for target in (canonical, rt.state_path()):
+            walked = root
+            for part in target.parent.relative_to(root).parts:
+                budget.check()
+                walked /= part
+                held.enter_context(store.boundary(root, walked))
+                if not transfer.metadata_exists(walked):
+                    break
+                store.require(walked.is_dir(), 'unverified metadata ancestor')
+            else:
+                held.enter_context(store.boundary(root, target))
+        held.enter_context(store.boundary(root, parent / 'pyvenv.cfg'))
+        # Same parent-repair exclusion as parent_problem, without its unbounded sorted list.
+        held.enter_context(store.boundary(root, root / 'probe'))
+        root_before = transfer.metadata_identity(root)
+        with os.scandir(parent.parent) as scan:
+            for entry in scan:
+                budget.check()
+                budget.account(entry.name)
+                store.require(not entry.name.startswith(parent.name + '.replaced'),
+                              'unverified pending parent repair')
+        result = _snapshot_pinned(root, canonical, parent, budget, held)
+        store.require(transfer.metadata_identity(root) == root_before, 'repository changed during inventory')
+        return result
+
+
+def _snapshot_pinned(root, canonical, parent, budget, held):
     # The legacy reader intentionally tolerates invalid records. That fallback is
     # not proof of absence for a destructive/exclusive v3 engine operation.
     state = {}
-    if os.path.lexists(rt.state_path()):
+    state_exists = transfer.metadata_exists(rt.state_path())
+    state_identity = transfer.metadata_identity(rt.state_path()) if state_exists else None
+    if state_exists:
         try:
-            state = proto.strict_json(store.read_small(root, rt.state_path()))
+            state = proto.strict_json(transfer.read_metadata(root, rt.state_path(), budget))
         except proto.ProtocolError as exc:
             raise store.ArtifactError('unverified engine state file: ' + str(exc)) from exc
         store.require('schema' not in state or state['schema'] == 1, 'unverified engine state schema')
@@ -63,28 +102,93 @@ def snapshot(*, cancelled=lambda: False):
         type(record.get('path')) is str and venv_layout.same_path(record['path'], canonical)
         and record.get('stage') in (rt.STAGE_CREATING, rt.STAGE_CREATED, rt.STAGE_INSTALLED, rt.STAGE_REMOVING))),
         'unverified canonical environment record')
-    def identity(path):
-        info = path.stat(follow_symlinks=False)
-        return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
-    parent = rt.parent_venv_dir()
+    identity = transfer.metadata_identity
     parent_info = parent.stat(follow_symlinks=False)
+    cfg = parent / 'pyvenv.cfg'
+    cfg_identity = identity(cfg)
+    parent_cfg = hashlib.sha256(transfer.read_metadata(root, cfg, budget)).hexdigest()
     entries = []
-    def traversal_error(exc):
-        raise exc  # unreadable/uncertain tree is never a complete identity
-    if os.path.lexists(canonical):
+    exists = transfer.metadata_exists(canonical)
+    if exists:
         store.require(canonical.is_dir(), 'canonical environment is not a directory')
-        for folder, dirs, files in os.walk(canonical, followlinks=False, onerror=traversal_error):
-            for name in sorted([*dirs, *files]):
-                setup._check_cancel(cancelled)
-                path = Path(folder) / name
-                store.require(not venv_layout.is_link(path), 'unverified linked environment entry')
-                entries.append([str(path.relative_to(canonical)), identity(path)])
-        entries.append(['.', identity(canonical)])
-    return {'parent': [parent_info.st_dev, parent_info.st_ino],
-            'parent_cfg': hashlib.sha256((parent / 'pyvenv.cfg').read_bytes()).hexdigest(),
-            'canonical_exists': os.path.lexists(canonical), 'entries': sorted(entries),
+        pending = [canonical]
+        budget.take('entries')  # The canonical '.' identity is an inventory entry too.
+        root_row = ['.', identity(canonical)]
+        budget.account(root_row)
+        entries.append(root_row)
+        while pending:
+            budget.check()
+            folder = pending.pop()
+            held.enter_context(_inventory_directory(root, folder))
+            with os.scandir(folder) as scan:
+                for entry in scan:
+                    budget.take('entries')
+                    budget.account(entry.name)
+                    path = folder / entry.name
+                    store.require(not venv_layout.is_link(path), 'unverified linked environment entry')
+                    info = path.stat(follow_symlinks=False)
+                    store.require(stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode),
+                                  'unverified environment entry type')
+                    row = [str(path.relative_to(canonical)), identity(path)]
+                    budget.account(row)
+                    entries.append(row)
+                    if stat.S_ISDIR(info.st_mode):
+                        pending.append(path)
+        for name, expected in entries:
+            budget.check()
+            store.require(identity(canonical / name) == expected, 'environment changed during inventory')
+    parent_after = parent.stat(follow_symlinks=False)
+    store.require(identity(cfg) == cfg_identity and transfer.metadata_exists(canonical) == exists
+                  and (parent_after.st_dev, parent_after.st_ino) == (parent_info.st_dev, parent_info.st_ino)
+                  and transfer.metadata_exists(rt.state_path()) == state_exists
+                  and (not state_exists or identity(rt.state_path()) == state_identity),
+                  'environment metadata changed during inventory')
+    result = {'parent': [parent_info.st_dev, parent_info.st_ino],
+            'parent_cfg': parent_cfg,
+            'canonical_exists': exists, 'entries': sorted(entries),
             'record': record, 'selected_canonical': rt.is_nested(),
             'path': str(canonical)}
+    budget.account({key: value for key, value in result.items() if key != 'entries'})
+    return result
+
+
+@contextlib.contextmanager
+def _inventory_directory(root, folder):
+    """Reuse removal's stronger pins; do not reopen an ancestor denying DELETE sharing.
+
+    removal() already holds the root ancestry and canonical DELETE|LIST handle
+    throughout these synchronous snapshots. The traversal retains each newly
+    opened parent before visiting children. No destructive pin is released or
+    relaxed to make inventory possible, and ordinary callers use store.boundary.
+    """
+    authority = current()
+    captured = getattr(authority, '_removal_handles', None)
+    canonical = rt.nested_venv_dir()
+    if not captured or canonical not in captured:
+        with store.boundary(root, folder / 'probe'):
+            yield
+        return
+    store.require(folder.is_relative_to(canonical) and not venv_layout.is_link(folder),
+                  'unsafe pinned inventory directory')
+    if folder in captured:
+        yield  # Existing DELETE|LIST handle denies write/delete sharing.
+        return
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    handle = create(str(folder), 1, 1, None, 3, 0x02200000, None)
+    store.require(handle != ctypes.c_void_p(-1).value, 'cannot pin inventory directory')
+    try:
+        store.require(not venv_layout.is_link(folder) and folder.resolve() == folder,
+                      'inventory directory changed')
+        yield
+    finally:
+        close(handle)
 
 
 @contextlib.contextmanager
@@ -120,6 +224,7 @@ class _Execution:
         self.planner, self.plan, self.operation, self.packages = planner, plan, operation, package_set
         self.phase, self.active, self.created = 'approved', True, None
         self.held = contextlib.ExitStack()
+        self._removal_handles = None
 
     def before(self, action, *, rebuild=None):
         store.require(current() is self, 'unspent/forged engine authority')
@@ -224,6 +329,7 @@ class _Execution:
                 handle = create(str(folder), 0x00010001, 1, None, 3, 0x02200000, None)
                 store.require(handle != ctypes.c_void_p(-1).value, 'cannot protect canonical removal')
                 handles[folder] = handle
+                self._removal_handles = handles
                 self.before('remove')  # snapshot + fresh state AFTER handle capture
                 expected = self.plan.to_json()['engine_identity']
                 for relative, _ in sorted(expected['entries'], key=lambda e: len(Path(e[0]).parts)):
@@ -261,6 +367,7 @@ class _Execution:
             finally:
                 for handle in reversed(list(handles.values())):
                     close(handle)
+                self._removal_handles = None
 
 
 @contextlib.contextmanager

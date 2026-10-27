@@ -18,6 +18,7 @@ from shared import artifact_store as storage
 from shared import artifact_transfer as transfer
 from shared import optional_setup_protocol as proto
 from shared import optional_setup_v3 as v3
+from shared import optional_setup_resource_budget as resources
 from shared import venv_layout
 from tts import model_assets as assets
 from tts import optional_setup as old_plan
@@ -136,6 +137,8 @@ class Planner:
     def plan(self, selected, *, engine_action='none', cancelled=lambda: False):
         try:
             return self._evaluate(selected, engine_action, locked=False, cancelled=cancelled)[0]
+        except transfer.TransferCancelled as exc:
+            raise setup.SetupCancelled(str(exc)) from None
         except (storage.ArtifactError, packages.ManifestError, OSError, rt.Qwen3Unavailable) as exc:
             selected = proto._wire_selection(list(selected), allow_empty=False)
             return Plan(selected, engine_action, storage.canonical({
@@ -284,6 +287,8 @@ class Planner:
 
         prior = None
         terms = None
+        # Lazy clock: model/store content verification below is outside metadata time.
+        budget = resources.Budget(cancelled=cancelled)
         engine_disk = rt.environment_installed_bytes() if engine_action != 'none' else 0
         spacy_disk = old_plan.SPACY_ENGLISH_INSTALLED_BYTES if any(
             row['name'] == 'spacy-english' for row in rows) else 0
@@ -316,7 +321,8 @@ class Planner:
                 (a['size'] for a in rows), default=0) + spacy_disk + old_plan.QWEN3_DISK_MARGIN_BYTES}
             terms = v3.validate_terms(terms_for(rows, disk))
             prior = transfer.TransferLedger(storage.ArtifactStore(root, storage.Catalog(
-                terms, package_manifest=reviewed, purpose=self.purpose))).prior_state()
+                terms, package_manifest=reviewed, purpose=self.purpose))).prior_state(
+                    budget=budget, cancelled=cancelled)
             if reasons:
                 terms = None
         document = {'components': components, 'engine_readiness': observation.engine, 'terms': terms,
@@ -326,8 +332,10 @@ class Planner:
                     'operations': {c['id']: c['scope'] or 'none' for c in components}}
         if engine_action != 'none' and terms is not None:
             from tts import qwen3_engine_authority
-            document['engine_identity'] = qwen3_engine_authority.snapshot(cancelled=cancelled)
-        return Plan(selected, engine_action, storage.canonical(document)), items, reviewed
+            document['engine_identity'] = qwen3_engine_authority.snapshot(budget=budget, cancelled=cancelled)
+        with transfer.metadata_budget(budget, cancelled=cancelled):
+            encoded = budget.encode(document)
+        return Plan(selected, engine_action, encoded), items, reviewed
 
     def acquire_disposable(self, confirmation, *, opener, cancelled=lambda: False, simulate_engine=None,
                            engine_runner=None):
@@ -378,7 +386,8 @@ class Planner:
                         _import_candidate(object_store, row, item['candidate'], cancelled)
                 claim_path = candidate_claim
                 operation = ledger.begin(confirmation.raw_consent, session=confirmation.session,
-                    request_id=confirmation.request_id, disclosed_prior_state=confirmation.plan.to_json()['prior_state'])
+                    request_id=confirmation.request_id, disclosed_prior_state=confirmation.plan.to_json()['prior_state'],
+                    cancelled=cancelled)
                 setup._check_cancel(cancelled)
                 with setup.scoped_model_acquisition(native):
                     if fresh.engine_action != 'none' and simulate_engine is not None:
