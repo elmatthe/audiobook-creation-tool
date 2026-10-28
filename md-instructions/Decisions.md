@@ -6907,3 +6907,41 @@ milestone).
 Consequence: every phase/drop now ends with the same objective check.
 
 — Decided by maintainer via drop 0.5.0-drop1, implemented by Claude Code
+
+---
+
+## 2026-10-27 — Owner-approved Option B: base preparation is separate from optional acquisition
+
+**Decision:** Early **Continue** prepares the base ACT application only. It does
+not authorize any optional model acquisition. Python stage-0 installation retains
+its own separate explicit consent.
+
+After verified main CPython 3.12 is available, show the complete exact v3 Plan,
+including full history, identities, acquisition terms, reuse, disk/headroom and
+explicit repair/rebuild effects. Require genuine trusted GUI presentation
+acknowledgment, independently retain the immutable original bytes, then perform
+strict original-bound exchange readback. None of selection, early Continue,
+worker success, presentation acknowledgment or original retention is consent.
+Only a later live **Install Selected Components** (repair-aware when needed)
+affirmative action may authorize exact v3 issuance, subject to fresh validation.
+
+Keep Kokoro checked and Chatterbox, Qwen3 CustomVoice and Qwen3 Cloned Voices/Base
+unchecked. Estimates remain estimates; unknown base network costs remain unknown.
+Count shared Qwen bytes once and distinguish network, reuse, disk and headroom.
+All skipped/no eligible mutation means no optional consent or acquisition; a
+zero-network repair/local copy is still a mutation requiring disclosure.
+Skip/Cancel/close/failure is safe, with no automatic retry, deferred install or
+surprise download. A future in-app Skip/Cancel abandons the frozen narration
+intent and requires another Create. Fixed resource limits refuse losslessly;
+never omit history, relax caps or imply qualified availability.
+
+**Supersession:** This append-only decision changes only Revision 2 section 5.4's
+early checkbox/setup-action acquisition-consent interpretation and older P05
+commentary treating pre-main estimates as optional acquisition consent. Historical
+entries and all other approved choices and security/release gates remain intact.
+The Stage 4D-2F presentation-adapter ordering is approved. M1 authorizes only
+controlled read-only qualification; consent issuance, production acquisition,
+actual first-run/run_job integration, P06 and release activation remain blocked.
+Application identity remains 0.6.6.
+
+— Approved by the owner on 2026-10-27; recorded during consolidated M1 qualification.

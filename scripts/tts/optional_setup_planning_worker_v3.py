@@ -46,6 +46,15 @@ def main(argv=None, *, context=None):
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 2:
         return 2
+    return _execute(context.planner, args, _fixture_root, cancelled=context.cancelled)
+
+
+def _execute(planner, args, root_supplier, *, cancelled=lambda: False, after_plan=lambda: None):
+    """Shared read-only response path. Suppliers are trusted code, never wire input.
+
+    Production qualification lives in a separate issuer/entry. The disposable
+    entry above keeps its original exact type/origin restrictions.
+    """
     request_id, session = args
     seq = 0
 
@@ -56,7 +65,7 @@ def main(argv=None, *, context=None):
         seq += 1
 
     try:
-        root = _fixture_root()
+        root = root_supplier()
         planning = exchange._read_published_planning_request(root, session=session, request_id=request_id)
         request = planning.to_json()
         emit('starting')
@@ -64,8 +73,8 @@ def main(argv=None, *, context=None):
         # Actual reviewed Planner owns all decisions, limits and fail-closed fallback.
         # Parent cancellation kills the contained job; adapters can also supply
         # a cooperative cancellation check to this exact Planner entry.
-        plan = context.planner.plan(request['components'], engine_action=request['engine_action'],
-                                    cancelled=context.cancelled)
+        plan = planner.plan(request['components'], engine_action=request['engine_action'], cancelled=cancelled)
+        after_plan()
         raw = wire.encode_disclosure(plan._document, planning=planning, issued_utc=proto.utc_text(time.time()))
         disclosure = wire.decode_disclosure(raw, planning=planning, session=session)
         result = wire.encode_planning_result(disclosure=disclosure, issued_utc=proto.utc_text(time.time()))

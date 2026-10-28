@@ -84,7 +84,7 @@ def audit(event, args):
             assert path.is_relative_to(ROOT), ('write escape', str(path))
 sys.addaudithook(audit)
 def diagnostic(frame, event, arg):
-    if event == 'exception' and frame.f_code.co_name == 'main' and frame.f_code.co_filename.endswith('optional_setup_planning_worker_v3.py'):
+    if event == 'exception' and frame.f_code.co_name in ('main', '_execute') and frame.f_code.co_filename.endswith('optional_setup_planning_worker_v3.py'):
         (ROOT / 'diagnostic.json').write_text(json.dumps([arg[0].__name__, str(arg[1])[:4096]]))
     return diagnostic
 sys.settrace(diagnostic)
@@ -646,10 +646,13 @@ def test_no_result_or_early_crash_cannot_accept(tmp_path, extra, code):
 
 
 def test_cancel_after_publication_keeps_separate_arbitration_failure(tmp_path):
-    run = make_real(tmp_path, extra=POST_RESULT.replace('AFTER', "__import__('time').sleep(30)"))
+    run = make_real(tmp_path, extra=POST_RESULT.replace('AFTER',
+        "(ROOT / 'publication-complete').write_bytes(b'publisher returned'); __import__('time').sleep(30)"))
     run.start()
     deadline = time.monotonic() + 5
-    while not run.result_path.exists():
+    # Rename visibility precedes closing the exclusive publication handle.
+    # Synchronize on the actual publisher's return, not a partly finished handoff.
+    while not (run.repo / 'publication-complete').exists():
         assert time.monotonic() < deadline
         time.sleep(.01)
     raw = run.result_path.read_bytes()
@@ -853,8 +856,8 @@ def test_focused_mutation_controls(tmp_path, monkeypatch, mutant):
         # production source never changes. Its acquisition sentinel must fire.
         extra = '''
 import inspect, textwrap
-source = textwrap.dedent(inspect.getsource(worker.main))
-source = source.replace("plan = context.planner.plan(", "context.planner.acquire_disposable(None)\\n        plan = context.planner.plan(")
+source = textwrap.dedent(inspect.getsource(worker._execute))
+source = source.replace("plan = planner.plan(", "planner.acquire_disposable(None)\\n        plan = planner.plan(")
 exec(compile(source, worker.__file__, 'exec'), worker.__dict__)
 '''
         control_run = make_real(tmp_path, extra=extra)

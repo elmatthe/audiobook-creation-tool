@@ -1,4 +1,4 @@
-"""Disposable TEST presentation lifecycle; no GUI, launch, consent or acquisition.
+"""Shared presentation lifecycle; no launch, consent or acquisition.
 
 The caller independently supplies the issued request and an existing approved
 PlanningRun. A separately bound trusted TEST callback receives the complete
@@ -57,24 +57,14 @@ class RetainedOriginal:
     raw_result: bytes
 
 
-class DisposableDisplayController:
+class DisplayLifecycle:
     def __init__(self, token):
         if token is not _CONSTRUCTION:
             raise ControllerError('disposable-factory-required')
 
     @classmethod
-    def for_test(cls, *, run, planning, session, display_adapter, now=time.time):
-        """Only factory: no repo/executable/adapter selection from request JSON.
-
-        display_adapter and now are trusted in-process TEST code, not data or
-        callbacks loaded from worker output. This factory never starts a worker.
-        IDs cannot be reused in this process, including across invalidation.
-        A new issued lifecycle in the same session supersedes its predecessor.
-        """
-        if (type(run) is not bridge.PlanningRun
-                or type(run.context) is not bridge.ApprovedDisposableContext
-                or bridge._ISSUED.get(id(run.context)) is not run.context):
-            raise ControllerError('disposable-run-required')
+    def _bind(cls, *, run, planning, session, display_adapter, now=time.time):
+        """Common state only. Concrete factories independently restrict issuers."""
         if type(planning) is not wire.PlanningRequest or not callable(display_adapter) or not callable(now):
             raise ControllerError('trusted-input-required')
         self = cls(_CONSTRUCTION)
@@ -100,6 +90,9 @@ class DisposableDisplayController:
                 previous.invalidate('superseded')
             _ACTIVE[session] = self
         return self
+
+    def _context_is_trusted(self):
+        raise NotImplementedError('concrete issuer required')
 
     @property
     def state(self):
@@ -140,7 +133,7 @@ class DisposableDisplayController:
         if (run.context is not self._context or run.repo != self._repo or run.session != self._session
                 or type(run.planning) is not wire.PlanningRequest
                 or run.planning.raw != self._planning.raw
-                or bridge._ISSUED.get(id(self._context)) is not self._context):
+                or not self._context_is_trusted()):
             self._fail('request-changed')
         try:
             p = self._planning.to_json()
@@ -278,3 +271,18 @@ class DisposableDisplayController:
     def cancel(self):
         self.invalidate('cancelled')
         self._run.cancel()  # native coordination stays with the approved bridge
+
+
+class DisposableDisplayController(DisplayLifecycle):
+    @classmethod
+    def for_test(cls, *, run, planning, session, display_adapter, now=time.time):
+        """Unchanged TEST-only issuer and synchronous software callback contract."""
+        if (type(run) is not bridge.PlanningRun
+                or type(run.context) is not bridge.ApprovedDisposableContext
+                or bridge._ISSUED.get(id(run.context)) is not run.context):
+            raise ControllerError('disposable-run-required')
+        return cls._bind(run=run, planning=planning, session=session,
+                         display_adapter=display_adapter, now=now)
+
+    def _context_is_trusted(self):
+        return bridge._ISSUED.get(id(self._context)) is self._context
