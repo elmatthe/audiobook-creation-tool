@@ -1,4 +1,4 @@
-"""Controlled native presentation only. No install, consent or application wiring.
+"""Controlled native presentation/confirmation. No acquisition or app wiring.
 
 Delivery is acknowledged on the Tk thread after an actual Expose and idle paint,
 not when posting work. Original retention and strict readback are separate common
@@ -35,8 +35,8 @@ class TkDisplayController(display.DisplayLifecycle):
 class TkPlanningHarness:
     """One owned Tk pump. All four components remain data, never executable UI.
 
-    Caller supplies only a separately issued read-only run. There is no callback
-    injection, production host, affirmative install control or automatic retry.
+    Caller supplies only a separately issued read-only run. A final deliberate
+    action composes a qualification document only, with no execution or retry.
     """
     def __init__(self, run):
         if (threading.current_thread() is not threading.main_thread()
@@ -102,6 +102,7 @@ class TkPlanningHarness:
         self.root.bind('<Escape>', lambda event: self.close())
         self._closed = self._exposed = self._completion_posted = False
         self._generation = 0
+        self._ready_generation = None
         self._payload = self._expected = None
         self.ack_thread = None
         self.ack_exposed = self.ack_mapped = False
@@ -109,7 +110,8 @@ class TkPlanningHarness:
                   'Read-only planning demonstration — installation disabled',
                   font=('Segoe UI', 14, 'bold'), padding=12).pack(fill='x')
         ttk.Label(self.root, text='Early Continue prepares the base application only. '
-                  'This window cannot authorize downloads or repairs.', padding=(12, 0, 12, 8),
+                  'Selection and display are not consent. The final action creates a qualification '
+                  'confirmation only; no downloads, installation or repairs run.', padding=(12, 0, 12, 8),
                   wraplength=900).pack(fill='x')
         self.overview = tk.StringVar(value='Waiting for the contained planning worker…')
         ttk.Label(self.root, textvariable=self.overview, padding=12,
@@ -127,15 +129,23 @@ class TkPlanningHarness:
         self.details.pack(fill='both', expand=True)
         self.details.bind('<Expose>', self._on_expose)
         self.root.bind('<Alt-d>', lambda event: self.details.focus_set())
-        self.status = tk.StringVar(value='No optional installation or consent is possible.')
+        self.status = tk.StringVar(value='Waiting for complete disclosure. No confirmation issued.')
         ttk.Label(self.root, textvariable=self.status, padding=12, wraplength=900).pack(fill='x')
         buttons = ttk.Frame(self.root, padding=(12, 0, 12, 12))
         buttons.pack(fill='x')
         self.buttons = {}
+        install = ttk.Button(buttons, text='Install Selected Components', command=self._install,
+                             takefocus=True, default='disabled', state='disabled')
+        install.pack(side='left', padx=4)
+        # Return works only after deliberately focusing this button. No root
+        # default binding can carry an earlier Continue/Enter into confirmation.
+        install.bind('<Return>', lambda event: self._install())
+        self.buttons['install'] = install
         for label in ('Skip', 'Cancel'):
             button = ttk.Button(buttons, text=label, command=self.close, takefocus=True)
             button.pack(side='right', padx=4)
             self.buttons[label.lower()] = button
+        self.buttons['skip'].focus_set()
 
     def _on_expose(self, event):
         if event.widget is self.details:
@@ -184,14 +194,20 @@ class TkPlanningHarness:
                 with self.lifecycle._lock:
                     self.lifecycle._validate(sample)
             if self.lifecycle.state == 'invalidated':
+                self.buttons['install'].state(['disabled'])
                 self.status.set('Proposal invalidated: ' + str(self.lifecycle.error_code) +
                                 '. Nothing will install. A new explicit planning action is required.')
                 return
+            if self.lifecycle.state in display._FINAL:
+                self.buttons['install'].state(['disabled'])
+                return
         except display.ControllerError as exc:
+            self.buttons['install'].state(['disabled'])
             self.lifecycle.invalidate('presentation-interrupted')
             self.status.set('Proposal refused: ' + exc.code + '. Nothing will install.')
             return
         except Exception:
+            self.buttons['install'].state(['disabled'])
             self.lifecycle.invalidate('presentation-interrupted')
             self.status.set('Presentation failed. Nothing will install.')
             return
@@ -207,8 +223,15 @@ class TkPlanningHarness:
                 and self._completion_posted)
 
     def _complete(self, generation, payload):
+        if threading.get_ident() != self.thread:
+            self.lifecycle.invalidate('presentation-interrupted')
+            return
+        if self.lifecycle.state in display._FINAL:
+            return
         if self._closed or generation != self._generation or payload is not self._payload:
             self.lifecycle.invalidate('presentation-interrupted')
+            if not self._closed:
+                self.buttons['install'].state(['disabled'])
             return
         try:
             self.lifecycle.acknowledge_display(payload)
@@ -216,10 +239,41 @@ class TkPlanningHarness:
             self.ack_exposed, self.ack_mapped = self._exposed, bool(self.details.winfo_ismapped())
             self.lifecycle.retain_original()
             self.lifecycle.readback()
+            self._ready_generation = (generation, id(payload))
+            if self.lifecycle.confirmation_eligible():
+                doc = json.loads(payload.document)
+                repair = (payload.to_json()['engine_action'] == 'rebuild-canonical'
+                          or any(r['scope'] == 'repair' for r in doc['components']))
+                if repair:
+                    self.buttons['install'].configure(text='Install Selected Components — '
+                        'Repair/Rebuild Disclosed Components')
+                self.buttons['install'].state(['!disabled'])
             self.status.set('Complete disclosure delivered on the Tk thread, original retained, '
-                            'independent readback matched. Planning only; installation disabled.')
+                            'independent readback matched. A separate final action is required. '
+                            'Qualification only; installation disabled.')
         except display.ControllerError:
             self.lifecycle.invalidate('presentation-interrupted')
+            self.buttons['install'].state(['disabled'])
+
+    def _install(self):
+        if threading.get_ident() != self.thread:
+            self.lifecycle.invalidate('presentation-interrupted')
+            raise display.ControllerError('ui-thread-required')
+        if self._closed or self.lifecycle.state in display._FINAL:
+            return
+        self.buttons['install'].state(['disabled'])
+        try:
+            if (self.run is not self.lifecycle._run
+                    or self._ready_generation != (self._generation, id(self._payload))
+                    or not self._delivered(self._payload)):
+                self.lifecycle.invalidate('presentation-interrupted')
+                raise display.ControllerError('live-presentation-required')
+            self.lifecycle.confirm()
+            self.status.set('One exact qualification confirmation validated. No consent spent; '
+                            'no installation or repair executed. This intention is complete.')
+        except display.ControllerError as exc:
+            self.status.set('Confirmation refused: ' + exc.code + '. No retry for this intention; '
+                            'publication may be incomplete if uncertain. Nothing will install.')
 
     def close(self):
         if threading.get_ident() != self.thread:

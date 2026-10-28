@@ -1,4 +1,4 @@
-"""Shared presentation lifecycle; no launch, consent or acquisition.
+"""Shared presentation and qualification-only confirmation; no acquisition.
 
 The caller independently supplies the issued request and an existing approved
 PlanningRun. A separately bound trusted TEST callback receives the complete
@@ -20,11 +20,13 @@ from shared import optional_setup_planning_bridge_v3 as bridge
 from shared import optional_setup_protocol as proto
 from shared import optional_setup_supervisor_v3 as supervisor
 from shared import optional_setup_wire_v3 as wire
+from shared import optional_setup_v3 as v3
 
 _ISSUE_LOCK = threading.Lock()
 _USED_IDS = set()  # bounded, process-local test issuance; never durable consent
 _ACTIVE = weakref.WeakValueDictionary()
 _CONSTRUCTION = object()
+_FINAL = frozenset(('confirming', 'confirmed', 'confirmation-failed', 'confirmation-uncertain'))
 
 
 class ControllerError(ValueError):
@@ -74,6 +76,7 @@ class DisplayLifecycle:
         self._session, self._context, self._repo = session, run.context, run.context.root / 'app'
         self._planning = wire.PlanningRequest(planning.raw)
         self._candidate = self._outcome = self._payload = self._retained = None
+        self._readback = self._confirmation = None
         self._displaying = False
         sample = self._sample()
         with self._lock:
@@ -104,8 +107,15 @@ class DisplayLifecycle:
         with self._lock:
             return self._error
 
+    @property
+    def confirmation(self):
+        with self._lock:
+            return self._confirmation
+
     def _fail(self, code):
         # Called under _lock. First failure is sticky; no invalidated revival.
+        if self._state in _FINAL:
+            raise ControllerError(code)
         if self._state != 'invalidated':
             self._state, self._error = 'invalidated', code
             self._retained = None
@@ -146,7 +156,7 @@ class DisplayLifecycle:
                     planning=self._planning, session=self._session, now=lambda: stamp)
                 wire.decode_planning_result(self._candidate.raw_result, expected_disclosure=shown,
                     session=self._session, request_id=p['request_id'], now=lambda: stamp)
-                if self._state == 'original-retained':
+                if self._state in ('original-retained', 'confirming'):
                     original = self._retained
                     if (type(original) is not RetainedOriginal or original.planning != self._planning
                             or original.disclosure.raw != self._payload.raw_disclosure
@@ -258,13 +268,89 @@ class DisplayLifecycle:
             self._validate(sample)
             if self._retained is not original or checked.raw_result != original.raw_result:
                 self._fail('original-changed')
+            self._readback = checked
             return checked
+
+    def confirmation_eligible(self):
+        """A fresh gate, never an affirmative action or an issuance operation."""
+        sample = self._sample()
+        with self._lock:
+            self._validate(sample)
+            return (self._state == 'original-retained' and self._readback is not None
+                    and wire._confirmable(self._retained.disclosure.to_json()))
+
+    def confirm(self):
+        """Called only by trusted final-action code, after separate readback.
+
+        The locked transition to confirming arbitrates against cancel and other
+        callers. It is irreversible even if issuance/publication fails. External
+        calls run without the lock so reentrant callbacks cannot deadlock. This
+        process-local intention reservation is not a durable spending claim.
+        Both concrete issuers restrict the repo to disposable qualification roots.
+        """
+        sample = self._sample()
+        with self._lock:
+            if self._state in _FINAL:
+                raise ControllerError('confirmation-terminal')
+            self._validate(sample)
+            if self._state != 'original-retained' or self._readback is None:
+                self._fail('readback-required')
+            original = self._retained
+            if not wire._confirmable(original.disclosure.to_json()):
+                self._fail('plan-not-confirmable')
+        # Files are independently read again, but can never redefine original.
+        self.readback()
+        sample = self._sample()
+        with self._lock:
+            if self._state in _FINAL:
+                raise ControllerError('confirmation-terminal')
+            self._validate(sample)
+            if self._retained is not original:
+                self._fail('original-changed')
+            self._state = 'confirming'  # deterministic winner; never retry this I
+        publication_started = False
+        try:
+            p = original.planning.to_json()
+            consent = v3.new_consent(original.disclosure.to_json()['document']['terms'],
+                session=self._session, request_id=p['intended_request_id'], now=self._clock)
+            raw_consent = v3.encode_consent(consent)
+            raw = wire.encode_confirmation_request(disclosure=original.disclosure,
+                raw_consent=raw_consent, issued_utc=proto.utc_text(self._clock()), now=self._clock)
+            checked = wire.decode_confirmation_request(raw, raw_disclosure=original.disclosure.raw,
+                raw_consent=raw_consent, expected_disclosure=original.disclosure,
+                session=self._session, request_id=p['intended_request_id'], now=self._clock)
+            sample = self._sample()
+            with self._lock:
+                self._validate(sample)
+            publication_started = True
+            exchange.prepare_confirmation(self._repo, expected_disclosure=original.disclosure,
+                raw_disclosure=original.disclosure.raw, raw_consent=raw_consent, raw_request=raw,
+                session=self._session, request_id=p['intended_request_id'], now=self._clock)
+            independent = exchange.read_confirmation_exchange(self._repo,
+                expected_disclosure=original.disclosure, session=self._session,
+                request_id=p['intended_request_id'], now=self._clock)
+            sample = self._sample()
+            with self._lock:
+                self._validate(sample)
+                if independent != checked:
+                    raise ControllerError('confirmation-changed')
+                self._confirmation = independent
+                self._state = 'confirmed'
+                return independent
+        except BaseException as error:
+            with self._lock:
+                self._confirmation = None
+                self._state = ('confirmation-uncertain' if publication_started else 'confirmation-failed')
+                self._error = self._state
+            if not isinstance(error, Exception):
+                raise
+            raise ControllerError(self._error) from None
 
     def invalidate(self, reason='cancelled'):
         if reason not in ('cancelled', 'superseded', 'presentation-interrupted', 'retention-timeout'):
             raise ControllerError('unknown-invalidation')
         with self._lock:
-            if self._state != 'invalidated':
+            if self._state != 'invalidated' and self._state not in _FINAL:
                 self._state, self._error = 'invalidated', reason
                 self._retained = None
 

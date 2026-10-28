@@ -497,7 +497,7 @@ def test_superseding_attempt_and_reused_ids_cannot_revive(tmp_path):
     assert not (other.repo / 'adapter-started').exists()
 
 
-def test_no_confirmation_consent_spending_acquisition_or_launch_api(tmp_path, monkeypatch):
+def test_presentation_never_issues_consent_and_has_no_execution_or_launch_api(tmp_path, monkeypatch):
     import ast
     from pathlib import Path
     from shared import optional_setup_display_controller_v3 as display, optional_setup_v3 as v3
@@ -513,13 +513,16 @@ def test_no_confirmation_consent_spending_acquisition_or_launch_api(tmp_path, mo
     c, run, _, _ = make_controller(tmp_path)
     retained(c, run)
     assert json.loads(c.readback().raw_result)['verified'] == []
-    assert all(not hasattr(c, name) for name in ('start', 'install', 'repair', 'confirm', 'acquire', 'prepare_confirmation'))
+    assert c.confirmation is None and c.confirmation_eligible()
+    assert callable(c.confirm)  # M2 requires a separate trusted final action.
+    assert all(not hasattr(c, name) for name in ('start', 'install', 'repair', 'acquire', 'prepare_confirmation'))
     source = Path(display.__file__).read_text()
     tree = ast.parse(source)
     assert all(not isinstance(n, (ast.Import, ast.ImportFrom)) or not any(
         a.name.split('.')[0] in ('subprocess', 'tkinter', 'socket', 'sqlite3') for a in n.names) for n in ast.walk(tree))
     assert 'PlanningRun.for_test(' not in source and '.start(' not in source
     assert list(run.result_path.parent.iterdir()) and not (run.result_path.parent / 'consent.json').exists()
+    assert not (run.repo / exchange.EXCHANGE_ROOT / run.planning.to_json()['intended_request_id']).exists()
 
 
 def test_only_issued_disposable_run_factory_is_available(tmp_path):
@@ -659,7 +662,7 @@ def test_independent_mutation_controls(tmp_path, monkeypatch, mutant):
     elif mutant == 'read-only':
         _mutated(owner, 'retain_original', [('self._retained = RetainedOriginal(',
             'wire.encode_confirmation_request()\n        self._retained = RetainedOriginal(')], monkeypatch)
-        control = lambda: test_no_confirmation_consent_spending_acquisition_or_launch_api(tmp_path, monkeypatch)
+        control = lambda: test_presentation_never_issues_consent_and_has_no_execution_or_launch_api(tmp_path, monkeypatch)
     else:
         _mutated(owner, 'invalidate', [("self._state, self._error = 'invalidated', reason",
             'self._state, self._error = self._state, self._error')], monkeypatch)

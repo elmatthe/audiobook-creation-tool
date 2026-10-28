@@ -1,4 +1,4 @@
-"""Controlled real Windows Tk delivery; no production GUI callsite or consent."""
+"""Controlled real Windows Tk delivery and qualification-only final action."""
 import json
 import dataclasses
 import threading
@@ -26,8 +26,9 @@ def synthetic_run(tmp_path, *, extra='', action='none'):
 
 
 def pump(view, *, terminal='original-retained'):
+    from shared import optional_setup_display_controller_v3 as display
     deadline = time.monotonic() + 40
-    while view.lifecycle.state not in (terminal, 'invalidated') and time.monotonic() < deadline:
+    while view.lifecycle.state not in (terminal, 'invalidated', *display._FINAL) and time.monotonic() < deadline:
         view.root.update()
         time.sleep(.01)
     assert view.lifecycle.state == terminal, view.lifecycle.error_code
@@ -53,12 +54,15 @@ def test_real_tk_delivery_retains_original_and_strict_readback(tmp_path):
             assert original.disclosure.raw == run.candidate().raw_disclosure
             assert view.lifecycle.readback().raw_result == original.raw_result
             assert view.details.cget('state') == 'disabled'
-            assert 'install' not in view.buttons
+            assert view.buttons['install'].instate(['disabled'])
+            assert view.lifecycle.confirmation is None
+            view._install()  # Even a direct event cannot authorize this refusal.
+            assert view.lifecycle.confirmation is None
             document = json.loads(original.disclosure.document)
             assert document['terms'] is None and document['prior_state'] is None
             assert document['reasons'] == ['BLOCKED: portable sox supply pending; existing local development only']
             assert json.loads(original.raw_result)['confirmable'] is False
-            print('M1 TK', view.ack_thread, view.ack_exposed, view.ack_mapped,
+            print('M2 PRODUCTION REFUSAL TK', view.ack_thread, view.ack_exposed, view.ack_mapped,
                   len(original.disclosure.raw), view.root.winfo_geometry())
             view.buttons['skip'].invoke()
             assert view.lifecycle.state == 'invalidated'
@@ -144,7 +148,10 @@ def test_synthetic_complete_planner_disclosure_through_real_tk(tmp_path):
         assert envelope['selected'] == request['components']
         assert envelope['planning_request_id'] == request['request_id']
         assert view.ack_thread == threading.get_ident() and view.ack_exposed and view.ack_mapped
-        assert set(view.buttons) == {'skip', 'cancel'}
+        assert set(view.buttons) == {'install', 'skip', 'cancel'}
+        assert view.lifecycle.confirmation is None
+        assert not view.buttons['install'].instate(['disabled'])
+        assert 'Repair/Rebuild' in view.buttons['install'].cget('text')
         assert all(p.read_bytes() == raw for p, raw in before.items())
         observation = json.loads((run.repo / 'observation.json').read_bytes())
         assert {f[0] for f in observation['frames']} == {'plan', '_evaluate'}
@@ -152,7 +159,19 @@ def test_synthetic_complete_planner_disclosure_through_real_tk(tmp_path):
                    for f in observation['frames'])
         outcome = run.wait()
         assert outcome.accepted and outcome.job_active == 0 and outcome.readers_joined
-        print('M1 SYNTHETIC TK', len(original.disclosure.raw), outcome.job_total)
+        view.buttons['install'].invoke()
+        result = view.lifecycle.confirmation
+        assert view.lifecycle.state == 'confirmed'
+        assert result.disclosure.raw == original.disclosure.raw
+        assert result.disclosure.document == store.canonical(doc)
+        assert json.loads(result.consent.terms) == doc['terms']
+        from shared import optional_setup_exchange_v3 as exchange
+        assert exchange.read_confirmation_exchange(run.repo, expected_disclosure=original.disclosure,
+            session=run.session, request_id=request['intended_request_id']) == result
+        assert all(p.read_bytes() == raw for p, raw in before.items())
+        print('M2 SYNTHETIC COMPLETE TK', len(original.disclosure.raw), outcome.job_total,
+              request['request_id'], request['intended_request_id'], request['plan_id'],
+              run.session, result.consent.consent_id)
     finally:
         view.close()
 
@@ -269,7 +288,11 @@ def test_tk_negative_delivery_and_identity_controls(tmp_path, monkeypatch, damag
             view._complete(view._generation, payload)
         assert view.lifecycle.state == 'invalidated'
         assert view.lifecycle._retained is None
-        assert set(view.buttons) == {'skip', 'cancel'}
+        assert set(view.buttons) == {'install', 'skip', 'cancel'}
+        if not view._closed:
+            view._pump()  # queued UI observation of direct lifecycle invalidation
+            assert view.buttons['install'].instate(['disabled'])
+        assert view.lifecycle.confirmation is None
         assert not hasattr(view.lifecycle, 'consent') and not hasattr(view.run, 'acquire')
     finally:
         view.close()
