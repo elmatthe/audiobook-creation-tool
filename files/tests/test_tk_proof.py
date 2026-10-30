@@ -147,7 +147,8 @@ def test_stage_zero_uses_the_same_real_tk_proof_and_a_bounded_run():
 @needs_tk
 @pytest.mark.skipif(not sys.platform.startswith("win"), reason="stage 0 is Windows PowerShell")
 def test_stage_zero_rejects_a_python_whose_tk_cannot_initialise(broken_tk, tmp_path):
-    """Real stage 0 against this machine's Pythons with Tk broken for all of them: none is accepted, nothing installed."""
+    """Real stage 0 with Tk broken: no Python is accepted and nothing is downloaded. (v0.7.0: stage 0 only ever uses
+    the app's own Python in files/runtime-data/python, never one installed on the computer.)"""
     out = tmp_path / "selected.txt"
     result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(STAGE_ZERO),
                              "-OutFile", str(out), "-AssumeNo"], capture_output=True, text=True, timeout=300)
@@ -251,7 +252,7 @@ def test_a_hung_stage_zero_candidate_is_killed_at_the_bound(tmp_path):
     import re
 
     text = STAGE_ZERO.read_text(encoding="ascii")
-    match = re.search(r"function Test-Candidate\(.*?(?=^function Find-Python)", text, re.DOTALL | re.MULTILINE)
+    match = re.search(r"function Test-Candidate\(.*?(?=^function )", text, re.DOTALL | re.MULTILINE)
     assert match, "Test-Candidate not found in the stage 0 script"
     assert "$ProbeTimeoutMs = 30000" in text
     pid_file = tmp_path / "stage0.pid"

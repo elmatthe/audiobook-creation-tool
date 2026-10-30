@@ -48,7 +48,7 @@ $ArchiveSha256 = '194C8F0D9E0DE6F1C4576E5DFA67819A48C764BE87608B74B8AD43387A57B9
 # Tk is proved by initialising it (a withdrawn, destroyed root: no window is shown). Tcl() alone never loads Tk, so a
 # Python whose tk.tcl is missing used to pass here and then fail to open the app's window (audit ACT67-AUD-006).
 $Probe = "import sys, ssl, venv, ensurepip, tkinter; r = tkinter.Tk(); r.withdraw(); r.destroy(); v = sys.version_info; print(sys.executable); print('%d.%d' % (v[0], v[1]))"
-$ProbeTimeoutMs = 60000                    # a first start can be slow while Windows checks new files
+$ProbeTimeoutMs = 30000                    # the one bound for every Tk proof (ACT67-CLR-003)
 
 function Say([string]$Message) { Write-Host $Message }
 
