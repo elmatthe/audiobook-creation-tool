@@ -334,9 +334,9 @@ def test_the_config_gate_fails_malformed_toml(tmp_path):
 def test_the_application_version_is_unchanged():
     from shared.version import VERSION
 
-    # v0.6.6 Plan 9 Phase 14: maintainer-approved release-candidate identity.
+    # v0.7.0 release-candidate identity (owner directive 2026-10-30; was 0.6.6).
     # This pins application identity; it does not assert publication.
-    assert VERSION == "0.6.6"
+    assert VERSION == "0.7.0"
 
 
 def test_the_launcher_carries_no_cleanup_behaviour():

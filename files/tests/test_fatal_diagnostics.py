@@ -290,7 +290,7 @@ def test_the_version_did_not_move():
 
     # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
     # This pins the application version without asserting publication.
-    assert version.VERSION == "0.6.6"
+    assert version.VERSION == "0.7.0"
 
 
 # --------------------------------------------------------------------------- #

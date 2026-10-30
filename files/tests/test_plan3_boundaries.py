@@ -1822,7 +1822,7 @@ def test_the_version_is_untouched():
 
     # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
     # This pins the application version without asserting publication.
-    assert VERSION == "0.6.6"
+    assert VERSION == "0.7.0"
 
 
 def test_the_root_config_template_remains_absent():

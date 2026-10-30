@@ -55,7 +55,7 @@ README = PREVIEW_DIR / "README.md"
 PROVISIONAL_DRAFTS = ROOT / "files" / "dev-work" / "qwen3-eval" / "runs" / "qwen3-initial" / "transcripts" / "verified.json"
 TRANSCRIPT_APPROVED, TRANSCRIPT_PROVISIONAL = "owner-approved", "provisional"
 PROVISIONAL_SOURCE = "Whisper draft of the original reference recording; not owner-approved"
-RAW_BASE = "https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/"
+RAW_BASE = "https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/"
 
 SAMPLE_TEXT = ("Welcome. This is a short sample of my voice, reading a calm passage at an even pace, "
                "so that you can decide whether it suits the story you want to hear, today or tomorrow.")

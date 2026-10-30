@@ -1,19 +1,31 @@
-# Audiobook Creation Tool v0.6.6
+# Audiobook Creation Tool v0.7.0
 
-A Windows and macOS desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
+A Windows desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
 ## Download / Install
 
-**v0.6.6 is the current published release.** Download the archive for your platform:
+**v0.7.0 is for Windows 10/11.** Download the Windows archive:
 
 | Platform | Archive | Double-click after extraction |
 |---|---|---|
-| Windows | [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
-| macOS | [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | `Setup_and_Run-audiobook-creation-tool.command` |
+| Windows | [AudiobookTool-Windows-v0.7.0.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.0/AudiobookTool-Windows-v0.7.0.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
 
-Extract the whole archive and keep its contents together. On macOS, move the extracted `AudiobookTool-MacOS-v0.6.6` folder from Downloads to Desktop or Applications before opening the launcher. If macOS blocks it, right-click the launcher, choose **Open**, and confirm.
+macOS is not part of v0.7.0 (it has not been qualified on a Mac yet); the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
 
-First run opens a setup window with progress and a log. It prepares a private Python environment and required libraries, establishes FFmpeg/ffprobe, and offers the optional Kokoro voice-model download. Allow time and an internet connection for setup; follow any installation guidance it displays. Later launches open the app using the prepared environment.
+Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
+
+First run opens a setup window. Choose the voices you want installed on this computer:
+
+| Choice | Default | What it adds |
+|---|---|---|
+| Kokoro | Checked | Natural local English voices (about 345 MB) |
+| Chatterbox Turbo | Unchecked | Expressive local voices from the six bundled recordings (about 3 GB) |
+| Qwen3 CustomVoice | Unchecked | The Aiden and Ryan voices (about 4.5 GB, plus the shared Qwen3 engine) |
+| Qwen3 Cloned Voices | Unchecked | The six bundled cloned voices (about 3.9 GB, plus the shared Qwen3 engine) |
+
+**Begin Setup** first prepares the app itself: a private Python environment with its packages (about 2.5 GB, needed whatever you choose) and FFmpeg. Edge TTS voices work as soon as that is done. Then a review screen lists exactly what the voices you chose will download, reuse and occupy on disk; nothing is downloaded until you press **Install Selected Components**, and **Skip** opens the app without them. The two Qwen3 choices share one voice engine (about 3.1 GB), downloaded once. Every file comes from a fixed, tested source and is checked before it is used. Later launches open the app directly.
+
+You can add a voice later: in **TTS Audiobook**, choose it and press **Create**. If it is not installed yet, **Install & Continue** shows the same review screen and, once the voice is installed and checked, starts that conversion; Skip or Cancel starts nothing.
 
 ## What it can do
 
@@ -41,23 +53,23 @@ Originals are preserved. The exception is Cover Image's optional **Replace origi
 
 TTS accepts **PDF and TXT only**. Save TXT files as **UTF-8**, with or without a byte-order mark; re-save other encodings as UTF-8 before importing. PDFs must contain extractable text.
 
-## Optional Qwen3 voices (Windows)
+## Qwen3 voices
 
-Eight more local voices: **Qwen3 - Aiden** and **Qwen3 - Ryan** (preset voices) and **Qwen3 - Female 1**, **Female 2**, **Male 1**, **Male 2**, **Male 3** and **Male 4** (cloned from the bundled reference recordings). They are never installed automatically. In **TTS Audiobook**, choose one of them and press **Install / repair Qwen3 voices...**. Pick **CustomVoice** (about 4.5 GB; Aiden and Ryan), **Base** (about 4.5 GB; the six cloned voices) or **Both** (about 8.4 GB), and confirm the sizes shown. The first install also prepares a separate Python environment for the voice engine (about 3.1 GB to download, about 5.3 GB on disk). Nothing is downloaded until you confirm, everything is stored inside the app folder, and the same button repairs a damaged installation.
+Eight local voices: **Qwen3 - Aiden** and **Qwen3 - Ryan** (CustomVoice) and **Qwen3 - Female 1**, **Female 2**, **Male 1**, **Male 2**, **Male 3** and **Male 4** (cloned from the bundled reference recordings). Install them from the first-run setup or with **Install & Continue**; **Install / repair Qwen3 voices...** in TTS Audiobook still checks and repairs an existing installation. The voice engine lives in its own environment inside the app folder (`.venv\engines\qwen3`).
 
 - Qwen3 runs on an NVIDIA GPU when one is found, otherwise on the CPU. Both are slower than real time: on the RTX 5070 it was tested on, narration took about 1.4 to 1.9 times as long as the audio; on the CPU tested (a Ryzen 7 9800X3D) about 2.2 times, using about 6 GB of memory. Your computer will differ, and a long book can take many hours.
-- The six cloned voices are ready as soon as the Base model is installed: the app already includes the words spoken in each voice's reference recording, so there is nothing else to set up.
-- Windows only for now. On macOS the Qwen3 voices are listed as not yet available.
+- The six cloned voices are ready as soon as they are installed: the app already includes the words spoken in each voice's reference recording, so there is nothing else to set up.
+- Windows Smart App Control checks the engine's files the first time they load; setup waits for that and reports clearly if Windows refuses them.
 
 ## Voice samples
 
-Short samples of all 28 voices, each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/README.md) folder of this repository on GitHub. They are not part of the download.
+Short samples of all 28 voices, each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/README.md) folder of this repository on GitHub. They are not part of the download.
 
 ## Requirements
 
-- Windows 10/11 or macOS 12+, with space for the Python environment, outputs and any voice models.
-- On Windows, when no suitable Python is found, setup asks before installing Python 3.12 for your user account only, using the official python.org installer, which it verifies before running (winget is only a fallback). Setup acquires FFmpeg (and, on macOS, Python) with the supported tools (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13. The optional Qwen3 voices need Python 3.12 exactly (their pinned engine packages are built only for 3.12): on a computer whose app environment uses Python 3.11 everything else works, but the Qwen3 installer refuses and those eight voices stay unavailable until the app is set up with Python 3.12.
-- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (the Qwen3 voices need up to about 14 GB more, see above).
+- Windows 10/11 (64-bit), with space for the Python environment, outputs and any voice models.
+- On Windows, when no suitable Python is found, setup asks before installing Python 3.12 for your user account only, using the official python.org installer, which it verifies before running (winget is only a fallback). Setup acquires FFmpeg with winget (or a verified portable copy), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13. The optional Qwen3 voices need Python 3.12 exactly (their pinned engine packages are built only for 3.12): on a computer whose app environment uses Python 3.11 everything else works, but the Qwen3 installer refuses and those eight voices stay unavailable until the app is set up with Python 3.12.
+- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (all four choices together download about 14.8 GB and use about 18 GB).
 
 ## More information
 

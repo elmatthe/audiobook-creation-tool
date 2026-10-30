@@ -2,6 +2,60 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 release candidate (Windows): real installer + real narration qualified on HOME-PC; identity 0.7.0; NOT merged/tagged/published (2026-10-30, Claude Code)
+
+Authority: owner directive 2026-10-30 ("finish the functional application"; supersedes the per-checkpoint stop rules).
+Branch `feature/0.7.0-release-remediation` (exact pushed SHA: see `git log`; never hard-coded here). Default branch `master`.
+
+- **Installer (Option B via the v2 pipeline, ADR 2026-10-30):** wizard = four choices (Kokoro checked; Chatterbox, Qwen3
+  CustomVoice, Qwen3 Cloned unchecked) → Begin Setup builds the base only → `shared/optional_setup_panel.py` shows the
+  worker's full read-only plan → only **Install Selected Components** creates the consent → contained worker +
+  `RealAcquirer` (production default). Byte budget fixed by the consent at the network door; engine touched only with
+  the `qwen3-engine` unit; Qwen3 packages = 89 exact reviewed wheels (`tts/qwen3_wheels.py`, sox from supply `b7e1b1ae`)
+  installed offline. Install & Continue in TTS (`run_job` → `_capture_run` → dialog → `_start_frozen` once, sources
+  re-checked). Unpinned bootstrap pre-download/warm-up removed. Windows-only packaging; folder-depth guard; 32
+  transitive pins; bounded Smart App Control retry in the Kokoro/Chatterbox/Qwen3 proofs.
+- **Layout (owner clarification):** `.venv/` and `.venv/engines/qwen3/` only; every model/cache/runtime folder under
+  `files/`; no new top-level folder (test `test_every_installer_location_is_inside_dot_venv_or_files...`).
+- **REAL RUNTIME PASS (HOME-PC, LongPaths on, SAC enforcing, RTX 5070; disposable copies under `files/dev-work/`):**
+  dev ZIP `f7963c3` extracted to `files\dev-work\q4\ACT QA` → real headless base setup → real install of all four
+  (14.8 GB downloaded, every file size+SHA-256 checked) → all four proved; re-plan = 0 bytes → real narration through the
+  TtsPanel: Edge Steffan, Kokoro Heart/George, Chatterbox Female 1/Male 4, Qwen3 Aiden, Ryan and all six clones — all
+  decodable MP3s named `<stem>-<label>.mp3`, trailing near-silence 0–150 ms. Real Tk wizard (driven, `q5`): four choices
+  shown, Kokoro installed + proved, app launch path OK (`--venv-check` healthy, `--launch-only` window stayed up).
+  Killing the client ended the contained worker tree; the partial `.part` and the single spent consent were kept.
+  Evidence (ignored): `files/dev-work/act070-rc/evidence/`.
+- **Found and fixed by those runs:** deep-folder DLL limit (guard), transitive drift + SAC (pins), SAC first-load
+  evaluation (bounded retry).
+- **MANUAL / NOT RUN:** physical clean Windows PC (HOME-PC has FFmpeg via winget and warm pip caches); literal
+  double-click of the .bat (the wizard was driven in-process, same code path); owner listening to the new narrations;
+  display scaling 125–200 %; long-paths-disabled machine; non-TTS tools beyond the existing automated suites.
+- **Next:** Codex independent verification of the pushed branch; owner manual gates above; then owner decision on
+  merge to `master`, tag and GitHub Release (none done).
+
+## CURRENT STATE — v0.7.0 P05B Stage 4: BLOCKED at the native package-acquisition contract; red evidence preserved; P05B OPEN; STOP for ChatGPT review (2026-10-25, Codex)
+
+Authority: owner Stage 4 consent-safety remediation assignment, including Task E's explicit architectural stop.
+Starting/current HEAD `bda0f5fa81f08e4fdef9546e3ca83f25a97015b6`, branch `feature/0.7.0-release-remediation`, HOME-PC.
+Production identity remains 0.6.6. No production code changed; no commit or push.
+
+- Preserved Stage 3's three reproductions in `test_optional_setup_acquisition.py` and its two disappearing-lock
+  controls in `test_optional_tts_setup.py`. Protected red run: **3 failed / 2 passed**, zero production-write refusals.
+  Failures reproduce excess Qwen replacement bytes, unconsented engine reconstruction, and Chatterbox expansion at lock.
+- **Architectural blocker:** native `_install_environment()` gives pip direct index access under a scalar approximate
+  3.1 GB estimate. Its requirements hashes bind accepted artifacts, but there is no per-artifact URL/size inventory or
+  pre-transfer byte-budget enforcement. `ScopedOpener` does not control pip. A repair-scope callback alone cannot meet
+  Task E's actual-download invariant. No superficial preflight or installer duplication was implemented.
+- **Isolation attribution:** protected diagnostic of the calm harness: 71 pytest passes, wrapper **failed**. All 60
+  Stage 3 refusals match exactly: five test bodies call `worker_environment()` without a runtime sandbox (ten calls,
+  six mkdir attempts each). Enhanced tracing found another 78 Numba cache-directory refusals under the real environment;
+  the current `__pycache__` report filter hides them. No isolation fix was applied after the architectural stop.
+- New ignored report: `files/dev-work/act070-remediation/checkpoints/P05B-REMEDIATION.md`; raw evidence under
+  `files/run-temp/p05b-stage4/`. Existing evidence and owner data preserved. The red tests remain uncommitted review work.
+- Next: ChatGPT must approve a bounded Qwen package-acquisition contract (including package bytes, immutable artifacts,
+  retries/cache accounting and offline installation), or explicitly rescope this checkpoint. Then implement B–E and G,
+  obtain green safety/Stage 2/34-module evidence and preservation proof before committing/pushing. P06 remains unauthorized.
+
 ## CURRENT STATE — v0.7.0 P05B Stage 3: independent review BLOCKED closure on consent-scope escapes; P05B OPEN; STOP for ChatGPT review (2026-10-25, Codex)
 
 Authority: assigned independent P05B closing review; plan Revision 2 §5.4 and §6 / P05B. Starting commit

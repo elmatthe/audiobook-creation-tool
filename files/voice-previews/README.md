@@ -10,34 +10,34 @@ Each link below is the raw WAV. GitHub serves raw files as downloads, so a click
 
 | Voice | Engine | Preview (raw WAV) | Publication |
 |---|---|---|---|
-| Edge Male - Steffan (en-US) | edge | [en-US-SteffanNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/en-US-SteffanNeural.wav) | owner-authorized |
-| Edge Male - Andrew (en-US) | edge | [en-US-AndrewNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/en-US-AndrewNeural.wav) | owner-authorized |
-| Edge Female - Aria (en-US) | edge | [en-US-AriaNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/en-US-AriaNeural.wav) | owner-authorized |
-| Edge Female - Ava (en-US) | edge | [en-US-AvaNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/en-US-AvaNeural.wav) | owner-authorized |
-| Edge Female - Jenny (en-US) | edge | [en-US-JennyNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/en-US-JennyNeural.wav) | owner-authorized |
-| Kokoro Female (Default) - Heart (en-US) | kokoro | [af_heart.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/af_heart.wav) | license reviewed |
-| Kokoro Female - Bella (en-US) | kokoro | [af_bella.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/af_bella.wav) | license reviewed |
-| Kokoro Male - Michael (en-US) | kokoro | [am_michael.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/am_michael.wav) | license reviewed |
-| Kokoro Male - Fenrir (en-US) | kokoro | [am_fenrir.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/am_fenrir.wav) | license reviewed |
-| Kokoro Male - Puck (en-US) | kokoro | [am_puck.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/am_puck.wav) | license reviewed |
-| Kokoro Male - Onyx (en-US) | kokoro | [am_onyx.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/am_onyx.wav) | license reviewed |
-| Kokoro Female - Emma (en-UK) | kokoro | [bf_emma.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/bf_emma.wav) | license reviewed |
-| Kokoro Male - George (en-UK) | kokoro | [bm_george.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/bm_george.wav) | license reviewed |
-| Kokoro Male - Daniel (en-UK) | kokoro | [bm_daniel.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/bm_daniel.wav) | license reviewed |
-| Chatterbox - Female 1 | chatterbox | [chatterbox-female-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-female-1.wav) | owner-authorized |
-| Chatterbox - Female 2 | chatterbox | [chatterbox-female-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-female-2.wav) | owner-authorized |
-| Chatterbox - Male 1 | chatterbox | [chatterbox-male-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-male-1.wav) | owner-authorized |
-| Chatterbox - Male 2 | chatterbox | [chatterbox-male-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-male-2.wav) | owner-authorized |
-| Chatterbox - Male 3 | chatterbox | [chatterbox-male-3.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-male-3.wav) | owner-authorized |
-| Chatterbox - Male 4 | chatterbox | [chatterbox-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-male-4.wav) | owner-authorized |
-| Qwen3 - Aiden | qwen3 | [qwen3-aiden.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-aiden.wav) | license reviewed |
-| Qwen3 - Ryan | qwen3 | [qwen3-ryan.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-ryan.wav) | license reviewed |
-| Qwen3 - Female 1 | qwen3 | [qwen3-female-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-female-1.wav) | owner-authorized (provisional transcript) |
-| Qwen3 - Female 2 | qwen3 | [qwen3-female-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-female-2.wav) | owner-authorized (provisional transcript) |
-| Qwen3 - Male 1 | qwen3 | [qwen3-male-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-1.wav) | owner-authorized (provisional transcript) |
-| Qwen3 - Male 2 | qwen3 | [qwen3-male-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-2.wav) | owner-authorized (provisional transcript) |
-| Qwen3 - Male 3 | qwen3 | [qwen3-male-3.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-3.wav) | owner-authorized (provisional transcript) |
-| Qwen3 - Male 4 | qwen3 | [qwen3-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-4.wav) | owner-authorized (provisional transcript) |
+| Edge Male - Steffan (en-US) | edge | [en-US-SteffanNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/en-US-SteffanNeural.wav) | owner-authorized |
+| Edge Male - Andrew (en-US) | edge | [en-US-AndrewNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/en-US-AndrewNeural.wav) | owner-authorized |
+| Edge Female - Aria (en-US) | edge | [en-US-AriaNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/en-US-AriaNeural.wav) | owner-authorized |
+| Edge Female - Ava (en-US) | edge | [en-US-AvaNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/en-US-AvaNeural.wav) | owner-authorized |
+| Edge Female - Jenny (en-US) | edge | [en-US-JennyNeural.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/en-US-JennyNeural.wav) | owner-authorized |
+| Kokoro Female (Default) - Heart (en-US) | kokoro | [af_heart.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/af_heart.wav) | license reviewed |
+| Kokoro Female - Bella (en-US) | kokoro | [af_bella.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/af_bella.wav) | license reviewed |
+| Kokoro Male - Michael (en-US) | kokoro | [am_michael.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/am_michael.wav) | license reviewed |
+| Kokoro Male - Fenrir (en-US) | kokoro | [am_fenrir.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/am_fenrir.wav) | license reviewed |
+| Kokoro Male - Puck (en-US) | kokoro | [am_puck.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/am_puck.wav) | license reviewed |
+| Kokoro Male - Onyx (en-US) | kokoro | [am_onyx.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/am_onyx.wav) | license reviewed |
+| Kokoro Female - Emma (en-UK) | kokoro | [bf_emma.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/bf_emma.wav) | license reviewed |
+| Kokoro Male - George (en-UK) | kokoro | [bm_george.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/bm_george.wav) | license reviewed |
+| Kokoro Male - Daniel (en-UK) | kokoro | [bm_daniel.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/bm_daniel.wav) | license reviewed |
+| Chatterbox - Female 1 | chatterbox | [chatterbox-female-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/chatterbox-female-1.wav) | owner-authorized |
+| Chatterbox - Female 2 | chatterbox | [chatterbox-female-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/chatterbox-female-2.wav) | owner-authorized |
+| Chatterbox - Male 1 | chatterbox | [chatterbox-male-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/chatterbox-male-1.wav) | owner-authorized |
+| Chatterbox - Male 2 | chatterbox | [chatterbox-male-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/chatterbox-male-2.wav) | owner-authorized |
+| Chatterbox - Male 3 | chatterbox | [chatterbox-male-3.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/chatterbox-male-3.wav) | owner-authorized |
+| Chatterbox - Male 4 | chatterbox | [chatterbox-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/chatterbox-male-4.wav) | owner-authorized |
+| Qwen3 - Aiden | qwen3 | [qwen3-aiden.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-aiden.wav) | license reviewed |
+| Qwen3 - Ryan | qwen3 | [qwen3-ryan.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-ryan.wav) | license reviewed |
+| Qwen3 - Female 1 | qwen3 | [qwen3-female-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-female-1.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Female 2 | qwen3 | [qwen3-female-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-female-2.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 1 | qwen3 | [qwen3-male-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-1.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 2 | qwen3 | [qwen3-male-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-2.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 3 | qwen3 | [qwen3-male-3.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-3.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 4 | qwen3 | [qwen3-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-4.wav) | owner-authorized (provisional transcript) |
 
 ## Publication decision
 

@@ -733,6 +733,7 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         "start_convert", "combine_mp3s", "time_edit", "write_id3", "build",
         "start_resize", "convert", "save", "on_clear_all_tags",
         "on_remove_series_numbering", "run_job", "_reserve_run", "_destination",
+        "_start_frozen",  # v0.7.0: the second half of TTS run_job (shared with Install & Continue)
     }
 
     def innermost_reservers(tree_):
@@ -988,7 +989,7 @@ def test_the_version_is_unchanged():
 
     # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
     # This pins the application version without asserting publication.
-    assert VERSION == "0.6.6"
+    assert VERSION == "0.7.0"
 
 
 # --------------------------------------------------------------------------- #

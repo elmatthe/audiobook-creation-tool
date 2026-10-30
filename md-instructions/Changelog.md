@@ -15,6 +15,21 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 release candidate — Windows only (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
+
+- **Changed:** the application identity is 0.7.0 (`version.py`, `config.toml`), declared and packaged for Windows only;
+  macOS stays at v0.6.6 until it is qualified on a Mac. The README describes the four setup choices, Install & Continue
+  and the Windows-only scope, and its voice-preview links are pinned to commit `f7963c31` (same 28 WAVs).
+- **Fixed:** a freshly set-up computer could not start Kokoro (32 transitive packages had drifted to new releases and
+  Smart App Control refused spaCy 3.8.18's new unsigned module; they are now pinned to HOME-PC's proven versions), and
+  a freshly installed engine failed its first start while Smart App Control was still checking its new files (the
+  proofs now wait for Windows, at most 8 tries, and report a lasting refusal).
+- **Added:** setup refuses, before installing anything, a copy extracted too deep for Windows' path limits, and says to
+  move the folder somewhere shorter.
+- Qualified from a release-scope ZIP extracted to a new folder: real base setup, real install of all four optional
+  components (14.8 GB) and real narration with Edge, Kokoro, Chatterbox Turbo, Qwen3 Aiden/Ryan and all six Qwen3
+  clones on HOME-PC. Clean-PC, owner listening and display-scaling checks remain open (see Handoff).
+
 ### v0.7.0 release installer — the four optional voices install for real, from setup or from Create (2026-10-30) — identity stays 0.6.6 until the release candidate
 
 - **Added:** first-run setup offers four independent choices — Kokoro (checked), Chatterbox Turbo, Qwen3 CustomVoice (Aiden,

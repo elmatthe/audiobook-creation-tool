@@ -559,5 +559,5 @@ def test_the_version_and_tool_count_are_unchanged():
 
     # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
     # This pins the application version without asserting publication.
-    assert version.VERSION == "0.6.6"
+    assert version.VERSION == "0.7.0"
     assert len(launcher.TOOLS) == 6
