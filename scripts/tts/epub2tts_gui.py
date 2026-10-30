@@ -2532,7 +2532,7 @@ class TtsPanel(ttk.Frame):
             if self._pending_install:
                 return
 
-        snapshot = self._capture_run(current_voice_entry, speaker, backend, voice_id)
+        snapshot = self._freeze_run(current_voice_entry, speaker, backend, voice_id)
         if component is not None:
             self._install_and_continue(component, unavailable_reason, snapshot, current_voice_entry)
             return
@@ -2574,7 +2574,7 @@ class TtsPanel(ttk.Frame):
             return
         self._start_frozen(snapshot)
 
-    def _capture_run(self, current_voice_entry, speaker: str, backend: str, voice_id: str):
+    def _freeze_run(self, current_voice_entry, speaker: str, backend: str, voice_id: str):
         """Freeze everything this run will use (Decision 9A), on the main thread, and return the snapshot."""
         # v0.6.5 Phase 7 removed the user-editable pause/trim controls this used
         # to read from widgets; the maintainer-approved per-voice policy behind

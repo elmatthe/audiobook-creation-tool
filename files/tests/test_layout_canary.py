@@ -33,7 +33,8 @@ OLD_LAYOUT_ALLOWED = {
     "scripts/shared/bootstrap.py",                  # the leftover-folder warning names it on purpose
 }
 CODE_SUFFIXES = {".py", ".toml", ".bat", ".command", ".txt", ".cfg", ".ini"}
-TOP_LEVEL_SCRIPTS = {"launcher.py", "verify.py", "requirements.txt", "qwen3-requirements.txt", "README.md"}
+TOP_LEVEL_SCRIPTS = {"launcher.py", "verify.py", "requirements.txt", "qwen3-requirements.txt", "README.md",
+                     "qwen3-artifacts.json"}  # v0.7.0 M3: the reviewed Qwen3 package manifest (ships)
 PACKAGES = ("shared", "tts", "mp3", "m4b", "artwork")
 #: Sub-packages whose modules their parent package README also maps (B2 split ``m4b`` by tool).
 README_SUBPACKAGES = {"m4b": ("converter", "maker", "metadata")}

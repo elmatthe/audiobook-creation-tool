@@ -184,12 +184,15 @@ def test_image_capability_is_asked_only_where_the_probe_belongs():
 def test_no_second_workspace_job_or_output_framework_exists():
     suspicious = {
         "Workspace": {"shared/book_workspace.py"},
-        "Controller": {"shared/job_control.py"},
+        # The v3 optional-setup harness's display controllers drive one Tk disclosure, never a job (v0.7.0 M1/M2).
+        "Controller": {"shared/job_control.py", "shared/optional_setup_display_controller_v3.py",
+                       "shared/optional_setup_tk_harness_v3.py"},
         # ``cleanup_worker`` keeps the Preferences cleanup coordinator's log, a
         # v0.6.2 module with no import, job or workspace role.
         "Coordinator": {"shared/import_coordination.py", "shared/cleanup_worker.py"},
         "Reservation": {"shared/output_paths.py"},
-        "Planner": {"shared/output_paths.py"},
+        # tts/optional_setup_authority.Planner plans optional voice downloads (v3 harness), never outputs or jobs.
+        "Planner": {"shared/output_paths.py", "tts/optional_setup_authority.py"},
         "EventStream": {"shared/job_control.py"},
         "Reporter": {"shared/job_control.py"},
         "LockGroup": {"shared/job_ui.py"},

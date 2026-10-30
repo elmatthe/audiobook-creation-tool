@@ -27,7 +27,13 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 
 Optional-setup v3 planning and the disposable locked model-acquisition seam live in `optional_setup_authority.py`.
 See the [Stage 4B-3A contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3A-Authority.md).
-Production acquisition remains disabled. The explicitly injected disposable engine runner uses
+Production installs (v0.7.0) go through `optional_setup_worker.py` and `optional_setup_acquire.py` instead: the
+Qwen3 engine's exact reviewed wheels are fetched by `qwen3_wheels.py` and installed offline, and `voice_install.py` tells
+the TTS panel which component a voice needs (Install & Continue). The rest of that pipeline: `optional_setup.py` (the
+planner: readiness and every download/reuse/disk figure), `optional_setup_lifecycle.py` (one request, one terminal
+outcome), `optional_setup_health.py` (bounded offline engine proofs and busy locks) and `model_assets.py` (the pinned
+Kokoro, Chatterbox Turbo and spaCy identities inference loads). `optional_setup_planning_worker_v3.py` and
+`optional_setup_readonly_worker_v3.py` belong to the v3 qualification harness and are not used by production. The explicitly injected disposable engine runner uses
 `qwen3_packages.py` (live protected wheel sets) and `qwen3_engine_authority.py` (spent engine mutation authority)
 through the existing installer; see the [Stage 4B-3B contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3B-Offline-Execution.md).
 Manual Qwen install/repair keeps its separate index/cache contract outside v3; spaCy installation remains deferred.
@@ -38,7 +44,7 @@ distinct installed/import-health results. It cannot authorize production `.venv`
 mutation; v1 acquisition terms still lack consumer-target/recovery authority.
 Portable sox production supply remains pending; local provenance checks grant no redistribution approval.
 
-`qwen3-artifacts.json` version 2 adds one closed `sox_derivative.distribution` record: the exact
+`../qwen3-artifacts.json` (in `scripts/`) version 2 adds one closed `sox_derivative.distribution` record: the exact
 commit-pinned raw URL of ACT's published sox derivative (repository, full commit, path, size, SHA-256, tags),
 checked against code constants in `qwen3_package_manifest.py`. It is artifact **identity**, not eligibility:
 `portable_supply` stays `pending`, `publisher_wheel`/`build_authorized` stay false, the original lock and the

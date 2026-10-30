@@ -9,10 +9,12 @@
 | **Look and feel** | `appearance.py` (Light/Dark), `ui_theme.py` |
 | **Data helpers** | `metadata.py` (M4B/MP4 metadata), `numbering.py` (success numbering), `image_capabilities.py` |
 | **Downloaded-data cleanup** | `maintenance.py` (the catalog), `cleanup_state.py`, `cleanup_worker.py` (the only code that deletes an asset) |
+| **Optional voice setup (v0.7.0 release installer)** | `optional_setup_protocol.py` (the four components, consent and the contained setup-worker bridge; standard library only), `optional_setup_client.py` (plan / disclosure / consent / install for the wizard and Install & Continue), `optional_setup_panel.py` (the Tk review → install → result panel) |
+| **Optional setup v3 qualification harness** (in the tree, not used by production) | `optional_setup_v3.py`, `optional_setup_wire_v3.py`, `optional_setup_exchange_v3.py`, `optional_setup_resource_budget.py`, `optional_setup_supervisor_v3.py`, `optional_setup_planning_bridge_v3.py`, `optional_setup_readonly_context_v3.py`, `optional_setup_display_controller_v3.py`, `optional_setup_tk_harness_v3.py` |
 | **Artifact acquisition foundation** | `artifact_store.py` (reviewed identities and contained local objects), `artifact_transfer.py` (strict HTTPS and persistent v3 transfer accounting; read-only history disclosure). Used only by the disposable v3 model-acquisition seam, not the production worker; see [Stage 4B-2 contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B2-Artifact-Foundation.md) and [Stage 4B-3A contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3A-Authority.md). |
 
 The artifact foundation also supports the explicitly injected protected offline Qwen execution seam;
 see the [Stage 4B-3B contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3B-Offline-Execution.md).
-Production acquisition remains disabled.
+Since v0.7.0 production acquisition runs through `optional_setup_client.py` and the v2 worker instead (Decisions 2026-10-30).
 
 Every path is derived from `paths.py`, except the few modules that must work before the virtual environment exists (`bootstrap.py`, `ffmpeg_health.py`, `ffmpeg_portable.py`); those derive the repository root from their own location and are kept in step with `paths.py` by the layout canary test (files/tests/test_layout_canary.py).
