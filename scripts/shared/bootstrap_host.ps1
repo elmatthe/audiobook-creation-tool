@@ -1,22 +1,26 @@
 <#
-bootstrap_host.ps1 - stage 0 of the Windows setup: find, or (only with the user's consent) install, a Python that the
-Audiobook Creation Tool can build its private environment from, and tell the launcher which one.
+bootstrap_host.ps1 - stage 0 of the Windows setup: provide the app's OWN Python, inside the app's folder, and tell the
+launcher where it is.
 
 Called by Setup_and_Run-audiobook-creation-tool.bat on a first run or an environment repair, never on an ordinary launch.
 Everything after this (the .venv, the packages, FFmpeg, the optional models, the health proof, the launch) belongs to
 scripts\shared\bootstrap.py; this file only provides a proven base Python, because bootstrap.py cannot run without one.
 
-1. Discover candidates (py -3.12, py -3.11, the usual per-user and machine install folders, python on PATH) and RUN each
-   one to prove it is 3.11 or 3.12 with ssl, venv and a working Tk. The Microsoft Store "python" alias is never run.
-2. If none works: explain and ask. Nothing is installed without a Yes.
-3. Install the pinned official python.org 3.12.10 installer for this user only (no administrator rights, no PATH change,
-   no file associations): downloaded over HTTPS into files\temp\bootstrap, then checked against the pinned size and
-   SHA-256 (the authority) and its Python Software Foundation Authenticode signature. winget is used only if the direct
-   route fails and winget is already present. The exit code of an installer is never taken as proof: the result is run
-   and checked again, and the installer file is deleted once Python is proven.
+v0.7.0 portable layout: the app never installs Python on the computer and never depends on one that happens to be
+installed. Its Python lives at files\runtime-data\python (outside .venv on purpose: a repair renames .venv aside while
+this Python runs the repair, so it cannot live inside the folder being replaced).
+
+1. If files\runtime-data\python\python.exe exists, RUN it to prove it is 3.12 with ssl, venv, ensurepip and a working
+   Tk, and use it.
+2. Otherwise explain and ask. Nothing is downloaded without a Yes.
+3. Download the pinned standalone CPython build (python-build-standalone, the relocatable build uv uses) over HTTPS
+   into files\temp\bootstrap, check its exact size and SHA-256 (the authority: these builds are not code-signed),
+   unpack it with Windows' own tar.exe into a staging folder, move the complete interpreter into place with one rename,
+   prove it by running it, and delete the archive and the staging folder. No installer runs, nothing is registered,
+   PATH and file associations are untouched, and nothing is written outside the app's folder.
 4. Write the proven interpreter's full path to -OutFile and exit 0.
 
-Exit codes: 0 = a proven Python is in -OutFile; 2 = the user declined (nothing installed); 3 = it could not be done.
+Exit codes: 0 = a proven Python is in -OutFile; 2 = the user declined (nothing downloaded); 3 = it could not be done.
 (PowerShell's own 1 - for example a script blocked by policy - is left to mean "stage 0 did not run".)
 The switches after -OutFile exist for qualification testing only; the launcher passes none of them.
 #>
@@ -25,10 +29,8 @@ param(
     [string]$OutFile,
     [switch]$AssumeYes,         # qualification: answer Yes without showing the question
     [switch]$AssumeNo,          # qualification: answer No without showing the question
-    [switch]$IgnoreInstalled,   # qualification: behave as if no usable Python were installed
-    [switch]$DownloadOnly,      # qualification: download and verify the installer, but do not run it
-    [string]$InstallerPath,     # qualification: verify and use this file instead of downloading
-    [switch]$NoWinget           # qualification: never fall back to winget
+    [switch]$DownloadOnly,      # qualification: download and verify the archive, but do not unpack it
+    [string]$ArchivePath        # qualification: verify and use this file instead of downloading
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,32 +38,28 @@ $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is many times slo
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Downloads = Join-Path $Repo 'files\temp\bootstrap'
-$PyVersion = '3.12.10'                     # the last 3.12 release with a Windows installer; the app is tested on it
-$InstallerName = "python-$PyVersion-amd64.exe"
-$InstallerUrl = "https://www.python.org/ftp/python/$PyVersion/$InstallerName"
-$InstallerSize = 26964224
-$InstallerSha256 = '67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB'
-$InstallerSigner = 'Python Software Foundation'
-$TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312'
+$PythonHome = Join-Path $Repo 'files\runtime-data\python'
+$PyVersion = '3.12.15'
+$BuildTag = '20261009'
+$ArchiveName = "cpython-$PyVersion+$BuildTag-x86_64-pc-windows-msvc-install_only.tar.gz"
+$ArchiveUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$BuildTag/cpython-$PyVersion%2B$BuildTag-x86_64-pc-windows-msvc-install_only.tar.gz"
+$ArchiveSize = 46352482
+$ArchiveSha256 = '194C8F0D9E0DE6F1C4576E5DFA67819A48C764BE87608B74B8AD43387A57B93B'
 # Tk is proved by initialising it (a withdrawn, destroyed root: no window is shown). Tcl() alone never loads Tk, so a
 # Python whose tk.tcl is missing used to pass here and then fail to open the app's window (audit ACT67-AUD-006).
-$Probe = "import sys, ssl, venv, tkinter; r = tkinter.Tk(); r.withdraw(); r.destroy(); v = sys.version_info; print(sys.executable); print('%d.%d' % (v[0], v[1]))"
-$ProbeTimeoutMs = 30000                    # a candidate that has not answered by then is not used (a hung Tk cannot run the app)
+$Probe = "import sys, ssl, venv, ensurepip, tkinter; r = tkinter.Tk(); r.withdraw(); r.destroy(); v = sys.version_info; print(sys.executable); print('%d.%d' % (v[0], v[1]))"
+$ProbeTimeoutMs = 60000                    # a first start can be slow while Windows checks new files
 
 function Say([string]$Message) { Write-Host $Message }
 
-function Test-Candidate([string[]]$Command) {
-    # Run the candidate; return its own full path when it is 3.11/3.12 with ssl, venv and Tk, otherwise $null.
-    $exe = $Command[0]
-    if ($exe -like '*\WindowsApps\*') { return $null }   # the Store alias opens the Store; it is not a Python
-    $rest = @()
-    if ($Command.Count -gt 1) { $rest = $Command[1..($Command.Count - 1)] }
+function Test-Candidate([string]$Exe) {
+    # Run it; return its own full path when it is 3.12 with ssl, venv, ensurepip and Tk, otherwise $null.
+    if (-not (Test-Path -LiteralPath $Exe)) { return $null }
     try {
         # Bounded: run it as a process we can stop, never with '&', which would wait forever on a hung interpreter.
-        # (Windows PowerShell 5.1 has no ProcessStartInfo.ArgumentList; none of these arguments contains a double quote.)
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $exe
-        $psi.Arguments = (@($rest) + @('-c', $Probe) | ForEach-Object { '"' + $_ + '"' }) -join ' '
+        $psi.FileName = $Exe
+        $psi.Arguments = '-I -c "' + $Probe + '"'
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
         $psi.RedirectStandardOutput = $true
@@ -74,11 +72,8 @@ function Test-Candidate([string[]]$Command) {
             return $null
         }
         if ($proc.ExitCode -ne 0) { return $null }
-        $out = $stdout.Result.Trim()
-        if (-not $out) { return $null }
-        $lines = @($out -split "`r?`n")
-        if ($lines.Count -lt 2) { return $null }
-        if ($lines[1] -ne '3.12' -and $lines[1] -ne '3.11') { return $null }
+        $lines = @($stdout.Result.Trim() -split "`r?`n")
+        if ($lines.Count -lt 2 -or $lines[1] -ne '3.12') { return $null }
         if (-not (Test-Path -LiteralPath $lines[0])) { return $null }
         return $lines[0]
     } catch {
@@ -86,108 +81,87 @@ function Test-Candidate([string[]]$Command) {
     }
 }
 
-function Find-Python {
-    $candidates = New-Object System.Collections.Generic.List[object]
-    if (Get-Command py.exe -ErrorAction SilentlyContinue) {
-        $candidates.Add(@('py.exe', '-3.12'))
-        $candidates.Add(@('py.exe', '-3.11'))
-    }
-    foreach ($tag in '312', '311') {
-        $candidates.Add(@((Join-Path $env:LOCALAPPDATA "Programs\Python\Python$tag\python.exe")))
-        if ($env:ProgramFiles) { $candidates.Add(@((Join-Path $env:ProgramFiles "Python$tag\python.exe"))) }
-    }
-    $onPath = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($onPath) { $candidates.Add(@($onPath.Source)) }
-    foreach ($command in $candidates) {
-        if ($command.Count -eq 1 -and -not (Test-Path -LiteralPath $command[0])) { continue }
-        $found = Test-Candidate $command
-        if ($found) { return $found }
-    }
-    return $null
-}
-
 function Ask-Consent {
     if ($AssumeYes) { return $true }
     if ($AssumeNo) { return $false }
-    $text = "The Audiobook Creation Tool needs Python 3.12 to run, and no usable copy was found on this computer.`n`n" +
-            "Install the official Python $PyVersion from python.org now?`n`n" +
-            "  - about 27 MB to download`n" +
-            "  - installed for your user account only (no administrator rights)`n" +
-            "  - your system PATH and file associations are not changed`n`n" +
-            "Choose No to stop without installing anything."
+    $text = "The Audiobook Creation Tool runs on its own copy of Python, kept inside this folder.`n`n" +
+            "Download Python $PyVersion for it now?`n`n" +
+            "  - about 46 MB to download (the standalone CPython build from python-build-standalone)`n" +
+            "  - kept only inside this folder (files\runtime-data\python); nothing is installed on the computer`n" +
+            "  - no administrator rights; your PATH and file associations are not changed`n`n" +
+            "Choose No to stop without downloading anything."
     try {
         Add-Type -AssemblyName System.Windows.Forms
-        $answer = [System.Windows.Forms.MessageBox]::Show($text, 'Audiobook Creation Tool - install Python',
+        $answer = [System.Windows.Forms.MessageBox]::Show($text, 'Audiobook Creation Tool - download Python',
             [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
         return ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
     } catch {
         Say $text
-        $reply = Read-Host 'Install Python now? Type Y and press Enter for yes'
+        $reply = Read-Host 'Download Python now? Type Y and press Enter for yes'
         return ($reply -match '^\s*[Yy]')
     }
 }
 
-function Test-Installer([string]$Path) {
-    # The pinned size and SHA-256 decide; the Authenticode signature is checked as well wherever Windows can check it.
+function Test-Archive([string]$Path) {
+    # The pinned size and SHA-256 decide (the build is not code-signed, so its hash is its identity).
     $item = Get-Item -LiteralPath $Path
-    if ($item.Length -ne $InstallerSize) { return "it is $($item.Length) bytes, not $InstallerSize" }
+    if ($item.Length -ne $ArchiveSize) { return "it is $($item.Length) bytes, not $ArchiveSize" }
     $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-    if ($hash -ne $InstallerSha256) { return "its SHA-256 is $hash, not the pinned $InstallerSha256" }
-    try {
-        $signature = Get-AuthenticodeSignature -LiteralPath $Path
-        if ($signature.Status -ne 'Valid') { return "its digital signature is $($signature.Status)" }
-        if ($signature.SignerCertificate.Subject -notlike "*O=$InstallerSigner*") {
-            return "it is signed by '$($signature.SignerCertificate.Subject)', not the $InstallerSigner"
-        }
-    } catch {
-        Say '  (Windows could not check the digital signature here; the pinned SHA-256 matched, which is the authority.)'
-    }
+    if ($hash -ne $ArchiveSha256) { return "its SHA-256 is $hash, not the pinned $ArchiveSha256" }
     return $null
 }
 
-function Get-Installer {
-    if ($InstallerPath) {
-        $problem = Test-Installer $InstallerPath
-        if ($problem) { throw "The installer at $InstallerPath was rejected: $problem." }
-        return $InstallerPath
+function Get-Archive {
+    if ($ArchivePath) {
+        $problem = Test-Archive $ArchivePath
+        if ($problem) { throw "The Python archive at $ArchivePath was rejected: $problem." }
+        return $ArchivePath
     }
     New-Item -ItemType Directory -Force -Path $Downloads | Out-Null
-    $target = Join-Path $Downloads $InstallerName
+    $target = Join-Path $Downloads $ArchiveName
     if (Test-Path -LiteralPath $target) {
-        if (-not (Test-Installer $target)) {
-            Say 'Reusing the Python installer downloaded earlier (it is still the verified file).'
+        if (-not (Test-Archive $target)) {
+            Say 'Reusing the Python archive downloaded earlier (it is still the verified file).'
             return $target
         }
         Remove-Item -LiteralPath $target -Force
     }
     $part = "$target.part"
-    Say "Downloading Python $PyVersion from python.org (about 27 MB)..."
+    Say "Downloading Python $PyVersion (about 46 MB)..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -UseBasicParsing -Uri $InstallerUrl -OutFile $part
-    $problem = Test-Installer $part
+    Invoke-WebRequest -UseBasicParsing -Uri $ArchiveUrl -OutFile $part
+    $problem = Test-Archive $part
     if ($problem) {
         Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
-        throw "The downloaded Python installer was rejected and deleted: $problem."
+        throw "The downloaded Python archive was rejected and deleted: $problem."
     }
     Move-Item -LiteralPath $part -Destination $target -Force
     return $target
 }
 
-function Install-Direct([string]$Installer) {
-    Say "Installing Python $PyVersion for this user (this takes a minute or two)..."
-    $arguments = @('/quiet', 'InstallAllUsers=0', 'PrependPath=0', 'AssociateFiles=0', 'Shortcuts=0', 'Include_launcher=0',
-                   'InstallLauncherAllUsers=0', 'Include_test=0', 'Include_doc=0', 'Include_tcltk=1', 'Include_pip=1',
-                   "TargetDir=`"$TargetDir`"")
-    $process = Start-Process -FilePath $Installer -ArgumentList $arguments -Wait -PassThru
-    Say "  The installer finished (exit code $($process.ExitCode)); checking the result..."
-    return Test-Candidate @((Join-Path $TargetDir 'python.exe'))
-}
-
-function Install-Winget {
-    if ($NoWinget -or -not (Get-Command winget.exe -ErrorAction SilentlyContinue)) { return $null }
-    Say 'Trying winget instead (for this user only)...'
-    & winget.exe install --id Python.Python.3.12 -e --scope user --silent --accept-source-agreements --accept-package-agreements | Out-Host
-    return Find-Python
+function Install-Local([string]$Archive) {
+    # Unpack into a staging folder beside the destination, then move the complete interpreter into place in one rename.
+    $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path -LiteralPath $tar)) { throw 'Windows tar.exe was not found (it ships with Windows 10 1803 and later).' }
+    $staging = Join-Path $Downloads 'python-staging'
+    if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $staging | Out-Null
+    Say "Unpacking Python $PyVersion into this folder..."
+    & $tar -xzf $Archive -C $staging
+    if ($LASTEXITCODE -ne 0) { throw "tar.exe could not unpack the archive (exit $LASTEXITCODE)." }
+    $unpacked = Join-Path $staging 'python'
+    if (-not (Test-Path -LiteralPath (Join-Path $unpacked 'python.exe'))) { throw 'The archive did not contain python\python.exe.' }
+    if (Test-Path -LiteralPath $PythonHome) {
+        # A copy that failed its proof: set it aside rather than deleting it blind, then remove it.
+        $old = "$PythonHome.old"
+        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force }
+        Move-Item -LiteralPath $PythonHome -Destination $old
+        Remove-Item -LiteralPath $old -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PythonHome) | Out-Null
+    Move-Item -LiteralPath $unpacked -Destination $PythonHome
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    return Test-Candidate (Join-Path $PythonHome 'python.exe')
 }
 
 function Write-Result([string]$Python) {
@@ -200,33 +174,25 @@ function Write-Result([string]$Python) {
 }
 
 try {
-    if (-not $IgnoreInstalled) {
-        $python = Find-Python
-        if ($python) { Write-Result $python; exit 0 }
-    }
-    Say 'No usable Python 3.11 or 3.12 was found on this computer.'
+    $python = Test-Candidate (Join-Path $PythonHome 'python.exe')
+    if ($python) { Write-Result $python; exit 0 }
+    if (Test-Path -LiteralPath $PythonHome) { Say "The app's own Python in files\runtime-data\python does not work; it will be replaced." }
+    else { Say "The app's own Python has not been downloaded yet." }
     if (-not (Ask-Consent)) {
-        Say 'Python was not installed. Run the setup again whenever you are ready.'
+        Say 'Python was not downloaded. Run the setup again whenever you are ready.'
         exit 2
     }
-    $installer = $null
-    try {
-        $installer = Get-Installer
-    } catch {
-        Say "The direct download did not work: $($_.Exception.Message)"
-    }
-    if ($installer -and $DownloadOnly) {
-        Say "Verified installer: $installer (not run: -DownloadOnly)."
+    $archive = Get-Archive
+    if ($DownloadOnly) {
+        Say "Verified archive: $archive (not unpacked: -DownloadOnly)."
         exit 0
     }
-    $python = $null
-    if ($installer) { $python = Install-Direct $installer }
-    if (-not $python) { $python = Install-Winget }
+    $python = Install-Local $archive
     if (-not $python) {
-        Say 'Python could not be installed automatically. Nothing else was changed.'
+        Say "The app's own Python was unpacked but could not be started. Nothing outside this folder was changed."
         exit 3
     }
-    if ($installer -and -not $InstallerPath) { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue }
+    if (-not $ArchivePath) { Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue }
     Write-Result $python
     exit 0
 } catch {

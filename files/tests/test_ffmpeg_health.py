@@ -854,24 +854,23 @@ def test_a_winget_install_is_accepted_without_waiting_for_path():
     Stated as AST it says the actual invariant: this function does not call the
     PATH probe, and neither does the route that decides on its result.
     """
-    for name in ("_winget_ffmpeg", "_brew_ffmpeg", "_install_ffmpeg"):
+    for name in ("_brew_ffmpeg", "_install_ffmpeg"):  # v0.7.0: no WinGet install remains (Windows installs nothing)
         called = source_probe.calls(
             source_probe.function("shared/bootstrap.py", name))
         assert "_ffmpeg_on_path" not in called, name
         assert "_ffmpeg_in_bin" not in called, name
 
 
-def test_the_winget_argv_is_the_pinned_package_in_user_scope():
-    """What the command *is*, read from the tree rather than from the text."""
-    argv = [a for a in source_probe.literal_lists(
-        source_probe.function("shared/bootstrap.py", "_winget_ffmpeg"))
-        if a and a[0] == "winget"]
+def test_no_winget_ffmpeg_install_remains():
+    """v0.7.0 portable layout: read from the tree, not the text. Windows installs nothing on the computer; the app's
+    own pinned build (``ffmpeg_portable``) is its only FFmpeg install route."""
+    import ast as _ast
 
-    assert len(argv) == 1, argv
-    command = argv[0]
-    assert command[:2] == ["winget", "install"]
-    assert "Gyan.FFmpeg" in command
-    assert command[command.index("--scope") + 1] == "user"
+    tree = _ast.parse((REPO_ROOT / "scripts" / "shared" / "bootstrap.py").read_text(encoding="utf-8"))
+    assert "_winget_ffmpeg" not in {n.name for n in _ast.walk(tree) if isinstance(n, _ast.FunctionDef)}
+    winget_commands = [n for n in _ast.walk(tree) if isinstance(n, _ast.List) and n.elts
+                       and isinstance(n.elts[0], _ast.Constant) and n.elts[0].value == "winget"]
+    assert winget_commands == []
 
 
 def test_the_launch_fast_path_checks_ffmpeg_before_the_gui():

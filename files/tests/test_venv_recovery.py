@@ -694,19 +694,21 @@ def test_the_repair_exit_code_is_not_an_overloaded_one():
     assert bootstrap.EXIT_VENV_REPAIR_REQUIRED not in (0, 1)
 
 
-def test_python_is_installed_at_user_scope():
-    """Reachable from an ordinary repair now, and CSPW-PC has no admin rights."""
+def test_python_is_never_installed_on_the_computer():
+    """Reachable from an ordinary repair, and CSPW-PC has no admin rights. v0.7.0 portable layout: nothing is installed
+    in any scope; the app's own Python is downloaded into its folder by stage 0."""
     src = Path(bootstrap.__file__).read_text(encoding="utf-8")
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "install_python")
     literals = [n.value for n in ast.walk(fn)
                 if isinstance(n, ast.Constant) and isinstance(n.value, str)]
-    assert "--scope" in literals and "user" in literals
+    assert "winget" not in literals and "--scope" not in literals
 
     text = BAT.read_text(encoding="utf-8", errors="replace")
-    assert "bootstrap_host.ps1" in text  # the launcher hands Python acquisition to stage 0, which stays per-user
+    assert "bootstrap_host.ps1" in text  # the launcher hands Python acquisition to stage 0
     stage0 = (BAT.parent / "scripts" / "shared" / "bootstrap_host.ps1").read_text(encoding="ascii")
-    assert "--scope user" in stage0 and "'InstallAllUsers=0'" in stage0
+    assert "winget" not in stage0 and "InstallAllUsers" not in stage0
+    assert "files\\runtime-data\\python" in stage0
 
 
 def test_the_ffmpeg_winget_command_is_left_alone():

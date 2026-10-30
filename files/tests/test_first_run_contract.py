@@ -103,29 +103,21 @@ def _stage0() -> str:
     return (Path(__file__).resolve().parents[2] / "scripts" / "shared" / "bootstrap_host.ps1").read_text(encoding="ascii")
 
 
-def test_it_installs_python_312_when_none_is_found(bat_text):
-    """Stage 0 installs the pinned python.org 3.12 directly, with winget (agreements accepted) only as a fallback."""
+def test_it_provides_the_apps_own_python_312_when_none_is_there(bat_text):
+    """v0.7.0 portable layout: stage 0 downloads the pinned standalone 3.12 into the app's folder (never an install on
+    the computer, never winget); test_bootstrap_host.py pins the details."""
     stage0 = _stage0()
     assert "bootstrap_host.ps1" in bat_text
-    assert "python-$PyVersion-amd64.exe" in stage0 and "$PyVersion = '3.12.10'" in stage0
-    assert "winget.exe install --id Python.Python.3.12" in stage0
-    assert "--accept-source-agreements" in stage0 and "--accept-package-agreements" in stage0
+    assert "$PyVersion = '3.12.15'" in stage0 and "install_only.tar.gz" in stage0
+    assert "winget" not in stage0 and "python.org/ftp" not in stage0
 
 
-def test_it_accepts_the_user_scope_install_without_waiting_for_path(bat_text):
-    """winget installs per-user and does not refresh a running shell's PATH.
-
-    Re-checking ``where`` alone would report failure for an install that had
-    just succeeded, which is the same defect Phase 15 removed from the FFmpeg
-    branch. The ``.bat`` checks the known location directly.
-    """
+def test_the_unpacked_python_is_proved_at_its_final_place_not_trusted_from_the_archive(bat_text):
+    """Unpacking is not proof: the interpreter is run where the app will use it, after it was moved into place."""
     stage0 = _stage0()
-    assert "$TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python312'" in stage0
-    install_at = stage0.index("$process = Start-Process -FilePath $Installer")
-    direct_at = stage0.index("return Test-Candidate @((Join-Path $TargetDir 'python.exe'))")
-    assert install_at < direct_at, "the direct check must come after the install"
-    winget_at = stage0.index("& winget.exe install")
-    assert winget_at < stage0.index("return Find-Python", winget_at)  # and after a winget install it is re-discovered
+    moved_at = stage0.index("Move-Item -LiteralPath $unpacked -Destination $PythonHome")
+    proved_at = stage0.index("return Test-Candidate (Join-Path $PythonHome 'python.exe')", moved_at)
+    assert moved_at < proved_at
 
 
 def test_the_located_interpreter_is_what_runs_the_bootstrap(bat_text):
@@ -137,8 +129,8 @@ def test_the_located_interpreter_is_what_runs_the_bootstrap(bat_text):
 def test_failing_to_obtain_python_fails_truthfully_rather_than_obscurely(bat_text):
     """The worst outcome is running ``"" bootstrap.py`` and showing a shell error."""
     tail = bat_text[bat_text.index("if not defined PYCMD (", bat_text.index("bootstrap_host.ps1")):]
-    assert "Python could not be set up automatically" in tail
-    assert "python.org/downloads" in tail
+    assert "The app's own Python could not be set up" in tail
+    assert "python.org" not in tail  # the user is never sent to install Python on the computer
     assert "exit /b 1" in tail
     # And it must stop rather than fall through into the bootstrap call.
     assert tail.index("exit /b 1") < tail.index('"%PYCMD%" "%BOOTSTRAP%"')
@@ -173,6 +165,8 @@ def test_the_bootstrap_probes_the_winget_user_scope_python_location(monkeypatch)
     # and a launcher candidate is ["py", "-3.12"]. Only the single-token path
     # candidates can name a user-scope install.
     paths = [argv[0] for argv in candidates if len(argv) == 1]
+    # v0.7.0 portable layout: the app's own Python is always the first candidate.
+    assert candidates[0] == [str(bootstrap.APP_PYTHON)]
     user_scope = [PureWindowsPath(c) for c in paths
                   if PureWindowsPath(c).parts[-4:]
                   == ("Programs", "Python", "Python312", "python.exe")]
@@ -183,7 +177,7 @@ def test_the_bootstrap_probes_the_winget_user_scope_python_location(monkeypatch)
 
 
 def test_installing_python_re_probes_even_if_winget_reports_a_problem(monkeypatch):
-    """A non-zero winget exit is not proof the interpreter is absent."""
+    """A non-zero package-manager exit is not proof the interpreter is absent (Windows installs nothing here at all)."""
     calls: list = []
     monkeypatch.setattr(bootstrap.shutil, "which", lambda name: "winget")
     monkeypatch.setattr(bootstrap, "_run",
@@ -237,6 +231,21 @@ def installer(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", do_install)
+    if bootstrap.IS_WINDOWS:
+        # v0.7.0 portable layout: on Windows the app installs only its own pinned build, into files/bin, and pins it
+        # (ffmpeg_portable.acquire does that through ffmpeg_health). The stand-in does exactly that much.
+        package = ffmpeg_health.portable_root() / "9.0.1" / "bin"
+
+        def own_build(log):
+            state["installed"] += 1
+            install(package)
+            ffmpeg_health.establish(log)
+            return True
+
+        monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows", own_build)
+        monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+        state["package"] = package
+        return state
     # PRE-PLAN-6 Phase 5 chooses the route before calling the installer, and it
     # chooses on ``shutil.which``. These tests deliberately empty or poison
     # PATH, so say plainly that this machine has a package manager rather than
@@ -301,9 +310,10 @@ def test_both_halves_of_the_installed_pair_are_executed(monkeypatch, installer):
 
     monkeypatch.setattr(ffmpeg_health, "prove_pair", watching)
     bootstrap.ensure_ffmpeg(Log())
-    assert len(executed) == 2
-    assert executed[0].name.startswith("ffmpeg")
-    assert executed[1].name.startswith("ffprobe")
+    # Every proof runs both halves (the Windows route proves while pinning and again before use).
+    assert executed and len(executed) % 2 == 0
+    assert all(a.name.startswith("ffmpeg") and b.name.startswith("ffprobe")
+               for a, b in zip(executed[::2], executed[1::2]))
 
 
 def test_an_install_that_still_does_not_run_is_reported_as_failure(
@@ -314,7 +324,7 @@ def test_an_install_that_still_does_not_run_is_reported_as_failure(
                             ok=False, detail="blocked", failed="ffprobe"))
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
-    assert "no pair here could be proved" in log.text
+    assert ("installed but did not prove" if bootstrap.IS_WINDOWS else "no pair here could be proved") in log.text
     assert ffmpeg_health.pinned_pair() is None
 
 
@@ -328,18 +338,19 @@ def test_setup_does_not_reinstall_when_a_healthy_pair_already_exists(
     assert installer["installed"] == 0
 
 
-def test_the_windows_installer_prefers_the_stable_winget_package():
-    """A moving nightly cannot accumulate the reputation an unsigned build needs.
-
-    PRE-PLAN-6 Phase 5 moved the *ordering* out of the installer and into
-    ``repair_ffmpeg``, because the repo-local fallback has to remain reachable
-    after a package-manager install that exits 0 and proves nothing. So the
-    package id is asserted where the command is built, and the preference is
-    asserted where the sequence now lives.
-    """
-    argv = source_probe.literal_lists(
-        source_probe.function("shared/bootstrap.py", "_winget_ffmpeg"))
-    assert any("Gyan.FFmpeg" in command for command in argv), argv
+def test_windows_never_installs_ffmpeg_on_the_computer_only_the_apps_own_pinned_build():
+    """v0.7.0 portable layout: no WinGet (or any other) install on Windows; the app's own stable, pinned Gyan build
+    (ffmpeg_portable, verified by SHA-256) is the Windows route, into files/bin. A moving nightly cannot accumulate the
+    reputation an unsigned build needs, so the pin stays a stable release (test_ffmpeg_portable.py)."""
+    source = (REPO_ROOT / "scripts" / "shared" / "bootstrap.py").read_text(encoding="utf-8")
+    assert '"winget", "install"' not in source.replace("'", '"')
+    original = bootstrap.IS_WINDOWS
+    try:
+        bootstrap.IS_WINDOWS = True
+        assert bootstrap._package_manager_route() is None
+        assert bootstrap._install_ffmpeg(Log()) is False
+    finally:
+        bootstrap.IS_WINDOWS = original
 
     order = source_probe.call_order(
         source_probe.function("shared/bootstrap.py", "repair_ffmpeg"),

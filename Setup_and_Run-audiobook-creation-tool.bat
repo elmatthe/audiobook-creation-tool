@@ -66,14 +66,15 @@ echo.
 
 REM ---------------------------------------------------------------------------
 REM  First run, or an environment repair: we need a proven Python outside the venv.
-REM  Stage 0 (scripts\shared\bootstrap_host.ps1) finds one by RUNNING it (3.11 or
-REM  3.12 with ssl, venv and Tk), or - only after asking - installs the pinned,
-REM  verified python.org 3.12.10 for this user: no administrator rights, no PATH
-REM  change, winget only as a fallback. It writes the interpreter's full path to
-REM  a file; exit 2 means the user said No, 3 means it could not be done.
+REM  Stage 0 (scripts\shared\bootstrap_host.ps1) uses the app's OWN Python in
+REM  files\runtime-data\python, proved by RUNNING it (3.12 with ssl, venv and Tk),
+REM  or - only after asking - downloads the pinned, hash-verified standalone
+REM  Python into that folder. Nothing is installed on the computer: no installer,
+REM  no administrator rights, no PATH change. It writes the interpreter's full
+REM  path to a file; exit 2 means the user said No, 3 means it could not be done.
 REM ---------------------------------------------------------------------------
 :findpython
-echo Looking for a compatible Python (3.11 or 3.12)...
+echo Preparing the app's own Python (kept inside this folder)...
 set "PYCMD="
 set "PYFILE=files\temp\bootstrap\selected-python.txt"
 if not exist "files\temp\bootstrap" mkdir "files\temp\bootstrap"
@@ -100,9 +101,8 @@ if not defined PYCMD if not "%HOSTRC%"=="3" (
 
 if not defined PYCMD (
     echo.
-    echo Python could not be set up automatically ^(see the messages above^).
-    echo You can install Python 3.12 yourself from https://www.python.org/downloads/
-    echo ^(the "Windows installer (64-bit)"^), then run this file again.
+    echo The app's own Python could not be set up ^(see the messages above^).
+    echo Check the internet connection and run this file again.
     echo.
     pause
     exit /b 1

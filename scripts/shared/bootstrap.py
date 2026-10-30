@@ -17,8 +17,8 @@ Responsibilities, in order:
    - locate or install Python 3.11/3.12 (Kokoro wheels require <3.13),
    - create ``<repo_root>/.venv`` with that interpreter,
    - ``pip install`` the pinned ``scripts/requirements.txt``,
-   - ensure ffmpeg (winget ``Gyan.FFmpeg`` / Homebrew, portable fallback into
-     ``files/bin/``),
+   - ensure ffmpeg (Windows: the app's own pinned build in ``files/bin/``, never an install on the computer;
+     macOS: Homebrew),
    - optionally pre-download the Kokoro model (~300 MB).
 4. Launch the unified launcher GUI detached (``pythonw`` on Windows) and exit.
 
@@ -101,7 +101,10 @@ for _stream in (sys.stdout, sys.stderr):
 # Python versions acceptable for the venv. Kokoro's PyPI wheels require <3.13,
 # so 3.12 is the sweet spot; 3.11 is also fine. 3.13+ works but loses Kokoro.
 PREFERRED_PY = ("3.12", "3.11")
-WINGET_PYTHON_ID = "Python.Python.3.12"
+#: v0.7.0 portable layout (Windows): the app's own standalone CPython, placed by stage 0 (bootstrap_host.ps1) inside
+#: the app's folder. Outside .venv on purpose: a repair renames .venv aside while this interpreter runs the repair.
+APP_PYTHON_DIR = FILES_DIR / "runtime-data" / "python"
+APP_PYTHON = APP_PYTHON_DIR / "python.exe"
 
 # The project's full-feature range, in one place. 3.11 is the floor the project
 # supports; 3.13 is excluded because the pinned Kokoro/Chatterbox wheels require
@@ -126,7 +129,7 @@ def _is_kokoro_compatible(ver: tuple[int, int] | None) -> bool:
     """Kokoro's PyPI wheels require >=3.10,<3.13."""
     return ver is not None and (3, 10) <= ver < (3, 13)
 
-# Portable ffmpeg fallback (Windows only) — used if winget is unavailable. The
+# The app's own FFmpeg build (Windows): the only FFmpeg it ever installs, inside its folder. The
 # source pin lives in ``shared/ffmpeg_portable.py``: one authoritative set of
 # constants, verified against the Gyan release and Microsoft's winget-pkgs
 # manifest, rather than a URL floating on "latest" as this used to be.
@@ -1369,6 +1372,9 @@ def _candidate_interpreters() -> list[list[str]]:
     """
     cands: list[list[str]] = []
     if IS_WINDOWS:
+        # v0.7.0: the app's own Python first, so a rebuilt environment never comes to depend on a Python that merely
+        # happens to be installed on this computer.
+        cands.append([str(APP_PYTHON)])
         # The py launcher can target an exact version.
         for ver in PREFERRED_PY:
             cands.append(["py", f"-{ver}"])
@@ -1514,23 +1520,10 @@ def _interp_version_argv(argv: list[str]) -> Optional[tuple[int, int]]:
 def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]:
     """Attempt to install Python 3.12, then re-locate it. Returns argv or None."""
     if IS_WINDOWS:
-        if shutil.which("winget"):
-            log.line(f"Installing {WINGET_PYTHON_ID} via winget (this can take a few minutes)…")
-            # Explicit user scope. Phase 2 makes this reachable from an ordinary
-            # launcher repair rather than only from a first run the user started
-            # deliberately, and CSPW-PC is a Standard User with no admin rights:
-            # a machine-wide install there would prompt for a password nobody
-            # has. Saying "user" out loud also stops the answer depending on a
-            # package default that can change under us.
-            r = _run(["winget", "install", "--id", WINGET_PYTHON_ID, "-e",
-                      "--scope", "user",
-                      "--silent", "--accept-source-agreements",
-                      "--accept-package-agreements"])
-            log.line(r.stdout.strip() or "")
-            if r.returncode != 0:
-                log.line(f"  winget reported a problem: {r.stderr.strip()}")
-        else:
-            log.line("  winget not available — cannot auto-install Python.")
+        # v0.7.0 portable layout: nothing is installed on the computer. The app's own Python is downloaded into its
+        # folder by stage 0 (Setup_and_Run-audiobook-creation-tool.bat -> bootstrap_host.ps1), with consent.
+        log.line("  The app's own Python is provided by Setup_and_Run-audiobook-creation-tool.bat; run it to "
+                 "download it into this folder.")
     elif IS_MAC:
         if shutil.which("brew"):
             log.line("Installing python@3.12 via Homebrew (this can take a few minutes)…")
@@ -2418,35 +2411,6 @@ class FFmpegRepair:
         return " ".join(parts)
 
 
-def _winget_ffmpeg(log: SetupLog) -> bool:
-    """Ask WinGet for Gyan.FFmpeg in **user scope**. Command result only.
-
-    User scope is explicit, not inherited from a package default that can
-    change under us. It is also the only scope that works on the machines this
-    has to run on: CSPW-PC is a Standard User with no administrator rights, so
-    a machine-wide install there prompts for a password nobody has. A scope or
-    elevation refusal is therefore not an error to report — it means *this
-    route is unavailable*, and the caller falls through to the repo-local one.
-    """
-    log.line("Installing ffmpeg via winget (Gyan.FFmpeg, user scope)…")
-    result = _run(["winget", "install", "--id", "Gyan.FFmpeg", "-e",
-                   "--scope", "user",
-                   "--silent", "--accept-source-agreements",
-                   "--accept-package-agreements"])
-    if result.returncode == 0:
-        # Deliberately **not** gated on finding ffmpeg on this process's
-        # PATH. winget updates the *user's* PATH, not the environment of a
-        # process already running, so that check failed on exactly the installs
-        # that had just succeeded — and sent setup off to fetch a second, worse
-        # copy. ``ffmpeg_health`` looks inside the WinGet package directory
-        # itself, so a stale PATH costs nothing.
-        log.line("  winget reported the ffmpeg install completed.")
-        return True
-    log.line(f"  winget could not install ffmpeg in user scope "
-             f"(exit {result.returncode}) — treating that route as unavailable.")
-    return False
-
-
 def _brew_ffmpeg(log: SetupLog) -> bool:
     """Ask Homebrew for ffmpeg. Command result only — never the authority."""
     log.line("Installing ffmpeg via Homebrew…")
@@ -2473,10 +2437,7 @@ def _install_ffmpeg(log: SetupLog) -> bool:
     skipped inside this function.
     """
     if IS_WINDOWS:
-        if not shutil.which("winget"):
-            log.line("  winget is not available on this computer.")
-            return False
-        return _winget_ffmpeg(log)
+        return False  # v0.7.0 portable layout: never installed on the computer (repair_ffmpeg uses the app's own build)
     if IS_MAC:
         if not shutil.which("brew"):
             log.line("  Homebrew is not installed, so that route is unavailable.")
@@ -2488,8 +2449,6 @@ def _install_ffmpeg(log: SetupLog) -> bool:
 
 def _package_manager_route() -> Optional[str]:
     """Which package-manager route this machine can attempt, if any."""
-    if IS_WINDOWS and shutil.which("winget"):
-        return FFMPEG_ROUTE_WINGET
     if IS_MAC and shutil.which("brew"):
         return FFMPEG_ROUTE_HOMEBREW
     return None
@@ -2502,7 +2461,8 @@ def _no_package_manager_detail() -> str:
                 "repair had nothing to install with. Installing Homebrew "
                 "(https://brew.sh) would let the app repair this by itself.")
     if IS_WINDOWS:
-        return "WinGet is not available on this computer."
+        return ("Nothing is installed on the computer for it: the app downloads its own verified FFmpeg build into "
+                "its folder.")
     return "No supported package manager is available on this computer."
 
 
@@ -2593,8 +2553,7 @@ def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
     ``ffmpeg_health``.
 
     The name is kept because the call site above reads well, and because this is
-    still exactly what it says: the fallback for when winget is unavailable or
-    failed. What changed is that it can no longer trade a working FFmpeg for a
+    the Windows install route (v0.7.0: the only one; nothing is installed on the computer). What changed is that it can no longer trade a working FFmpeg for a
     broken one — every failure before the final pin leaves whatever was already
     pinned untouched.
     """

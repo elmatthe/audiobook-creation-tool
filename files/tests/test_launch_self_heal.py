@@ -170,6 +170,23 @@ def commands(monkeypatch):
 
 
 @pytest.fixture
+def own_build(monkeypatch, sandbox):
+    """The app's own pinned build (v0.7.0: the only Windows install route): it lands in files/bin and is pinned there,
+    exactly as ``ffmpeg_portable.acquire`` does. Records each acquisition."""
+    final = sandbox / "bin" / "ffmpeg" / "9.0.1" / "bin"
+    acquired: list = []
+
+    def acquire(log):
+        acquired.append(1)
+        install(final)
+        ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(final), log)
+        return True
+
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows", acquire)
+    return acquired, final
+
+
+@pytest.fixture
 def installs_when_run(commands, monkeypatch, sandbox):
     """A package manager that only delivers once its command has run.
 
@@ -330,23 +347,20 @@ def test_a_discovered_but_unpinned_pair_is_proved_rather_than_reinstalled(
     assert ffmpeg_health.pinned_pair().directory == directory
 
 
-def test_a_successful_user_scope_winget_install_ends_the_repair(
-        sandbox, windows, tools, installs_when_run, proves_everything,
-        monkeypatch):
-    """Row 3. WinGet worked and the result proves — the fallback stays unused."""
+def test_winget_present_is_never_used_the_apps_own_build_completes_the_repair(
+        sandbox, windows, tools, commands, own_build, proves_everything):
+    """Row 3, v0.7.0 portable layout. Even with WinGet on the machine nothing is installed on the computer: the app's
+    own pinned build, inside its folder, is the route and its pin is the one used."""
     tools.add("winget")
-    package = installs_when_run
-    portable: list = []
-    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
-                        lambda log: portable.append(1) or True)
+    acquired, final = own_build
 
     result = bootstrap.repair_ffmpeg(Log())
 
     assert result.ready
-    assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING,
-                             bootstrap.FFMPEG_ROUTE_WINGET)
-    assert portable == [], "the fallback ran even though WinGet succeeded"
-    assert ffmpeg_health.pinned_pair().directory == package
+    assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING, bootstrap.FFMPEG_ROUTE_PORTABLE)
+    assert commands == [], "a package manager was invoked"
+    assert acquired == [1]
+    assert ffmpeg_health.pinned_pair().directory == final
 
 
 def test_a_missing_winget_falls_through_to_the_repo_local_build(
@@ -362,52 +376,6 @@ def test_a_missing_winget_falls_through_to_the_repo_local_build(
     assert portable == [1]
     assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING,
                              bootstrap.FFMPEG_ROUTE_PORTABLE)
-
-
-def test_a_failing_user_scope_winget_install_falls_through(
-        sandbox, windows, tools, commands, proves_nothing, monkeypatch):
-    """Row 5. Including the scope/elevation refusal this phase must tolerate.
-
-    A Standard User's machine-wide install prompts for a password nobody has,
-    which surfaces here as a non-zero exit. That is "this route is unavailable",
-    not "the repair failed".
-    """
-    tools.add("winget")
-    commands.returncode = 1
-    portable: list = []
-    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
-                        lambda log: portable.append(1) or False)
-
-    bootstrap.repair_ffmpeg(Log())
-
-    assert commands and commands[0][:2] == ["winget", "install"]
-    assert portable == [1]
-
-
-def test_winget_exit_zero_without_a_provable_pair_still_falls_through(
-        sandbox, windows, tools, commands, proves_nothing, monkeypatch):
-    """Row 6 — the defect this orchestration exists to fix.
-
-    ``_install_ffmpeg`` used to return True on exit 0 and the caller then gave
-    up when ``establish`` found nothing provable, because the repo-local
-    fallback lived *inside* the function that had already returned. An install
-    that produced nothing runnable was a permanent dead end with a verified
-    build sitting unused behind it.
-    """
-    tools.add("winget")
-    package = install(sandbox / "winget-package")
-    monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [package])
-    portable: list = []
-    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
-                        lambda log: portable.append(1) or False)
-
-    result = bootstrap.repair_ffmpeg(Log())
-
-    assert commands[0][:2] == ["winget", "install"], "winget did run"
-    assert commands.returncode == 0, "and it exited 0"
-    assert portable == [1], "exit 0 was treated as the end of the repair"
-    assert not result.ready
-    assert bootstrap.FFMPEG_ROUTE_PORTABLE in result.routes
 
 
 def test_the_repo_local_build_completes_the_repair(
@@ -697,7 +665,7 @@ def launch(monkeypatch, tmp_path, sandbox):
 
 
 def test_a_successful_repair_shows_no_warning_at_all(
-        launch, windows, tools, installs_when_run, proves_everything, sandbox):
+        launch, windows, tools, own_build, proves_everything, sandbox):
     """§8.7. Repair succeeded; there is nothing to tell anyone."""
     tools.add("winget")
 
@@ -785,26 +753,23 @@ def test_a_fatal_environment_still_reports_before_there_is_a_gui(monkeypatch,
 # F. Second launch is a no-op
 # =========================================================================== #
 def test_a_second_launch_after_a_repair_does_no_work(
-        launch, windows, tools, commands, installs_when_run, proves_everything,
+        launch, windows, tools, commands, own_build, proves_everything,
         monkeypatch, sandbox):
     """Launch #1 repairs and pins; launch #2 re-proves that pin and stops."""
     tools.add("winget")
-    portable: list = []
-    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
-                        lambda log: portable.append(1) or True)
+    acquired, _final = own_build
 
     assert launch.run() == 0
-    assert commands, "the first launch did repair"
+    assert acquired == [1], "the first launch did repair"
     pinned = ffmpeg_health.pinned_pair()
     assert pinned is not None
 
-    commands.clear()
     launch.events.clear()
 
     assert launch.run() == 0
 
-    assert commands == [], "the second launch called a package manager"
-    assert portable == [], "the second launch acquired a portable build"
+    assert commands == [], "a launch called a package manager"
+    assert acquired == [1], "the second launch acquired the build again"
     assert launch.events == ["launch_gui"], "the second launch did work"
     assert launch.warnings == []
     assert ffmpeg_health.pinned_pair().directory == pinned.directory
@@ -832,7 +797,7 @@ def test_a_second_launch_repairs_nothing_else_either(
 # G. A pin that has stopped being true
 # =========================================================================== #
 def test_a_broken_pin_enters_ffmpeg_repair_and_leaves_python_alone(
-        launch, windows, tools, commands, installs_when_run, monkeypatch,
+        launch, windows, tools, commands, own_build, monkeypatch,
         sandbox):
     """State names a pair; one binary is gone. That is an FFmpeg problem."""
     monkeypatch.setattr(
@@ -844,7 +809,7 @@ def test_a_broken_pin_enters_ffmpeg_repair_and_leaves_python_alone(
     (directory / f"ffprobe{EXE}").unlink()
 
     tools.add("winget")
-    package = installs_when_run
+    acquired, final = own_build
     monkeypatch.setenv("PATH", "")
     repairs: list = []
     monkeypatch.setattr(bootstrap, "repair_venv",
@@ -852,52 +817,43 @@ def test_a_broken_pin_enters_ffmpeg_repair_and_leaves_python_alone(
 
     assert launch.run() == 0
 
-    assert commands and commands[0][:2] == ["winget", "install"]
+    assert acquired == [1] and commands == []
     assert repairs == [], "an FFmpeg problem cost a Python repair"
-    assert ffmpeg_health.pinned_pair().directory == package
+    assert ffmpeg_health.pinned_pair().directory == final
     assert launch.warnings == []
 
 
 # =========================================================================== #
 # H. Package-manager scope (M5)
 # =========================================================================== #
-def test_the_ffmpeg_winget_install_asks_for_user_scope(
+def test_windows_ffmpeg_repair_never_runs_a_package_manager(
         sandbox, windows, tools, commands, proves_nothing, monkeypatch):
-    """M5, on the actual argv rather than on the source text.
-
-    CSPW-PC is a Standard User with no administrator rights: a machine-wide
-    install there prompts for a password nobody has. Naming the scope also
-    stops the answer depending on a package default that can change under us.
-    """
+    """v0.7.0 portable layout (supersedes the M5 user-scope rule for Windows): nothing is installed on the computer,
+    in any scope; a failed repair falls to the app's own build and nothing else."""
     tools.add("winget")
+    portable: list = []
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
-                        lambda log: False)
+                        lambda log: portable.append(1) or False)
 
     bootstrap.repair_ffmpeg(Log())
 
-    argv = commands[0]
-    assert argv[:2] == ["winget", "install"]
-    assert "Gyan.FFmpeg" in argv
-    assert argv[argv.index("--scope") + 1] == "user"
+    assert commands == [] and portable == [1]
 
 
-def test_the_python_winget_install_still_asks_for_user_scope(
+def test_windows_never_installs_python_on_the_computer(
         windows, tools, commands, monkeypatch):
-    """The Phase-1/2 rule, re-asserted because this phase moved scope around."""
+    """v0.7.0 portable layout: the app's own Python is stage 0's (inside the app's folder); bootstrap runs nothing."""
     tools.add("winget")
     monkeypatch.setattr(bootstrap, "find_suitable_python",
                         lambda log, prefer_tk=True: None)
 
     bootstrap.install_python(Log())
 
-    argv = commands[0]
-    assert argv[:2] == ["winget", "install"]
-    assert bootstrap.WINGET_PYTHON_ID in argv
-    assert argv[argv.index("--scope") + 1] == "user"
+    assert commands == []
 
 
-def test_every_production_winget_install_names_a_scope():
-    """Inventory, not a spot check: a new call site must not be able to omit it."""
+def test_no_production_code_runs_winget_at_all():
+    """Inventory, not a spot check: v0.7.0 removed every WinGet install, so a new call site cannot slip back in."""
     installs = []
     for node in ast.walk(_TREE):
         if not isinstance(node, ast.List):
@@ -906,22 +862,17 @@ def test_every_production_winget_install_names_a_scope():
         if isinstance(head, ast.Constant) and head.value == "winget":
             installs.append([e.value for e in node.elts
                              if isinstance(e, ast.Constant)])
-    assert len(installs) == 2, f"expected the Python and FFmpeg calls, got {installs}"
-    for argv in installs:
-        assert "install" in argv
-        assert argv[argv.index("--scope") + 1] == "user", argv
+    assert installs == [], installs
 
 
-def test_the_windows_launcher_python_fallback_is_user_scope():
-    """Every winget call that can install Python (now in Windows stage 0), verified rather than assumed."""
+def test_nothing_in_the_windows_launchers_installs_python_on_the_computer():
+    """The app's own Python is downloaded into its folder by stage 0; no installer, no WinGet, no machine or user
+    registration (test_bootstrap_host.py pins the details)."""
     sources = [(REPO_ROOT / name).read_text(encoding="utf-8", errors="replace")
                for name in ("Setup_and_Run-audiobook-creation-tool.bat", "scripts/shared/bootstrap_host.ps1")]
-    lines = [ln for text in sources for ln in text.splitlines()
-             if "winget" in ln and "install --id" in ln and not ln.strip().startswith(("REM", "#"))]
-    assert lines, "nothing installs Python any more"
-    for line in lines:
-        assert "--scope user" in line, line
-    assert "InstallAllUsers=0" in sources[1]  # and the direct python.org route is per-user too
+    for text in sources:
+        assert "winget" not in text.lower()
+        assert "InstallAllUsers" not in text and "python.org/ftp" not in text
 
 
 def test_no_production_install_asks_for_machine_scope():
