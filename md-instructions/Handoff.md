@@ -2,6 +2,55 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 completion: portable Windows setup, real-run defects fixed, six-gate verify, all 28 voices narrated from a fresh RC install; NOT merged/tagged/published (2026-10-30, Claude Code)
+
+Authority: owner directives 2026-10-30 (finish the release; portability clarification supersedes conflicting plan details).
+Branch `feature/0.7.0-release-remediation` (exact SHA: `git log`). Evidence (ignored): `files/dev-work/act070-rc/evidence/`.
+
+- **Portable Windows layout (owner clarification):** stage 0 downloads the app's own CPython 3.12.15
+  (python-build-standalone `20261009`, size + SHA-256 pinned, consent first) into `files/runtime-data/python` with
+  Windows `tar.exe`; no python.org installer, no winget, nothing registered. Windows FFmpeg = the app's own pinned Gyan
+  9.0.1 in `files/bin` (a working FFmpeg already on PATH is still used). The base cannot live in `.venv`: a repair
+  renames `.venv` aside while that interpreter runs it. Models stay in `files/runtime-data` (survive a lost `.venv`);
+  reference WAVs stay in `files/Cloned-Voice-Uploads` (move deferred: no benefit while `files/` holds base + models).
+  Smart App Control (enforcing, HOME-PC) allowed the unsigned standalone Python; Tk/ssl/venv/pip proved.
+- **Real-run defects fixed:** Edge direct clipped the final word's decay (0 ms on all five Edge voices → 150–160 ms);
+  a rebuilt `.venv` lost the spaCy English model (kept wheel, offline restore); an interrupted repair stranded the Qwen3
+  engine in `.venv.replaced` (launch paths hand back to repair); the Qwen3 engine refused the app's own base Python.
+- **Gate:** `verify.py` has six gates; `guarded` runs the eight guarded-only suites through `guarded_pytest.py`
+  (`files/tests/guarded_groups.json`). Final-tree result: see the newest `files/dev-work/act070-remediation/verify/`.
+- **Exact RC `f35bd1c` (pre-portable)** `dist/AudiobookTool-Windows-v0.7.0.zip` SHA-256 `723d018d…2d2a`, 156 members:
+  fresh extract → real wizard, all four → 14.8 GB genuine download → 28/28 voices narrated (`<stem>-<label>.mp3`, tails
+  140–160 ms; Qwen3 0–80 ms = model's own ending). Superseded by the portable RC (Handoff Next).
+- **Portable dev ZIP `1935bfc` (+ synced fixes) on a stripped environment** (PATH = Windows dirs only, empty
+  LOCALAPPDATA: no Python/FFmpeg/winget visible, cold pip cache): stage 0 downloaded + proved the app's own Python
+  (also after a killed download), base built on it, the app's own FFmpeg installed into `files/bin`, all four installed,
+  **28/28 voices narrated**; root holds only `.venv`, `files`, `scripts` + root files. All optional skipped (another
+  copy) → base only → app launched. Non-TTS GUI smoke: six tools ×2 + Preferences, no errors, no output created.
+- **Recovery (real BAT / client on disposable copies):** healthy relaunch (no reinstall); main `.venv` corrupted →
+  repair keeps the engine byte-identical and restores spaCy offline; repair killed mid-pip → next BAT finishes it
+  (restore aside, rebuild, engine back); nested engine lost → re-plan = engine only (3.07 GB), models reused, reinstall
+  0 B with kept wheels, Qwen3 narrates; nested engine corrupted → readiness still says ready (identity/record based)
+  but "Install / repair Qwen3 voices… → Check and repair" detects it (3.1 GB rebuild); the narration error now points
+  there; whole `.venv` deleted → BAT first-run path reuses the app's Python, FFmpeg, models and spaCy wheel.
+  Concurrent Qwen3 use from another copy is refused by the machine guard (by design).
+- **MANUAL / NOT RUN (owner):** physical clean Windows 10/11 standard user; literal BAT double-click and consent dialogs;
+  display scaling 125–200 %; listening (final words; Qwen3 Aiden ends at 0 ms by the model); all-28 listening; six-
+  reference provenance/redistribution; long-paths-disabled machine; non-TTS hands-on beyond the automated real-FFmpeg suites.
+- **Minor (open):** progress line names the last file beside a component total; `filelock` resolves 4.2.5 vs 4.2.4
+  (unpinned transitive; AUD-010).
+- **Cleanup proposal (owner approval required; nothing deleted):** measured 2026-10-30. Legacy environments in this
+  checkout: `.venv-qwen3` 5.48 GB (unused since P04C 5B; its only role is rollback of that adoption),
+  `.venv-qwen3.act67-preserved-20261021-184021-592ae0be` 5.48 GB, `.venv.act67-preserved-…` 2.50 GB,
+  `files/runtime-data.act67-preserved-…` 19.16 GB = 32.6 GB. The active `.venv` (base CPython 3.12.10 at
+  `%LOCALAPPDATA%\Programs\Python\Python312`) and `.venv/engines/qwen3` reference none of them. Disposable QA copies
+  under `files/dev-work`: `rc1` 20.4, `rc2` 2.8, `rc3` ≈21, `p1` ≈21, `p2` ≈3, `P04B q` 18.7, `P04C q` 17.6,
+  `qwen3-eval` 23.7 GB; keep `act070-remediation`, `act070-rc/evidence` and `p05b-stage4c` (evidence). Deleting the
+  `.act67-preserved` set removes the v0.6.7 restoration point (P12); deleting `.venv-qwen3` removes the P04C rollback.
+- **Next:** final six-gate verify on the final tree, build the portable RC from it (members must equal the qualified
+  portable copy's scripts), re-extract and re-check; then Codex independent verification of the pushed SHA; owner
+  hands-on; merge/tag/release only on owner approval. Legacy-environment cleanup proposal: Handoff block below, no deletion.
+
 ## CURRENT STATE — v0.7.0 release candidate (Windows): real installer + real narration qualified on HOME-PC; identity 0.7.0; NOT merged/tagged/published (2026-10-30, Claude Code)
 
 Authority: owner directive 2026-10-30 ("finish the functional application"; supersedes the per-checkpoint stop rules).

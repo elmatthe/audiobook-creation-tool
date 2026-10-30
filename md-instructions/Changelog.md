@@ -15,6 +15,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 portable Windows setup — the app's own Python and FFmpeg, nothing installed on the computer (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
+
+- **Changed:** Windows setup no longer installs Python on the computer (the python.org per-user installer and the winget
+  fallback are gone). It uses the app's own Python in `files\runtime-data\python`; on a first run it asks, then
+  downloads the pinned standalone CPython 3.12.15 build (python-build-standalone `20261009`, about 46 MB, checked against
+  a fixed SHA-256), unpacks it with Windows' own `tar.exe` inside the app's folder and proves it by running it (ssl,
+  venv, pip, Tk). No installer, no administrator rights, no PATH or registry change.
+- **Changed:** Windows FFmpeg repair no longer runs winget; when no working FFmpeg is found it uses the app's own
+  pinned Gyan 9.0.1 build in `files\bin` (checked against a fixed SHA-256). A working FFmpeg already on the computer is
+  still used as it is.
+- **Note:** the app's own Python lives beside `.venv`, not inside it, because a repair renames `.venv` aside while that
+  Python is running the repair; there it also survives a deleted `.venv`.
+
 ### v0.7.0 release completion — recovery and ending fixes found by real runs, and a complete verify gate (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
 
 - **Fixed:** Edge narrations (direct route) cut the end of the book's final sound. Every Edge chunk's padding is trimmed at
