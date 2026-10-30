@@ -664,9 +664,10 @@ def _base_refusal(candidate: Path, why: str) -> SetupError:
 def verified_base_python(*, runner: CommandRunner, cancel_check: Optional[CancelCheck] = None) -> Path:
     """:func:`base_python_candidate`, proved to be a base CPython 3.12 that no environment owns, or :class:`SetupError`.
 
-    Checked on disk (a file, not a link, outside this app's folder, no ``pyvenv.cfg`` beside or above it) and then by
-    running it in isolated mode: it must report CPython 3.12, ``sys.prefix == sys.base_prefix`` (not an environment)
-    and itself as its executable.
+    Checked on disk (a file, not a link, outside this app's folder -- except the app's own base Python of the v0.7.0
+    portable layout, :func:`tts.qwen3_runtime.app_base_python`, and nothing else inside it -- no ``pyvenv.cfg`` beside or
+    above it) and then by running it in isolated mode: it must report CPython 3.12, ``sys.prefix == sys.base_prefix``
+    (not an environment) and itself as its executable.
     """
     import json
 
@@ -675,7 +676,7 @@ def verified_base_python(*, runner: CommandRunner, cancel_check: Optional[Cancel
         raise _base_refusal(candidate, "it is not there")
     if venv_layout.is_link(candidate):
         raise _base_refusal(candidate, "it is a link")
-    if venv_layout.is_within(rt.repo_root(), candidate):
+    if venv_layout.is_within(rt.repo_root(), candidate) and not venv_layout.same_path(candidate, rt.app_base_python()):
         raise _base_refusal(candidate, "it is inside this app's folder, so it belongs to an environment")
     if any((folder / "pyvenv.cfg").is_file() for folder in (candidate.parent, candidate.parent.parent)):
         raise _base_refusal(candidate, "it belongs to a virtual environment")

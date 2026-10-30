@@ -180,6 +180,13 @@ def venv_python() -> Path:
     return venv_dir().joinpath(*sub)
 
 
+def app_base_python() -> Path:
+    """The app's own base CPython (v0.7.0 portable layout, Windows): placed by setup's stage 0 in
+    ``files/runtime-data/python`` and the base its ``.venv`` and the Qwen3 engine are built from. Kept in step with
+    ``bootstrap.APP_PYTHON``."""
+    return repo_root() / "files" / "runtime-data" / "python" / "python.exe"
+
+
 def models_root() -> Path:
     """``files/runtime-data/models/qwen3-tts/`` — a sibling of the Kokoro Hugging Face cache, never inside it."""
     return repo_root() / "files" / "runtime-data" / "models" / "qwen3-tts"

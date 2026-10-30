@@ -615,6 +615,31 @@ def test_the_engine_is_built_from_the_base_interpreter_not_the_app_s_own_venv_py
     assert su.base_python_candidate() == tmp_path / "base" / "python.exe"
 
 
+def test_the_apps_own_base_python_inside_its_folder_builds_the_engine(sandbox, monkeypatch):
+    """v0.7.0 portable layout: stage 0 puts the app's own base CPython in files/runtime-data/python. That exact file is
+    accepted inside the app's folder (found on HOME-PC 2026-10-30: the first portable install refused it) -- and is
+    still proved by running it."""
+    fake = FakeRunner(rt.app_base_python().parent)
+    monkeypatch.setattr(su, "base_python_candidate", lambda: fake.python)
+    assert su.verified_base_python(runner=fake) == fake.python
+    assert fake.base_probes and fake.base_probes[0][0] == str(fake.python)
+
+
+@pytest.mark.parametrize("where", ["other-folder-in-the-app", "app-python-made-a-venv"])
+def test_any_other_python_inside_the_app_is_still_refused(sandbox, monkeypatch, where):
+    if where == "other-folder-in-the-app":
+        fake = FakeRunner(sandbox / "files" / "runtime-data" / "python-copy")
+        match = "inside this app's folder"
+    else:
+        fake = FakeRunner(rt.app_base_python().parent)
+        (fake.base / "pyvenv.cfg").write_text("home = elsewhere\n", encoding="utf-8")
+        match = "belongs to a virtual environment"
+    monkeypatch.setattr(su, "base_python_candidate", lambda: fake.python)
+    with pytest.raises(su.SetupError, match=match):
+        su.verified_base_python(runner=fake)
+    assert fake.base_probes == []  # refused before it was run
+
+
 def test_only_the_apps_own_environment_folder_may_be_deleted(sandbox, tmp_path):
     other = tmp_path / "somewhere-else"
     other.mkdir()
