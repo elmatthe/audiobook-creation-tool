@@ -359,6 +359,40 @@ def test_every_installer_location_is_inside_dot_venv_or_files_never_a_new_top_le
         assert folder.is_relative_to(root / "files"), folder
 
 
+# --------------------------------------------------------------------------- #
+# A copy extracted too deep for Windows is refused before anything is installed
+# --------------------------------------------------------------------------- #
+def test_the_install_folder_depth_limit_follows_windows_long_path_support(monkeypatch):
+    from shared import bootstrap
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    with_long = bootstrap.WINDOWS_MAX_PATH - bootstrap.DEEPEST_NATIVE_LIBRARY_CHARS
+    without = bootstrap.WINDOWS_MAX_PATH - bootstrap.DEEPEST_FILE_CHARS
+    assert bootstrap.install_path_problem("C:\\" + "a" * (with_long - 3), long_paths=True) == ""
+    message = bootstrap.install_path_problem("C:\\" + "a" * (with_long - 2), long_paths=True)
+    assert "too long for Windows" in message and "Nothing was installed" in message
+    assert bootstrap.install_path_problem("C:\\" + "a" * (without - 2), long_paths=False)
+    typical = "C:\\Users\\JohnSmith\\Downloads\\AudiobookTool-Windows-v0.7.0\\AudiobookTool-Windows-v0.7.0"
+    assert bootstrap.install_path_problem(typical, long_paths=False) == ""
+
+
+def test_first_run_setup_refuses_a_too_deep_folder_before_touching_anything(monkeypatch, tmp_path):
+    from shared import bootstrap
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(bootstrap, "install_path_problem", lambda *a, **k: "too deep")
+    monkeypatch.setattr(bootstrap, "_take_engine_lease", lambda *a, **k: pytest.fail("setup went ahead"))
+    class Quiet:  # never the real setup log
+        def __init__(self):
+            self.lines = []
+
+        def line(self, text):
+            self.lines.append(text)
+
+    log = Quiet()
+    assert bootstrap.run_setup(lambda *a: None, log) == (False, "too deep")
+    assert bootstrap.repair_venv(log, headless=True) == (False, "too deep")
+    assert log.lines.count("too deep") == 2
+
+
 def test_a_source_changed_during_the_install_is_never_narrated_silently(make_panel, output_base, tmp_path,  # noqa: F811
                                                                          monkeypatch):
     from tts import epub2tts_gui as panel_module

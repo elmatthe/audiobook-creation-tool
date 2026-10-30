@@ -1128,6 +1128,51 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
 # ===========================================================================
 #  Subprocess helper (hide console windows on Windows)
 # ===========================================================================
+# ===========================================================================
+#  Install-folder depth (Windows path-length limits)
+# ===========================================================================
+#: The deepest native library (.dll/.pyd) the app's environments hold, measured below the app's folder on HOME-PC
+#: (v0.7.0: 120 characters in .venv) plus a margin. Windows' DLL loader refuses a longer path even when long paths are
+#: enabled, which surfaces as "DLL load failed ... The filename or extension is too long" deep inside an engine.
+DEEPEST_NATIVE_LIBRARY_CHARS = 128
+#: The deepest file of any kind (165 characters, in .venv/engines/qwen3) plus a margin: the limit for every file when
+#: Windows long-path support is switched off (its default on many computers).
+DEEPEST_FILE_CHARS = 172
+WINDOWS_MAX_PATH = 259
+
+
+def windows_long_paths_enabled() -> Optional[bool]:
+    """Whether Windows long-path support is switched on (``None``: not Windows, or it could not be read)."""
+    if not IS_WINDOWS:
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
+            return winreg.QueryValueEx(key, "LongPathsEnabled")[0] == 1
+    except OSError:
+        return None
+
+
+def install_path_problem(root: Optional[Path] = None, *, long_paths: Optional[bool] = None) -> str:
+    """A sentence for the person when this copy of the app sits too deep for Windows to load it, else ``""``.
+
+    Checked before anything is installed, so a too-deep folder is refused with one clear instruction instead of a
+    half-built environment whose engines fail with a cryptic DLL error later. Never changes any Windows setting.
+    """
+    if not IS_WINDOWS:
+        return ""
+    root = Path(REPO_ROOT if root is None else root)
+    length = len(str(root))
+    enabled = windows_long_paths_enabled() if long_paths is None else long_paths
+    limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY_CHARS if enabled else DEEPEST_FILE_CHARS)
+    if length <= limit:
+        return ""
+    return (f"This copy of the app is in a folder whose path is too long for Windows ({length} characters; it must be "
+            f"{limit} or fewer here), so its voice engines could not load. Nothing was installed. Move the whole "
+            "\"Audiobook Creation Tool\" folder somewhere shorter, for example C:\\Audiobook Creation Tool or "
+            "directly in Downloads, then run Setup_and_Run again.\n\nFolder: " + str(root))
+
+
 def _hidden() -> dict:
     if not IS_WINDOWS:
         return {}
@@ -2101,6 +2146,10 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     see :data:`EXIT_VENV_REPAIR_REQUIRED`.
     """
     log.line("Repairing the Python environment (packages only — no other setup)…")
+    too_deep = install_path_problem()
+    if too_deep:
+        log.line(too_deep)
+        return False, too_deep
 
     # v0.7.0 P04C: before anything below can rename this environment -- recovery
     # included -- take the right to move what it holds, or is about to hold,
@@ -2609,6 +2658,10 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
     aborting. Returns ``(success, final_message)``.
     """
     total = BASE_SETUP_STEPS
+    too_deep = install_path_problem()
+    if too_deep:
+        log.line(too_deep)
+        return False, too_deep
 
     # v0.7.0 P04C: recovery and the environment's own replacement both rename
     # environments that may hold a voice engine, so the same lease as a repair
