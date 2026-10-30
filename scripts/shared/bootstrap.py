@@ -1170,7 +1170,7 @@ def install_path_problem(root: Optional[Path] = None, *, long_paths: Optional[bo
     return (f"This copy of the app is in a folder whose path is too long for Windows ({length} characters; it must be "
             f"{limit} or fewer here), so its voice engines could not load. Nothing was installed. Move the whole "
             "\"Audiobook Creation Tool\" folder somewhere shorter, for example C:\\Audiobook Creation Tool or "
-            "directly in Downloads, then run Setup_and_Run again.\n\nFolder: " + str(root))
+            "directly in Downloads, and start the app from its new place.\n\nFolder: " + str(root))
 
 
 def _hidden() -> dict:

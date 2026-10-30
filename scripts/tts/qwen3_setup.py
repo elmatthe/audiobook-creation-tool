@@ -974,9 +974,29 @@ def _tail_text(tail: list[str], count: int = PIP_SUMMARY_LINES) -> str:
     return " ".join(line.strip() for line in tail[-count:] if line.strip())
 
 
+#: See ``tts.optional_setup_health.APPLICATION_CONTROL_MARK``: Smart App Control refuses the first load of each new
+#: unsigned native file of a freshly installed engine while it evaluates it, then allows it. The probe is repeated a
+#: bounded number of times while that is the only failure; Windows decides each time and nothing is bypassed.
+APPLICATION_CONTROL_MARK = "Application Control policy"
+APPLICATION_CONTROL_ATTEMPTS = 8
+
+
 def probe_environment(*, model_dir: Optional[Path] = None, runner: Optional[CommandRunner] = None,
                       progress: ProgressCallback = _noop_progress, cancel_check: Optional[CancelCheck] = None) -> dict:
     """Run the worker's ``probe`` job: import the whole stack, report GPU/CPU and versions; optionally load a model."""
+    for attempt in range(APPLICATION_CONTROL_ATTEMPTS):
+        try:
+            return _probe_once(model_dir=model_dir, runner=runner, progress=progress, cancel_check=cancel_check)
+        except SetupError as exc:
+            if APPLICATION_CONTROL_MARK not in str(exc) or attempt + 1 == APPLICATION_CONTROL_ATTEMPTS:
+                raise
+            _check_cancel(cancel_check)
+            progress(Progress("verify", "Windows is checking the new engine files (Smart App Control); trying again..."))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _probe_once(*, model_dir: Optional[Path], runner: Optional[CommandRunner], progress: ProgressCallback,
+                cancel_check: Optional[CancelCheck]) -> dict:
     import json
 
     runner = runner or run_command

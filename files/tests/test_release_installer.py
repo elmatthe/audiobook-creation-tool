@@ -413,3 +413,39 @@ def test_a_source_changed_during_the_install_is_never_narrated_silently(make_pan
     captured = accept(panel)
     assert captured == {} and told and "changed" in told[0][1]
     assert not output_base.exists() or not any(output_base.iterdir())
+
+
+# --------------------------------------------------------------------------- #
+# Smart App Control: a new engine's first loads are evaluated, then allowed
+# --------------------------------------------------------------------------- #
+BLOCKED = "DLL load failed while importing x: An Application Control policy has blocked this file."
+
+
+def test_a_health_proof_is_repeated_only_while_windows_is_still_evaluating_new_files():
+    from tts import optional_setup_health as osh
+    answers = [(False, BLOCKED), (False, BLOCKED), (True, "ok")]
+    assert osh.retry_application_control(lambda: answers.pop(0), lambda: False) == (True, "ok") and answers == []
+    other = [(False, "ImportError: No module named kokoro"), (True, "ok")]
+    assert osh.retry_application_control(lambda: other.pop(0), lambda: False)[0] is False and len(other) == 1
+    calls = []
+    stuck = osh.retry_application_control(lambda: calls.append(1) or (False, BLOCKED), lambda: False)
+    assert stuck == (False, BLOCKED) and len(calls) == osh.APPLICATION_CONTROL_ATTEMPTS  # bounded, then reported
+    calls.clear()
+    osh.retry_application_control(lambda: calls.append(1) or (False, BLOCKED), lambda: True)
+    assert len(calls) == 1  # a cancel stops the repetition
+
+
+def test_the_engine_probe_retries_an_application_control_block_and_nothing_else(monkeypatch):
+    attempts = []
+
+    def once(**kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise su.SetupError("The Qwen3 voice engine did not start correctly: " + BLOCKED)
+        return {"cuda_available": True}
+
+    monkeypatch.setattr(su, "_probe_once", once)
+    assert su.probe_environment() == {"cuda_available": True} and len(attempts) == 3
+    monkeypatch.setattr(su, "_probe_once", lambda **k: (_ for _ in ()).throw(su.SetupError("ImportError: torch")))
+    with pytest.raises(su.SetupError, match="torch"):
+        su.probe_environment()

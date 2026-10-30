@@ -222,15 +222,13 @@ def test_a_failed_repair_is_retried_on_the_next_launch(fake_env, install_spy):
 
 def test_reconciliation_never_downloads_the_chatterbox_model(fake_env, monkeypatch):
     """F. Package repair and the ~3.9 GiB model download stay separate."""
-    downloads: list[str] = []
-    monkeypatch.setattr(bootstrap, "predownload_chatterbox",
-                        lambda log: downloads.append("chatterbox"))
-    monkeypatch.setattr(bootstrap, "predownload_kokoro",
-                        lambda log: downloads.append("kokoro"))
+    # v0.7.0: the bootstrap has no model download at all any more (the consented setup worker owns it).
+    for gone in ("predownload_chatterbox", "predownload_kokoro", "warmup_kokoro_pipeline", "warmup_chatterbox"):
+        assert not hasattr(bootstrap, gone), gone
     monkeypatch.setattr(bootstrap, "pip_install_requirements", lambda log: True)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda log: True)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", lambda *a, **k: pytest.fail("a model download was started"))
     bootstrap.ensure_requirements_current(_Log())
-    assert downloads == []
 
 
 def test_reconciliation_never_deletes_or_recreates_the_environment(
@@ -359,12 +357,11 @@ def setup_steps(monkeypatch, fake_env):
     monkeypatch.setattr(bootstrap, "_create_validated_venv",
                         lambda py, log, headless: True)
     monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda log: True)
-    monkeypatch.setattr(bootstrap, "predownload_kokoro", lambda log: None)
     return fake_env
 
 
 def _setup() -> tuple[bool, str]:
-    return bootstrap.run_setup(False, lambda *a: None, _Log())
+    return bootstrap.run_setup(lambda *a: None, _Log())
 
 
 def test_setup_writes_no_stamp_when_validation_fails(setup_steps, install_spy):

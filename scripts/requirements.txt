@@ -119,3 +119,42 @@ pytest==9.1.1
 # the wheel or its libheif encoder is missing. It is deliberately NOT in
 # bootstrap.REQUIRED_IMPORTS, which is the list of imports a machine must have.
 pillow-heif==1.5.0
+
+# --- v0.7.0: transitive pins (the versions HOME-PC's working environment runs) ---
+# Only the direct dependencies above were pinned, so a fresh install picked up whatever was newest that day:
+# 32 packages had moved within a week, and Windows Smart App Control refused one brand-new unsigned build
+# (spaCy 3.8.18's native 'multitask' module), so Kokoro could not start on a freshly set-up computer. These pins
+# freeze them at the versions proved here (pip list of the HOME-PC .venv, 2026-10-30); nothing is upgraded.
+# Same marker as the Kokoro/Chatterbox stack they belong to.
+blis==1.3.3 ; python_version < "3.13"
+brotli==1.2.0 ; python_version < "3.13"
+certifi==2026.10.19 ; python_version < "3.13"
+confection==1.3.3 ; python_version < "3.13"
+cymem==2.0.13 ; python_version < "3.13"
+deprecated==3.0.0 ; python_version < "3.13"
+fastapi==0.159.1 ; python_version < "3.13"
+hf-xet==1.7.0 ; python_version < "3.13"
+importlib-metadata==9.0.1 ; python_version < "3.13"
+language-tags==1.3.1 ; python_version < "3.13"
+msgpack==1.2.3 ; python_version < "3.13"
+multidict==7.1.0 ; python_version < "3.13"
+murmurhash==1.0.15 ; python_version < "3.13"
+narwhals==2.27.1 ; python_version < "3.13"
+nodeenv==1.11.0 ; python_version < "3.13"
+numba==0.68.0 ; python_version < "3.13"
+opentelemetry-api==1.45.1 ; python_version < "3.13"
+platformdirs==4.13.5 ; python_version < "3.13"
+preshed==3.0.13 ; python_version < "3.13"
+pycparser==3.11 ; python_version < "3.13"
+pydantic==2.14.1 ; python_version < "3.13"
+pydantic-core==2.50.1 ; python_version < "3.13"
+python-discovery==1.6.4 ; python_version < "3.13"
+pytz==2026.5 ; python_version < "3.13"
+smart-open==8.0.4 ; python_version < "3.13"
+spacy==3.8.16 ; python_version < "3.13"
+thinc==8.3.13 ; python_version < "3.13"
+tzdata==2026.5 ; python_version < "3.13"
+virtualenv==21.14.12 ; python_version < "3.13"
+weasel==1.0.0 ; python_version < "3.13"
+win32-setctime==1.2.0 ; python_version < "3.13"
+wrapt==2.5.1 ; python_version < "3.13"

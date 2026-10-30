@@ -142,9 +142,34 @@ def run_probe(root: Path, source: str, *, timeout_s: float, cancel_check: Cancel
     return code, lines, ""
 
 
+#: Windows Smart App Control refuses the FIRST load of each new unsigned native file while it evaluates it, then allows
+#: it ("An Application Control policy has blocked this file"; reproduced 2026-10-30 in fresh QA copies: two retries
+#: let the Qwen3 engine start, every later start succeeded). A freshly installed engine is therefore proved again, a
+#: bounded number of times, while that is the only failure -- Windows decides each time; nothing is bypassed. A
+#: refusal that persists is reported as the failure it is.
+APPLICATION_CONTROL_MARK = "Application Control policy"
+APPLICATION_CONTROL_ATTEMPTS = 8
+
+
+def retry_application_control(probe: Callable[[], tuple[Optional[bool], str]],
+                              cancel_check: CancelCheck) -> tuple[Optional[bool], str]:
+    ok, why = probe()
+    for _attempt in range(APPLICATION_CONTROL_ATTEMPTS - 1):
+        if ok is not False or APPLICATION_CONTROL_MARK not in why or cancel_check():
+            break
+        ok, why = probe()
+    return ok, why
+
+
 def kokoro_health(root: Path, *, cancel_check: CancelCheck, runner: Optional[Runner] = None,
                   timeout_s: float = KOKORO_PROBE_TIMEOUT_S) -> tuple[Optional[bool], str]:
     """The launcher's Kokoro dependency proof, offline: ``True`` / ``False`` (proved broken) / ``None`` (unproved)."""
+    return retry_application_control(
+        lambda: _kokoro_health_once(root, cancel_check=cancel_check, runner=runner, timeout_s=timeout_s), cancel_check)
+
+
+def _kokoro_health_once(root: Path, *, cancel_check: CancelCheck, runner: Optional[Runner],
+                        timeout_s: float) -> tuple[Optional[bool], str]:
     from shared import bootstrap
 
     code, lines, why = run_probe(root, bootstrap._KOKORO_PROOF, timeout_s=timeout_s, cancel_check=cancel_check,
@@ -162,6 +187,13 @@ def kokoro_health(root: Path, *, cancel_check: CancelCheck, runner: Optional[Run
 def chatterbox_health(root: Path, *, cancel_check: CancelCheck, runner: Optional[Runner] = None,
                       timeout_s: float = CHATTERBOX_PROBE_TIMEOUT_S) -> tuple[Optional[bool], str]:
     """The launcher's Chatterbox Turbo import probe (no model, no weights): ``True`` / ``False`` / ``None``."""
+    return retry_application_control(
+        lambda: _chatterbox_health_once(root, cancel_check=cancel_check, runner=runner, timeout_s=timeout_s),
+        cancel_check)
+
+
+def _chatterbox_health_once(root: Path, *, cancel_check: CancelCheck, runner: Optional[Runner],
+                            timeout_s: float) -> tuple[Optional[bool], str]:
     from shared import bootstrap
 
     code, lines, why = run_probe(root, bootstrap._CHATTERBOX_PROBE, timeout_s=timeout_s, cancel_check=cancel_check,
