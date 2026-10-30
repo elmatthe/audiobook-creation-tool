@@ -1362,6 +1362,51 @@ def test_a_degraded_environment_answers_the_check_with_zero(env, monkeypatch):
     assert bootstrap._venv_check() == 0
 
 
+def _interrupted_repair(env, *, aside_engine=True, candidate_engine=False) -> Path:
+    """What a repair killed during pip leaves: a candidate whose interpreter runs, and the aside it replaced."""
+    _fake_interpreter(env)
+    aside = bootstrap._venv_aside_path()
+    _seed_interpreter(aside)
+    if aside_engine:
+        (aside / "engines" / "qwen3").mkdir(parents=True)
+    if candidate_engine:
+        (env.venv / "engines" / "qwen3").mkdir(parents=True)
+    return aside
+
+
+def test_an_unfinished_repair_is_a_repair_request_even_when_the_candidate_runs(env, monkeypatch):
+    """HOME-PC 2026-10-30: the candidate's interpreter already ran, so the health check called it healthy and the
+    launcher used it, while the replaced environment and its Qwen3 engine stayed set aside."""
+    _interrupted_repair(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())  # healthy on its own
+    assert bootstrap.unfinished_replacement() is True
+    assert bootstrap._venv_check() == bootstrap.EXIT_VENV_REPAIR_REQUIRED
+
+
+def test_the_launch_path_hands_an_unfinished_repair_back_before_touching_packages(env, monkeypatch):
+    _interrupted_repair(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    monkeypatch.setattr(bootstrap, "requirements_are_current",
+                        lambda *a, **k: pytest.fail("packages were reconciled into an unproved candidate"))
+    monkeypatch.setattr(bootstrap, "launch_gui", lambda *a, **k: pytest.fail("an unproved candidate was launched"))
+    assert bootstrap._launch_with_kokoro_healthcheck() == bootstrap.EXIT_VENV_REPAIR_REQUIRED
+
+
+def test_the_unresolvable_both_hold_an_engine_state_never_becomes_a_repair_on_every_launch(env, monkeypatch):
+    """Recovery leaves this one alone on purpose (it chooses neither engine); asking for a repair would loop."""
+    _interrupted_repair(env, candidate_engine=True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    assert bootstrap.unfinished_replacement() is False
+    assert bootstrap._venv_check() == 0
+
+
+def test_without_an_aside_nothing_changes(env, monkeypatch):
+    _fake_interpreter(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    assert bootstrap.unfinished_replacement() is False
+    assert bootstrap._venv_check() == 0
+
+
 # --------------------------------------------------------------------------- #
 # J. A refused rename is a failed replacement, never a kept-and-reported one
 #

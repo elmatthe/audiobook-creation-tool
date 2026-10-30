@@ -501,7 +501,74 @@ def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
     # real, so this environment is proved as of now. Recording that here is what
     # stops a freshly reconciled machine from re-proving on its very next launch.
     record_import_proof()
+    restore_kept_spacy_model(log)
     return True, RECONCILE_OK
+
+
+#: Run in the app environment's interpreter: the installed spaCy and spaCy English model versions, as one JSON line.
+_SPACY_VERSIONS_PROBE = (
+    "import json, importlib.metadata as m\n"
+    "def v(name):\n"
+    "    try:\n"
+    "        return m.version(name)\n"
+    "    except m.PackageNotFoundError:\n"
+    "        return None\n"
+    "print(json.dumps({'spacy': v('spacy'), 'model': v('en_core_web_sm')}))\n"
+)
+
+
+def restore_kept_spacy_model(log: "SetupLog") -> bool:
+    """Reinstall Kokoro's English pronunciation model from the verified wheel kept on this computer. Offline.
+
+    That model is a pip package inside ``.venv``, so a rebuilt environment (repair, or a lost ``.venv``) no longer
+    has it while every other Kokoro file under ``files/`` survives. When an earlier consented install kept its wheel
+    (``tts.model_assets.kept_spacy_wheel``: exact size and SHA-256), it is installed again here with no index, no
+    dependencies and its hash enforced: nothing is downloaded, so no new consent is involved. Without a kept copy, or
+    if anything is unexpected, nothing changes and Kokoro offers Install & Continue as before. Never fails setup.
+    Returns True only when it installed the model.
+    """
+    from shared import spacy_store as store  # standard library only; never anything under tts
+
+    wheel = store.kept_wheel(REPO_ROOT)
+    py = venv_python()
+    if wheel is None or not py.exists():
+        return False
+    try:
+        probe = subprocess.run([str(py), "-I", "-c", _SPACY_VERSIONS_PROBE], capture_output=True, text=True,
+                               timeout=IMPORT_PROBE_TIMEOUT_S, **_hidden())
+        versions = json.loads(probe.stdout.strip().splitlines()[-1]) if probe.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        versions = None
+    if not isinstance(versions, dict):
+        return False
+    if versions.get("model") is not None:
+        return False  # already installed (any version is left exactly as it is)
+    try:
+        spacy_version = tuple(int(part) for part in str(versions.get("spacy")).split(".")[:3])
+    except ValueError:
+        return False
+    low, high = store.SPACY_COMPATIBLE
+    if not low <= spacy_version < high:
+        return False
+    requirement = store.store_dir(REPO_ROOT) / "restore-requirement.txt"
+    log.line("Reinstalling Kokoro's English pronunciation model from the copy kept on this computer "
+             "(nothing is downloaded)…")
+    try:
+        requirement.write_text(store.requirement_line(wheel), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PIP_")}
+        env["PIP_CONFIG_FILE"] = os.devnull
+        proc = subprocess.run(store.offline_install_command(py, requirement), capture_output=True,
+                              text=True, env=env, cwd=str(requirement.parent), timeout=600, **_hidden())
+        ok = proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    finally:
+        try:
+            requirement.unlink()
+        except OSError:
+            pass
+    log.line("  Reinstalled." if ok else "  Could not reinstall it; Kokoro will offer to install it when used.")
+    return ok
 
 
 def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
@@ -1507,6 +1574,25 @@ VENV_DISCARD_SUFFIX = ".discarded"
 
 def _venv_discard_path() -> Path:
     return VENV_DIR.with_name(VENV_DIR.name + VENV_DISCARD_SUFFIX)
+
+
+def unfinished_replacement() -> bool:
+    """An earlier environment repair stopped part-way and left its aside (``.venv.replaced``) behind.
+
+    Only a repair, on a base interpreter and never this environment's own, can settle that
+    (:func:`recover_interrupted_replacement`). A candidate interrupted after its interpreter was built but before its
+    packages were proved can already run, so the health check alone called it healthy, and the launch path then ran
+    and reconciled packages into it while the environment it replaced -- and any Qwen3 engine it held -- stayed set
+    aside (found on HOME-PC 2026-10-30 by a real interrupted repair). The launch paths hand over instead.
+
+    The one state recovery deliberately leaves alone (both environments hold a separately installed engine) is not
+    reported, so it can never become a repair on every launch.
+    """
+    aside = _venv_aside_path()
+    if not os.path.lexists(aside):
+        return False
+    return not (VENV_DIR.exists() and venv_layout.holds_environments(aside)
+                and venv_layout.holds_environments(VENV_DIR))
 
 
 def _qwen3_lock_dir() -> Path:
@@ -3224,6 +3310,10 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
     :data:`EXIT_VENV_REPAIR_REQUIRED` for the launcher to act on.
     """
     notices: list[str] = []
+    if allow_repair_handoff and unfinished_replacement():
+        # Never run, or install packages into, a candidate an interrupted repair never proved (unfinished_replacement).
+        LOG.line("An earlier environment repair did not finish — handing back to the launcher to finish it.")
+        return EXIT_VENV_REPAIR_REQUIRED
     health = assess_venv_health(require_tk=True)
     LOG.line(f"Environment health: {health.state} ({health.reason})")
     if not allow_repair_handoff and health.state == VENV_REPAIRABLE:
@@ -3544,6 +3634,9 @@ def _venv_check() -> int:
     real launch. macOS already runs its launch synchronously and reads the same
     codes straight from it.
     """
+    if unfinished_replacement():
+        LOG.line("[venv-check] repairable: an earlier environment repair did not finish; it is finished first.")
+        return EXIT_VENV_REPAIR_REQUIRED
     health = assess_venv_health(require_tk=True)
     if health.state in ("repairable", "absent"):
         # Only spend interpreter probes once the cheap answer says something is

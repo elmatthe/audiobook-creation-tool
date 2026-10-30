@@ -19,6 +19,7 @@ import threading
 import time
 import types
 from pathlib import Path
+from urllib.request import url2pathname
 
 import pytest
 
@@ -86,6 +87,7 @@ class FakePip:
         self.code, self.hang, self.reports = code, hang, reports
         self.commands: list[list[str]] = []
         self.requirements: list[str] = []
+        self.wheels: list[Path] = []
 
     def version_of(self, name):
         return self.versions.get(name)
@@ -94,8 +96,11 @@ class FakePip:
         cmd = [str(c) for c in cmd]
         self.commands.append(cmd)
         requirement = Path(cmd[cmd.index("-r") + 1])
-        self.requirements.append(requirement.read_text(encoding="utf-8"))
-        wheel = Path(cwd) / assets.SPACY_WHEEL_NAME
+        line = requirement.read_text(encoding="utf-8")
+        self.requirements.append(line)
+        # The one local file the requirement names (the staged download, or the copy kept from an earlier install).
+        wheel = Path(url2pathname(line.split(" @ ", 1)[1].split(" ", 1)[0].removeprefix("file:")))
+        self.wheels.append(wheel)
         assert hashlib.sha256(wheel.read_bytes()).hexdigest() == assets.SPACY_WHEEL_SHA256  # verified before pip
         if self.hang:
             deadline = time.monotonic() + 10
@@ -325,9 +330,41 @@ def test_kokoro_alone_is_fetched_at_its_pinned_commit_verified_recorded_and_prov
     assert cmd[:3] == [str(proto.main_console_python(world)), "-m", "pip"]
     assert requirement.startswith(f"{assets.SPACY_ENGLISH} @ file:///") and \
         requirement.rstrip().endswith(f"--hash=sha256:{assets.SPACY_WHEEL_SHA256}")
-    assert not (proto.exchange_root(world) / "downloads" / assets.SPACY_WHEEL_NAME).exists()  # space given back
+    assert not (proto.exchange_root(world) / "downloads" / assets.SPACY_WHEEL_NAME).exists()  # nothing left staged
+    # The verified wheel is kept beside the models, so a rebuilt .venv can get the model back offline.
+    assert assets.kept_spacy_wheel() == assets.spacy_store_dir() / assets.SPACY_WHEEL_NAME
     assert component(result["plan"], K)["readiness"] == proto.READY
     assert [opener_.requested for opener_ in acq.openers if opener_.requested]  # through the scoped door only
+
+
+def test_a_kept_verified_wheel_is_reinstalled_without_downloading_it_again(world, server):
+    """A rebuilt .venv lost only the installed English model: the wheel kept from the earlier install is reused."""
+    store = assets.spacy_store_dir()
+    store.mkdir(parents=True)
+    (store / assets.SPACY_WHEEL_NAME).write_bytes(WHEEL)
+    pip = FakePip()
+    code, result, _acq = install(world, [K], pip, health=KOKORO_HEALTHY)
+    assert code == 0 and result["state"] == proto.SUCCEEDED, result
+    assert WHEEL_PATH not in fetched(server)  # not downloaded again
+    assert pip.wheels == [store / assets.SPACY_WHEEL_NAME] and assets.kept_spacy_wheel() is not None
+
+
+@pytest.mark.parametrize("damage", ["size", "content", "directory"])
+def test_a_kept_wheel_that_is_not_exactly_the_approved_file_is_never_used(world, server, damage):
+    store = assets.spacy_store_dir()
+    store.mkdir(parents=True)
+    kept = store / assets.SPACY_WHEEL_NAME
+    if damage == "size":
+        kept.write_bytes(WHEEL + b"x")
+    elif damage == "content":
+        kept.write_bytes(WHEEL[:-1] + bytes([WHEEL[-1] ^ 1]))
+    else:
+        kept.mkdir()
+    assert assets.kept_spacy_wheel() is None
+    pip = FakePip()
+    code, result, _acq = install(world, [K], pip, health=KOKORO_HEALTHY)
+    assert WHEEL_PATH in fetched(server)  # the approved file is downloaded instead
+    assert pip.wheels and pip.wheels[0] != kept
 
 
 def test_chatterbox_alone_fetches_exactly_the_files_turbo_loads(world, server):

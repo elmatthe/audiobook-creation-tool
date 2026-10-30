@@ -1155,7 +1155,8 @@ def test_negative_control_an_ambient_pythonpath_cannot_choose_the_workers_code(a
 # --------------------------------------------------------------------------- #
 FORBIDDEN_PRE_VENV = ("subprocess", "socket", "ssl", "urllib.request", "http.client", "tkinter", "_tkinter",
                       "threading", "ctypes", "tts.qwen3_setup", "tts.qwen3_process", "shared.bootstrap")
-ALLOWED_PROJECT = {"shared", "shared.optional_setup_protocol", "shared.venv_layout", "tts", "tts.model_assets",
+ALLOWED_PROJECT = {"shared", "shared.optional_setup_protocol", "shared.spacy_store", "shared.venv_layout", "tts",
+                   "tts.model_assets",
                    "tts.optional_setup", "tts.qwen3_runtime", "tts.voice_registry"}
 PRE_VENV_PROBE = '''\
 import json, sys

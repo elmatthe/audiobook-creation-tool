@@ -859,6 +859,29 @@ def test_untrimmed_edge_padding_after_the_final_word_is_shortened_by_the_policy(
 
 
 @needs_edge_direct
+def test_the_final_sounds_decay_below_the_chunk_trim_survives_and_only_padding_is_shortened(edge_direct):
+    """Real Edge endings (HOME-PC 2026-10-30, every Edge voice): after the final word's last burst (a plosive's
+    release) the sound decays through -58..-70 dBFS before Edge's own padding. The per-chunk trim cuts at the last
+    chunk louder than -58 dBFS, so it used to clip that decay off the end of the book (0 ms measured tail). The
+    book's final chunk now keeps it and the final-tail policy shortens only the padding; every earlier chunk keeps
+    the approved trim exactly, so every internal pause is unchanged."""
+    padding = _noise(0.6, -85, seed=8)  # Edge's near-silence closing each network chunk
+    decay = _noise(0.12, -64, seed=9, highpass=True)  # RMS below the -58 dBFS trim, above the -70 dBFS keep line
+    text, book, audio = _edge_book("multi_chapter")
+    final = "Charlie one ends the book."
+    titles = ("One", "Two")  # chapter titles are never chunk-trimmed; they arrive without padding here
+    spoken = {s: pcm if s in titles else np.concatenate([pcm, padding]) for s, pcm in audio.items()}
+    spoken[final] = np.concatenate([audio[final], decay, padding])
+    out, rate, params = edge_direct.run(text, spoken)
+    kept = dict(audio)
+    kept[final] = np.concatenate([audio[final], decay])
+    expected = _edge_direct_expected(book, kept, params["pause_kw"])
+    _assert_keeps(out, expected)  # every internal pause exact, and the whole final decay
+    assert len(out) <= len(expected) + _samples((KEEP_MS + WINDOW_MS) / 1000), "more padding than the policy keeps"
+    _assert_bounded_tail(out, rate, "edge-direct-final-decay")
+
+
+@needs_edge_direct
 @pytest.mark.parametrize("case, raises", [("heading_only", ValueError), ("final_sentence_fails", ConnectionError)])
 def test_an_edge_direct_book_with_no_ending_publishes_nothing(edge_direct, case, raises):
     text, _book, audio = _edge_book("multi_chapter")

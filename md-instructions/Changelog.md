@@ -15,6 +15,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 release completion — recovery and ending fixes found by real runs, and a complete verify gate (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
+
+- **Fixed:** Edge narrations (direct route) cut the end of the book's final sound. Every Edge chunk's padding is trimmed at
+  the last part louder than -58 dBFS, which also removed the quieter decay of the final word (a plosive's release
+  measured 0 ms of trailing silence on all five Edge voices). The book's last chunk now keeps its ending for the shared
+  final-tail policy, which keeps every sound down to -70 dBFS and then about 150 ms; every earlier pause is unchanged.
+- **Fixed:** after the app's environment was rebuilt (a repair, or a lost `.venv`), Kokoro asked to download its English
+  pronunciation model again. The verified 12.8 MB wheel is now kept under `files/runtime-data/models/spacy/` after
+  install and reinstalled offline (no index, hash enforced) whenever the environment is rebuilt; nothing is downloaded.
+- **Fixed:** a repair interrupted after its new environment's Python could already run left the old environment, and any
+  Qwen3 engine in it, set aside: the next launch called the half-built environment healthy and used it. The launcher now
+  finishes an unfinished repair first (the existing recovery decides which environment survives, engine included).
+- **Changed (developer):** `verify.py` has a sixth gate, `guarded`, which runs the eight suites that need
+  `files/tests/guarded_pytest.py` (listed in `files/tests/guarded_groups.json`) under process-lifetime write, process and
+  network protection; the ordinary pytest gate leaves exactly those out. NumPy's Windows-unavailable `lscpu` probe is
+  pinned as the expected refused-before-launch fallback, so it is no longer an "unexpected process".
+- **Tests:** a closed panel during Install & Continue and a second Create during a pending install start nothing; the
+  macOS launcher checks use a bash that actually runs (Git for Windows' before the WSL stub).
+
 ### v0.7.0 release candidate — Windows only (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
 
 - **Changed:** the application identity is 0.7.0 (`version.py`, `config.toml`), declared and packaged for Windows only;

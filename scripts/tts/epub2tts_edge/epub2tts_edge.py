@@ -197,18 +197,28 @@ def trim_silence_segment(
     sound,
     silence_threshold=DEFAULT_TRIM_SILENCE_DB,
     chunk_size=DEFAULT_TRIM_CHUNK_MS,
+    keep_trailing=False,
 ):
-    """Drop leading/trailing silence (e.g. Edge TTS padding) without changing middle audio."""
+    """Drop leading/trailing silence (e.g. Edge TTS padding) without changing middle audio.
+
+    The trailing cut lands exactly on the last chunk louder than ``silence_threshold``, so it also removes the quieter
+    decay of the final sound. Between chunks that is the approved pacing; the book's last chunk passes
+    ``keep_trailing=True`` and leaves its ending to the v0.7.0 final-tail policy (``tts.audio_tail``), which keeps
+    every sound down to -70 dBFS (a final plosive's release, a breath) and then at most the budgeted silence.
+    """
     if len(sound) == 0:
         return sound
     start = detect_leading_silence(
         sound, silence_threshold=silence_threshold, chunk_size=chunk_size
     )
-    end_rev = detect_leading_silence(
-        sound.reverse(), silence_threshold=silence_threshold, chunk_size=chunk_size
-    )
     duration = len(sound)
-    end = duration - end_rev
+    if keep_trailing:
+        end = duration
+    else:
+        end_rev = detect_leading_silence(
+            sound.reverse(), silence_threshold=silence_threshold, chunk_size=chunk_size
+        )
+        end = duration - end_rev
     if end <= start:
         return sound
     return sound[start:end]
@@ -365,6 +375,7 @@ def read_book(
                 else:
                     sentences = sent_tokenize(paragraph)
                     n_sents = len(sentences)
+                    last_paragraph = last_chapter and pindex == len(chapter["paragraphs"]) - 1
                     # Trim/intra-pause/sentence-pause work stays in memory as PCM
                     # (pydub AudioSegment) from the raw Edge network bytes all the
                     # way to this paragraph's one FLAC export below -- no avoidable
@@ -386,10 +397,14 @@ def read_book(
                             with contextlib.suppress(FileNotFoundError):
                                 os.remove(sub_path)
                             if trim_tts_padding:
+                                # The book's final sub-chunk: its ending is the final-tail policy's (make_mp3).
+                                final_chunk = (last_paragraph and _si == n_sents - 1
+                                               and sub_idx == len(subs) - 1)
                                 seg = trim_silence_segment(
                                     seg,
                                     silence_threshold=trim_silence_db,
                                     chunk_size=trim_chunk_ms,
+                                    keep_trailing=final_chunk,
                                 )
                             if intra_pause_ms > 0:
                                 seg = seg + AudioSegment.silent(duration=intra_pause_ms)
@@ -400,7 +415,6 @@ def read_book(
                         sentence_segments.append(merged_sent)
                         sent_counter += 1
 
-                    last_paragraph = last_chapter and pindex == len(chapter["paragraphs"]) - 1
                     for si in range(len(sentence_segments)):
                         if last_paragraph and si == len(sentence_segments) - 1:
                             break  # the final word of the book: nothing follows it

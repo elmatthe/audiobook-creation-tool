@@ -370,20 +370,25 @@ class RealAcquirer:
             raise AcquisitionError("the app's own Python environment could not be found where it belongs")
         exchange = proto.exchange_root(root)
         staging = exchange / "downloads"
-        wheel = staging / assets.SPACY_WHEEL_NAME
-        _require_inside(root, exchange, wheel)
-        meter = _Meter(progress, "spacy-english", assets.SPACY_WHEEL_SIZE)
-        qwen3_setup.download_file(assets.SPACY_WHEEL_URL, wheel, assets.SPACY_WHEEL_SIZE, assets.SPACY_WHEEL_SHA256,
-                                  opener=self._opener([assets.SPACY_WHEEL_URL]),
-                                  progress=lambda count: meter.add(count, "Downloading the spaCy English model"),
-                                  cancel_check=cancel_check, sleep=self.sleep)
-        _require_inside(root, exchange, wheel)
+        # A verified wheel kept from an earlier install (a rebuilt .venv lost only the installed package) is reused:
+        # nothing is downloaded for it.
+        kept = assets.kept_spacy_wheel()
+        wheel = kept if kept is not None else staging / assets.SPACY_WHEEL_NAME
+        if kept is None:
+            _require_inside(root, exchange, wheel)
+            meter = _Meter(progress, "spacy-english", assets.SPACY_WHEEL_SIZE)
+            qwen3_setup.download_file(assets.SPACY_WHEEL_URL, wheel, assets.SPACY_WHEEL_SIZE,
+                                      assets.SPACY_WHEEL_SHA256, opener=self._opener([assets.SPACY_WHEEL_URL]),
+                                      progress=lambda count: meter.add(count, "Downloading the spaCy English model"),
+                                      cancel_check=cancel_check, sleep=self.sleep)
+            _require_inside(root, exchange, wheel)
         requirement = staging / "spacy-english-requirement.txt"
+        _require_inside(root, exchange, requirement)
+        staging.mkdir(parents=True, exist_ok=True)  # a kept wheel means nothing was downloaded into it yet
         _require_inside(root, exchange, requirement)
         rt.remove_entry(requirement)
         # pip reads only this verified local file: no index, no dependencies, its hash enforced a second time.
-        requirement.write_text(f"{assets.SPACY_ENGLISH} @ {wheel.resolve().as_uri()} "
-                               f"--hash=sha256:{assets.SPACY_WHEEL_SHA256}\n", encoding="utf-8")
+        requirement.write_text(assets.spacy_requirement_line(wheel), encoding="utf-8")
         tail: list[str] = []
 
         def keep(line: str) -> None:
@@ -392,10 +397,7 @@ class RealAcquirer:
 
         progress({"unit": "spacy-english", "step": "install", "done": 0, "total": 0,
                   "message": "Installing the spaCy English model"})
-        code = self._run([str(python), "-m", "pip", "install", "--isolated", "--require-virtualenv", "--no-deps",
-                          "--no-index", "--require-hashes", "--no-input", "--disable-pip-version-check",
-                          "--no-cache-dir", "--no-warn-script-location", "--progress-bar", "off",
-                          "-r", str(requirement)],
+        code = self._run(assets.spacy_offline_install_command(python, requirement),
                          env=_pip_environment(), cwd=staging, on_line=keep, cancel_check=cancel_check)
         if code != 0:
             raise AcquisitionError("pip could not install the approved spaCy English model ("
@@ -407,9 +409,21 @@ class RealAcquirer:
         problem = assets.spacy_problem(self.version_of)
         if problem:
             raise AcquisitionError(problem)
-        for leftover in (wheel, requirement):  # the wheel is installed; its space is given back
+        try:
+            rt.remove_entry(requirement)
+        except OSError:
+            pass
+        if kept is None:
+            # Kept beside the other models (12.8 MB) so a rebuilt .venv gets it back offline; best effort only.
+            store = assets.spacy_store_dir()
             try:
-                rt.remove_entry(leftover)
+                store.mkdir(parents=True, exist_ok=True)
+                if venv_layout.unsafe_component(root, store / assets.SPACY_WHEEL_NAME) is None:
+                    os.replace(wheel, store / assets.SPACY_WHEEL_NAME)
+            except OSError:
+                pass
+            try:
+                rt.remove_entry(wheel)  # whatever could not be kept is given back
             except OSError:
                 pass
 

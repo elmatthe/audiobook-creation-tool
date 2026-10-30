@@ -7,6 +7,14 @@ stays portable (no hardcoded user paths). Runs at every phase boundary.
 Checks (all must PASS, else the script exits non-zero):
   1. pytest      — run the test suite; only exit 0 passes. Any failure,
                    collection error, OR "no tests collected" (exit 5) is a FAIL.
+                   The suites listed in files/tests/guarded_groups.json are left
+                   out here and run by the guarded gate instead (never both, never neither).
+  1b. guarded    — run each group of files/tests/guarded_groups.json through
+                   files/tests/guarded_pytest.py (process-lifetime write, process
+                   and network protection) in a new owned tree below
+                   files/dev-work/p05b-stage4c. A group passes only when pytest
+                   exits 0 with tests passed, and the guard reports no unintended
+                   production write, no unqualified process and no network/model use.
   2. deps        — every requirements.txt line must be pinned with exact '=='
                    (no bare names, no >= <= ~= != > <, no '-r' recursive includes).
                    PEP 508 environment markers (the part after ';') are allowed —
@@ -26,7 +34,7 @@ Usage:
     python scripts/verify.py
     python -u scripts/verify.py --evidence-dir files/dev-work/act070-remediation/verify/<phase>-<sha>-<run>
 
-Evidence mode (developer observability, v0.7.0 P00C) runs the same five gates,
+Evidence mode (developer observability, v0.7.0 P00C) runs the same six gates,
 in the same order and with the same meanings, and leaves a durable record in a
 NEW directory under files/dev-work/act070-remediation/ (never an existing one):
 
@@ -53,6 +61,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -68,6 +77,12 @@ REQUIREMENTS = SCRIPTS_DIR / "requirements.txt"
 # The pytest suite is dev-only and lives under files/tests/ (not shipped),
 # while requirements.txt + this gate ship from scripts/.
 TESTS_DIR = REPO_ROOT / "files" / "tests"
+# TESTS_DIR / GUARDED_SPEC_NAME lists the suites that run only under the guarded
+# runner, their groups and the reviewed process sources their run configuration
+# pins (see check_guarded). guarded_pytest.py accepts a basetemp and report only
+# below REPO_ROOT / GUARDED_SUBDIR (ignored).
+GUARDED_SPEC_NAME = "guarded_groups.json"
+GUARDED_SUBDIR = Path("files") / "dev-work" / "p05b-stage4c"
 MD_DIR = REPO_ROOT / "md-instructions"
 CHANGELOG = MD_DIR / "Changelog.md"
 BRIEFING = MD_DIR / "Briefing.md"
@@ -129,15 +144,55 @@ def _pass(check: str, detail: str = "") -> tuple[str, bool, str]:
     return (check, True, detail)
 
 
+class GuardedSpecError(ValueError):
+    """files/tests/guarded_groups.json is missing a part, names a missing suite or lists one twice."""
+
+
+def load_guarded_spec() -> dict | None:
+    """The guarded-suite specification, or None when the test tree has none (then nothing is guarded)."""
+    path = TESTS_DIR / GUARDED_SPEC_NAME
+    if not path.is_file():
+        return None
+    spec = json.loads(path.read_text(encoding="utf-8"))
+    if spec.get("version") != 1 or not spec.get("groups"):
+        raise GuardedSpecError(f"{path.name}: unknown version or no groups")
+    seen: set[str] = set()
+    for group in spec["groups"]:
+        name, prefix, modules = group.get("name"), group.get("basetemp_prefix"), group.get("modules")
+        if not name or not _EVIDENCE_COMPONENT.match(name) or not prefix or not modules:
+            raise GuardedSpecError(f"{path.name}: group {name!r} needs a name, a basetemp_prefix and modules")
+        for module in modules:
+            if module in seen:
+                raise GuardedSpecError(f"{path.name}: {module} is listed in more than one group")
+            if Path(module).name != module or not (TESTS_DIR / module).is_file():
+                raise GuardedSpecError(f"{path.name}: {module} is not a test module in {TESTS_DIR}")
+            seen.add(module)
+    return spec
+
+
+def guarded_modules() -> list[str]:
+    """Every suite the guarded gate runs and the ordinary pytest gate therefore leaves out."""
+    spec = load_guarded_spec()
+    return [] if spec is None else [m for group in spec["groups"] for m in group["modules"]]
+
+
+def _ignore_arguments() -> list[str]:
+    return [f"--ignore={TESTS_DIR / module}" for module in guarded_modules()]
+
+
 def check_pytest() -> tuple[str, bool, str]:
     """Run pytest against files/tests/. Only exit 0 (all tests passed) is a
     PASS. Exit 5 ("no tests collected") is a FAIL — a verify gate with zero
     tests collected is not a valid gate. Any other code is a failure or
-    collection error."""
+    collection error. The guarded suites are left to check_guarded."""
     if not TESTS_DIR.exists():
         return _fail("pytest", f"tests dir missing: {TESTS_DIR}")
+    try:
+        ignores = _ignore_arguments()
+    except (GuardedSpecError, ValueError) as exc:
+        return _fail("pytest", f"guarded-suite specification unusable: {exc}")
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", str(TESTS_DIR), "-q"],
+        [sys.executable, "-m", "pytest", str(TESTS_DIR), "-q", *ignores],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -149,6 +204,123 @@ def check_pytest() -> tuple[str, bool, str]:
     if proc.returncode == 5:
         return _fail("pytest", "no tests collected (an empty gate is not valid)")
     return _fail("pytest", f"exit {proc.returncode}: {summary}")
+
+
+def _sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def guarded_run_config(spec: dict) -> dict:
+    """guarded_pytest.py configuration version 1 for this tree: each reviewed process source pinned by its current
+    SHA-256 (the tree fingerprint and the runner's own re-check keep it from changing during the run), each tool by
+    resolved path and SHA-256. A listed source or tool that is missing fails the gate rather than being dropped."""
+    sites = {}
+    for relative, functions in spec["process_sites"].items():
+        path = REPO_ROOT / relative
+        if not path.is_file():
+            raise GuardedSpecError(f"reviewed process source {relative} is missing")
+        sites[relative] = {"sha256": _sha256_of(path), "functions": list(functions)}
+    tools = {}
+    for name in spec.get("tools", []):
+        found = shutil.which(name)
+        if not found:
+            raise GuardedSpecError(f"tool {name!r} is not on PATH")
+        resolved = Path(found).resolve()
+        tools[name] = {"path": str(resolved), "sha256": _sha256_of(resolved)}
+    config = {"version": 1, "process_sites": sites, "tools": tools}
+    if "spacy_fixture" in spec:
+        config["spacy_fixture"] = spec["spacy_fixture"]
+    return config
+
+
+def _guarded_command(config: Path, report: Path, basetemp: Path, modules: list[str]) -> list[str]:
+    return [sys.executable, "-I", "-B", str(TESTS_DIR / "guarded_pytest.py"), str(config), str(report),
+            *[str(TESTS_DIR / module) for module in modules], "-q", "-p", "no:cacheprovider", f"--basetemp={basetemp}"]
+
+
+def _read_guard_report(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {"unreadable": f"{type(exc).__name__}: {exc}"}
+
+
+def _judge_group(name: str, returncode: int, report: dict) -> tuple[bool, str]:
+    """A group passes only on every one of: runner exit 0, pytest exit 0, at least one test passed, none failed
+    or errored, no unintended production write, no unqualified process and no network/model use."""
+    if "unreadable" in report:
+        return False, f"{name}: exit {returncode}, guard report {report['unreadable']}"
+    counts = report.get("counts", {})
+    problems = []
+    if returncode != 0 or report.get("outer_exit") != 0:
+        problems.append(f"exit {returncode}/outer {report.get('outer_exit')}")
+    if report.get("pytest_exit") != 0:
+        problems.append(f"pytest exit {report.get('pytest_exit')}")
+    if not counts.get("passed"):
+        problems.append("no test passed")
+    for key in ("failed", "error"):
+        if counts.get(key):
+            problems.append(f"{counts[key]} {key}")
+    for key, label in (("unintended_production_refusals", "unintended production write(s)"),
+                       ("unexpected_processes", "unqualified process(es)"),
+                       ("network_model_refusals", "network/model refusal(s)")):
+        if report.get(key):
+            problems.append(f"{len(report[key])} {label}")
+    summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "no counts"
+    if problems:
+        return False, f"{name}: FAIL ({'; '.join(problems)}; {summary})"
+    return True, f"{name}: {summary}"
+
+
+def check_guarded(log_dir: Path | None = None) -> tuple[str, bool, str]:
+    """Run every guarded group through files/tests/guarded_pytest.py.
+
+    Each run gets a new folder below files/dev-work/p05b-stage4c holding its configuration, the guard's report and
+    the runner's process temp, and a new basetemp named with the group's prefix. Nothing earlier is reused. With
+    ``log_dir`` (evidence mode) each group's output is streamed to ``guarded-<group>.log`` there.
+    """
+    try:
+        spec = load_guarded_spec()
+    except (GuardedSpecError, ValueError) as exc:
+        return _fail("guarded", f"guarded-suite specification unusable: {exc}")
+    if spec is None:
+        return _fail("guarded", f"missing {TESTS_DIR / GUARDED_SPEC_NAME}")
+    try:
+        config = guarded_run_config(spec)
+    except (GuardedSpecError, OSError) as exc:
+        return _fail("guarded", str(exc))
+    root = REPO_ROOT / GUARDED_SUBDIR
+    # Short names on purpose: the spaCy consumer suite refuses a fixture path near Windows' 248-character cwd bound.
+    stamp = datetime.now(timezone.utc).strftime("%y%m%d%H%M%S")
+    run_dir = root / f"verify-{stamp}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    config_path = run_dir / "config.json"
+    config_path.write_text(json.dumps(config, indent=1), encoding="utf-8")
+    results = []
+    for index, group in enumerate(spec["groups"]):
+        name = group["name"]
+        basetemp = root / f"{group['basetemp_prefix']}v{stamp}{index}"
+        report = run_dir / f"{name}.json"
+        command = _guarded_command(config_path, report, basetemp, group["modules"])
+        if log_dir is None:
+            proc = subprocess.run(command, cwd=str(REPO_ROOT), capture_output=True, text=True)
+            returncode = proc.returncode
+            (run_dir / f"{name}.log").write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
+        else:
+            with open(log_dir / f"guarded-{name}.log", "xb") as sink:
+                sink.write((" ".join(command) + "\n").encode("utf-8"))
+                sink.flush()
+                proc = subprocess.Popen(command, cwd=str(REPO_ROOT), stdout=sink, stderr=subprocess.STDOUT)
+                try:
+                    returncode = proc.wait()
+                except BaseException:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
+                    raise
+        results.append(_judge_group(name, returncode, _read_guard_report(report)))
+    detail = "; ".join(text for _ok, text in results) + f" (reports: {run_dir})"
+    return ("guarded", all(ok for ok, _text in results), detail)
 
 
 def check_requirements() -> tuple[str, bool, str]:
@@ -548,7 +720,8 @@ class EvidenceRun:
 def _pytest_command(junit_xml: Path) -> list[str]:
     """The ordinary scope and -q, plus -ra and a JUnit report. ``-u`` keeps the
     child's output unbuffered, so pytest.log fills while the suite runs."""
-    return [sys.executable, "-u", "-m", "pytest", str(TESTS_DIR), "-q", "-ra", f"--junitxml={junit_xml}"]
+    return [sys.executable, "-u", "-m", "pytest", str(TESTS_DIR), "-q", "-ra", f"--junitxml={junit_xml}",
+            *_ignore_arguments()]
 
 
 def _stop_child(proc: subprocess.Popen, run: EvidenceRun) -> None:
@@ -574,7 +747,10 @@ def check_pytest_streaming(run: EvidenceRun) -> tuple[tuple[str, bool, str], int
     if not TESTS_DIR.exists():
         return _fail("pytest", f"tests dir missing: {TESTS_DIR}"), None
     junit_path = run.directory / "pytest.xml"
-    command = _pytest_command(junit_path)
+    try:
+        command = _pytest_command(junit_path)
+    except (GuardedSpecError, ValueError) as exc:
+        return _fail("pytest", f"guarded-suite specification unusable: {exc}"), None
     run.log(f"pytest command: {command}")
     tail: deque[bytes] = deque(maxlen=SUMMARY_CHUNKS)
     with open(run.directory / "pytest.log", "xb") as sink:
@@ -613,12 +789,14 @@ def check_pytest_streaming(run: EvidenceRun) -> tuple[tuple[str, bool, str], int
 
 
 def _evidence_gates():
-    """The five gates of main(), in the same order; only pytest takes its streaming form.
+    """The six gates of main(), in the same order; only pytest takes its streaming form, and the guarded gate
+    streams each group's output into the evidence directory.
 
     Looked up at call time so the suite can stand a gate in for a synthetic one.
     """
     return [
         ("pytest", None),
+        ("guarded", check_guarded),
         ("deps", check_requirements),
         ("docs", check_docs),
         ("docnames", check_doc_names),
@@ -656,6 +834,8 @@ def run_with_evidence(raw_dir: str, argv: list[str]) -> int:
             began = time.monotonic()
             if gate is None:
                 (_, ok, detail), exit_status = check_pytest_streaming(run)
+            elif name == "guarded":
+                (_, ok, detail), exit_status = gate(log_dir=run.directory), None
             else:
                 (_, ok, detail), exit_status = gate(), None
             elapsed = round(time.monotonic() - began, 3)
@@ -743,6 +923,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_with_evidence(args.evidence_dir, list(sys.argv if argv is None else argv))
     checks = [
         check_pytest(),
+        check_guarded(),
         check_requirements(),
         check_docs(),
         check_doc_names(),

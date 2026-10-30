@@ -582,13 +582,33 @@ def test_the_macos_launcher_is_committed_executable():
     assert stage[0] == "100755", stage
 
 
-def test_the_packaged_macos_launcher_parses_as_bash(tmp_path, archives):
-    """``bash -n`` over the exact bytes a Mac user extracts (no execution)."""
+def _working_bash():
+    """A bash that actually runs. On Windows the first ``bash`` on PATH can be the WSL relay stub, which fails when no
+    Linux distribution is installed; Git for Windows' own bash (beside git.exe) is preferred, so the result does not
+    depend on which shell started the test run."""
     import shutil
 
-    bash = shutil.which("bash")
+    candidates = []
+    git_exe = shutil.which("git")
+    if git_exe:
+        install = Path(git_exe).resolve().parent.parent
+        candidates += [install / "bin" / "bash.exe", install / "usr" / "bin" / "bash.exe"]
+    candidates.append(shutil.which("bash"))
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            try:
+                if subprocess.run([str(candidate), "-c", "exit 0"], capture_output=True, timeout=30).returncode == 0:
+                    return str(candidate)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+    return None
+
+
+def test_the_packaged_macos_launcher_parses_as_bash(tmp_path, archives):
+    """``bash -n`` over the exact bytes a Mac user extracts (no execution)."""
+    bash = _working_bash()
     if bash is None:
-        pytest.skip("no bash on this machine")
+        pytest.skip("no working bash on this machine")
     with zipfile.ZipFile(archives["MacOS"]) as zf:
         extracted = Path(zf.extract(LAUNCHERS["MacOS"], tmp_path))
     result = subprocess.run([bash, "-n", extracted.as_posix()], capture_output=True, text=True)
@@ -611,11 +631,9 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
     Interpreter shims prevent installs or GUI launches. This exercises real Bash
     control flow, including the status of a failed command inside an ``if``.
     """
-    import shutil
-
-    bash = shutil.which("bash")
+    bash = _working_bash()
     if bash is None:
-        pytest.skip("no bash on this machine")
+        pytest.skip("no working bash on this machine")
     root = tmp_path / "app folder"
     with zipfile.ZipFile(archives["MacOS"]) as zf:
         zf.extractall(root)

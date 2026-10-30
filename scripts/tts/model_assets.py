@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional
 
-from shared import venv_layout
+from shared import spacy_store, venv_layout
 from tts import qwen3_runtime as rt
 
 READY = "ready"
@@ -99,16 +99,15 @@ CHATTERBOX_FILES: dict[str, tuple[int, str]] = {
     "vocab.json": (999_186, "f6bd25a65e4e63ca31360e9fb11c7e4f9a391a78385d640acd814092dd6eee4f"),
 }
 
-#: The owner-approved spaCy English model (ruling 2026-10-25): this wheel only, size- and hash-verified before pip sees
-#: it, installed with ``--no-deps`` and hash enforcement into a spaCy ``>=3.8.0,<3.9.0`` that is never upgraded for it.
-SPACY_ENGLISH = "en_core_web_sm"
-SPACY_ENGLISH_VERSION = "3.8.0"
-SPACY_WHEEL_NAME = "en_core_web_sm-3.8.0-py3-none-any.whl"
-SPACY_WHEEL_URL = ("https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/"
-                   + SPACY_WHEEL_NAME)
-SPACY_WHEEL_SIZE = 12_806_118
-SPACY_WHEEL_SHA256 = "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85"
-SPACY_COMPATIBLE = ((3, 8, 0), (3, 9, 0))  # >= first, < second
+#: The owner-approved spaCy English model (ruling 2026-10-25), pinned once in ``shared.spacy_store`` (which bootstrap
+#: may import) and named here as before.
+SPACY_ENGLISH = spacy_store.SPACY_ENGLISH
+SPACY_ENGLISH_VERSION = spacy_store.SPACY_ENGLISH_VERSION
+SPACY_WHEEL_NAME = spacy_store.SPACY_WHEEL_NAME
+SPACY_WHEEL_URL = spacy_store.SPACY_WHEEL_URL
+SPACY_WHEEL_SIZE = spacy_store.SPACY_WHEEL_SIZE
+SPACY_WHEEL_SHA256 = spacy_store.SPACY_WHEEL_SHA256
+SPACY_COMPATIBLE = spacy_store.SPACY_COMPATIBLE
 
 
 def kokoro_set() -> AssetSet:
@@ -144,6 +143,24 @@ def snapshot_dir(assets: AssetSet) -> Path:
 
 def record_dir() -> Path:
     return rt.repo_root() / "files" / "runtime-data" / "models" / "verified"
+
+
+def spacy_store_dir() -> Path:
+    """Where the verified spaCy English wheel is kept after it is installed (see ``shared.spacy_store``)."""
+    return spacy_store.store_dir(rt.repo_root())
+
+
+def kept_spacy_wheel() -> Optional[Path]:
+    """The kept wheel, only if it is a plain regular file of exactly the approved size and SHA-256; otherwise None."""
+    return spacy_store.kept_wheel(rt.repo_root(), size=SPACY_WHEEL_SIZE, sha256=SPACY_WHEEL_SHA256)
+
+
+def spacy_offline_install_command(python: Path, requirement: Path) -> list[str]:
+    return spacy_store.offline_install_command(python, requirement)
+
+
+def spacy_requirement_line(wheel: Path) -> str:
+    return spacy_store.requirement_line(wheel, SPACY_WHEEL_SHA256)
 
 
 def record_path(assets: AssetSet) -> Path:

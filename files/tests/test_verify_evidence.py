@@ -31,7 +31,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 VERIFY_PATH = REPO_ROOT / "scripts" / "verify.py"
-GATE_ORDER = ["pytest", "deps", "docs", "docnames", "config"]
+GATE_ORDER = ["pytest", "guarded", "deps", "docs", "docnames", "config"]
 EVIDENCE_FILES = {"verify.log", "pytest.log", "pytest.xml", "start.json", "result.json"}
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the tree fingerprint needs git")
@@ -181,6 +181,7 @@ def verify(monkeypatch, fake_repo):
     for function, gate in (("check_requirements", "deps"), ("check_docs", "docs"),
                            ("check_doc_names", "docnames"), ("check_config", "config")):
         monkeypatch.setattr(module, function, lambda gate=gate: (gate, True, f"synthetic {gate} ok"))
+    monkeypatch.setattr(module, "check_guarded", lambda log_dir=None: ("guarded", True, "synthetic guarded ok"))
     return module
 
 
@@ -230,7 +231,7 @@ def test_the_ordinary_gate_runs_the_same_pytest_command_and_keeps_its_summary(mo
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
     assert module.check_pytest() == ("pytest", True, "5 passed in 1.00s")
-    assert seen["cmd"] == [sys.executable, "-m", "pytest", str(module.TESTS_DIR), "-q"]
+    assert seen["cmd"] == [sys.executable, "-m", "pytest", str(module.TESTS_DIR), "-q", *module._ignore_arguments()]
     assert seen["kwargs"] == {"cwd": str(module.REPO_ROOT), "capture_output": True, "text": True}
 
 
@@ -246,12 +247,13 @@ def test_the_ordinary_gate_still_fails_empty_and_failing_runs(monkeypatch, code,
     assert module.check_pytest() == ("pytest", False, expected)
 
 
-def test_no_arguments_runs_the_five_gates_in_order_prints_the_same_report_and_writes_no_evidence(
+def test_no_arguments_runs_the_six_gates_in_order_prints_the_same_report_and_writes_no_evidence(
         monkeypatch, capsys, tmp_path):
     module = load_verify()
     monkeypatch.setattr(module, "EVIDENCE_ROOT", tmp_path / "evidence-root")
     calls = []
-    for function, gate, ok in (("check_pytest", "pytest", True), ("check_requirements", "deps", True),
+    for function, gate, ok in (("check_pytest", "pytest", True), ("check_guarded", "guarded", True),
+                               ("check_requirements", "deps", True),
                                ("check_docs", "docs", False), ("check_doc_names", "docnames", True),
                                ("check_config", "config", True)):
         monkeypatch.setattr(module, function,
@@ -260,7 +262,7 @@ def test_no_arguments_runs_the_five_gates_in_order_prints_the_same_report_and_wr
     assert calls == GATE_ORDER
     assert capsys.readouterr().out == (
         "=" * 60 + "\nverify.py — Audiobook Creation Tool gate\n" + "=" * 60 + "\n"
-        "  [PASS] pytest   - pytest detail\n  [PASS] deps     - deps detail\n  [FAIL] docs     - docs detail\n"
+        "  [PASS] pytest   - pytest detail\n  [PASS] guarded  - guarded detail\n  [PASS] deps     - deps detail\n  [FAIL] docs     - docs detail\n"
         "  [PASS] docnames - docnames detail\n  [PASS] config   - config detail\n"
         + "-" * 60 + "\n  RESULT: FAIL\n" + "=" * 60 + "\n")
     assert not (tmp_path / "evidence-root").exists()
@@ -289,7 +291,7 @@ def test_evidence_mode_runs_exactly_the_ordinary_gates_in_the_ordinary_order():
     module = load_verify()
     gates = module._evidence_gates()
     assert [name for name, _ in gates] == GATE_ORDER
-    assert [fn for _, fn in gates[1:]] == [module.check_requirements, module.check_docs,
+    assert [fn for _, fn in gates[1:]] == [module.check_guarded, module.check_requirements, module.check_docs,
                                            module.check_doc_names, module.check_config]
 
 
@@ -297,7 +299,8 @@ def test_the_evidence_pytest_command_adds_only_reporting_to_the_ordinary_scope(t
     module = load_verify()
     junit = tmp_path / "pytest.xml"
     command = module._pytest_command(junit)
-    assert command == [sys.executable, "-u", "-m", "pytest", str(module.TESTS_DIR), "-q", "-ra", f"--junitxml={junit}"]
+    assert command == [sys.executable, "-u", "-m", "pytest", str(module.TESTS_DIR), "-q", "-ra", f"--junitxml={junit}",
+                       *module._ignore_arguments()]
     pytest_arguments = command[command.index("pytest") + 1:]
     for narrowing in ("-x", "-k", "-m", "--lf", "--deselect", "--maxfail", "-p"):
         assert narrowing not in pytest_arguments
@@ -503,17 +506,19 @@ def test_a_failing_non_pytest_gate_is_recorded_as_such(verify, fake_pytest, monk
     code, target = run(verify)
     assert code == 1
     result = load(target, "result.json")
-    deps = result["gates"][1]
+    deps = result["gates"][GATE_ORDER.index("deps")]
     assert (deps["name"], deps["status"], deps["exit_status"], deps["detail"]) == (
         "deps", "FAIL", None, "'pkg' (bare/unpinned package)")
     assert result["gates"][0]["status"] == "PASS" and result["result"] == "FAIL"
 
 
 def test_the_real_non_pytest_gates_are_recorded_exactly_as_they_report(monkeypatch, fake_pytest, tmp_path):
-    """No stand-ins for deps/docs/docnames/config: evidence mode records the checkout's real answers unchanged."""
+    """No stand-ins for deps/docs/docnames/config: evidence mode records the checkout's real answers unchanged.
+    The guarded gate runs suites, like pytest, so it is the one stand-in besides pytest (test_verify_guarded.py)."""
     module = load_verify()
     monkeypatch.setattr(module, "EVIDENCE_ROOT", tmp_path / "evidence-root")
     use_child(monkeypatch, module, fake_pytest, "pass")
+    monkeypatch.setattr(module, "check_guarded", lambda log_dir=None: ("guarded", True, "synthetic guarded ok"))
     target = tmp_path / "evidence-root" / "real-gates"
     module.main(["--evidence-dir", str(target)])
     recorded = {g["name"]: g for g in load(target, "result.json")["gates"]}

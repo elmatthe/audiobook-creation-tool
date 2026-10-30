@@ -415,6 +415,54 @@ def test_a_source_changed_during_the_install_is_never_narrated_silently(make_pan
     assert not output_base.exists() or not any(output_base.iterdir())
 
 
+def test_closing_the_panel_during_the_install_abandons_the_run_even_when_the_install_succeeds(
+        make_panel, output_base, tmp_path, monkeypatch):  # noqa: F811
+    from tts import epub2tts_gui as panel_module
+    for name in ("showinfo", "showwarning", "showerror"):
+        monkeypatch.setattr(panel_module.messagebox, name, lambda *a, **k: pytest.fail("a closed panel spoke"))
+    state = {"installed": False}
+
+    def dialog(panel, component, reason):
+        panel.close()  # the person closed the tool while the install ran
+        state["installed"] = True
+        return {"state": "installed", "verified": [component]}
+
+    panel, _chosen = direct_panel(make_panel, tmp_path, "book.txt",
+                                  local_assets=lambda b, v: (True, "") if state["installed"] else
+                                  (False, "Kokoro voices are not installed"),
+                                  installable=lambda b, v, r: proto.KOKORO, install_dialog=dialog)
+    panel.selected_voice_label.set(_kokoro_label())
+    captured = accept(panel)
+    assert captured == {} and state["installed"]
+    assert not output_base.exists() or not any(output_base.iterdir())
+
+
+def test_a_second_create_while_an_install_is_pending_opens_nothing_and_starts_nothing(
+        make_panel, output_base, tmp_path, monkeypatch):  # noqa: F811
+    from tts import epub2tts_gui as panel_module
+    dialogs = []
+    state = {"installed": False}
+
+    def dialog(panel, component, reason):
+        dialogs.append(component)
+        panel.run_job()  # a duplicate click reaches Create while the modal install is open
+        assert len(dialogs) == 1
+        assert not output_base.exists() or not any(output_base.iterdir())
+        state["installed"] = True
+        return {"state": "installed", "verified": [component]}
+
+    monkeypatch.setattr(panel_module.messagebox, "showinfo", lambda *a, **k: pytest.fail("unexpected message"))
+    monkeypatch.setattr(panel_module.messagebox, "showwarning", lambda *a, **k: pytest.fail("unexpected warning"))
+    panel, _chosen = direct_panel(make_panel, tmp_path, "book.txt",
+                                  local_assets=lambda b, v: (True, "") if state["installed"] else
+                                  (False, "Kokoro voices are not installed"),
+                                  installable=lambda b, v, r: proto.KOKORO, install_dialog=dialog)
+    panel.selected_voice_label.set(_kokoro_label())
+    captured = accept(panel)
+    assert dialogs == [proto.KOKORO]
+    assert captured and captured["params"]["backend"] == "kokoro"
+
+
 # --------------------------------------------------------------------------- #
 # Smart App Control: a new engine's first loads are evaluated, then allowed
 # --------------------------------------------------------------------------- #

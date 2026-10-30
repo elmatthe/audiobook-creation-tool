@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "about": "Suites that run only under files/tests/guarded_pytest.py. verify.py leaves them out of the ordinary pytest gate and runs every one in its guarded gate; each group's basetemp is a new folder below files/dev-work/p05b-stage4c whose name starts with the group's prefix, because the fixtures they drive accept only such an owned tree.",
+  "groups": [
+    {
+      "name": "v3-planning",
+      "basetemp_prefix": "stage4d2d-m1-",
+      "modules": [
+        "test_optional_setup_exchange_v3.py",
+        "test_optional_setup_confirmation_v3.py",
+        "test_optional_setup_display_controller_v3.py",
+        "test_optional_setup_planning_worker_v3.py",
+        "test_optional_setup_readonly_context_v3.py",
+        "test_optional_setup_tk_harness_v3.py",
+        "test_spacy_consumer.py",
+        "test_p05b_isolation.py"
+      ]
+    },
+    {
+      "name": "v3-supervisor",
+      "basetemp_prefix": "stage4d2b-",
+      "modules": [
+        "test_optional_setup_supervisor_v3.py"
+      ]
+    }
+  ],
+  "process_sites": {
+    "scripts/shared/optional_setup_supervisor_v3.py": ["_spawn_fake"],
+    "scripts/shared/optional_setup_planning_bridge_v3.py": ["_spawn_fake"],
+    "scripts/shared/optional_setup_readonly_context_v3.py": ["_spawn_fake"],
+    "files/tests/test_optional_setup_planning_worker_v3.py": ["test_fixed_module_and_scrubbed_environment"],
+    "files/tests/test_optional_tts_setup.py": ["_junction"],
+    "files/tests/test_spacy_consumer.py": ["test_native_offline_synthetic_model_install_is_not_actual_model_readiness"],
+    "files/tests/test_p05b_isolation.py": ["test_process_lifetime_guard_catches_collection_setup_body_teardown_import_and_atexit"],
+    ".venv/Lib/site-packages/numpy/testing/_private/utils.py": ["check_support_sve"]
+  },
+  "tools": ["cmd"],
+  "spacy_fixture": {
+    "synthetic_only": true,
+    "sha256": "3a895726b1e00e06c5f991ef5ba58aa6dce52bc2dbeb44f5b7fedff3efb9b3bc"
+  }
+}
