@@ -44,7 +44,8 @@ class Catalog:
     """Explicit authority boundary. Caller supplies fresh independently derived terms under its lease.
 
     Model identities come from that trusted planner; this class cannot authorize arbitrary received JSON.
-    Reviewed package mapping is checked independently, including the local-only sox derivative.
+    Reviewed package mapping is checked independently, including the sox derivative: local-only for the
+    local purposes, or the code-pinned published commit for the explicit non-production qualification purpose.
     """
     def __init__(self, trusted_terms, *, package_manifest=None, purpose='fresh-machine'):
         terms = v3.validate_terms(trusted_terms)
@@ -60,15 +61,19 @@ class Catalog:
             for row in packages:
                 approved = by_name.get(row['name'])
                 require(approved is not None and row['kind'] == 'package', 'unapproved package artifact')
+                source_url = approved.source_url
+                if approved.name == 'sox':
+                    require(purpose in (*qm.LOCAL_SUPPLY_PURPOSES, qm.PUBLISHED_SUPPLY_PURPOSE),
+                            'BLOCKED: portable sox supply pending; existing local development only')
+                    sox_source = qm.published_sox_source(reviewed) if purpose == qm.PUBLISHED_SUPPLY_PURPOSE else {
+                        'kind': 'local-derived', 'url': None, 'revision': qm.SOX_SOURCE_SHA256}
+                    source_url = sox_source['url']
                 require((row['version'], row['filename'], row['size'], row['sha256'], row['source']['url']) ==
-                        (approved.version, approved.filename, approved.size, approved.sha256, approved.source_url),
+                        (approved.version, approved.filename, approved.size, approved.sha256, source_url),
                         'package differs from reviewed artifact')
                 if approved.name == 'sox':
-                    require(purpose in ('controlled-local-development', 'synthetic-qualification'),
-                            'BLOCKED: portable sox supply pending; existing local development only')
                     derivative = row['derivative']
-                    require(row['source'] == {'kind': 'local-derived', 'url': None,
-                                              'revision': qm.SOX_SOURCE_SHA256}
+                    require(row['source'] == sox_source
                             and derivative == {'source_filename': 'sox-1.5.0.tar.gz',
                                                'source_sha256': qm.SOX_SOURCE_SHA256, 'source_size': 63905,
                                                'build_inputs_sha256': hashlib.sha256(canonical(
@@ -79,6 +84,11 @@ class Catalog:
                     require(row['source']['kind'] == 'pinned-https' and row['derivative'] is None,
                             'unapproved package source/derivative')
         self._terms = canonical(terms)
+        self._purpose = purpose
+
+    @property
+    def purpose(self):
+        return self._purpose
 
     @property
     def terms(self):

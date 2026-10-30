@@ -1,6 +1,6 @@
 {
   "schema": "act-qwen3-artifacts",
-  "version": 1,
+  "version": 2,
   "target": {
     "implementation": "CPython",
     "python": "3.12",
@@ -1015,7 +1015,19 @@
     "authorization": "existing-local-only",
     "publisher_wheel": false,
     "portable_supply": "pending",
-    "build_authorized": false
+    "build_authorized": false,
+    "distribution": {
+      "repository": "elmatthe/audiobook-creation-tool",
+      "commit": "b7e1b1aea9cd78c67c540b556a64392f22d0bfc1",
+      "path": "supply/python/sox/1.5.0/sha256-d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934/sox-1.5.0-py3-none-any.whl",
+      "url": "https://raw.githubusercontent.com/elmatthe/audiobook-creation-tool/b7e1b1aea9cd78c67c540b556a64392f22d0bfc1/supply/python/sox/1.5.0/sha256-d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934/sox-1.5.0-py3-none-any.whl",
+      "size": 40164,
+      "sha256": "d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934",
+      "tags": [
+        "py3-none-any"
+      ],
+      "publication": "published-endpoint-qualified"
+    }
   },
   "build_only": {
     "status": "evidence-only-no-build",
@@ -1043,5 +1055,5 @@
       "source_url": "https://files.pythonhosted.org/packages/ef/55/6dc6d6bb953bdfc52519a0059592c52b6e3b8ad51cf8256dffceb55b0610/setuptools-84.2.1-py3-none-any.whl"
     }
   },
-  "content_sha256": "3492271977a6f1d6026db9dd5269b32005c8303a55842ada9ca5759b023fbd79"
+  "content_sha256": "8ef2179cd7a0f3e0e979b1e9d907aa02c6bb8fe67617b9d4e3dff5ce3566a2e2"
 }

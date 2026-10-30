@@ -94,6 +94,15 @@ PRODUCTION_TTS_SOURCES = (
     "tts/optional_setup_acquire.py",
     "tts/optional_setup_health.py",
     "tts/model_assets.py",
+    # M3: keep the exhaustive guard over accepted P05 helpers and the new
+    # disposable consumer. These modules were absent from the older roster.
+    "tts/optional_setup_authority.py",
+    "tts/optional_setup_planning_worker_v3.py",
+    "tts/optional_setup_readonly_worker_v3.py",
+    "tts/qwen3_engine_authority.py",
+    "tts/qwen3_package_manifest.py",
+    "tts/qwen3_packages.py",
+    "tts/spacy_consumer.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

@@ -69,6 +69,7 @@ class ProcessPolicy:
         self.temp = temp
         self.disposable_roots = (temp,) if process_temp is None else (temp, process_temp)
         self.tools = config["tools"]
+        self.spacy_fixture = config.get("spacy_fixture")
         self.allowed = []
         self.refused = []
         for rel, entry in self.sites.items():
@@ -220,6 +221,22 @@ class ProcessPolicy:
                 if argv[1:4] != ["-I", "-B", "-c"] or len(argv) != 20 or not cwd or not self.disposable(cwd):
                     return None
                 wheels, lock = Path(argv[10]), Path(argv[18])
+                # M3 explicitly pinned synthetic English-wheel qualification.
+                # This profile cannot run against the real main environment or
+                # another wheel/command, including an unapproved real model.
+                if self.spacy_fixture and wheels.parent == exe.parents[2] and \
+                        wheels.name.startswith('spacy-sealed-') and lock == wheels / 'requirements.txt' and \
+                        Path(cwd) == wheels and self.disposable(wheels) and self.disposable(lock) and \
+                        argv[5:19] == ["install", "--isolated", "--require-virtualenv", "--no-index", "--find-links",
+                            str(wheels), "--require-hashes", "--no-deps", "--only-binary=:all:", "--no-cache-dir", "--no-input",
+                            "--disable-pip-version-check", "-r", str(lock)]:
+                    wheel = wheels / 'en_core_web_sm-3.8.0-py3-none-any.whl'
+                    digest = self.spacy_fixture.get('sha256')
+                    if self.spacy_fixture.get('synthetic_only') is True and \
+                            argv[19] == 'file:./' + wheel.name + '#sha256=' + str(digest) and \
+                            hashlib.sha256(wheel.read_bytes()).hexdigest() == digest:
+                        return ('child-guarded-offline-synthetic-spacy-pip', caller)
+                    return None
                 if not self.disposable(wheels) or not self.disposable(lock) or Path(cwd) != wheels or \
                         wheels.parent != exe.parents[2] or lock.parent != exe.parents[2]:
                     return None

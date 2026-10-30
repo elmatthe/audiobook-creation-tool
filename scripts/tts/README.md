@@ -32,6 +32,20 @@ Production acquisition remains disabled. The explicitly injected disposable engi
 through the existing installer; see the [Stage 4B-3B contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3B-Offline-Execution.md).
 Manual Qwen install/repair keeps its separate index/cache contract outside v3; spaCy installation remains deferred.
 
+`spacy_consumer.py` provides a separate versioned **disposable-only** M3 qualification:
+an exact wheel, retained v3 confirmation, pinned target, sealed offline pip and
+distinct installed/import-health results. It cannot authorize production `.venv`
+mutation; v1 acquisition terms still lack consumer-target/recovery authority.
+Portable sox production supply remains pending; local provenance checks grant no redistribution approval.
+
+`qwen3-artifacts.json` version 2 adds one closed `sox_derivative.distribution` record: the exact
+commit-pinned raw URL of ACT's published sox derivative (repository, full commit, path, size, SHA-256, tags),
+checked against code constants in `qwen3_package_manifest.py`. It is artifact **identity**, not eligibility:
+`portable_supply` stays `pending`, `publisher_wheel`/`build_authorized` stay false, the original lock and the
+89-wheel effective lock are unchanged, and the production `fresh-machine` Planner still refuses sox. Only the
+explicit non-production `published-supply-qualification` purpose emits it as a real `pinned-https` transfer
+(revision = the supply commit). It contains no native `sox.exe`; clean-Windows runtime qualification is pending.
+
 | Engine | Modules | Notes |
 |---|---|---|
 | Edge TTS (network) | `batch_convert.py`, `epub2tts_edge/` | five voices |

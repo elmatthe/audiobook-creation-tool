@@ -3,27 +3,47 @@
 ``effective_lock`` maps identities only. ``verified_wheel_lock`` additionally proves a supplied local set. Neither
 creates an installation receipt or authorizes installation. A future installer must seal/revalidate inputs at use.
 The original runtime requirements identity remains the health contract for existing environments.
+
+Version 2 adds one closed, code-pinned record: the commit-pinned published location of the ACT-controlled sox
+derivative. Publication is artifact identity only. ``portable_supply='pending'`` remains the separate fact that no
+production fresh-machine use is approved; only the explicit non-production qualification purpose may select it.
 """
 from __future__ import annotations
 
 import hashlib
+import email
 import itertools
 import json
 import re
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 from urllib.parse import unquote, urlsplit
 
 SCHEMA = 'act-qwen3-artifacts'
+VERSION = 2
 TARGET = {'implementation': 'CPython', 'python': '3.12', 'platform': 'win_amd64'}
 ORIGINAL_LOCK_SHA256 = 'b1851204f0852fbdbf179186800727cba0e99b006adca0c43e6301d858a0ae6e'
-REVIEWED_MANIFEST_SHA256 = '3492271977a6f1d6026db9dd5269b32005c8303a55842ada9ca5759b023fbd79'
+# Reviewed version-2 content (M3 Reference B). The retired version-1 anchor was 34922719...fbd79.
+REVIEWED_MANIFEST_SHA256 = '8ef2179cd7a0f3e0e979b1e9d907aa02c6bb8fe67617b9d4e3dff5ce3566a2e2'
 SOX_SOURCE_SHA256 = '12c7be5bb1f548d891fe11e82c08cf5f1a1d74e225298f60082e5aeb2469ada0'
 SOX_WHEEL_SHA256 = 'd7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934'
+# Supply commit A: reviewed and endpoint-qualified once. The branch that keeps it reachable is NOT an identity.
+SOX_SUPPLY_REPOSITORY = 'elmatthe/audiobook-creation-tool'
+SOX_SUPPLY_COMMIT = 'b7e1b1aea9cd78c67c540b556a64392f22d0bfc1'
+SOX_SUPPLY_PATH = ('supply/python/sox/1.5.0/sha256-d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934/'
+                   'sox-1.5.0-py3-none-any.whl')
+SOX_SUPPLY_URL = ('https://raw.githubusercontent.com/elmatthe/audiobook-creation-tool/'
+                  'b7e1b1aea9cd78c67c540b556a64392f22d0bfc1/' + SOX_SUPPLY_PATH)
+SOX_PUBLICATION = 'published-endpoint-qualified'
+LOCAL_SUPPLY_PURPOSES = ('controlled-local-development', 'synthetic-qualification')
+# Controlled, non-production qualification only. Production planning keeps purpose='fresh-machine'.
+PUBLISHED_SUPPLY_PURPOSE = 'published-supply-qualification'
 _HASH = re.compile(r'[a-f0-9]{64}')
 _PIN = re.compile(r'([a-z0-9]+(?:-[a-z0-9]+)*)==([0-9][A-Za-z0-9.+]*) --hash=sha256:([a-f0-9]{64})')
 _ARTIFACT_KEYS = {'name', 'version', 'filename', 'size', 'sha256', 'tags', 'source_url'}
+_DISTRIBUTION_KEYS = {'repository', 'commit', 'path', 'url', 'size', 'sha256', 'tags', 'publication'}
 
 
 class ManifestError(ValueError):
@@ -134,10 +154,64 @@ def _artifact(value, *, local: bool = False) -> Artifact:
     return Artifact(a['name'], a['version'], a['filename'], a['size'], a['sha256'], tuple(a['tags']), url)
 
 
+def supply_reference(repository, commit, path, url) -> None:
+    """Accept only the exact commit-pinned raw location of the one reviewed derivative.
+
+    Compared with the trusted constructed string first, then re-parsed defensively. No branch, tag, short
+    commit, other repository/host/port/userinfo, encoding, dot segment, query or fragment can be equivalent.
+    """
+    _require(all(type(v) is str for v in (repository, commit, path, url)), 'malformed supply reference')
+    _require(re.fullmatch(r'[a-f0-9]{40}', commit) is not None and commit == SOX_SUPPLY_COMMIT,
+             'supply revision must be the approved full commit')
+    _require(repository == SOX_SUPPLY_REPOSITORY, 'unapproved supply repository')
+    _require(path == SOX_SUPPLY_PATH, 'unapproved supply path')
+    _require(url == SOX_SUPPLY_URL, 'unapproved supply URL')
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        raise ManifestError('malformed supply URL') from None
+    segments = parsed.path.split('/')[1:]
+    _require(parsed.scheme == 'https' and parsed.netloc == 'raw.githubusercontent.com' and port is None
+             and parsed.username is None and parsed.password is None and not parsed.query
+             and not parsed.fragment and re.search(r'[?#%@\\\s]', url) is None
+             and parsed.path == '/' + repository + '/' + commit + '/' + path
+             and all(s and s not in ('.', '..') for s in segments), 'non-canonical supply URL')
+
+
+@dataclass(frozen=True)
+class SupplyDistribution:
+    """Published immutable identity of the sox derivative. Not installation or production authority."""
+    repository: str
+    commit: str
+    path: str
+    url: str
+    size: int
+    sha256: str
+    tags: tuple[str, ...]
+    publication: str
+
+
+def _distribution(value, wheel: Artifact) -> SupplyDistribution:
+    d = _keys(value, _DISTRIBUTION_KEYS, 'sox distribution')
+    supply_reference(d['repository'], d['commit'], d['path'], d['url'])
+    _require(type(d['size']) is int and type(d['sha256']) is str and type(d['tags']) is list
+             and all(type(t) is str for t in d['tags']), 'malformed sox distribution identity')
+    # The published record names the SAME reviewed derivative; it cannot carry or define another artifact.
+    _require((d['size'], d['sha256'], tuple(d['tags'])) == (wheel.size, wheel.sha256, wheel.tags)
+             == (40164, SOX_WHEEL_SHA256, ('py3-none-any',))
+             and d['path'].split('/')[-2:] == ['sha256-' + wheel.sha256, wheel.filename],
+             'distribution is not the approved sox derivative')
+    _require(d['publication'] == SOX_PUBLICATION, 'unreviewed sox publication state')
+    return SupplyDistribution(d['repository'], d['commit'], d['path'], d['url'], d['size'], d['sha256'],
+                              tuple(d['tags']), d['publication'])
+
+
 @dataclass(frozen=True)
 class ReviewedManifest:
     runtime: tuple[Artifact, ...]
     sox_wheel: Artifact
+    sox_distribution: SupplyDistribution
     content_sha256: str
     _document: bytes = field(repr=False)
     _requirements: bytes = field(repr=False)
@@ -165,7 +239,9 @@ def load_manifest(raw: bytes, requirements: bytes, *, target: dict | None = None
         raise ManifestError(f'invalid manifest: {exc}') from None
     _keys(d, {'schema', 'version', 'target', 'runtime_lock', 'runtime', 'sox_derivative', 'build_only',
               'content_sha256'}, 'manifest')
-    _require(d['schema'] == SCHEMA and type(d['version']) is int and d['version'] == 1, 'unsupported manifest schema')
+    # Version 1 is retired, not reinterpreted: it has no distribution record and its anchor is no longer reviewed.
+    _require(d['schema'] == SCHEMA and type(d['version']) is int and d['version'] == VERSION,
+             'unsupported manifest schema')
     _require(d['target'] == TARGET and (target is None or target == TARGET), 'wrong platform/interpreter')
     _require(d['runtime_lock'] == {'path': 'scripts/qwen3-requirements.txt', 'sha256_lf': ORIGINAL_LOCK_SHA256},
              'wrong original lock identity')
@@ -178,7 +254,7 @@ def load_manifest(raw: bytes, requirements: bytes, *, target: dict | None = None
     source = next(a for a in runtime if a.name == 'sox')
     _require(source.sha256 == SOX_SOURCE_SHA256 and source.size == 63905, 'wrong sox source identity')
     derivative = _keys(d['sox_derivative'], {'artifact', 'source_sha256', 'authorization', 'publisher_wheel',
-                                          'portable_supply', 'build_authorized'}, 'sox derivative')
+                                          'portable_supply', 'build_authorized', 'distribution'}, 'sox derivative')
     wheel = _artifact(derivative['artifact'], local=True)
     _require((wheel.name, wheel.version, wheel.filename, wheel.size, wheel.sha256, wheel.tags) == (
         'sox', '1.5.0', 'sox-1.5.0-py3-none-any.whl', 40164, SOX_WHEEL_SHA256, ('py3-none-any',)),
@@ -186,6 +262,7 @@ def load_manifest(raw: bytes, requirements: bytes, *, target: dict | None = None
     _require(derivative['source_sha256'] == source.sha256 and derivative['authorization'] == 'existing-local-only'
              and derivative['publisher_wheel'] is False and derivative['portable_supply'] == 'pending'
              and derivative['build_authorized'] is False, 'sox supply/build authorization changed')
+    distribution = _distribution(derivative['distribution'], wheel)
     build = _keys(d['build_only'], {'status', 'frontend_origin', 'frontend', 'backend'}, 'build-only evidence')
     _require(build['status'] == 'evidence-only-no-build'
              and build['frontend_origin'] == 'CPython-3.12.10-ensurepip', 'build evidence is not build authorization')
@@ -194,7 +271,7 @@ def load_manifest(raw: bytes, requirements: bytes, *, target: dict | None = None
     digest = d.pop('content_sha256')
     _require(type(digest) is str and digest == hashlib.sha256(_canonical(d)).hexdigest()
              and digest == REVIEWED_MANIFEST_SHA256, 'unreviewed manifest content identity')
-    return ReviewedManifest(runtime, wheel, digest, _canonical({**d, 'content_sha256': digest}),
+    return ReviewedManifest(runtime, wheel, distribution, digest, _canonical({**d, 'content_sha256': digest}),
                              requirements.replace(b'\r\n', b'\n'))
 
 
@@ -204,6 +281,13 @@ def _checked_manifest(manifest: ReviewedManifest) -> ReviewedManifest:
     reviewed = load_manifest(manifest._document, manifest._requirements)
     _require(manifest == reviewed, 'untrusted manifest object differs from reviewed content')
     return reviewed
+
+
+def published_sox_source(manifest: ReviewedManifest) -> dict:
+    """Exact v3 source for the remote derivative row; identity only, no availability or eligibility claim."""
+    d = _checked_manifest(manifest).sox_distribution
+    supply_reference(d.repository, d.commit, d.path, d.url)
+    return {'kind': 'pinned-https', 'url': d.url, 'revision': d.commit}
 
 
 def effective_lock(manifest: ReviewedManifest) -> bytes:
@@ -252,3 +336,73 @@ def verified_wheel_lock(manifest: ReviewedManifest, candidates: Mapping[str, Loc
     for artifact in manifest.wheels:
         verify_local(artifact, candidates[artifact.name])
     return effective_lock(manifest)
+
+
+def verify_wheel_metadata(artifact: Artifact, candidate: LocalArtifact, *, check_cancel=lambda: None) -> dict:
+    """Inspect a hash-verified pure wheel without importing, extracting or approving supply.
+
+    Intended for the sox derivative and English model, whose install footprint must
+    stay inside site-packages. No .data schemes, scripts, links or ambiguous metadata.
+    A compatible filename alone says nothing about internal identity or runtime health.
+    Callers consuming bytes must additionally hold a sealed private copy throughout use.
+    """
+    import os
+    import stat
+    from pathlib import PurePosixPath
+
+    _require(candidate.filename == artifact.filename and candidate.source_url == artifact.source_url,
+             'wheel filename/origin mismatch')
+    tags = wheel_tags(artifact.filename, artifact.name, artifact.version)
+    _require(tags == artifact.tags and any(_compatible(t) for t in tags), 'incompatible wheel')
+    prefix = artifact.name.replace('-', '_') + '-' + artifact.version + '.dist-info/'
+    try:
+        with candidate.path.open('rb') as stream:
+            check_cancel()
+            before = os.fstat(stream.fileno())
+            _require(stat.S_ISREG(before.st_mode) and before.st_size == artifact.size, 'wrong wheel size')
+            digest, total = hashlib.sha256(), 0
+            while block := stream.read(min(1024 * 1024, artifact.size - total + 1)):
+                check_cancel()
+                total += len(block)
+                _require(total <= artifact.size, 'wheel grew during inspection')
+                digest.update(block)
+            _require(total == artifact.size and digest.hexdigest() == artifact.sha256, 'wrong wheel hash')
+            stream.seek(0)
+            with zipfile.ZipFile(stream) as archive:
+                entries = archive.infolist()
+                _require(len(entries) <= 8192 and len({e.filename.casefold() for e in entries}) == len(entries),
+                         'oversized/duplicate wheel entries')
+                identities = []
+                for entry in entries:
+                    check_cancel()
+                    name = entry.filename
+                    parts = PurePosixPath(name).parts
+                    _require(parts and not name.startswith('/') and '\\' not in name and ':' not in name
+                             and all(p not in ('.', '..') for p in name.rstrip('/').split('/'))
+                             and all(not p.endswith((' ', '.')) and not re.fullmatch(
+                                 r'(?i)(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?', p) for p in parts)
+                             and not any(p.endswith('.data') for p in parts)
+                             and not name.lower().endswith('.pth')
+                             and not stat.S_ISLNK(entry.external_attr >> 16), 'unsafe wheel install path')
+                    if name.endswith(('.dist-info/METADATA', '.dist-info/WHEEL')):
+                        identities.append(name)
+                _require(sorted(identities) == [prefix + 'METADATA', prefix + 'WHEEL'],
+                         'ambiguous wheel identity')
+                def metadata(name):
+                    _require(archive.getinfo(prefix + name).file_size <= 64 * 1024, 'oversized wheel metadata')
+                    return email.message_from_bytes(archive.read(prefix + name))
+                package, wheel = metadata('METADATA'), metadata('WHEEL')
+                _require(package.get_all('Name') == [artifact.name.replace('-', '_')]
+                         or package.get_all('Name') == [artifact.name], 'internal wheel name mismatch')
+                _require(package.get_all('Version') == [artifact.version]
+                         and wheel.get_all('Wheel-Version') == ['1.0']
+                         and wheel.get_all('Root-Is-Purelib') == ['true']
+                         and sorted(wheel.get_all('Tag', [])) == list(tags), 'internal wheel version/tags mismatch')
+                result = {'name': artifact.name, 'version': artifact.version, 'tags': list(tags),
+                          'requires_dist': package.get_all('Requires-Dist', [])}
+            after = os.fstat(stream.fileno())
+            _require(all(getattr(before, k) == getattr(after, k) for k in (
+                'st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')), 'wheel changed during inspection')
+            return result
+    except (OSError, zipfile.BadZipFile, KeyError, RuntimeError) as exc:
+        raise ManifestError(f'wheel metadata unavailable: {exc}') from None

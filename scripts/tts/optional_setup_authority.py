@@ -252,7 +252,11 @@ class Planner:
                        'source': {'kind': 'pinned-https', 'url': wheel.source_url, 'revision': wheel.sha256},
                        'derivative': None}
                 if wheel.name == 'sox':
-                    row.update(source={'kind': 'local-derived', 'url': None, 'revision': packages.SOX_SOURCE_SHA256},
+                    # A remote published derivative is a real transfer (pinned-https, revision = supply commit),
+                    # never local zero-download reuse. Catalog independently refuses it outside that purpose.
+                    row.update(source=packages.published_sox_source(reviewed)
+                               if self.purpose == packages.PUBLISHED_SUPPLY_PURPOSE else
+                               {'kind': 'local-derived', 'url': None, 'revision': packages.SOX_SOURCE_SHA256},
                         derivative={'source_filename': 'sox-1.5.0.tar.gz', 'source_size': 63905,
                                     'source_sha256': packages.SOX_SOURCE_SHA256,
                                     'output_sha256': packages.SOX_WHEEL_SHA256,

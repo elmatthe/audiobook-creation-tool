@@ -82,8 +82,12 @@ def _matching_rows(object_store, reviewed):
     terms = object_store.catalog.terms
     store.require(terms['engine_action'] in ('install-missing', 'rebuild-canonical'),
                   'model-only consent cannot consume engine packages')
-    # Reconstruct the independently checked catalog, never trust a receipt/dataclass.
-    store.Catalog(terms, package_manifest=reviewed, purpose='controlled-local-development')
+    # Reconstruct the independently checked catalog, never trust a receipt/dataclass. Production purpose
+    # never reaches here (sox refuses it); either qualification purpose must match its exact sox source.
+    purpose = object_store.catalog.purpose
+    store.require(purpose in (*qm.LOCAL_SUPPLY_PURPOSES, qm.PUBLISHED_SUPPLY_PURPOSE),
+                  'package consumption requires an explicit qualification purpose')
+    store.Catalog(terms, package_manifest=reviewed, purpose=purpose)
     rows = [a for a in terms['artifacts'] if a['kind'] != 'model']
     store.require(len(rows) == 89 and len(reviewed.wheels) == 89
                   and {a['name'] for a in rows} == {a.name for a in reviewed.wheels},
