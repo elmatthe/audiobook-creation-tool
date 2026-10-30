@@ -35,6 +35,7 @@ SOURCES = (
     'tts/optional_setup_health.py', 'tts/model_assets.py', 'tts/voice_registry.py',
     'tts/qwen3_runtime.py', 'tts/qwen3_setup.py', 'tts/qwen3_process.py',
     'tts/qwen3_package_manifest.py', 'tts/qwen3_engine_authority.py', 'tts/qwen3_packages.py',
+    'tts/qwen3_wheels.py',  # v0.7.0: the planner's exact engine download figure
     'qwen3-artifacts.json', 'qwen3-requirements.txt',
 )
 _SOURCE_ROOT = Path(__file__).resolve().parents[1]
