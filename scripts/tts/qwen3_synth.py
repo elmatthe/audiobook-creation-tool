@@ -673,7 +673,13 @@ def failure_message(terminal: dict) -> str:
                 f"again. ({detail})")
     where = {"load": "loading the model", "prepare": "preparing the voice", "generate": "generating speech",
              "import": "starting the voice engine", "worker": "running"}.get(stage, "running")
-    return f"The Qwen3 voice engine failed while {where}: {detail}"
+    message = f"The Qwen3 voice engine failed while {where}: {detail}"
+    if stage == "import" or detail.startswith(("ImportError", "ModuleNotFoundError")):
+        # A package of the engine will not import: a damaged install, not a passing problem. Readiness is decided from
+        # the engine's identity and install record, so only the engine's own check finds this; say where it is.
+        message += (" The engine's installed packages look damaged: choose \"Install / repair Qwen3 voices...\" "
+                    "and then \"Check and repair\".")
+    return message
 
 
 # --------------------------------------------------------------------------- #

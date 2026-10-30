@@ -844,6 +844,25 @@ def test_failure_messages_name_the_stage_and_give_oom_its_own_advice():
     assert "while running: no further detail" in qs.failure_message({})
 
 
+@pytest.mark.parametrize("terminal", [
+    {"stage": "load", "message": "ImportError: cannot import name 'AutoConfig' from 'transformers' (unknown location)"},
+    {"stage": "import", "message": "torch is missing"},
+    {"stage": "load", "message": "ModuleNotFoundError: No module named 'qwen_tts'"},
+])
+def test_a_damaged_engine_install_points_to_check_and_repair(terminal):
+    """HOME-PC 2026-10-30: a file deleted from the installed engine failed every Qwen3 narration while readiness (decided
+    from the engine's identity and record) still said ready; only the dialog's Check and repair runs the engine's own
+    proof. The sentence now says where that is."""
+    message = qs.failure_message(terminal)
+    assert '"Install / repair Qwen3 voices..."' in message and '"Check and repair"' in message
+
+
+def test_a_passing_failure_does_not_send_anyone_to_repair():
+    for terminal in ({"stage": "generate", "message": "RuntimeError: boom"}, {"oom": True, "message": "CUDA"},
+                     {"stage": "engine", "message": "in use"}):
+        assert "Check and repair" not in qs.failure_message(terminal)
+
+
 def test_the_gui_process_never_imports_the_model_stack():
     """Importing the orchestrator must not pull torch or qwen_tts into the application's interpreter."""
     code = ("import sys; sys.path.insert(0, r'%s'); import tts.qwen3_synth, tts.qwen3_runtime; "
