@@ -86,7 +86,9 @@ ALL = proto.COMPONENTS
 K, C, CV, B = proto.KOKORO, proto.CHATTERBOX, proto.QWEN3_CUSTOMVOICE, proto.QWEN3_BASE
 #: The sandbox manifest (test_qwen3_runtime): CustomVoice 58 bytes, Base 62, of which 39 are identical in both.
 CV_BYTES, BASE_BYTES, SHARED_BYTES = 58, 62, 39
-ENV_DOWNLOAD, ENV_INSTALLED, MARGIN = 3_100_000_000, 5_300_000_000, 2 * 10**9
+#: v0.7.0: the engine's download is the exact wheel set -- in the sandbox, the two tiny served wheels.
+from test_qwen3_runtime import TINY_WHEELS  # noqa: E402
+ENV_DOWNLOAD, ENV_INSTALLED, MARGIN = sum(len(d) for d in TINY_WHEELS.values()), 5_300_000_000, 2 * 10**9
 
 
 # --------------------------------------------------------------------------- #
@@ -318,9 +320,9 @@ def test_each_qwen3_component_alone_is_the_shared_engine_plus_its_own_model(worl
     data = as_json([name])
     assert component(data, name)["readiness"] == proto.MISSING
     assert data["acquire_units"] == ["qwen3-engine", f"qwen3-model:{proto.QWEN3_MODEL_KEYS[name]}"]
-    assert data["totals"]["download"] == fig(ENV_DOWNLOAD + model_bytes, proto.APPROXIMATE)
+    assert data["totals"]["download"] == fig(ENV_DOWNLOAD + model_bytes, proto.MANIFEST)
     assert data["totals"]["disk"] == fig(ENV_INSTALLED + model_bytes, proto.APPROXIMATE)
-    assert data["totals"]["temp"] == fig(ENV_DOWNLOAD + MARGIN, proto.APPROXIMATE)  # pip cache + installer margin
+    assert data["totals"]["temp"] == fig(ENV_DOWNLOAD + MARGIN, proto.MANIFEST)  # pip cache + installer margin
     assert tripwire == []
 
 
@@ -331,8 +333,8 @@ def test_both_qwen3_components_count_the_engine_and_the_shared_model_files_once(
     base = unit(data, "qwen3-model:base")
     assert base["download"] == fig(BASE_BYTES - SHARED_BYTES, proto.MANIFEST)
     assert base["local_copy"] == fig(SHARED_BYTES, proto.MANIFEST)  # copied or linked locally, not downloaded
-    assert data["totals"]["download"] == fig(ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES, proto.APPROXIMATE)
-    assert data["totals"]["temp"] == fig(ENV_DOWNLOAD + MARGIN, proto.APPROXIMATE)  # one engine, one margin
+    assert data["totals"]["download"] == fig(ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES, proto.MANIFEST)
+    assert data["totals"]["temp"] == fig(ENV_DOWNLOAD + MARGIN, proto.MANIFEST)  # one engine, one margin
     # Negative control: the per-component figures DO include the engine each time; only the plan total dedupes.
     per_component = sum(component(data, c)["download"]["bytes"] for c in (CV, B))
     assert per_component == data["totals"]["download"]["bytes"] + ENV_DOWNLOAD
@@ -342,7 +344,7 @@ def test_all_four_together_is_the_deduplicated_union(world):
     data = as_json(list(reversed(ALL)), health=HEALTHY)  # any input order; the plan is canonical
     assert data["selected"] == list(ALL)
     expected = KOKORO_ALL + SPACY_WHEEL + CHATTERBOX_ALL + ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES
-    assert data["totals"]["download"] == fig(expected, proto.APPROXIMATE)  # only the engine is an estimate now
+    assert data["totals"]["download"] == fig(expected, proto.MANIFEST)  # v0.7.0: the engine is exact too
     assert len(data["acquire_units"]) == len(set(data["acquire_units"])) == 15
 
 
@@ -463,8 +465,10 @@ def test_unknown_and_changed_estimates_are_never_passed_off_as_known(world, monk
     assert unit(data, f"kokoro-voice:{roster[0]}")["source"] is None  # so no consent can acquire it
     assert data["totals"]["download"]["basis"] == proto.AT_LEAST
     before = as_json([CV])
-    manifest = rt.load_manifest()
-    monkeypatch.setitem(manifest, "environment", {"approx_download_bytes": ENV_DOWNLOAD + 1, "approx_installed_bytes": 1})
+    from tts import qwen3_wheels  # v0.7.0: the engine download is the exact wheel set; a changed set is a new plan
+    wheels = qwen3_wheels.wheels()
+    monkeypatch.setattr(qwen3_wheels, "wheels", lambda: wheels + (qwen3_wheels.Wheel(
+        "extra", "extra-1.0-py3-none-any.whl", "https://wheels.invalid/extra-1.0-py3-none-any.whl", 1, "0" * 64),))
     after = as_json([CV])
     assert after["fingerprint"] != before["fingerprint"]
     assert after["acquisition_fingerprint"] != before["acquisition_fingerprint"]
@@ -503,7 +507,8 @@ def test_the_pre_venv_estimate_is_a_manifest_upper_bound_that_proves_nothing(wor
     assert data["context"] == osu.CONTEXT_PRE_VENV and data["upper_bound"] is True
     assert all(c["readiness"] == proto.UNVERIFIED and c["consent_scope"] is None for c in data["components"])
     assert data["hardware"]["python"] is None and data["hardware"]["gpu"]["probed"] is False
-    expected = KOKORO_ALL + SPACY_WHEEL + CHATTERBOX_ALL + ENV_DOWNLOAD + CV_BYTES + BASE_BYTES - SHARED_BYTES
+    # The pre-venv estimate still reads the engine's manifest approximation (it may not import the package manifest).
+    expected = KOKORO_ALL + SPACY_WHEEL + CHATTERBOX_ALL + 3_100_000_000 + CV_BYTES + BASE_BYTES - SHARED_BYTES
     assert data["totals"]["download"] == fig(expected, proto.APPROXIMATE)
     assert data["acquire_units"].count("qwen3-engine") == 1
     assert unit(data, "qwen3-model:base")["local_copy"] == fig(SHARED_BYTES, proto.MANIFEST)
@@ -983,6 +988,7 @@ def app(tmp_path_factory):
         shutil.copytree(REPO / "scripts" / package, root / "scripts" / package,
                         ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copyfile(REPO / "scripts" / "qwen3-requirements.txt", root / "scripts" / "qwen3-requirements.txt")
+    shutil.copyfile(REPO / "scripts" / "qwen3-artifacts.json", root / "scripts" / "qwen3-artifacts.json")
     (root / "files").mkdir()
     made = subprocess.run([str(base), "-I", "-m", "venv", "--without-pip", str(root / ".venv")], capture_output=True,
                           text=True, timeout=300)
@@ -1670,8 +1676,9 @@ def test_the_worker_command_line_cannot_steer_acquisition_and_only_a_consent_can
 
     options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(worker.main))
     assert options == ["--request", "--result", "--session"]  # nothing to choose a source, a unit or skip a check
-    assert inspect.signature(worker.main).parameters["acquirer"].default is None  # None = production acquisition disabled
-    assert "RealAcquirer" not in inspect.getsource(worker.run)
+    assert inspect.signature(worker.main).parameters["acquirer"].default is None  # None = the production acquirer
+    source = inspect.getsource(worker.run)  # v0.7.0: built only for an install request, after which the consent rules
+    assert "if request.action == proto.ACTION_INSTALL and acquirer is None:" in source
     assert isinstance(osl.Operation(proto.new_request(proto.ACTION_PLAN, [K], session=SESSION), planner=dict,
                                     estimator=dict, emit=print, cancel_check=bool).acquirer, osl.DisabledAcquirer)
 

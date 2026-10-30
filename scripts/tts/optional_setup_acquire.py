@@ -1,10 +1,17 @@
 """optional_setup_acquire.py — the consented acquirer: fetches exactly the units of a checked and spent consent.
 
-Stage 4B-3A status: this is the historical v2 adapter, retained only for explicit
-injected compatibility tests behind the disabled production worker. Its legacy
-Qwen repair and post-lock local acquisition are NOT v3 scope/budget authority.
-The independently planned, all-group locked v3 seam is optional_setup_authority;
-no production worker or legacy manual installer is switched to it here.
+v0.7.0 release: this is the production acquirer behind the first-run wizard and Install & Continue. The three
+consent-scope escapes found in the P05B Stage 3 review are closed here, at the one place every byte passes:
+
+* **Byte budget.** Every network response goes through :class:`ScopedOpener`, which charges a budget fixed by the
+  consent (the known download it showed, plus the stated ceiling of any unit shown as of unknown size). A response
+  whose length would exceed it is refused before its body is read, and the body is metered as it arrives. So a file
+  that changed after the plan was shown (a same-size corruption found only by hashing, a file deleted between the plan
+  and the lock) can never make the acquisition fetch more than the person agreed to; it fails and asks for a new plan.
+* **Engine scope.** The Qwen3 installer is called with ``allow_environment`` only when the consent includes the
+  ``qwen3-engine`` unit; a model-only consent can never build, rebuild or remove the engine.
+* **Packages.** The engine's packages are fetched by :mod:`tts.qwen3_wheels` (exact reviewed wheels, per-file size and
+  hash) through the same budgeted opener, then installed offline; pip never reaches an index.
 
 v0.7.0 P05B Stage 2 (plan Revision 2 §5.4). ``tts.optional_setup_lifecycle.Operation`` calls :class:`RealAcquirer` only
 after the fresh plan was made, the consent was proved to cover it (``consent_covers``) and the consent was spent. The
@@ -96,24 +103,98 @@ def expected_source(unit_id: str) -> Optional[str]:
     return None
 
 
+def unit_ceiling(unit_id: str) -> int:
+    """The most a unit shown as of unknown size can fetch: a damaged Qwen3 model at most the whole model again."""
+    if unit_id.startswith("qwen3-model:") and unit_id.split(":", 1)[1] in rt.MODEL_KEYS:
+        return sum(int(f["size"]) for f in rt.model_spec(unit_id.split(":", 1)[1]).files.values())
+    if unit_id == "qwen3-engine":
+        from tts import qwen3_wheels
+        return qwen3_wheels.total_bytes()
+    return 0
+
+
 def hub_file_url(files: assets.AssetSet, name: str) -> str:
     return qwen3_setup.HUB_URL.format(repo=files.repo, revision=files.revision, path=name)
 
 
-class ScopedOpener:
-    """The only door to the network: a request for any URL outside *allowed* is refused before it is sent."""
+class Budget:
+    """The most bytes one acquisition may transfer: what the confirmed plan showed. Shared by every opener."""
 
-    def __init__(self, allowed: Iterable[str], base: Optional[Callable] = None):
+    def __init__(self, limit: Optional[int]):
+        self.limit, self.used = limit, 0
+
+    def check(self, count: int, url: str) -> None:
+        if self.limit is not None and self.used + count > self.limit:
+            raise AcquisitionRefused(
+                f"downloading {url.rsplit('/', 1)[-1]} would fetch more than the {rt.format_bytes(self.limit)} you "
+                "confirmed (something changed on disk after the plan was shown). Nothing more was downloaded; run "
+                "setup again to see the updated plan.")
+
+    def spend(self, count: int, url: str) -> None:
+        self.check(count, url)
+        self.used += count
+
+
+class _Metered:
+    """A response whose body is charged to a :class:`Budget` as it is read."""
+
+    def __init__(self, response, budget: Budget, url: str):
+        self._response, self._budget, self._url = response, budget, url
+
+    def __getattr__(self, name):
+        return getattr(self._response, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        close = getattr(self._response, "__exit__", None)
+        if close is not None:
+            return close(*exc)
+        self._response.close()
+        return False
+
+    def _charged(self, block: bytes) -> bytes:
+        self._budget.spend(len(block), self._url)
+        return block
+
+    def read(self, *args):
+        return self._charged(self._response.read(*args))
+
+    def read1(self, *args):
+        reader = getattr(self._response, "read1", None) or self._response.read
+        return self._charged(reader(*args))
+
+
+class ScopedOpener:
+    """The only door to the network: a request for any URL outside *allowed* is refused before it is sent, and with a
+    *budget* every response is charged to it (its announced length before the body is read, then each block)."""
+
+    def __init__(self, allowed: Iterable[str], base: Optional[Callable] = None, budget: Optional[Budget] = None):
         self.allowed = frozenset(allowed)
         self._base = base
+        self.budget = budget
         self.requested: list[str] = []
 
     def __call__(self, request):
         url = request.full_url
         if url not in self.allowed:
             raise AcquisitionRefused(f"refused to fetch {url}: it is not one of the confirmed files")
+        if self.budget is not None:
+            self.budget.check(1, url)  # nothing at all is left: not even a request is sent
         self.requested.append(url)
-        return (self._base or qwen3_setup._default_opener)(request)
+        response = (self._base or qwen3_setup._default_opener)(request)
+        if self.budget is None:
+            return response
+        headers = getattr(response, "headers", None)
+        length = headers.get("Content-Length") if headers is not None else None
+        try:
+            if length is not None:
+                self.budget.check(int(length), url)
+        except (AcquisitionRefused, ValueError):
+            response.close()
+            raise
+        return _Metered(response, self.budget, url)
 
 
 def _require_inside(root: Path, folder: Path, path: Path) -> None:
@@ -168,9 +249,10 @@ class RealAcquirer:
         self.qwen_install = qwen_install or qwen3_setup.install
         self.qwen_repair = qwen_repair or qwen3_setup.repair
         self.openers: list[ScopedOpener] = []  # every network door opened, with what it fetched (for the record)
+        self.budget: Optional[Budget] = None
 
     def _opener(self, allowed: Iterable[str]) -> ScopedOpener:
-        opener = ScopedOpener(allowed, self.opener)
+        opener = ScopedOpener(allowed, self.opener, self.budget)
         self.openers.append(opener)
         return opener
 
@@ -191,6 +273,8 @@ class RealAcquirer:
                 raise AcquisitionRefused(f"{units[unit_id]['label']} would come from a source this build does not "
                                          "approve for it")
 
+        # The consent's own figures fix the most this acquisition may download (see the module docstring).
+        self.budget = Budget(consent.download_bytes + sum(unit_ceiling(u) for u in consent.unknown_units))
         qwen = [u for u in wanted if u.startswith("qwen3-")]
         needed = _known(plan["totals"]["disk"]) + _known(plan["totals"]["temp"]) + (
             0 if qwen else LOCAL_DISK_MARGIN_BYTES)
@@ -338,6 +422,10 @@ class RealAcquirer:
                 for scope in (proto.SCOPE_REPAIR, proto.SCOPE_INSTALL)}
         allowed = [qwen3_setup.hub_url(rt.model_spec(key), name) for key in rt.MODEL_KEYS
                    for name in rt.model_spec(key).files if key in keys[proto.SCOPE_REPAIR] + keys[proto.SCOPE_INSTALL]]
+        engine = "qwen3-engine" in qwen  # only an engine unit in the consent lets the installer touch the engine
+        if engine:
+            from tts import qwen3_wheels
+            allowed += qwen3_wheels.urls()
         opener = self._opener(allowed)
         last = {"message": None, "done": -PROGRESS_STEP_BYTES}
 
@@ -353,7 +441,7 @@ class RealAcquirer:
                 continue
             qwen3_setup._check_cancel(cancel_check)
             result = run(keys[scope], progress=report, cancel_check=cancel_check, opener=opener, runner=self.runner,
-                         disk_free=self.disk_free, sleep=self.sleep)
+                         disk_free=self.disk_free, sleep=self.sleep, allow_environment=engine)
             if result.cancelled:
                 raise qwen3_setup.SetupCancelled()
             if not result.ok:

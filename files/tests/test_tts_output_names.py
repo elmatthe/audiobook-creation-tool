@@ -464,7 +464,7 @@ def test_the_label_is_frozen_with_the_other_run_options():
 
 def test_destinations_are_planned_from_the_frozen_label_not_the_live_dropdown():
     run_job = next(n for n in ast.walk(ast.parse((SCRIPTS / "tts" / "epub2tts_gui.py").read_text(encoding="utf-8")))
-                   if isinstance(n, ast.FunctionDef) and n.name == "run_job")
+                   if isinstance(n, ast.FunctionDef) and n.name == "_start_frozen")  # v0.7.0: run_job's second half
     call = next(n for n in ast.walk(run_job)
                 if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "plan_destinations")
     label = next(k.value for k in call.keywords if k.arg == "label")

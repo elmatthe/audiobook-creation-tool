@@ -15,6 +15,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 release installer — the four optional voices install for real, from setup or from Create (2026-10-30) — identity stays 0.6.6 until the release candidate
+
+- **Added:** first-run setup offers four independent choices — Kokoro (checked), Chatterbox Turbo, Qwen3 CustomVoice (Aiden,
+  Ryan) and Qwen3 Cloned Voices (the six bundled voices) — with their sizes. **Begin Setup** builds the app only; once it is
+  built, a review screen shows exactly what each choice downloads, reuses and occupies, and nothing is downloaded until
+  **Install Selected Components** is pressed. Skip or Cancel keeps everything that already works, and nothing retries by itself.
+- **Added:** Install & Continue. Pressing Create with a voice whose models are not installed shows the same review screen; after
+  the install is checked, that same conversion (same files, settings and voice) starts once. Skip or Cancel starts nothing and
+  creates nothing.
+- **Changed:** the Qwen3 engine's 89 packages are downloaded by the app as the exact reviewed files (each checked by size and
+  SHA-256; sox is the accepted wheel at its pinned supply commit), then installed with no internet access for pip. The engine
+  still lives only at `.venv/engines/qwen3`.
+- **Security:** an install can never download more than the plan you confirmed, and a confirmation for models only can never
+  rebuild the Qwen3 engine (closes the three P05B Stage 3 review findings).
+- **Removed:** setup's old pre-download and warm-up steps, which fetched Kokoro and Chatterbox at whatever upstream "main" was.
+
 ### v0.7.0 P05B Stage 2 — optional voices can be installed under consent, from approved sources only (2026-10-25) — not released; identity stays 0.6.6
 
 - **Added (internal, no screen yet):** the optional-setup worker can now download and install Kokoro, Chatterbox Turbo, Kokoro's English

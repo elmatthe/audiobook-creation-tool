@@ -201,7 +201,7 @@ def test_no_python_at_all_produces_a_truthful_setup_failure(monkeypatch, tmp_pat
     monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
     monkeypatch.setattr(bootstrap, "find_suitable_python", lambda log, prefer_tk=True: None)
     monkeypatch.setattr(bootstrap, "install_python", lambda log, prefer_tk=True: None)
-    ok, message = bootstrap.run_setup(False, lambda step, text: None, Log())
+    ok, message = bootstrap.run_setup(lambda step, text: None, Log())
     assert ok is False
     assert "Python 3.12 could not be found or installed" in message
 

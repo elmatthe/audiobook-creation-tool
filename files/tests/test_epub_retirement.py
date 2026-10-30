@@ -103,6 +103,9 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_package_manifest.py",
     "tts/qwen3_packages.py",
     "tts/spacy_consumer.py",
+    # v0.7.0 release installer.
+    "tts/qwen3_wheels.py",
+    "tts/voice_install.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

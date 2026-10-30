@@ -530,13 +530,17 @@ def test_the_environment_install_runs_venv_then_pinned_pip_then_a_probe_and_reco
     assert rt.environment_record()["stage"] == rt.STAGE_INSTALLED
     assert rt.environment_record()["base"] == venv_layout.base_identity(rt.nested_venv_dir())
     assert rt.nested_assessment().identity_ok
-    assert pip_cmd[:3] == [str(rt.venv_python()), "-m", "pip"] and "--no-deps" in pip_cmd
-    for flag in ("--isolated", "--require-virtualenv", "--require-hashes"):
+    # v0.7.0: pip reads only the verified local wheels, offline, through the bootstrap that refuses network/processes.
+    from tts import qwen3_packages, qwen3_wheels
+    assert pip_cmd[:5] == [str(rt.venv_python()), "-I", "-B", "-c", qwen3_packages.OFFLINE_BOOTSTRAP]
+    for flag in ("--isolated", "--require-virtualenv", "--require-hashes", "--no-deps", "--no-index",
+                 "--only-binary=:all:"):
         assert flag in pip_cmd, flag  # ignore ambient pip settings; only a venv; only the exact hashed artifacts
-    assert Path(pip_cmd[pip_cmd.index("--cache-dir") + 1]).is_relative_to(sandbox)
-    assert pip_cmd[pip_cmd.index("--index-url") + 1] == su.PYTORCH_INDEX
-    assert pip_cmd[pip_cmd.index("--extra-index-url") + 1] == su.PYPI_INDEX
-    assert pip_cmd[pip_cmd.index("-r") + 1] == str(rt.requirements_path())
+    assert "--index-url" not in pip_cmd and "--extra-index-url" not in pip_cmd
+    assert Path(pip_cmd[pip_cmd.index("--find-links") + 1]) == qwen3_wheels.wheel_dir()
+    assert qwen3_wheels.wheel_dir().is_relative_to(sandbox / "files")  # never a new top-level folder
+    assert runner.commands[1]["cwd"] == qwen3_wheels.wheel_dir()
+    assert not qwen3_wheels.wheel_dir().exists()  # the verified wheels are given back after a proved install
     assert probe_cmd[:2] == [str(rt.venv_python()), str(rt.worker_script())]
     assert probe["cuda_available"] is True and rt.installed_probe()["device_name"] == "Test GPU"
     assert rt.environment_status() == (True, "ok")
@@ -938,22 +942,15 @@ def test_pip_raw_progress_becomes_throttled_byte_counted_events_over_the_whole_i
     assert progress.feed("Progress not-a-number of 10") is False
 
 
-def test_the_environment_install_shows_pip_progress_as_progress_not_as_log_text(sandbox, runner):
+def test_the_environment_install_shows_wheel_download_progress_as_progress(sandbox, runner):
+    """v0.7.0: the bytes are fetched by the app (exact wheels), so their progress is the app's own, by bytes."""
+    from test_qwen3_runtime import TINY_WHEELS
     seen = []
-
-    def noisy_runner(cmd, *, env, cwd, on_line, cancel_check=None):
-        if "pip" in " ".join(str(c) for c in cmd):
-            on_line("Downloading https://x/torch-2.10.0.whl (40.0 MB)")
-            for n in (0, 20 * 2**20, 40 * 2**20):
-                on_line(f"Progress {n} of {40 * 2**20}")
-        return runner(cmd, env=env, cwd=cwd, on_line=on_line, cancel_check=cancel_check)
-
-    su.install_environment(progress=seen.append, runner=noisy_runner)
+    su.install_environment(progress=seen.append, runner=runner)
     measured = [e for e in seen if e.total_bytes]
-    assert measured and measured[-1].done_bytes == 40 * 2**20
-    assert all("Progress " not in e.message for e in seen)  # the raw counter lines are not echoed as messages
-    pip = next(c["cmd"] for c in runner.commands if "pip" in " ".join(c["cmd"]))
-    assert pip[pip.index("--progress-bar") + 1] == "raw"
+    total = sum(len(data) for data in TINY_WHEELS.values())
+    assert measured and measured[-1].done_bytes == total and measured[-1].total_bytes == total
+    assert all(e.step == "environment" for e in measured)
 
 
 def test_scratch_space_for_the_worker_and_the_installer_is_inside_the_repository(sandbox):

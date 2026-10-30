@@ -63,7 +63,61 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(rt, "gpu_probe", lambda: None)
     rt._GPU_CACHE.clear()
     make_parent(tmp_path)  # the app's own .venv, which the canonical engine is created inside
+    serve_tiny_wheels(monkeypatch)
     return tmp_path
+
+
+#: v0.7.0: the engine's packages are exact wheels fetched one by one, then installed offline. In the sandbox they are
+#: two tiny stand-ins served from memory, so the real fetch -> verify -> offline-pip path runs with no network.
+TINY_WHEELS = {"tinya-1.0-py3-none-any.whl": b"tiny wheel a", "tinyb-2.0-py3-none-any.whl": b"tiny wheel b, longer"}
+TINY_WHEEL_BASE = "https://wheels.invalid/"
+
+
+class _WheelResponse:
+    def __init__(self, data: bytes):
+        import io
+        self._body = io.BytesIO(data)
+        self.status = 200
+        self.headers = {"Content-Length": str(len(data))}
+
+    def getcode(self):
+        return self.status
+
+    def read(self, n=-1):
+        return self._body.read(n)
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def tiny_wheel_opener(request):
+    name = request.full_url[len(TINY_WHEEL_BASE):]
+    return _WheelResponse(TINY_WHEELS[name])
+
+
+def serve_tiny_wheels(monkeypatch) -> None:
+    from tts import qwen3_wheels
+    wheels = tuple(qwen3_wheels.Wheel(name.split("-")[0], name, TINY_WHEEL_BASE + name, len(data),
+                                      hashlib.sha256(data).hexdigest()) for name, data in TINY_WHEELS.items())
+    monkeypatch.setattr(qwen3_wheels, "wheels", lambda: wheels)
+    real_fetch = qwen3_wheels.fetch
+
+    def fetch(*, opener=None, **kwargs):
+        def served(request):
+            # A scoped/budgeted opener is still asked first (so its refusals are real); the bytes come from memory.
+            if opener is not None and not request.full_url.startswith(TINY_WHEEL_BASE):
+                return opener(request)
+            if opener is not None and hasattr(opener, "allowed"):
+                return opener.__class__(opener.allowed, tiny_wheel_opener, opener.budget)(request)
+            return tiny_wheel_opener(request)
+        return real_fetch(opener=served, **kwargs)
+    monkeypatch.setattr(qwen3_wheels, "fetch", fetch)
 
 
 def make_parent(root: Path) -> Path:

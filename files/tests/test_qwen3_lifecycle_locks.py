@@ -309,7 +309,7 @@ def test_first_run_setup_refuses_the_same_way_before_it_recovers_anything(env, m
     searched = []
     monkeypatch.setattr(bootstrap, "find_suitable_python", lambda log, prefer_tk=True: searched.append(1))
     with held_by_another_process("worker", lock_dir(env)):
-        ok, message = bootstrap.run_setup(False, lambda i, m: None, _Log(), headless=True)
+        ok, message = bootstrap.run_setup(lambda i, m: None, _Log(), headless=True)
     assert ok is False and "voice engine is still running" in message
     assert searched == [] and not env.venv.exists()  # not restored, not rebuilt
     assert _tree(_engine_in(aside)) == engine

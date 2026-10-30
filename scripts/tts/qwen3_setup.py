@@ -66,6 +66,10 @@ DISK_MARGIN_BYTES = 2 * 10**9
 PIP_SUMMARY_LINES = 4
 
 
+ENGINE_NOT_CONFIRMED = ("The Qwen3 voice engine needs to be installed or rebuilt, which was not part of what you "
+                        "confirmed, so nothing was changed. Run setup again to see the updated plan.")
+
+
 class SetupError(RuntimeError):
     """An install, verify or repair step failed. The message is fit to show a non-technical user."""
 
@@ -824,7 +828,8 @@ def scoped_model_acquisition(authority):
 
 
 def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_check: Optional[CancelCheck] = None,
-                        runner: Optional[CommandRunner] = None, rebuild: bool = False) -> dict:
+                        runner: Optional[CommandRunner] = None, rebuild: bool = False,
+                        opener: Optional[Opener] = None, sleep: Callable[[float], None] = time.sleep) -> dict:
     """Create the canonical ``.venv/engines/qwen3``, install the pinned stack, prove it imports, and record the result.
 
     Returns the probe report. A failure raises :class:`SetupError` carrying the tail of pip's own output. With
@@ -841,12 +846,13 @@ def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_c
     the verified base interpreter, and the identity of that interpreter is recorded outside the parent.
     """
     with install_lock_held():
-        return _install_environment(progress, cancel_check, runner or run_command, rebuild)
+        return _install_environment(progress, cancel_check, runner or run_command, rebuild, opener, sleep)
 
 
 def _install_environment(progress: ProgressCallback, cancel_check: Optional[CancelCheck], runner: CommandRunner,
-                         rebuild: bool) -> dict:
-    from tts import qwen3_engine_authority, qwen3_packages
+                         rebuild: bool, opener: Optional[Opener] = None,
+                         sleep: Callable[[float], None] = time.sleep) -> dict:
+    from tts import qwen3_engine_authority, qwen3_packages, qwen3_wheels
     execution = qwen3_engine_authority.current()
     if _MODEL_ACQUISITION.get() is not None and execution is None:
         raise SetupError('Environment mutation is not authorized by this model acquisition scope.')
@@ -874,6 +880,13 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
         if shown.startswith(("Collecting", "Downloading", "Installing collected", "Successfully", "Building", "Using cached")):
             progress(Progress(step, shown[:140]))
 
+    if execution is None:
+        # Every package is fetched as its exact reviewed wheel BEFORE any environment is removed or created, so a
+        # network failure or a cancel here leaves an existing engine exactly as it was (and the verified wheels kept).
+        def on_wheels(done: int, total: int, message: str) -> None:
+            progress(Progress(step, message[:140], done, total))
+
+        qwen3_wheels.fetch(opener=opener, progress=on_wheels, cancel_check=cancel_check, sleep=sleep)
     unfinished = rt.environment_record(venv).get("stage") in (rt.STAGE_CREATING, rt.STAGE_REMOVING)
     # Scoped operations verify the base BEFORE an approved old engine is removed.
     # A failed base proof must leave that engine and its recovery record intact.
@@ -925,7 +938,7 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
         if execution:
             execution.before('created')
     _check_cancel(cancel_check)
-    progress(Progress(step, f"Installing the Qwen3 packages (about {rt.format_bytes(rt.environment_download_bytes())})..."))
+    progress(Progress(step, "Installing the Qwen3 packages from the verified downloads..."))
     # --isolated ignores user configuration and PIP_* steering; PIP_CONFIG_FILE=NUL disables other config files.
     # --require-virtualenv refuses to touch anything but a
     # virtual environment; --require-hashes installs only the exact artifacts whose SHA-256 the requirements file lists.
@@ -934,23 +947,24 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
         command = qwen3_packages.pip_command(python, execution.packages, execution.operation,
                                            cancelled=cancel_check or (lambda: False))
     else:
-        command = [str(python), "-m", "pip", "install", "--isolated", "--require-virtualenv",
-                   "--require-hashes", "--no-input", "--disable-pip-version-check", "--cache-dir",
-                   str(pip_cache_dir()), "--progress-bar", "raw", "--no-deps", "--index-url", PYTORCH_INDEX,
-                   "--extra-index-url", PYPI_INDEX, "-r", str(requirements)]
-    pip_cwd = qwen3_packages.checked(execution.packages, execution.operation)['wheels'] if execution else cwd
+        # Offline: only the verified local wheels, each by its hash; pip cannot reach an index or build anything.
+        command, pip_cwd = qwen3_wheels.install_command(python)
+    if execution:
+        pip_cwd = qwen3_packages.checked(execution.packages, execution.operation)['wheels']
     code = runner(command, env=env, cwd=pip_cwd, on_line=on_line, cancel_check=cancel_check)
     if code != 0:
         if execution:
             raise SetupError('Offline package installation failed; the canonical engine remains incomplete. ' +
                              _tail_text(tail))
-        raise SetupError("Installing the Qwen3 packages failed (check your internet connection, then run "
-                         "Install / repair again; your progress is kept). " + _tail_text(tail))
+        raise SetupError("Installing the Qwen3 packages failed (the downloaded packages are kept, so Install / "
+                         "repair again does not fetch them again). " + _tail_text(tail))
     probe = probe_environment(runner=runner, progress=progress, cancel_check=cancel_check)
     if execution:
         execution.before('record')
     rt.write_environment_state(probe, venv)
     shutil.rmtree(pip_cache_dir(), ignore_errors=True)  # a full success gives the download cache's disk space back
+    if execution is None:
+        qwen3_wheels.discard()
     clear_scratch()
     progress(Progress(step, "The Qwen3 voice engine is installed."))
     return probe
@@ -1036,11 +1050,12 @@ def install(components: Iterable[str], *, progress: ProgressCallback = _noop_pro
             cancel_check: Optional[CancelCheck] = None, opener: Optional[Opener] = None,
             runner: Optional[CommandRunner] = None, seed_dirs: Iterable[Path] = (),
             disk_free: Callable[[Path], int] = free_bytes, sleep: Callable[[float], None] = time.sleep,
-            load_check: bool = True) -> SetupResult:
+            load_check: bool = True, allow_environment: bool = True) -> SetupResult:
     """Install the selected models (and the environment if it is missing), verifying every step.
 
     Never raises for an expected problem: the result carries a sentence for the user. A cancel returns a result with
-    ``cancelled=True`` after keeping everything completed so far.
+    ``cancelled=True`` after keeping everything completed so far. With ``allow_environment=False`` (the person confirmed
+    model downloads only) an engine that turns out to need installing is refused, never built.
     """
     steps: list[str] = []
     try:
@@ -1055,7 +1070,10 @@ def install(components: Iterable[str], *, progress: ProgressCallback = _noop_pro
                                       f"and {rt.format_bytes(available)} is free. Nothing was downloaded.")
         with InstallLock():
             if plan.needs_environment:
-                install_environment(progress=progress, cancel_check=cancel_check, runner=runner)
+                if not allow_environment:
+                    raise SetupError(ENGINE_NOT_CONFIRMED)
+                install_environment(progress=progress, cancel_check=cancel_check, runner=runner, opener=opener,
+                                    sleep=sleep)
                 steps.append("environment")
             model_total = sum(m.total_bytes for m in plan.models if not m.installed)
             base = 0
@@ -1206,7 +1224,7 @@ def repair(components: Iterable[str], *, plan: Optional[RepairPlan] = None, prog
            cancel_check: Optional[CancelCheck] = None, opener: Optional[Opener] = None,
            runner: Optional[CommandRunner] = None, seed_dirs: Iterable[Path] = (),
            disk_free: Callable[[Path], int] = free_bytes, sleep: Callable[[float], None] = time.sleep,
-           load_check: bool = True) -> SetupResult:
+           load_check: bool = True, allow_environment: bool = True) -> SetupResult:
     """Repair what a full check found wrong: rebuild a broken engine, re-fetch only the files that fail.
 
     Pass the ``plan`` the user has already seen and confirmed (:func:`analyze_repair`); without one a plan is made first,
@@ -1227,8 +1245,10 @@ def repair(components: Iterable[str], *, plan: Optional[RepairPlan] = None, prog
         steps: list[str] = []
         with InstallLock():
             if plan.rebuild_environment:
+                if not allow_environment:
+                    raise SetupError(ENGINE_NOT_CONFIRMED)
                 install_environment(progress=progress, cancel_check=cancel_check, runner=runner,
-                                    rebuild=os.path.lexists(rt.nested_venv_dir()))
+                                    rebuild=os.path.lexists(rt.nested_venv_dir()), opener=opener, sleep=sleep)
                 steps.append("environment")
             for key, bad in plan.bad_files.items():
                 if not bad and key not in plan.unmarked:

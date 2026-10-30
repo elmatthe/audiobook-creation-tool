@@ -219,6 +219,5 @@ def test_the_daily_fast_path_still_launches_detached_and_console_free():
 
 
 def test_first_run_defaults_are_unchanged():
-    body = _run_with_gui_source()
-    assert '"download_chatterbox": tk.BooleanVar(value=False)' in body
-    assert '"download_kokoro": tk.BooleanVar(value=not skip_kokoro_default)' in body
+    assert {c: d for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES} == {
+        "kokoro": True, "chatterbox": False, "qwen3-customvoice": False, "qwen3-base": False}

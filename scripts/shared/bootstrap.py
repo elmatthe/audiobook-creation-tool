@@ -1036,53 +1036,6 @@ def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> Option
         return False
 
 
-def warmup_kokoro_pipeline(venv_py: Path, log: Callable[[str], None]) -> None:
-    """One-shot KPipeline load to pre-warm Kokoro at install time.
-
-    On fresh Windows 11 Home machines, Smart App Control / WDAC blocks Kokoro's
-    unsigned native DLLs (e.g. ``sparselinear``) the *first* time they are loaded
-    ("An Application Control policy has blocked this file"), which would otherwise
-    surface as a failed first synthesis for the default voice (``af_heart``).
-    Loading the pipeline once here — inside the install/repair dialog — forces the
-    OS to evaluate (and then allow) those DLLs now, so the user's first real
-    synthesis just works. Best-effort: any error is logged, never raised, since
-    the worst case is the first synthesis retries (the kokoro_synth single-retry
-    wrapper also absorbs a residual transient block).
-    """
-    log("Initializing AI voice engine (first-run only)…")
-    # Force the project-tree HF cache for the subprocess regardless of whether the
-    # parent set HF_HOME, so the warmup never leaks the ~300 MB model into the
-    # user's home (~/.cache/huggingface/).
-    hf_cache = RESOURCES_DIR / "models" / "huggingface"
-    env = os.environ.copy()
-    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
-    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
-    script = (
-        KOKORO_SUBPROCESS_PREAMBLE +
-        "try:\n"
-        "    from kokoro import KPipeline\n"
-        "    espeak_data.configure()\n"
-        "    KPipeline(lang_code='a')\n"
-        "    print('Kokoro pipeline warmup complete.')\n"
-        "except OSError as e:\n"
-        "    print('Kokoro warmup blocked (will retry on first synthesis): %r' % (e,))\n"
-        "except Exception as e:\n"
-        "    print('Kokoro warmup problem (non-fatal): %r' % (e,))\n"
-    )
-    try:
-        proc = subprocess.Popen(
-            [str(venv_py), "-c", script],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            env=env, **_hidden(),
-        )
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            line = raw.rstrip()
-            if line:
-                log("  " + line)
-        proc.wait()
-    except OSError as exc:
-        log(f"  Kokoro warmup could not run: {exc!r}")
 
 
 # ===========================================================================
@@ -1170,44 +1123,6 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
         return False
 
 
-def warmup_chatterbox(venv_py: Path, log: Callable[[str], None]) -> None:
-    """One-shot CPU model build to pre-warm Chatterbox at install time.
-
-    Same rationale as ``warmup_kokoro_pipeline``: force Windows Smart App Control /
-    WDAC to evaluate the unsigned native DLLs inside the install dialog rather than
-    on the user's first synthesis. Only called after the weights have been
-    pre-downloaded, so this loads from the local cache. Best-effort: never raises.
-    """
-    log("Initializing the Chatterbox voice engine (first-run only)…")
-    hf_cache = RESOURCES_DIR / "models" / "huggingface"
-    env = os.environ.copy()
-    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
-    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
-    script = (
-        "import sys\n"
-        "try:\n"
-        "    from chatterbox.tts_turbo import ChatterboxTurboTTS\n"
-        "    ChatterboxTurboTTS.from_pretrained(\"cpu\")\n"
-        "    print('Chatterbox engine warmup complete.')\n"
-        "except OSError as e:\n"
-        "    print('Chatterbox warmup blocked (will load on first synthesis): %r' % (e,))\n"
-        "except Exception as e:\n"
-        "    print('Chatterbox warmup problem (non-fatal): %r' % (e,))\n"
-    )
-    try:
-        proc = subprocess.Popen(
-            [str(venv_py), "-c", script],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            env=env, **_hidden(),
-        )
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            line = raw.rstrip()
-            if line:
-                log("  " + line)
-        proc.wait()
-    except OSError as exc:
-        log(f"  Chatterbox warmup could not run: {exc!r}")
 
 
 # ===========================================================================
@@ -2556,91 +2471,10 @@ def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
     return True
 
 
-def predownload_kokoro(log: SetupLog) -> None:
-    """Pre-download the Kokoro model (~300 MB). Best-effort; never fatal."""
-    py = venv_python()
-    present, detail = kokoro_packages_present(py)
-    if not present:
-        version = _interp_version_argv([str(py)])
-        why = ("this Python is too new for Kokoro" if version is not None and not _is_kokoro_compatible(version)
-               else "the Kokoro packages are not installed")
-        log.line(f"Skipping the Kokoro model pre-download: {why} ({detail}).")
-        return
-    proved, detail, _facts = prove_kokoro_dependencies(py)
-    if proved is False:
-        record_kokoro_proof(False, detail)
-        log.line(f"Skipping the Kokoro model pre-download: {kokoro_failure_message(detail)}.")
-        log.line(f"  Detail: {detail}")
-        return
-    if proved:
-        record_kokoro_proof(True, detail)
-    log.line("Pre-downloading Kokoro-82M model weights (~300 MB, one-time)…")
-    script = (
-        KOKORO_SUBPROCESS_PREAMBLE +
-        "from kokoro import KPipeline\n"
-        "espeak_data.configure()\n"
-        "KPipeline(lang_code='a')\n"
-        "KPipeline(lang_code='b')\n"
-        "print('Kokoro model download complete.')\n"
-    )
-    proc = subprocess.Popen([str(py), "-c", script],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, **_hidden())
-    assert proc.stdout is not None
-    for raw in proc.stdout:
-        line = raw.rstrip()
-        if line:
-            log.line("  " + line)
-    if proc.wait() == 0:
-        log.line("  Kokoro voices ready.")
-    else:
-        log.line("  Kokoro pre-download had a problem; voices will download on "
-                 "first use instead.")
 
 
-CHATTERBOX_MODEL_REPO = "ResembleAI/chatterbox-turbo"
 
 
-def predownload_chatterbox(log: SetupLog) -> None:
-    """Pre-download the Chatterbox Turbo weights (~3.9 GB). Best-effort; never fatal.
-
-    Fetches exactly the file set ``ChatterboxTurboTTS.from_pretrained`` asks for,
-    into the *same* in-tree HuggingFace cache Kokoro uses — there is no second
-    cache and nothing is bundled with the app.
-    """
-    py = venv_python()
-    check = _run([str(py), "-c",
-                  "import importlib.util as u, sys; "
-                  "sys.exit(0 if u.find_spec('chatterbox') else 1)"])
-    if check.returncode != 0:
-        log.line("Chatterbox package not installed (Python may be 3.13+) — "
-                 "skipping model pre-download.")
-        return
-    log.line("Pre-downloading Chatterbox Turbo model weights "
-             "(~3.9 GB, one-time)…")
-    hf_cache = RESOURCES_DIR / "models" / "huggingface"
-    env = os.environ.copy()
-    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
-    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
-    script = (
-        "from huggingface_hub import snapshot_download\n"
-        f"snapshot_download(repo_id={CHATTERBOX_MODEL_REPO!r},\n"
-        "    allow_patterns=['*.safetensors', '*.json', '*.txt', '*.pt', '*.model'])\n"
-        "print('Chatterbox model download complete.')\n"
-    )
-    proc = subprocess.Popen([str(py), "-c", script],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, env=env, **_hidden())
-    assert proc.stdout is not None
-    for raw in proc.stdout:
-        line = raw.rstrip()
-        if line:
-            log.line("  " + line)
-    if proc.wait() == 0:
-        log.line("  Chatterbox voice engine ready.")
-    else:
-        log.line("  Chatterbox pre-download had a problem; the model will "
-                 "download on first use instead.")
 
 
 # ===========================================================================
@@ -2761,29 +2595,20 @@ def launch_gui(log: SetupLog) -> bool:
 # ===========================================================================
 #  Orchestration (headless worker — drives the steps, reports progress)
 # ===========================================================================
-def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
-              log: SetupLog, headless: bool = False,
-              download_chatterbox: bool = False) -> tuple[bool, str]:
-    """Run the full setup. ``progress(step_index, message)`` updates the UI.
+def run_setup(progress: Callable[[int, str], None], log: SetupLog,
+              headless: bool = False) -> tuple[bool, str]:
+    """Build the app's base installation. ``progress(step_index, message)`` updates the UI.
 
-    With ``headless=True`` the install never requires a working Tk (used when no
-    GUI-capable Python can be set up): the venv, dependencies, ffmpeg and the
-    package-validation stage all run, but a Tk-less base is accepted instead of
+    The base is always the same: a private environment with every package in ``requirements.txt`` (the Kokoro and
+    Chatterbox engines' packages included) and FFmpeg. v0.7.0: no voice model is downloaded here. The optional voices
+    are chosen in the wizard and installed afterwards, only through the consented setup worker
+    (``shared.optional_setup_panel``), so this step never fetches a model at a moving upstream revision.
+
+    With ``headless=True`` the install never requires a working Tk (used when no GUI-capable Python can be set up):
+    the venv, dependencies, ffmpeg and the package-validation stage all run, but a Tk-less base is accepted instead of
     aborting. Returns ``(success, final_message)``.
-
-    ``download_chatterbox`` defaults to False: those weights are ~3.9 GB, so the
-    voice-cloning model is opt-in rather than part of a normal first run.
     """
-    steps = ["Locating Python", "Creating environment", "Installing packages",
-             "Installing ffmpeg"]
-    kokoro_step = chatterbox_step = None
-    if download_kokoro:
-        kokoro_step = len(steps)
-        steps.append("Downloading Kokoro voices")
-    if download_chatterbox:
-        chatterbox_step = len(steps)
-        steps.append("Downloading Chatterbox voice model")
-    total = len(steps)
+    total = BASE_SETUP_STEPS
 
     # v0.7.0 P04C: recovery and the environment's own replacement both rename
     # environments that may hold a voice engine, so the same lease as a repair
@@ -2852,29 +2677,7 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
                        "Install it (https://ffmpeg.org/download.html) and re-run, "
                        "or see the log for the manual steps.")
 
-    if download_kokoro:
-        progress(kokoro_step, "Downloading Kokoro AI voices (~300 MB)…")
-        predownload_kokoro(log)
-        # Pre-warm the pipeline so Smart App Control / WDAC evaluates Kokoro's
-        # unsigned native DLLs during this install dialog, not on first synthesis.
-        # kokoro_is_healthy runs (or reuses) the real dependency proof, so a
-        # blocked file is reported here rather than hidden behind "ok".
-        ok_kokoro, why = kokoro_is_healthy(venv_python())
-        if ok_kokoro:
-            warmup_kokoro_pipeline(venv_python(), log.line)
-        elif ok_kokoro is None:
-            log.line(f"Kokoro voices not verified: {why}. No warm-up was run; the check repeats on the next launch.")
-        else:
-            log.line(f"Kokoro voices unavailable: {kokoro_failure_message(why)}. Detail: {why}")
-
-    if download_chatterbox:
-        progress(chatterbox_step, "Downloading the Chatterbox voice model (~3.9 GB)…")
-        predownload_chatterbox(log)
-        # Same first-load pre-warm rationale as Kokoro's, above.
-        if chatterbox_is_healthy(venv_python())[0]:
-            warmup_chatterbox(venv_python(), log.line)
-
-    progress(total, "Setup complete.")
+    progress(total, "Base setup complete.")
     # An out-of-range base builds a working venv but cannot install the pinned
     # Kokoro/Chatterbox wheels, so reporting a plain success would overstate what
     # this machine got. Setup already tried to obtain 3.12 above and could not;
@@ -2889,11 +2692,43 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
     return True, "Setup complete."
 
 
+#: The base setup's steps: Python, environment, packages, FFmpeg.
+BASE_SETUP_STEPS = 4
+
+#: The four optional voice choices of the first-run wizard, in the approved order, with the approved defaults
+#: (Kokoro checked, the other three unchecked) and what each one is.
+OPTIONAL_CHOICES = (
+    ("kokoro", "Kokoro voices", True,
+     "Natural English voices that run on this computer (CPU or GPU)."),
+    ("chatterbox", "Chatterbox Turbo voices", False,
+     "Expressive local voices; a large model, best with an NVIDIA GPU."),
+    ("qwen3-customvoice", "Qwen3 CustomVoice voices (Aiden, Ryan)", False,
+     "High-quality preset voices. Windows only; an NVIDIA GPU is strongly recommended."),
+    ("qwen3-base", "Qwen3 Cloned Voices (six bundled voices)", False,
+     "The six cloned voices that ship with the app - no recording or transcription needed. "
+     "Windows only; an NVIDIA GPU is strongly recommended."),
+)
+
+
+def optional_estimates() -> dict:
+    """``{component: "about N GB"}`` from the pre-venv estimate (manifest figures; no probe, no network).
+
+    The Qwen3 engine is shared by both Qwen3 choices and counted once in the real plan; each Qwen3 line here includes
+    it. Any failure leaves the sizes out rather than stopping setup.
+    """
+    try:
+        from shared import optional_setup_client as client
+        return client.estimate_texts([component for component, *_rest in OPTIONAL_CHOICES])
+    except Exception:  # noqa: BLE001 - sizes are informative only
+        return {}
+
+
 # ===========================================================================
 #  First-run Tk dialog
 # ===========================================================================
 def run_with_gui(skip_kokoro_default: bool = False) -> int:
-    """Show the first-run setup dialog and drive the install on a worker thread."""
+    """Show the first-run setup dialog: four optional voice choices, the base install on a worker thread, then the
+    review-and-install panel for the chosen voices, then launch the app."""
     import queue
     import tkinter as tk
     from tkinter import ttk, messagebox
@@ -2902,8 +2737,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     root = tk.Tk()
     root.title("Audiobook Creation Tool — Setup")
-    root.geometry("720x600")
-    root.minsize(640, 560)
+    root.geometry("760x680")
+    root.minsize(660, 600)
     try:
         ttk.Style().theme_use("vista" if IS_WINDOWS else "aqua")
     except Exception:
@@ -2935,12 +2770,12 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     container.bind("<Configure>", _wrap_to_width)
 
-    # Chatterbox is unchecked by default: its weights are ~3.9 GB, more than ten
-    # times Kokoro's, and voice cloning is an optional extra rather than part of a
-    # normal first run. Kokoro's default is unchanged.
-    state = {"download_kokoro": tk.BooleanVar(value=not skip_kokoro_default),
-             "download_chatterbox": tk.BooleanVar(value=False),
-             "started": False, "done": False, "ok": False}
+    # The four approved choices: Kokoro checked, Chatterbox and both Qwen3 choices unchecked (their downloads are
+    # several GB each). Choosing is not consent: nothing optional is downloaded until the review screen's Install.
+    choices = {component: tk.BooleanVar(value=(default and not (component == "kokoro" and skip_kokoro_default)))
+               for component, _label, default, _note in OPTIONAL_CHOICES}
+    state = {"started": False, "done": False, "ok": False}
+    sizes = optional_estimates()
 
     # ---- Intro view -------------------------------------------------------
     intro = ttk.Frame(container)
@@ -2949,47 +2784,33 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
               ).pack(anchor="w", pady=(0, 8))
     _intro_body = ttk.Label(
         intro,
-        text=("This one-time setup will install everything the app needs:\n"
-              "  •  a private Python environment (kept inside this folder)\n"
-              "  •  the audio libraries and ffmpeg\n"
-              "  •  optionally, the local Kokoro AI voices (~300 MB)\n\n"
-              "Nothing is installed system-wide except Python and ffmpeg if they "
-              "are missing. After this finishes, the app opens automatically and "
-              "future launches are instant."),
+        text=("This one-time setup installs what the app needs: a private Python environment with its packages "
+              "(kept inside this folder, about 2.5 GB) and the audio tools (ffmpeg). Edge TTS voices work as soon "
+              "as that is done.\n\n"
+              "Choose the voices to install on this computer. Their exact downloads are shown for your review "
+              "before anything is downloaded, and you can add or skip any of them later from the app."),
         justify="left",
     )
     _intro_body.pack(anchor="w", fill="x")
     _wrapped.append(_intro_body)
 
     # Each option is a SHORT checkbutton label plus a wrapped description below
-    # it. The description carries the same words the single-line label used to,
-    # so nothing was cut — only the widget that renders it changed.
-    ttk.Checkbutton(
+    # it, so nothing can be cut off.
+    for component, label, _default, note in OPTIONAL_CHOICES:
+        size = sizes.get(component)
+        ttk.Checkbutton(intro, text=label + (f" (up to {size})" if size else ""),
+                        variable=choices[component]).pack(anchor="w", pady=(12, 0))
+        _note = ttk.Label(intro, text=note, justify="left")
+        _note.pack(anchor="w", padx=(22, 0), fill="x")
+        _wrapped.append(_note)
+    _qwen_note = ttk.Label(
         intro,
-        text="Pre-download the Kokoro AI voice model now (~300 MB)",
-        variable=state["download_kokoro"],
-    ).pack(anchor="w", pady=(16, 0))
-    _kokoro_note = ttk.Label(
-        intro,
-        text="If unchecked, the model auto-downloads on first synthesis.",
+        text=("Both Qwen3 choices share one voice engine (about 3.1 GB), downloaded once. Sizes are the most each "
+              "choice could download; files already on this computer are reused."),
         justify="left",
     )
-    _kokoro_note.pack(anchor="w", padx=(22, 0), pady=(0, 8), fill="x")
-    _wrapped.append(_kokoro_note)
-
-    ttk.Checkbutton(
-        intro,
-        text="Also download the Chatterbox voice-cloning model now (~3.9 GB)",
-        variable=state["download_chatterbox"],
-    ).pack(anchor="w", pady=(4, 0))
-    _chatterbox_note = ttk.Label(
-        intro,
-        text="Optional — leave this unchecked unless you plan to use the cloned "
-             "voices; the model downloads on first use instead.",
-        justify="left",
-    )
-    _chatterbox_note.pack(anchor="w", padx=(22, 0), pady=(0, 8), fill="x")
-    _wrapped.append(_chatterbox_note)
+    _qwen_note.pack(anchor="w", fill="x", pady=(12, 0))
+    _wrapped.append(_qwen_note)
 
     btn_row = ttk.Frame(intro)
     btn_row.pack(side="bottom", anchor="e", pady=(12, 0), fill="x")
@@ -3004,7 +2825,7 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     ttk.Label(progress_frame, textvariable=step_var,
               font=("Segoe UI" if IS_WINDOWS else "Helvetica", 12, "bold")
               ).pack(anchor="w", pady=(0, 8))
-    bar = ttk.Progressbar(progress_frame, mode="determinate", maximum=100)
+    bar = ttk.Progressbar(progress_frame, mode="determinate", maximum=BASE_SETUP_STEPS)
     bar.pack(fill="x", pady=(0, 12))
     log_box = tk.Text(progress_frame, height=14, wrap="word", state="disabled",
                       font=("Consolas" if IS_WINDOWS else "Menlo", 9))
@@ -3018,11 +2839,12 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     def on_progress(step: int, message: str) -> None:
         ui_queue.put(("step", step, message))
 
+    # The selection is read once, on the Tk thread, when Begin Setup is pressed; the worker thread never reads a Tk
+    # variable.
+    selection: list[str] = []
+
     def worker() -> None:
-        ok, final = run_setup(
-            state["download_kokoro"].get(), on_progress, LOG,
-            download_chatterbox=state["download_chatterbox"].get(),
-        )
+        ok, final = run_setup(on_progress, LOG)
         ui_queue.put(("done", ok, final))
 
     def append_log(msg: str) -> None:
@@ -3035,15 +2857,39 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         if state["started"]:
             return
         state["started"] = True
+        selection[:] = [c for c, *_rest in OPTIONAL_CHOICES if choices[c].get()]
         intro.pack_forget()
         progress_frame.pack(fill="both", expand=True)
-        # Read the checkboxes at click time (the user may have toggled them). The
-        # bar's maximum must match the step count run_setup will report.
-        bar.configure(maximum=4 + state["download_kokoro"].get()
-                      + state["download_chatterbox"].get())
         threading.Thread(target=worker, daemon=True).start()
 
     begin_btn.configure(command=begin)
+
+    def finish_and_launch(outcome: Optional[dict] = None) -> None:
+        if outcome is not None:
+            LOG.line(f"Optional voices: {outcome.get('state')} {outcome.get('message', '')}".rstrip())
+        state["done"], state["ok"] = True, True
+        LOG.line("Launching the app…")
+        launch_gui(LOG)
+        root.after(900, root.destroy)
+
+    def optional_phase() -> None:
+        """After the base: review and install the chosen voices (or launch straight away if none were chosen)."""
+        if not selection:
+            finish_and_launch()
+            return
+        from shared.optional_setup_panel import OptionalSetupPanel
+        progress_frame.pack_forget()
+        panel = OptionalSetupPanel(container, REPO_ROOT, selection, on_done=finish_and_launch,
+                                   intro="The app is installed. Next, the voices you chose.")
+        panel.pack(fill="both", expand=True)
+
+        def on_close() -> None:
+            if panel.close_requested() or messagebox.askyesno(
+                    "Stop setup?", "Stop installing the voices? Anything already working is kept."):
+                root.destroy()
+
+        root.protocol("WM_DELETE_WINDOW", on_close)
+        panel.start()
 
     def poll() -> None:
         try:
@@ -3058,19 +2904,17 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
                     bar.configure(value=step)
                 elif kind == "done":
                     _, ok, final = item
-                    state["done"], state["ok"] = True, ok
                     bar.configure(value=bar["maximum"])
                     step_var.set(final.splitlines()[0])
                     if ok:
-                        append_log("Launching the app…")
-                        launch_gui(LOG)
-                        root.after(900, root.destroy)
-                    else:
-                        messagebox.showerror("Setup did not complete", final)
-                        _add_failure_buttons()
+                        optional_phase()
+                        return
+                    state["done"], state["ok"] = True, False
+                    messagebox.showerror("Setup did not complete", final)
+                    _add_failure_buttons()
         except queue.Empty:
             pass
-        if not (state["done"] and not state["ok"]):
+        if not state["done"]:
             root.after(120, poll)
 
     def _add_failure_buttons() -> None:
@@ -3085,6 +2929,11 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     LOG.close()
     return setup_exit_code(started=state["started"], done=state["done"],
                            ok=state["ok"])
+
+
+# ===========================================================================
+#  First-run Tk dialog
+# ===========================================================================
 
 
 def _open_folder(path: Path) -> None:
@@ -3577,9 +3426,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                              "then launch the GUI. The fast path used once "
                              ".venv exists; it does not run first-run setup.")
     parser.add_argument("--skip-kokoro-download", action="store_true",
-                        help="Default the first-run checkbox for the optional ~300 MB "
-                             "Kokoro *model weights* pre-download to unchecked. The "
-                             "Kokoro Python wheels are mandatory and always installed "
+                        help="Default the first-run Kokoro voices choice to unchecked. "
+                             "The Kokoro Python wheels are mandatory and always installed "
                              "regardless of this flag.")
     parser.add_argument("--headless", action="store_true",
                         help="Install without requiring a working Tkinter GUI "
@@ -3679,17 +3527,15 @@ def _repair_and_launch(headless: bool) -> int:
 def _run_headless(skip_kokoro: bool) -> int:
     """First-run setup with no Tk dialog: build venv + deps + ffmpeg + validate.
 
-    Used when the launcher could not set up a GUI-capable Python. The Kokoro
-    pre-download is skipped here (it still downloads on first Kokoro use) so this
-    unattended path never triggers a surprise multi-GB download.
+    Used when the launcher could not set up a GUI-capable Python. No optional voice is installed here: that needs the
+    review screen and a person's confirmation, so this unattended path never downloads a model.
     """
     LOG.line("Running headless setup (no GUI dialog — Tk is unavailable).")
 
     def progress(step: int, message: str) -> None:
         LOG.line(f"[step {step}] {message}")
 
-    ok, final = run_setup(download_kokoro=False, progress=progress, log=LOG,
-                          headless=True)
+    ok, final = run_setup(progress, LOG, headless=True)
     LOG.line(final)
     if ok:
         LOG.line("Setup finished. The graphical window needs Tk, which is not "

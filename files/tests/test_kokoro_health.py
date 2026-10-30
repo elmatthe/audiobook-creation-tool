@@ -182,39 +182,6 @@ def test_each_failure_class_gets_its_own_plain_reason(detail, expected):
     assert "3.13" not in message
 
 
-def test_predownload_never_blames_python_313_for_a_blocked_dll(venv, monkeypatch):
-    Child(monkeypatch, proof=BLOCKED)
-    monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: PY)
-    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
-    downloads: list = []
-    monkeypatch.setattr(bootstrap.subprocess, "Popen", lambda *a, **k: downloads.append(a))
-    lines: list[str] = []
-
-    class Log:
-        def line(self, text):
-            lines.append(text)
-
-    bootstrap.predownload_kokoro(Log())
-    text = "\n".join(lines)
-    assert "3.13" not in text
-    assert "Application Control" in text and "_epoch" in text
-    assert downloads == [], "a broken install must not start a 300 MB download"
-
-
-def test_predownload_names_a_missing_package_as_missing_on_a_supported_python(venv, monkeypatch):
-    Child(monkeypatch, present=False)
-    monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: PY)
-    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
-    lines: list[str] = []
-
-    class Log:
-        def line(self, text):
-            lines.append(text)
-
-    bootstrap.predownload_kokoro(Log())
-    assert "not installed" in lines[0] and "too new" not in lines[0]
-
-
 # --------------------------------------------------------------------------- #
 # Repair honours the authoritative requirements and is not repeated blindly
 # --------------------------------------------------------------------------- #

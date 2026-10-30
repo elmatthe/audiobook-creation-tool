@@ -481,6 +481,56 @@ def _default_qwen3_setup_offered() -> bool:
     return qwen3_setup_offered()
 
 
+def _default_local_assets(backend: str, voice_id: str) -> tuple[bool, str]:
+    """Whether a Kokoro/Chatterbox voice's model files are installed (``tts.voice_install``); one hop, patchable."""
+    from tts import voice_install
+    return voice_install.models_status(backend, voice_id)
+
+
+def _default_installable(backend: str, voice_id: str, reason: str):
+    from tts import voice_install
+    return voice_install.installable(backend, voice_id, reason)
+
+
+def _default_install_dialog(panel, component: str, reason: str) -> dict:
+    """Install & Continue: the review-and-install panel for one component, modal. Returns its outcome ({} if closed).
+
+    The panel shows the exact downloads first; only its Install Selected Components button installs anything.
+    """
+    from shared.optional_setup_panel import OptionalSetupPanel
+    from tts import qwen3_runtime as rt
+
+    top = tk.Toplevel(panel)
+    top.title("Install & Continue")
+    top.geometry("700x580")
+    top.minsize(560, 460)
+    top.transient(panel.winfo_toplevel())
+    outcome: dict = {}
+
+    def done(result: dict) -> None:
+        outcome.update(result)
+        try:
+            top.destroy()
+        except tk.TclError:
+            pass
+
+    view = OptionalSetupPanel(
+        top, rt.repo_root(), [component], on_done=done,
+        intro=(f"{reason}\n\nYour conversion starts by itself, once, when the voice is installed and checked. "
+               "Skip or Cancel stops it; nothing is created."))
+    view.pack(fill="both", expand=True, padx=12, pady=12)
+
+    def on_close() -> None:
+        if view.close_requested():
+            done({"state": "cancelled"})
+
+    top.protocol("WM_DELETE_WINDOW", on_close)
+    top.grab_set()
+    view.start()
+    panel.wait_window(top)
+    return outcome
+
+
 def _default_qwen3_setup_dialog(panel) -> None:
     """Open the install/repair dialog modally. The import is lazy: nothing of it loads until it is asked for."""
     from tts import qwen3_install_ui
@@ -901,6 +951,9 @@ class TtsPanel(ttk.Frame):
         qwen3_hardware=None,
         qwen3_setup_offered=None,
         qwen3_setup_dialog=None,
+        local_assets=None,
+        installable=None,
+        install_dialog=None,
         appearance_bundle: dict | None = None,
     ):
         # v0.6.6 Phase 3: the whole interior is built from the shared compact
@@ -968,6 +1021,13 @@ class TtsPanel(ttk.Frame):
                                      else _default_qwen3_setup_offered)
         self._qwen3_setup_dialog = (qwen3_setup_dialog if qwen3_setup_dialog is not None
                                     else _default_qwen3_setup_dialog)
+        # v0.7.0 Install & Continue: whether a Kokoro/Chatterbox voice's model files are installed (they are never
+        # downloaded on first use), which optional component installs a missing voice, and the review-and-install
+        # dialog. All seams, so the suite never reads the real model cache or opens a real installer.
+        self._local_assets = local_assets if local_assets is not None else _default_local_assets
+        self._installable = installable if installable is not None else _default_installable
+        self._install_dialog = install_dialog if install_dialog is not None else _default_install_dialog
+        self._pending_install = False
         self._voice_available = True
 
         # ---- Tk state ---------------------------------------------------- #
@@ -1576,6 +1636,18 @@ class TtsPanel(ttk.Frame):
         self._refresh_voice_status(entry)
         self._content_changed()
 
+    def _voice_status(self, entry) -> tuple[bool, str]:
+        """``(ok, reason)`` for *entry* from the engine seams alone, changing nothing on screen."""
+        if entry is None or entry.backend not in ("kokoro", "chatterbox", "qwen3"):
+            return True, ""
+        if entry.backend == "qwen3":
+            return self._qwen3_status(entry.voice_id)
+        if entry.backend == "chatterbox":
+            ok, reason = self._chatterbox_status(entry.voice_id)
+            if not ok:
+                return False, reason
+        return self._local_assets(entry.backend, entry.voice_id)
+
     def _refresh_voice_status(self, entry) -> tuple[bool, str]:
         """Project the selected voice's real availability onto this panel.
 
@@ -1589,19 +1661,17 @@ class TtsPanel(ttk.Frame):
         while the panel is open: a reference recording the maintainer moves between
         picking a voice and pressing Start must stop the run, not fail inside it.
 
-        Edge and Kokoro are never asked. Nothing local has to be present for them,
-        so they are unconditionally available and neither local engine is ever
-        loaded, probed or imported on their account. A Qwen3 voice asks the Qwen3
-        seam, never the Chatterbox one, and the reverse.
+        Edge is never asked: nothing local has to be present for it. Since v0.7.0 a
+        Kokoro voice is asked whether its verified model files are installed (they
+        are never downloaded on first use), without loading or importing the engine.
+        A Qwen3 voice asks the Qwen3 seam, never the Chatterbox one, and the reverse.
         """
-        if entry is None or entry.backend not in ("chatterbox", "qwen3"):
+        ok, reason = self._voice_status(entry)
+        if entry is None or entry.backend not in ("kokoro", "chatterbox", "qwen3"):
             self._voice_available = True
             self.voice_status_var.set("")
             self.voice_status_lbl.grid_remove()
             return True, ""
-
-        seam = self._qwen3_status if entry.backend == "qwen3" else self._chatterbox_status
-        ok, reason = seam(entry.voice_id)
         self._voice_available = bool(ok)
         if self._voice_available:
             self.voice_status_var.set("")
@@ -2438,10 +2508,53 @@ class TtsPanel(ttk.Frame):
         # back to another voice or another engine.
         available, unavailable_reason = self._refresh_voice_status(current_voice_entry)
         self._content_changed()
+        component = None
         if not available:
-            messagebox.showwarning("Voice unavailable", unavailable_reason)
-            return
+            # v0.7.0 Install & Continue: a voice whose models are simply not installed is offered for installation;
+            # anything installing cannot fix (a missing reference, an unsupported platform) is refused as before.
+            component = self._installable(backend, voice_id, unavailable_reason)
+            if component is None:
+                messagebox.showwarning("Voice unavailable", unavailable_reason)
+                return
+            if self._pending_install:
+                return
 
+        snapshot = self._capture_run(current_voice_entry, speaker, backend, voice_id)
+        if component is not None:
+            self._install_and_continue(component, unavailable_reason, snapshot, current_voice_entry)
+            return
+        self._start_frozen(snapshot)
+
+    def _install_and_continue(self, component: str, reason: str, snapshot, entry) -> None:
+        """Install the frozen run's voice, then start that SAME run exactly once.
+
+        The run was captured before anything was installed (sources, settings, voice identity), so nothing the person
+        changes meanwhile is read again, and no output folder is reserved until the voice is installed and re-checked.
+        Skip, Cancel, a failure or closing the window abandons the run: it is never started later by itself.
+        """
+        self._pending_install = True
+        try:
+            outcome = self._install_dialog(self, component, reason) or {}
+        finally:
+            self._pending_install = False
+        if self._closed:
+            return
+        if outcome.get("state") not in ("installed", "ready"):
+            messagebox.showinfo("Conversion not started",
+                                "The voice was not installed, so this conversion was not started and nothing was "
+                                "created. Press Create again whenever you are ready.")
+            return
+        ok, why = self._refresh_voice_status(entry)
+        self._content_changed()
+        if not ok:
+            messagebox.showwarning("Voice unavailable", why)
+            return
+        if self._busy.is_set():
+            return
+        self._start_frozen(snapshot)
+
+    def _capture_run(self, current_voice_entry, speaker: str, backend: str, voice_id: str):
+        """Freeze everything this run will use (Decision 9A), on the main thread, and return the snapshot."""
         # v0.6.5 Phase 7 removed the user-editable pause/trim controls this used
         # to read from widgets; the maintainer-approved per-voice policy behind
         # them is unchanged and is applied here directly from the registry
@@ -2511,7 +2624,10 @@ class TtsPanel(ttk.Frame):
             ),
             created_at=float(self._clock()),
         )
+        return snapshot
 
+    def _start_frozen(self, snapshot):
+        """Reserve the run folder, plan every destination, and launch the frozen *snapshot*."""
         # Input validated; only now is a run directory reserved. Merely opening the
         # tool, importing, browsing or switching panels creates nothing.
         try:

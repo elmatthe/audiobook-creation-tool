@@ -151,110 +151,37 @@ def test_a_failed_repair_returns_false(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Weights pre-download and warm-up
+# v0.7.0: first-run setup never downloads a model; the four choices go through the consented panel
 # --------------------------------------------------------------------------- #
-def test_the_predownload_targets_the_one_project_huggingface_cache(monkeypatch, tmp_path):
-    captured: dict = {}
-
-    class FakeProc:
-        stdout = iter(())
-
-        def wait(self):
-            return 0
-
-    def fake_popen(cmd, **kwargs):
-        captured["cmd"] = list(cmd)
-        captured["env"] = kwargs.get("env") or {}
-        return FakeProc()
-
-    monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(bootstrap, "venv_python", lambda: tmp_path / "python.exe")
-    monkeypatch.setattr(bootstrap, "_run", lambda *a, **k: SimpleNamespace(returncode=0))
-    bootstrap.predownload_chatterbox(bootstrap.SetupLog())
-
-    hf = str(bootstrap.RESOURCES_DIR / "models" / "huggingface")
-    assert captured["env"].get("HF_HOME") == hf
-    assert "ResembleAI/chatterbox-turbo" in captured["cmd"][-1]
-
-
-def test_the_predownload_is_skipped_when_the_package_is_absent(monkeypatch, tmp_path):
-    called = {"popen": False}
-    monkeypatch.setattr(bootstrap, "venv_python", lambda: tmp_path / "python.exe")
-    monkeypatch.setattr(bootstrap, "_run", lambda *a, **k: SimpleNamespace(returncode=1))
-    monkeypatch.setattr(bootstrap.subprocess, "Popen",
-                        lambda *a, **k: called.__setitem__("popen", True))
-    bootstrap.predownload_chatterbox(bootstrap.SetupLog())
-    assert called["popen"] is False
-
-
-def test_the_warmup_builds_the_model_on_cpu_and_never_raises(monkeypatch, tmp_path):
-    captured: dict = {}
-
-    class FakeProc:
-        stdout = iter(("warm\n",))
-
-        def wait(self):
-            return 0
-
-    monkeypatch.setattr(bootstrap.subprocess, "Popen",
-                        lambda cmd, **k: (captured.update(cmd=list(cmd), env=k.get("env") or {}),
-                                          FakeProc())[1])
-    bootstrap.warmup_chatterbox(tmp_path / "python.exe", lambda _m: None)
-    script = captured["cmd"][-1]
-    assert "from_pretrained" in script
-    assert '"cpu"' in script or "'cpu'" in script
-
-
-def test_a_failed_warmup_is_logged_not_raised(monkeypatch, tmp_path):
-    def boom(*a, **k):
-        raise OSError("blocked")
-
-    monkeypatch.setattr(bootstrap.subprocess, "Popen", boom)
-    lines: list[str] = []
-    bootstrap.warmup_chatterbox(tmp_path / "python.exe", lines.append)
-    assert lines
-
-
-# --------------------------------------------------------------------------- #
-# The first-run checkbox — opt-in, honest about the size
-# --------------------------------------------------------------------------- #
-def test_run_setup_accepts_a_chatterbox_download_flag():
-    import inspect
-
-    params = inspect.signature(bootstrap.run_setup).parameters
-    assert "download_chatterbox" in params
-    assert params["download_chatterbox"].default is False
-
-
-def test_the_chatterbox_download_is_opt_in_unlike_kokoro():
-    """~3.86 GiB is too large to check by default; Kokoro's ~300 MB stays as it was."""
+def test_the_unpinned_predownload_and_warmup_routes_are_gone():
+    """They fetched at upstream ``main`` with no review screen; the consented worker replaced them."""
+    for name in ("predownload_kokoro", "predownload_chatterbox", "warmup_kokoro_pipeline", "warmup_chatterbox"):
+        assert not hasattr(bootstrap, name), name
     tree = ast.parse(BOOTSTRAP_SRC)
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name == "run_with_gui")
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run_setup")
     src = ast.get_source_segment(BOOTSTRAP_SRC, fn)
-    assert '"download_chatterbox": tk.BooleanVar(value=False)' in src
+    for forbidden in ("snapshot_download", "KPipeline", "from_pretrained", "hf_hub_download"):
+        assert forbidden not in src
 
 
-def test_the_checkbox_states_the_real_download_size():
+def test_the_wizard_offers_the_four_choices_in_order_with_the_approved_defaults():
+    assert [(c, d) for c, _label, d, _note in bootstrap.OPTIONAL_CHOICES] == [
+        ("kokoro", True), ("chatterbox", False), ("qwen3-customvoice", False), ("qwen3-base", False)]
+
+
+def test_choosing_is_not_installing_the_panel_is_the_only_install_route():
     tree = ast.parse(BOOTSTRAP_SRC)
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name == "run_with_gui")
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run_with_gui")
     src = ast.get_source_segment(BOOTSTRAP_SRC, fn)
-    assert "3.9 GB" in src or "3.86" in src
-
-
-def test_the_kokoro_checkbox_default_is_untouched():
-    tree = ast.parse(BOOTSTRAP_SRC)
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name == "run_with_gui")
-    src = ast.get_source_segment(BOOTSTRAP_SRC, fn)
-    assert '"download_kokoro": tk.BooleanVar(value=not skip_kokoro_default)' in src
+    assert "OptionalSetupPanel" in src
+    assert "run_setup(on_progress, LOG)" in src  # the base install takes no voice choice at all
+    assert "selection[:] = " in src  # read once on the Tk thread when Begin Setup is pressed
 
 
 def _isolate_environment(monkeypatch, tmp_path):
     """Point run_setup's environment state at tmp_path, not the real repo.
 
-    ``run_setup`` ends by stamping the environment it just built. These two tests
+    ``run_setup`` ends by stamping the environment it just built. These tests
     stub every install *step* but left ``VENV_DIR``/``LOGS_DIR`` pointing at the
     real checkout, so each run rewrote the developer's real
     ``.venv/.requirements-state.json`` and appended to the real setup log —
@@ -265,44 +192,20 @@ def _isolate_environment(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap, "LOGS_DIR", tmp_path / "logs")
 
 
-def test_run_setup_skips_the_chatterbox_steps_when_not_requested(monkeypatch, tmp_path):
-    calls: list[str] = []
+def test_run_setup_builds_the_base_and_starts_nothing_else(monkeypatch, tmp_path):
     _isolate_environment(monkeypatch, tmp_path)
     monkeypatch.setattr(bootstrap, "find_suitable_python", lambda *a, **k: ["py"])
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda a: (3, 12))
     monkeypatch.setattr(bootstrap, "preflight_report", lambda *a, **k: {})
     monkeypatch.setattr(bootstrap, "_create_validated_venv", lambda *a, **k: True)
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", lambda *a: True)
-    monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda *a: True)
+    monkeypatch.setattr(bootstrap, "reconcile_requirements", lambda *a: (True, ""))
     monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda *a: True)
-    monkeypatch.setattr(bootstrap, "predownload_kokoro",
-                        lambda *a: calls.append("kokoro"))
-    monkeypatch.setattr(bootstrap, "predownload_chatterbox",
-                        lambda *a: calls.append("chatterbox"))
-    ok, _msg = bootstrap.run_setup(False, lambda *a: None, bootstrap.SetupLog())
-    assert ok is True
-    assert calls == []
-
-
-def test_run_setup_downloads_chatterbox_only_when_asked(monkeypatch, tmp_path):
-    calls: list[str] = []
-    _isolate_environment(monkeypatch, tmp_path)
-    monkeypatch.setattr(bootstrap, "find_suitable_python", lambda *a, **k: ["py"])
-    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda a: (3, 12))
-    monkeypatch.setattr(bootstrap, "preflight_report", lambda *a, **k: {})
-    monkeypatch.setattr(bootstrap, "_create_validated_venv", lambda *a, **k: True)
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", lambda *a: True)
-    monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda *a: True)
-    monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda *a: True)
-    monkeypatch.setattr(bootstrap, "predownload_kokoro", lambda *a: None)
-    monkeypatch.setattr(bootstrap, "predownload_chatterbox",
-                        lambda *a: calls.append("chatterbox"))
-    monkeypatch.setattr(bootstrap, "chatterbox_is_healthy", lambda p: (False, "absent"))
-    monkeypatch.setattr(bootstrap, "venv_python", lambda *a, **k: Path("py"))
-    ok, _msg = bootstrap.run_setup(False, lambda *a: None, bootstrap.SetupLog(),
-                                   download_chatterbox=True)
-    assert ok is True
-    assert calls == ["chatterbox"]
+    monkeypatch.setattr(bootstrap.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("the base setup started a process of its own"))
+    steps: list[int] = []
+    ok, msg = bootstrap.run_setup(lambda step, _m: steps.append(step), bootstrap.SetupLog())
+    assert ok is True and msg == "Setup complete."
+    assert steps[-1] == bootstrap.BASE_SETUP_STEPS
 
 
 # --------------------------------------------------------------------------- #

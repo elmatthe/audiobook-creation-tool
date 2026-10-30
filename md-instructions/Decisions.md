@@ -6945,3 +6945,29 @@ actual first-run/run_job integration, P06 and release activation remain blocked.
 Application identity remains 0.6.6.
 
 — Approved by the owner on 2026-10-27; recorded during consolidated M1 qualification.
+
+---
+
+## 2026-10-30 — Release installer: Option B through the existing consented v2 pipeline
+
+**Decision:** The v0.7.0 first-run wizard and the TTS panel's Install & Continue install the four optional
+components through the existing optional-setup protocol (contained setup worker in `.venv`, lifecycle, consent
+bound to the acquisition fingerprint of the worker's own fresh plan, spent once) and `RealAcquirer`, now the
+production default. Option B's user-facing order is kept: early **Begin Setup** builds the base only; after the
+base exists a read-only plan is shown in full; only a live click on **Install Selected Components** creates the
+consent; Skip/Cancel/close never download, keep what works and never retry by themselves.
+
+The three P05B Stage 3 consent-scope escapes are closed in the acquirer itself: every response passes a byte
+budget fixed by the consent (known download plus a stated ceiling for units shown as unknown), refused before the
+body is read when its length exceeds what remains; the Qwen3 installer may touch the engine only when the consent
+includes the `qwen3-engine` unit. The engine's packages are the reviewed manifest's 89 exact wheels (sox: the
+accepted derivative at supply commit `b7e1b1ae`), each fetched by size and SHA-256 through that budgeted opener and
+installed offline (`--no-index --require-hashes --no-deps --only-binary=:all:` under the offline bootstrap), so pip
+no longer has index access. The bootstrap's unpinned pre-download and warm-up routes are removed.
+
+**Why:** The owner's 2026-10-30 directive makes a working, user-installable application the priority and forbids a
+second installation framework. The v3 presentation-acknowledgment/retention/readback machinery (M1/M2) remains in
+the tree, qualified and unused by production; it is not required for the consent to be exact, because the worker
+refuses any plan whose terms differ from the confirmed ones.
+
+— Directed by the owner on 2026-10-30; implemented by Claude Code.

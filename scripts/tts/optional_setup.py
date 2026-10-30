@@ -279,10 +279,19 @@ def _qwen_engine_unit() -> tuple[Unit, str]:
     ok, reason = rt.environment_status()
     if ok:
         return Unit(unit_id, label, [], READY, source=source), ""
-    install = dict(download=Figure(rt.environment_download_bytes(), APPROXIMATE),
+    # v0.7.0: the engine's packages are the reviewed manifest's exact wheels (``tts.qwen3_wheels``), so the download
+    # is known exactly: the wheels not already verified in the app's wheel cache.
+    from tts import qwen3_wheels
+    try:
+        fetch = qwen3_wheels.missing_bytes()
+    except Exception as exc:  # noqa: BLE001 - a manifest this build cannot vouch for: nothing can be installed from it
+        return Unit(unit_id, label, [], UNVERIFIED, note=f"the Qwen3 package manifest could not be verified ({exc})",
+                    source=source), reason
+    install = dict(download=Figure(fetch, MANIFEST),
                    disk=Figure(rt.environment_installed_bytes(), APPROXIMATE),
-                   temp=Figure(rt.environment_download_bytes(), APPROXIMATE),
-                   note="the locked packages; pip's download cache is kept until the install succeeds", source=source)
+                   temp=Figure(fetch, MANIFEST),
+                   note="the reviewed package wheels, each checked by size and SHA-256, then installed offline; "
+                        "they are kept until the install succeeds", source=source)
     problem = rt.environment_location_problem(folder)
     if problem:  # a link or an outside location: no install can fix that, and nothing here can vouch for it
         return Unit(unit_id, label, [], UNVERIFIED, note=problem, source=source), reason

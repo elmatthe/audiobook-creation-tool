@@ -314,11 +314,3 @@ def test_setup_and_runtime_share_one_espeak_contract():
     assert _sys_path_insert_argument(preamble) == str(bootstrap.SCRIPTS_DIR), (
         "the subprocess must put this checkout's own scripts directory on sys.path")
 
-    for function in (bootstrap.warmup_kokoro_pipeline, bootstrap.predownload_kokoro):
-        source = inspect.getsource(function)
-        assert "KOKORO_SUBPROCESS_PREAMBLE" in source, function.__name__
-        assert "espeak_data.configure()" in source, function.__name__
-        assert source.index("from kokoro import KPipeline") < source.index(
-            "espeak_data.configure()"), f"{function.__name__} must configure after the import"
-        assert source.index("espeak_data.configure()") < source.index(
-            "KPipeline(lang_code="), f"{function.__name__} must configure before the pipeline"

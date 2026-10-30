@@ -65,12 +65,12 @@ def test_the_dialog_wraps_its_long_labels_responsively():
     assert "<Configure>" in body
 
 
-def test_both_option_descriptions_survived_the_rewrite():
-    """Meaning must be retained — only the widget rendering it changed."""
+def test_every_option_description_lives_on_a_wrapped_label():
+    """v0.7.0: four choices, each a short checkbutton plus a wrapped description (never on the checkbutton)."""
     body = _run_with_gui_source()
-    assert "auto-downloads on first synthesis" in body
-    assert "the model downloads on first use instead" in body
-    assert "~300 MB" in body and "~3.9 GB" in body
+    assert "for component, label, _default, note in OPTIONAL_CHOICES" in body
+    assert "_wrapped.append(_note)" in body
+    assert all(len(label) <= 90 for _c, label, _d, _n in bootstrap.OPTIONAL_CHOICES)
 
 
 def test_the_action_buttons_are_still_present():
@@ -79,10 +79,9 @@ def test_the_action_buttons_are_still_present():
     assert "Cancel" in body
 
 
-def test_chatterbox_stays_unchecked_and_kokoro_keeps_its_default():
-    body = _run_with_gui_source()
-    assert '"download_chatterbox": tk.BooleanVar(value=False)' in body
-    assert '"download_kokoro": tk.BooleanVar(value=not skip_kokoro_default)' in body
+def test_only_kokoro_is_checked_by_default():
+    assert {c: d for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES} == {
+        "kokoro": True, "chatterbox": False, "qwen3-customvoice": False, "qwen3-base": False}
 
 
 def test_the_window_is_not_merely_made_enormous():

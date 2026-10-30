@@ -124,6 +124,8 @@ def make_panel(tk_root):
         kwargs.setdefault("home", None)
         kwargs.setdefault("thread_factory", RecordingThreads())
         kwargs.setdefault("choose_files", lambda: ())
+        # v0.7.0: Kokoro/Chatterbox model files count as installed; the real cache is never read here.
+        kwargs.setdefault("local_assets", lambda backend, voice_id: (True, ""))
         kwargs.setdefault("choose_folder", lambda: ())
         kwargs.setdefault("confirm_broad_root", lambda roots: False)
         kwargs.setdefault("confirm_large_result", lambda outcome: False)
@@ -1098,8 +1100,12 @@ def test_no_planned_destination_is_ever_one_of_the_inputs(
 
 
 def test_the_run_directory_is_reserved_only_after_validation():
+    # v0.7.0: run_job validates and freezes; only _start_frozen (reached after validation, or after Install &
+    # Continue has installed the voice) reserves the run folder.
     body = ast.unparse(method_named("run_job"))
-    assert body.index("Missing input") < body.index("reserve_run_directory")
+    assert "Missing input" in body and "reserve_run_directory" not in body
+    assert body.index("Missing input") < body.index("self._start_frozen(snapshot)")
+    assert "reserve_run_directory" in ast.unparse(method_named("_start_frozen"))
     assert "reserve_run_directory" not in ast.unparse(method_named("__init__"))
 
 

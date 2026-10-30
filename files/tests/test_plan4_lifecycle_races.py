@@ -225,6 +225,7 @@ def tts_panel(tk_root, output_base, stubs):
         kwargs.setdefault("choose_folder", lambda: ())
         kwargs.setdefault("confirm_broad_root", lambda roots: False)
         kwargs.setdefault("confirm_large_result", lambda outcome: True)
+        kwargs.setdefault("local_assets", lambda backend, voice_id: (True, ""))
         panel = tts_module.TtsPanel(tk_root, **kwargs)
         made.append(panel)
         return panel

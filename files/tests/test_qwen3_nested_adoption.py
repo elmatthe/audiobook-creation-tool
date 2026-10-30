@@ -477,6 +477,10 @@ _INSTALLER = textwrap.dedent("""
     rt.repo_root = lambda: root
     rt.MACHINE_GUARD_NAME = guard
     su.base_python_candidate = lambda: base
+    from tts import qwen3_wheels as qw  # v0.7.0: no real wheel is fetched in this disposable process
+    qw.fetch = lambda **kwargs: 0
+    qw.install_command = lambda python: ([str(python), "-m", "pip", "install", "--no-index"], root)
+    qw.discard = lambda: None
 
     def runner(cmd, *, env, cwd, on_line, cancel_check=None):
         cmd = [str(c) for c in cmd]
@@ -593,7 +597,7 @@ def test_install_first_first_run_setup_refuses_the_same_way(first_install, env, 
     monkeypatch.setattr(bootstrap, "recover_interrupted_replacement",
                         lambda *a, **k: pytest.fail("setup recovered something under a running install"))
     with installer_mid_creation(sandbox, base) as installer:
-        ok, message = bootstrap.run_setup(False, lambda *a: None, _Log(), headless=True)
+        ok, message = bootstrap.run_setup(lambda *a: None, _Log(), headless=True)
         assert ok is False and message.startswith("Setup was not started.") and "Nothing was changed" in message
         assert keepsake.read_text(encoding="utf-8") == "previous"
         installer.stdin.write("\n")
