@@ -470,13 +470,16 @@ def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
     assert not (tmp_path / "dist").exists() or not any((tmp_path / "dist").iterdir())
 
 
-def run_main(root: Path, dist: Path) -> int:
-    saved = (release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR)
+def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
+    """``release.main()`` on a fake repository. By default both platforms, so the two-archive all-or-nothing
+    transaction stays covered; the shipped v0.7.0 default (Windows only) is pinned separately."""
+    saved = (release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR, release.RELEASE_OS_NAMES)
     release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = root, root / "scripts", dist
+    release.RELEASE_OS_NAMES = tuple(os_names)
     try:
         return release.main()
     finally:
-        release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = saved
+        release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR, release.RELEASE_OS_NAMES = saved
 
 
 @pytest.mark.parametrize("edited", [
@@ -1022,3 +1025,12 @@ def test_the_readme_gallery_link_points_at_the_same_ref_as_the_preview_downloads
                         r"/files/voice-previews/README\.md)\)", readme)
     assert spec is not None and raw_ref and gallery
     assert gallery.group(2) == raw_ref.group(1)
+
+
+def test_the_ordinary_v070_build_produces_only_the_windows_archive(tmp_path):
+    """v0.7.0 is distributed for Windows only; the macOS archive is held until native qualification."""
+    source = Path(release.__file__).read_text(encoding="utf-8")
+    assert 'RELEASE_OS_NAMES = ("Windows",)' in source and "_package(RELEASE_OS_NAMES)" in source
+    root = fake_repo(tmp_path / "repo")
+    assert run_main(root, tmp_path / "dist", os_names=release.RELEASE_OS_NAMES) == 0
+    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == [f"AudiobookTool-Windows-v{release.VERSION}.zip"]

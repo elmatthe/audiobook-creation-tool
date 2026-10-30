@@ -357,3 +357,25 @@ def test_every_installer_location_is_inside_dot_venv_or_files_never_a_new_top_le
     for folder in (qw.wheel_dir(), assets.hf_hub_root(), assets.record_dir(), rt.models_root(), rt.runtime_dir(),
                    rt.cache_root(), rt.tmp_root(), proto.exchange_root(root)):
         assert folder.is_relative_to(root / "files"), folder
+
+
+def test_a_source_changed_during_the_install_is_never_narrated_silently(make_panel, output_base, tmp_path,  # noqa: F811
+                                                                         monkeypatch):
+    from tts import epub2tts_gui as panel_module
+    told = []
+    monkeypatch.setattr(panel_module.messagebox, "showinfo", lambda *a, **k: told.append(a))
+    state = {"installed": False}
+
+    def dialog(panel, component, reason):
+        chosen[0].write_text("Chapter One\n\nA different text.\n", encoding="utf-8")  # edited meanwhile
+        state["installed"] = True
+        return {"state": "installed", "verified": [component]}
+
+    panel, chosen = direct_panel(make_panel, tmp_path, "book.txt",
+                                 local_assets=lambda b, v: (True, "") if state["installed"] else
+                                 (False, "Kokoro voices are not installed"),
+                                 installable=lambda b, v, r: proto.KOKORO, install_dialog=dialog)
+    panel.selected_voice_label.set(_kokoro_label())
+    captured = accept(panel)
+    assert captured == {} and told and "changed" in told[0][1]
+    assert not output_base.exists() or not any(output_base.iterdir())

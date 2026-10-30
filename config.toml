@@ -46,7 +46,8 @@ python_min = "3.11"
 entry_point = "scripts/launcher.py"
 
 # Platforms this build supports. Recognised values: "Windows", "MacOS".
-platforms = ["Windows", "MacOS"]
+# v0.7.0 is qualified and distributed for Windows only; macOS is held until it is qualified natively.
+platforms = ["Windows"]
 
 
 [output]

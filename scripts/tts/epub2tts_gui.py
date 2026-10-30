@@ -481,6 +481,19 @@ def _default_qwen3_setup_offered() -> bool:
     return qwen3_setup_offered()
 
 
+def _source_signatures(snapshot) -> tuple:
+    """``(path, size, mtime_ns)`` of every frozen source (``None`` for a missing one): what Install & Continue compares
+    before resuming, so a file edited or removed during the install is never narrated silently."""
+    signatures = []
+    for item in snapshot.files.files:
+        try:
+            st = os.stat(item.path)
+            signatures.append((str(item.path), st.st_size, st.st_mtime_ns))
+        except OSError:
+            signatures.append((str(item.path), None, None))
+    return tuple(signatures)
+
+
 def _default_local_assets(backend: str, voice_id: str) -> tuple[bool, str]:
     """Whether a Kokoro/Chatterbox voice's model files are installed (``tts.voice_install``); one hop, patchable."""
     from tts import voice_install
@@ -2532,6 +2545,7 @@ class TtsPanel(ttk.Frame):
         changes meanwhile is read again, and no output folder is reserved until the voice is installed and re-checked.
         Skip, Cancel, a failure or closing the window abandons the run: it is never started later by itself.
         """
+        before = _source_signatures(snapshot)
         self._pending_install = True
         try:
             outcome = self._install_dialog(self, component, reason) or {}
@@ -2548,6 +2562,13 @@ class TtsPanel(ttk.Frame):
         self._content_changed()
         if not ok:
             messagebox.showwarning("Voice unavailable", why)
+            return
+        if _source_signatures(snapshot) != before:
+            # The frozen run would narrate material that is no longer what was chosen: never silently.
+            messagebox.showinfo("Conversion not started",
+                                "The voice is installed, but a source file changed or was removed while it was being "
+                                "installed, so this conversion was not started. Press Create again to narrate the "
+                                "files as they are now.")
             return
         if self._busy.is_set():
             return

@@ -76,6 +76,11 @@ DIST_DIR = REPO_ROOT / "dist"
 sys.path.insert(0, str(SHARED_DIR))
 from version import VERSION  # noqa: E402
 
+# v0.7.0: the only platform this release is qualified and distributed for. The macOS code, launcher and the
+# packager's MacOS support stay (``_package(("MacOS",))`` still builds one for internal tests), but the ordinary build
+# never produces a macOS archive until a native macOS qualification is recorded.
+RELEASE_OS_NAMES = ("Windows",)
+
 # Per OS: the launcher that belongs at the archive root.
 ENTRY_FILES = {
     "Windows": "Setup_and_Run-audiobook-creation-tool.bat",
@@ -402,7 +407,7 @@ def _print_checklist() -> None:
         f"Changelog.md records v{VERSION} publication/rebuild state truthfully.",
         f"Application identity in scripts/shared/version.py = {VERSION}.",
         "Everything committed (this script refuses uncommitted packaged paths).",
-        "Build both zips (this script) -> dist/.",
+        "Build the Windows zip (this script) -> dist/. macOS is held until natively qualified.",
         "STOP for maintainer integration/release/publication authorization.",
         "Only after publication: date the release notes and update download links.",
     ]
@@ -425,7 +430,7 @@ def main() -> int:
             for rel in dirty:
                 print(f"  {rel}")
             return 1
-        built = _package(("Windows", "MacOS"))
+        built = _package(RELEASE_OS_NAMES)
     except ReleaseError as exc:
         print(f"Refusing to package: {exc}")
         return 1
