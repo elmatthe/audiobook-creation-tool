@@ -1,0 +1,234 @@
+{
+  "changed_same_paths": [],
+  "derivative": {
+    "filename": "sox-1.5.0-py3-none-any.whl",
+    "sha256": "d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934",
+    "size": 40164
+  },
+  "identical_paths": [
+    "sox/__init__.py",
+    "sox/combine.py",
+    "sox/core.py",
+    "sox/file_info.py",
+    "sox/log.py",
+    "sox/transform.py",
+    "sox/version.py"
+  ],
+  "native_executables_or_libraries_in_wheel": [],
+  "purpose": "Sanitized entry-level comparison of the original sox 1.5.0 sdist and the locally generated wheel in this directory. Names, sizes and SHA-256 only.",
+  "record": {
+    "rows": 12,
+    "self_row_empty": true,
+    "verified": 12
+  },
+  "relocated_identical": [
+    {
+      "sha256": "852a7b5216348945fe66a6481b522fc1b4d5f8e209f9704e1d156482fd4af47e",
+      "size": 1477,
+      "source": "LICENSE",
+      "wheel": "sox-1.5.0.dist-info/licenses/LICENSE"
+    }
+  ],
+  "schema": "act-supply-comparison/1",
+  "source": {
+    "entry_path_prefix_removed": "sox-1.5.0/",
+    "filename": "sox-1.5.0.tar.gz",
+    "sha256": "12c7be5bb1f548d891fe11e82c08cf5f1a1d74e225298f60082e5aeb2469ada0",
+    "size": 63905,
+    "url": "https://files.pythonhosted.org/packages/3d/a2/d8e0d8fd7abf509ead4a2cb0fb24e5758b5330166bf9223d5cb9f98a7e8d/sox-1.5.0.tar.gz"
+  },
+  "source_entries": {
+    "LICENSE": {
+      "sha256": "852a7b5216348945fe66a6481b522fc1b4d5f8e209f9704e1d156482fd4af47e",
+      "size": 1477
+    },
+    "MANIFEST.in": {
+      "sha256": "a9b5b7f9986fdf905bdb4edcf91744cbc75f72e5c373d276f567a4059d217c17",
+      "size": 167
+    },
+    "PKG-INFO": {
+      "sha256": "12691d1cbe5791526517efaf5d5e487e63d3ec7bc0765ef321b8b05e45d14538",
+      "size": 5342
+    },
+    "README.md": {
+      "sha256": "93a970cc6e947f0c854ded99ee5cdd9a46816cf17e8f9a916b355619c0194eb5",
+      "size": 4504
+    },
+    "docs/Makefile": {
+      "sha256": "06b536144509786fc33ca16b5966621564731dfa8dfb4fd863d67c6ca9e3272b",
+      "size": 7405
+    },
+    "docs/api.rst": {
+      "sha256": "71f3675c2ae5daa2ca4bc1175703d839e8338a45f836da41db9d8df0081bc49f",
+      "size": 302
+    },
+    "docs/changes.rst": {
+      "sha256": "205333d6921bbe7b29434bd5419acdd6f5238a631536429f5b46c5350c81b415",
+      "size": 1143
+    },
+    "docs/conf.py": {
+      "sha256": "97d6dcc882d0c93b26b42b1c7132af3fd6babe9dc1e90952d1955fafc459d253",
+      "size": 9512
+    },
+    "docs/example.rst": {
+      "sha256": "32f608e7fb4bfc706b9ca2ec48a588994b1100e4c1dcbadfbf4914a6f2493dd1",
+      "size": 2669
+    },
+    "docs/index.rst": {
+      "sha256": "1e7063741fe8dd6adab4516a92073204908352f1686719f303555b6d225edcbf",
+      "size": 1812
+    },
+    "setup.cfg": {
+      "sha256": "582af827637d1e7f11680cb65f504ca886ef053e63c42cbf0a06672b5339e036",
+      "size": 139
+    },
+    "setup.py": {
+      "sha256": "45cfb8455987df6b43db6c74cba7dfb4bc2633df3e762445f6f877af2b2bc9f4",
+      "size": 1179
+    },
+    "sox.egg-info/PKG-INFO": {
+      "sha256": "12691d1cbe5791526517efaf5d5e487e63d3ec7bc0765ef321b8b05e45d14538",
+      "size": 5342
+    },
+    "sox.egg-info/SOURCES.txt": {
+      "sha256": "9001eb6615f5cfe596c51438a5ddab25f2debbded063e22ce5db19b48b10550b",
+      "size": 463
+    },
+    "sox.egg-info/dependency_links.txt": {
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "size": 1
+    },
+    "sox.egg-info/requires.txt": {
+      "sha256": "cf0bbf96d00c034427bb5fddf3373a4854fef592186f49b998b49d22a6ccc455",
+      "size": 168
+    },
+    "sox.egg-info/top_level.txt": {
+      "sha256": "ee9d746706e2486ad07a8ee2658639cdf67e4333e65aa9fe22740416c789a53f",
+      "size": 4
+    },
+    "sox/__init__.py": {
+      "sha256": "0c3e15258ce1f95ca050e045af634d1b16956af2b47ff7670f78b08567d19d47",
+      "size": 689
+    },
+    "sox/combine.py": {
+      "sha256": "a5659abbb6319c294f07d40e1ad36c8d7f1f57bcfe265a33d505799473b939f1",
+      "size": 19551
+    },
+    "sox/core.py": {
+      "sha256": "90e27d819f15c07bbea428c51074490d487df9d9a38a8c3df581687550962db0",
+      "size": 7030
+    },
+    "sox/file_info.py": {
+      "sha256": "eeb84c708e2b6ec016fcf5260913aa2f7e1b9cb8e73f3f475164bce26105ba55",
+      "size": 10920
+    },
+    "sox/log.py": {
+      "sha256": "c5218951a3d5377cf4516841d10ebd70cca6f0175bacb48f948d51e31ea75b84",
+      "size": 83
+    },
+    "sox/transform.py": {
+      "sha256": "d7e757cd05ee815fda4967eefbff2f3104e2d81764f57ebcfa789f257fb653a3",
+      "size": 136150
+    },
+    "sox/version.py": {
+      "sha256": "108ca71f1a96d7e553117240d3eb3107cb1c45fe95bd483dbe9dacb04f397ccc",
+      "size": 82
+    },
+    "tests/test_combine.py": {
+      "sha256": "ef1f6d0dfecf2951f856e7ebb4e21d8e438a1fcc49c0cf68c99710dc63b8ca72",
+      "size": 15107
+    },
+    "tests/test_core.py": {
+      "sha256": "eb51a92468b3b6171e8bfa96b76fcd95b66dd2b2dfc65c9be93c00b5c07bf4b4",
+      "size": 8105
+    },
+    "tests/test_file_info.py": {
+      "sha256": "3413e0149931d87895b6c578ce561df2499e0ec04fa0e2f853789733156dd64b",
+      "size": 16333
+    },
+    "tests/test_transform.py": {
+      "sha256": "c6d4014c9acee823b4e485776141e04e2db1d4968025d6ffbdbae16b716f5051",
+      "size": 177592
+    }
+  },
+  "source_not_installed": [
+    "LICENSE",
+    "MANIFEST.in",
+    "PKG-INFO",
+    "README.md",
+    "docs/Makefile",
+    "docs/api.rst",
+    "docs/changes.rst",
+    "docs/conf.py",
+    "docs/example.rst",
+    "docs/index.rst",
+    "setup.cfg",
+    "setup.py",
+    "sox.egg-info/PKG-INFO",
+    "sox.egg-info/SOURCES.txt",
+    "sox.egg-info/dependency_links.txt",
+    "sox.egg-info/requires.txt",
+    "sox.egg-info/top_level.txt",
+    "tests/test_combine.py",
+    "tests/test_core.py",
+    "tests/test_file_info.py",
+    "tests/test_transform.py"
+  ],
+  "wheel_added": [
+    "sox-1.5.0.dist-info/METADATA",
+    "sox-1.5.0.dist-info/RECORD",
+    "sox-1.5.0.dist-info/WHEEL",
+    "sox-1.5.0.dist-info/licenses/LICENSE",
+    "sox-1.5.0.dist-info/top_level.txt"
+  ],
+  "wheel_entries": {
+    "sox-1.5.0.dist-info/METADATA": {
+      "sha256": "286b93298a90ccb9dd6a8ddbebefb340afe76c8a2d2c1cf2ea65f425a5ce7ea5",
+      "size": 5777
+    },
+    "sox-1.5.0.dist-info/RECORD": {
+      "sha256": "b521232237d3930d3afef6a515ad97a55197a7cab1f6f196fecccab7a4dd45b4",
+      "size": 868
+    },
+    "sox-1.5.0.dist-info/WHEEL": {
+      "sha256": "98e75747d0b7c0c568bfb71263c3d8f970b3a374a6996087bc642be5cb09a1aa",
+      "size": 91
+    },
+    "sox-1.5.0.dist-info/licenses/LICENSE": {
+      "sha256": "852a7b5216348945fe66a6481b522fc1b4d5f8e209f9704e1d156482fd4af47e",
+      "size": 1477
+    },
+    "sox-1.5.0.dist-info/top_level.txt": {
+      "sha256": "ee9d746706e2486ad07a8ee2658639cdf67e4333e65aa9fe22740416c789a53f",
+      "size": 4
+    },
+    "sox/__init__.py": {
+      "sha256": "0c3e15258ce1f95ca050e045af634d1b16956af2b47ff7670f78b08567d19d47",
+      "size": 689
+    },
+    "sox/combine.py": {
+      "sha256": "a5659abbb6319c294f07d40e1ad36c8d7f1f57bcfe265a33d505799473b939f1",
+      "size": 19551
+    },
+    "sox/core.py": {
+      "sha256": "90e27d819f15c07bbea428c51074490d487df9d9a38a8c3df581687550962db0",
+      "size": 7030
+    },
+    "sox/file_info.py": {
+      "sha256": "eeb84c708e2b6ec016fcf5260913aa2f7e1b9cb8e73f3f475164bce26105ba55",
+      "size": 10920
+    },
+    "sox/log.py": {
+      "sha256": "c5218951a3d5377cf4516841d10ebd70cca6f0175bacb48f948d51e31ea75b84",
+      "size": 83
+    },
+    "sox/transform.py": {
+      "sha256": "d7e757cd05ee815fda4967eefbff2f3104e2d81764f57ebcfa789f257fb653a3",
+      "size": 136150
+    },
+    "sox/version.py": {
+      "sha256": "108ca71f1a96d7e553117240d3eb3107cb1c45fe95bd483dbe9dacb04f397ccc",
+      "size": 82
+    }
+  }
+}

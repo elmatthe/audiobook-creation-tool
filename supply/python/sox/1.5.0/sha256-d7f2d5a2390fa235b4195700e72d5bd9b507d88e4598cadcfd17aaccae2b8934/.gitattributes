@@ -1,0 +1,5 @@
+# Supply artifacts are stored and served as exact bytes. Override the root
+# "* text=auto": no EOL normalization, no content filter (Git LFS or any
+# other), no $Id$ substitution and no working-tree re-encoding.
+*      -text -eol -filter -ident -working-tree-encoding
+*.whl  binary

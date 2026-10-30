@@ -1,0 +1,104 @@
+{
+  "artifact": {
+    "distribution": "sox",
+    "filename": "sox-1.5.0-py3-none-any.whl",
+    "kind": "python-wrapper-wheel",
+    "origin": "Locally generated from the original PyPI sdist by pip/setuptools during ACT v0.7.0 environment qualification; not an upstream-published wheel.",
+    "publisher_wheel": false,
+    "sha256": "d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934",
+    "size": 40164,
+    "tag": "py3-none-any",
+    "version": "1.5.0"
+  },
+  "correspondence": {
+    "comparison_file": "COMPARISON.json",
+    "license_relocated_byte_identical": true,
+    "native_executables_or_libraries_in_wheel": [],
+    "python_modules_byte_identical_to_source": [
+      "sox/__init__.py",
+      "sox/combine.py",
+      "sox/core.py",
+      "sox/file_info.py",
+      "sox/log.py",
+      "sox/transform.py",
+      "sox/version.py"
+    ],
+    "record_rows_verified": 12,
+    "transformed_source_paths": []
+  },
+  "delivery": {
+    "commit": null,
+    "commit_note": "The delivering commit's full 40-hex ID is resolved after that commit exists and is recorded outside it; a commit cannot contain its own ID.",
+    "path": "supply/python/sox/1.5.0/sha256-d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934/sox-1.5.0-py3-none-any.whl",
+    "redirects": "refused",
+    "repository": "elmatthe/audiobook-creation-tool",
+    "url_template": "https://raw.githubusercontent.com/elmatthe/audiobook-creation-tool/{commit}/supply/python/sox/1.5.0/sha256-d7f2d5a2390fa235b4195700e72d5bd9b507d88e4598cadcfd17aaccae2b8934/sox-1.5.0-py3-none-any.whl"
+  },
+  "historical_build_evidence": {
+    "backend": {
+      "filename": "setuptools-84.2.1-py3-none-any.whl",
+      "name": "setuptools",
+      "sha256": "ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2",
+      "size": 876263,
+      "version": "84.2.1"
+    },
+    "frontend": {
+      "filename": "pip-25.0.1-py3-none-any.whl",
+      "name": "pip",
+      "sha256": "c46efd13b6aa8279f33f2864459c8ce587ea6a1a59ee20de055868d8f7688f7f",
+      "size": 1841526,
+      "version": "25.0.1"
+    },
+    "interpreter": "CPython 3.12.10 x64 (Windows)",
+    "status": "Historical evidence only. Not a recipe, attestation or permission to build."
+  },
+  "metadata": {
+    "extras_not_requested": [
+      "docs",
+      "tests"
+    ],
+    "name": "sox",
+    "requires_python": null,
+    "requires_python_note": "Wheel METADATA declares no Requires-Python. The sdist setup.cfg sets python_requires = >=3.8 under [metadata], where setuptools does not apply it.",
+    "root_is_purelib": true,
+    "runtime_requires_dist": [
+      "numpy>=1.9.0",
+      "typing-extensions>=3.7.4.2"
+    ],
+    "version": "1.5.0",
+    "wheel_generator": "setuptools (84.2.1)"
+  },
+  "original_source": {
+    "filename": "sox-1.5.0.tar.gz",
+    "sha256": "12c7be5bb1f548d891fe11e82c08cf5f1a1d74e225298f60082e5aeb2469ada0",
+    "size": 63905,
+    "url": "https://files.pythonhosted.org/packages/3d/a2/d8e0d8fd7abf509ead4a2cb0fb24e5758b5330166bf9223d5cb9f98a7e8d/sox-1.5.0.tar.gz"
+  },
+  "owner_decision": {
+    "conditions": [
+      "Preserve the original BSD-3-Clause copyright, conditions, disclaimer and attribution.",
+      "Deliver by an immutable repository commit ID, never a branch, tag or latest URL.",
+      "Source-to-derivative correspondence accepted; reproducible generation not proven.",
+      "The Python sox wrapper is distinct from any native SoX executable."
+    ],
+    "date": "2026-10-28",
+    "not_conferred": "No production eligibility, portable-supply approval, consumer activation or developer-purpose exemption. A differing artifact needs a new owner decision.",
+    "scope": "Conditional redistribution policy for these exact bytes only."
+  },
+  "reproducibility": {
+    "byte_for_byte_reproducible_generation_proven": false,
+    "statement": "Byte-for-byte reproducible generation has NOT been proven. This distribution preserves the exact audited existing artifact accepted by the owner."
+  },
+  "schema": "act-supply-provenance/1",
+  "scope": {
+    "native_sox_executable_included": false,
+    "note": "This is the pure-Python 'sox' wrapper only. Its transformations call an external native SoX program, which is not supplied here and would need its own provenance, license and authorization."
+  },
+  "upstream": {
+    "author": "Rachel Bittner",
+    "copyright": "Copyright (c) 2016, Rachel Bittner",
+    "license": "BSD-3-Clause",
+    "project": "pysox",
+    "repository": "https://github.com/rabitt/pysox"
+  }
+}
