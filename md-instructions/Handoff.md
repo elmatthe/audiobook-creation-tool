@@ -18,7 +18,9 @@ Branch `feature/0.7.0-release-remediation` (exact SHA: `git log`). Evidence (ign
   a rebuilt `.venv` lost the spaCy English model (kept wheel, offline restore); an interrupted repair stranded the Qwen3
   engine in `.venv.replaced` (launch paths hand back to repair); the Qwen3 engine refused the app's own base Python.
 - **Gate:** `verify.py` has six gates; `guarded` runs the eight guarded-only suites through `guarded_pytest.py`
-  (`files/tests/guarded_groups.json`). Final-tree result: see the newest `files/dev-work/act070-remediation/verify/`.
+  (`files/tests/guarded_groups.json`). **RESULT: PASS on `0b29606`** (`verify/FINAL-0b29606-run1`): pytest 12,563
+  passed / 63 skipped / 0 failed; guarded 457 + 75 passed with 0 unintended writes, 0 unqualified processes, 0 network.
+  (A run on `bcb69a8` failed only `test_tk_proof` on the stage-0 rewrite; fixed in `0b29606`.)
 - **Exact RC `f35bd1c` (pre-portable)** `dist/AudiobookTool-Windows-v0.7.0.zip` SHA-256 `723d018d…2d2a`, 156 members:
   fresh extract → real wizard, all four → 14.8 GB genuine download → 28/28 voices narrated (`<stem>-<label>.mp3`, tails
   140–160 ms; Qwen3 0–80 ms = model's own ending). Superseded by the portable RC (Handoff Next).
@@ -47,9 +49,13 @@ Branch `feature/0.7.0-release-remediation` (exact SHA: `git log`). Evidence (ign
   under `files/dev-work`: `rc1` 20.4, `rc2` 2.8, `rc3` ≈21, `p1` ≈21, `p2` ≈3, `P04B q` 18.7, `P04C q` 17.6,
   `qwen3-eval` 23.7 GB; keep `act070-remediation`, `act070-rc/evidence` and `p05b-stage4c` (evidence). Deleting the
   `.act67-preserved` set removes the v0.6.7 restoration point (P12); deleting `.venv-qwen3` removes the P04C rollback.
-- **Next:** final six-gate verify on the final tree, build the portable RC from it (members must equal the qualified
-  portable copy's scripts), re-extract and re-check; then Codex independent verification of the pushed SHA; owner
-  hands-on; merge/tag/release only on owner approval. Legacy-environment cleanup proposal: Handoff block below, no deletion.
+- **Final RC:** `dist/AudiobookTool-Windows-v0.7.0.zip` from `0b29606`, SHA-256 `927fbea5…911d`, 156 members, audit
+  clean (only `scripts/`, root launcher/README/config, the six WAVs; developer_mode=false). Content-identical to the
+  qualified portable copy except stage 0's 30 s bound, whose exact stage 0 ran from a fresh extract (8 s). Earlier
+  archives renamed aside (`-bcb69a8`, `-f35bd1c`, `-9ec77a9`, ...), never overwritten. Record (ignored):
+  `files/dev-work/act070-rc/evidence/RC-QUALIFICATION-FINAL.md`.
+- **Next:** Codex independent verification of `0b29606` (this block is a docs-only commit on top); owner hands-on and
+  the manual list above; merge/tag/release and the cleanup above only on owner approval.
 
 ## CURRENT STATE — v0.7.0 release candidate (Windows): real installer + real narration qualified on HOME-PC; identity 0.7.0; NOT merged/tagged/published (2026-10-30, Claude Code)
 
