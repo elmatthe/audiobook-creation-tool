@@ -2742,7 +2742,9 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
             py_argv = install_python(log, prefer_tk=not headless)
         if py_argv is None:
             return False, ("Python 3.12 could not be found or installed automatically.\n"
-                           "Please install Python 3.12 from python.org and run setup again.")
+                           + ("Run Setup_and_Run-audiobook-creation-tool.bat again: it downloads the app's own "
+                              "Python into this folder." if IS_WINDOWS else
+                              "Please install Python 3.12 and run setup again."))
 
         # Surface the chosen interpreter's capabilities up front (audit preflight).
         preflight_report(py_argv, log)
