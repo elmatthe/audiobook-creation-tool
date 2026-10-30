@@ -30,6 +30,17 @@ Branch `feature/0.7.0-release-remediation` (exact pushed SHA: see `git log`; nev
 - **MANUAL / NOT RUN:** physical clean Windows PC (HOME-PC has FFmpeg via winget and warm pip caches); literal
   double-click of the .bat (the wizard was driven in-process, same code path); owner listening to the new narrations;
   display scaling 125–200 %; long-paths-disabled machine; non-TTS tools beyond the existing automated suites.
+- **RC artifact:** `dist/AudiobookTool-Windows-v0.7.0.zip` built by `release.py` from `9ec77a9` (155 members, only
+  the six reference WAVs from `files/`, no environments/models/supply/dev scripts; SHA-256 in the ignored
+  `files/dev-work/act070-rc/evidence/RC-QUALIFICATION.md`). Exercised: full four-component install + 13 narrations on
+  the 22a1bb9 build (rc1), then rc1/rc2 `scripts/` made byte-identical to the final build: 13 narrations again, a fresh
+  base + real **Install & Continue** (Kokoro: one run, one MP3 named for the frozen voice although the dropdown was
+  changed mid-install) and the real launch path.
+- **Gates:** `verify.py` on `9ec77a9`: deps/docs/docnames/config/tree PASS; pytest 12,595 passed, 347 failed + 104
+  errors, ALL in the guarded-runner-only suites (v3 harness x7, spacy_consumer, p05b_isolation numba). Under
+  `files/tests/guarded_pytest.py` they pass: groupA 375, supervisor 75, read-only context + Tk 82 (0 unintended
+  writes/network). Open minor: the guard counts one `lscpu` spawn by numpy.testing inside the numba test. So
+  `RESULT: FAIL` stands until verify runs those suites through the guarded runner (owner decision on the gate).
 - **Next:** Codex independent verification of the pushed branch; owner manual gates above; then owner decision on
   merge to `master`, tag and GitHub Release (none done).
 
