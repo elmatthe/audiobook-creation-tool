@@ -2,6 +2,28 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 independent release-blocker review of `9b1349e` (code `0b29606`): no BLOCKER; owner acceptance testing may start; NOT publicly release-ready (2026-10-31, Claude Code Opus 5.5, verifier)
+
+- Report (ignored): `files/dev-work/act070-rc/evidence/VERIFICATION-REVIEW-9b1349e.md`. Not model-independent: the
+  requested GPT-6.1 Sol was unavailable, and the reviewer is the implementer's model family.
+- **Confirmed:** `FINAL-0b29606-run1` is valid (stable fingerprint; JUnit 12,626 / 0 failed; guarded 457 + 75 with clean
+  guard reports). A guard negative control exits 1 on a swallowed write, socket and process. RC SHA-256 `927fbea5…911d`,
+  156 members = `git show 0b29606`. 28 labels and filenames correct; six WAVs match the bundle hashes. 1,198 focused
+  tests pass with 0 external network attempts.
+- **MAJOR (before public release):** (1) the base pip cache goes to `%LOCALAPPDATA%\pip\cache` (pip ignores a
+  redirected LOCALAPPDATA), so README's "deleting the folder removes everything" is false. (2) `ensure_punkt()` runs on
+  every TTS run and, on a clean profile, downloads unhashed NLTK punkt into `%APPDATA%\nltk_data` without consent; never
+  exercised, because HOME-PC already has it. (3) 112 of 170 base packages, and `--upgrade pip`, are unpinned and
+  unhashed.
+- **MINOR:** a damaged Qwen3 engine still reads ready (recoverable); the tail policy reports an ending cut at end of
+  file as fine; the Edge final-chunk check mixes ASCII and Unicode tests; the stage-0 30 s bound has no SAC retry and a
+  misleading timeout message; p1's "cold pip cache / clean profile" claim is inaccurate; `dist/SHA256SUMS.txt` is stale.
+- **MANUAL:** a fresh Windows user profile with a browser-downloaded ZIP; moving or renaming the extracted folder (both
+  `pyvenv.cfg` files hold absolute paths); Aiden's "lamp" ends on a 30 ms burst cut at end of file, deterministically:
+  listening.
+- **Next:** owner acceptance testing. A bounded remediation drop for MAJOR 1–3 and the tail flag, then rebuild the RC
+  and repeat the clean-profile test. Merge, tag and release only on owner approval.
+
 ## CURRENT STATE — v0.7.0 completion: portable Windows setup, real-run defects fixed, six-gate verify, all 28 voices narrated from a fresh RC install; NOT merged/tagged/published (2026-10-30, Claude Code)
 
 Authority: owner directives 2026-10-30 (finish the release; portability clarification supersedes conflicting plan details).
