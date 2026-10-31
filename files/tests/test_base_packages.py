@@ -393,24 +393,57 @@ def test_setup_and_every_repair_route_use_the_one_installer():
         assert "install_base_packages(" in inspect.getsource(function), function.__name__
 
 
-def test_a_force_reinstall_installs_the_locked_artifact_only(installer, monkeypatch):
-    runs = []
-    monkeypatch.setattr(bootstrap, "_run", lambda command, **kw: runs.append((list(command), kw)) or
-                        subprocess.CompletedProcess(command, 0, "", ""))
-    seen = {}
-    original = base_packages.install_command
+def test_a_force_reinstall_reinstalls_the_whole_lock_from_the_store(installer):
+    """A package that does not import may be broken below it: a dependency whose files are gone while its metadata
+    remains is "already satisfied" to pip (found by the offline-repair qualification, 2026-10-31). So the forced
+    reinstall covers every locked package, from the verified store, dependencies checked."""
+    assert bootstrap._force_reinstall(installer.python, "tqdm", lambda line: None) is True
+    (download, _env), (install, env) = installer.calls
+    assert download[3] == "download", "the store was empty, so it is filled first"
+    assert install[3] == "install" and {"--force-reinstall", "--no-index", "--require-hashes"} <= set(install)
+    assert "--no-deps" not in install
+    assert install[install.index("-r") + 1] == str(base_packages.lock_path(bootstrap.REQUIREMENTS_FILE))
+    assert env["PIP_CONFIG_FILE"] == os.devnull
 
-    def capture_install(python, requirements, store, **kw):
-        seen["text"] = Path(requirements).read_text(encoding="utf-8")
-        return original(python, requirements, store, **kw)
 
-    monkeypatch.setattr(base_packages, "install_command", capture_install)
-    bootstrap._force_reinstall(installer.python, "tqdm", lambda line: None)
-    download, install = runs
-    assert download[0][3] == "download"
-    assert install[0][3] == "install" and {"--force-reinstall", "--no-deps", "--no-index"} <= set(install[0])
-    assert seen["text"] == f"tqdm==4.67.3 --hash=sha256:{'a' * 64}\n"
-    assert install[1]["env"]["PIP_CONFIG_FILE"] == os.devnull
+def test_a_force_reinstall_from_a_complete_store_needs_no_network(installer):
+    installer.store.mkdir(parents=True)
+    for _version, artifact in installer.entries.values():
+        (installer.store / artifact).write_bytes(b"kept")
+    assert bootstrap._force_reinstall(installer.python, "tqdm", lambda line: None) is True
+    assert [command[3] for command, _env in installer.calls] == ["install"]
+
+
+def test_a_dependency_damaged_below_its_metadata_is_repaired_by_one_whole_lock_reinstall(installer, monkeypatch):
+    """The real case: numpy's files deleted, its .dist-info left. chatterbox (and nltk) fail to import; one forced
+    reinstall of the lock fixes both, and it is not repeated for the second module."""
+    installer.store.mkdir(parents=True)
+    for _version, artifact in installer.entries.values():
+        (installer.store / artifact).write_bytes(b"kept")
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["edge_tts", "chatterbox", "nltk"])
+    monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: installer.python)
+    repaired = {"done": False}
+
+    def probe(py, module, timeout=30):
+        return module == "edge_tts" or repaired["done"]
+
+    def fake_pip(command, env, log):
+        installer.calls.append((list(command), dict(env)))
+        repaired["done"] = "--force-reinstall" in command
+        return 0
+
+    monkeypatch.setattr(bootstrap, "_probe_import", probe)
+    monkeypatch.setattr(bootstrap, "_pip", fake_pip)
+
+    class Log:
+        lines: list = []
+
+        def line(self, text):
+            self.lines.append(text)
+
+    assert bootstrap.validate_installed_packages(Log()) is True
+    forced = [command for command, _env in installer.calls if "--force-reinstall" in command]
+    assert len(forced) == 1, "one whole-lock reinstall, not one per failing module"
 
 
 def test_the_store_keeps_only_releases_the_lock_names(tmp_path):

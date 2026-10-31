@@ -2086,6 +2086,7 @@ def validate_installed_packages(log: SetupLog) -> bool:
     log.line("Verifying required packages import…")
     venv_ver = _interp_version_argv([str(py)])
     failed: list[str] = []
+    whole_lock_reinstalled = False
     for mod in REQUIRED_IMPORTS:
         if mod in _GATED_BELOW_313 and not _is_kokoro_compatible(venv_ver):
             log.line(f"  '{mod}' is gated to Python <3.13 — skipping on this venv.")
@@ -2093,8 +2094,11 @@ def validate_installed_packages(log: SetupLog) -> bool:
         if _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             continue
         dist = _PIP_NAME.get(mod, mod)
-        log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
-        _force_reinstall(py, dist, log.line)
+        if whole_lock_reinstalled:
+            log.line(f"  [!!] '{mod}' failed to import (every locked package was just reinstalled).")
+        else:
+            log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
+            whole_lock_reinstalled = _force_reinstall(py, dist, log.line)
         if not _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             failed.append(mod)
     if failed:
@@ -2462,33 +2466,38 @@ def _fetch_and_install(venv_py: Path, requirements: Path, lock, entries, store: 
     return True
 
 
-def _force_reinstall(py: Path, dist: str, log: Callable[[str], None]) -> None:
-    """Reinstall one package that does not import, at the version the lock (or ``requirements.txt``) pins.
+def _force_reinstall(py: Path, dist: str, log: Callable[[str], None]) -> bool:
+    """Reinstall a package that does not import, together with what it depends on, at the pinned versions.
 
     Never bare: an unconstrained ``--force-reinstall`` would replace the package and its dependency tree with the
-    latest from PyPI, and the requirements stamp could never notice that drift.
+    latest from PyPI, and the requirements stamp could never notice that drift. Without the lock the named package
+    is reinstalled under ``requirements.txt`` as constraints (its dependencies too, as ``--force-reinstall`` does).
+    With the lock, the cause may be any package below it (a dependency whose files are gone while its metadata
+    remains is "already satisfied" to pip), so every locked package is reinstalled from the verified store -- offline
+    when the store is complete, each hash checked again. Returns True when it did that whole-lock reinstall, so the
+    caller does not repeat it for the next module that fails.
     """
     env = _pip_environment()
     lock_file = _applicable_lock(py)
-    entry = None
-    if lock_file is not None:
-        try:
-            entry = base_packages.parse_lock(lock_file.read_text(encoding="utf-8")).by_key().get(
-                base_packages.canonical_name(dist))
-        except (OSError, base_packages.LockError):
-            entry = None
-    if entry is None:
+    if lock_file is None:
         _run(venv_pip() + ["install", "--force-reinstall", dist, "-c", str(REQUIREMENTS_FILE)], env=env)
-        return
+        return False
+    try:
+        lock = base_packages.parse_lock(lock_file.read_text(encoding="utf-8"))
+    except (OSError, base_packages.LockError) as exc:
+        log(f"  ERROR: the dependency lock {lock_file.name} cannot be used: {exc}")
+        return False
     store = _package_store(log)
     if store is None:
-        return
-    with tempfile.TemporaryDirectory(dir=str(store.parent), prefix="pip-requirements-") as scratch:
-        one = Path(scratch) / "reinstall.txt"
-        one.write_text(base_packages.requirement_text([entry]), encoding="utf-8")
-        if not (store / entry.artifact).is_file():
-            _run(base_packages.download_command(py, one, store), env=env)
-        _run(base_packages.install_command(py, one, store, no_deps=True, force=True), env=env)
+        return False
+    log("  Reinstalling every locked package from the verified store (each hash checked again)…")
+    if base_packages.missing_artifacts(lock, store) and \
+            _pip(base_packages.download_command(py, lock_file, store), env, log) != 0:
+        log("  ERROR: the package files could not be downloaded and checked.")
+        return True
+    if _pip(base_packages.install_command(py, lock_file, store, force=True), env, log) != 0:
+        log("  ERROR: reinstalling the locked packages failed.")
+    return True
 
 
 def _ffmpeg_on_path() -> Optional[str]:
