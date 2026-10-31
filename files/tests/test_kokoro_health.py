@@ -18,6 +18,7 @@ Everything runs against a temporary ``VENV_DIR``; the real environment is never 
 
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 import sys
@@ -26,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from shared import bootstrap
+from shared import base_packages, bootstrap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BLOCKED = ("DLL load failed while importing _epoch: An Application Control policy has blocked this file. "
@@ -48,6 +49,12 @@ class Child:
         self.present, self.proof, self.facts = present, proof, facts or {"english_model": True, "weights": True}
         self.calls: list[list[str]] = []
         monkeypatch.setattr(bootstrap.subprocess, "run", self.run)
+        # v0.7.0: every package install goes through the one installer (the dependency lock); recorded as a pip call.
+        monkeypatch.setattr(bootstrap, "install_base_packages", self.install)
+
+    def install(self, venv_py, log):
+        self.calls.append([str(venv_py), "-m", "pip", "<install_base_packages>"])
+        return True
 
     def run(self, argv, **kwargs):
         self.calls.append(list(argv))
@@ -185,12 +192,14 @@ def test_each_failure_class_gets_its_own_plain_reason(detail, expected):
 # --------------------------------------------------------------------------- #
 # Repair honours the authoritative requirements and is not repeated blindly
 # --------------------------------------------------------------------------- #
-def test_every_repair_installs_from_the_requirements_file(venv, monkeypatch):
+def test_every_repair_goes_through_the_one_package_installer(venv, monkeypatch):
+    """v0.7.0: the repair installs what the lock (or requirements.txt) names, never a hand-kept list."""
     child = Child(monkeypatch)
     assert bootstrap.ensure_kokoro_installed(PY, lambda line: None) is True
-    pip = next(a for a in child.calls if "pip" in a)
-    assert pip[pip.index("-r") + 1] == str(bootstrap.REQUIREMENTS_FILE)
-    assert not set(bootstrap.KOKORO_PKGS) & set(pip), "a hand-kept list would bypass the srsly pin"
+    pip = [a for a in child.calls if "pip" in a]
+    assert pip == [[str(PY), "-m", "pip", "<install_base_packages>"]]
+    source = inspect.getsource(bootstrap.ensure_kokoro_installed)
+    assert "KOKORO_PKGS" not in source and '"pip"' not in source, "a hand-kept list would bypass the srsly pin"
 
 
 def test_the_requirements_file_carries_the_qualified_srsly_pin_and_the_kokoro_pins():
@@ -198,6 +207,11 @@ def test_the_requirements_file_carries_the_qualified_srsly_pin_and_the_kokoro_pi
              bootstrap.REQUIREMENTS_FILE.read_text(encoding="utf-8").splitlines()}
     assert "srsly==2.5.3" in lines
     assert set(bootstrap.KOKORO_PKGS) <= lines
+    locked = {entry.key: entry.version for entry in base_packages.parse_lock(
+        base_packages.lock_path(bootstrap.REQUIREMENTS_FILE).read_text(encoding="utf-8")).entries}
+    for pin in ("srsly==2.5.3", *bootstrap.KOKORO_PKGS):
+        name, version = pin.split("==")
+        assert locked[base_packages.canonical_name(name)] == version, pin
 
 
 def test_a_repair_whose_proof_still_fails_is_recorded_and_not_rerun_today(venv, monkeypatch):

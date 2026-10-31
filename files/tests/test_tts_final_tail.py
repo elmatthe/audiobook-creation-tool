@@ -1098,6 +1098,67 @@ def test_a_short_natural_tail_is_left_exactly_as_it_is():
     result = audio_tail.apply_final_tail_policy(pcm, RATE)
     assert len(result.pcm) == len(pcm) and result.removed_samples == 0  # never padded, never shortened further
     assert "nothing removed" in result.summary()
+    assert not result.abrupt and not result.uncertain
+
+
+# The decoded ending of the published "Lighthouse Test-Qwen3 - Aiden.mp3" (independent review 2026-10-31, identical on
+# four runs): RMS dBFS of its last 30 windows of 10 ms. Speech, a fast decay into the /p/ closure of "lamp", then the
+# release burst -- cut by the end of the file at -44 dBFS.
+AIDEN_ENDING_DBFS = (-18.8, -20.4, -18.1, -19.6, -19.0, -19.7, -19.3, -19.1, -19.1, -18.9, -18.9, -19.0, -19.2, -19.7,
+                     -20.3, -21.9, -20.0, -21.5, -23.6, -23.1, -24.4, -25.7, -30.6, -36.5, -42.3, -49.2, -51.3, -36.3,
+                     -39.4, -44.2)
+
+
+def _windows_at(levels) -> np.ndarray:
+    win = _samples(WINDOW_MS / 1000)
+    return np.concatenate([_noise(WINDOW_MS / 1000, level, seed=index) for index, level in enumerate(levels)]
+                          ).astype(np.float32)[: win * len(levels)]
+
+
+def test_the_aiden_ending_is_flagged_for_listening_and_left_exactly_as_it_is():
+    """v0.7.0 review: a recording that stops mid-sound used to read "0.00 s of trailing near-silence; nothing removed"
+    -- acceptable by every number. It is now flagged for listening. Nothing is added (no silence, no fade) and
+    nothing is removed: the model's ending is the owner's to judge, not this policy's to repair."""
+    from tts import audio_tail
+
+    pcm = np.concatenate([_noise(1.0, -19.0, seed=99), _windows_at(AIDEN_ENDING_DBFS)])
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    np.testing.assert_array_equal(result.pcm, pcm)
+    assert result.abrupt and result.uncertain and result.removed_samples == 0
+    assert result.final_window_dbfs == pytest.approx(-44.2, abs=0.5)
+    summary = result.summary()
+    assert "stops while still sounding" in summary and "-44 dBFS" in summary and "please listen" in summary
+    assert "nothing was added or removed" in summary
+
+
+@pytest.mark.parametrize("silence_ms, abrupt", [(0, True), (5, True), (12, False), (50, False), (290, False)])
+def test_only_sound_that_reaches_the_last_window_counts_as_an_abrupt_ending(silence_ms, abrupt):
+    """Qwen3 Ryan and the clones end after 50-290 ms of quiet: natural, not flagged. Sound within one window of the
+    end of the file is."""
+    from tts import audio_tail
+
+    pcm = np.concatenate([_tone(1.0), _zeros(silence_ms / 1000)])
+    result = audio_tail.apply_final_tail_policy(pcm, RATE)
+    assert result.abrupt is abrupt
+    assert result.uncertain is abrupt
+    assert ("please listen" in result.summary()) is abrupt
+
+
+def test_a_shortened_tail_is_never_abrupt():
+    from tts import audio_tail
+
+    result = audio_tail.apply_final_tail_policy(np.concatenate([_tone(1.0), _zeros(2.0)]), RATE)
+    assert result.removed_samples > 0 and not result.abrupt and result.tail_ms == pytest.approx(KEEP_MS)
+
+
+def test_every_route_logs_the_tail_summary_so_an_abrupt_ending_reaches_the_run_log():
+    """The flag is only useful where the person sees it: each engine's final encode logs ``summary()``."""
+    tts_dir = Path(__file__).resolve().parents[2] / "scripts" / "tts"
+    for module in ("kokoro_synth", "chatterbox_synth", "qwen3_synth", "batch_convert"):
+        source = (tts_dir / f"{module}.py").read_text(encoding="utf-8")
+        assert "apply_final_tail_policy" in source and "tail.summary()" in source, module
+    edge = (tts_dir / "epub2tts_edge" / "epub2tts_edge.py").read_text(encoding="utf-8")
+    assert "apply_final_tail_policy_to_segment(combined)" in edge and "print(tail.summary())" in edge
 
 
 def test_a_quiet_decay_that_only_the_conservative_threshold_sees_is_kept():

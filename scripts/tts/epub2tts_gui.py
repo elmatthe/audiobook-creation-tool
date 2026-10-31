@@ -117,6 +117,7 @@ from shared import config as shared_config
 from shared import ffmpeg_utils
 from shared import job_control
 from shared import job_ui
+from shared import nltk_store
 from shared import output_paths
 from shared import subprocess_utils as sp
 from shared import ui_theme
@@ -492,6 +493,24 @@ def _source_signatures(snapshot) -> tuple:
         except OSError:
             signatures.append((str(item.path), None, None))
     return tuple(signatures)
+
+
+#: v0.7.0: the consent for the Edge voices' English sentence data (``shared.nltk_store``).
+SENTENCE_DATA_TITLE = "English sentence data"
+
+
+def needs_sentence_data(imported) -> bool:
+    """Whether an Edge run of this queue (an ``ImportedFileSnapshot``) uses the sentence data: a directly added file
+    takes the rich engine, which splits sentences with NLTK; a folder-derived file takes the batch route, which does
+    not. The Kokoro, Chatterbox and Qwen3 voices never use it."""
+    return any(entry.mirroring_root is None for entry in imported.files)
+
+
+def sentence_data_question(detail: str) -> str:
+    return (f"The Edge voices split text into sentences with the app's English sentence data, and {detail}.\n\n"
+            f"Download it now? It is {nltk_store.DOWNLOAD_SIZE_TEXT} from {nltk_store.SOURCE_TEXT}, kept inside this "
+            "folder in files\\runtime-data\\nltk_data. Nothing else is downloaded.\n\n"
+            "Choose No to stop: this conversion is not started.")
 
 
 def _default_local_assets(backend: str, voice_id: str) -> tuple[bool, str]:
@@ -2532,6 +2551,12 @@ class TtsPanel(ttk.Frame):
             if self._pending_install:
                 return
 
+        # v0.7.0: an Edge conversion of a directly added file splits its sentences with the app's own verified English
+        # sentence data. Missing or damaged, it is offered here -- asked, never fetched silently -- before anything is
+        # frozen or reserved, so declining (or a failed download) leaves nothing behind.
+        if backend == "edge" and needs_sentence_data(snapshot) and not self._sentence_data_ready_or_installed():
+            return
+
         snapshot = self._freeze_run(current_voice_entry, speaker, backend, voice_id)
         if component is not None:
             self._install_and_continue(component, unavailable_reason, snapshot, current_voice_entry)
@@ -2573,6 +2598,85 @@ class TtsPanel(ttk.Frame):
         if self._busy.is_set():
             return
         self._start_frozen(snapshot)
+
+    def _sentence_data_ready_or_installed(self) -> bool:
+        """True when the verified English sentence data is in place, or the person agreed and it was just installed.
+
+        Asked, never assumed: No (or a failed or cancelled download) starts nothing and says so, and the next Create
+        asks again. Nothing else is downloaded and nothing outside the app's folder is written.
+        """
+        detail = nltk_store.problem()
+        if not detail:
+            return True
+        if self._pending_install:
+            return False
+        if not messagebox.askyesno(SENTENCE_DATA_TITLE, sentence_data_question(detail)):
+            messagebox.showinfo("Conversion not started",
+                                "The English sentence data was not downloaded, so this conversion was not started and "
+                                "nothing was created. Press Create again whenever you are ready.")
+            return False
+        self._pending_install = True
+        try:
+            error = self._fetch_sentence_data()
+        finally:
+            self._pending_install = False
+        if self._closed:
+            return False
+        if error:
+            messagebox.showwarning("Sentence data not installed",
+                                   f"{error}\n\nThis conversion was not started. Check the internet connection and "
+                                   "press Create again.")
+            return False
+        return True
+
+    def _download_sentence_data(self, cancel) -> None:
+        """The download itself (worker thread: no Tk object is touched)."""
+        nltk_store.download(cancel=cancel)
+
+    def _fetch_sentence_data(self) -> str:
+        """Run :meth:`_download_sentence_data` behind a small modal window. Returns "" or why it failed."""
+        state: dict = {}
+        cancelled = threading.Event()
+
+        def work() -> None:
+            try:
+                self._download_sentence_data(cancelled.is_set)
+            except nltk_store.SentenceDataError as exc:
+                state["error"] = str(exc)
+            except Exception as exc:  # noqa: BLE001 - reported to the person, never swallowed
+                state["error"] = f"The sentence data could not be installed ({type(exc).__name__}: {exc})."
+            finally:
+                state["done"] = True
+
+        top = tk.Toplevel(self)
+        top.title(SENTENCE_DATA_TITLE)
+        top.transient(self.winfo_toplevel())
+        top.resizable(False, False)
+        ttk.Label(top, text=f"Downloading the English sentence data ({nltk_store.DOWNLOAD_SIZE_TEXT})…",
+                  padding=(16, 16, 16, 8)).pack()
+        bar = ttk.Progressbar(top, mode="indeterminate", length=300)
+        bar.pack(padx=16, pady=(0, 8))
+        cancel_button = ttk.Button(top, text="Cancel", command=lambda: (cancelled.set(),
+                                                                         cancel_button.state(["disabled"])))
+        cancel_button.pack(pady=(0, 16))
+        top.protocol("WM_DELETE_WINDOW", cancelled.set)
+        bar.start(12)
+        threading.Thread(target=work, daemon=True, name="sentence-data").start()
+
+        def poll() -> None:
+            if state.get("done"):
+                bar.stop()
+                top.destroy()
+            else:
+                top.after(100, poll)
+
+        top.after(100, poll)
+        try:
+            top.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window(top)
+        return state.get("error", "")
 
     def _freeze_run(self, current_voice_entry, speaker: str, backend: str, voice_id: str):
         """Freeze everything this run will use (Decision 9A), on the main thread, and return the snapshot."""
@@ -2951,7 +3055,10 @@ class _RunContext:
 
     def execute(self) -> None:
         try:
-            ensure_punkt()
+            if self.params["backend"] == "edge" and any(item["direct"] for item in self.items):
+                # v0.7.0: proves the verified local sentence data (offered at Create); never downloads. Missing here
+                # (removed since), it settles as a job failure whose message says what to do.
+                ensure_punkt()
             self.filter_resumable()
             self.run_all_items()
         except ConversionCancelled:

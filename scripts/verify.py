@@ -19,6 +19,8 @@ Checks (all must PASS, else the script exits non-zero):
                    (no bare names, no >= <= ~= != > <, no '-r' recursive includes).
                    PEP 508 environment markers (the part after ';') are allowed —
                    this project guards kokoro/audioop-lts by python_version.
+                   The hash lock beside it (requirements-lock-windows-py312.txt)
+                   must record this requirements.txt and lock every pin of it.
   3. docs        — Changelog.md and Briefing.md must be de-templated real content
                    with a real version entry (not a template stub/placeholder).
   4. docnames    — md-instructions/ must contain the four canonical documents
@@ -350,7 +352,21 @@ def check_requirements() -> tuple[str, bool, str]:
             continue
     if bad:
         return _fail("deps", "; ".join(bad))
-    return _pass("deps", "all dependencies '=='-pinned")
+    # v0.7.0: the hash lock beside requirements.txt is what setup installs on Windows; it must exist, record this
+    # requirements.txt, contain every pin of it at the same version, and name one hashed artifact per package.
+    if str(IMPORT_ROOT) not in sys.path:
+        sys.path.insert(0, str(IMPORT_ROOT))
+    from shared import base_packages
+
+    lock = base_packages.lock_path(REQUIREMENTS)
+    if not lock.is_file():
+        return _fail("deps", f"missing {lock.name} (regenerate it with files/dev-tools/lock_base_requirements.py)")
+    problems = base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), lock.read_text(encoding="utf-8"),
+                                           hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest())
+    if problems:
+        return _fail("deps", f"{lock.name}: " + "; ".join(problems[:5]))
+    count = len(base_packages.parse_lock(lock.read_text(encoding="utf-8")).entries)
+    return _pass("deps", f"all dependencies '=='-pinned; {lock.name} locks {count} packages by SHA-256")
 
 
 def _is_templated(text: str) -> str | None:

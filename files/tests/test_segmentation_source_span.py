@@ -38,7 +38,6 @@ production tokenizer.
 
 from __future__ import annotations
 
-import nltk
 import pytest
 from nltk.tokenize import sent_tokenize
 
@@ -49,15 +48,8 @@ from tts import quality_corpus as qc
 from tts.epub2tts_edge.epub2tts_edge import intra_sentence_chunks
 
 
-def _ensure_punkt() -> None:
-    for resource in ("tokenizers/punkt", "tokenizers/punkt_tab"):
-        try:
-            nltk.data.find(resource)
-        except LookupError:
-            nltk.download(resource.split("/")[-1])
-
-
-_ensure_punkt()
+# v0.7.0: NLTK's English sentence data comes from the suite's verified session copy (conftest
+# ``_sentence_data_for_tests``), never from an import-time ``nltk.download`` into the user's profile.
 
 
 def squeeze(text: str) -> str:

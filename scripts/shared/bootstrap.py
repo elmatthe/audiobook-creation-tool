@@ -39,6 +39,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -86,6 +87,10 @@ from shared import ffmpeg_portable  # noqa: E402
 from shared import venv_layout  # noqa: E402
 # v0.7.0 P04C: the locks that say a voice engine held inside the venv is in use. Standard library only, like the rest.
 from shared import engine_lease  # noqa: E402
+# v0.7.0 portability: the app environment's hash lock, verified package store and pip policy. Standard library only.
+from shared import base_packages  # noqa: E402
+# v0.7.0 portability: the Edge voices' English sentence data, verified and kept in the app's folder. Standard library.
+from shared import nltk_store  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -418,16 +423,28 @@ def import_proof_is_current() -> bool:
 
 
 def requirements_fingerprint() -> str:
-    """SHA-256 of ``requirements.txt``. Empty string when there is no file.
+    """SHA-256 of ``requirements.txt`` and, when there is one, the dependency lock beside it. Empty string when
+    there is no requirements file.
 
-    Hashing the file's bytes — rather than a parsed package list — means any
+    Hashing the files' bytes — rather than a parsed package list — means any
     change that could affect an install (a pin, a marker, an added or removed
-    line) counts as drift, with no parser to disagree with pip.
+    line, a locked transitive version or hash) counts as drift, with no parser to
+    disagree with pip. Without a lock the value is exactly the requirements
+    file's hash, as before.
     """
     try:
-        return hashlib.sha256(REQUIREMENTS_FILE.read_bytes()).hexdigest()
+        digest = hashlib.sha256(REQUIREMENTS_FILE.read_bytes())
     except OSError:
         return ""
+    lock = base_packages.lock_path(REQUIREMENTS_FILE)
+    try:
+        lock_bytes = lock.read_bytes()
+    except FileNotFoundError:
+        return digest.hexdigest()
+    except OSError:
+        lock_bytes = b"\0unreadable"  # never equal to a stamp, so it is reconciled (and that reports the problem)
+    digest.update(b"\0" + base_packages.LOCK_NAME.encode("ascii") + b"\0" + lock_bytes)
+    return digest.hexdigest()
 
 
 def requirements_are_current() -> bool:
@@ -1060,30 +1077,23 @@ def kokoro_repair_is_worthwhile() -> bool:
 
 
 def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> Optional[bool]:
-    """Repair the Kokoro stack in the existing venv from ``requirements.txt``.
+    """Repair the Kokoro stack in the existing venv with the app's one package installer.
 
     Returns ``True`` when proved working, ``False`` when the repair or its proof failed, and ``None`` when the
     packages installed but the proof could not finish: unverified, so neither claimed as working nor recorded as a
     failed repair (the next launch proves again; an unfinished proof is never a reason to reinstall).
 
-    This is the *self-heal* path: it pip-installs into the venv that already exists (never --user, never system
-    site-packages). It installs from the authoritative requirements file, not a hand-kept package list, so every
-    qualified constraint applies -- notably ``srsly==2.5.3``, which a resolver left to itself replaced with a build
-    Smart App Control blocks. ``log`` is the same callable the rest of the bootstrap uses, so output is tee'd to the
-    setup log and the repair dialog's live log pane. The result is recorded, so a failed repair is not repeated on
-    every launch. No model weights are downloaded here.
+    This is the *self-heal* path: it installs into the venv that already exists (never --user, never system
+    site-packages), through :func:`install_base_packages` -- the dependency lock where it applies, else the
+    authoritative requirements file -- never a hand-kept package list, so every qualified constraint applies, notably
+    ``srsly==2.5.3``, which a resolver left to itself replaced with a build Smart App Control blocks. ``log`` is the
+    same callable the rest of the bootstrap uses, so output is tee'd to the setup log and the repair dialog's live log
+    pane. The result is recorded, so a failed repair is not repeated on every launch. No model weights are downloaded
+    here.
     """
-    log(f"Repairing the Kokoro voice components from {REQUIREMENTS_FILE.name}")
+    log("Repairing the Kokoro voice components…")
     try:
-        r = subprocess.run(
-            [str(venv_py), "-m", "pip", "install", "--no-input", "-r", str(REQUIREMENTS_FILE)],
-            capture_output=True, text=True, timeout=1800, **_hidden(),
-        )
-        if r.stdout:
-            log(r.stdout.strip())
-        if r.returncode != 0:
-            if r.stderr:
-                log(r.stderr.strip())
+        if not install_base_packages(venv_py, log):
             record_kokoro_proof(False, "pip could not install the Kokoro components", after_repair=True)
             return False
         present, reason = kokoro_packages_present(venv_py)
@@ -1171,19 +1181,14 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
     """Install the pinned Chatterbox stack into the existing venv.
 
     Same self-heal shape as ``ensure_kokoro_installed``: into the venv that already
-    exists, never --user, never system site-packages.
+    exists, never --user, never system site-packages, through the one package
+    installer (:func:`install_base_packages`), whose lock -- or requirements file --
+    carries every pin in ``CHATTERBOX_PKGS``.
     """
-    log(f"Installing Chatterbox stack into venv: {' '.join(CHATTERBOX_PKGS)}")
+    log(f"Installing the Chatterbox stack into the app environment ({' '.join(CHATTERBOX_PKGS)} and their locked "
+        "dependencies)")
     try:
-        r = subprocess.run(
-            [str(venv_py), "-m", "pip", "install", "--no-input", *CHATTERBOX_PKGS],
-            capture_output=True, text=True, timeout=1800, **_hidden(),
-        )
-        if r.stdout:
-            log(r.stdout.strip())
-        if r.returncode != 0:
-            if r.stderr:
-                log(r.stderr.strip())
+        if not install_base_packages(venv_py, log):
             return False
         ok, reason = chatterbox_is_healthy(venv_py)
         log(f"Post-install health-check: {reason}")
@@ -2089,11 +2094,7 @@ def validate_installed_packages(log: SetupLog) -> bool:
             continue
         dist = _PIP_NAME.get(mod, mod)
         log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
-        # Constrained by requirements.txt: a bare --force-reinstall would replace
-        # the package and its dependency tree with the latest from PyPI, and the
-        # requirements stamp (a hash of the file) could never notice that drift.
-        _run(venv_pip() + ["install", "--force-reinstall", dist,
-                           "-c", str(REQUIREMENTS_FILE)])
+        _force_reinstall(py, dist, log.line)
         if not _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             failed.append(mod)
     if failed:
@@ -2315,31 +2316,179 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
 
 
 def pip_install_requirements(log: SetupLog) -> bool:
-    pip = venv_pip()
-    log.line("Upgrading pip…")
-    _run(pip + ["install", "--upgrade", "pip"])
+    """Install the app environment's packages (setup, repair and the drift reconcile all come here).
+
+    v0.7.0: pip itself is never upgraded -- the environment keeps the pip its own Python's ``ensurepip`` installed,
+    which the pinned base Python fixes -- and every package comes through :func:`install_base_packages`.
+    """
     if not REQUIREMENTS_FILE.exists():
         log.line(f"  ERROR: requirements.txt not found at {REQUIREMENTS_FILE}")
         return False
     log.line("Installing Python packages (this is the slowest step — "
              "Kokoro/torch are large)…")
-    # Stream output line-by-line so the progress log stays alive during the long
-    # download, rather than blocking silently on a single capture.
-    proc = subprocess.Popen(
-        pip + ["install", "-r", str(REQUIREMENTS_FILE)],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **_hidden(),
-    )
+    if not install_base_packages(venv_python(), log.line):
+        return False
+    log.line("  All packages installed.")
+    return True
+
+
+def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
+    """Run one pip command with its output streamed line by line to ``log``, so the progress log stays alive during a
+    long download rather than blocking silently on a single capture. Returns pip's exit code (-1 if it cannot run)."""
+    try:
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                encoding="utf-8", errors="replace", env=env, **_hidden())
+    except OSError as exc:
+        log(f"  ERROR: pip could not be started: {exc}")
+        return -1
     assert proc.stdout is not None
     for raw in proc.stdout:
         line = raw.rstrip()
         if line:
-            log.line("  " + line)
-    code = proc.wait()
+            log("  " + line)
+    return proc.wait()
+
+
+def _pip_environment() -> dict:
+    """:func:`base_packages.pip_environment` for this installation: pip's cache inside the app's folder."""
+    return base_packages.pip_environment(os.environ, base_packages.cache_dir(REPO_ROOT))
+
+
+def _applicable_lock(venv_py: Path, log: Optional[Callable[[str], None]] = None) -> Optional[Path]:
+    """The dependency lock, when there is one and it describes this environment's interpreter."""
+    lock = base_packages.lock_path(REQUIREMENTS_FILE)
+    if not lock.is_file():
+        return None
+    if base_packages.lock_applies(_interp_version_argv([str(venv_py)])):
+        return lock
+    if log is not None:
+        log("  This environment's Python is not the one the dependency lock describes (Windows x86-64 CPython "
+            "3.12); installing from requirements.txt instead.")
+    return None
+
+
+def install_base_packages(venv_py: Path, log: Callable[[str], None]) -> bool:
+    """The one way packages get into the app environment: setup, repair, the drift reconcile and the Kokoro and
+    Chatterbox self-heals.
+
+    Where the dependency lock describes the environment's interpreter (Windows x86-64 CPython 3.12, which stage 0's
+    pinned base Python always is), every package comes from the lock: each artifact is fetched into the verified store
+    in ``files/runtime-data/python-packages`` against its SHA-256 (or found there already), then installed from that
+    store alone. A package the lock does not name cannot be installed, so no resolver can bring in a newer build.
+    Anywhere else the ``==`` pins of ``requirements.txt`` are installed as before. Either way pip runs under
+    :func:`base_packages.pip_environment`: its cache inside the app's folder, no pip configuration, nothing inherited.
+    """
+    env = _pip_environment()
+    lock = _applicable_lock(venv_py, log)
+    if lock is not None:
+        return _install_locked(venv_py, lock, env, log)
+    code = _pip(base_packages.unlocked_install_command(venv_py, REQUIREMENTS_FILE), env, log)
     if code != 0:
-        log.line(f"  ERROR: pip install failed (exit {code}).")
+        log(f"  ERROR: pip install failed (exit {code}).")
+    return code == 0
+
+
+def _package_store(log: Callable[[str], None]) -> Optional[Path]:
+    store = base_packages.store_dir(REPO_ROOT)
+    unsafe = venv_layout.unsafe_component(REPO_ROOT, store)
+    if unsafe is not None:
+        log(f"  ERROR: the package store {store} is not used: {unsafe} is a link or lies outside the app's folder.")
+        return None
+    try:
+        store.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log(f"  ERROR: the package store {store} cannot be created: {exc}")
+        return None
+    return store
+
+
+def _install_locked(venv_py: Path, lock_file: Path, env: dict, log: Callable[[str], None]) -> bool:
+    try:
+        lock = base_packages.parse_lock(lock_file.read_text(encoding="utf-8"))
+    except (OSError, base_packages.LockError) as exc:
+        log(f"  ERROR: the dependency lock {lock_file.name} cannot be used: {exc}")
         return False
-    log.line("  All packages installed.")
+    store = _package_store(log)
+    if store is None:
+        return False
+    log(f"Installing the {len(lock.entries)} locked packages (each checked against its SHA-256; kept in "
+        f"{store.relative_to(REPO_ROOT).as_posix()} for later repairs)…")
+    with tempfile.TemporaryDirectory(dir=str(store.parent), prefix="pip-requirements-") as scratch:
+        backends = base_packages.build_backends(lock)
+        if backends:
+            # The two locked packages that ship no wheel are built by the environment's own locked setuptools.
+            subset = Path(scratch) / "build-backends.txt"
+            subset.write_text(base_packages.requirement_text(backends), encoding="utf-8")
+            if not _fetch_and_install(venv_py, subset, lock, backends, store, env, log, no_deps=True,
+                                      what="the build tools"):
+                return False
+        if not _fetch_and_install(venv_py, lock_file, lock, None, store, env, log, no_deps=False,
+                                  what="the app's packages"):
+            return False
+    removed = base_packages.prune_store(lock, store)
+    if removed:
+        log(f"  Removed {len(removed)} kept package file(s) the lock no longer names.")
     return True
+
+
+def _fetch_and_install(venv_py: Path, requirements: Path, lock, entries, store: Path, env: dict,
+                       log: Callable[[str], None], *, no_deps: bool, what: str) -> bool:
+    """Fetch what is missing from the store (hash-checked), then install from the store alone. An install that
+    fails on a kept file (damaged or substituted: pip refuses its hash) fetches once more and tries again."""
+    wanted = list(lock.entries if entries is None else entries)
+    missing = base_packages.missing_artifacts(lock, store, wanted)
+    fetched = False
+    if missing:
+        log(f"Downloading {len(missing)} of {len(wanted)} package files for {what}…")
+        if _pip(base_packages.download_command(venv_py, requirements, store), env, log) != 0:
+            log(f"  ERROR: the package files for {what} could not be downloaded and checked.")
+            return False
+        fetched = True
+    else:
+        log(f"Every package file for {what} is already here and is checked again as it is installed (no download).")
+    install = base_packages.install_command(venv_py, requirements, store, no_deps=no_deps)
+    if _pip(install, env, log) == 0:
+        return True
+    if fetched:
+        log(f"  ERROR: installing {what} failed.")
+        return False
+    log(f"  Installing {what} from the kept files failed; fetching them again and retrying once.")
+    if _pip(base_packages.download_command(venv_py, requirements, store), env, log) != 0:
+        log(f"  ERROR: the package files for {what} could not be downloaded and checked.")
+        return False
+    if _pip(install, env, log) != 0:
+        log(f"  ERROR: installing {what} failed.")
+        return False
+    return True
+
+
+def _force_reinstall(py: Path, dist: str, log: Callable[[str], None]) -> None:
+    """Reinstall one package that does not import, at the version the lock (or ``requirements.txt``) pins.
+
+    Never bare: an unconstrained ``--force-reinstall`` would replace the package and its dependency tree with the
+    latest from PyPI, and the requirements stamp could never notice that drift.
+    """
+    env = _pip_environment()
+    lock_file = _applicable_lock(py)
+    entry = None
+    if lock_file is not None:
+        try:
+            entry = base_packages.parse_lock(lock_file.read_text(encoding="utf-8")).by_key().get(
+                base_packages.canonical_name(dist))
+        except (OSError, base_packages.LockError):
+            entry = None
+    if entry is None:
+        _run(venv_pip() + ["install", "--force-reinstall", dist, "-c", str(REQUIREMENTS_FILE)], env=env)
+        return
+    store = _package_store(log)
+    if store is None:
+        return
+    with tempfile.TemporaryDirectory(dir=str(store.parent), prefix="pip-requirements-") as scratch:
+        one = Path(scratch) / "reinstall.txt"
+        one.write_text(base_packages.requirement_text([entry]), encoding="utf-8")
+        if not (store / entry.artifact).is_file():
+            _run(base_packages.download_command(py, one, store), env=env)
+        _run(base_packages.install_command(py, one, store, no_deps=True, force=True), env=env)
 
 
 def _ffmpeg_on_path() -> Optional[str]:
@@ -2693,8 +2842,9 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
               headless: bool = False) -> tuple[bool, str]:
     """Build the app's base installation. ``progress(step_index, message)`` updates the UI.
 
-    The base is always the same: a private environment with every package in ``requirements.txt`` (the Kokoro and
-    Chatterbox engines' packages included) and FFmpeg. v0.7.0: no voice model is downloaded here. The optional voices
+    The base is always the same: a private environment with every package of the dependency lock (the Kokoro and
+    Chatterbox engines' packages included), FFmpeg and the Edge voices' English sentence data (a few MB; a failed
+    fetch is not fatal). v0.7.0: no voice model is downloaded here. The optional voices
     are chosen in the wizard and installed afterwards, only through the consented setup worker
     (``shared.optional_setup_panel``), so this step never fetches a model at a moving upstream revision.
 
@@ -2777,6 +2927,9 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
                        "Install it (https://ffmpeg.org/download.html) and re-run, "
                        "or see the log for the manual steps.")
 
+    progress(4, "Downloading the English sentence data…")
+    fetch_sentence_data(log)
+
     progress(total, "Base setup complete.")
     # An out-of-range base builds a working venv but cannot install the pinned
     # Kokoro/Chatterbox wheels, so reporting a plain success would overstate what
@@ -2792,8 +2945,28 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
     return True, "Setup complete."
 
 
-#: The base setup's steps: Python, environment, packages, FFmpeg.
-BASE_SETUP_STEPS = 4
+#: The base setup's steps: Python, environment, packages, FFmpeg, the English sentence data.
+BASE_SETUP_STEPS = 5
+
+
+def fetch_sentence_data(log: SetupLog) -> bool:
+    """First-run setup's last base step: the Edge voices' English sentence data (``shared.nltk_store``), fetched into
+    ``files/runtime-data/nltk_data`` against its pinned SHA-256. The wizard discloses it before Begin Setup, so this
+    is the consented fetch. Never fatal: without it every voice still installs, and an Edge conversion asks again
+    before it needs the data. Returns True when the data is in place."""
+    problem = nltk_store.problem(REPO_ROOT)
+    if not problem:
+        log.line("English sentence data: already installed and intact.")
+        return True
+    log.line(f"English sentence data: {problem}; downloading it ({nltk_store.DOWNLOAD_SIZE_TEXT}, "
+             f"nltk_data commit {nltk_store.SOURCE_COMMIT[:7]}, checked against its SHA-256)…")
+    try:
+        nltk_store.download(REPO_ROOT)
+    except nltk_store.SentenceDataError as exc:
+        log.line(f"  Not installed: {exc} The Edge voices ask again before the first conversion that needs it.")
+        return False
+    log.line("  Installed and checked.")
+    return True
 
 #: The four optional voice choices of the first-run wizard, in the approved order, with the approved defaults
 #: (Kokoro checked, the other three unchecked) and what each one is.
@@ -2885,8 +3058,9 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     _intro_body = ttk.Label(
         intro,
         text=("This one-time setup installs what the app needs: a private Python environment with its packages "
-              "(kept inside this folder, about 2.5 GB) and the audio tools (ffmpeg). Edge TTS voices work as soon "
-              "as that is done.\n\n"
+              "(about 2.5 GB, each package checked against a fixed SHA-256), the audio tools (ffmpeg) and the English "
+              f"sentence data the Edge voices use ({nltk_store.DOWNLOAD_SIZE_TEXT} from NLTK's data repository). "
+              "Everything is kept inside this folder. Edge TTS voices work as soon as that is done.\n\n"
               "Choose the voices to install on this computer. Their exact downloads are shown for your review "
               "before anything is downloaded, and you can add or skip any of them later from the app."),
         justify="left",
@@ -3421,7 +3595,8 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
         notices.append(kokoro_unverified_message(reason))
     elif not ok:
         fix = ("" if "application control" in reason.lower() or "4551" in reason else
-               f' To retry by hand: "{venv_py}" -m pip install -r "{REQUIREMENTS_FILE}".')
+               " Starting the app again on another day repeats the repair; the setup log is in "
+               "files\\runtime-data\\logs.")
         notices.append(
             f"The local Kokoro AI voices are unavailable: {kokoro_failure_message(reason)}. Edge TTS and "
             f"the other voices still work.{fix}")

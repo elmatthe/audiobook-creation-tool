@@ -653,6 +653,64 @@ def _isolated_runtime_data(_sandbox_logs_dir, tmp_path_factory):
         settings.invalidate()
 
 
+def _verified_sentence_source():
+    """A folder on this computer holding NLTK's four English ``punkt_tab`` files, each matching ``shared.nltk_store``'s
+    pins: the installation's own store, else a copy NLTK put in the profile earlier. Read only. None when there is none."""
+    import hashlib as _hashlib
+
+    from shared import nltk_store
+
+    candidates = [nltk_store.english_dir(REPO_ROOT)]
+    for base in (os.environ.get("APPDATA"), str(Path.home())):
+        if base:
+            candidates.append(Path(base).joinpath("nltk_data", *nltk_store.ENGLISH_PARTS))
+    for folder in candidates:
+        try:
+            if all((folder / name).is_file() and (folder / name).stat().st_size == size
+                   and _hashlib.sha256((folder / name).read_bytes()).hexdigest() == sha256
+                   for name, (size, sha256) in nltk_store.FILES.items()):
+                return folder
+        except OSError:
+            continue
+    return None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sentence_data_for_tests(tmp_path_factory):
+    """v0.7.0: the Edge voices' English sentence data for the whole session, from a verified local copy.
+
+    Production reads only ``files/runtime-data/nltk_data`` (``shared.nltk_store``) and never downloads it silently. The
+    suite reads a session copy instead, so no test reads or writes the real store and none reaches the network (the
+    two modules that used to ``nltk.download`` at import time no longer do). The copy comes from
+    :func:`_verified_sentence_source`. Without one, the store stays empty and the app's consent prompt is made to fail
+    loudly rather than open a modal window that would hang the run.
+    """
+    import shutil as _shutil
+
+    import nltk
+
+    from shared import nltk_store
+
+    root = tmp_path_factory.mktemp("sentence-data-root")
+    source = _verified_sentence_source()
+    if source is not None:
+        nltk_store.english_dir(root).mkdir(parents=True)
+        for name in nltk_store.FILES:
+            _shutil.copyfile(source / name, nltk_store.english_dir(root) / name)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(nltk_store, "_default_root", lambda: root)
+        if source is None:
+            from tkinter import messagebox
+
+            def _no_modal(*_args, **_kwargs):
+                raise AssertionError("no verified English sentence data on this computer, so the app asked for it; "
+                                     "install it once with: python scripts/shared/nltk_store.py --install")
+
+            patch.setattr(messagebox, "askyesno", _no_modal)
+        nltk_store.configure(nltk, root)
+        yield root
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _isolated_setup_log(_isolated_runtime_data, _sandbox_logs_dir, _sandbox_setup_log):
     """Send the session's setup logging to a sandbox, never to the real log.

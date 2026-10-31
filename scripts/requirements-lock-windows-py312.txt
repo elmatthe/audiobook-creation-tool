@@ -1,0 +1,354 @@
+# Audiobook Creation Tool - the app environment's complete dependency lock (Windows x86-64, CPython 3.12).
+#
+# Every package the app environment holds, transitive ones included, at one version and with the SHA-256 of
+# the one artifact pip installs on this platform. Setup and repair install ONLY from this file
+# (pip --require-hashes): a package or version that is not listed here cannot be installed.
+# scripts/requirements.txt stays the human-maintained list; regenerate this file after any change to it:
+#     python -I files/dev-tools/lock_base_requirements.py --python <venv python> --constraints <versions>
+# Do not edit by hand.
+#
+# requirements.txt sha256: a4805b76bd0732ed8a4433b47bebf3ba55c57c20c9355064af70643a0b2742dc
+# versions proved by: the qualified portable installation p1 (CPython 3.12.15; 28/28 voices narrated, 2026-10-30)
+# resolved with: pip 25.0.1, CPython 3.12 win_amd64
+# packages: 170
+
+# artifact: addict-2.4.0-py3-none-any.whl
+addict==2.4.0 --hash=sha256:249bb56bbfd3cdc2a004ea0ff4c2b6ddc84d53bc2194761636eb314d5cfa5dfc
+# artifact: aiofiles-24.1.0-py3-none-any.whl
+aiofiles==24.1.0 --hash=sha256:b4ec55f4195e3eb5d7abd1bf7e061763e864dd4954231fb8539a0ef8bb8260e5
+# artifact: aiohappyeyeballs-2.7.1-py3-none-any.whl
+aiohappyeyeballs==2.7.1 --hash=sha256:9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472
+# artifact: aiohttp-3.14.5-cp312-cp312-win_amd64.whl
+aiohttp==3.14.5 --hash=sha256:2cc38a4f2b516bef1714e690df87a0e043faf1a7693c82d860091684453d5111
+# artifact: aiosignal-1.4.0-py3-none-any.whl
+aiosignal==1.4.0 --hash=sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e
+# artifact: annotated_doc-0.0.5-py3-none-any.whl
+annotated-doc==0.0.5 --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101
+# artifact: annotated_types-0.8.0-py3-none-any.whl
+annotated-types==0.8.0 --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
+# artifact: antlr4-python3-runtime-4.9.3.tar.gz
+antlr4-python3-runtime==4.9.3 --hash=sha256:f224469b4168294902bb1efa80a8bf7855f24c99aef99cbefc1bcd3cce77881b
+# artifact: anyio-4.15.1-py3-none-any.whl
+anyio==4.15.1 --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101
+# artifact: attrs-26.1.0-py3-none-any.whl
+attrs==26.1.0 --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+# artifact: audioread-3.1.0-py3-none-any.whl
+audioread==3.1.0 --hash=sha256:b30d1df6c5d3de5dcef0fb0e256f6ea17bdcf5f979408df0297d8a408e2971b4
+# artifact: babel-2.18.0-py3-none-any.whl
+babel==2.18.0 --hash=sha256:e2b422b277c2b9a9630c1d7903c2a00d0830c409c59ac8cae9081c92f1aeba35
+# artifact: blis-1.3.3-cp312-cp312-win_amd64.whl
+blis==1.3.3 --hash=sha256:f20f7ad69aaffd1ce14fe77de557b6df9b61e0c9e582f75a843715d836b5c8af
+# artifact: brotli-1.2.0-cp312-cp312-win_amd64.whl
+brotli==1.2.0 --hash=sha256:b35c13ce241abdd44cb8ca70683f20c0c079728a36a996297adb5334adfc1c44
+# artifact: catalogue-2.0.10-py3-none-any.whl
+catalogue==2.0.10 --hash=sha256:58c2de0020aa90f4a2da7dfad161bf7b3b054c86a5f09fcedc0b2b740c109a9f
+# artifact: certifi-2026.10.19-py3-none-any.whl
+certifi==2026.10.19 --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b
+# artifact: cffi-2.1.1-cp312-cp312-win_amd64.whl
+cffi==2.1.1 --hash=sha256:f53e442b08449d42821fa4a4fba000095af9f62742a500f978a9f557ec44339a
+# artifact: cfgv-3.5.0-py2.py3-none-any.whl
+cfgv==3.5.0 --hash=sha256:a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0
+# artifact: charset_normalizer-3.5.2-cp312-cp312-win_amd64.whl
+charset-normalizer==3.5.2 --hash=sha256:780fbe7cab297b81dad9fb8dc5eb003c0468ffb0d9e5f65068c53a34661a96bc
+# artifact: chatterbox_tts-0.1.7-py3-none-any.whl
+chatterbox-tts==0.1.7 --hash=sha256:83782500e3ad4e7c919132e9d7eb8755f29f57c5bde5ec48c655ca23a4eb113c
+# artifact: click-8.5.0-py3-none-any.whl
+click==8.5.0 --hash=sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360
+# artifact: cloudpathlib-0.26.0-py3-none-any.whl
+cloudpathlib==0.26.0 --hash=sha256:abcd7f54bcbb2fbb79c0e96b79241f08866760aee6276586882b3558672d571b
+# artifact: cloudpickle-3.1.2-py3-none-any.whl
+cloudpickle==3.1.2 --hash=sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a
+# artifact: colorama-0.4.6-py2.py3-none-any.whl
+colorama==0.4.6 --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+# artifact: confection-1.3.3-py3-none-any.whl
+confection==1.3.3 --hash=sha256:b9fef9ee84b237ef4611ec3eb5797b70e13063e6310ad9f15536373f5e313c82
+# artifact: conformer-0.3.2-py3-none-any.whl
+conformer==0.3.2 --hash=sha256:b957faa683e9e75061257f77407318428f2ad0fb5262bfc2e9b55fc2fffdfa03
+# artifact: csvw-4.1.1-py2.py3-none-any.whl
+csvw==4.1.1 --hash=sha256:fce2c461899290771eaec28c770e2fd0f6bc1324edb81d688c89e09cf222fcdb
+# artifact: curated_tokenizers-0.0.10-cp312-cp312-win_amd64.whl
+curated-tokenizers==0.0.10 --hash=sha256:8ae890aae25d84248749b0a9b1e771713e72338e59d9c44bf22a3367c1ef867a
+# artifact: curated_transformers-0.1.1-py2.py3-none-any.whl
+curated-transformers==0.1.1 --hash=sha256:d716063d73d803c6925d2dab56fde9b9ab8e89e663c2c0587804944ba488ff01
+# artifact: cymem-2.0.13-cp312-cp312-win_amd64.whl
+cymem==2.0.13 --hash=sha256:2ff1c41fd59b789579fdace78aa587c5fc091991fa59458c382b116fc36e30dc
+# artifact: decorator-5.3.1-py3-none-any.whl
+decorator==5.3.1 --hash=sha256:f47fe6fdbd2edd623ecfe36875d37aba411624e2670dd395dddae1358689bb3c
+# artifact: deprecated-3.0.0-py3-none-any.whl
+Deprecated==3.0.0 --hash=sha256:58204cf4a7f6270d547af5c278ee7a6bb56045a4b3d8441a1cd11660f41b7939
+# artifact: diffusers-0.29.0-py3-none-any.whl
+diffusers==0.29.0 --hash=sha256:4c194d2379644a0f7ef9b4ff12c8cf5de4c6324e811265754f08e2f839b8cedb
+# artifact: distlib-0.4.4-py2.py3-none-any.whl
+distlib==0.4.4 --hash=sha256:cf09d55b1e85a89576b036aeb71550bfd68320f3f21761ca329eadadad918638
+# artifact: dlinfo-2.0.0-py3-none-any.whl
+dlinfo==2.0.0 --hash=sha256:b32cc18e3ea67c0ca9ca409e5b41eed863bd1363dbc9dd3de90fedf11b61e7bc
+# artifact: docopt-0.6.2.tar.gz
+docopt==0.6.2 --hash=sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491
+# artifact: edge_tts-7.3.1-py3-none-any.whl
+edge-tts==7.3.1 --hash=sha256:2a3c79d6235a7a736d681233823ce5492e829b43eb47beae49aa181237a8f9a4
+# artifact: einops-0.8.2-py3-none-any.whl
+einops==0.8.2 --hash=sha256:54058201ac7087911181bfec4af6091bb59380360f069276601256a76af08193
+# artifact: espeakng_loader-0.2.4-py3-none-win_amd64.whl
+espeakng-loader==0.2.4 --hash=sha256:41f1e08ac9deda2efd1ea9de0b81dab9f5ae3c4b24284f76533d0a7b1dd7abd7
+# artifact: fastapi-0.159.1-py3-none-any.whl
+fastapi==0.159.1 --hash=sha256:49b94c29afec2fca1390e9c39be202c59755d5cda8e4f1148a133761e4313e7e
+# artifact: ffmpy-1.0.0-py3-none-any.whl
+ffmpy==1.0.0 --hash=sha256:5640e5f0fd03fb6236d0e119b16ccf6522db1c826fdf35dcb87087b60fd7504f
+# artifact: filelock-4.2.5-py3-none-any.whl
+filelock==4.2.5 --hash=sha256:46ce42d27e5cdde09ee7197349663e97cb106679bd9e75db3a09679fbc7aa1a8
+# artifact: frozenlist-1.8.0-cp312-cp312-win_amd64.whl
+frozenlist==1.8.0 --hash=sha256:34187385b08f866104f0c0617404c8eb08165ab1272e884abc89c112e9c00746
+# artifact: fsspec-2026.9.0-py3-none-any.whl
+fsspec==2026.9.0 --hash=sha256:8dd6e646e99ea382bd85f97a45e6b526a442d79423a7dc673f1e2756d05fcb5f
+# artifact: gradio-6.8.0-py3-none-any.whl
+gradio==6.8.0 --hash=sha256:1ece9f3d075bec3da5a6e69c77fa03ddcf3b14af56a9ca843a499406c2b3afd6
+# artifact: gradio_client-2.2.0-py3-none-any.whl
+gradio_client==2.2.0 --hash=sha256:090f72106b41ba17dcf1b437db54a7bba4c406244f8b01210d5bf24b2af6a85d
+# artifact: groovy-0.1.2-py3-none-any.whl
+groovy==0.1.2 --hash=sha256:7f7975bab18c729a257a8b1ae9dcd70b7cafb1720481beae47719af57c35fa64
+# artifact: h11-0.16.0-py3-none-any.whl
+h11==0.16.0 --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86
+# artifact: hf_xet-1.7.0-cp38-abi3-win_amd64.whl
+hf-xet==1.7.0 --hash=sha256:2b7bb5727889b0f2436dbaaad8fc4c3e66b8240d992716989e0c086b4278b1bc
+# artifact: httpcore-1.0.9-py3-none-any.whl
+httpcore==1.0.9 --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55
+# artifact: httpx-0.28.1-py3-none-any.whl
+httpx==0.28.1 --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad
+# artifact: huggingface_hub-1.33.0-py3-none-any.whl
+huggingface_hub==1.33.0 --hash=sha256:04e434b06e100eddbce9a6e817d72693a7884b10a79bd67ab48080d5c07eb899
+# artifact: identify-2.6.20-py2.py3-none-any.whl
+identify==2.6.20 --hash=sha256:6a16b69b93187244e0548cbfd25b3e4a6f9a7a2ad784625c3bec2b8d27b81aaa
+# artifact: idna-3.20-py3-none-any.whl
+idna==3.20 --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
+# artifact: importlib_metadata-9.0.1-py3-none-any.whl
+importlib_metadata==9.0.1 --hash=sha256:bba5600596a7e21f3eef53281cf28d6a5195634d2f2b78ff9501a3272c6eaab0
+# artifact: iniconfig-2.3.1-py3-none-any.whl
+iniconfig==2.3.1 --hash=sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7
+# artifact: isodate-0.7.2-py3-none-any.whl
+isodate==0.7.2 --hash=sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15
+# artifact: jaconv-0.5.0-py3-none-any.whl
+jaconv==0.5.0 --hash=sha256:2914114fe761ca49fc7089e25e6ad4a400c26f262ffce84e13b176916b71610a
+# artifact: jinja2-3.1.6-py3-none-any.whl
+Jinja2==3.1.6 --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+# artifact: joblib-1.6.0-py3-none-any.whl
+joblib==1.6.0 --hash=sha256:3dbbf9f6e4b592a2357b854608e980fe6390d131d7a82f011a377ef2ebef7aba
+# artifact: jsonschema-4.26.0-py3-none-any.whl
+jsonschema==4.26.0 --hash=sha256:d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce
+# artifact: jsonschema_specifications-2025.9.1-py3-none-any.whl
+jsonschema-specifications==2025.9.1 --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe
+# artifact: kokoro-0.9.4-py3-none-any.whl
+kokoro==0.9.4 --hash=sha256:a129dc6364a286bd6a92c396e9862459d3d3e45f2c15596ed5a94dcee5789efd
+# artifact: language_tags-1.3.1-py3-none-any.whl
+language-tags==1.3.1 --hash=sha256:f7db7ef8879523019603e09644a86d95ba60595ce5e5ea82d46e8971b0f68f7b
+# artifact: lazy_loader-0.6-py3-none-any.whl
+lazy-loader==0.6 --hash=sha256:77253be3391b06124a0e16105bd663b6c54470af1a9ca8e1cf026f38d58ed056
+# artifact: librosa-0.11.0-py3-none-any.whl
+librosa==0.11.0 --hash=sha256:0b6415c4fd68bff4c29288abe67c6d80b587e0e1e2cfb0aad23e4559504a7fa1
+# artifact: llvmlite-0.50.0-cp312-cp312-win_amd64.whl
+llvmlite==0.50.0 --hash=sha256:c20595cc3a76e3c85140fdafbf9246c732ddf8e0e646ba2f4e4881f87567300d
+# artifact: loguru-0.7.3-py3-none-any.whl
+loguru==0.7.3 --hash=sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c
+# artifact: markdown_it_py-4.2.0-py3-none-any.whl
+markdown-it-py==4.2.0 --hash=sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a
+# artifact: markupsafe-3.0.4-cp312-cp312-win_amd64.whl
+MarkupSafe==3.0.4 --hash=sha256:11935df9bf455ed0c04eb87bcd720f02b1fe5e02128a9430f23aed6f93336fc7
+# artifact: mdurl-0.1.2-py3-none-any.whl
+mdurl==0.1.2 --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8
+# artifact: misaki-0.9.4-py3-none-any.whl
+misaki==0.9.4 --hash=sha256:90e2eeb169786c014c429e5058d2ea6bcd02d651f2a24450ba6c9ffc0f8da15a
+# artifact: ml_dtypes-0.5.4-cp312-cp312-win_amd64.whl
+ml_dtypes==0.5.4 --hash=sha256:c1a953995cccb9e25a4ae19e34316671e4e2edaebe4cf538229b1fc7109087b7
+# artifact: mpmath-1.3.0-py3-none-any.whl
+mpmath==1.3.0 --hash=sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c
+# artifact: msgpack-1.2.3-cp312-cp312-win_amd64.whl
+msgpack==1.2.3 --hash=sha256:3ec409b0d6aa8e9eec6eaf881b893caa215dbe68c5319ca96e8a271d81bb111d
+# artifact: multidict-7.1.0-cp312-cp312-win_amd64.whl
+multidict==7.1.0 --hash=sha256:10202ba98cfb3f7eb60da7ca87a2c458a69b7d0d6e4d4388cd6773ebbce89085
+# artifact: murmurhash-1.0.15-cp312-cp312-win_amd64.whl
+murmurhash==1.0.15 --hash=sha256:f4ac15a2089dc42e6eb0966622d42d2521590a12c92480aafecf34c085302cca
+# artifact: mutagen-1.47.0-py3-none-any.whl
+mutagen==1.47.0 --hash=sha256:edd96f50c5907a9539d8e5bba7245f62c9f520aef333d13392a79a4f70aca719
+# artifact: narwhals-2.27.1-py3-none-any.whl
+narwhals==2.27.1 --hash=sha256:d057df13f5852b8e157596e82eb5e955fad267425df5e420e0ee9863da483b31
+# artifact: networkx-3.7-py3-none-any.whl
+networkx==3.7 --hash=sha256:e3fd2c13a7814cee3746340d8d7f8598a67f16a58bf47fb7f8793fab6efca1b0
+# artifact: nltk-3.9.4-py3-none-any.whl
+nltk==3.9.4 --hash=sha256:f2fa301c3a12718ce4a0e9305c5675299da5ad9e26068218b69d692fda84828f
+# artifact: nodeenv-1.11.0-py2.py3-none-any.whl
+nodeenv==1.11.0 --hash=sha256:edaa16e6c14d7cf395d75d4bbd5a26390f4dc06501a33b4e76282b02cc688a25
+# artifact: num2words-0.5.14-py3-none-any.whl
+num2words==0.5.14 --hash=sha256:1c8e5b00142fc2966fd8d685001e36c4a9911e070d1b120e1beb721fa1edb33d
+# artifact: numba-0.68.0-cp312-cp312-win_amd64.whl
+numba==0.68.0 --hash=sha256:530961dc7e41ee358eca2b828baf7b645ce6fa466d778bb9dc73855dd103c4f7
+# artifact: numpy-1.26.4-cp312-cp312-win_amd64.whl
+numpy==1.26.4 --hash=sha256:08beddf13648eb95f8d867350f6a018a4be2e5ad54c8d8caed89ebca558b2818
+# artifact: omegaconf-2.3.1-py3-none-any.whl
+omegaconf==2.3.1 --hash=sha256:3d701d14e9a8828f1edd28bb70b725908b34277cdd72cf7d6a83f94dadc6b6a0
+# artifact: onnx-1.23.2-cp312-abi3-win_amd64.whl
+onnx==1.23.2 --hash=sha256:9b382ba898a7c142a0801d03cf04ecabced96c1543c7b643a86f0928143802de
+# artifact: opentelemetry_api-1.45.1-py3-none-any.whl
+opentelemetry-api==1.45.1 --hash=sha256:b31553efa588ae44bc306f863c785c5333a9ecc091248c6ee68b4b6c87fdedfb
+# artifact: orjson-3.13.0-cp312-cp312-win_amd64.whl
+orjson==3.13.0 --hash=sha256:b571236d8393edcd3236e07423f762bfcf571f852aad667a3bce9e7b755e0790
+# artifact: packaging-26.3-py3-none-any.whl
+packaging==26.3 --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+# artifact: pandas-3.0.6-cp312-cp312-win_amd64.whl
+pandas==3.0.6 --hash=sha256:3ef908d28590b3f42d7070e7ad8f9b34b442b260b7f3c1afb57e0040c58cdb1b
+# artifact: phonemizer_fork-3.3.2-py3-none-any.whl
+phonemizer-fork==3.3.2 --hash=sha256:97305c76f4183b3825dae8f4c032265fe78c9946ce58c47d4b62161349264b74
+# artifact: pillow-12.2.0-cp312-cp312-win_amd64.whl
+pillow==12.2.0 --hash=sha256:7f84204dee22a783350679a0333981df803dac21a0190d706a50475e361c93f5
+# artifact: pillow_heif-1.5.0-cp312-cp312-win_amd64.whl
+pillow_heif==1.5.0 --hash=sha256:9aa2cdc94d8d0b26dd3c16c3421273eb394c24e708899d8740dc314904ea0453
+# artifact: platformdirs-4.13.5-py3-none-any.whl
+platformdirs==4.13.5 --hash=sha256:53d3ec4280b815c1e0b02edad7f9ee8fda1ba9c0865dd9c2e6e63849ce82fc1e
+# artifact: pluggy-1.7.0-py3-none-any.whl
+pluggy==1.7.0 --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec
+# artifact: pooch-1.9.0-py3-none-any.whl
+pooch==1.9.0 --hash=sha256:f265597baa9f760d25ceb29d0beb8186c243d6607b0f60b83ecf14078dbc703b
+# artifact: pre_commit-4.7.0-py2.py3-none-any.whl
+pre_commit==4.7.0 --hash=sha256:2e229038ad3656081b70c27913157e4b636ef306f643f024a8a8e3f0f7b2f877
+# artifact: preshed-3.0.13-cp312-cp312-win_amd64.whl
+preshed==3.0.13 --hash=sha256:04d8f13f2986e5d11af5ac51f55ce3106c70c41b483d20ea392e6180bdd0f870
+# artifact: propcache-0.5.4-cp312-cp312-win_amd64.whl
+propcache==0.5.4 --hash=sha256:98914de2c4d7f0f9f4a8c6ea4bf05841f4175796941e3ef7d47eb718f22311fb
+# artifact: protobuf-7.36.2-cp310-abi3-win_amd64.whl
+protobuf==7.36.2 --hash=sha256:a300819d441e078a5608c0d3c709796bb548136058fda017ae51d425b44fd353
+# artifact: pycparser-3.11-py3-none-any.whl
+pycparser==3.11 --hash=sha256:51d5a8ba2be0bbe440b99d2112604c95bbbc3c2748a64260186c541e1729cd80
+# artifact: pydantic-2.14.1-py3-none-any.whl
+pydantic==2.14.1 --hash=sha256:9195d967ec791692a04438115466764fb8b9a27b31f14a760437694f40d6b454
+# artifact: pydantic_core-2.50.1-cp312-cp312-win_amd64.whl
+pydantic_core==2.50.1 --hash=sha256:132529c83901437ff642f585216831bf5fd7a91df66829907e155192ead62498
+# artifact: pydub-0.25.1-py2.py3-none-any.whl
+pydub==0.25.1 --hash=sha256:65617e33033874b59d87db603aa1ed450633288aefead953b30bded59cb599a6
+# artifact: pygments-2.21.0-py3-none-any.whl
+Pygments==2.21.0 --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
+# artifact: pykakasi-2.3.0-py3-none-any.whl
+pykakasi==2.3.0 --hash=sha256:26d21b090048ff45c6a4d8e962426b7951767216008ec30358e8a9d74af77f29
+# artifact: pyloudnorm-0.2.0-py3-none-any.whl
+pyloudnorm==0.2.0 --hash=sha256:9bb69afb904f59d007a7f9ba3d75d16fb8aeef35c44d6df822a9f192d69cf13f
+# artifact: pymupdf-1.27.2.3-cp310-abi3-win_amd64.whl
+PyMuPDF==1.27.2.3 --hash=sha256:d20f68ef15195e073071dbc4ae7455257c7889af7584e39df490c0a92728526e
+# artifact: pyparsing-3.3.3-py3-none-any.whl
+pyparsing==3.3.3 --hash=sha256:ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4
+# artifact: pytest-9.1.1-py3-none-any.whl
+pytest==9.1.1 --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+# artifact: python_dateutil-3.0.0-py2.py3-none-any.whl
+python-dateutil==3.0.0 --hash=sha256:3c79630202e4152c6add678446984236efe4f57e84d8e892aab0637bab82e9fd
+# artifact: python_discovery-1.6.4-py3-none-any.whl
+python-discovery==1.6.4 --hash=sha256:530179cc51a1816d512b15635b3dc931295ae12efb183783ad31190a5d425d2b
+# artifact: python_multipart-0.0.32-py3-none-any.whl
+python-multipart==0.0.32 --hash=sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23
+# artifact: pytz-2026.5-py2.py3-none-any.whl
+pytz==2026.5 --hash=sha256:e658af3757f9e26a9d25dd2aff38335acd92bc9104f890a894b2c1ba28311b03
+# artifact: pyyaml-6.0.3-cp312-cp312-win_amd64.whl
+PyYAML==6.0.3 --hash=sha256:5fcd34e47f6e0b794d17de1b4ff496c00986e1c83f7ab2fb8fcfe9616ff7477b
+# artifact: rdflib-7.6.0-py3-none-any.whl
+rdflib==7.6.0 --hash=sha256:30c0a3ebf4c0e09215f066be7246794b6492e054e782d7ac2a34c9f70a15e0dd
+# artifact: referencing-0.37.0-py3-none-any.whl
+referencing==0.37.0 --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231
+# artifact: regex-2026.9.29-cp312-cp312-win_amd64.whl
+regex==2026.9.29 --hash=sha256:fdd88ed5e20b1bcdd234421e454962c971aa44b653bdb7f1ea9ef683e90fb649
+# artifact: requests-2.34.2-py3-none-any.whl
+requests==2.34.2 --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
+# artifact: resemble_perth-1.0.1-py3-none-any.whl
+resemble-perth==1.0.1 --hash=sha256:65e9c37531b1a128a4a56226b75dece4521683cf3611b0b2a5ffe234f00c9342
+# artifact: rfc3986-1.5.0-py2.py3-none-any.whl
+rfc3986==1.5.0 --hash=sha256:a86d6e1f5b1dc238b218b012df0aa79409667bb209e58da56d0b94704e712a97
+# artifact: rich-15.0.0-py3-none-any.whl
+rich==15.0.0 --hash=sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb
+# artifact: rpds_py-2026.9.1-cp312-cp312-win_amd64.whl
+rpds-py==2026.9.1 --hash=sha256:5ce8943f79c2210f7abcc28e86367b03b28d95027fd01c46d2472373ae70c86f
+# artifact: s3tokenizer-0.3.0-py3-none-any.whl
+s3tokenizer==0.3.0 --hash=sha256:c9e93b1892a124a2c4d958ab53610a1b4433fcb4172056e2f2bd3c09cfe249a6
+# artifact: safehttpx-0.1.7-py3-none-any.whl
+safehttpx==0.1.7 --hash=sha256:c4f4a162db6993464d7ca3d7cc4af0ffc6515a606dfd220b9f82c6945d869cde
+# artifact: safetensors-0.5.3-cp38-abi3-win_amd64.whl
+safetensors==0.5.3 --hash=sha256:836cbbc320b47e80acd40e44c8682db0e8ad7123209f69b093def21ec7cafd11
+# artifact: scikit_learn-1.9.0-cp312-cp312-win_amd64.whl
+scikit-learn==1.9.0 --hash=sha256:4306775fad04cc4b472a1b15af1ae9cede1540fbfcc17fbce3767cd8dc7ae283
+# artifact: scipy-1.17.1-cp312-cp312-win_amd64.whl
+scipy==1.17.1 --hash=sha256:41b71f4a3a4cab9d366cd9065b288efc4d4f3c0b37a91a8e0947fb5bd7f31d87
+# artifact: segments-2.4.0-py2.py3-none-any.whl
+segments==2.4.0 --hash=sha256:4021dc67f201cc03c864c74c618bdb163b1af629da3040babbaa37d8813f3db0
+# artifact: semantic_version-2.10.0-py2.py3-none-any.whl
+semantic-version==2.10.0 --hash=sha256:de78a3b8e0feda74cabc54aab2da702113e33ac9d9eb9d2389bcf1f58b7d9177
+# artifact: setuptools-80.9.0-py3-none-any.whl
+setuptools==80.9.0 --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922
+# artifact: shellingham-1.5.4-py2.py3-none-any.whl
+shellingham==1.5.4 --hash=sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686
+# artifact: six-1.17.0-py2.py3-none-any.whl
+six==1.17.0 --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+# artifact: smart_open-8.0.4-py3-none-any.whl
+smart_open==8.0.4 --hash=sha256:8a3a67679942fa40d1a93ed3aea37619b4b4ec5458f1d5a9228dfc301db11b4c
+# artifact: soundfile-0.13.1-py2.py3-none-win_amd64.whl
+soundfile==0.13.1 --hash=sha256:1e70a05a0626524a69e9f0f4dd2ec174b4e9567f4d8b6c11d38b5c289be36ee9
+# artifact: soxr-1.1.0-cp312-abi3-win_amd64.whl
+soxr==1.1.0 --hash=sha256:6ae2a174bffea94e8ead857dad85999d3f49f091774dbad5b046c0417d7092f4
+# artifact: spacy-3.8.16-cp312-cp312-win_amd64.whl
+spacy==3.8.16 --hash=sha256:5991c334e71c23b798c25e0d403295dde4d2d1fb58c2e075450b964db03c05ea
+# artifact: spacy_curated_transformers-0.3.1-py2.py3-none-any.whl
+spacy-curated-transformers==0.3.1 --hash=sha256:503559b6a1d6e44ec2c978e18ed871ce5c3d56871dc9216c0e1523428204e610
+# artifact: spacy_legacy-3.0.12-py2.py3-none-any.whl
+spacy-legacy==3.0.12 --hash=sha256:476e3bd0d05f8c339ed60f40986c07387c0a71479245d6d0f4298dbd52cda55f
+# artifact: spacy_loggers-1.0.5-py3-none-any.whl
+spacy-loggers==1.0.5 --hash=sha256:196284c9c446cc0cdb944005384270d775fdeaf4f494d8e269466cfa497ef645
+# artifact: spacy_pkuseg-1.0.1-cp312-cp312-win_amd64.whl
+spacy_pkuseg==1.0.1 --hash=sha256:1de1f4fb62f730d72b5d80daf858783b8662e489539d7724b0c7766258860f87
+# artifact: srsly-2.5.3-cp312-cp312-win_amd64.whl
+srsly==2.5.3 --hash=sha256:598f1e494c18cacb978299d77125415a586417081959f8ec3f068b32d97f8933
+# artifact: starlette-0.52.1-py3-none-any.whl
+starlette==0.52.1 --hash=sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74
+# artifact: sympy-1.13.1-py3-none-any.whl
+sympy==1.13.1 --hash=sha256:db36cdc64bf61b9b24578b6f7bab1ecdd2452cf008f34faa33776680c26d66f8
+# artifact: tabulate-0.10.0-py3-none-any.whl
+tabulate==0.10.0 --hash=sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3
+# artifact: termcolor-3.3.0-py3-none-any.whl
+termcolor==3.3.0 --hash=sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5
+# artifact: thinc-8.3.13-cp312-cp312-win_amd64.whl
+thinc==8.3.13 --hash=sha256:ed1dc709ac4f2f03b710457889e4e02f05de51bc8456980c241d0b28798bc7cb
+# artifact: threadpoolctl-3.7.0-py3-none-any.whl
+threadpoolctl==3.7.0 --hash=sha256:cd8b60b5641b45c67bbf73c64c843235fc2d8a480c87389f52f5dbee893b86be
+# artifact: tokenizers-0.22.2-cp39-abi3-win_amd64.whl
+tokenizers==0.22.2 --hash=sha256:c9ea31edff2968b44a88f97d784c2f16dc0729b8b143ed004699ebca91f05c48
+# artifact: tomlkit-0.13.3-py3-none-any.whl
+tomlkit==0.13.3 --hash=sha256:c89c649d79ee40629a9fda55f8ace8c6a1b42deb912b2a8fd8d942ddadb606b0
+# artifact: torch-2.6.0-cp312-cp312-win_amd64.whl
+torch==2.6.0 --hash=sha256:7e1448426d0ba3620408218b50aa6ada88aeae34f7a239ba5431f6c8774b1239
+# artifact: torchaudio-2.6.0-cp312-cp312-win_amd64.whl
+torchaudio==2.6.0 --hash=sha256:86d6239792bf94741a41acd6fe3d549faaf0d50e7275d17d076a190bd007e2f9
+# artifact: tqdm-4.67.3-py3-none-any.whl
+tqdm==4.67.3 --hash=sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf
+# artifact: transformers-5.2.0-py3-none-any.whl
+transformers==5.2.0 --hash=sha256:9ecaf243dc45bee11a7d93f8caf03746accc0cb069181bbf4ad8566c53e854b4
+# artifact: typer-0.27.3-py3-none-any.whl
+typer==0.27.3 --hash=sha256:e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff
+# artifact: typer_slim-0.24.0-py3-none-any.whl
+typer-slim==0.24.0 --hash=sha256:d5d7ee1ee2834d5020c7c616ed5e0d0f29b9a4b1dd283bdebae198ec09778d0e
+# artifact: typing_extensions-4.16.0-py3-none-any.whl
+typing_extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+# artifact: typing_inspection-0.4.4-py3-none-any.whl
+typing-inspection==0.4.4 --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
+# artifact: tzdata-2026.5-py2.py3-none-any.whl
+tzdata==2026.5 --hash=sha256:b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac
+# artifact: uritemplate-4.2.0-py3-none-any.whl
+uritemplate==4.2.0 --hash=sha256:962201ba1c4edcab02e60f9a0d3821e82dfc5d2d6662a21abd533879bdb8a686
+# artifact: urllib3-2.8.0-py3-none-any.whl
+urllib3==2.8.0 --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3
+# artifact: uvicorn-0.54.0-py3-none-any.whl
+uvicorn==0.54.0 --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf
+# artifact: virtualenv-21.14.12-py3-none-any.whl
+virtualenv==21.14.12 --hash=sha256:7820aeaef23f1f59a96458edfc7f9d3deac937155718de15f1c9a64471e15551
+# artifact: wasabi-1.1.3-py3-none-any.whl
+wasabi==1.1.3 --hash=sha256:f76e16e8f7e79f8c4c8be49b4024ac725713ab10cd7f19350ad18a8e3f71728c
+# artifact: weasel-1.0.0-py3-none-any.whl
+weasel==1.0.0 --hash=sha256:89518acee027f49d743126c3502d35e6dd14f5768be5c37c9af47c171b6005cc
+# artifact: win32_setctime-1.2.0-py3-none-any.whl
+win32_setctime==1.2.0 --hash=sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390
+# artifact: wrapt-2.5.1-cp312-cp312-win_amd64.whl
+wrapt==2.5.1 --hash=sha256:c39c7130ea0702c4ab0faf12da1df1e02d5174305c17edf02309e2f058c4114f
+# artifact: yarl-1.25.1-cp312-cp312-win_amd64.whl
+yarl==1.25.1 --hash=sha256:7d575b54cb3863ef9bc290ea4b009999d55dc237326131e4853cf33e888fee03
+# artifact: zipp-4.1.2-py3-none-any.whl
+zipp==4.1.2 --hash=sha256:b30cb6cd253122169c47de245ca24a86bac2a5d3802ba15bf7ba6414eb9e144d

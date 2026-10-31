@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from shared import bootstrap  # noqa: E402
+from shared import base_packages, bootstrap  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BOOTSTRAP_SRC = Path(bootstrap.__file__).read_text(encoding="utf-8")
@@ -33,7 +33,13 @@ def recorded_runs(monkeypatch):
         runs.append(list(cmd))
         return SimpleNamespace(returncode=0, stdout="OK", stderr="")
 
+    def fake_install(venv_py, log):
+        # v0.7.0: the one package installer (the dependency lock); recorded in its place in the sequence.
+        runs.append([str(venv_py), "-m", "pip", "<install_base_packages>"])
+        return True
+
     monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+    monkeypatch.setattr(bootstrap, "install_base_packages", fake_install)
     return runs
 
 
@@ -132,22 +138,28 @@ def test_a_crashed_probe_is_reported_rather_than_swallowed(monkeypatch, tmp_path
 # --------------------------------------------------------------------------- #
 def test_the_repair_installs_into_the_existing_venv_only(recorded_runs, tmp_path):
     bootstrap.ensure_chatterbox_installed(tmp_path / "python.exe", lambda _m: None)
-    install = recorded_runs[0]
-    assert install[:4] == [str(tmp_path / "python.exe"), "-m", "pip", "install"]
-    assert "--user" not in install
+    assert recorded_runs[0] == [str(tmp_path / "python.exe"), "-m", "pip", "<install_base_packages>"]
+    # The one installer installs the lock, which carries every pin of the Chatterbox repair set.
+    locked = {entry.key: entry.version for entry in base_packages.parse_lock(
+        base_packages.lock_path(bootstrap.REQUIREMENTS_FILE).read_text(encoding="utf-8")).entries}
     for pkg in bootstrap.CHATTERBOX_PKGS:
-        assert pkg in install
+        name, version = pkg.split("==")
+        assert locked[base_packages.canonical_name(name)] == version, pkg
 
 
 def test_the_repair_verifies_itself_with_the_health_probe(recorded_runs, tmp_path):
     bootstrap.ensure_chatterbox_installed(tmp_path / "python.exe", lambda _m: None)
     assert len(recorded_runs) >= 2, "the repair must re-probe after installing"
+    assert recorded_runs[1][-1] == bootstrap._CHATTERBOX_PROBE
 
 
 def test_a_failed_repair_returns_false(monkeypatch, tmp_path):
-    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: SimpleNamespace(
-        returncode=1, stdout="", stderr="resolution impossible"))
+    probes = []
+    monkeypatch.setattr(bootstrap, "install_base_packages", lambda venv_py, log: False)
+    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: probes.append(a) or SimpleNamespace(
+        returncode=0, stdout="OK", stderr=""))
     assert bootstrap.ensure_chatterbox_installed(tmp_path / "python.exe", lambda _m: None) is False
+    assert probes == [], "a failed install is not followed by a health claim"
 
 
 # --------------------------------------------------------------------------- #

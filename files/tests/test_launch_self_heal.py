@@ -1020,7 +1020,9 @@ def test_a_repair_that_already_failed_today_is_not_rerun(
     assert "repair-dialog" not in launch.events
     message = launch.warnings[0][1]
     assert "Kokoro" in message and "missing" in message
-    assert f'-r "{bootstrap.REQUIREMENTS_FILE}"' in message
+    # v0.7.0: no hand-typed pip command (it would bypass the dependency lock and put pip's cache in the profile);
+    # the app's own repair runs again on a later start.
+    assert "pip install" not in message and "Starting the app again" in message
 
 
 # --------------------------------------------------------------------------- #

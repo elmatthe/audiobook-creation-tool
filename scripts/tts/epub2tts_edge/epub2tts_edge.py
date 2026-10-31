@@ -67,14 +67,17 @@ DEFAULT_TRIM_CHUNK_MS = 10
 
 
 def ensure_punkt():
-    try:
-        nltk.data.find("tokenizers/punkt")
-    except LookupError:
-        nltk.download("punkt")
-    try:
-        nltk.data.find("tokenizers/punkt_tab")
-    except LookupError:
-        nltk.download("punkt_tab")
+    """Make the app's own verified English sentence data the only thing NLTK reads, or raise.
+
+    v0.7.0: this used to call ``nltk.download`` -- a silent, unhashed download into the user's profile at the start of
+    every narration. Now it never downloads: it points NLTK at ``files/runtime-data/nltk_data`` (``shared.nltk_store``)
+    and proves the four English files intact, raising ``SentenceDataMissing`` (a message saying what to do) when they
+    are not. Setup fetches them with the rest of the base, and the app asks before fetching them otherwise.
+    """
+    _ensure_shared_on_path()
+    from shared import nltk_store
+
+    nltk_store.require(nltk)
 
 
 _SENTENCE_TOKENIZER = None
@@ -99,9 +102,14 @@ def _sentence_tokenizer():
     and returns NLTK's own shared instance, so a deep copy is extended
     instead of mutating it in place -- nothing else in this process that
     also calls NLTK's stock ``nltk.tokenize.sent_tokenize`` is affected.
+
+    v0.7.0: the data is the app's verified local copy (``ensure_punkt``), proved
+    before the model is first loaded, so no copy in the user's profile is ever read.
     """
     global _SENTENCE_TOKENIZER
     if _SENTENCE_TOKENIZER is None:
+        ensure_punkt()
+        _get_punkt_tokenizer.cache_clear()  # never a model NLTK loaded earlier from another folder
         tokenizer = copy.deepcopy(_get_punkt_tokenizer("english"))
         tokenizer._params.abbrev_types.add("i.e")
         tokenizer._params.abbrev_types.add("e.g")
@@ -715,7 +723,13 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    ensure_punkt()
+    _ensure_shared_on_path()
+    from shared import nltk_store
+
+    try:
+        ensure_punkt()
+    except nltk_store.SentenceDataMissing as exc:
+        parser.exit(1, f"{exc}\nFrom a command line: python scripts/shared/nltk_store.py --install\n")
 
     from .runner import run_conversion_job
 

@@ -17,8 +17,10 @@ The rule (calibrated in P01A on synthetic PCM and earlier real outputs; ``files/
 * If no window reaches -60 dBFS at all, nothing is cut: there is no evidence of where the sound ends.
 
 When the conservative end lies more than 300 ms past the nominal end, the policy keeps it all and says so
-(``FinalTail.uncertain``) rather than clip a sound: the caller logs it and the ending needs listening. Thresholds are
-measurement candidates, not proof that amplitude identifies speech; owner listening stays the acceptance test.
+(``FinalTail.uncertain``) rather than clip a sound: the caller logs it and the ending needs listening. v0.7.0: so does a
+recording that stops while still sounding (``FinalTail.abrupt``: sound at -60 dBFS in its last window) -- the policy did
+not cut it and adds nothing to it, but the audio it was given may already end mid-sound. Thresholds are measurement
+candidates, not proof that amplitude identifies speech; owner listening stays the acceptance test.
 
 Pure numpy, no I/O, no model imports: importing it costs nothing for the engines that use it.
 """
@@ -104,15 +106,38 @@ class FinalTail:
         return (len(self.pcm) - self.nominal_end) * 1000.0 / self.sample_rate
 
     @property
+    def abrupt(self) -> bool:
+        """The recording stops while still sounding: sound at -60 dBFS reaches its last window (less than one 10 ms
+        window of quieter audio follows it). Nothing here cuts that -- this policy never removes sound -- but a final
+        phoneme, release or breath may have been cut where the audio was made, so the ending needs listening (v0.7.0:
+        Qwen3 Aiden's "lamp" ends in a 30 ms burst cut at the end of the file)."""
+        return self.nominal_end > 0 and self.tail_ms < WINDOW_MS
+
+    @property
+    def final_window_dbfs(self) -> float:
+        """The RMS level of the last 10 ms of the kept PCM, loudest channel (-inf for digital silence)."""
+        frames, full_scale = _frames(self.pcm)
+        win = max(1, int(round(self.sample_rate * WINDOW_MS / 1000)))
+        tail = frames[-win:].astype(np.float64) / full_scale
+        if tail.size == 0:
+            return float("-inf")
+        rms = float(np.sqrt(np.mean(tail * tail, axis=0)).max())
+        return 20 * float(np.log10(rms)) if rms > 0 else float("-inf")
+
+    @property
     def uncertain(self) -> bool:
-        """Nothing identifiable as sound, or quiet sound kept beyond the budget: the ending needs listening."""
-        return self.nominal_end == 0 or self.tail_ms > BUDGET_MS
+        """Nothing identifiable as sound, quiet sound kept beyond the budget, or a recording that stops while still
+        sounding: the ending needs listening."""
+        return self.nominal_end == 0 or self.tail_ms > BUDGET_MS or self.abrupt
 
     def summary(self) -> str:
         before = (self.original_samples - self.nominal_end) * 1000.0 / self.sample_rate
         if self.nominal_end == 0:
             return (f"Final tail: no sound reached {NOMINAL_THRESHOLD_DBFS:.0f} dBFS, so the ending was left "
                     f"unchanged; please listen to it.")
+        if self.abrupt:
+            return (f"Final tail: the recording stops while still sounding (its last {WINDOW_MS} ms are at "
+                    f"{self.final_window_dbfs:.0f} dBFS); nothing was added or removed; please listen to the ending.")
         if self.uncertain:
             return (f"Final tail: quiet sound continues {self.tail_ms / 1000:.2f} s after the last clearly audible "
                     f"sound; kept in full (over the {BUDGET_MS / 1000:.2f} s target); please listen to the ending.")
