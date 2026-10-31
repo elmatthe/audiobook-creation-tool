@@ -35,6 +35,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - **Changed:** a narration that stops while still sounding (Qwen3 Aiden) is now flagged in the run log for listening
   ("please listen to the ending"); nothing is added to or removed from the audio.
 - **Changed:** `verify.py`'s deps gate also checks the lock against `requirements.txt`.
+- **Fixed:** Clear Downloaded Data can clear the Python environment on a computer whose only Python is the app's
+  own (`filesuntime-data\python`): the post-exit cleanup refused every interpreter inside the app's folder.
+- **Fixed:** a package that will not import because a dependency's files are gone (its metadata left behind) is
+  repaired by reinstalling the whole lock from the verified package store, offline when the store is complete.
 
 ### v0.7.0 portable Windows setup — the app's own Python and FFmpeg, nothing installed on the computer (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
 

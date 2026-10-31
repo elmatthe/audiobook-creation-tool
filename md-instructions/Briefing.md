@@ -30,6 +30,8 @@
   `ensure_punkt` never downloads.
 - **Endings:** `audio_tail.FinalTail.abrupt` flags a recording that stops while still sounding ("please listen").
 - **Stage 0:** hashes with .NET; the launcher clears `PSModulePath` for it (PowerShell 7 windows).
+- **Cleanup:** the post-exit coordinator may run on the app's own base Python (`shared/cleanup_state.py`,
+  `APP_BASE_PYTHON_PARTS`), the only interpreter a clean portable install has.
 - Decision record: `Decisions.md` 2026-10-31. Live state and evidence: `Handoff.md`.
 
 ## v0.6.7 final implementation and Windows qualification (2026-10-20, HOME-PC) — unreleased, identity 0.6.6

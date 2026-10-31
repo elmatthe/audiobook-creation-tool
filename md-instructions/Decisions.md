@@ -48,6 +48,11 @@ supersedes the AUD-010 deferral of main-stack transitive pinning (P04C closing s
 - *Stage 0.* Hashes with .NET instead of `Get-FileHash`, and the launcher clears `PSModulePath` for its stage-0 call:
   started from a PowerShell 7 window, Windows PowerShell 5.1 inherited PowerShell 7's module path, could not load
   `Get-FileHash`, and stopped after downloading Python (found by the isolated qualification).
+- *Cleanup.* The post-exit Clear Downloaded Data coordinator may run on the app's own base Python
+  (`files/runtime-data/python/python.exe`, outside `.venv` and every cleanup target); every other interpreter inside
+  the folder stays refused. Without it, a computer whose only Python is the app's could not clear `.venv` (found by
+  the 3.12.15 qualification). A required import that fails after install reinstalls the whole lock from the store
+  (a dependency whose files are gone but whose metadata remains is "already satisfied" to pip).
 
 **Not chosen.** `--no-cache-dir` alone (no reuse, no offline repair); pip's HTTP cache moved into the folder as the only
 store (index pages expire, so it cannot repair offline); pip-tools or uv for the lock (a new dependency for what pip's
