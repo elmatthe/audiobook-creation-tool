@@ -2,6 +2,51 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 portability and reproducibility remediation: review MAJOR 1–3 fixed, ending diagnostic added, new Windows RC qualified in an isolated profile; NOT merged/tagged/published (2026-10-31, Claude Code)
+
+Authority: owner directive 2026-10-31 (fix the three MAJORs of `VERIFICATION-REVIEW-9b1349e`). Decision record:
+`Decisions.md` 2026-10-31. Evidence (ignored): `files/dev-work/act070-portability/` (`qa-run.jsonl`, `evidence/`,
+`RC-QUALIFICATION-PORTABILITY.md`).
+
+- **Done:** (1) every base pip command keeps its cache in the folder (`shared/base_packages`; pip ignores a redirected
+  LOCALAPPDATA); (2) NLTK `punkt_tab` English data is pinned and verified in `files/runtime-data/nltk_data`, fetched by
+  setup or after a Yes at Create, never by `ensure_punkt`; (3) `scripts/requirements-lock-windows-py312.txt` locks all
+  170 packages by SHA-256, installed only via the store `files/runtime-data/python-packages` (no pip upgrade);
+  (4) `audio_tail` flags an ending that stops mid-sound. Found and fixed on the way: stage 0 under a PowerShell 7
+  window (`Get-FileHash`); a dependency damaged below its metadata (whole-lock reinstall from the store); Clear
+  Downloaded Data refusing the app's own base Python as the cleanup interpreter.
+- **HOME-PC `.venv`** reconciled to the lock through the app's own path (only `filelock` 4.2.4 → 4.2.5); its store and
+  sentence data are installed; global pip cache unchanged.
+- **Isolated qualification on CPython 3.12.15** (`files/dev-work/pq2`, PATH = Windows dirs, USERPROFILE/APPDATA/
+  LOCALAPPDATA/TEMP in a fake profile, PowerShell 7 module path inherited): stage 0; real wizard, base only, COLD
+  locked install from PyPI (170 artifacts, 505 MB) + the app's FFmpeg + sentence data; Edge Aria, Kokoro Heart,
+  Chatterbox Female 1 narrated (150 ms endings); sentence data removed → No (nothing created), Yes offline (refused,
+  nothing changed), Kokoro (never asked), Yes online (fetched, verified, narrated); `numpy` damaged → real repair with
+  the network blocked from the store (127 s) → Kokoro George + Chatterbox Male 4 narrated offline. Every step: the real
+  `%LOCALAPPDATA%\pip\cache` (3233 files) and `%APPDATA%\nltk_data` unchanged, no other real-profile change.
+- **Gate:** `verify.py` **RESULT: PASS on `3a91056`** (`files/dev-work/act070-remediation/verify/FINAL-3a91056-run1`,
+  HOME-PC `.venv` = CPython 3.12.10): pytest 12,645 passed / 63 skipped / 0 failed; guarded 457 + 75; deps 170 locked;
+  tree unchanged. On the bundled 3.12.15: full suite on `dc3fede` 12,641 passed, focused suites on `3a91056` 388
+  passed; the only failures (2, then 1) assert the running interpreter is outside the developer repo, which a QA copy
+  under `files/dev-work` cannot be (one exposed the cleanup defect fixed in `f5c9e8a`).
+- **RC:** `dist/AudiobookTool-Windows-v0.7.0.zip` from `3a91056`, SHA-256 `c6264fc3…7c07`, 159 members = `git show
+  3a91056` (0 content differences), developer_mode false. The previous candidate was renamed, unchanged, to
+  `-0b29606.zip` (`927fbea5…`). Qualified from a fresh extract (`rc4`, empty fake profile, 3.12.15, models copied
+  from p1): stage 0; cold wizard (store from PyPI, FFmpeg, sentence data); Edge Jenny, Kokoro Bella, Chatterbox
+  Female 2; healthy repair and `numpy` damaged → repair, both offline; real Clear Python environment (2.49 GB freed,
+  coordinator on the app's own Python); offline rebuild; Kokoro Fenrir + Chatterbox Male 3 offline. All PASS, endings
+  150 ms, real pip cache / `nltk_data` unchanged, nothing of ACT's in the real profile, the fake profile left empty.
+- **Correction:** the 2026-10-30 p1 run below was NOT a cold-cache or clean-profile run (pip used HOME-PC's warm cache
+  via the known-folder API; `%APPDATA%\nltk_data` was HOME-PC's). The genuinely cold, isolated base installs are pq2,
+  pr3 and rc4 above; the old evidence files are kept unchanged.
+- **MANUAL / NOT RUN (owner):** physical clean Windows 10/11 standard user with a browser-downloaded ZIP (Mark of the
+  Web, SmartScreen, SAC without reputation), literal double-click and consent dialogs; moving/renaming the extracted
+  folder (absolute `pyvenv.cfg` paths); Qwen3 Aiden ending (now flagged "please listen") and all-28 listening; display
+  scaling; long paths disabled. Qwen3 engine install not re-run (code unchanged, separate hash lock).
+- **Open (minor):** `--venv-check` does not see a package whose files are gone (the launch import proof and repair do);
+  `dist/SHA256SUMS.txt` still lists 0.6.6 only (a publication step).
+- **Next:** owner acceptance testing on the new RC and the manual list; merge/tag/release only on owner approval.
+
 ## CURRENT STATE — v0.7.0 independent release-blocker review of `9b1349e` (code `0b29606`): no BLOCKER; owner acceptance testing may start; NOT publicly release-ready (2026-10-31, Claude Code Opus 5.5, verifier)
 
 - Report (ignored): `files/dev-work/act070-rc/evidence/VERIFICATION-REVIEW-9b1349e.md`. Not model-independent: the
@@ -47,7 +92,9 @@ Branch `feature/0.7.0-release-remediation` (exact SHA: `git log`). Evidence (ign
   fresh extract → real wizard, all four → 14.8 GB genuine download → 28/28 voices narrated (`<stem>-<label>.mp3`, tails
   140–160 ms; Qwen3 0–80 ms = model's own ending). Superseded by the portable RC (Handoff Next).
 - **Portable dev ZIP `1935bfc` (+ synced fixes) on a stripped environment** (PATH = Windows dirs only, empty
-  LOCALAPPDATA: no Python/FFmpeg/winget visible, cold pip cache): stage 0 downloaded + proved the app's own Python
+  LOCALAPPDATA: no Python/FFmpeg/winget visible; NOT a cold pip cache or clean profile, corrected 2026-10-31: pip
+  and NLTK still used HOME-PC's real `%LOCALAPPDATA%\pip\cache` and `%APPDATA%\nltk_data`):
+  stage 0 downloaded + proved the app's own Python
   (also after a killed download), base built on it, the app's own FFmpeg installed into `files/bin`, all four installed,
   **28/28 voices narrated**; root holds only `.venv`, `files`, `scripts` + root files. All optional skipped (another
   copy) → base only → app launched. Non-TTS GUI smoke: six tools ×2 + Preferences, no errors, no output created.
