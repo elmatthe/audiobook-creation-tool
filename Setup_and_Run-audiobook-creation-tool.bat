@@ -79,6 +79,10 @@ set "PYCMD="
 set "PYFILE=files\temp\bootstrap\selected-python.txt"
 if not exist "files\temp\bootstrap" mkdir "files\temp\bootstrap"
 if exist "%PYFILE%" del /q "%PYFILE%"
+REM Windows PowerShell 5.1 must load its own modules: a PowerShell 7 module path inherited from the window this file
+REM was started in stops some of them loading (Get-FileHash, found 2026-10-31). Without the variable, 5.1 uses its
+REM defaults. Local to this file (setlocal above).
+set "PSModulePath="
 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\shared\bootstrap_host.ps1" -OutFile "%PYFILE%"
 set "HOSTRC=%errorlevel%"
 if "%HOSTRC%"=="2" (

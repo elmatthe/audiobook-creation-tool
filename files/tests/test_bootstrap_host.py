@@ -136,6 +136,47 @@ def test_a_tampered_archive_is_rejected_before_anything_is_unpacked(tmp_path):
     assert not (app / "files" / "runtime-data").exists()
 
 
+def test_stage_zero_hashes_without_a_module_cmdlet_and_the_launcher_clears_an_inherited_module_path():
+    """2026-10-31: started from a PowerShell 7 window, Windows PowerShell 5.1 inherits PowerShell 7's PSModulePath and
+    cannot load Get-FileHash, so stage 0 downloaded Python and then failed. It now hashes with .NET, and the launcher
+    clears the variable for its stage-0 call (5.1 then uses its own module path)."""
+    assert "Get-FileHash" not in TEXT.replace("not Get-FileHash", "")
+    assert "[System.Security.Cryptography.SHA256]::Create()" in TEXT
+    cleared = LAUNCH.index('set "PSModulePath="')
+    assert cleared < LAUNCH.index('powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\\shared\\bootstrap_host.ps1"')
+    assert LAUNCH.index("setlocal EnableExtensions") < cleared, "local to the launcher, never the user's session"
+
+
+def _powershell7_module_path() -> str:
+    """A PSModulePath as PowerShell 7 hands it down (its own folders first), from this machine where possible."""
+    import os
+
+    folders = [p for p in os.environ.get("PSModulePath", "").split(";") if p and "WindowsPowerShell" not in p]
+    for candidate in (r"C:\Program Files\PowerShell\7\Modules", r"C:\Program Files\PowerShell\Modules"):
+        if Path(candidate).is_dir() and candidate not in folders:
+            folders.append(candidate)
+    return ";".join([*folders, r"C:\Windows\system32\WindowsPowerShell\v1.0\Modules"])
+
+
+@windows_only
+def test_a_right_sized_archive_with_the_wrong_hash_is_rejected_by_its_sha256_under_a_powershell7_module_path(tmp_path):
+    import os
+
+    app = stage_zero_copy(tmp_path)
+    fake = tmp_path / "cpython.tar.gz"
+    with open(fake, "wb") as handle:
+        handle.truncate(46352482)  # the pinned size, so only the SHA-256 can refuse it
+    out = tmp_path / "selected.txt"
+    env = {**os.environ, "PSModulePath": _powershell7_module_path()}
+    result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                             str(app / "scripts" / "shared" / SCRIPT.name), "-OutFile", str(out), "-AssumeYes",
+                             "-ArchivePath", str(fake)], capture_output=True, text=True, timeout=180, env=env)
+    assert result.returncode == 3 and not out.exists(), result.stdout + result.stderr
+    assert re.search(r"its SHA-256 is [0-9A-F]{64}, not the pinned", result.stdout), result.stdout
+    assert "not recognized" not in result.stdout
+    assert not (app / "files" / "runtime-data").exists()
+
+
 @windows_only
 def test_a_broken_copy_of_the_apps_python_is_not_used(tmp_path):
     app = stage_zero_copy(tmp_path)

@@ -102,11 +102,24 @@ function Ask-Consent {
     }
 }
 
+function Get-Sha256([string]$Path) {
+    # .NET directly, not Get-FileHash: that cmdlet comes from a module, and a PowerShell 7 module path inherited from
+    # the window the launcher was started in makes Windows PowerShell 5.1 fail to load it (found 2026-10-31).
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { $bytes = $sha.ComputeHash($stream) } finally { $sha.Dispose() }
+    } finally {
+        $stream.Dispose()
+    }
+    return -join ($bytes | ForEach-Object { $_.ToString('X2') })
+}
+
 function Test-Archive([string]$Path) {
     # The pinned size and SHA-256 decide (the build is not code-signed, so its hash is its identity).
     $item = Get-Item -LiteralPath $Path
     if ($item.Length -ne $ArchiveSize) { return "it is $($item.Length) bytes, not $ArchiveSize" }
-    $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    $hash = Get-Sha256 $Path
     if ($hash -ne $ArchiveSha256) { return "its SHA-256 is $hash, not the pinned $ArchiveSha256" }
     return $null
 }
