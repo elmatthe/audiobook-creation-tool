@@ -4,6 +4,66 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-31 - The app environment installs only from a complete hash lock through a verified local store; pip and NLTK stay inside the app folder; an ending that stops mid-sound is flagged (v0.7.0 portability remediation)
+
+**Context.** The independent review of `9b1349e` (ignored `files/dev-work/act070-rc/evidence/VERIFICATION-REVIEW-9b1349e.md`)
+found three release-readiness MAJORs and one diagnostic gap: the base `pip install` left its cache in
+`%LOCALAPPDATA%\pip\cache` (pip finds that folder through the Windows known-folder API, so redirecting `LOCALAPPDATA`
+does not move it); `ensure_punkt` called `nltk.download` at the start of every narration (unhashed, unconsented, into
+`%APPDATA%\nltk_data`); 112 of the 170 base packages and `pip install --upgrade pip` were unpinned and unhashed; and the
+final-tail policy reported an ending cut mid-sound (Qwen3 Aiden) as "0.00 s; nothing removed". Owner directive
+2026-10-31: resolve them without disturbing the engines, installer, recovery, 28 voices or non-TTS tools. This
+supersedes the AUD-010 deferral of main-stack transitive pinning (P04C closing state).
+
+**Decision.**
+- *One lock.* `scripts/requirements-lock-windows-py312.txt` names every package of the app environment for Windows
+  x86-64 CPython 3.12 at one version, with the SHA-256 of the one artifact pip installs there (170 packages; two have
+  no wheel: `docopt`, `antlr4-python3-runtime`). It freezes the versions the qualified portable install p1 proved (28/28
+  voices; the only difference from HOME-PC's gate environment was `filelock` 4.2.5 vs 4.2.4) and is generated, never
+  hand-edited, by `files/dev-tools/lock_base_requirements.py` with pip's own resolver (`--dry-run --report` under those
+  versions as constraints; refused unless the resolution is exactly the proven set). It records the SHA-256 of
+  `requirements.txt`, which stays the human-maintained list; `verify.py`'s deps gate fails on a stale, incomplete or
+  loosened lock, and a test proves the lock closed and minimal under the packages' own dependency metadata and the gate
+  environment identical to it.
+- *One installer.* `bootstrap.install_base_packages` serves setup, repair, the drift reconcile and the Kokoro/Chatterbox
+  self-heals: the locked setuptools first, then every artifact fetched with `pip download --require-hashes --no-deps
+  --no-build-isolation` into `files/runtime-data/python-packages` (kept; pruned to the lock), then `pip install
+  --no-index --find-links <store> --require-hashes --no-build-isolation` with dependencies checked, so a package the
+  lock does not name cannot be installed. A complete store repairs without the network; a kept file that fails its hash
+  is fetched once more. pip is never upgraded: the environment keeps its base Python's `ensurepip` pip (25.0.1 for the
+  pinned 3.12.15). Another interpreter installs `requirements.txt` under the same policy.
+- *One pip policy* (`shared/base_packages.pip_environment`): no inherited `PIP_*`/`PYTHON*`/activation variables,
+  `PIP_CONFIG_FILE` = the null device, `PIP_CACHE_DIR` = `files/runtime-data/pip-cache`, no version check, no prompts;
+  the locked commands also pass `--no-cache-dir` (the store is the cache). The Qwen3 engine (`--isolated
+  --no-cache-dir`, offline, hash-locked) and the spaCy restore (`--isolated --no-cache-dir --no-index`) keep their own.
+- *Sentence data* (`shared/nltk_store`). nltk 3.9.4 needs only `tokenizers/punkt_tab/english/` (four files). The archive
+  is pinned at nltk_data commit `4f15a3d` (4,319,076 bytes, SHA-256 `e57f6418…0106`, the SHA-256 NLTK's own index
+  publishes) and the four files are pinned and re-checked before use. NLTK searches only `files/runtime-data/nltk_data`.
+  It is fetched by first-run setup (named in the wizard text the person accepts with Begin Setup; a failure is not
+  fatal), otherwise only after a Yes at Create for an Edge run of a directly added file; `ensure_punkt` never downloads,
+  and the Edge folder route, Kokoro, Chatterbox and Qwen3 never depend on it.
+- *Endings.* `FinalTail.abrupt` (sound at -60 dBFS within the last 10 ms window) makes the ending `uncertain`, so every
+  route's run log says "please listen". Nothing is added or removed, and Qwen3 sampling is unchanged: Aiden stays an
+  owner-listening case.
+- *Stage 0.* Hashes with .NET instead of `Get-FileHash`, and the launcher clears `PSModulePath` for its stage-0 call:
+  started from a PowerShell 7 window, Windows PowerShell 5.1 inherited PowerShell 7's module path, could not load
+  `Get-FileHash`, and stopped after downloading Python (found by the isolated qualification).
+
+**Not chosen.** `--no-cache-dir` alone (no reuse, no offline repair); pip's HTTP cache moved into the folder as the only
+store (index pages expire, so it cannot repair offline); pip-tools or uv for the lock (a new dependency for what pip's
+own resolver report already gives); hashes of every file of each release (one artifact is stricter, and pip filters
+candidates to the allowed hashes); bundling `punkt_tab` in the release ZIP (redistribution not reviewed; the owner asked
+for a consented, verified acquisition); padding or fading an abrupt ending (the policy never adds audio, Q1).
+
+**Consequences.** Every existing installation reconciles once at its next launch (the requirements fingerprint now
+covers the lock): about 505 MB is fetched into its store and only differing packages change (HOME-PC 2026-10-31:
+`filelock` only). Editing `requirements.txt` requires regenerating the lock. A new package without a wheel must be
+reviewed (a test lists the two). The store uses about 505 MB of disk inside the folder.
+
+Signed: Claude Code (Opus 5.5), under the owner directive of 2026-10-31.
+
+---
+
 ## 2026-10-25 - Optional voices are acquired only from pinned identities, under a spent consent, and inference loads only verified local copies; Chatterbox's unused s3gen file is dropped (v0.7.0 P05B Stage 2)
 
 Plan Revision 2 §5.4 and §6 / P05B; owner spaCy ruling 2026-10-25; recorded by Claude Code.

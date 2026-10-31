@@ -15,6 +15,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 portability and reproducibility remediation (2026-10-31) — identity 0.7.0; NOT published, tagged or merged
+
+- **Changed:** the app environment installs only from `scripts/requirements-lock-windows-py312.txt`: all 170 packages
+  (transitive ones included) at the versions the qualified portable install proved, each with the SHA-256 of the one
+  artifact pip installs on Windows x86-64 CPython 3.12. Setup, repair and the Kokoro/Chatterbox self-heals fetch every
+  artifact into `files/runtime-data/python-packages` (hash-checked) and install from there alone, so a repair works
+  offline and no resolver can bring in a newer build. pip itself is no longer upgraded.
+- **Fixed:** pip's cache no longer lands in the user's profile (`%LOCALAPPDATA%\pip\cache`): every ACT pip command runs
+  with no inherited pip settings or configuration file and its cache inside the app's folder.
+- **Fixed:** the Edge voices' English sentence data (NLTK `punkt_tab`) is no longer downloaded silently into the user's
+  profile at the start of every narration. It is pinned (nltk_data commit, size, SHA-256), kept in
+  `files/runtime-data/nltk_data` (the only folder NLTK reads), fetched by first-run setup or — if missing — only after
+  a Yes when an Edge narration starts; a missing copy gives a message saying what to do. Kokoro, Chatterbox and Qwen3
+  never need it.
+- **Fixed:** starting `Setup_and_Run-audiobook-creation-tool.bat` from a PowerShell 7 window no longer breaks stage 0
+  (Windows PowerShell 5.1 could not load `Get-FileHash` from the inherited module path and stopped after downloading
+  Python).
+- **Changed:** a narration that stops while still sounding (Qwen3 Aiden) is now flagged in the run log for listening
+  ("please listen to the ending"); nothing is added to or removed from the audio.
+- **Changed:** `verify.py`'s deps gate also checks the lock against `requirements.txt`.
+
 ### v0.7.0 portable Windows setup — the app's own Python and FFmpeg, nothing installed on the computer (2026-10-30) — identity 0.7.0; NOT published, tagged or merged
 
 - **Changed:** Windows setup no longer installs Python on the computer (the python.org per-user installer and the winget

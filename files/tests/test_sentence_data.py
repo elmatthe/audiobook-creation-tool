@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 from shared import bootstrap, nltk_store
+from source_probe import application_python_files
 from tts import epub2tts_gui as panel_module
 from tts.epub2tts_edge import epub2tts_edge as engine
 
@@ -120,7 +121,7 @@ def test_a_junction_below_the_app_folder_is_refused(tmp_path, _sentence_data_for
 
 
 def test_no_shipped_module_downloads_nltk_data():
-    for path in SCRIPTS.rglob("*.py"):
+    for path in application_python_files():  # the one definition of the shipped source
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in ("download", "downloader") and \

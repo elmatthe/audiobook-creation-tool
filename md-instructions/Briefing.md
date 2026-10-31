@@ -16,6 +16,22 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
+## v0.7.0 portability and reproducibility (2026-10-31) — identity 0.7.0, NOT merged/tagged/published
+
+- **Dependencies:** `scripts/requirements.txt` is the human-maintained list; `scripts/requirements-lock-windows-py312.txt`
+  is the generated, hash-pinned freeze of the whole app environment for Windows x86-64 CPython 3.12 (170 packages,
+  regenerate with `files/dev-tools/lock_base_requirements.py` after any change to `requirements.txt`; `verify.py`'s
+  deps gate enforces it). `shared/base_packages.py` holds the lock rules and the one pip policy; `bootstrap.
+  install_base_packages` is the only installer (setup, repair, drift reconcile, Kokoro/Chatterbox self-heal): locked
+  setuptools, then hash-checked download into `files/runtime-data/python-packages`, then `--no-index` install from that
+  store. pip is never upgraded. pip's cache, when used at all, is `files/runtime-data/pip-cache`.
+- **Sentence data:** `shared/nltk_store.py` — the Edge rich route's NLTK `punkt_tab` English files, pinned and verified
+  in `files/runtime-data/nltk_data` (the only folder NLTK reads); fetched by first-run setup or after consent at Create;
+  `ensure_punkt` never downloads.
+- **Endings:** `audio_tail.FinalTail.abrupt` flags a recording that stops while still sounding ("please listen").
+- **Stage 0:** hashes with .NET; the launcher clears `PSModulePath` for it (PowerShell 7 windows).
+- Decision record: `Decisions.md` 2026-10-31. Live state and evidence: `Handoff.md`.
+
 ## v0.6.7 final implementation and Windows qualification (2026-10-20, HOME-PC) — unreleased, identity 0.6.6
 
 The feature branch `feature/0.6.7-speech-pipeline-and-layout` holds v0.6.7. It is NOT merged, tagged or released, and `version.py` still says 0.6.6 (the bump waits for an approved

@@ -2635,12 +2635,12 @@ class TtsPanel(ttk.Frame):
 
     def _fetch_sentence_data(self) -> str:
         """Run :meth:`_download_sentence_data` behind a small modal window. Returns "" or why it failed."""
-        state: dict = {}
-        cancelled = threading.Event()
+        # A plain flag, not another threading.Event: this module's two events are the run's busy and retirement flags.
+        state: dict = {"cancel": False}
 
         def work() -> None:
             try:
-                self._download_sentence_data(cancelled.is_set)
+                self._download_sentence_data(lambda: state["cancel"])
             except nltk_store.SentenceDataError as exc:
                 state["error"] = str(exc)
             except Exception as exc:  # noqa: BLE001 - reported to the person, never swallowed
@@ -2656,10 +2656,10 @@ class TtsPanel(ttk.Frame):
                   padding=(16, 16, 16, 8)).pack()
         bar = ttk.Progressbar(top, mode="indeterminate", length=300)
         bar.pack(padx=16, pady=(0, 8))
-        cancel_button = ttk.Button(top, text="Cancel", command=lambda: (cancelled.set(),
+        cancel_button = ttk.Button(top, text="Cancel", command=lambda: (state.__setitem__("cancel", True),
                                                                          cancel_button.state(["disabled"])))
         cancel_button.pack(pady=(0, 16))
-        top.protocol("WM_DELETE_WINDOW", cancelled.set)
+        top.protocol("WM_DELETE_WINDOW", lambda: state.__setitem__("cancel", True))
         bar.start(12)
         threading.Thread(target=work, daemon=True, name="sentence-data").start()
 

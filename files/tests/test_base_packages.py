@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from shared import base_packages, bootstrap
+from source_probe import application_python_files
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO_ROOT / "scripts"
@@ -180,7 +181,7 @@ def test_pip_is_never_upgraded_and_no_shipped_module_builds_an_unmanaged_pip_com
     # Every literal pip invocation in shipped code lives where its policy is pinned and tested.
     allowed = {"shared/base_packages.py", "shared/spacy_store.py", "shared/bootstrap.py"}
     found = set()
-    for path in SCRIPTS.rglob("*.py"):
+    for path in application_python_files():  # the one definition of the shipped source
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.List, ast.Tuple)):
