@@ -463,6 +463,36 @@ def test_an_interpreter_inside_the_project_is_never_chosen(tmp_path):
     assert chosen == mnt.absolute(outside)
 
 
+def test_the_apps_own_portable_base_python_is_the_one_exception_inside_the_project(tmp_path):
+    """v0.7.0 portable layout: on a computer with no other Python, the app's own base Python in
+    files/runtime-data/python is the only interpreter there is, and Clear Downloaded Data must still run (found by the
+    3.12.15 qualification, 2026-10-31). Every other path inside the project stays refused."""
+    root = fake_root(tmp_path)
+    portable = root / "files" / "runtime-data" / "python" / "python.exe"
+    write(portable, b"")
+    refused = [root / ".venv" / "Scripts" / "python.exe", root / "files" / "bin" / "python.exe",
+               root / "files" / "runtime-data" / "python2" / "python.exe",
+               root / "files" / "runtime-data" / "models" / "python" / "python.exe", root / "python.exe"]
+    for path in refused:
+        write(path, b"")
+    assert state.find_non_venv_python(root, candidates=[*refused, portable], probe=lambda _p: True) == \
+        mnt.absolute(portable)
+    assert state.find_non_venv_python(root, candidates=refused, probe=lambda _p: True) is None
+    assert state.find_non_venv_python(root, candidates=[portable], probe=lambda _p: False) is None, \
+        "it must still prove it is not a virtual environment"
+
+
+def test_the_portable_base_python_is_bootstraps_and_no_cleanup_target_holds_it(tmp_path):
+    from shared import bootstrap
+
+    assert bootstrap.APP_PYTHON.relative_to(bootstrap.REPO_ROOT).parts == state.APP_BASE_PYTHON_PARTS
+    root = fake_root(tmp_path)
+    portable = state.app_base_python(root)
+    for asset in mnt.CATALOG:
+        target = root / asset.relative_target
+        assert not mnt.same_path(target, portable) and not mnt.is_within(target, portable), asset.asset_id
+
+
 def test_an_interpreter_that_reports_itself_as_a_venv_is_rejected(tmp_path):
     root = fake_root(tmp_path)
     outside = tmp_path / "system" / "python.exe"

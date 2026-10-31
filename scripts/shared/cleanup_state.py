@@ -579,17 +579,31 @@ def interpreter_candidates() -> list[Path]:
     return ordered
 
 
-def find_non_venv_python(repo_root, *, candidates=None, probe=None):
-    """A Python outside the project folder that says it is not a venv.
+#: v0.7.0 portable layout (Windows): the app's own base Python, placed by setup's stage 0 -- kept in step with
+#: ``bootstrap.APP_PYTHON``. It lies outside ``.venv`` and outside every cleanup target, so the coordinator may run on it.
+APP_BASE_PYTHON_PARTS = ("files", "runtime-data", "python", "python.exe")
 
-    Anything inside the repository is rejected outright — that is exactly the
-    interpreter about to be deleted — before the candidate is even probed.
+
+def app_base_python(repo_root) -> Path:
+    return maintenance.absolute(repo_root).joinpath(*APP_BASE_PYTHON_PARTS)
+
+
+def find_non_venv_python(repo_root, *, candidates=None, probe=None):
+    """A Python that says it is not a venv and that the cleanup cannot remove.
+
+    Anything inside the repository is rejected outright — that is where the
+    interpreter about to be deleted lives — before the candidate is even probed,
+    with one exact exception: the app's own base Python of the v0.7.0 portable
+    layout (:func:`app_base_python`), which on a computer with no other Python is
+    the only one there is. No cleanup target contains it.
     """
     root = maintenance.absolute(repo_root)
+    portable_base = app_base_python(root)
     check = probe if probe is not None else _probe_is_non_venv
     for candidate in (interpreter_candidates() if candidates is None else candidates):
         path = maintenance.absolute(candidate)
-        if maintenance.same_path(path, root) or maintenance.is_within(root, path):
+        inside = maintenance.same_path(path, root) or maintenance.is_within(root, path)
+        if inside and not maintenance.same_path(path, portable_base):
             continue
         if not path.exists():
             continue
