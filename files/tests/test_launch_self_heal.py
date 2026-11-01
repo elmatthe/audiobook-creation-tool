@@ -279,10 +279,12 @@ def test_the_post_repair_handoff_returns_to_the_same_orchestration():
     calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
              and isinstance(n.func, ast.Name)
              and n.func.id == "_launch_with_kokoro_healthcheck"]
-    assert len(calls) == 1
-    keywords = {kw.arg: kw.value for kw in calls[0].keywords}
-    assert "allow_repair_handoff" in keywords
-    assert keywords["allow_repair_handoff"].value is False
+    # After a repair, and (v0.7.0 D3) after a failed repair of an environment that still runs: never another handoff.
+    assert len(calls) == 2
+    for call in calls:
+        keywords = {kw.arg: kw.value for kw in call.keywords}
+        assert "allow_repair_handoff" in keywords
+        assert keywords["allow_repair_handoff"].value is False
 
 
 def test_the_normal_launch_now_reaches_provisioning():

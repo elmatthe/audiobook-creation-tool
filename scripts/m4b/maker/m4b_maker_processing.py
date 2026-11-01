@@ -9,10 +9,9 @@ plus explicit dependencies — the work root it may stage under, the frozen
 Fast-first option, a cancellation checkpoint and an event listener.
 
 What moved verbatim from ``m4b_maker.py``: the ffmetadata builder with its
-chapter lead-in and minimum length, the concat-list writer, WAV normalisation,
-silence generation, the two duration probes and the two start/total
-calculations, and the FAST and Safe concat commands. Two things changed
-deliberately:
+minimum chapter length, the concat-list writer, WAV normalisation, silence
+generation, the duration probes and the two start/total calculations, and the
+FAST and Safe concat commands. Two things changed deliberately:
 
 - **Artwork is no longer an FFmpeg input.** The cover is applied to the
   *staged* M4B afterwards through the Phase 1 ``m4b_artwork`` service (mutagen
@@ -29,7 +28,31 @@ tracks, never after the last); otherwise FAST is tried when Fast-first is on
 and a FAST failure falls back to Safe automatically with the reason emitted;
 Fast-first off means Safe. Chapter starts are computed from the sources'
 durations (FAST) or the normalised WAVs (Safe), and the final frozen titles are
-written through the ffmetadata file. Core metadata rides the same ffmetadata
+written through the ffmetadata file.
+
+Chapter marks sit exactly on the audible boundaries (v0.7.0 acceptance D4)
+---------------------------------------------------------------------------
+Each mark is where its chapter's first sample is in the published audio, and a
+chapter split at the marks (M4B Converter) gives back each source whole. Three
+things used to move the audio away from its marks, and each is handled at its
+cause rather than by an offset:
+
+- **No lead-in.** Marks were placed ``LEADIN_MS`` = 250 ms before each chapter
+  so a player's jump replayed a moment of the previous one; a split at those
+  marks cut the last 250 ms of every chapter onto the next ("claimed" →
+  "claims"). Seek slack is a player's business, not the book's timeline.
+- **AAC encoder priming.** The AAC encoder emits 1024 priming samples with
+  negative timestamps, which the MP4 muxer hides with an edit list.
+  ``-avoid_negative_ts make_zero`` (FAST) shifted them into the timeline, and
+  a resampled concat without regenerated timestamps (Safe, no silence) did the
+  same through a non-zero start: the audio then began 1024 samples after its
+  marks. Both concat commands now rebuild timestamps from the sample count
+  (``asetpts=N/SR/TB``) and keep the encoder's edit list.
+- **Exact durations.** FAST starts come from each source's fully decoded
+  length (:func:`decoded_duration_us`), not its header: an MP3 without a Xing
+  header reports a duration estimated from its first frame (189 ms short on a
+  7.3 s VBR test file). Safe starts come from the WAVs' frame counts, the
+  inserted silence included, and both are summed exactly and rounded once. Core metadata rides the same ffmetadata
 header; the manual Series Name / Series Part are written to the staged file
 with the shared ``metadata.write_m4b_tags``. **No success-driven series number
 is proposed, consumed or written here** — a plan whose Series Part is ``None``
@@ -70,7 +93,6 @@ __all__ = [
     "ProcessingError",
     "ProcessingEvent",
     "BookOutcome",
-    "LEADIN_MS",
     "WAV_SR",
     "WAV_CH",
     "WAV_FMT",
@@ -78,6 +100,7 @@ __all__ = [
     "build_ffmetadata_from_starts",
     "write_concat_list",
     "ffprobe_duration_ms",
+    "decoded_duration_us",
     "normalize_to_wav",
     "create_silence_wav",
     "wav_duration_ms",
@@ -95,7 +118,6 @@ __all__ = [
 ]
 
 # -------- tuning (moved from the panel) --------
-LEADIN_MS = 250
 WAV_SR = 44100
 WAV_CH = 2
 WAV_FMT = "s16"
@@ -188,8 +210,36 @@ def ffprobe_duration_ms(p: Path) -> int:
     return max(int(round(float(dur) * 1000)), 0)
 
 
+def decoded_duration_us(p: Path) -> int:
+    """The length of *p*'s first audio stream as FFmpeg decodes it, in microseconds: exactly what the FAST concat
+    contributes to the book (the decoder's gapless trimming applied, timestamps rebuilt from the sample count).
+
+    The same measured shape as the MP3 Tool's ``_decode_duration_seconds`` (this engine may not import it): the null
+    muxer discards the PCM and only the progress record reaches Python, about 1.4 s per hour of audio. Decode errors
+    are tolerated here as they are by the concat itself; a FAST concat that then fails falls back to Safe, which
+    measures its WAVs instead. Raises ``CalledProcessError`` when nothing could be decoded.
+    """
+    from subprocess import PIPE
+
+    cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-nostdin", "-v", "error", "-i", str(p),
+           "-map", "0:a:0", "-af", "asetpts=N/SR/TB", "-c:a", "pcm_s16le", "-f", "null", "-",
+           "-nostats", "-progress", "pipe:1"]
+    done = sp.run(cmd, stdout=PIPE, stderr=PIPE)
+    out = (done.stdout or b"").decode("utf-8", "replace")
+    progress = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    try:
+        microseconds = int(progress["out_time_us"])
+    except (KeyError, ValueError):
+        microseconds = -1
+    if done.returncode != 0 or progress.get("progress") != "end" or microseconds <= 0:
+        raise CalledProcessError(done.returncode or 1, cmd, output=done.stdout, stderr=done.stderr)
+    return microseconds
+
+
 def build_ffmetadata_from_starts(titles, starts_ms, meta, total_ms):
-    """Create ffmetadata with proper chapter ends (last chapter ends at total_ms-1)."""
+    """Create ffmetadata with proper chapter ends (last chapter ends at total_ms-1).
+
+    Each START is the chapter's first sample, exactly (see the module note on chapter marks)."""
     lines = [";FFMETADATA1"]
     lines += metadata.ffmetadata_header_lines(
         {
@@ -202,7 +252,7 @@ def build_ffmetadata_from_starts(titles, starts_ms, meta, total_ms):
 
     n = len(titles)
     for i in range(n):
-        start = max(starts_ms[i] - LEADIN_MS, 0)
+        start = max(starts_ms[i], 0)
         end = (starts_ms[i + 1] - 1) if (i + 1 < n) else (total_ms - 1)
         end = max(min(end, total_ms - 1), start + 100)  # >=100ms
         lines += [
@@ -306,29 +356,38 @@ def create_silence_wav(seconds: float, tmp_dir: Path) -> Path:
 
 
 def wav_duration_ms(wav_path: Path) -> int:
+    return int(round(_wav_seconds(wav_path) * 1000))
+
+
+def _wav_seconds(wav_path: Path) -> float:
     with contextlib.closing(wave.open(str(wav_path), "rb")) as w:
-        return int(round(w.getnframes() * 1000.0 / w.getframerate()))
+        return w.getnframes() / w.getframerate()
 
 
 def compute_starts_total_fast(files):
+    """(chapter starts in ms, total ms) of the FAST concat: decoded lengths summed exactly, each rounded once."""
     starts = []
-    t = 0
+    t_us = 0
     for p in files:
-        starts.append(t)
-        t += ffprobe_duration_ms(p)
-    return starts, t
+        starts.append(int(round(t_us / 1000)))
+        t_us += decoded_duration_us(p)
+    return starts, int(round(t_us / 1000))
 
 
-def compute_audio_starts_with_silence(wavs, silence_ms):
-    """Return (chapter_starts_ms_for_audio_only, total_ms_including_silence)."""
+def compute_audio_starts_with_silence(wavs, gap=None):
+    """Return (chapter_starts_ms_for_audio_only, total_ms_including_silence).
+
+    *gap* is the silence WAV placed between adjacent tracks (never after the last), or None. Its own frame count is
+    used, not the requested length, and the sum is kept exact and rounded once per value."""
+    gap_s = _wav_seconds(gap) if gap is not None else 0.0
     starts = []
-    t = 0
+    t = 0.0
     for i, w in enumerate(wavs):
-        starts.append(t)
-        t += wav_duration_ms(w)
+        starts.append(int(round(t * 1000)))
+        t += _wav_seconds(w)
         if i < len(wavs) - 1:
-            t += silence_ms
-    return starts, t
+            t += gap_s
+    return starts, int(round(t * 1000))
 
 
 # --------------------------------------------------------------------------- #
@@ -352,7 +411,10 @@ def safe_concat_args(audio_list_path, ffmeta_path, out_path, bitrate) -> list[st
         str(ffmeta_path),
     ]
     maps = ["-map_metadata", "1", "-map_chapters", "1", "-map", "0:a:0"]
-    cmd += maps + [
+    # Timestamps rebuilt from the sample count, as FAST does: without it a resampled concat of the original files
+    # (Fast-first off, no inserted silence) starts at the first source's decoder delay, so the encoder's priming
+    # lands inside the timeline and the audio runs 1024 samples behind the chapter marks (v0.7.0 D4).
+    cmd += maps + ["-filter:a", "asetpts=N/SR/TB,aresample=async=1:first_pts=0"] + [
         "-c:a",
         "aac",
         "-b:a",
@@ -372,8 +434,13 @@ def fast_concat_args(audio_list_path, ffmeta_path, out_path, bitrate) -> list[st
     # IMPORTANT: declare ALL inputs first, then output options. ffmpeg scopes an
     # option to the next file token, so an output-only option placed before an
     # input is wrongly parsed as an input option. ``-fflags +genpts`` stays an
-    # input option on the concat demuxer (before its ``-i``); ``-filter:a`` and
-    # ``-avoid_negative_ts`` are output options.
+    # input option on the concat demuxer (before its ``-i``); ``-filter:a`` is an
+    # output option.
+    #
+    # No ``-avoid_negative_ts make_zero`` (v0.7.0 D4): the AAC encoder's 1024
+    # priming samples carry negative timestamps that the MP4 muxer hides with an
+    # edit list. Shifting them to zero made them part of the book, so every
+    # chapter's audio started 1024 samples after its mark.
     cmd = [
         ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
@@ -398,8 +465,6 @@ def fast_concat_args(audio_list_path, ffmeta_path, out_path, bitrate) -> list[st
         "aac",
         "-b:a",
         bitrate,
-        "-avoid_negative_ts",
-        "make_zero",
         "-movflags",
         "+faststart",
         str(out_path),
@@ -589,7 +654,7 @@ def stage_book(book: BookPlan, *, work_root: Path, fast_first: bool,
                 seq.append(w)
                 if i < len(wavs) - 1:
                     seq.append(gap)
-            starts_ms, total_ms = compute_audio_starts_with_silence(wavs, silence_ms)
+            starts_ms, total_ms = compute_audio_starts_with_silence(wavs, gap)
             audio_for_build = seq
             use_safe = True
         else:
@@ -629,7 +694,7 @@ def stage_book(book: BookPlan, *, work_root: Path, fast_first: bool,
                 reason, kind="technical"))
             wavs = normalize_to_wav(files, staging_dir, cancel_check=cancel_check)
             write_concat_list(wavs, listfile)
-            starts_ms, total_ms = compute_audio_starts_with_silence(wavs, 0)
+            starts_ms, total_ms = compute_audio_starts_with_silence(wavs)
             ffmeta.write_text(build_ffmetadata_from_starts(titles, starts_ms, meta, total_ms),
                               encoding="utf-8")
             _emit(on_event, ProcessingEvent(book.book_id, "safe", "Using SAFE concat mode…",

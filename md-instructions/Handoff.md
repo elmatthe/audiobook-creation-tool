@@ -2,6 +2,31 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.0 GUI-acceptance defects D1–D4 fixed and proved on disposable installs; full gate, new RC and RC GUI re-acceptance pending in this session; NOT merged/tagged/published (2026-11-01, Claude Code Opus 5.5)
+
+Authority: owner directive 2026-11-01 (fix D1–D4 of `files/dev-work/act070-acceptance/ACT-v0.7.0-AUTOMATED-ACCEPTANCE-REPORT.md`).
+Decision record: `Decisions.md` 2026-11-01. Evidence (ignored): `files/dev-work/act070-d14/` (`e2e.py`,
+`evidence/e2e.jsonl`), disposable installs `files/dev-work/d14/C1`, `C2`.
+
+- **D1 copy binding:** `foreign-python` venv verdict + `ffmpeg_health.belongs_to_another_installation`. Reproduced on a
+  robocopy of A2 (healthy verdict, A2's Python and `ffmpeg.exe` ran a real Kokoro job); fixed: the copy's BAT rebuilt
+  offline from its own store (112 s), own FFmpeg proved; second-generation copy C2 converts with C1's Python and FFmpeg
+  removed, C1 converts with C2 removed; healthy `--venv-check` ~300 ms (was 257–374 ms).
+- **D2 stray store artifact:** `base_packages.sweep_store` + quarantine. Exact acceptance fixture (docopt bytes named
+  `addict-2.4.0-cp312-cp312-win_amd64.whl`, `pyvenv.cfg` aside) → offline repair succeeds (106 s), stray quarantined;
+  truncated locked `addict` → offline fails closed (old env back), online refetches that one 3.8 kB file and repairs.
+- **D3 damaged env:** `shared/venv_integrity.py` (RECORD-based launch check, cached, ~11–15 ms; repair request);
+  `numpy/__init__.py` removed → `--venv-check` 3 → BAT offline rebuild (109 s) → Kokoro narrates. Preferences & Data →
+  **Repair App Environment…** (removes nothing; Qwen3-safe); failed repair of a runnable env opens the app with a notice;
+  Kokoro message no longer says `pip install`. No false positive on HOME-PC `.venv`, A0, A1, A2, M1.
+- **D4 chapter truncation:** cause = 250 ms `LEADIN_MS` + 1024 AAC priming samples pulled into the timeline by
+  `-avoid_negative_ts make_zero` (FAST) / unrebuilt timestamps (Safe without silence); acceptance M4B measured 292.7 ms.
+  Marks now exact (≤ 1 ms); FAST starts from decoded lengths. `test_m4b_chapter_boundaries.py` locates every chapter in
+  the decoded book and splits it with the Converter's own commands (fails on the old code: 1024 samples / 250 ms).
+- **Tests:** targeted suites pass (base_packages 36, Maker/Converter 564, venv/bootstrap/launcher/FFmpeg/preferences
+  1,722). **Next:** full `verify.py` gate, RC build from the commit, fresh-extract qualification, RC GUI re-acceptance
+  (Maker→Converter round trip, Repair App Environment, copy), then owner acceptance.
+
 ## CURRENT STATE — v0.7.0 portability and reproducibility remediation: review MAJOR 1–3 fixed, ending diagnostic added, new Windows RC qualified in an isolated profile; NOT merged/tagged/published (2026-10-31, Claude Code)
 
 Authority: owner directive 2026-10-31 (fix the three MAJORs of `VERIFICATION-REVIEW-9b1349e`). Decision record:

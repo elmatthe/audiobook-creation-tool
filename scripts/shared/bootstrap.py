@@ -91,6 +91,8 @@ from shared import engine_lease  # noqa: E402
 from shared import base_packages  # noqa: E402
 # v0.7.0 portability: the Edge voices' English sentence data, verified and kept in the app's folder. Standard library.
 from shared import nltk_store  # noqa: E402
+# v0.7.0 acceptance D1/D3: whose Python the venv runs on, whether its packages are whole, a requested repair. Stdlib.
+from shared import venv_integrity  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -522,6 +524,8 @@ def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
     # stops a freshly reconciled machine from re-proving on its very next launch.
     record_import_proof()
     restore_kept_spacy_model(log)
+    # Build the launch check's file list now, from the packages just proved, so the first launch reads a cached one.
+    venv_integrity.package_damage(VENV_DIR)
     return True, RECONCILE_OK
 
 
@@ -811,6 +815,16 @@ def assess_venv_health(*, require_tk: bool = True,
 
     version, has_ssl, has_tk = caps["version"], caps["ssl"], caps["tk"]
 
+    foreign = venv_integrity.foreign_base_python(VENV_DIR, REPO_ROOT)
+    if foreign is not None:
+        # v0.7.0 acceptance D1: a copied app folder still runs on the original's Python (pyvenv.cfg ``home``), so it
+        # breaks when that folder is moved or deleted. Rebuilt on this copy's own Python from its own package store.
+        return VenvHealth(
+            VENV_REPAIRABLE, "foreign-python",
+            f"This environment runs on the Python of another copy of the app ({foreign}). It is rebuilt on this "
+            "copy's own Python, from the package files kept in this folder.",
+            version=version, ssl=has_ssl, tk=has_tk, executes=True)
+
     if not has_ssl:
         # pip and Edge TTS both need ssl; this is a real failure, not a nuisance.
         return VenvHealth(
@@ -857,8 +871,37 @@ def assess_venv_health(*, require_tk: bool = True,
             "work.",
             version=version, ssl=True, tk=False, executes=True)
 
+    if venv_integrity.repair_requested(VENV_DIR):
+        return VenvHealth(
+            VENV_REPAIRABLE, "repair-requested",
+            "A repair of the app's environment was requested (Preferences & Data > Repair App Environment). It is "
+            "rebuilt from the package files kept in this folder.",
+            version=version, ssl=True, tk=has_tk, executes=True)
+
+    damage = venv_integrity.package_damage(VENV_DIR, required=_locked_distributions(version))
+    if damage:
+        # v0.7.0 acceptance D3: files gone below intact metadata pass every other cheap check, and pip calls them
+        # "already satisfied", so only a rebuild from the verified store mends them.
+        return VenvHealth(
+            VENV_REPAIRABLE, "damaged-packages",
+            "Some of the app's Python packages are missing or damaged (" + "; ".join(damage) + "). The "
+            "environment is rebuilt from the package files kept in this folder.",
+            version=version, ssl=True, tk=has_tk, executes=True)
+
     return VenvHealth(VENV_HEALTHY, "ok", "The environment is healthy.",
                       version=version, ssl=True, tk=has_tk, executes=True)
+
+
+def _locked_distributions(version: Optional[tuple]) -> tuple[str, ...]:
+    """Names of every locked package, when the lock describes this environment and it was reconciled against it --
+    so each one must be installed. Empty otherwise (nothing then says what must be there)."""
+    lock = base_packages.lock_path(REQUIREMENTS_FILE)
+    if not base_packages.lock_applies(version) or not requirements_are_current():
+        return ()
+    try:
+        return tuple(entry.name for entry in base_packages.parse_lock(lock.read_text(encoding="utf-8")).entries)
+    except (OSError, base_packages.LockError):
+        return ()
 
 
 # ===========================================================================
@@ -2406,6 +2449,26 @@ def _package_store(log: Callable[[str], None]) -> Optional[Path]:
     return store
 
 
+def _sweep_store(lock, store: Path, log: Callable[[str], None]) -> bool:
+    """:func:`base_packages.sweep_store` for this installation, reported. False when the store cannot be made safe to
+    install from (something unauthorised could not be moved out of it): nothing is installed then."""
+    quarantine = base_packages.quarantine_dir(REPO_ROOT)
+    unsafe = venv_layout.unsafe_component(REPO_ROOT, quarantine)
+    if unsafe is not None:
+        log(f"  ERROR: the package quarantine folder {quarantine} is not used: {unsafe} is a link or lies outside the "
+            "app's folder.")
+        return False
+    swept = base_packages.sweep_store(lock, store, quarantine)
+    shown = quarantine.relative_to(REPO_ROOT).as_posix()
+    for name, why in swept.quarantined:
+        log(f"  Moved {name} out of the package store ({why}); it is kept in {shown} and never installed.")
+    if swept.removed:
+        log(f"  Removed {len(swept.removed)} kept package file(s) the lock no longer names.")
+    for problem in swept.problems:
+        log(f"  ERROR: {problem}")
+    return not swept.problems
+
+
 def _install_locked(venv_py: Path, lock_file: Path, env: dict, log: Callable[[str], None]) -> bool:
     try:
         lock = base_packages.parse_lock(lock_file.read_text(encoding="utf-8"))
@@ -2413,7 +2476,7 @@ def _install_locked(venv_py: Path, lock_file: Path, env: dict, log: Callable[[st
         log(f"  ERROR: the dependency lock {lock_file.name} cannot be used: {exc}")
         return False
     store = _package_store(log)
-    if store is None:
+    if store is None or not _sweep_store(lock, store, log):
         return False
     log(f"Installing the {len(lock.entries)} locked packages (each checked against its SHA-256; kept in "
         f"{store.relative_to(REPO_ROOT).as_posix()} for later repairs)…")
@@ -2429,9 +2492,6 @@ def _install_locked(venv_py: Path, lock_file: Path, env: dict, log: Callable[[st
         if not _fetch_and_install(venv_py, lock_file, lock, None, store, env, log, no_deps=False,
                                   what="the app's packages"):
             return False
-    removed = base_packages.prune_store(lock, store)
-    if removed:
-        log(f"  Removed {len(removed)} kept package file(s) the lock no longer names.")
     return True
 
 
@@ -2488,7 +2548,7 @@ def _force_reinstall(py: Path, dist: str, log: Callable[[str], None]) -> bool:
         log(f"  ERROR: the dependency lock {lock_file.name} cannot be used: {exc}")
         return False
     store = _package_store(log)
-    if store is None:
+    if store is None or not _sweep_store(lock, store, log):
         return False
     log("  Reinstalling every locked package from the verified store (each hash checked again)…")
     if base_packages.missing_artifacts(lock, store) and \
@@ -3421,7 +3481,8 @@ def ensure_ffmpeg_ready_for_launch() -> FFmpegRepair:
     return result
 
 
-def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int:
+def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True,
+                                    notices: Optional[list[str]] = None) -> int:
     """Reconcile dependencies, probe Kokoro health, self-heal, then launch the GUI.
 
     Runs on *every* launch (both the ``--launch-only`` fast path used by the
@@ -3452,8 +3513,10 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
     code already had was unreachable from a normal launch. A venv that needs
     replacing cannot be replaced from inside itself, so that case returns
     :data:`EXIT_VENV_REPAIR_REQUIRED` for the launcher to act on.
+
+    ``notices`` seeds the one warning shown after the GUI opens (a repair that could not be completed says so there).
     """
-    notices: list[str] = []
+    notices = list(notices or [])
     if allow_repair_handoff and unfinished_replacement():
         # Never run, or install packages into, a candidate an interrupted repair never proved (unfinished_replacement).
         LOG.line("An earlier environment repair did not finish — handing back to the launcher to finish it.")
@@ -3799,6 +3862,10 @@ def _venv_check() -> int:
     return EXIT_VENV_REPAIR_REQUIRED
 
 
+#: Repairable reasons whose environment can still carry the app when the repair itself fails.
+_LAUNCHABLE_UNREPAIRED = ("foreign-python", "damaged-packages", "repair-requested")
+
+
 def _repair_and_launch(headless: bool) -> int:
     """Bounded environment repair, then the normal launch health path.
 
@@ -3808,6 +3875,15 @@ def _repair_and_launch(headless: bool) -> int:
     ok, message = repair_venv(LOG, headless=headless)
     LOG.line(message)
     if not ok:
+        kept = assess_venv_health(require_tk=not headless)
+        if kept.state == VENV_REPAIRABLE and kept.reason in _LAUNCHABLE_UNREPAIRED and kept.executes and kept.ssl:
+            # The environment that was kept still runs; refusing to open the app would leave the user nothing
+            # (v0.7.0 D3). It opens with limits, says why, and the repair is tried again on the next start.
+            LOG.line("  The environment that was kept still runs; launching it with limits.")
+            return _launch_with_kokoro_healthcheck(allow_repair_handoff=False, notices=[
+                f"The app's environment could not be repaired: {message} If this keeps happening, connect to the "
+                "internet and start the app again: a package file that is missing or damaged on this computer is "
+                "then downloaded again."])
         show_warning_dialog("The app's environment could not be repaired",
                             f"{message}\n\nSee log: {LOG.path}")
         return 1

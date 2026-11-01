@@ -37,9 +37,10 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import appearance, cleanup_state, config, maintenance, output_paths, paths
+from . import appearance, cleanup_state, config, maintenance, output_paths, paths, venv_integrity
 
 DIALOG_TITLE = "Preferences & Data"
 MENU_LABEL = "Preferences & Data…"
@@ -48,6 +49,19 @@ MENU_LABEL = "Preferences & Data…"
 #: removal itself happens in another process, after this one has closed.
 CLEANUP_PLACEHOLDER_TEXT = "Review what can be safely removed. Nothing is deleted yet."
 CLEANUP_BUTTON_LABEL = "Clear Downloaded Data"
+
+#: v0.7.0 D3: the repair route that removes nothing, so it stays available while the Qwen3 engine is installed.
+REPAIR_BUTTON_LABEL = "Repair App Environment…"
+REPAIR_CONFIRM_TITLE = "Repair the app's environment?"
+REPAIR_CONFIRM_TEXT = (
+    "The app's own Python packages are reinstalled the next time the app starts, from the package files kept on "
+    "this computer (nothing is downloaded when they are all here). This takes a few minutes.\n\n"
+    "Your audiobooks, settings, voice models and the Qwen3 voice engine are kept.\n\n"
+    "Nothing changes now: finish or cancel any conversion, close the app, then start it again with "
+    "Setup_and_Run-audiobook-creation-tool.\n\nSchedule the repair?"
+)
+REPAIR_SCHEDULED_TEXT = ("Repair scheduled. Close the app and start it again with "
+                         "Setup_and_Run-audiobook-creation-tool to repair the environment.")
 
 #: Keyboard accelerators — the platform-conventional Preferences shortcuts.
 ACCELERATORS = ("<Control-comma>", "<Command-comma>")
@@ -289,6 +303,13 @@ class PreferencesDialog(tk.Toplevel):
         card = self._card(parent, row, "Downloaded data", last=True)
         card.columnconfigure(1, weight=1)
 
+        # Beside Clear Downloaded Data on its row, so the bounded form gains no height (v0.7.0 D3).
+        self.button_repair = ttk.Button(
+            card, text=REPAIR_BUTTON_LABEL, style=_style(t, "button"),
+            command=self.repair_environment,
+        )
+        self.button_repair.grid(row=1, column=2, sticky="e", padx=(gap_sm, 0), pady=(gap_sm, 0))
+
         self.button_cleanup = ttk.Button(
             card, text=CLEANUP_BUTTON_LABEL, style=_style(t, "button"),
             command=self.open_cleanup,
@@ -438,6 +459,28 @@ class PreferencesDialog(tk.Toplevel):
                 ttk.Style(self), root=self.master.winfo_toplevel())
             appearance.notify_listeners(bundle)
             self.apply_appearance(bundle)
+        return True
+
+    def repair_environment(self) -> bool:
+        """Schedule a rebuild of the app's Python environment for the next start. True when it is scheduled.
+
+        v0.7.0 acceptance D3: a damaged environment had no in-app way back -- Clear Downloaded Data rightly refuses to
+        remove ``.venv`` while it holds the Qwen3 engine. This removes nothing: it records a request inside the venv
+        (``shared.venv_integrity``) that the launcher honours on the next start with its ordinary repair, which keeps
+        the engine, takes the engine's lease and rebuilds from the package files kept on this computer. The running
+        app and any conversion in it are left alone.
+        """
+        if not self._confirm(REPAIR_CONFIRM_TITLE, REPAIR_CONFIRM_TEXT):
+            self._set_status("Repair cancelled. Nothing was changed.", "info")
+            return False
+        if not venv_integrity.request_repair(Path(self._repo_root) / ".venv", "Preferences & Data"):
+            self._set_status("The repair could not be scheduled: the app's environment folder could not be "
+                             "written. Close the app and start it again with Setup_and_Run-audiobook-creation-tool, "
+                             "which checks the environment as it starts.", "error")
+            self._log("preferences: the environment repair request could not be written")
+            return False
+        self._set_status(REPAIR_SCHEDULED_TEXT, "success")
+        self._log("preferences: environment repair scheduled for the next start")
         return True
 
     def open_cleanup(self):

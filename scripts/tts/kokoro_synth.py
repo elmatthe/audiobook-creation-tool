@@ -51,6 +51,17 @@ from tts.speech.profiles import KOKORO as KOKORO_ROUTE
 #: Kokoro's model rate. Fixed by the model, not a choice made here.
 SAMPLE_RATE = 24000
 
+#: What to do when the Kokoro stack itself will not load (v0.7.0 acceptance D3). Never "pip install": the app's own
+#: environment holds these packages, so a failure here means that environment is damaged, and the app's launcher
+#: checks and repairs it from the package files kept on this computer.
+PIPELINE_REPAIR_HINT = ("The app's Python environment may be damaged. Close the app and start it again with "
+                        "Setup_and_Run-audiobook-creation-tool, which checks the environment and repairs it; if it "
+                        "still fails, choose Preferences & Data > Repair App Environment first.")
+
+
+def _pipeline_failure(error: Exception) -> RuntimeError:
+    return RuntimeError(f"The Kokoro voices could not be loaded. {PIPELINE_REPAIR_HINT} (Details: {error})")
+
 
 def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
                 bitrate: str | None = None, log: Callable[[str], None] | None = None) -> None:
@@ -235,10 +246,7 @@ def synthesize_text_to_mp3(
     except model_assets.AssetsUnavailable:
         raise  # says exactly which approved file is missing; not an installation problem
     except Exception as e:
-        raise RuntimeError(
-            f"Could not load Kokoro pipeline. Make sure 'kokoro' is installed "
-            f"('pip install kokoro soundfile scipy'). Error: {e}"
-        ) from e
+        raise _pipeline_failure(e) from e
 
     audio_chunks: list[np.ndarray] = []
     generator = pipeline(text, voice=voice_id, speed=speed, split_pattern=r"\n+")
@@ -344,9 +352,7 @@ def kokoro_file_to_mp3(
     except model_assets.AssetsUnavailable:
         raise  # says exactly which approved file is missing; not an installation problem
     except Exception as e:
-        raise RuntimeError(
-            f"Could not load Kokoro pipeline. Install with: pip install kokoro soundfile scipy\n{e}"
-        ) from e
+        raise _pipeline_failure(e) from e
 
     # Silence built at the model's own rate, so configured pauses are exact sample
     # counts rather than something resampled from another rate on the way in.

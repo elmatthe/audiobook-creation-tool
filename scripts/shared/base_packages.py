@@ -11,7 +11,9 @@ environment has any packages, and ``scripts/verify.py`` and the developer lock g
   other is a verify failure, not a silent drift.
 * **The store** (``files/runtime-data/python-packages``) keeps the verified artifacts after a successful install, so a
   repair or a rebuilt environment installs again without the network. pip checks every artifact's hash again on every
-  use (``--require-hashes``), so a damaged or substituted file is refused, never installed.
+  use (``--require-hashes``), so a damaged or substituted file is refused, never installed; and before every install
+  :func:`sweep_store` leaves in the store only the lock's exact artifacts with their exact hashes, so a stray file
+  pip would prefer cannot block it.
 * **The pip policy**: no inherited ``PIP_*``/``PYTHON*``/activation settings, no pip configuration file
   (``PIP_CONFIG_FILE`` = the null device), no version check, no prompts, and pip's cache at
   ``files/runtime-data/pip-cache`` inside the app's folder. pip finds its default cache through the Windows
@@ -21,6 +23,7 @@ environment has any packages, and ``scripts/verify.py`` and the developer lock g
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
@@ -289,24 +292,114 @@ def missing_artifacts(lock: Lock, store: Path, entries: Optional[Iterable[LockEn
     return missing
 
 
-def prune_store(lock: Lock, store: Path) -> list[str]:
-    """Remove artifacts of releases the lock no longer names from ``store``; returns their names. Only plain files
-    whose names parse as a wheel or source archive are considered; anything else is left exactly as it is."""
-    wanted = {(entry.key, entry.version) for entry in lock.entries}
-    removed = []
+def quarantine_dir(root: Path) -> Path:
+    """``files/runtime-data/python-packages-quarantine`` of the installation at ``root``: where a file found in the
+    store that the lock does not authorise is moved, beside the store and never inside it (pip reads the store's
+    whole listing through ``--find-links``)."""
+    return Path(root) / "files" / "runtime-data" / "python-packages-quarantine"
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _plain_file(info: os.stat_result) -> bool:
+    """A regular file that is not a link or any other reparse point (``lstat`` information)."""
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISREG(info.st_mode) and not (getattr(info, "st_file_attributes", 0) & reparse)
+
+
+@dataclass(frozen=True)
+class StoreSweep:
+    """What :func:`sweep_store` did to the store."""
+
+    removed: tuple[str, ...] = ()                    # artifacts of releases the lock no longer names (deleted)
+    quarantined: tuple[tuple[str, str], ...] = ()    # (file name, why) moved to the quarantine folder
+    problems: tuple[str, ...] = ()                   # entries that could be neither verified nor moved out
+
+
+def sweep_store(lock: Lock, store: Path, quarantine: Path) -> StoreSweep:
+    """Leave in ``store`` only the exact artifacts the lock names, each with its locked SHA-256. Run before every
+    install from the store.
+
+    pip installs from the store through ``--find-links``, which offers *every* file there as a candidate. A file
+    claiming a locked release under another name -- ``addict-2.4.0-cp312-cp312-win_amd64.whl`` beside the locked
+    ``addict-2.4.0-py3-none-any.whl`` -- is preferred for its more specific platform tag, refused by
+    ``--require-hashes``, and so failed every install and repair for good (v0.7.0 acceptance D2). Eligibility is
+    therefore decided here by the lock alone: the exact file name of an entry's artifact and its exact SHA-256.
+
+    * an artifact of a release the lock no longer names is deleted (as before: an older release left by an update);
+    * everything else that is not an exact, verified, plain-file artifact -- another file claiming a locked release,
+      a locked file whose bytes changed, a link, a folder, an unknown name -- is moved to ``quarantine`` (outside the
+      store), so pip can no longer see it; a damaged locked file is then fetched again like a missing one.
+
+    Nothing outside ``store`` and ``quarantine`` is touched; the caller proves both are inside the app's folder and
+    reached through no link. ``--require-hashes`` still checks every file pip installs.
+    """
+    expected = {entry.artifact: entry for entry in lock.entries if entry.artifact}
+    releases = {(entry.key, entry.version) for entry in lock.entries}
+    removed: list[str] = []
+    quarantined: list[tuple[str, str]] = []
+    problems: list[str] = []
     try:
         names = sorted(os.listdir(store))
-    except OSError:
-        return removed
+    except FileNotFoundError:
+        return StoreSweep()
+    except OSError as exc:
+        return StoreSweep(problems=(f"the package store cannot be read: {exc}",))
     for name in names:
-        identity = artifact_identity(name)
         path = store / name
-        if identity is None or identity in wanted:
-            continue
         try:
-            if stat.S_ISREG(os.lstat(path).st_mode):
-                path.unlink()
-                removed.append(name)
-        except OSError:
-            pass
-    return removed
+            info = os.lstat(path)
+        except OSError as exc:
+            problems.append(f"{name} cannot be examined: {exc}")
+            continue
+        entry = expected.get(name)
+        if entry is not None:
+            if not _plain_file(info):
+                why = "it is not a plain file"
+            else:
+                try:
+                    if sha256_of(path) in entry.sha256:
+                        continue
+                except OSError as exc:
+                    problems.append(f"{name} cannot be read: {exc}")
+                    continue
+                why = "its contents do not match the SHA-256 the lock names"
+        else:
+            identity = artifact_identity(name)
+            if identity is not None and identity not in releases and _plain_file(info):
+                try:
+                    path.unlink()
+                    removed.append(name)
+                    continue
+                except OSError:
+                    pass  # quarantined instead, below
+            why = ("it claims a locked release but is not the locked file" if identity in releases
+                   else "the lock does not name it")
+        moved = _move_aside(path, quarantine)
+        if moved is None:
+            quarantined.append((name, why))
+        else:
+            problems.append(f"{name} ({why}) could not be moved out of the store: {moved}")
+    return StoreSweep(tuple(removed), tuple(quarantined), tuple(problems))
+
+
+def _move_aside(path: Path, quarantine: Path) -> Optional[str]:
+    """Move ``path`` (the entry itself, never a link's target) into ``quarantine`` under a free name. Returns None on
+    success, else why not."""
+    try:
+        quarantine.mkdir(parents=True, exist_ok=True)
+        target = quarantine / path.name
+        number = 1
+        while os.path.lexists(target):
+            target = quarantine / f"{path.name}.{number}"
+            number += 1
+        os.replace(path, target)
+        return None
+    except OSError as exc:
+        return str(exc)

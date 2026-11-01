@@ -204,7 +204,8 @@ HELD_ENVIRONMENT_PROBLEM = (
     "This folder also holds a separately installed voice engine (its engines "
     "folder). Removing it would delete that engine too, and the engine is not "
     "rebuilt with the app's dependencies, so this item is not offered. Nothing "
-    "was removed."
+    "was removed. To repair the app's environment and keep the engine, use "
+    "Repair App Environment in Preferences & Data."
 )
 
 #: Why a ``requires_engine_lease`` item was left alone while the Qwen3 voices of

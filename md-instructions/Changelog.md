@@ -15,6 +15,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.0 GUI-acceptance defect remediation D1–D4 (2026-11-01) — identity 0.7.0; NOT published, tagged or merged
+
+- **Fixed (D1):** a copied app folder no longer runs on the original's Python and FFmpeg. The launcher's check sees an
+  environment whose base Python is another copy's own (`pyvenv.cfg` `home`) and rebuilds it on this copy's Python from
+  its own package store (offline); an FFmpeg recorded by another copy (a copied `ffmpeg-state.json`) is never this
+  copy's and its own is proved instead. Each copy keeps working when the other is moved or deleted.
+- **Fixed (D2):** a stray file in the package store (for example another build named like a locked release) can no
+  longer make every repair fail. Before each install only the lock's exact files with their exact SHA-256 stay in
+  `files/runtime-data/python-packages`; anything else is moved to `python-packages-quarantine` beside it (a damaged
+  locked file is then fetched again, or the repair fails closed offline). `--require-hashes` is unchanged.
+- **Fixed (D3):** a damaged app environment (a package's files gone, its metadata left) is detected at launch (each
+  package's `__init__`, top-level modules and native libraries against its own `RECORD`; about 10–15 ms cached) and
+  rebuilt from the package store, keeping the Qwen3 engine. Preferences & Data has **Repair App Environment…**, which
+  schedules that repair for the next start (it removes nothing and works while the Qwen3 engine is installed). A
+  repair that fails on an environment that still runs opens the app with a notice instead of no app. Kokoro no longer
+  tells the user to `pip install`.
+- **Fixed (D4):** M4B Maker chapter marks sit exactly on the chapter boundaries, so M4B Converter's "Split by chapter"
+  no longer cuts the last syllable of each chapter onto the next. Removed the 250 ms lead-in; FAST no longer pulls the
+  AAC encoder's 1024 priming samples into the timeline (`-avoid_negative_ts make_zero`), Safe rebuilds its timestamps
+  the same way, and FAST chapter starts come from each source's decoded length (an MP3 without a Xing header misreports
+  its duration).
+
 ### v0.7.0 portability and reproducibility remediation (2026-10-31) — identity 0.7.0; NOT published, tagged or merged
 
 - **Changed:** the app environment installs only from `scripts/requirements-lock-windows-py312.txt`: all 170 packages

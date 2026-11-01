@@ -279,6 +279,27 @@ def _path_dirs() -> list[Path]:
     return [Path(entry) for entry in entries if entry.strip()]
 
 
+def _parts_key(path) -> tuple[str, ...]:
+    parts = Path(os.path.abspath(str(path))).parts
+    return tuple(p.casefold() for p in parts) if IS_WINDOWS else parts
+
+
+def belongs_to_another_installation(directory) -> bool:
+    """True for a folder inside ANOTHER copy of the app's own ``files/bin`` (v0.7.0 acceptance D1).
+
+    A copied app folder keeps the original's ``ffmpeg-state.json``, whose pinned pair names the original's bundled
+    FFmpeg by absolute path; while the original exists that pair still matches and runs, so the copy used it -- and
+    every conversion failed with ``WinError 2`` once the original's FFmpeg was moved or deleted. Each copy uses its own
+    bundled FFmpeg (or a system one); another copy's is never adopted or kept. The last ``files/bin`` in the path is
+    the one an installation root holds; this installation's is :data:`BIN_DIR`.
+    """
+    parts = _parts_key(directory)
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index:index + 2] == ("files", "bin"):
+            return parts[:index + 2] != _parts_key(BIN_DIR)
+    return False
+
+
 def candidate_directories() -> list[Path]:
     """Every directory that might hold a pair, in preference order, deduped.
 
@@ -286,6 +307,7 @@ def candidate_directories() -> list[Path]:
     PATH in its own order; then the package locations a normal install uses even
     when it never reached PATH -- which is a real case, because a fresh
     ``winget install`` does not update the PATH of an already-running process.
+    Another copy of the app's bundled FFmpeg is never a candidate.
     """
     ordered = [BIN_DIR, *_portable_dirs(), *_path_dirs(),
                *_winget_package_dirs(), *_brew_dirs()]
@@ -293,7 +315,7 @@ def candidate_directories() -> list[Path]:
     unique: list[Path] = []
     for directory in ordered:
         key = os.path.normcase(str(directory))
-        if key in seen:
+        if key in seen or belongs_to_another_installation(directory):
             continue
         seen.add(key)
         unique.append(directory)
@@ -512,10 +534,12 @@ def pinned_pair() -> Optional[Pair]:
     """The proven pair, but only while both files are still exactly as proven.
 
     This is the one function the runtime calls on the hot path, so it does no
-    I/O beyond one small read and two ``stat`` calls.
+    I/O beyond one small read and two ``stat`` calls. A pair recorded by
+    another copy of the app (a copied ``ffmpeg-state.json``) is never this
+    copy's pin (:func:`belongs_to_another_installation`).
     """
     pair = load_state().pair
-    if pair is None or not pair.still_matches():
+    if pair is None or belongs_to_another_installation(pair.directory) or not pair.still_matches():
         return None
     return pair
 
@@ -687,6 +711,10 @@ def ensure_ready(log=None, *, runner=None) -> Optional[Pair]:
     readiness for a pair the machine has since been told to refuse.
     """
     log = log or _NullLog()
+    recorded = load_state().pair
+    if recorded is not None and belongs_to_another_installation(recorded.directory):
+        log.line(f"  The recorded FFmpeg ({recorded.directory}) belongs to another copy of the app; "
+                 "proving this copy's own instead.")
     pair = pinned_pair()
     if pair is not None:
         proof = prove_pair(pair, runner=runner)

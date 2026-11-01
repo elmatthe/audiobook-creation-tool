@@ -4,6 +4,41 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-01 - Copies own their Python and FFmpeg; the store holds only verified locked files; damage pip cannot see rebuilds the environment; M4B chapter marks are exact (v0.7.0 acceptance D1–D4)
+
+**Context.** The real-GUI acceptance of RC `c6264fc3` (ignored `files/dev-work/act070-acceptance/`) found four Major
+defects; owner directive 2026-11-01: fix them for v0.7.0 without weakening hashes, provenance, leases or the nested
+Qwen3 engine.
+
+**Decision.**
+- *D1.* A venv whose `pyvenv.cfg` `home` is another installation's own Python (`<root>/files/runtime-data/python`, a
+  different root) is `repairable` (`foreign-python`), so a copy is rebuilt on its own Python from its own store while
+  the original still exists. A system Python is never foreign. An FFmpeg pair under another installation's `files/bin`
+  is never pinned or a candidate (`ffmpeg_health.belongs_to_another_installation`). A copied Qwen3 engine stays refused
+  by its static identity check (it is never executed); making it portable is not attempted.
+- *D2.* Before every install from the store, `base_packages.sweep_store` keeps only the lock's exact artifact names with
+  their exact SHA-256; older releases are deleted (as before), everything else is moved to
+  `files/runtime-data/python-packages-quarantine` (outside the store, never installed). pip still runs
+  `--require-hashes --no-index --find-links <store>`.
+- *D3.* Files gone below intact metadata (what pip calls "already satisfied") are checked at launch against each
+  installed distribution's own `RECORD` (package `__init__.py`, top-level modules, native libraries; cached list,
+  ~10–15 ms) and make the environment `repairable` (`damaged-packages`): rebuilt transactionally from the store under the
+  engine lease, carrying the engine. This narrows, and does not replace, the rule that a *missing module* is repaired
+  in place: in-place reinstall cannot see this damage and is not transactional. A user's repair request
+  (`.venv/.repair-requested`, Preferences & Data > Repair App Environment) takes the same route. A failed repair of an
+  environment that still runs opens the app with a notice rather than not at all.
+- *D4.* Chapter marks are the exact sample positions of each chapter: no `LEADIN_MS`; both concat commands rebuild
+  timestamps from the sample count and keep the AAC encoder's edit list (no `-avoid_negative_ts make_zero`); FAST
+  starts come from decoded lengths. Seek slack belongs to players, not to the book's timeline.
+
+**Why:** each defect broke a promise the product already makes (copies are independent; the store makes repair
+offline-capable; the launcher is the repair path; a chapter split returns the chapter), and each fix removes the cause
+rather than adding a compensating offset or a manual step.
+
+— Directed by the owner on 2026-11-01; implemented by Claude Code.
+
+---
+
 ## 2026-10-31 - The app environment installs only from a complete hash lock through a verified local store; pip and NLTK stay inside the app folder; an ending that stops mid-sound is flagged (v0.7.0 portability remediation)
 
 **Context.** The independent review of `9b1349e` (ignored `files/dev-work/act070-rc/evidence/VERIFICATION-REVIEW-9b1349e.md`)

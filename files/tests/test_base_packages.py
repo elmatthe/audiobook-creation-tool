@@ -304,6 +304,10 @@ def test_real_pip_refuses_a_kept_file_whose_hash_is_not_the_locked_one(disposabl
 # --------------------------------------------------------------------------- #
 # Setup and repair install only through the lock
 # --------------------------------------------------------------------------- #
+#: SHA-256 of the bytes the installer fixture's kept files hold.
+KEPT_SHA256 = hashlib.sha256(b"kept").hexdigest()
+
+
 @pytest.fixture
 def installer(tmp_path, monkeypatch):
     """bootstrap's installer against a disposable installation, with pip itself replaced by a recorder."""
@@ -313,7 +317,8 @@ def installer(tmp_path, monkeypatch):
     requirements.write_text("tqdm==4.67.3\nsetuptools==80.9.0\n", encoding="utf-8")
     entries = {"setuptools": ("80.9.0", "setuptools-80.9.0-py3-none-any.whl"),
                "tqdm": ("4.67.3", "tqdm-4.67.3-py3-none-any.whl")}
-    body = "".join(f"# {base_packages.ARTIFACT_PREFIX} {artifact}\n{name}=={version} --hash=sha256:{'a' * 64}\n"
+    # The fixture's kept files hold b"kept"; the lock names that content's hash, so the store sweep keeps them.
+    body = "".join(f"# {base_packages.ARTIFACT_PREFIX} {artifact}\n{name}=={version} --hash=sha256:{KEPT_SHA256}\n"
                    for name, (version, artifact) in entries.items())
     base_packages.lock_path(requirements).write_text(body, encoding="utf-8")
     monkeypatch.setattr(bootstrap, "REPO_ROOT", root)
@@ -447,18 +452,122 @@ def test_a_dependency_damaged_below_its_metadata_is_repaired_by_one_whole_lock_r
     assert len(forced) == 1, "one whole-lock reinstall, not one per failing module"
 
 
-def test_the_store_keeps_only_releases_the_lock_names(tmp_path):
-    store = tmp_path / "store"
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def test_the_store_keeps_only_the_locks_exact_verified_artifacts(tmp_path):
+    """v0.7.0 acceptance D2: eligibility is the lock's exact file name AND its exact SHA-256. An older release is
+    deleted as before; anything else that is not a verified locked artifact leaves the store for the quarantine."""
+    store, quarantine = tmp_path / "store", tmp_path / "quarantine"
     store.mkdir()
-    for name in ("tqdm-4.67.3-py3-none-any.whl", "tqdm-4.67.2-py3-none-any.whl", "docopt-0.6.2.tar.gz",
-                 "docopt-0.6.1.tar.gz", "notes.txt"):
-        (store / name).write_bytes(b"x")
+    files = {"tqdm-4.67.3-py3-none-any.whl": b"tqdm", "tqdm-4.67.2-py3-none-any.whl": b"old",
+             "docopt-0.6.2.tar.gz": b"docopt-damaged", "docopt-0.6.1.tar.gz": b"old",
+             "tqdm-4.67.3-cp312-cp312-win_amd64.whl": b"stray", "notes.txt": b"x"}
+    for name, data in files.items():
+        (store / name).write_bytes(data)
+    (store / "docopt-0.6.2-py3-none-any.whl").mkdir()  # a folder named like a locked artifact
     lock = base_packages.parse_lock(f"# {base_packages.ARTIFACT_PREFIX} tqdm-4.67.3-py3-none-any.whl\n"
-                                    f"tqdm==4.67.3 --hash=sha256:{'a' * 64}\n"
+                                    f"tqdm==4.67.3 --hash=sha256:{_sha(b'tqdm')}\n"
                                     f"# {base_packages.ARTIFACT_PREFIX} docopt-0.6.2.tar.gz\n"
-                                    f"docopt==0.6.2 --hash=sha256:{'b' * 64}\n")
-    assert sorted(base_packages.prune_store(lock, store)) == ["docopt-0.6.1.tar.gz", "tqdm-4.67.2-py3-none-any.whl"]
-    assert sorted(os.listdir(store)) == ["docopt-0.6.2.tar.gz", "notes.txt", "tqdm-4.67.3-py3-none-any.whl"]
+                                    f"docopt==0.6.2 --hash=sha256:{_sha(b'docopt')}\n")
+    swept = base_packages.sweep_store(lock, store, quarantine)
+    assert sorted(swept.removed) == ["docopt-0.6.1.tar.gz", "tqdm-4.67.2-py3-none-any.whl"]
+    assert dict(swept.quarantined) == {
+        "docopt-0.6.2.tar.gz": "its contents do not match the SHA-256 the lock names",
+        "docopt-0.6.2-py3-none-any.whl": "it claims a locked release but is not the locked file",
+        "notes.txt": "the lock does not name it",
+        "tqdm-4.67.3-cp312-cp312-win_amd64.whl": "it claims a locked release but is not the locked file"}
+    assert swept.problems == ()
+    assert os.listdir(store) == ["tqdm-4.67.3-py3-none-any.whl"], "only the exact, verified artifact stays"
+    assert sorted(os.listdir(quarantine)) == sorted(dict(swept.quarantined))
+    assert (quarantine / "tqdm-4.67.3-cp312-cp312-win_amd64.whl").read_bytes() == b"stray", "moved, not rewritten"
+    assert base_packages.missing_artifacts(lock, store) == [lock.by_key()["docopt"]], "the damaged one is refetched"
+
+
+def test_a_second_sweep_never_overwrites_an_earlier_quarantined_file(tmp_path):
+    store, quarantine = tmp_path / "store", tmp_path / "quarantine"
+    store.mkdir()
+    lock = base_packages.parse_lock(f"# {base_packages.ARTIFACT_PREFIX} tqdm-4.67.3-py3-none-any.whl\n"
+                                    f"tqdm==4.67.3 --hash=sha256:{_sha(b'tqdm')}\n")
+    for data in (b"first", b"second"):
+        (store / "tqdm-4.67.3-py3-none-any.whl").write_bytes(data)
+        base_packages.sweep_store(lock, store, quarantine)
+    assert {p.name: p.read_bytes() for p in quarantine.iterdir()} == {
+        "tqdm-4.67.3-py3-none-any.whl": b"first", "tqdm-4.67.3-py3-none-any.whl.1": b"second"}
+
+
+def test_a_file_that_cannot_be_moved_out_is_a_problem_not_a_silent_keep(tmp_path, monkeypatch):
+    store, quarantine = tmp_path / "store", tmp_path / "quarantine"
+    store.mkdir()
+    (store / "tqdm-4.67.3-cp312-cp312-win_amd64.whl").write_bytes(b"stray")
+    lock = base_packages.parse_lock(f"# {base_packages.ARTIFACT_PREFIX} tqdm-4.67.3-py3-none-any.whl\n"
+                                    f"tqdm==4.67.3 --hash=sha256:{_sha(b'tqdm')}\n")
+
+    def refuse(source, destination):
+        raise PermissionError(13, "in use")
+
+    monkeypatch.setattr(base_packages.os, "replace", refuse)
+    swept = base_packages.sweep_store(lock, store, quarantine)
+    assert swept.quarantined == () and len(swept.problems) == 1 and "in use" in swept.problems[0]
+
+
+def test_real_pip_prefers_a_stray_same_release_file_and_the_sweep_lets_the_install_succeed(disposable_venv,
+                                                                                           tmp_path):
+    """The accepted D2 reproduction, offline and in miniature: other bytes named as a more specific build of a locked
+    release sit beside the locked artifact. pip picks the stray and refuses its hash -- every install fails, forever.
+    After the sweep the same offline install succeeds from the locked artifact, and the stray is kept aside."""
+    store, quarantine = tmp_path / "store", tmp_path / "quarantine"
+    store.mkdir()
+    s_file, s_hash = _wheel(store, "act-lock-s", "1.0")
+    tag = f"py{sys.version_info[0]}{sys.version_info[1]}-none-any"  # preferred over py3-none-any by this interpreter
+    stray = store / f"act_lock_s-1.0-{tag}.whl"
+    _wheel(tmp_path, "act-lock-docopt", "0.6.2")
+    shutil.copyfile(tmp_path / "act_lock_docopt-0.6.2-py3-none-any.whl", stray)  # a different, valid archive
+    lock_text = f"# {base_packages.ARTIFACT_PREFIX} {s_file}\nact-lock-s==1.0 --hash=sha256:{s_hash}\n"
+
+    before = _offline_install(disposable_venv, store, lock_text, tmp_path, policy_cache=tmp_path / "cache")
+    assert before.returncode != 0 and "do not match the hashes" in (before.stdout + before.stderr).lower()
+    assert stray.name in (before.stdout + before.stderr), "pip chose the stray file"
+
+    swept = base_packages.sweep_store(base_packages.parse_lock(lock_text), store, quarantine)
+    assert [name for name, _why in swept.quarantined] == [stray.name] and swept.problems == ()
+    after = _offline_install(disposable_venv, store, lock_text, tmp_path, policy_cache=tmp_path / "cache")
+    assert after.returncode == 0, after.stdout + after.stderr
+    shown = subprocess.run([str(disposable_venv), "-c", "import act_lock_s; print(act_lock_s.VERSION)"],
+                           capture_output=True, text=True)
+    assert shown.stdout.strip() == "1.0"
+    assert (quarantine / stray.name).is_file() and not stray.exists()
+
+
+def test_every_store_install_route_sweeps_the_store_first(installer):
+    """setup, repair and the drift reconcile (install_base_packages) and the whole-lock force reinstall both move a
+    stray out of the store before pip runs, and nothing is quarantined outside the app's folder."""
+    installer.store.mkdir(parents=True)
+    for _version, artifact in installer.entries.values():
+        (installer.store / artifact).write_bytes(b"kept")
+    stray = installer.store / "tqdm-4.67.3-cp312-cp312-win_amd64.whl"
+    lines = []
+    for run in (lambda: bootstrap.install_base_packages(installer.python, lines.append),
+                lambda: bootstrap._force_reinstall(installer.python, "tqdm", lines.append)):
+        stray.write_bytes(b"stray")
+        installer.calls.clear()
+        assert run() is True
+        assert not stray.exists(), "pip never saw it"
+        assert all(command[3] == "install" for command, _env in installer.calls), "complete store: no download"
+    quarantined = sorted(p.name for p in base_packages.quarantine_dir(installer.root).iterdir())
+    assert quarantined == [stray.name, stray.name + ".1"]
+    assert any("Moved tqdm-4.67.3-cp312-cp312-win_amd64.whl out of the package store" in line for line in lines)
+
+
+def test_a_store_that_cannot_be_made_safe_installs_nothing(installer, monkeypatch):
+    installer.store.mkdir(parents=True)
+    (installer.store / "tqdm-4.67.3-cp312-cp312-win_amd64.whl").write_bytes(b"stray")
+    monkeypatch.setattr(base_packages, "_move_aside", lambda path, quarantine: "in use")
+    lines = []
+    assert bootstrap.install_base_packages(installer.python, lines.append) is False
+    assert installer.calls == [], "no pip command ran against a store pip could be misled by"
+    assert any("could not be moved out of the store" in line for line in lines)
 
 
 # --------------------------------------------------------------------------- #

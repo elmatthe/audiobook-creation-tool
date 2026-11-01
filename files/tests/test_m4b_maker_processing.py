@@ -340,8 +340,8 @@ def test_nonzero_silence_forces_safe_and_inserts_gaps_only_between_tracks(source
     assert abs(duration(entry.published) - (3.0 + 2 * 0.5)) < 0.6, "two gaps, not three"
     found = chapters(entry.published)
     assert [c[0] for c in found] == ["A", "B", "C"]
-    assert abs(found[1][1] - (1.5 - 0.25)) < 0.2, "chapter 2 starts one track + one gap in, less lead-in"
-    assert abs(found[2][1] - (3.0 - 0.25)) < 0.2
+    assert abs(found[1][1] - 1.5) < 0.002, "chapter 2 starts exactly one track + one gap in (no lead-in)"
+    assert abs(found[2][1] - 3.0) < 0.002
 
 
 # --------------------------------------------------------------------------- #
@@ -357,8 +357,9 @@ def test_chapter_timing_and_frozen_titles_are_written(sources, reserve):
     found = chapters(entry.published)
     assert [c[0] for c in found] == ["Opening", "Closing"]
     assert found[0][1] == 0.0
-    assert abs(found[0][2] - (1.0 - 0.25)) < 0.2
-    assert abs(found[1][1] - (1.0 - 0.25)) < 0.2
+    # Exactly the first track's length: no lead-in (v0.7.0 D4; test_m4b_chapter_boundaries proves the audio).
+    assert abs(found[0][2] - 1.0) < 0.002
+    assert abs(found[1][1] - 1.0) < 0.002
     assert found[1][2] <= duration(entry.published) + 0.01
     assert found[0][2] > found[0][1] and found[1][2] > found[1][1]
     assert metadata.read_chapter_titles(entry.published) == ["Opening", "Closing"]
@@ -716,7 +717,8 @@ def test_the_moved_algorithms_left_the_panel_whole():
                  "ffprobe_duration_ms", "normalize_to_wav", "create_silence_wav"):
         assert name not in in_panel, name
         assert name in in_engine, name
-    assert proc.LEADIN_MS == 250 and proc.WAV_SR == 44100 and proc.WAV_CH == 2
+    # v0.7.0 D4 removed the 250 ms chapter lead-in (test_m4b_chapter_boundaries).
+    assert not hasattr(proc, "LEADIN_MS") and proc.WAV_SR == 44100 and proc.WAV_CH == 2
     assert proc.WAV_FMT == "s16"
 
 

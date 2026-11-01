@@ -1213,6 +1213,8 @@ def test_an_environment_holding_a_voice_engine_is_refused_and_not_offered(tmp_pa
 def test_the_refusal_says_what_would_be_lost_and_that_nothing_was_removed():
     text = mnt.HELD_ENVIRONMENT_PROBLEM
     assert "voice engine" in text and "not rebuilt" in text and "Nothing was removed" in text
+    # v0.7.0 D3: the refusal names the repair route that keeps the engine (Preferences & Data).
+    assert "Repair App Environment" in text
 
 
 def test_an_empty_engines_folder_does_not_block_the_environment_item(tmp_path):
