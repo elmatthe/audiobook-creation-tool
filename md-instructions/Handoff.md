@@ -2,11 +2,12 @@
 
 ## Current Focus
 
-## CURRENT STATE — v0.7.0 GUI-acceptance defects D1–D4 fixed and proved on disposable installs; full gate, new RC and RC GUI re-acceptance pending in this session; NOT merged/tagged/published (2026-11-01, Claude Code Opus 5.5)
+## CURRENT STATE — v0.7.0 GUI-acceptance defects D1–D4 fixed; gate PASS on `d53a036`; new Windows RC qualified from a fresh extract and re-accepted through its GUI; NOT merged/tagged/published (2026-11-01, Claude Code Opus 5.5)
 
 Authority: owner directive 2026-11-01 (fix D1–D4 of `files/dev-work/act070-acceptance/ACT-v0.7.0-AUTOMATED-ACCEPTANCE-REPORT.md`).
-Decision record: `Decisions.md` 2026-11-01. Evidence (ignored): `files/dev-work/act070-d14/` (`e2e.py`,
-`evidence/e2e.jsonl`), disposable installs `files/dev-work/d14/C1`, `C2`.
+Decision record: `Decisions.md` 2026-11-01. Evidence (ignored): `files/dev-work/act070-d14/` (`README.md` indexes
+`evidence/e2e.jsonl`, `gui-rc.jsonl`, `d4-check.jsonl`, `screens/`), disposable installs `files/dev-work/d14/C1`, `C2`,
+`R1` (fresh RC extract), `R2` (its copy).
 
 - **D1 copy binding:** `foreign-python` venv verdict + `ffmpeg_health.belongs_to_another_installation`. Reproduced on a
   robocopy of A2 (healthy verdict, A2's Python and `ffmpeg.exe` ran a real Kokoro job); fixed: the copy's BAT rebuilt
@@ -23,9 +24,26 @@ Decision record: `Decisions.md` 2026-11-01. Evidence (ignored): `files/dev-work/
   `-avoid_negative_ts make_zero` (FAST) / unrebuilt timestamps (Safe without silence); acceptance M4B measured 292.7 ms.
   Marks now exact (≤ 1 ms); FAST starts from decoded lengths. `test_m4b_chapter_boundaries.py` locates every chapter in
   the decoded book and splits it with the Converter's own commands (fails on the old code: 1024 samples / 250 ms).
-- **Tests:** targeted suites pass (base_packages 36, Maker/Converter 564, venv/bootstrap/launcher/FFmpeg/preferences
-  1,722). **Next:** full `verify.py` gate, RC build from the commit, fresh-extract qualification, RC GUI re-acceptance
-  (Maker→Converter round trip, Repair App Environment, copy), then owner acceptance.
+- **Gate:** targeted suites pass (base_packages 36, Maker/Converter 564, venv/bootstrap/launcher/FFmpeg/preferences
+  1,722; 819 changed/adjacent tests on the bundled 3.12.15). `verify.py` **RESULT: PASS on `d53a036`**
+  (`files/dev-work/act070-remediation/verify/FINAL-d53a036-run1`): pytest 12,685 passed / 63 skipped / 0 failed;
+  guarded 457 + 75; tree unchanged. (The run on `6217b71` failed only the shared README canary, fixed in `d53a036`.)
+- **RC:** `dist/AudiobookTool-Windows-v0.7.0.zip` from `d53a036`, SHA-256 `bb301f6a…112b`, 160 members = `git show
+  d53a036` (0 differences after line-ending normalisation), developer_mode false. The accepted candidate is kept,
+  unchanged, as `-3a91056.zip` (`c6264fc3…7c07`). Fresh extract `R1` (isolated profile, online, models copied): stage 0
+  → wizard → main window in 707 s. Through its GUI: Maker → Converter "Split by chapter" (marks 0.0 ms from the audio,
+  splits = source lengths, titles/order/cover kept; Whisper: "…or so the Barge Master claimed."), Kokoro Heart
+  (48.49 s, as accepted) and Edge Jenny. Copy `R2`: exit 3 → own BAT offline 112 s; each copy narrates with the other's
+  Python and FFmpeg moved away; `numpy` damage → 106 s; exact D2 fixture → quarantined, 106 s. With a 5.48 GB Qwen3
+  engine in `R1`: Clear Downloaded Data points to Repair App Environment; GUI repair → BAT offline 110 s, engine
+  byte-identical (44,111 files, same SHA-256 tree). Healthy `--venv-check` ~300 ms.
+- **Minors:** m1 (192k shown, ~160 kb/s delivered: the MPEG-2 Layer III cap at 24 kHz; label only) and m2–m19 unchanged,
+  except m10's `WinError 2` (gone with D1); s1 done by D4. Qwen3 Male 2's cut ending is in the model output
+  (byte-identical rerun, flagged "please listen"), not padded; Aiden not flagged this run. A Qwen3 engine copied with
+  the folder stays refused by its identity check (re-install it there).
+- **Owner / NOT RUN:** listening (all 28; Qwen3 Male 2 and Aiden endings); physical clean PC with a browser-downloaded
+  ZIP (Mark of the Web, SmartScreen, SAC), literal double-click; display scaling; long paths disabled.
+- **Next:** owner acceptance on this RC; merge/tag/release only on owner approval.
 
 ## CURRENT STATE — v0.7.0 portability and reproducibility remediation: review MAJOR 1–3 fixed, ending diagnostic added, new Windows RC qualified in an isolated profile; NOT merged/tagged/published (2026-10-31, Claude Code)
 

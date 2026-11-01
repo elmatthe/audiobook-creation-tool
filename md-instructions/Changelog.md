@@ -36,6 +36,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   AAC encoder's 1024 priming samples into the timeline (`-avoid_negative_ts make_zero`), Safe rebuilds its timestamps
   the same way, and FAST chapter starts come from each source's decoded length (an MP3 without a Xing header misreports
   its duration).
+- **Verified:** `verify.py` PASS on `d53a036` (12,685 passed). Windows RC `dist/AudiobookTool-Windows-v0.7.0.zip`
+  (SHA-256 `bb301f6a…112b`) qualified from a fresh extract and re-accepted through its GUI: Maker → Converter round
+  trip, a copied folder, damaged and stray-file repairs offline, Repair App Environment with the Qwen3 engine kept
+  byte-identical. The previous candidate is kept as `AudiobookTool-Windows-v0.7.0-3a91056.zip`.
 
 ### v0.7.0 portability and reproducibility remediation (2026-10-31) — identity 0.7.0; NOT published, tagged or merged
 
