@@ -76,7 +76,10 @@ def test_the_goldens_are_small_enough_to_keep_in_the_repository():
 def test_the_baselines_record_the_behaviour_the_plan_depends_on():
     edge = stored("edge_direct")["data"]["inputs"]["structure"]
     assert edge["title"] == "The Lighthouse Log" and edge["author"] == "A. Writer"
-    assert edge["chapter_titles"] == ["Chapter One", "blank", "Chapter Two: The Return"]
+    # v0.7.1: the empty "# " heading directly before "# Chapter Two: The Return" starts no chapter of its own, so the
+    # M4B chapter titles are one per chapter (they were three for two chapters: chapter 2 was labelled "blank").
+    # What is spoken is unchanged (``read_book`` below).
+    assert edge["chapter_titles"] == ["Chapter One", "Chapter Two: The Return"]
     assert any(s.startswith("sntnc0.mp3|Chapter One") for s in edge["read_book"]["spoken"]["items"])
     # Edge direct only honours Title:/Author: before the body; a later "Title:" line is spoken.
     assert any("Title: this line is not a header" in s for s in edge["read_book"]["spoken"]["items"])
