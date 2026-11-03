@@ -220,8 +220,9 @@ See `md-instructions/Handoff.md` (current state) for the exact branch/SHA. Audit
 
 Listening (automated checks cannot judge pronunciation or naturalness):
 
-1. Open `files/test-for-manual-listen-elmatthe/ACT-v0.7.1-edge-concurrency/SAMPLE-INDEX.md`; listen first to the
-   8-worker samples marked "listen first", then the `08-blank-focus` sample.
+1. Open `files/test-for-manual-listen-elmatthe/ACT-v0.7.1-edge-concurrency/SAMPLE-INDEX.md`; play the files in
+   its `listen/` folder in the index's "Listen first" order (`08-blank-focus`, the two ~1-minute samples,
+   `04-glass-orchard`'s ending, the PDF by both routes), then the rest.
 2. PASS: every "blank" is spoken (nine in `08-blank-focus`, the first being the heading "Blank" followed by a pause);
    headings are spoken once, at the start; no sentence is missing, repeated, cut or out of order; pace, pauses,
    punctuation and proper nouns sound as in v0.7.0. FAIL: any omission, duplication, truncation, wrong-file content,
@@ -233,7 +234,7 @@ In the app (launch with `Setup_and_Run-audiobook-creation-tool.bat`, TTS tool):
    PASS: the Detailed tab (maximize the window if a line is cut off at the right) shows
    `Requested workers: 8 | Effective workers: 8`; engine lines are prefixed `[<file>]`, with one "Generating audio
    files" line per file and no stray symbols; all eight finish (8 ok, 0 failed) in roughly the time of the longest
-   file, not the sum (measured: 24 s for 8 files that take 13–25 s each); the run folder holds eight MP3s named
+   file, not the sum (measured on HOME-PC: 24 s with 8 workers, 124 s with 1); the run folder holds eight MP3s named
    `<stem>-Edge Male - Steffan (en-US).mp3`.
 4. Clear All; Add Folder → `sources/` (folder import); File workers 8; Start. Same PASS (folder route: whole chunks,
    no heading handling — unchanged).
