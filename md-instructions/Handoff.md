@@ -2,6 +2,47 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.1 Edge multi-file workers implemented; gate PASS on `48f6667`; branch pushed; awaiting independent Codex review and owner listening/acceptance; NOT merged/tagged/published (2026-11-03, Claude Code Opus 5.5)
+
+Authority: owner prompt 2026-11-02 (v0.7.1: Edge only; stop at the review/acceptance checkpoint). Plan, results,
+review brief and owner steps: `files/plans/ACT-v0.7.1-Edge-Multi-File-Workers-Plan.md` (§6 results, §7 defects found
+by the real runs, §8 Codex brief, §9 owner steps). Decision record: `Decisions.md` 2026-11-03. Evidence (ignored):
+`files/dev-work/act071/` (`evidence/*.json`, `screens/`, harness, analysis and GUI-driver scripts). Listening samples
+and `SAMPLE-INDEX.md`: `files/test-for-manual-listen-elmatthe/ACT-v0.7.1-edge-concurrency/` (ignored).
+
+- **Published since the entries below:** v0.7.0 is tag `v0.7.0` = `c0896d8` (= `master` = `origin/master`), published
+  as a GitHub release on 2026-11-02 with `AudiobookTool-Windows-v0.7.0.zip`. The "NOT merged/tagged/published" in the
+  older entries records their state when written.
+- **Branch `feature/0.7.1-multi-file-workers`** from `c0896d8`: `6449d2e` (concurrency, worker policy, narration,
+  tests), `3ec2f44` (speech golden: M4B chapter titles only), `7d980c5` (log readability under concurrency),
+  `48f6667` (version 0.7.1 + plan), then this docs commit. Pushed; not merged.
+- **Done:** directly added Edge files (TXT and PDF), folder and mixed queues convert side by side for every Edge
+  voice; each conversion has its own work folder (no `os.chdir`; `_CWD_ISOLATION_LOCK` removed); PyMuPDF serialized;
+  tokenizer built once; `tts/worker_limits.py` (1–100 requestable; queue, engine, Edge 32, processors, measured free
+  memory; reason logged; also `batch_convert.py`); ETA divides by files in flight; whole, tagged log lines; jittered
+  direct retries; headings spoken by identity (`# blank`, `# Title`, consecutive headings). Kokoro, Chatterbox Turbo
+  and Qwen3 stay at 1.
+- **Real HOME-PC Edge runs on the final code:** 1/2/4/8 workers (peak in flight 1/2/4/8; the same 8 files took 24 s
+  on 8 workers and 124 s on 1), mixed
+  direct + folder, direct PDF, 100 requested → 16 (processors) on 20 files, Cancel (7 stopped within 4.4 s, no partial
+  MP3), Retry Failed (only the failed file, `Effective workers: 1` + reason), same basenames, all five Edge voices,
+  service bursts 16/32 (no retries), and a real-GUI smoke (OS input + OCR: `100` typed → `Requested workers: 100 |
+  Effective workers: 4` + `Worker limit: only 4 files are queued.`). Every output's sent units and words match its
+  source; "blank" 9/9; no duplicates, no leftover temp folders, nothing overwritten. Two defects those runs found
+  are fixed with tests: stacked tqdm bars (escape codes) and bare `[file]` lines.
+- **Gate:** `verify.py` **RESULT: PASS on `48f6667`** (`files/dev-work/act070-remediation/verify/ACT071-48f6667-run1/`): pytest 12,779 passed, 65 skipped; guarded v3-planning 457 + v3-supervisor 75 passed; tree
+  unchanged. The working tree also held the owner's 14 uncommitted local deletions under `files/plans/` and
+  `files/release-history/` (left as found; in no commit). The earlier run on `3ec2f44` passed every check except the
+  tree fingerprint, because files were edited during it.
+- **Flagged, not changed (owner review):** the PDF extractor folds a non-"Chapter N" first line into the text
+  (pre-existing); the Detailed pane keeps 400 lines and does not wrap (maximize to read a long line); the label under
+  the progress bar shows an internal id (`occ-…`) — all as in v0.7.0. `files/dev/qwen_worker.py`, named in
+  `.claude/CLAUDE.md`, does not exist.
+- **Owner / NOT DONE:** listening (`SAMPLE-INDEX.md`; nobody has listened); plan §9 manual steps; independent Codex
+  review (plan §8). Phase 9 (local-engine concurrency research) not started — gated on acceptance and owner
+  authorization.
+- **Next:** Codex review + owner acceptance; merge/tag/release only on owner approval.
+
 ## CURRENT STATE — v0.7.0 GUI-acceptance defects D1–D4 fixed; gate PASS on `d53a036`; new Windows RC qualified from a fresh extract and re-accepted through its GUI; NOT merged/tagged/published (2026-11-01, Claude Code Opus 5.5)
 
 Authority: owner directive 2026-11-01 (fix D1–D4 of `files/dev-work/act070-acceptance/ACT-v0.7.0-AUTOMATED-ACCEPTANCE-REPORT.md`).

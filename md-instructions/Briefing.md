@@ -16,6 +16,25 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
+## v0.7.1 Edge multi-file workers (2026-11-03) — identity 0.7.1, NOT merged/tagged/published
+
+- **Concurrency:** every Edge queue (Add Files TXT/PDF, Add Folder, mixed) runs whole files side by side, for every
+  Edge voice. `epub2tts_edge.read_book` / `generate_metadata` / `make_m4b` take `workdir=`; `runner.run_conversion_job`
+  passes its own `mkdtemp` and never changes the working directory (an AST test forbids `chdir`). PyMuPDF is used by
+  one thread at a time (`pdf_extractor._PYMUPDF_LOCK`); the NLTK sentence splitter is built once under a lock.
+- **Worker policy:** `tts/worker_limits.py` (stdlib only): `plan_for_sources(requested, backend, sources)` →
+  `WorkerPlan(requested, effective, reasons, notes)`; effective = min(request (1–100), queued files, engine ceiling
+  (Kokoro / Chatterbox Turbo / Qwen3 = 1), Edge service 32, logical processors, memory ceiling from measured free
+  memory and the largest queued files' estimated peaks). The log prints `Requested workers: N | Effective workers: M`
+  and `Worker limit: <reason>` when M < N. Used by the TTS panel and `batch_convert.py`.
+- **Run plumbing:** `EtaEstimator.set_parallelism` (default 1 for every other tool); `QueueWriter` emits whole lines per
+  thread tagged `[<file>]`; tqdm bars at `position=0`; direct Edge retries keep 3 attempts with jittered exponential
+  waits.
+- **Narration:** chapters carry `narrate_title`; an author-written heading is spoken whatever its text, consecutive
+  headings are joined, the `"blank"` placeholder is only a name. No word filtering exists.
+- Decision record: `Decisions.md` 2026-11-03. Live state, evidence and review brief: `Handoff.md` and
+  `files/plans/ACT-v0.7.1-Edge-Multi-File-Workers-Plan.md`.
+
 ## v0.7.0 portability and reproducibility (2026-10-31) — identity 0.7.0, NOT merged/tagged/published
 
 - **Dependencies:** `scripts/requirements.txt` is the human-maintained list; `scripts/requirements-lock-windows-py312.txt`
@@ -916,10 +935,11 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
   exposes no rate control at all, by design, rather than a fake one. **File-level
   concurrency (v0.6.5 Phase 6, P14):** a requested "Workers" count is a whole-*file*
   concurrency level, never permission to parallelize the chunks inside one file;
-  `epub2tts_gui.resolve_effective_workers` bounds it by the request, the queued file
-  count, a backend-safety ceiling and a conservative device-safe ceiling, and the
-  run log always states `Requested workers: N | Effective workers: N` truthfully.
-  Edge honors real multi-file concurrency; Kokoro and Chatterbox are both capped to
+  `tts/worker_limits.plan_for_sources` (v0.7.1) bounds it by the request (1–100), the
+  queued files, the engine, the Edge service ceiling, the logical processors and the
+  measured free memory, and the run log always states `Requested workers: N | Effective
+  workers: M` and which limit applied. Edge honors real multi-file concurrency on every
+  import path (v0.7.1); Kokoro and Chatterbox are both capped to
   an effective `1` as correctness constraints, not tuning choices — Chatterbox
   because its cached model instance holds mutable per-call conditioning state, and
   Kokoro (Phase 9 fresh-review finding) because its cached per-lang-code pipeline's
@@ -1059,6 +1079,11 @@ Both OS zips share code/references and differ only in launcher. No other `files/
 Packaged-asset changes must be committed before building.
 
 ## Current Version
+
+**v0.7.0 is the current published release (2026-11-02):** tag `v0.7.0` = `c0896d8` (= `master`), GitHub
+release with `AudiobookTool-Windows-v0.7.0.zip` (Windows only). **v0.7.1** (Edge multi-file workers) is implemented on
+`feature/0.7.1-multi-file-workers` and awaits review and owner acceptance (section at the top; `Handoff.md`). The
+v0.6.6 text below is historical.
 
 The later bundled-reference cleanup above retains identity 0.6.6. The following original
 publication/tag/asset facts describe the historical GitHub release, not the local cleanup-master
@@ -1205,6 +1230,9 @@ split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisi
 release — is unchanged and undrafted.
 
 ## High-Level State
+
+**2026-11-03:** v0.7.0 is published (2026-11-02); v0.7.1 Edge multi-file workers awaits independent review and
+owner acceptance (top section, `Handoff.md`). The 2026-09-30 paragraph below is historical.
 
 **2026-09-30 final state:** v0.6.6 is complete, merged through PR #13 and published under
 tag `v0.6.6` at the release merge SHA recorded above. README is the compact user guide with

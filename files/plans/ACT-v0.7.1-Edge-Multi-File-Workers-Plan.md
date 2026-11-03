@@ -151,7 +151,8 @@ evidence/`; the listening index is `files/test-for-manual-listen-elmatthe/ACT-v0
 | A | 08-blank-focus | `1 \| 1` | 1 | 1 ok; "blank" sent 9/9 |
 | B | 02, 06 | `2 \| 2` | 2 | 2 ok |
 | C | 01, 02, 03 + PDF | `4 \| 4` | 4 | 4 ok; PDF heading spoken "Chapter five: …" |
-| D | 01–08 | `8 \| 8` | 8 | 8 ok, all started within 3 ms; listening set |
+| D | 01–08 | `8 \| 8` | 8 | 8 ok, all started within 3 ms, 24.2 s from Start to settled; listening set |
+| D-serial | 01–08, 1 requested (speed baseline for D) | `1 \| 1` | 1 | 8 ok, one after another, 123.9 s; same 134 Edge requests and the same words as D |
 | E | 04, 06 direct + folder (3 TXT + PDF) | `4 \| 4` | 4 | 6 ok; queued files start as slots free |
 | F | 20 short files, 100 requested | `100 \| 16` + `Worker limit: this computer has 16 logical processors (one file per processor).` | 16 | 20 ok |
 | G-cancel | 01–08, Cancel at 6 s | `8 \| 8` | 8 | Cancelled; 7 raised `ConversionCancelled` within 4.4 s, no MP3; the 1 finished file kept |
@@ -165,8 +166,15 @@ Every completed output: decodes; units sent to Edge = units expected, and the wo
 words in order (TXT and PDF, both routes); no request unattributed; no duplicate audio; reruns of a label wrote a new
 numbered run folder (`TTS-Audiobook-2`), never over the previous one; no new `epub2tts_*` temp folder left behind.
 Final tails 150–160 ms, except `04-glass-orchard` (0.39–0.40 s, which the unchanged v0.7.0 rule keeps and logs as
-"please listen to the ending"). App memory peaked at 244 MB (8 workers) and 231 MB (16); machine CPU touched 100 %
-only for the 16 simultaneous short encodes of run F.
+"please listen to the ending"). App memory peaked at 239 MB (8 workers, run D) and 231 MB (16, run F), against
+223 MB for the same eight files on 1 worker; machine CPU touched 100 % only for the 16 simultaneous short encodes of
+run F. The eight-file speedup (about 5×, not 8×) is bounded by the longest file: run D ends when `03-the-ninth-bell`
+finishes, 23.0 s after the first conversion call.
+
+**Gate on `48f6667`:** `python scripts/verify.py` → `RESULT: PASS` — pytest 12,779 passed, 65 skipped; guarded
+v3-planning 457 + v3-supervisor 75 passed; deps, docs, docnames, config (0.7.1) and tree (unchanged during the run)
+pass. Evidence (ignored): `files/dev-work/act070-remediation/verify/ACT071-48f6667-run1/`. The docs-only commit that
+follows touches only `md-instructions/` and this plan.
 
 ## 7. Defects the real runs found (fixed, with tests)
 

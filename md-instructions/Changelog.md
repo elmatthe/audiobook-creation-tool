@@ -15,6 +15,44 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.1 Edge multi-file workers (2026-11-03) — identity 0.7.1; NOT published, tagged or merged
+
+- **Changed:** files added directly with **Add Files** now convert side by side with the Edge voices, as folder
+  imports already did — direct TXT and PDF, folder and mixed queues, every Edge voice. v0.7.0 converted a queue of
+  directly added files one at a time whatever **File workers** said (`Requested workers: 8 | Effective workers: 1`):
+  the engine wrote its scratch files into the current folder, so each conversion switched the whole program's folder
+  and a lock let only one run. Each conversion now has its own private work folder and nothing changes the current
+  folder.
+- **Changed:** **File workers** accepts 1–100. The number that actually runs is the smallest of: the request, the
+  files queued, the engine's limit (Kokoro, Chatterbox Turbo and Qwen3-TTS stay at one file at a time), the Edge
+  service ceiling (32 files at once), the computer's logical processors, and what free memory allows for the largest
+  queued files while they are assembled (measured: about 150 kB per second of narration; where free memory cannot be
+  read it is not guessed). The Detailed log says `Requested workers: N | Effective workers: M` and, when M is lower,
+  which limit applied. The standalone `batch_convert.py` uses the same rule.
+- **Fixed:** a heading written as `# blank` or `# Title` was silently not spoken, and of two headings in a row only
+  the second was spoken (the M4B chapter titles then went out of step). A heading is now spoken because the author
+  wrote it, whatever it says; consecutive headings are spoken together ("Part One. Chapter 1") and each chapter keeps
+  one M4B title. The word "blank" in ordinary text was never removed and still is not; nothing filters words. A
+  chapter without a heading now logs "Chapter name: none (no heading in the source here, so no chapter title is
+  spoken)".
+- **Fixed (hazards that real concurrency exposes):** PDF text is extracted by one file at a time (PyMuPDF is not
+  thread-safe; folder workers already used it side by side); the sentence splitter is built once; the ETA divides by
+  the files running at once (it overstated N-fold); log lines from different files no longer cut into each other and
+  each carries `[<file>]`; each file's progress bar stays on one line (simultaneous bars printed cursor codes and empty
+  lines); a failed Edge request waits 1–3 s, then 2–6 s, with jitter, instead of a fixed 3 s, so files do not retry
+  in lock-step (still 3 attempts).
+- **Verified:** real Edge runs on HOME-PC with 1, 2, 4 and 8 workers (that many files in flight at once), 100
+  requested → 16 (this computer's logical processors), mixed direct + folder, a direct PDF, Cancel, Retry Failed,
+  same-named files, all five Edge voices, 16- and 32-file service bursts (no retries) and a real-GUI run; every
+  output's words checked against its source. Listening samples, not yet listened to by the owner:
+  `files/test-for-manual-listen-elmatthe/ACT-v0.7.1-edge-concurrency/` (ignored). `verify.py` RESULT: PASS on
+  `48f6667` (12,779 passed, 65 skipped).
+
+## [0.7.0] - 2026-11-02
+
+Published as the GitHub release **v0.7.0** (tag `v0.7.0` = `c0896d8`, asset `AudiobookTool-Windows-v0.7.0.zip`).
+The "NOT published, tagged or merged" notes in the entries below record each entry's state when it was written.
+
 ### v0.7.0 GUI-acceptance defect remediation D1–D4 (2026-11-01) — identity 0.7.0; NOT published, tagged or merged
 
 - **Fixed (D1):** a copied app folder no longer runs on the original's Python and FFmpeg. The launcher's check sees an

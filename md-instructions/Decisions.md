@@ -4,6 +4,43 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-03 - Directly added Edge files convert side by side in private work folders; the worker count that runs is the smallest of request, queue, engine, Edge service, processors and measured memory; headings are spoken by identity (v0.7.1)
+
+**Context.** v0.7.0 converted a queue of directly added Edge files one at a time whatever File workers said: the
+vendored engine wrote bare relative scratch names, so `runner.run_conversion_job` `os.chdir`'d into a private folder
+and `_CWD_ISOLATION_LOCK` serialized every direct conversion, and `resolve_effective_workers` capped an all-direct
+queue at 1 (live on HOME-PC: `Requested workers: 8 | Effective workers: 1`). Owner prompt 2026-11-02: real
+concurrency on every import path for every Edge voice; a hardware-aware limit (1–100 requestable, never blindly 100,
+not hardcoded to 4); an audit of the word "blank" with no global word suppression. Local engines stay at 1.
+
+**Decision.**
+- *Explicit work folders, no `chdir`.* `read_book`, `generate_metadata` and `make_m4b` take `workdir=`; the runner
+  passes its own `mkdtemp`, never changes the process's folder, and the lock is removed. Rejected: one subprocess per
+  conversion (re-plumbs cancellation, logging and typed errors across a process boundary for a problem that is only
+  the working directory); keeping the lock (it is the defect).
+- *Make shared state safe instead of assuming it is.* PyMuPDF (documented as not thread-safe) behind one module lock
+  for every extraction; the NLTK sentence splitter built once under a lock; per-thread whole-line logging tagged
+  `[<file>]`; tqdm bars fixed at `position=0`; the ETA divided by the files in flight; direct retries jittered and
+  exponential (still 3 attempts).
+- *Worker policy (`tts/worker_limits.py`).* effective = max(1, min(requested, queued files, engine ceiling — local
+  engines 1, Edge service ceiling 32, logical processors, memory ceiling)). Memory: available − max(1 GiB, 25 % of
+  RAM) must hold the largest queued files' estimated peaks (64 MiB + narration seconds × 150 kB; seconds =
+  characters ÷ 12; a PDF's characters = pages × 3,000), each figure measured on HOME-PC and rounded up; where free
+  memory cannot be read it is not used, and the log says so. The log names the limit that applied. Hardware capacity
+  is not service capacity: 32 is kept because 32 simultaneous real conversions succeeded without one retry; it is an
+  observation, not a documented Microsoft limit (there is none for this endpoint).
+- *Headings by identity.* `get_book` marks `narrate_title`; `read_book` speaks every author-written heading whatever
+  its text; consecutive headings are joined into one title; the `"blank"` placeholder is only a name. No word is ever
+  filtered.
+
+**Why:** the serialization came from one process-wide side effect, so removing the side effect — not raising a
+constant — is what lets every Edge path overlap safely; a limit that names its reason tells someone who asked for 100
+why 16 run; and a heading is the author's text, so whether it is spoken cannot depend on what it says.
+
+— Directed by the owner on 2026-11-02; implemented by Claude Code.
+
+---
+
 ## 2026-11-01 - Copies own their Python and FFmpeg; the store holds only verified locked files; damage pip cannot see rebuilds the environment; M4B chapter marks are exact (v0.7.0 acceptance D1–D4)
 
 **Context.** The real-GUI acceptance of RC `c6264fc3` (ignored `files/dev-work/act070-acceptance/`) found four Major
