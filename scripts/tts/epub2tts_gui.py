@@ -3468,7 +3468,8 @@ class QueueWriter(io.TextIOBase):
             self._pending[thread] = rest
             prefix = self._prefixes.get(thread, "")
         if lines:
-            self._q.put(("log", "".join(f"{prefix}{line}\n" for line in lines)))
+            # A blank line stays blank: a bare "[file] " would say nothing and only crowd the bounded log.
+            self._q.put(("log", "".join(f"{prefix if line else ''}{line}\n" for line in lines)))
         return len(s)
 
     def flush(self) -> None:

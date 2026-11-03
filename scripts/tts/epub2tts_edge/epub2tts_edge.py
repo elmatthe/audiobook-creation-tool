@@ -426,8 +426,11 @@ def read_book(
                 # Title pause is applied in-memory when merging (below) so the gap is exact
                 # and survives MP3/FLAC round-trips; do not rely on silence baked into sntnc0.mp3 alone.
 
+            # position=0: each conversion keeps its bar on its own line. Left automatic, tqdm stacks the bars of files
+            # converting at once with newlines and cursor-up codes, which the app's log pane shows as empty lines and
+            # raw escape characters (v0.7.1). With one bar at a time the output is byte-for-byte what it always was.
             for pindex, paragraph in enumerate(
-                tqdm(chapter["paragraphs"], desc=f"Generating audio files: ",unit='pg')
+                tqdm(chapter["paragraphs"], desc=f"Generating audio files: ", unit='pg', position=0)
             ):
                 _checkpoint()  # between paragraphs
                 ptemp = _in_workdir(workdir, f"pgraphs{pindex}.flac")

@@ -22,6 +22,7 @@ from __future__ import annotations
 import io
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -473,6 +474,30 @@ def test_eight_direct_edge_files_convert_at_once_through_the_real_panel(make_pan
 
 
 @needs_ffmpeg
+def test_the_detailed_log_stays_readable_while_eight_files_convert_at_once(make_panel, output_base, tmp_path,
+                                                                           monkeypatch):
+    """Found on HOME-PC's real 8-file run: tqdm stacks simultaneous bars with newlines and cursor-up codes, which the
+    log pane showed as empty "[file] " lines and raw escape characters. Every line must say something, and no
+    terminal control codes reach the pane; each file still gets its own progress line, as with one worker."""
+    machine(monkeypatch, cpus=16)
+    FakeService(barrier=threading.Barrier(8)).install(monkeypatch)  # every file's bar is live at the same time
+    words = [f"Voice{chr(65 + i)}" for i in range(8)]
+    chosen = tuple(book(tmp_path / "Loose", f"{w}.txt", w) for w in words)
+    panel = real_panel(make_panel, direct=chosen)
+    panel.workers_var.set("8")
+
+    run_attempt(panel)
+
+    assert panel._result.succeeded_count == 8
+    details = list(panel.log.details)
+    assert not [line for line in details if "\x1b" in line]
+    assert not [line for line in details if re.fullmatch(r"\[[^\]]+\]\s*", line)]
+    for word in words:
+        bars = [line for line in details if line.startswith(f"[{word}.txt] ") and "Generating audio files" in line]
+        assert len(bars) == 1 and "100%" in bars[0], bars
+
+
+@needs_ffmpeg
 def test_direct_and_folder_files_overlap_with_the_real_engines(make_panel, output_base, tmp_path, monkeypatch):
     service = FakeService(barrier=threading.Barrier(4)).install(monkeypatch)
     direct = (book(tmp_path / "Loose", "a.txt", "DirectA"), book(tmp_path / "Loose", "b.txt", "DirectB"))
@@ -646,3 +671,38 @@ def test_text_outside_any_file_is_unprefixed_and_flushed_at_the_end():
     assert drain(q) == "Run line\n"
     writer.flush_all()
     assert drain(q) == "dangling\n"
+
+
+def test_a_blank_line_stays_blank_rather_than_a_bare_file_label():
+    q: queue.Queue = queue.Queue()
+    writer = panel_module.QueueWriter(q)
+    with writer.file_scope("x.txt"):
+        writer.write("\n\nChapter name: X\n")
+    assert drain(q) == "\n\n[x.txt] Chapter name: X\n"
+
+
+# --------------------------------------------------------------------------- #
+# G. Every registered Edge voice has the same multi-file capability
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("voice", [v for v in __import__("tts.voice_registry", fromlist=["VOICES"]).VOICES
+                                   if v.backend == "edge"], ids=lambda v: v.voice_id)
+def test_every_edge_voice_converts_eight_direct_files_at_once(make_panel, output_base, tmp_path, gated_stubs,
+                                                              monkeypatch, voice):
+    machine(monkeypatch, cpus=16)
+    gated_stubs.gate_on = ""  # every file holds inside the engine until released: all eight must be in at once
+    names = [f"{index}.txt" for index in range(8)]
+    panel, _chosen = direct_panel(make_panel, tmp_path, *names)
+    panel.selected_voice_label.set(voice.display_label)
+    panel._on_voice_selected()
+    panel.workers_var.set("8")
+    panel.run_job()
+    worker = panel._worker
+    try:
+        wait_for(lambda: len(gated_stubs.order) == 8, f"{voice.voice_id}: eight files were not in flight together")
+    finally:
+        gated_stubs.release.set()
+        worker.join(WAIT)
+    wait_for(lambda: "Requested workers: 8 | Effective workers: 8" in log_text(panel), "no worker line", panel=panel)
+    assert {job["speaker"] for job in gated_stubs.conversion_jobs} == {voice.voice_id}
