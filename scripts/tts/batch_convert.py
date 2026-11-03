@@ -39,7 +39,7 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils, output_paths
-from tts import audio_tail, edge_failures, output_names
+from tts import audio_tail, edge_failures, output_names, worker_limits
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -342,6 +342,10 @@ def run_batch_convert(
                 kept.append((p, target))
         jobs = kept
 
+    # v0.7.1: the same worker policy as the app (queue, Edge service ceiling, processors, free memory).
+    plan = worker_limits.plan_for_sources(workers, "edge", [p for p, _target in jobs])
+    workers = plan.effective
+
     log("============================================")
     log("  Batch TTS Converter — Steffan Neural")
     log("============================================")
@@ -349,6 +353,8 @@ def run_batch_convert(
     log(f"  Output folder : {output_dir}")
     log(f"  Files found   : {len(jobs)}")
     log(f"  Workers       : {workers}")
+    for line in plan.log_lines():
+        log(f"  {line}")
     log("============================================")
 
     error_log = output_dir / "batch_errors.log"
@@ -430,7 +436,8 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Folder containing PDF/TXT files")
     parser.add_argument("--output", default="./output_mp3s/", help="Output folder for MP3s")
     parser.add_argument("--speaker", default=DEFAULT_SPEAKER, help="edge-tts voice name")
-    parser.add_argument("--workers", type=int, default=2, help="Parallel file jobs")
+    parser.add_argument("--workers", type=int, default=2,
+                        help="Parallel file jobs requested; held to what the queue, processors and free memory allow")
     parser.add_argument("--rate", default="+0%", help="Speech rate, e.g. +10%%")
     parser.add_argument(
         "--resume",

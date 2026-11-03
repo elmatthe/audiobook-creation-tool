@@ -86,6 +86,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/audio_tail.py",
     # Added by v0.7.0 P02B: the one TTS output filename policy every route names its file through.
     "tts/output_names.py",
+    # Added by v0.7.1: how many files one run converts at once (queue, engine, Edge service, processors, memory).
+    "tts/worker_limits.py",
     # Added by v0.7.0 P05B Stage 1: the optional-voice planner and setup worker (both shipped by P05A without being
     # listed here, which already failed this allow-list check) and the operation lifecycle the worker answers through.
     "tts/optional_setup.py",
@@ -468,7 +470,8 @@ def test_a_txt_source_still_reaches_the_edge_engine_unchanged(tmp_path, monkeypa
 
     def fake_read_book(*args, **kwargs):
         seen["read_book_kwargs"] = kwargs
-        out = Path("chapter.mp3")
+        # v0.7.1: scratch goes into the conversion's own working folder (the runner no longer changes directory).
+        out = Path(kwargs["workdir"]) / "chapter.mp3"
         out.write_bytes(b"audio")
         return [str(out)]
 
@@ -521,12 +524,12 @@ def test_a_pdf_source_still_goes_through_the_extractor_and_heading_injection(
                 ["Chapter One"])
 
     def fake_read_book(*args, **kwargs):
-        chunk = Path("chapter.mp3")
+        chunk = Path(kwargs["workdir"]) / "chapter.mp3"  # v0.7.1: the conversion's own working folder
         chunk.write_bytes(b"audio")
         return [str(chunk)]
 
     def fake_make_mp3(files, sourcefile, speaker, bitrate="192k"):
-        produced = Path(f"{Path(sourcefile).stem} ({speaker}).mp3")
+        produced = Path(sourcefile).with_name(f"{Path(sourcefile).stem} ({speaker}).mp3")
         produced.write_bytes(b"final")
         return str(produced)
 

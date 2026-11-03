@@ -20,7 +20,8 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 | `batch_convert.py` | Edge **folder** route: raw text, 3000-character chunks, one MP3 per source file. Run standalone, it names files the same way (`--label`, defaulting to the speaker's registered label) and never overwrites an earlier file |
 | `edge_failures.py` | Edge failure classification shared by both Edge routes: what is retried, the one-line recovery advice, token-free diagnostics |
 | `epub2tts_edge/epub2tts_edge.py` | Edge **direct** route: `Title:`/`Author:`/`#` structure, sentence splitting, comma/ellipsis/dash pauses, paragraph and chapter assembly |
-| `epub2tts_edge/runner.py` | Runs one direct Edge conversion in a private working folder |
+| `epub2tts_edge/runner.py` | Runs one direct Edge conversion in its own private working folder, without changing the process's current folder, so several direct files convert at once (v0.7.1) |
+| `worker_limits.py` | How many files one run converts at once (v0.7.1): the request held to the queue, the engine (local engines: one), the Edge service ceiling, the logical processors and the free memory the queued files need; the run log names the limit that applied |
 | `audio_tail.py` | The final-tail policy (v0.7.0 Q1) the local engines apply at their one final MP3 encode: no closing pause, only the terminal near-silence is shortened (150 ms kept after the last sound, never a quiet final sound cut); pure numpy |
 
 ## The engines

@@ -242,3 +242,23 @@ def test_the_temp_chunk_folder_name_is_short_for_a_deep_long_destination(tmp_pat
     key = hashlib.sha256(target.relative_to(out).as_posix().encode()).hexdigest()[:16]
     assert seen and {Path(p).parent for p in seen} == {out / ".tmp_chunks" / key}
     assert not (out / ".tmp_chunks" / key).exists(), "this source's scratch folder is still removed afterwards"
+
+
+def test_an_oversized_workers_request_is_bounded_and_logged(tmp_path, fake_synth, monkeypatch):
+    """v0.7.1: the standalone helper uses the app's worker policy instead of starting one thread per request."""
+    from tts import worker_limits
+
+    monkeypatch.setattr(worker_limits, "logical_cpus", lambda: 8)
+    monkeypatch.setattr(worker_limits, "memory_info", lambda: worker_limits.MemoryInfo(64 * 1024 ** 3, 128 * 1024 ** 3))
+    inp = tmp_path / "in"
+    inp.mkdir()
+    for index in range(3):
+        (inp / f"{index}.txt").write_text(f"Text {index}.", encoding="utf-8")
+    lines: list[str] = []
+
+    ok, fail, _ = bc.run_batch_convert(inp, tmp_path / "out", workers=100, use_tqdm=False, log=lines.append)
+
+    assert (ok, fail) == (3, 0)
+    assert "  Workers       : 3" in lines
+    assert "  Requested workers: 100 | Effective workers: 3" in lines
+    assert "  Worker limit: only 3 files are queued." in lines

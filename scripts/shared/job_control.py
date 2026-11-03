@@ -2549,7 +2549,8 @@ class EtaEstimator:
     """
 
     __slots__ = ("_run_id", "_clock", "_minimum", "_window", "_samples", "_category",
-                 "_started_at", "_paused_since", "_paused_total", "_paused", "_ended")
+                 "_started_at", "_paused_since", "_paused_total", "_paused", "_ended",
+                 "_parallelism")
 
     def __init__(
         self,
@@ -2578,8 +2579,22 @@ class EtaEstimator:
         self._paused_total = 0.0
         self._paused = False
         self._ended = False
+        self._parallelism = 1
 
     # -- properties ------------------------------------------------------- #
+
+    @property
+    def parallelism(self) -> int:
+        """How many units run side by side (1 unless the tool says otherwise)."""
+        return self._parallelism
+
+    def set_parallelism(self, units: int) -> None:
+        """Tell the estimate how many units run at once (v0.7.1: TTS converts several files side by side).
+
+        Each sample stays one unit's own measured duration; only :meth:`estimate` changes, dividing the remaining
+        work between that many lanes. Default 1, so a tool that never calls this estimates exactly as before.
+        """
+        self._parallelism = _require_index("parallelism", units, minimum=1)
 
     @property
     def run_id(self) -> str:
@@ -2733,7 +2748,12 @@ class EtaEstimator:
             return None
         if len(self._samples) < self._minimum:
             return None
-        return (sum(self._samples) / len(self._samples)) * remaining
+        mean = sum(self._samples) / len(self._samples)
+        if remaining == 0:
+            return 0.0
+        # Units running side by side share the remaining work; when fewer remain than run at once, the last of
+        # them still take one unit's time (they run together).
+        return mean * remaining / min(self._parallelism, remaining)
 
     def display(
         self, remaining: "int | None", *, run_id: "str | None" = None,

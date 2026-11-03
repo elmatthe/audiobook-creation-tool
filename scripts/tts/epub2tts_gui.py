@@ -143,6 +143,7 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
+from tts import worker_limits
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -266,15 +267,16 @@ TIMING_MESSAGE = "timing"
 # ``Workers = X`` is a requested WHOLE-FILE concurrency level, never permission
 # to parallelize the chunks inside one source file: one worker owns one file
 # and processes that file's synthesis units sequentially/in order, exactly as
-# every engine call below already does on its own. Effective concurrency is
-# min(requested, queued files, a backend-safety ceiling, a conservative
-# device-safe ceiling) -- never a fake universal hardware formula, and never
-# silently ignored: the run log always states requested vs. effective.
+# every engine call below already does on its own. v0.7.1: the effective count
+# comes from ``tts.worker_limits`` -- min(requested, queued files, engine
+# ceiling, Edge service ceiling, processors, free memory for the queued files'
+# sizes) -- and is never silently ignored: the run log always states requested
+# vs. effective, and which limit applied.
 # --------------------------------------------------------------------------- #
 
-#: Hard backend-safety ceilings. Edge's is a sanity limit against a
-#: pathological request (e.g. "100"); Kokoro's and Chatterbox's are both
-#: correctness constraints, not tuning choices.
+#: Hard backend-safety ceilings (the values live in ``tts.worker_limits``). Edge's
+#: is the online service ceiling; Kokoro's, Chatterbox's and Qwen3's are
+#: correctness/resource constraints, not tuning choices.
 #:
 #: Kokoro (v0.6.5 Phase 9 fresh-review finding): ``kokoro_synth._get_pipeline``
 #: caches one ``KPipeline`` per lang_code and every voice of that language
@@ -296,84 +298,22 @@ TIMING_MESSAGE = "timing"
 #: same shared, non-reentrant C library. Capped to 1 until a Phase-6-style
 #: isolation proof is done for real (own pipeline per worker, or a lock
 #: around the G2P call) -- see Decisions.md, 2026-09-26.
-#: Chatterbox: see ``_device_safe_workers`` below and
-#: ``chatterbox_synth._get_model``/``load_conditionals``: one cached model
+#: Chatterbox: see ``chatterbox_synth._get_model``/``load_conditionals``: one cached model
 #: instance per device holds mutable conditioning state
 #: (``model.conds``) that a second concurrent file would race.
-EDGE_BACKEND_SAFE_WORKERS = 32
-KOKORO_BACKEND_SAFE_WORKERS = 1
-CHATTERBOX_BACKEND_SAFE_WORKERS = 1
+EDGE_BACKEND_SAFE_WORKERS = worker_limits.EDGE_SERVICE_CEILING
+KOKORO_BACKEND_SAFE_WORKERS = worker_limits.LOCAL_ENGINE_CEILINGS["kokoro"]
+CHATTERBOX_BACKEND_SAFE_WORKERS = worker_limits.LOCAL_ENGINE_CEILINGS["chatterbox"]
 #: Qwen3-TTS (v0.6.7 CP6): each file runs in its own worker process holding a multi-gigabyte model on the GPU (about
 #: 5.4 GB of VRAM) or the CPU (about 6 GB of memory). A second concurrent file would double that on a machine that
 #: has no room for it, and gains nothing on a GPU that is already the bottleneck, so it is one file at a time.
-QWEN3_BACKEND_SAFE_WORKERS = 1
+QWEN3_BACKEND_SAFE_WORKERS = worker_limits.LOCAL_ENGINE_CEILINGS["qwen3"]
 
+#: The panel's own Workers box accepts 1 to this; the run then uses what the machine, the engine and the queue allow.
+MAX_REQUESTED_WORKERS = 100
 
-def _cpu_count() -> int | None:
-    """A thin, patchable seam over ``os.cpu_count()``.
-
-    Exists only so a test can substitute a known core count without touching
-    the real, shared ``os`` module -- this app's actual behavior always reads
-    the real machine.
-    """
-    return os.cpu_count()
-
-
-def _device_safe_workers(backend: str) -> int:
-    """A conservative per-backend ceiling from the real machine's own CPU
-    count -- evidence, not an invented formula -- leaving headroom for the
-    OS/UI/FFmpeg rather than trying to consume every core.
-
-    Edge is network-bound locally: each worker's own CPU cost is a short
-    trim/re-encode burst, not sustained inference, so up to one worker per
-    logical core is offered. Kokoro is a local model doing sustained CPU
-    inference per file, so only half the logical cores are offered, leaving
-    the other half as headroom. Chatterbox's limit is a correctness
-    constraint (see the module docstring above), not a capacity guess, so it
-    is always 1 regardless of the machine.
-    """
-    if backend in ("chatterbox", "qwen3"):
-        return 1
-    cpu = _cpu_count() or 4
-    if backend == "kokoro":
-        return max(1, cpu // 2)
-    return max(1, cpu)
-
-
-def resolve_effective_workers(requested: int, queued_files: int, backend: str, *,
-                              direct_files: int = 0) -> int:
-    """The one place P14's worker cap is computed for a run.
-
-    Bounded by the user's own request, how many files are actually queued
-    (concurrency beyond the queue is meaningless), a backend-safety ceiling,
-    and a conservative device-safe ceiling read from the real machine. An
-    oversized request (e.g. "100" on a 4-core machine with 2 files queued)
-    degrades safely to whatever is actually supportable; it never raises and
-    never returns less than 1.
-
-    ``direct_files`` is how many of ``queued_files`` are directly-added Edge
-    items. Edge's ``epub2tts_edge.runner`` serializes every direct item
-    against every other direct item behind its process-wide
-    ``_CWD_ISOLATION_LOCK`` (folder-derived Edge items never chdir, so they
-    carry no such lock and freely overlap each other and any direct item).
-    Queuing more than one direct item therefore never buys real concurrency
-    beyond the one already in flight: the true ceiling for an Edge run is the
-    folder items (which can each run in their own worker) plus, at most, one
-    direct item running alongside them -- an all-direct queue caps to 1
-    regardless of how many workers were requested.
-    """
-    backend_safe = {
-        "edge": EDGE_BACKEND_SAFE_WORKERS,
-        "kokoro": KOKORO_BACKEND_SAFE_WORKERS,
-        "chatterbox": CHATTERBOX_BACKEND_SAFE_WORKERS,
-        "qwen3": QWEN3_BACKEND_SAFE_WORKERS,
-    }.get(backend, 1)
-    device_safe = _device_safe_workers(backend)
-    cap = min(int(requested), int(queued_files), backend_safe, device_safe)
-    if backend == "edge" and direct_files > 0:
-        folder_files = max(0, int(queued_files) - int(direct_files))
-        cap = min(cap, folder_files + 1)
-    return max(1, cap)
+#: The queue message telling the main thread how many files the run converts at once (the ETA divides by it).
+PARALLELISM_MESSAGE = "parallelism"
 
 
 #: What the engine line says when a locally cloned voice is selected. Engine
@@ -1297,7 +1237,7 @@ class TtsPanel(ttk.Frame):
         ttk.Label(audio, text="File workers (requested)", style=st("label")).grid(
             row=0, column=2, sticky="w")
         self.spin_workers = ttk.Spinbox(
-            audio, from_=1, to=16, textvariable=self.workers_var, width=4,
+            audio, from_=1, to=MAX_REQUESTED_WORKERS, textvariable=self.workers_var, width=4,
             style=st("spinbox"))
         self.spin_workers.grid(row=0, column=3, sticky="w", padx=(6, 0))
         self.workers_note = ttk.Label(
@@ -1773,6 +1713,10 @@ class TtsPanel(ttk.Frame):
                     self._append_engine_output(payload)
                 elif kind == TIMING_MESSAGE:
                     self._record_timing(payload)
+                elif kind == PARALLELISM_MESSAGE:
+                    # The run's effective workers: files finish side by side, so the ETA divides by them.
+                    if self._estimator is not None:
+                        self._estimator.set_parallelism(int(payload))
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
@@ -3055,12 +2999,15 @@ class _RunContext:
 
     def execute(self) -> None:
         try:
-            if self.params["backend"] == "edge" and any(item["direct"] for item in self.items):
-                # v0.7.0: proves the verified local sentence data (offered at Create); never downloads. Missing here
-                # (removed since), it settles as a job failure whose message says what to do.
-                ensure_punkt()
-            self.filter_resumable()
-            self.run_all_items()
+            try:
+                if self.params["backend"] == "edge" and any(item["direct"] for item in self.items):
+                    # v0.7.0: proves the verified local sentence data (offered at Create); never downloads. Missing
+                    # here (removed since), it settles as a job failure whose message says what to do.
+                    ensure_punkt()
+                self.filter_resumable()
+                self.run_all_items()
+            finally:
+                self.writer.flush_all()  # every engine line reaches the log before the run settles
         except ConversionCancelled:
             self.cancelled = True
         except Exception as exc:  # noqa: BLE001 - settled as a job failure below
@@ -3126,11 +3073,13 @@ class _RunContext:
 
         params = self.params
         backend = params["backend"]
-        requested = int(params["workers"])
-        direct_files = sum(1 for item in self.items if item["direct"])
-        effective = resolve_effective_workers(requested, len(self.items), backend,
-                                              direct_files=direct_files)
-        self.log(f"Requested workers: {requested} | Effective workers: {effective}")
+        # v0.7.1: direct and folder items alike, sized by the queued files themselves and this machine.
+        plan = worker_limits.plan_for_sources(int(params["workers"]), backend,
+                                              [item["source"] for item in self.items])
+        for line in plan.log_lines():
+            self.log(line)
+        effective = plan.effective
+        self.log_q.put((PARALLELISM_MESSAGE, effective))
 
         def convert(item):
             try:
@@ -3143,6 +3092,10 @@ class _RunContext:
             self.publisher.current_item(
                 item["item_id"], f"Converting {item['source'].name}")
             started = self.clock()
+            with self.writer.file_scope(item["source"].name):
+                return convert_one(item, started)
+
+        def convert_one(item, started):
             try:
                 # The one place the engines differ -- three calls deep in one
                 # shared dispatch, not three pipelines. A direct Edge file
@@ -3492,16 +3445,58 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
 
 
 class QueueWriter(io.TextIOBase):
+    """The run's stdout/stderr, onto the worker->GUI queue.
+
+    v0.7.1: several files convert at once and all of them print through this one object (``print`` writes the text
+    and its newline separately), so each thread's text is held until it completes a line and only whole lines are
+    queued; while a file converts (:meth:`file_scope`) its lines carry that file's name. One file's engine output
+    therefore never splits another's line, and every line says which file it is about.
+    """
+
     def __init__(self, q: queue.Queue) -> None:
         self._q = q
+        self._lock = threading.Lock()
+        self._pending: dict[int, str] = {}   # thread -> text after its last newline
+        self._prefixes: dict[int, str] = {}  # thread -> "[<file>] " while that thread converts a file
 
     def write(self, s: str) -> int:
-        if s:
-            self._q.put(("log", s))
+        if not s:
+            return 0
+        thread = threading.get_ident()
+        with self._lock:
+            *lines, rest = (self._pending.get(thread, "") + s).split("\n")
+            self._pending[thread] = rest
+            prefix = self._prefixes.get(thread, "")
+        if lines:
+            self._q.put(("log", "".join(f"{prefix}{line}\n" for line in lines)))
         return len(s)
 
     def flush(self) -> None:
-        pass
+        pass  # whole lines only; a partial line waits for its newline, its file's end, or flush_all
+
+    @contextlib.contextmanager
+    def file_scope(self, name: str):
+        """Label this thread's lines with *name* while it converts that file; release its partial line after."""
+        thread = threading.get_ident()
+        prefix = f"[{name}] "
+        with self._lock:
+            self._prefixes[thread] = prefix
+        try:
+            yield
+        finally:
+            with self._lock:
+                rest = self._pending.pop(thread, "")
+                self._prefixes.pop(thread, None)
+            if rest:
+                self._q.put(("log", f"{prefix}{rest}\n"))
+
+    def flush_all(self) -> None:
+        """Queue every thread's unfinished line (end of run), so nothing written is lost."""
+        with self._lock:
+            pending = [(self._prefixes.get(thread, ""), rest) for thread, rest in self._pending.items() if rest]
+            self._pending.clear()
+        for prefix, rest in pending:
+            self._q.put(("log", f"{prefix}{rest}\n"))
 
 
 def build_ui(parent: tk.Misc) -> TtsPanel:

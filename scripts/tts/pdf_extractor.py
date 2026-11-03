@@ -1,6 +1,7 @@
 """Extract plain text from PDF files using PyMuPDF."""
 
 import re
+import threading
 
 import fitz
 
@@ -100,17 +101,27 @@ def _clean_page_text(text: str) -> str:
     return text.strip()
 
 
+#: PyMuPDF "does not support running on multiple threads - doing so may cause incorrect behaviour or even crash
+#: Python itself" (its own documentation). Several files can convert at once (folder workers, and since v0.7.1
+#: directly added files too), so every PyMuPDF call in this process goes through this one lock. Reading the text is
+#: fast next to narrating it (about 0.2 s for a 230-page volume), so this serializes extraction only.
+_PYMUPDF_LOCK = threading.Lock()
+
+
 def extract_text_from_pdf(pdf_path: str) -> str:
-    doc = fitz.open(pdf_path)
     parts: list[str] = []
-    for page in doc:
-        raw = page.get_text("text") or ""
-        if not raw.strip():
-            continue
-        cleaned = _clean_page_text(raw)
-        if cleaned:
-            parts.append(cleaned)
-    doc.close()
+    with _PYMUPDF_LOCK:
+        doc = fitz.open(pdf_path)
+        try:
+            for page in doc:
+                raw = page.get_text("text") or ""
+                if not raw.strip():
+                    continue
+                cleaned = _clean_page_text(raw)
+                if cleaned:
+                    parts.append(cleaned)
+        finally:
+            doc.close()
 
     if not parts:
         raise ValueError("No readable text found in PDF. File may be scanned/image-based.")
@@ -122,6 +133,19 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     full = _strip_noise_lines(full)
     full = re.sub(r"\n{3,}", "\n\n", full)
     return full.strip()
+
+
+def pdf_page_count(pdf_path: str):
+    """The PDF's page count, or ``None`` when it cannot be opened (used to size a run's workers, v0.7.1)."""
+    with _PYMUPDF_LOCK:
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception:  # noqa: BLE001 - any unreadable file simply has no page count
+            return None
+        try:
+            return doc.page_count
+        finally:
+            doc.close()
 
 
 def pdf_to_txt(pdf_path: str, output_txt_path: str) -> str:

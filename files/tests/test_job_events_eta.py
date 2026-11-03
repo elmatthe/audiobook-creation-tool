@@ -1642,6 +1642,39 @@ def test_the_estimate_is_the_mean_of_the_comparable_samples(clock):
     assert est.estimate(2) == pytest.approx(40.0)
 
 
+def test_one_file_at_a_time_is_the_default_parallelism(clock):
+    est = estimator(clock)
+    assert est.parallelism == 1
+    for seconds in (10.0, 20.0, 30.0):
+        sample(est, clock, "convert", seconds)
+    assert est.estimate(4) == pytest.approx(80.0)
+
+
+def test_files_converting_side_by_side_divide_the_remaining_time(clock):
+    """v0.7.1: each sample is one file's own duration; with 4 files converting at once, 8 remaining take 2 rounds."""
+    est = estimator(clock)
+    for _ in range(3):
+        sample(est, clock, "convert", 20.0)
+    est.set_parallelism(4)
+    assert est.parallelism == 4
+    assert est.estimate(8) == pytest.approx(40.0)
+
+
+def test_fewer_files_left_than_workers_is_one_files_time(clock):
+    est = estimator(clock)
+    for _ in range(3):
+        sample(est, clock, "convert", 20.0)
+    est.set_parallelism(8)
+    assert est.estimate(3) == pytest.approx(20.0), "the last few run together: one file's time, not a fraction"
+    assert est.estimate(0) == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "4", None])
+def test_parallelism_must_be_a_positive_whole_number(clock, bad):
+    with pytest.raises(JobContractError):
+        estimator(clock).set_parallelism(bad)
+
+
 def test_the_window_keeps_only_the_latest_twenty(clock):
     est = estimator(clock)
     for _ in range(25):

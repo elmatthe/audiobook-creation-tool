@@ -5,8 +5,10 @@ import contextlib
 import copy
 import io
 import os
+import random
 import re
 import subprocess
+import threading
 import time
 import sys
 from tqdm import tqdm
@@ -81,6 +83,18 @@ def ensure_punkt():
 
 
 _SENTENCE_TOKENIZER = None
+#: v0.7.1: several files can convert at once, so the first use can come from several threads together; this lock
+#: makes the tokenizer get built (and NLTK's shared loader cleared) exactly once.
+_SENTENCE_TOKENIZER_LOCK = threading.Lock()
+
+
+def _in_workdir(workdir, name):
+    """``name`` inside the conversion's own working folder, or bare (relative to the current folder) without one.
+
+    v0.7.1: the runner hands every conversion a private ``workdir`` instead of changing the process-wide current
+    folder, so several files can convert at once without writing into each other's scratch files.
+    """
+    return os.path.join(workdir, name) if workdir else name
 
 
 def _sentence_tokenizer():
@@ -107,14 +121,18 @@ def _sentence_tokenizer():
     before the model is first loaded, so no copy in the user's profile is ever read.
     """
     global _SENTENCE_TOKENIZER
-    if _SENTENCE_TOKENIZER is None:
-        ensure_punkt()
-        _get_punkt_tokenizer.cache_clear()  # never a model NLTK loaded earlier from another folder
-        tokenizer = copy.deepcopy(_get_punkt_tokenizer("english"))
-        tokenizer._params.abbrev_types.add("i.e")
-        tokenizer._params.abbrev_types.add("e.g")
-        _SENTENCE_TOKENIZER = tokenizer
-    return _SENTENCE_TOKENIZER
+    tokenizer = _SENTENCE_TOKENIZER
+    if tokenizer is not None:
+        return tokenizer
+    with _SENTENCE_TOKENIZER_LOCK:
+        if _SENTENCE_TOKENIZER is None:
+            ensure_punkt()
+            _get_punkt_tokenizer.cache_clear()  # never a model NLTK loaded earlier from another folder
+            tokenizer = copy.deepcopy(_get_punkt_tokenizer("english"))
+            tokenizer._params.abbrev_types.add("i.e")
+            tokenizer._params.abbrev_types.add("e.g")
+            _SENTENCE_TOKENIZER = tokenizer
+        return _SENTENCE_TOKENIZER
 
 
 def sent_tokenize(text: str) -> list[str]:
@@ -127,7 +145,27 @@ def sent_tokenize(text: str) -> list[str]:
     return _sentence_tokenizer().tokenize(text)
 
 
+#: The name a chapter gets when the source gives it no heading of its own (also its M4B chapter title). It is a
+#: name, never a word filter: whether a title is spoken is the chapter's ``narrate_title``, set by ``get_book``.
+PLACEHOLDER_TITLE = "blank"
+#: Only for chapter dicts built by older callers without ``narrate_title``: the historical text rule.
+LEGACY_UNSPOKEN_TITLES = ("Title", "blank")
+
+
+def _join_headings(first: str, second: str) -> str:
+    """Two headings with no text between them, spoken as one title ("Part One. Chapter 1")."""
+    first = first.rstrip()
+    return f"{first} {second}" if first[-1:] in ".!?:;,-—–" else f"{first}. {second}"
+
+
 def get_book(sourcefile, speech_prep=None):
+    """Parse a TXT into chapters: ``{"title", "narrate_title", "paragraphs"}`` plus the M4B chapter titles.
+
+    v0.7.1: ``narrate_title`` is True only for a heading the author wrote with something speakable in it; a chapter
+    with no heading (text before the first ``#``, or a decorative ``#`` line) is named :data:`PLACEHOLDER_TITLE` and
+    has nothing extra spoken. A heading written straight after another, with no text between, joins it rather than
+    replacing it, so neither is lost and the chapter keeps one metadata title.
+    """
     book_contents = []
     book_title = sourcefile
     book_author = "Unknown"
@@ -148,7 +186,7 @@ def get_book(sourcefile, speech_prep=None):
     for detail in prepared.details():
         print(detail)
     with io.StringIO(prepared.spoken_source) as file:
-        current_chapter = {"title": "blank", "paragraphs": []}
+        current_chapter = {"title": PLACEHOLDER_TITLE, "narrate_title": False, "paragraphs": []}
         initialized_first_chapter = False
         header_done = False
         for line in file:
@@ -166,21 +204,25 @@ def get_book(sourcefile, speech_prep=None):
 
             line = stripped_header
             if line.startswith("#"):
+                heading = line[1:].strip()
+                speakable = any(c.isalnum() for c in heading)
                 if current_chapter["paragraphs"] or not initialized_first_chapter:
                     if initialized_first_chapter:
                         book_contents.append(current_chapter)
-                    current_chapter = {"title": None, "paragraphs": []}
+                    current_chapter = {"title": heading if speakable else PLACEHOLDER_TITLE,
+                                       "narrate_title": speakable, "paragraphs": []}
                     initialized_first_chapter = True
-                chapter_title = line[1:].strip()
-                if any(c.isalnum() for c in chapter_title):
-                    current_chapter["title"] = chapter_title
                     chapter_titles.append(current_chapter["title"])
-                else:
-                    current_chapter["title"] = "blank"
-                    chapter_titles.append("blank")
+                elif speakable:
+                    # Another heading before any text: the author wrote both, so both are spoken, as one title.
+                    current_chapter["title"] = (_join_headings(current_chapter["title"], heading)
+                                                if current_chapter["narrate_title"] else heading)
+                    current_chapter["narrate_title"] = True
+                    chapter_titles[-1] = current_chapter["title"]
+                # A decorative heading straight after another adds nothing (and removes nothing).
             elif line:
                 if not initialized_first_chapter:
-                    chapter_titles.append("blank")
+                    chapter_titles.append(PLACEHOLDER_TITLE)
                     initialized_first_chapter = True
                 if any(char.isalnum() for char in line):
                     sentences = sent_tokenize(line)
@@ -318,10 +360,16 @@ def read_book(
     trim_chunk_ms=DEFAULT_TRIM_CHUNK_MS,
     cancel_check=None,
     progress_callback=None,
+    *,
+    workdir=None,
 ):
+    """Synthesize every chapter into ``part<i>.flac`` and return their paths.
+
+    ``workdir`` (v0.7.1) is the conversion's own private folder: every scratch file (``part<i>.flac``,
+    ``pgraphs<n>.flac``, ``sntnc*.mp3``) is written there and the returned paths are inside it. ``None`` keeps the
+    historical behaviour (bare names, relative to the current folder) for direct callers.
+    """
     segments = []
-    # Do not read these into the audio file:
-    title_names_to_skip_reading = ['Title', 'blank']
 
     # progress_callback(done, total) reports whole-book progress in paragraph
     # units (the natural work step: each paragraph is a batch of network TTS
@@ -351,7 +399,8 @@ def read_book(
         # every pause between rendered content is unchanged. ``end_of_book_pause`` adds nothing (see its default).
         last_chapter = i == len(book_contents)
         files = []
-        partname = f"part{i}.flac"
+        partname = _in_workdir(workdir, f"part{i}.flac")
+        title_clip = _in_workdir(workdir, "sntnc0.mp3")
         print(f"\n\n")
 
         if os.path.isfile(partname):
@@ -359,16 +408,20 @@ def read_book(
             segments.append(partname)
             _tick(len(chapter["paragraphs"]))
         else:
-            if chapter["title"] in title_names_to_skip_reading:
-                print(f"Chapter name: \"{chapter['title']}\"  -  Note: The word \"{chapter['title']}\" will not be read into audio file.")
-            else:
+            # v0.7.1: a title is spoken because the author wrote it as a heading (``narrate_title``), never because of
+            # what it says -- "# Blank" and "# Title" are spoken like any other heading. A chapter built without the
+            # flag (an older caller) keeps the historical rule.
+            narrate_title = chapter.get("narrate_title")
+            if narrate_title is None:
+                narrate_title = bool(chapter["title"]) and chapter["title"] not in LEGACY_UNSPOKEN_TITLES
+            if narrate_title:
                 print(f"Chapter name: \"{chapter['title']}\"")
+            else:
+                print("Chapter name: none (no heading in the source here, so no chapter title is spoken)")
 
-            if chapter["title"] == "":
-                chapter["title"] = "blank"
-            if chapter["title"] not in title_names_to_skip_reading:
+            if narrate_title:
                 asyncio.run(
-                    parallel_edgespeak([chapter["title"]], [speaker], ["sntnc0.mp3"])
+                    parallel_edgespeak([chapter["title"]], [speaker], [title_clip])
                 )
                 # Title pause is applied in-memory when merging (below) so the gap is exact
                 # and survives MP3/FLAC round-trips; do not rely on silence baked into sntnc0.mp3 alone.
@@ -377,7 +430,7 @@ def read_book(
                 tqdm(chapter["paragraphs"], desc=f"Generating audio files: ",unit='pg')
             ):
                 _checkpoint()  # between paragraphs
-                ptemp = f"pgraphs{pindex}.flac"
+                ptemp = _in_workdir(workdir, f"pgraphs{pindex}.flac")
                 if os.path.isfile(ptemp):
                     print(f"{ptemp} exists, skipping to next paragraph")
                 else:
@@ -399,7 +452,7 @@ def read_book(
                         subs = intra_sentence_chunks(sentence)
                         sub_segments: list[AudioSegment] = []
                         for sub_idx, (sub_text, intra_pause_ms) in enumerate(subs):
-                            sub_path = f"sntnc{sent_counter}_sub{sub_idx}.mp3"
+                            sub_path = _in_workdir(workdir, f"sntnc{sent_counter}_sub{sub_idx}.mp3")
                             run_edgespeak(sub_text, speaker, sub_path)
                             seg = AudioSegment.from_file(sub_path)
                             with contextlib.suppress(FileNotFoundError):
@@ -431,15 +484,15 @@ def read_book(
                             duration=pause
                         )
                     combined = AudioSegment.empty()
-                    if os.path.exists("sntnc0.mp3"):
-                        combined += AudioSegment.from_file("sntnc0.mp3")
+                    if os.path.exists(title_clip):
+                        combined += AudioSegment.from_file(title_clip)
                         if title_trailing_pause > 0:
                             combined += AudioSegment.silent(title_trailing_pause)
                     for seg in sentence_segments:
                         combined += seg
                     combined.export(ptemp, format="flac")
-                    if os.path.exists("sntnc0.mp3"):
-                        os.remove("sntnc0.mp3")
+                    if os.path.exists(title_clip):
+                        os.remove(title_clip)
                 files.append(ptemp)
                 _tick()
             # combine paragraphs into chapter
@@ -454,17 +507,17 @@ def read_book(
             segments.append(partname)
     return segments
 
-def generate_metadata(files, author, title, chapter_titles):
+def generate_metadata(files, author, title, chapter_titles, *, workdir=None):
     # v0.6.6 Phase 10: UTF-8 rather than the locale encoding (cp1252 on Windows
     # raised on any title outside it), and every value escaped, because a ";",
     # "=", "#" or backslash in a title garbled it. The CLI's --format m4b is the
-    # only caller; the GUI always writes MP3.
+    # only caller; the GUI always writes MP3. ``workdir``: see ``read_book``.
     _ensure_shared_on_path()
     from shared.metadata import ffmetadata_escape as _esc
 
     chap = 0
     start_time = 0
-    with open("FFMETADATAFILE", "w", encoding="utf-8") as file:
+    with open(_in_workdir(workdir, "FFMETADATAFILE"), "w", encoding="utf-8") as file:
         file.write(";FFMETADATA1\n")
         file.write(f"ARTIST={_esc(author)}\n")
         file.write(f"ALBUM={_esc(title)}\n")
@@ -485,8 +538,11 @@ def get_duration(file_path):
     duration_milliseconds = len(audio)
     return duration_milliseconds
 
-def make_m4b(files, sourcefile, speaker):
-    filelist = "filelist.txt"
+def make_m4b(files, sourcefile, speaker, *, workdir=None):
+    # ``workdir``: see ``read_book``. FFmpeg resolves a relative name in the concat list against the list's own
+    # folder, and with a workdir every listed part is already an absolute path inside it.
+    filelist = _in_workdir(workdir, "filelist.txt")
+    metadata_file = _in_workdir(workdir, "FFMETADATAFILE")
     basefile = sourcefile.replace(".txt", "")
     outputm4a = f"{basefile} ({speaker}).m4a"
     outputm4b = f"{basefile} ({speaker}).m4b"
@@ -516,7 +572,7 @@ def make_m4b(files, sourcefile, speaker):
         "-i",
         outputm4a,
         "-i",
-        "FFMETADATAFILE",
+        metadata_file,
         "-map_metadata",
         "1",
         "-codec",
@@ -525,7 +581,7 @@ def make_m4b(files, sourcefile, speaker):
     ]
     _run_ffmpeg(ffmpeg_command)
     os.remove(filelist)
-    os.remove("FFMETADATAFILE")
+    os.remove(metadata_file)
     os.remove(outputm4a)
     for f in files:
         os.remove(f)
@@ -564,6 +620,19 @@ def add_cover(cover_img, filename):
     except:
         print(f"Cover image {cover_img} not found")
 
+#: v0.7.1: several files can be requesting at once, and a transient service failure tends to hit them together; a
+#: fixed wait would make them all retry at the same instant. Waits double per attempt and are spread by +/-50 %:
+#: 1-3 s, then 2-6 s (the same 6 s on average as the fixed 3 s + 3 s before; at most 9 s). Still 3 attempts in all.
+RETRY_BASE_DELAY_SEC = 2.0
+RETRY_JITTER = 0.5
+
+
+def _retry_delay(failed_attempt: int, draw=None) -> float:
+    """Seconds to wait after the 0-based ``failed_attempt``; ``draw`` returns a number in [0, 1]."""
+    base = RETRY_BASE_DELAY_SEC * (2 ** failed_attempt)
+    return base * (1 - RETRY_JITTER + 2 * RETRY_JITTER * (random.random() if draw is None else draw()))
+
+
 def run_edgespeak(sentence, speaker, filename):
     if not _SPEAKABLE.search(sentence):
         AudioSegment.silent(duration=50).export(filename, format="mp3")
@@ -590,8 +659,8 @@ def run_edgespeak(sentence, speaker, filename):
                 if final is e:
                     raise
                 raise final from e
-            # wait a few seconds in case its a transient network issue
-            time.sleep(3)
+            # wait a few seconds in case it is a transient network issue (growing, spread: see _retry_delay)
+            time.sleep(_retry_delay(speakattempt))
 
 def run_save(communicate, filename):
     asyncio.run(communicate.save(filename))

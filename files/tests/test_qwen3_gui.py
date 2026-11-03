@@ -119,18 +119,23 @@ def select(panel, label: str = AIDEN) -> None:
 # --------------------------------------------------------------------------- #
 # A. One file at a time
 # --------------------------------------------------------------------------- #
+def _effective(requested: int, queued: int, backend: str) -> int:
+    from tts import worker_limits
+
+    roomy = worker_limits.MemoryInfo(64 * 1024 ** 3, 128 * 1024 ** 3)
+    return worker_limits.plan_workers(requested, backend, [1_000] * queued, cpu_count=16, memory=roomy).effective
+
+
 def test_qwen3_runs_one_file_at_a_time_whatever_is_requested():
     assert panel_module.QWEN3_BACKEND_SAFE_WORKERS == 1
-    assert panel_module._device_safe_workers("qwen3") == 1
     for requested, queued in ((1, 1), (8, 8), (32, 100)):
-        assert panel_module.resolve_effective_workers(requested, queued, "qwen3") == 1
+        assert _effective(requested, queued, "qwen3") == 1
 
 
-def test_the_other_backends_worker_ceilings_are_unchanged(monkeypatch):
-    monkeypatch.setattr(panel_module, "_cpu_count", lambda: 16)
-    assert panel_module.resolve_effective_workers(8, 8, "chatterbox") == 1
-    assert panel_module.resolve_effective_workers(8, 8, "kokoro") == 1
-    assert panel_module.resolve_effective_workers(8, 8, "edge") == 8
+def test_the_other_backends_worker_ceilings_are_unchanged():
+    assert _effective(8, 8, "chatterbox") == 1
+    assert _effective(8, 8, "kokoro") == 1
+    assert _effective(8, 8, "edge") == 8
 
 
 # --------------------------------------------------------------------------- #

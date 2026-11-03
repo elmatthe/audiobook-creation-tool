@@ -281,7 +281,10 @@ def test_direct_a_transient_failure_keeps_the_three_bounded_attempts_and_keeps_i
     with pytest.raises(EdgeServiceError) as caught:
         engine.run_edgespeak(SENTENCE, "en-US-SteffanNeural", str(tmp_path / "s.mp3"))
     error = caught.value
-    assert script.calls == 3 and script.sleeps == [3, 3], "no wait after the last attempt, none unbounded"
+    assert script.calls == 3 and len(script.sleeps) == 2, "no wait after the last attempt, none unbounded"
+    # v0.7.1: growing, jittered waits (1-3 s, then 2-6 s; at most 9 s in all), so files converting side by side
+    # that hit one service blip together do not all retry at the same instant.
+    assert 1.0 <= script.sleeps[0] <= 3.0 and 2.0 <= script.sleeps[1] <= 6.0
     assert error.kind is Kind.NETWORK
     assert "ClientConnectionError" in error.technical and "3 attempts" in error.technical
     assert SENTENCE not in str(error), "the book's text is not in the diagnosis"
@@ -292,8 +295,23 @@ def test_direct_a_transient_failure_that_recovers_publishes_the_normal_result(tm
     script = Script(monkeypatch, [aiohttp.ServerDisconnectedError(), b"audio"])
     target = tmp_path / "s.mp3"
     engine.run_edgespeak(SENTENCE, "en-US-SteffanNeural", str(target))
-    assert script.calls == 2 and script.sleeps == [3]
+    assert script.calls == 2 and len(script.sleeps) == 1 and 1.0 <= script.sleeps[0] <= 3.0
     assert target.read_bytes() == b"audio"
+
+
+@pytest.mark.parametrize("draw,expected", [(0.0, (1.0, 2.0)), (0.5, (2.0, 4.0)), (1.0, (3.0, 6.0))])
+def test_direct_retry_waits_double_and_are_spread_by_half(draw, expected):
+    assert (engine._retry_delay(0, lambda: draw), engine._retry_delay(1, lambda: draw)) == expected
+
+
+def test_direct_concurrent_retries_do_not_wait_in_lock_step(tmp_path, monkeypatch):
+    draws = iter([0.1, 0.9])
+    monkeypatch.setattr(engine.random, "random", lambda: next(draws))
+    script = Script(monkeypatch, [aiohttp.ServerDisconnectedError(), b"audio",
+                                  aiohttp.ServerDisconnectedError(), b"audio"])
+    engine.run_edgespeak(SENTENCE, "en-US-SteffanNeural", str(tmp_path / "a.mp3"))
+    engine.run_edgespeak(SENTENCE, "en-US-SteffanNeural", str(tmp_path / "b.mp3"))
+    assert script.sleeps[0] != script.sleeps[1]
 
 
 def test_direct_a_local_file_problem_is_not_retried_and_keeps_its_own_type(tmp_path, monkeypatch):

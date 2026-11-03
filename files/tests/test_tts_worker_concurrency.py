@@ -1,49 +1,27 @@
-"""v0.6.5 Phase 6 — P14 file-worker concurrency.
+"""TTS file-worker concurrency through the real panel (v0.6.5 Phase 6 P14; v0.7.1 Edge multi-file workers).
 
-``Workers = X`` is a requested *whole-file* concurrency level, never
-permission to parallelize the chunks inside one source file. This file
-covers the pieces Phase 6 added on top of the existing job-control/output
-foundation (``test_tts_jobs.py``, ``test_tts_importing.py``):
+``Workers = X`` is a requested *whole-file* concurrency level, never permission to parallelize the chunks inside one
+source file. The run resolves an effective count through ``tts.worker_limits`` (its own pure tests:
+``test_worker_limits.py``) and logs ``Requested workers: X | Effective workers: Y`` plus the limit that applied.
 
-* ``resolve_effective_workers`` -- the pure bound (requested, queued files,
-  backend-safety ceiling, device-safe ceiling) -- exercised at representative
-  1/2/4/oversized requests, with no GUI needed.
-* Direct and folder items now share ONE pool and ONE resolved worker count
-  (previously: direct items ran strictly one-at-a-time ahead of a separately
-  pooled folder half).
-* Edge folder/batch items actually overlap when more than one worker is
-  available; Kokoro and Chatterbox never do, regardless of how many workers
-  are requested. **Kokoro's cap was lowered to 1 in v0.6.5 Phase 9** (a fresh
-  bug-hunt found the cached per-lang-code ``KPipeline``'s out-of-vocabulary
-  G2P fallback shares a non-reentrant third-party espeak-ng binding across
-  every voice of that language -- see ``epub2tts_gui.KOKORO_BACKEND_SAFE_WORKERS``
-  and Decisions.md, 2026-09-26). The Phase 6 tests below that used to prove a
-  *positive* Kokoro overlap now prove its *absence*, mirroring the
-  Chatterbox tests exactly.
-* **Edge *direct* items are a special case, discovered while implementing
-  this drop.** ``epub2tts_edge.runner.run_conversion_job`` isolates one
-  conversion's scratch files by ``os.chdir``'ing into a private temp
-  directory for the whole call -- safe when direct items ran strictly one at
-  a time (every prior phase), unsafe the moment two could run concurrently,
-  since ``os.chdir`` is process-wide state, not thread-local. This drop adds
-  ``runner._CWD_ISOLATION_LOCK`` to serialize only that critical section, so
-  two direct Edge conversions never truly overlap even when the pool
-  dispatches both -- correctness over a rewrite of the vendored engine's
-  path handling, which P14 calls a disproportionate change for this bounded
-  subtask. Section E below proves the lock directly, and section C proves it
-  does not block unrelated concurrent work (a folder Edge file, or Kokoro).
-* Pause/Cancel/Retry Failed and "no partial/corrupt publication" all remain
-  correct once more than one file can be in flight at once.
+* **v0.7.1:** directly added Edge files are no longer serialized. ``runner.run_conversion_job`` used to ``os.chdir``
+  into a private folder behind a process-wide lock, so an all-direct queue resolved to one worker; the engine now
+  takes an explicit working folder (``test_edge_direct_concurrency.py`` proves the runner itself). Section E here
+  proves it end to end through the real panel, with the **real runner, engine and folder worker** and only the
+  network request replaced: a ``threading.Barrier`` that every file must reach from inside synthesis.
+* Kokoro, Chatterbox and Qwen3 never run more than one file, however many workers are requested (section C).
+* Pause/Cancel/Retry Failed and "no partial/corrupt publication" stay correct with several files in flight.
 
-Safety and determinism follow the existing convention in ``test_tts_jobs.py``:
-no test sleeps arbitrarily, every engine entry point is stubbed, and every
-fixture lives under ``tmp_path``. Tests that must prove an *absence* of
-concurrency (Chatterbox) bound their wait with a short, explicit settle
-window rather than waiting forever for a negative.
+Determinism follows ``test_tts_jobs.py``: bounded waits, every fixture under ``tmp_path``, and the machine injected
+(``worker_limits.logical_cpus`` / ``memory_info``) so no expectation depends on the computer running the suite.
+Tests that must prove an *absence* of concurrency bound their wait with a short, explicit settle window.
 """
 
 from __future__ import annotations
 
+import io
+import os
+import queue
 import sys
 import threading
 import time
@@ -55,6 +33,7 @@ import pytest
 tk = pytest.importorskip("tkinter")
 
 from tts import epub2tts_gui as panel_module  # noqa: E402
+from tts import worker_limits  # noqa: E402
 
 from test_tts_importing import (  # noqa: E402,F401
     WAIT,
@@ -66,7 +45,9 @@ from test_tts_importing import (  # noqa: E402,F401
 )
 from test_tts_jobs import (  # noqa: E402,F401
     GatedStubs,
+    accept,
     direct_panel,
+    finish,
     folder_panel,
     gated_stubs,
     mixed_panel,
@@ -74,112 +55,102 @@ from test_tts_jobs import (  # noqa: E402,F401
     wait_for,
 )
 
-#: How long to let a (correctly) non-concurrent engine "settle" before
-#: concluding a second file never started. Short and explicit -- proving an
-#: absence cannot wait for a signal that will never come, so this is bounded
-#: instead, the same way the rest of the suite bounds every wait.
+#: How long to let a (correctly) non-concurrent engine "settle" before concluding a second file never started.
 SETTLE = 0.3
+GB = 1024 ** 3
 
 
-# --------------------------------------------------------------------------- #
-# A. resolve_effective_workers -- pure function, no GUI needed
-# --------------------------------------------------------------------------- #
+def machine(monkeypatch, cpus: int = 8, available_gb: float = 64, total_gb: float = 128) -> None:
+    monkeypatch.setattr(worker_limits, "logical_cpus", lambda: cpus)
+    monkeypatch.setattr(worker_limits, "memory_info",
+                        lambda: worker_limits.MemoryInfo(int(available_gb * GB), int(total_gb * GB)))
 
 
 @pytest.fixture(autouse=True)
-def _fixed_cpu_count(monkeypatch):
-    """A known, portable core count for every test in this module.
-
-    ``resolve_effective_workers`` reads the real machine's CPU count through
-    ``panel_module._cpu_count`` (a thin, patchable seam); pinning it here
-    keeps every expectation below exact and machine-independent.
-    """
-    monkeypatch.setattr(panel_module, "_cpu_count", lambda: 8)
+def _known_machine(monkeypatch):
+    """A known, portable machine for every test here: 8 processors and plenty of free memory."""
+    machine(monkeypatch)
 
 
-@pytest.mark.parametrize("requested,queued,expected", [
-    (1, 5, 1),
-    (2, 5, 2),
-    (4, 5, 4),
-])
-def test_edge_honors_a_representative_requested_count(requested, queued, expected):
-    assert panel_module.resolve_effective_workers(requested, queued, "edge") == expected
-
-
-@pytest.mark.parametrize("requested", [1, 2, 4, 999])
-def test_kokoro_always_resolves_to_one_regardless_of_the_request(requested):
-    # v0.6.5 Phase 9: Kokoro's shared per-lang-code pipeline's espeak-ng G2P
-    # fallback is not proven reentrant -- see KOKORO_BACKEND_SAFE_WORKERS.
-    assert panel_module.resolve_effective_workers(requested, 10, "kokoro") == 1
-
-
-@pytest.mark.parametrize("requested", [1, 2, 4, 999])
-def test_chatterbox_always_resolves_to_one_regardless_of_the_request(requested):
-    assert panel_module.resolve_effective_workers(requested, 10, "chatterbox") == 1
-
-
-def test_effective_workers_never_exceeds_the_queued_file_count():
-    assert panel_module.resolve_effective_workers(4, 2, "edge") == 2
-    assert panel_module.resolve_effective_workers(4, 1, "kokoro") == 1
-
-
-def test_an_oversized_edge_request_degrades_to_the_backend_safe_ceiling(monkeypatch):
-    monkeypatch.setattr(panel_module, "_cpu_count", lambda: 64)
-    assert (panel_module.resolve_effective_workers(100, 100, "edge")
-            == panel_module.EDGE_BACKEND_SAFE_WORKERS == 32)
-
-
-def test_an_oversized_request_degrades_to_the_devices_own_cpu_count():
-    # cpu_count=8 (fixture default) binds before the Edge backend-safe
-    # ceiling does. Kokoro's backend-safe ceiling of 1 binds first for
-    # Kokoro, regardless of cpu_count -- see KOKORO_BACKEND_SAFE_WORKERS.
-    assert panel_module.resolve_effective_workers(100, 100, "edge") == 8
-    assert panel_module.resolve_effective_workers(100, 100, "kokoro") == 1
-
-
-def test_a_machine_that_cannot_report_cpu_count_still_resolves_safely(monkeypatch):
-    monkeypatch.setattr(panel_module, "_cpu_count", lambda: None)
-    assert panel_module.resolve_effective_workers(100, 100, "edge") >= 1
-    assert panel_module.resolve_effective_workers(100, 100, "kokoro") >= 1
-
-
-def test_resolve_effective_workers_never_returns_less_than_one():
-    assert panel_module.resolve_effective_workers(0, 0, "edge") == 1
-    assert panel_module.resolve_effective_workers(-5, 5, "kokoro") == 1
-
-
-def test_all_direct_edge_queue_caps_effective_workers_to_one():
-    """Direct Edge items fully serialize behind ``runner._CWD_ISOLATION_LOCK``;
-    a queue of nothing but direct items never buys real concurrency beyond
-    the one already in flight, however many workers were requested."""
-    assert panel_module.resolve_effective_workers(8, 5, "edge", direct_files=5) == 1
-
-
-def test_mixed_edge_queue_caps_to_the_folder_files_plus_one_direct():
-    """Folder Edge items overlap each other and the one direct item that can
-    run alongside them; a second direct item could never make progress
-    concurrently, so it does not widen the cap beyond folder_files + 1."""
-    assert panel_module.resolve_effective_workers(8, 5, "edge", direct_files=2) == 4
-
-
-def test_direct_files_only_narrows_the_edge_backend():
-    """``direct_files`` is the Edge-only lock cap: it does not apply to other
-    backends (already capped to 1 for their own reasons) and does nothing
-    when the queue names no direct item at all."""
-    assert panel_module.resolve_effective_workers(8, 5, "kokoro", direct_files=5) == 1
-    assert panel_module.resolve_effective_workers(8, 5, "edge", direct_files=0) == 5
+def log_text(panel) -> str:
+    return "\n".join(panel.log.details)
 
 
 # --------------------------------------------------------------------------- #
-# B. Direct and folder items now share one pool and one resolved count
+# A. The run resolves and states its workers truthfully
 # --------------------------------------------------------------------------- #
 
 
-def test_a_mixed_queue_still_converts_every_item_through_its_own_engine(
-    make_panel, output_base, tmp_path, stubs, monkeypatch
-):
-    """Merging direct+folder dispatch must not change *which* engine call a
-    file takes -- only that they now share one pool."""
+def test_the_run_log_states_requested_and_effective_workers_truthfully(make_panel, output_base, tmp_path, stubs):
+    panel, _folders = folder_panel(make_panel, tmp_path)
+    panel.workers_var.set("2")
+    run_attempt(panel)
+    assert "Requested workers: 2 | Effective workers: 2" in log_text(panel)
+    assert "Worker limit:" not in log_text(panel), "nothing was limited, so no limit is reported"
+
+
+def test_an_oversized_workers_request_degrades_to_the_queue_and_says_so(make_panel, output_base, tmp_path, stubs):
+    panel, _folders = folder_panel(make_panel, tmp_path, roots=2)
+    panel.workers_var.set("100")
+    run_attempt(panel)
+    assert "Requested workers: 100 | Effective workers: 4" in log_text(panel)
+    assert "Worker limit: only 4 files are queued." in log_text(panel)
+
+
+def test_an_all_direct_edge_queue_is_no_longer_capped_to_one(make_panel, output_base, tmp_path, stubs):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
+    panel.workers_var.set("2")
+    run_attempt(panel)
+    assert "Requested workers: 2 | Effective workers: 2" in log_text(panel)
+
+
+def test_a_mixed_edge_queue_uses_every_queued_file(make_panel, output_base, tmp_path, stubs):
+    panel, _direct, _folders = mixed_panel(make_panel, tmp_path)
+    panel.workers_var.set("8")
+    run_attempt(panel)
+    assert "Requested workers: 8 | Effective workers: 4" in log_text(panel)
+
+
+def test_a_request_for_100_is_held_to_the_machines_processors(make_panel, output_base, tmp_path, stubs, monkeypatch):
+    machine(monkeypatch, cpus=16)
+    names = [f"{index:02d}.txt" for index in range(20)]
+    panel, _chosen = direct_panel(make_panel, tmp_path, *names)
+    panel.workers_var.set("100")
+    params = run_attempt(panel)
+    assert "Requested workers: 100 | Effective workers: 16" in log_text(panel)
+    assert "Worker limit: this computer has 16 logical processors (one file per processor)." in log_text(panel)
+    assert params["workers"] == 100, "the request itself is frozen unchanged"
+
+
+def test_a_low_memory_machine_holds_large_files_back_and_says_why(make_panel, output_base, tmp_path, stubs,
+                                                                   monkeypatch):
+    # 3.5 GB free of 8 GB: 2 GB stays in reserve; each ~38 KB chapter (about 45 minutes) is budgeted ~540 MB.
+    machine(monkeypatch, cpus=8, available_gb=3.5, total_gb=8)
+    chosen = sources(tmp_path / "Big", "a.txt", "b.txt", "c.txt", "d.txt")
+    for path in chosen:
+        path.write_text("Long chapter text. " * 2000, encoding="utf-8")
+    panel = make_panel(choose_files=lambda: chosen)
+    panel.importer.add_files()
+    panel.workers_var.set("4")
+    run_attempt(panel)
+    text = log_text(panel)
+    assert "Requested workers: 4 | Effective workers: 2" in text
+    assert "Worker limit: memory" in text
+
+
+def test_the_workers_box_accepts_up_to_100(make_panel, output_base):
+    panel = make_panel()
+    assert int(float(str(panel.spin_workers.cget("from")))) == 1
+    assert int(float(str(panel.spin_workers.cget("to")))) == panel_module.MAX_REQUESTED_WORKERS == 100
+
+
+# --------------------------------------------------------------------------- #
+# B. Direct and folder items share one pool and one resolved count
+# --------------------------------------------------------------------------- #
+
+
+def test_a_mixed_queue_still_converts_every_item_through_its_own_engine(make_panel, output_base, tmp_path, stubs):
+    """Merging direct+folder dispatch must not change *which* engine call a file takes."""
     panel, _direct, _folders = mixed_panel(make_panel, tmp_path)
     panel.workers_var.set("2")
     params = run_attempt(panel)
@@ -190,69 +161,12 @@ def test_a_mixed_queue_still_converts_every_item_through_its_own_engine(
         assert item["destination"].exists()
 
 
-def test_the_run_log_states_requested_and_effective_workers_truthfully(
-    make_panel, output_base, tmp_path, stubs
-):
-    panel, _folders = folder_panel(make_panel, tmp_path)
-    panel.workers_var.set("2")
-    run_attempt(panel)
-    log_text = "\n".join(panel.log.details)
-    assert "Requested workers: 2 | Effective workers: 2" in log_text
-
-
-def test_an_oversized_workers_request_degrades_safely_and_is_logged_truthfully(
-    make_panel, output_base, tmp_path, stubs, monkeypatch
-):
-    monkeypatch.setattr(panel_module, "_cpu_count", lambda: 8)
-    panel, _folders = folder_panel(make_panel, tmp_path, roots=2)
-    panel.workers_var.set("100")
-    run_attempt(panel)
-    log_text = "\n".join(panel.log.details)
-    # 4 queued folder files is the binding constraint here (4 < 8 cores < the
-    # Edge backend-safe ceiling of 32) -- an oversized request never OOMs,
-    # thrashes, or silently ignores itself; it degrades to what is actually
-    # supportable.
-    assert "Requested workers: 100 | Effective workers: 4" in log_text
-
-
-def test_an_all_direct_edge_run_logs_the_lock_true_effective_count(
-    make_panel, output_base, tmp_path, stubs
-):
-    """P14's pool size (and the log line) must reflect that direct Edge items
-    fully serialize behind the runner's cwd-isolation lock -- an all-direct
-    queue reports Effective workers: 1 no matter how many were requested."""
-    panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
-    panel.workers_var.set("2")
-    run_attempt(panel)
-    log_text = "\n".join(panel.log.details)
-    assert "Requested workers: 2 | Effective workers: 1" in log_text
-
-
-def test_a_mixed_edge_run_logs_the_folder_count_plus_one_direct(
-    make_panel, output_base, tmp_path, stubs
-):
-    """A mixed queue's truthful ceiling is the folder items (which can each
-    overlap) plus the one direct item that can run alongside them -- 2 folder
-    + 2 direct here caps to 3, not the raw request of 8."""
-    panel, _direct, _folders = mixed_panel(make_panel, tmp_path)
-    panel.workers_var.set("8")
-    run_attempt(panel)
-    log_text = "\n".join(panel.log.details)
-    assert "Requested workers: 8 | Effective workers: 3" in log_text
-
-
 # --------------------------------------------------------------------------- #
-# C. Edge actually overlaps; Kokoro and Chatterbox never do
+# C. Dispatch overlap for Edge; Kokoro, Chatterbox and Qwen3 never overlap
 # --------------------------------------------------------------------------- #
 
 
-def test_two_folder_edge_files_actually_overlap_under_workers_2(
-    make_panel, output_base, tmp_path, gated_stubs
-):
-    """The positive proof for the path that was already safe pre-Phase-6:
-    ``batch_convert.convert_single_pdf`` does not touch the process cwd, so
-    two folder-derived Edge files really can run at once. (Two *direct* Edge
-    files cannot -- see the runner-level lock tests in section E below.)"""
+def test_two_folder_edge_files_actually_overlap_under_workers_2(make_panel, output_base, tmp_path, gated_stubs):
     gated_stubs.gate_on = ""  # every filename gates, so both must overlap
     panel, _folders = folder_panel(make_panel, tmp_path, roots=2)
     panel.workers_var.set("2")
@@ -266,13 +180,22 @@ def test_two_folder_edge_files_actually_overlap_under_workers_2(
         worker.join(WAIT)
 
 
-def test_a_gated_direct_edge_file_does_not_block_a_concurrent_folder_edge_file(
-    make_panel, output_base, tmp_path, gated_stubs
-):
-    """The unified pool must not serialize unrelated work behind the direct-
-    Edge cwd lock (``runner._CWD_ISOLATION_LOCK``): a folder-derived file
-    dispatched to a different worker must still run while a direct file is
-    gated on a different one."""
+def test_two_direct_edge_files_are_dispatched_together_under_workers_2(make_panel, output_base, tmp_path,
+                                                                        gated_stubs):
+    gated_stubs.gate_on = ""
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", "two.txt")
+    panel.workers_var.set("2")
+    panel.run_job()
+    worker = panel._worker
+    try:
+        wait_for(lambda: len(gated_stubs.order) >= 2, "the second direct file waited for the first")
+    finally:
+        gated_stubs.release.set()
+        worker.join(WAIT)
+
+
+def test_a_gated_direct_edge_file_does_not_block_a_concurrent_folder_edge_file(make_panel, output_base, tmp_path,
+                                                                                gated_stubs):
     gated_stubs.gate_on = "gate"
     direct = sources(tmp_path / "Loose", "gate.txt")
     root = tmp_path / "Library"
@@ -286,23 +209,15 @@ def test_a_gated_direct_edge_file_does_not_block_a_concurrent_folder_edge_file(
     worker = panel._worker
     try:
         assert gated_stubs.entered.wait(WAIT)
-        wait_for(lambda: "b.txt" in gated_stubs.order,
-                 "the folder file never ran while the direct file was gated")
+        wait_for(lambda: "b.txt" in gated_stubs.order, "the folder file never ran while the direct file was gated")
     finally:
         gated_stubs.release.set()
         worker.join(WAIT)
 
 
-def test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested(
-    make_panel, output_base, tmp_path, monkeypatch
-):
-    """The negative proof P14 requires before Kokoro could ever be raised
-    above 1 (v0.6.5 Phase 9, mirroring the pre-existing Chatterbox proof
-    below): two files, workers requested far above 1 -- and the second file
-    must still not have started while the first is in flight. Kokoro's cap
-    was lowered to 1 after a fresh review found its cached per-lang-code
-    pipeline shares a non-reentrant third-party espeak-ng G2P fallback across
-    every file of that language -- see KOKORO_BACKEND_SAFE_WORKERS."""
+def test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested(make_panel, output_base, tmp_path,
+                                                                                monkeypatch):
+    """Kokoro's cached per-lang-code pipeline shares a non-reentrant espeak-ng G2P fallback (v0.6.5 Phase 9)."""
     entered = threading.Event()
     release = threading.Event()
     order: list[str] = []
@@ -322,13 +237,13 @@ def test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested(
     from tts.epub2tts_edge import epub2tts_edge as engine
     monkeypatch.setattr(engine, "ensure_punkt", lambda: None)
     monkeypatch.setattr(panel_module, "ensure_punkt", lambda: None)
-    monkeypatch.setattr(panel_module, "_cpu_count", lambda: 8)
+    machine(monkeypatch, cpus=64, available_gb=500, total_gb=512)
 
     kokoro = next(voice for voice in vr.VOICES if voice.backend == "kokoro")
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", "two.txt")
     panel.selected_voice_label.set(kokoro.display_label)
     panel._on_voice_selected()
-    panel.workers_var.set("4")
+    panel.workers_var.set("100")
     panel.run_job()
     worker = panel._worker
     try:
@@ -338,15 +253,12 @@ def test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested(
     finally:
         release.set()
         worker.join(WAIT)
+    wait_for(lambda: "Worker limit: Kokoro converts one file at a time." in log_text(panel),
+             "the run log never said why Kokoro ran one file", panel=panel)
 
 
 class _GatedChatterboxStub:
-    """Stands in for ``tts.chatterbox_synth`` at ``sys.modules``.
-
-    Every call gates -- unlike ``GatedStubs`` (Edge/batch only), this proves
-    Chatterbox specifically, since it is the one backend P14 requires to stay
-    at an effective cap of 1 regardless of the requested worker count.
-    """
+    """Stands in for ``tts.chatterbox_synth`` at ``sys.modules``; every call gates."""
 
     def __init__(self):
         self.order: list[str] = []
@@ -374,72 +286,43 @@ class _GatedChatterboxStub:
         return self
 
 
-def test_chatterbox_never_exceeds_one_concurrent_file_even_when_more_are_requested(
-    make_panel, output_base, tmp_path, monkeypatch
-):
-    """The negative proof P14 requires before Chatterbox could ever be raised
-    above 1: two files, two distinct reference voices, workers requested far
-    above 1 -- and the second file must still not have started while the
-    first is in flight."""
+def test_chatterbox_never_exceeds_one_concurrent_file_even_when_more_are_requested(make_panel, output_base,
+                                                                                    tmp_path, monkeypatch):
     from tts import voice_registry as vr
 
     stub = _GatedChatterboxStub().install(monkeypatch)
     from tts.epub2tts_edge import epub2tts_edge as engine
     monkeypatch.setattr(engine, "ensure_punkt", lambda: None)
     monkeypatch.setattr(panel_module, "ensure_punkt", lambda: None)
+    machine(monkeypatch, cpus=64, available_gb=500, total_gb=512)
 
     chatterbox_voices = [v for v in vr.VOICES if v.backend == "chatterbox"]
-    assert len(chatterbox_voices) >= 2, "need two distinct reference voices"
-    voice_a, voice_b = chatterbox_voices[0], chatterbox_voices[1]
-
+    voice_a = chatterbox_voices[0]
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", "two.txt")
     panel.selected_voice_label.set(voice_a.display_label)
     panel._on_voice_selected()
-    panel.workers_var.set("4")
+    panel.workers_var.set("8")
     panel.run_job()
     worker = panel._worker
     try:
         assert stub.entered.wait(WAIT), "the engine never started"
-        # A short, explicit settle window: proving an absence of concurrency
-        # cannot wait for a signal that will never arrive if the cap holds.
         time.sleep(SETTLE)
-        assert stub.order == ["one.txt"], (
-            f"a second Chatterbox file started concurrently: {stub.order!r}")
+        assert stub.order == ["one.txt"], f"a second Chatterbox file started concurrently: {stub.order!r}"
     finally:
         stub.release.set()
         worker.join(WAIT)
-    assert sorted(stub.order) == ["one.txt", "two.txt"], (
-        "both files should still complete once serialized")
-    # Every call used the one voice this run was frozen with -- concurrency
-    # capping is orthogonal to voice selection; this just confirms the stub
-    # itself received a real (if identical, single-voice-per-run) voice_id.
+    assert sorted(stub.order) == ["one.txt", "two.txt"], "both files should still complete once serialized"
     assert set(stub.voice_ids) == {voice_a.voice_id}
-    del voice_b  # documents that a second distinct voice exists; not used per-call
 
 
 # --------------------------------------------------------------------------- #
-# D. No partial/corrupt publication under concurrent cancellation
+# D. No partial/corrupt publication under concurrent cancellation (dispatch level)
 # --------------------------------------------------------------------------- #
 
 
-def test_a_success_finishing_during_cancellation_is_recorded_not_orphaned(
-    make_panel, output_base, tmp_path, gated_stubs
-):
-    """The P14 correctness fix this drop makes: an item that finishes
-    successfully *after* the user asked to cancel must still be recorded --
-    silently dropping it would leave a real output file on disk that the run
-    never counted, logged, or could offer for retry, which is itself a form
-    of corrupt/partial publication.
-
-    Neither file here is individually cancelled: "keep.txt" runs to
-    completion before the cancel is even requested, and the (stubbed) engine
-    for "gate.txt" does not raise once released, so it also completes. The
-    RUN still settles CANCELLED overall (the user asked to cancel mid-flight)
-    -- but that must not cost either file its recorded success and its
-    output file. Before this drop's fix, a pool that stopped draining
-    results as soon as it noticed the cancellation would have silently
-    discarded whichever of the two completed second.
-    """
+def test_a_success_finishing_during_cancellation_is_recorded_not_orphaned(make_panel, output_base, tmp_path,
+                                                                          gated_stubs):
+    """An item that finishes successfully *after* cancel was requested is still recorded, and its output kept."""
     panel, _chosen = direct_panel(make_panel, tmp_path, "keep.txt", "gate.txt")
     panel.workers_var.set("2")
     panel.run_job()
@@ -452,226 +335,314 @@ def test_a_success_finishing_during_cancellation_is_recorded_not_orphaned(
         wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
     finally:
         worker.join(WAIT)
-
-    # The controller reaches its terminal state before the settled result is
-    # queued for the main thread (see the identical note in
-    # test_tts_jobs.py's cancellation-cleanup test), so a second wait is needed
-    # here too rather than reading panel._result the instant is_terminal flips.
-    wait_for(lambda: panel._result is not None,
-             "the settled result never reached the panel", panel=panel)
+    wait_for(lambda: panel._result is not None, "the settled result never reached the panel", panel=panel)
     result = panel._result
     assert result.cancelled is True
-    assert result.succeeded_count == 2, (
-        "both files actually finished successfully and must both be counted, "
-        "not silently dropped because the run was cancelled overall")
-    planned = panel.destinations()
+    assert result.succeeded_count == 2
     for name in ("keep.txt", "gate.txt"):
-        destination = next(
-            entry.destination for entry in planned.values()
-            if entry.source.name == name)
-        assert destination.exists(), (
-            f"{name}'s output must survive -- a recorded success is never discarded")
+        destination = next(entry.destination for entry in panel.destinations().values() if entry.source.name == name)
+        assert destination.exists(), f"{name}'s output must survive -- a recorded success is never discarded"
 
 
 # --------------------------------------------------------------------------- #
-# E. The chdir isolation lock (runner.py) -- the real fix, tested directly
+# E. Real engines through the real panel: only the network request is replaced
 # --------------------------------------------------------------------------- #
-#
-# GatedStubs (section C) monkeypatches ``runner.run_conversion_job`` itself,
-# which replaces the function -- lock and all -- so it cannot observe
-# whether the REAL function's own ``_CWD_ISOLATION_LOCK`` actually prevents
-# two concurrent calls from both chdir'ing into their own temp directory at
-# once. These tests call the real ``run_conversion_job`` and stub only the
-# slow internals it calls (``get_book``/``read_book``), so the lock itself is
-# exercised end to end.
 
 
-class _StopEarly(Exception):
-    """Lets a stubbed ``read_book`` bail out once the gate has proved its
-    point, without needing to stub the rest of the pipeline
-    (``make_mp3``/``make_m4b``/``generate_metadata``) just to let
-    ``run_conversion_job`` reach a normal return."""
+_CLIP: dict[str, bytes] = {}
 
 
-class _AcquireCountingLock:
-    """A drop-in ``threading.Lock`` substitute that announces every
-    ``acquire`` *attempt* -- before it may block -- through ``attempted_twice``,
-    so a test can prove a second caller genuinely reached and contended for
-    the lock, deterministically, instead of inferring it from a fixed sleep
-    window that a slow/contended runner could satisfy by luck (the second
-    thread simply never getting a timeslice) as easily as by the lock
-    actually holding it out."""
+def _clip() -> bytes:
+    if "mp3" not in _CLIP:
+        from pydub import AudioSegment
+        from shared import ffmpeg_utils
 
-    def __init__(self) -> None:
-        self._real = threading.Lock()
-        self._attempts = 0
-        self._count_lock = threading.Lock()
-        self.attempted_twice = threading.Event()
+        ffmpeg_utils.configure_pydub()
+        buf = io.BytesIO()
+        AudioSegment.silent(duration=90, frame_rate=24000).export(buf, format="mp3")
+        _CLIP["mp3"] = buf.getvalue()
+    return _CLIP["mp3"]
 
-    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
-        with self._count_lock:
-            self._attempts += 1
-            if self._attempts >= 2:
-                self.attempted_twice.set()
-        return self._real.acquire(blocking, timeout)
 
-    def release(self) -> None:
-        self._real.release()
+class FakeService:
+    """The Edge network request, both routes. Everything else -- runner, engine, folder worker -- is real.
 
-    def __enter__(self):
-        self.acquire()
+    ``barrier`` must be reached by every file from inside its first request: a file that could not start until
+    another finished would break it. ``fail_word`` makes requests containing it fail; ``after_barrier`` runs once
+    every file is inside synthesis.
+    """
+
+    def __init__(self, barrier=None, fail_word=None, after_barrier=None):
+        self.barrier = barrier
+        self.fail_word = fail_word
+        self.after_barrier = after_barrier
+        self.lock = threading.Lock()
+        self.seen: set[str] = set()
+        self.requests: list[tuple[str, str]] = []
+
+    def _request(self, key: str, text: str, path) -> None:
+        with self.lock:
+            self.requests.append((key, text))
+            first = key not in self.seen
+            self.seen.add(key)
+        if first and self.barrier is not None:
+            self.barrier.wait(WAIT)
+            if self.after_barrier is not None:
+                self.after_barrier()
+        if self.fail_word and self.fail_word in text:
+            raise ValueError("simulated request failure")  # a local error: never retried, never slept on
+        Path(path).write_bytes(_clip())
+
+    def edgespeak(self, sentence, speaker, filename):
+        self._request(os.path.dirname(os.path.abspath(filename)), sentence, filename)
+
+    def chunk(self, text, path, voice, rate):
+        self._request(str(Path(path).parent), text, path)
+
+    def install(self, monkeypatch):
+        from tts import batch_convert
+        from tts.epub2tts_edge import epub2tts_edge as engine
+
+        monkeypatch.setattr(engine, "run_edgespeak", self.edgespeak)
+        monkeypatch.setattr(engine, "_SENTENCE_TOKENIZER", None, raising=False)
+        monkeypatch.setattr(batch_convert, "synthesize_chunk_mp3", self.chunk)
+        monkeypatch.setattr(batch_convert, "INTER_CHUNK_DELAY_SEC", 0)
         return self
 
-    def __exit__(self, *exc_info) -> bool:
-        self.release()
-        return False
+    def texts_by_source(self) -> dict[str, list[str]]:
+        grouped: dict[str, list[str]] = {}
+        for key, text in self.requests:
+            grouped.setdefault(key, []).append(text)
+        return {texts[0].split()[0]: texts for texts in grouped.values()}
 
 
-def _write_source(path: Path, title: str) -> None:
-    path.write_text(f"Title: {title}\nAuthor: Nobody\n# Chapter\nBody text.\n",
-                    encoding="utf-8")
+def book(folder: Path, name: str, word: str) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / name
+    path.write_text(f"{word} speaks first. {word} speaks again.\n\n{word} closes the file.\n", encoding="utf-8")
+    return path
 
 
-def test_runner_never_lets_two_conversions_be_inside_read_book_at_once(
-    tmp_path, monkeypatch
-):
-    from tts.epub2tts_edge import runner
+def real_panel(make_panel, direct=(), folders=()):
+    pending = list(folders)
+    panel = make_panel(choose_files=lambda: tuple(direct),
+                       choose_folder=lambda: (pending.pop(0),) if pending else ())
+    if direct:
+        panel.importer.add_files()
+    for _ in folders:
+        panel.importer.add_folder()
+        panel._pump.tick()
+    return panel
 
-    inside = {"n": 0}
-    max_seen = {"n": 0}
-    probe_lock = threading.Lock()
-    entered = threading.Event()
-    release = threading.Event()
-    counting_lock = _AcquireCountingLock()
-    monkeypatch.setattr(runner, "_CWD_ISOLATION_LOCK", counting_lock)
 
-    def fake_get_book(work_txt, speech_prep=None):
-        return (
-            [{"title": "blank", "paragraphs": ["One sentence."]}],
-            "Book", "Author", ["blank"],
-        )
+needs_ffmpeg = pytest.mark.skipif(
+    not __import__("shared.ffmpeg_utils", fromlist=["have_ffmpeg"]).have_ffmpeg(),
+    reason="requires a real ffmpeg/ffprobe pair")
 
-    def fake_read_book(book_contents, speaker, paragraphpause, sentencepause,
-                       **kwargs):
-        with probe_lock:
-            inside["n"] += 1
-            max_seen["n"] = max(max_seen["n"], inside["n"])
-        entered.set()
+
+@needs_ffmpeg
+def test_eight_direct_edge_files_convert_at_once_through_the_real_panel(make_panel, output_base, tmp_path,
+                                                                        monkeypatch):
+    machine(monkeypatch, cpus=16)
+    service = FakeService(barrier=threading.Barrier(8)).install(monkeypatch)
+    words = [f"Voice{chr(65 + i)}" for i in range(8)]
+    chosen = tuple(book(tmp_path / "Loose", f"{w}.txt", w) for w in words)
+    panel = real_panel(make_panel, direct=chosen)
+    panel.workers_var.set("8")
+    progress: list[tuple[int, int]] = []
+    real_progress = panel_module.RunPublisher.progress
+
+    def spy(self, completed, total=None, **kwargs):
+        progress.append((completed, total))
+        return real_progress(self, completed, total, **kwargs)
+
+    monkeypatch.setattr(panel_module.RunPublisher, "progress", spy)
+
+    params = run_attempt(panel)
+
+    assert "Requested workers: 8 | Effective workers: 8" in log_text(panel)
+    result = panel._result
+    assert result is not None and result.succeeded_count == 8 and not result.cancelled
+    for item in params["items"]:
+        assert item["destination"].is_file() and item["destination"].stat().st_size > 0
+    grouped = service.texts_by_source()
+    assert sorted(grouped) == sorted(words)
+    for word, texts in grouped.items():
+        assert texts == [f"{word} speaks first.", f"{word} speaks again.", f"{word} closes the file."]
+    assert progress[0] == (0, 8) and [c for c, _t in progress[1:]] == list(range(1, 9)), progress
+
+
+@needs_ffmpeg
+def test_direct_and_folder_files_overlap_with_the_real_engines(make_panel, output_base, tmp_path, monkeypatch):
+    service = FakeService(barrier=threading.Barrier(4)).install(monkeypatch)
+    direct = (book(tmp_path / "Loose", "a.txt", "DirectA"), book(tmp_path / "Loose", "b.txt", "DirectB"))
+    root = tmp_path / "Library"
+    book(root, "c.txt", "FolderC")
+    book(root / "Sub", "d.txt", "FolderD")
+    panel = real_panel(make_panel, direct=direct, folders=(root,))
+    panel.workers_var.set("4")
+
+    params = run_attempt(panel)
+
+    assert "Requested workers: 4 | Effective workers: 4" in log_text(panel)
+    assert panel._result.succeeded_count == 4
+    assert all(item["destination"].is_file() for item in params["items"])
+    grouped = service.texts_by_source()
+    assert sorted(grouped) == ["DirectA", "DirectB", "FolderC", "FolderD"]
+    # The folder route sends whole chunks; the direct route sends sentences. Both carry only their own file's text.
+    assert grouped["FolderC"] == ["FolderC speaks first. FolderC speaks again.\n\nFolderC closes the file."]
+
+
+@needs_ffmpeg
+def test_a_direct_pdf_and_a_direct_txt_convert_together(make_panel, output_base, tmp_path, monkeypatch):
+    from tts import pdf_extractor
+
+    service = FakeService(barrier=threading.Barrier(2)).install(monkeypatch)
+    doc = pdf_extractor.fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Chapter 1")  # the PDF's first line becomes its spoken heading
+    page.insert_text((72, 144), "Paper speaks from a page.")
+    pdf = tmp_path / "Loose" / "paper.pdf"
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(pdf))
+    doc.close()
+    txt = book(tmp_path / "Loose", "plain.txt", "Plain")
+    panel = real_panel(make_panel, direct=(pdf, txt))
+    panel.workers_var.set("2")
+
+    run_attempt(panel)
+
+    assert panel._result.succeeded_count == 2
+    grouped = service.texts_by_source()
+    # Speech preparation (the panel's default) reads the heading's number as a word.
+    assert grouped["Chapter"] == ["Chapter one", "Paper speaks from a page."]
+    assert grouped["Plain"][0] == "Plain speaks first."
+
+
+@needs_ffmpeg
+def test_retry_failed_reruns_only_the_file_that_failed_beside_others(make_panel, output_base, tmp_path,
+                                                                     monkeypatch):
+    service = FakeService(barrier=threading.Barrier(4), fail_word="Fragile").install(monkeypatch)
+    words = ["Sturdy", "Fragile", "Solid", "Stable"]
+    chosen = tuple(book(tmp_path / "Loose", f"{w}.txt", w) for w in words)
+    panel = real_panel(make_panel, direct=chosen)
+    panel.workers_var.set("4")
+
+    params = run_attempt(panel)
+
+    first = panel._result
+    assert first.succeeded_count == 3 and first.has_retryable
+    by_name = {item["source"].name: item["destination"] for item in params["items"]}
+    assert not by_name["Fragile.txt"].exists(), "the failed file published nothing"
+    kept = {name: path.read_bytes() for name, path in by_name.items() if name != "Fragile.txt"}
+
+    service.fail_word = None
+    service.barrier = None
+    before = len(service.requests)
+    retry = run_attempt(panel, panel.retry_failed)
+
+    assert [item["source"].name for item in retry["items"]] == ["Fragile.txt"]
+    assert {text.split()[0] for _key, text in service.requests[before:]} == {"Fragile"}
+    assert by_name["Fragile.txt"].is_file(), "the retry lands on the occurrence's own planned destination"
+    for name, data in kept.items():
+        assert by_name[name].read_bytes() == data, f"{name} was rewritten by the retry"
+
+
+@needs_ffmpeg
+def test_cancelling_a_real_concurrent_run_leaves_no_output(make_panel, output_base, tmp_path, monkeypatch):
+    panel_holder: dict = {}
+    asked = threading.Lock()
+
+    def cancel_once():
+        # Exactly what the Cancel button asks of the controller, once, while all four files are mid-synthesis.
+        if asked.acquire(blocking=False):
+            panel_holder["panel"]._controller.request_cancel()
+
+    service = FakeService(barrier=threading.Barrier(4), after_barrier=cancel_once)
+    service.install(monkeypatch)
+    chosen = tuple(book(tmp_path / "Loose", f"{w}.txt", w) for w in ("One", "Two", "Three", "Four"))
+    panel = real_panel(make_panel, direct=chosen)
+    panel_holder["panel"] = panel
+    panel.workers_var.set("4")
+
+    params = run_attempt(panel)
+
+    result = panel._result
+    assert result is not None and result.cancelled
+    assert result.succeeded_count == 0
+    assert not any(item["destination"].exists() for item in params["items"])
+
+
+@needs_ffmpeg
+def test_same_named_direct_files_from_two_folders_get_their_own_outputs(make_panel, output_base, tmp_path,
+                                                                        monkeypatch):
+    service = FakeService(barrier=threading.Barrier(2)).install(monkeypatch)
+    first = book(tmp_path / "Book A", "chapter.txt", "Ashen")
+    second = book(tmp_path / "Book B", "chapter.txt", "Birch")
+    panel = real_panel(make_panel, direct=(first, second))
+    panel.workers_var.set("2")
+
+    params = run_attempt(panel)
+
+    destinations = [item["destination"] for item in params["items"]]
+    assert len(set(destinations)) == 2 and all(path.is_file() for path in destinations)
+    assert sorted(service.texts_by_source()) == ["Ashen", "Birch"]
+
+
+# --------------------------------------------------------------------------- #
+# F. Engine text from several files never interleaves mid-line
+# --------------------------------------------------------------------------- #
+
+
+def drain(q: queue.Queue) -> str:
+    out = []
+    while True:
         try:
-            assert release.wait(WAIT), "the gate was never released"
-        finally:
-            with probe_lock:
-                inside["n"] -= 1
-        raise _StopEarly()
-
-    monkeypatch.setattr(runner, "get_book", fake_get_book)
-    monkeypatch.setattr(runner, "read_book", fake_read_book)
-
-    src_a = tmp_path / "a.txt"
-    src_b = tmp_path / "b.txt"
-    _write_source(src_a, "A")
-    _write_source(src_b, "B")
-
-    def run(src, out_dir):
-        try:
-            runner.run_conversion_job(str(src), output_dir=str(out_dir),
-                                      audio_format="mp3")
-        except _StopEarly:
-            pass
-
-    t1 = threading.Thread(target=run, args=(src_a, tmp_path / "out_a"))
-    t2 = threading.Thread(target=run, args=(src_b, tmp_path / "out_b"))
-    t1.start()
-    try:
-        assert entered.wait(WAIT), "the first conversion never reached read_book"
-        t2.start()
-        # Deterministic, not timing-based: t1 is proven still inside
-        # read_book (blocked on ``release``, which nothing has set yet), so
-        # if t2 has genuinely reached (attempted) the lock, it is *certain*
-        # to still be waiting behind it -- no window to get unlucky in,
-        # unlike a fixed sleep that a contended runner could satisfy by t2
-        # simply never getting scheduled rather than by the lock holding.
-        assert counting_lock.attempted_twice.wait(WAIT), (
-            "the second conversion never even reached the cwd isolation lock")
-        assert max_seen["n"] == 1, (
-            "two conversions were inside read_book at the same time -- the "
-            "cwd isolation lock did not hold")
-    finally:
-        release.set()
-        t1.join(WAIT)
-        t2.join(WAIT)
-    assert max_seen["n"] == 1
+            out.append(q.get_nowait()[1])
+        except queue.Empty:
+            return "".join(out)
 
 
-def test_a_conversion_cancelled_while_waiting_for_the_lock_does_not_proceed(
-    tmp_path, monkeypatch
-):
-    """A second direct conversion queued behind the lock must not start a
-    whole new conversion once it finally acquires the lock, if a cancel was
-    requested while it waited."""
-    from tts.epub2tts_edge import runner
-    from shared.cancellation import ConversionCancelled
+def test_each_file_writes_whole_prefixed_lines(tmp_path):
+    q: queue.Queue = queue.Queue()
+    writer = panel_module.QueueWriter(q)
+    a_started, b_wrote = threading.Event(), threading.Event()
 
-    entered = threading.Event()
-    release = threading.Event()
-    get_book_calls: list[str] = []
+    def file_a():
+        with writer.file_scope("a.txt"):
+            writer.write("Chapter name: ")
+            a_started.set()
+            assert b_wrote.wait(WAIT)
+            writer.write("Alpha\n")
 
-    def fake_get_book(work_txt, speech_prep=None):
-        # Both conversions share this patched function -- t1's own
-        # (legitimate) call also lands here, so calls are tracked by which
-        # source they came from rather than with a single shared flag.
-        get_book_calls.append(Path(work_txt).stem)
-        return (
-            [{"title": "blank", "paragraphs": ["One sentence."]}],
-            "Book", "Author", ["blank"],
-        )
+    def file_b():
+        assert a_started.wait(WAIT)
+        with writer.file_scope("b.txt"):
+            writer.write("Chapter name: Beta\n")
+        b_wrote.set()
 
-    def fake_read_book(book_contents, speaker, paragraphpause, sentencepause,
-                       **kwargs):
-        entered.set()
-        assert release.wait(WAIT), "the gate was never released"
-        raise _StopEarly()
+    threads = [threading.Thread(target=file_a), threading.Thread(target=file_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(WAIT)
+    assert drain(q).splitlines() == ["[b.txt] Chapter name: Beta", "[a.txt] Chapter name: Alpha"]
 
-    monkeypatch.setattr(runner, "get_book", fake_get_book)
-    monkeypatch.setattr(runner, "read_book", fake_read_book)
 
-    src_a = tmp_path / "a.txt"
-    src_b = tmp_path / "b.txt"
-    _write_source(src_a, "A")
-    _write_source(src_b, "B")
+def test_a_partial_line_is_kept_until_its_file_ends():
+    q: queue.Queue = queue.Queue()
+    writer = panel_module.QueueWriter(q)
+    with writer.file_scope("x.txt"):
+        writer.write("no newline yet")
+        assert drain(q) == ""
+    assert drain(q) == "[x.txt] no newline yet\n"
 
-    cancelled_for_second = threading.Event()
 
-    def run_first():
-        try:
-            runner.run_conversion_job(str(src_a), output_dir=str(tmp_path / "out_a"),
-                                      audio_format="mp3")
-        except _StopEarly:
-            pass
-
-    def run_second():
-        try:
-            runner.run_conversion_job(
-                str(src_b), output_dir=str(tmp_path / "out_b"), audio_format="mp3",
-                cancel_check=cancelled_for_second.is_set)
-        except ConversionCancelled:
-            pass
-
-    t1 = threading.Thread(target=run_first)
-    t2 = threading.Thread(target=run_second)
-    t1.start()
-    try:
-        assert entered.wait(WAIT), "the first conversion never reached read_book"
-        t2.start()
-        # t2 is now queued behind the lock. Cancel it while it waits, then
-        # release the lock -- t2 must never call get_book/read_book at all.
-        cancelled_for_second.set()
-        release.set()
-        t1.join(WAIT)
-        t2.join(WAIT)
-    finally:
-        release.set()
-    assert get_book_calls == ["a"], (
-        "the second conversion (source stem 'b') must never reach get_book -- "
-        f"it started real work after being cancelled while still queued "
-        f"behind the cwd isolation lock: {get_book_calls!r}")
+def test_text_outside_any_file_is_unprefixed_and_flushed_at_the_end():
+    q: queue.Queue = queue.Queue()
+    writer = panel_module.QueueWriter(q)
+    writer.write("Run line\n")
+    writer.write("dangling")
+    assert drain(q) == "Run line\n"
+    writer.flush_all()
+    assert drain(q) == "dangling\n"
