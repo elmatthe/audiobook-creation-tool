@@ -18,7 +18,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
-from pydub import AudioSegment
+from pydub.generators import Sine
 
 from shared import ffmpeg_utils
 from tts.epub2tts_edge import epub2tts_edge as engine
@@ -40,7 +40,7 @@ def _clip() -> bytes:
     if "mp3" not in _CLIP:
         ffmpeg_utils.configure_pydub()
         buf = io.BytesIO()
-        AudioSegment.silent(duration=60, frame_rate=24000).export(buf, format="mp3")
+        Sine(440, sample_rate=24000).to_audio_segment(duration=60, volume=-20).export(buf, format="mp3")
         _CLIP["mp3"] = buf.getvalue()
     return _CLIP["mp3"]
 
@@ -117,6 +117,27 @@ def test_a_heading_with_nothing_speakable_adds_nothing(tmp_path, monkeypatch, de
     sent, chapters, _m, _o = narrate(tmp_path, monkeypatch, f"{decoration}\n{MANDATORY[2]}\n")
     assert sent == [MANDATORY[2]]
     assert chapters[0]["narrate_title"] is False
+
+
+def test_a_final_heading_with_nothing_after_it_is_not_spoken(tmp_path, monkeypatch):
+    """A characterization of inherited behaviour, not an endorsement (independent review, INFORMATIONAL-004).
+
+    A chapter exists only once a paragraph follows its heading, so a last heading with no text is dropped from the
+    audio. The word is in the source and is not spoken. It is pinned here so a change to it is a decision, not an
+    accident: changing what a heading narrates needs the owner's authorization. Its title stays in the M4B title list,
+    where nothing reads it, because each chapter reads its own title by position.
+    """
+    sent, chapters, metadata, _out = narrate(tmp_path, monkeypatch, "# First\nBody text.\n# Last\n")
+    assert sent == ["First", "Body text."]
+    assert [chapter["title"] for chapter in chapters] == ["First"]
+    assert metadata == ["First", "Last"]
+
+
+def test_a_source_of_nothing_but_headings_has_no_chapters_and_so_is_refused(tmp_path, monkeypatch):
+    """The same rule from the other side: the runner fails such a file ("No text content"), as it always has."""
+    _sent, chapters, metadata, _out = narrate(tmp_path, monkeypatch, "# Only\n# Headings\n")
+    assert chapters == []
+    assert metadata == ["Only. Headings"]
 
 
 def test_two_consecutive_headings_are_both_spoken(tmp_path, monkeypatch):

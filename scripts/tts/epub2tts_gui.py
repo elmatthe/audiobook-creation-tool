@@ -82,7 +82,6 @@ import contextlib
 import io
 import os
 import queue
-import shutil
 import sys
 import tempfile
 import threading
@@ -143,7 +142,7 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import worker_limits
+from tts import publication, worker_limits
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -1014,7 +1013,8 @@ class TtsPanel(ttk.Frame):
 
         self.bitrate_var = tk.StringVar(value="192k")
         self.voice_var = tk.StringVar(value=DEFAULT_SPEAKER)
-        self.overwrite_var = tk.BooleanVar(value=True)
+        # Off unless the person ticks it for a run: without it no existing output is ever replaced, a retry included.
+        self.overwrite_var = tk.BooleanVar(value=False)
         self.workers_var = tk.StringVar(value="2")
         self.resume_var = tk.BooleanVar(value=True)
         # v0.6.5 Phase 7 (Compact TTS UI, P1/P10/P14): sentence/paragraph/title/
@@ -2974,13 +2974,7 @@ class _RunContext:
             duration=float(duration))))
 
     def record_failure(self, item, detail: str) -> None:
-        """One source that would not convert. An item failure, never a job failure.
-
-        The partial artifact that attempt left at *this occurrence's own* planned
-        destination is removed — proved to be inside the run directory first, and
-        never any sibling's output, because the planner gave every occurrence its
-        own collision-safe path.
-        """
+        """One source that would not convert. An item failure, never a job failure."""
         trouble = f"{item['source'].name} could not be converted."
         advice = edge_failures.split_failure_text(detail)  # an Edge service failure carries its own one-line advice
         if advice:
@@ -2993,7 +2987,6 @@ class _RunContext:
                               stage=STAGE_CONVERT)
         stamp = datetime.now().strftime("%H:%M:%S")
         self.log(f"[{stamp}] {item['source'].name} — FAILED: {detail}")
-        discard_partial(item["destination"], self.params["run_directory"])
 
     # -- the run ------------------------------------------------------------ #
 
@@ -3073,9 +3066,19 @@ class _RunContext:
 
         params = self.params
         backend = params["backend"]
-        # v0.7.1: direct and folder items alike, sized by the queued files themselves and this machine.
-        plan = worker_limits.plan_for_sources(int(params["workers"]), backend,
-                                              [item["source"] for item in self.items])
+        if params["run_directory"] is not None:
+            # An attempt the OS would not let go of, or a run that was killed, may have left a staging file in this run's
+            # folder or a sibling's. It cannot be mistaken for an output, but nothing else would ever remove it.
+            for leftover in publication.sweep_orphans(Path(params["run_directory"]).parent):
+                self.log(f"Removed an unfinished file left by an interrupted run: {leftover.name}")
+        # v0.7.1: direct and folder items alike, sized by the queued files themselves, their frozen settings and this
+        # machine. A worker thread, so this may take a moment; it stops looking if the run is cancelled meanwhile.
+        plan = worker_limits.plan_for_sources(
+            int(params["workers"]), backend,
+            [worker_limits.QueuedSource(item["source"], direct=bool(item["direct"])) for item in self.items],
+            settings=worker_limits.NarrationSettings.for_run(params["pause_kw"], params["rate"],
+                                                             params.get("speech_prep")),
+            should_stop=self.cancel_check)
         for line in plan.log_lines():
             self.log(line)
         effective = plan.effective
@@ -3096,6 +3099,8 @@ class _RunContext:
                 return convert_one(item, started)
 
         def convert_one(item, started):
+            # Every engine publishes through ``tts.publication``, so a failed attempt never leaves anything at its
+            # destination, and must never touch what is there: a path matching a plan proves nothing about who wrote it.
             try:
                 # The one place the engines differ -- three calls deep in one
                 # shared dispatch, not three pipelines. A direct Edge file
@@ -3118,13 +3123,12 @@ class _RunContext:
                     status, _path, message = batch_convert.convert_single_pdf(
                         item["source"], params["run_directory"], params["speaker"],
                         params["rate"], self.log, None, self.cancel_check,
-                        item["destination"], bitrate=params["bitrate"],
+                        item["destination"], bitrate=params["bitrate"], overwrite=params["overwrite"],
                         **speech_prep_kwargs(params),
                     )
                     if status != "success":
                         return status, item, message, None
             except ConversionCancelled:
-                discard_partial(item["destination"], params["run_directory"])
                 return "cancelled", item, None, None
             except Exception as exc:  # noqa: BLE001 - one item, not the run
                 return "failed", item, f"{type(exc).__name__}: {exc}", None
@@ -3142,7 +3146,6 @@ class _RunContext:
                     self.cancelled = True
                     stamp = datetime.now().strftime("%H:%M:%S")
                     self.log(f"[{stamp}] {item['source'].name} — skipped (cancelled)")
-                    discard_partial(item["destination"], params["run_directory"])
                 else:
                     self.record_failure(item, message or "the conversion failed")
                 self.advance(item)
@@ -3218,44 +3221,16 @@ class _RunContext:
 # would mean suspending an indivisible operation, which this design does not do.
 
 
-def discard_partial(destination: Path, run_root) -> bool:
-    """Remove one failed or cancelled occurrence's own leftover output.
-
-    Deliberately narrow. It removes exactly the file at the destination the planner
-    reserved for *this* occurrence, and only after proving that path lies inside the
-    run directory — so a sibling's finished output is unreachable from here, and so
-    is anything outside the run. Every occurrence has its own collision-safe
-    destination, which is what makes "its own" a real distinction rather than a
-    hopeful one.
-
-    Returns whether anything was removed. A missing file is the normal case and is
-    not an error; neither is a file the operating system will not let go of, because
-    failing to tidy up must never turn one lost item into a lost run.
-    """
-    if run_root is None:
-        return False
-    target = Path(destination)
-    try:
-        output_paths.assert_contained(Path(run_root), target)
-    except output_paths.OutputPathError:
-        return False
-    try:
-        if target.is_file():
-            target.unlink()
-            return True
-    except OSError:
-        return False
-    return False
-
-
 def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
     """One directly added file through ``run_conversion_job``, unchanged.
 
-    The engine names its own artifact — ``<stem> (<speaker>).mp3`` — and moves it
-    into whatever directory it is handed. It is therefore handed a private staging
+    The engine names its own artifact — ``<stem> (<speaker>).mp3`` — and places it
+    in whatever directory it is handed. It is therefore handed a private scratch
     directory, so that engine-private name is never published: the finished file
-    is moved straight onto the ``<stem>-<label>.mp3`` destination the shared planner
-    reserved for this occurrence (v0.7.0 P02B). That is what keeps two directly
+    is published onto the ``<stem>-<label>.mp3`` destination the shared planner
+    reserved for this occurrence (v0.7.0 P02B), through :mod:`tts.publication`, so
+    the name appears only complete and the run's frozen ``overwrite`` is enforced
+    (v0.7.1). The planned name is what keeps two directly
     added files with the same stem from writing the same name: the one queue can
     now hold both, where the retired single-file mode could only ever hold one.
 
@@ -3269,7 +3244,9 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
     pause_kw = dict(params["pause_kw"])
     skip = {"trim_tts_padding", "trim_silence_db"}
     destination = item["destination"]
-    with tempfile.TemporaryDirectory(prefix="tts_direct_") as stage:
+    publication.refuse_existing(destination, params["overwrite"])  # before hours of synthesis it could never publish
+    # ignore_cleanup_errors: once the file is published, a scanner holding the scratch copy must not fail the item.
+    with tempfile.TemporaryDirectory(prefix="tts_direct_", ignore_cleanup_errors=True) as stage:
         produced = runner.run_conversion_job(
             str(item["source"]),
             output_dir=stage,
@@ -3286,8 +3263,37 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
             **{k: v for k, v in pause_kw.items() if k not in skip},
             **speech_prep_kwargs(params),
         )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(produced, str(destination))
+        publication.publish_file(produced, destination, overwrite=params["overwrite"])
+
+
+def _convert_with_local_engine(item, params, log, synthesize) -> None:
+    """What the local engines share: their one PDF-to-text seam, and publication.
+
+    Each engine writes one MP3 to the path it is given, and would truncate or replace whatever is there. It is given a
+    private scratch path instead, and the finished file reaches the planned destination through :mod:`tts.publication`,
+    under the run's frozen ``overwrite``: never over an existing file unless the person ticked the box for this run, and
+    nothing at all at the destination from a failed or cancelled attempt. Checked first as well, so a doomed conversion
+    never loads a model.
+
+    ``synthesize(text_path, output_path)`` calls the engine. A PDF is extracted to a temporary ``.txt`` first, exactly as
+    before; a TXT is handed over as it stands.
+    """
+    source = item["source"]
+    destination = item["destination"]
+    overwrite = params.get("overwrite", False)
+    publication.refuse_existing(destination, overwrite)
+    with tempfile.TemporaryDirectory(prefix="tts_local_", ignore_cleanup_errors=True) as scratch:
+        output = str(Path(scratch) / "output.mp3")
+        if source.suffix.lower() == ".txt":
+            synthesize(str(source), output)
+        else:
+            from tts.pdf_extractor import pdf_to_txt
+
+            text_path = str(Path(scratch) / f"{source.stem}.txt")
+            pdf_to_txt(str(source), text_path)
+            synthesize(text_path, output)
+        publication.publish_file(output, destination, overwrite=overwrite)
+    log(f"Saved: {destination}")
 
 
 def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
@@ -3299,17 +3305,14 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
     """
     from tts.kokoro_synth import kokoro_file_to_mp3
 
-    source = item["source"]
-    destination = item["destination"]
-    destination.parent.mkdir(parents=True, exist_ok=True)
     # No fine-grained callback, for the same reason as the Edge path: one run has
     # one progress model, and it counts completed source files.
     progress = None
 
-    def synthesize(text_path: str) -> None:
+    def synthesize(text_path: str, output: str) -> None:
         kokoro_file_to_mp3(
             text_path,
-            str(destination),
+            output,
             voice_id=params["voice_id"],
             speed=params["kokoro_speed"],
             end_silence_ms=params["end_pause"],
@@ -3324,16 +3327,7 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    if source.suffix.lower() == ".txt":
-        synthesize(str(source))
-        return
-
-    from tts.pdf_extractor import pdf_to_txt
-
-    with tempfile.TemporaryDirectory(prefix=f"kk_{source.stem}_") as work:
-        text_path = str(Path(work) / f"{source.stem}.txt")
-        pdf_to_txt(str(source), text_path)
-        synthesize(text_path)
+    _convert_with_local_engine(item, params, log, synthesize)
 
 
 def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
@@ -3357,15 +3351,12 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
     """
     from tts.chatterbox_synth import chatterbox_file_to_mp3
 
-    source = item["source"]
-    destination = item["destination"]
-    destination.parent.mkdir(parents=True, exist_ok=True)
     progress = None
 
-    def synthesize(text_path: str) -> None:
+    def synthesize(text_path: str, output: str) -> None:
         chatterbox_file_to_mp3(
             text_path,
-            str(destination),
+            output,
             voice_id=params["voice_id"],
             end_silence_ms=params["end_pause"],
             chunk_pause_ms=params["paragraph_pause"],
@@ -3379,16 +3370,7 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    if source.suffix.lower() == ".txt":
-        synthesize(str(source))
-        return
-
-    from tts.pdf_extractor import pdf_to_txt
-
-    with tempfile.TemporaryDirectory(prefix=f"cb_{source.stem}_") as work:
-        text_path = str(Path(work) / f"{source.stem}.txt")
-        pdf_to_txt(str(source), text_path)
-        synthesize(text_path)
+    _convert_with_local_engine(item, params, log, synthesize)
 
 
 def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
@@ -3410,18 +3392,16 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
     from tts.qwen3_synth import qwen3_file_to_mp3
 
     source = item["source"]
-    destination = item["destination"]
-    destination.parent.mkdir(parents=True, exist_ok=True)
     publisher = params.get("publisher")
 
     def progress(done: int, total: int) -> None:
         if publisher is not None:
             publisher.current_item(item["item_id"], f"Converting {source.name} — chunk {done}/{total}")
 
-    def synthesize(text_path: str) -> None:
+    def synthesize(text_path: str, output: str) -> None:
         qwen3_file_to_mp3(
             text_path,
-            str(destination),
+            output,
             voice_id=params["voice_id"],
             end_silence_ms=params["end_pause"],
             chunk_pause_ms=params["paragraph_pause"],
@@ -3432,16 +3412,7 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    if source.suffix.lower() == ".txt":
-        synthesize(str(source))
-        return
-
-    from tts.pdf_extractor import pdf_to_txt
-
-    with tempfile.TemporaryDirectory(prefix=f"qw_{source.stem}_") as work:
-        text_path = str(Path(work) / f"{source.stem}.txt")
-        pdf_to_txt(str(source), text_path)
-        synthesize(text_path)
+    _convert_with_local_engine(item, params, log, synthesize)
 
 
 class QueueWriter(io.TextIOBase):

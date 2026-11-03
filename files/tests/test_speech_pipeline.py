@@ -378,14 +378,19 @@ def test_local_engine_helpers_pass_the_snapshot_only_when_on(helper, engine_name
     module = {"kokoro_file_to_mp3": "tts.kokoro_synth", "chatterbox_file_to_mp3": "tts.chatterbox_synth",
               "qwen3_file_to_mp3": "tts.qwen3_synth"}[engine_name]
     seen: list[dict] = []
-    monkeypatch.setattr(importlib.import_module(module), engine_name, lambda *a, **k: seen.append(k))
+
+    def engine(text_path, output_path, **kwargs):
+        seen.append(kwargs)
+        Path(output_path).write_bytes(b"mp3")
+
+    monkeypatch.setattr(importlib.import_module(module), engine_name, engine)
     source = tmp_path / "a.txt"
     source.write_text("x", encoding="utf-8")
     item = {"item_id": "1", "source": source, "destination": tmp_path / "out" / "a.mp3"}
     run = rollout_snapshot(user_dir=tmp_path / "none")
     for snapshot in (OFF, run):
         params = {"voice_id": "v", "kokoro_speed": 1.0, "end_pause": 1, "paragraph_pause": 1, "bitrate": "128k",
-                  "speech_prep": snapshot}
+                  "speech_prep": snapshot, "overwrite": True}  # the same destination twice
         getattr(gui, helper)(item, params, None, lambda m: None, lambda: False)
     assert "speech_prep" not in seen[0] and seen[1]["speech_prep"] is run
 
@@ -427,7 +432,7 @@ def test_edge_folder_prepares_the_text_handed_to_its_splitter(tmp_path, monkeypa
 
     sent: list[str] = []
     monkeypatch.setattr(bc, "synthesize_chunk_mp3", lambda chunk, path, voice, rate: sent.append(chunk) or Path(path).write_bytes(b""))
-    monkeypatch.setattr(bc, "merge_mp3s", lambda paths, output, bitrate=None: None)
+    monkeypatch.setattr(bc, "merge_mp3s", lambda paths, output, bitrate=None: Path(output).write_bytes(b"mp3") and None)
     source = tmp_path / "a.txt"
     source.write_text("Title: Book 5\nIt cost $5.\n", encoding="utf-8")
     run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))

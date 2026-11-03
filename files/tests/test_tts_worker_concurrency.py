@@ -19,6 +19,7 @@ Tests that must prove an *absence* of concurrency bound their wait with a short,
 
 from __future__ import annotations
 
+import errno
 import io
 import os
 import queue
@@ -125,7 +126,8 @@ def test_a_request_for_100_is_held_to_the_machines_processors(make_panel, output
 
 def test_a_low_memory_machine_holds_large_files_back_and_says_why(make_panel, output_base, tmp_path, stubs,
                                                                    monkeypatch):
-    # 3.5 GB free of 8 GB: 2 GB stays in reserve; each ~38 KB chapter (about 45 minutes) is budgeted ~540 MB.
+    # 3.5 GB free of 8 GB: 2 GB stays in reserve. Each file is one ~38 KB paragraph, in memory until it is whole, and is
+    # budgeted about 0.7 GB for that and the same again to assemble: two at once would not fit in the 1.5 GB left.
     machine(monkeypatch, cpus=8, available_gb=3.5, total_gb=8)
     chosen = sources(tmp_path / "Big", "a.txt", "b.txt", "c.txt", "d.txt")
     for path in chosen:
@@ -135,7 +137,7 @@ def test_a_low_memory_machine_holds_large_files_back_and_says_why(make_panel, ou
     panel.workers_var.set("4")
     run_attempt(panel)
     text = log_text(panel)
-    assert "Requested workers: 4 | Effective workers: 2" in text
+    assert "Requested workers: 4 | Effective workers: 1" in text
     assert "Worker limit: memory" in text
 
 
@@ -355,12 +357,12 @@ _CLIP: dict[str, bytes] = {}
 
 def _clip() -> bytes:
     if "mp3" not in _CLIP:
-        from pydub import AudioSegment
+        from pydub.generators import Sine
         from shared import ffmpeg_utils
 
         ffmpeg_utils.configure_pydub()
         buf = io.BytesIO()
-        AudioSegment.silent(duration=90, frame_rate=24000).export(buf, format="mp3")
+        Sine(440, sample_rate=24000).to_audio_segment(duration=90, volume=-20).export(buf, format="mp3")
         _CLIP["mp3"] = buf.getvalue()
     return _CLIP["mp3"]
 
@@ -415,6 +417,17 @@ class FakeService:
         for key, text in self.requests:
             grouped.setdefault(key, []).append(text)
         return {texts[0].split()[0]: texts for texts in grouped.values()}
+
+
+def _once(action):
+    """*action* the first time only, for a hook every worker passes through."""
+    asked = threading.Lock()
+
+    def run():
+        if asked.acquire(blocking=False):
+            action()
+
+    return run
 
 
 def book(folder: Path, name: str, word: str) -> Path:
@@ -571,6 +584,309 @@ def test_retry_failed_reruns_only_the_file_that_failed_beside_others(make_panel,
     assert by_name["Fragile.txt"].is_file(), "the retry lands on the occurrence's own planned destination"
     for name, data in kept.items():
         assert by_name[name].read_bytes() == data, f"{name} was rewritten by the retry"
+
+
+def _stage_files(folder: Path) -> list[Path]:
+    from shared import output_paths
+
+    return [p for p in folder.rglob("*") if p.name.startswith(output_paths.TEMP_SIBLING_PREFIX)]
+
+
+def _fail_publication_of(monkeypatch, word: str, failure: OSError) -> None:
+    """A full disk at the moment *word*'s file gets its final name in the run folder."""
+    from tts import publication
+
+    for name in ("_publish_no_clobber", "_publish_replacing"):
+        real = getattr(publication, name)
+
+        def publish(staged, destination, _real=real):
+            if word in Path(destination).name and "tts_direct_" not in str(destination):
+                raise failure
+            _real(staged, destination)
+
+        monkeypatch.setattr(publication, name, publish)
+
+
+@needs_ffmpeg
+def test_retry_failed_recovers_an_interrupted_publication_and_keeps_its_siblings(make_panel, output_base, tmp_path,
+                                                                                 monkeypatch):
+    """Direct route: the disk filled just as one finished file was to get its name. It is an ordinary failed item:
+    nothing under its name, no staging left, the others intact, and Retry Failed finishes the job."""
+    service = FakeService().install(monkeypatch)
+    words = ["Sturdy", "Fragile", "Solid"]
+    chosen = tuple(book(tmp_path / "Loose", f"{w}.txt", w) for w in words)
+    panel = real_panel(make_panel, direct=chosen)
+    panel.workers_var.set("3")
+    with monkeypatch.context() as during_the_fault:
+        _fail_publication_of(during_the_fault, "Fragile", OSError(errno.ENOSPC, "simulated: disk full"))
+        params = run_attempt(panel)
+
+    first = panel._result
+    assert first.succeeded_count == 2 and first.has_retryable
+    by_name = {item["source"].name: item["destination"] for item in params["items"]}
+    assert not by_name["Fragile.txt"].exists()
+    assert _stage_files(params["run_directory"]) == []
+    kept = {name: by_name[name].read_bytes() for name in ("Sturdy.txt", "Solid.txt")}
+
+    before = len(service.requests)
+    retry = run_attempt(panel, panel.retry_failed)
+
+    assert [item["source"].name for item in retry["items"]] == ["Fragile.txt"]
+    assert {text.split()[0] for _key, text in service.requests[before:]} == {"Fragile"}
+    assert by_name["Fragile.txt"].stat().st_size > 0
+    assert panel._result.has_retryable is False
+    for name, data in kept.items():
+        assert by_name[name].read_bytes() == data, name
+
+
+@needs_ffmpeg
+def test_retry_failed_recovers_an_interrupted_folder_publication_in_its_mirrored_folder(make_panel, output_base, tmp_path,
+                                                                                        monkeypatch):
+    """Folder route, a nested source: the same recovery, at the same mirrored destination."""
+    service = FakeService().install(monkeypatch)
+    root = tmp_path / "Library"
+    book(root, "Sturdy.txt", "Sturdy")
+    book(root / "Volume One", "Fragile.txt", "Fragile")
+    panel = real_panel(make_panel, folders=(root,))
+    panel.workers_var.set("2")
+    with monkeypatch.context() as during_the_fault:
+        _fail_publication_of(during_the_fault, "Fragile", OSError(errno.ENOSPC, "simulated: disk full"))
+        params = run_attempt(panel)
+
+    by_name = {item["source"].name: item["destination"] for item in params["items"]}
+    assert "Volume One" in by_name["Fragile.txt"].parts, "mirrored"
+    assert not by_name["Fragile.txt"].exists()
+    assert by_name["Sturdy.txt"].stat().st_size > 0
+    assert _stage_files(params["run_directory"]) == []
+    kept = by_name["Sturdy.txt"].read_bytes()
+
+    retry = run_attempt(panel, panel.retry_failed)
+
+    assert [item["source"].name for item in retry["items"]] == ["Fragile.txt"]
+    assert retry["items"][0]["destination"] == by_name["Fragile.txt"], "the frozen destination"
+    assert by_name["Fragile.txt"].stat().st_size > 0
+    assert by_name["Sturdy.txt"].read_bytes() == kept
+    assert service.requests
+
+
+@needs_ffmpeg
+def test_overwrite_off_keeps_a_file_that_appears_during_synthesis_and_fails_only_that_item(make_panel, output_base,
+                                                                                           tmp_path, monkeypatch):
+    """Codex HIGH-001, through the real panel: a planned name is taken while the run is converting."""
+    holder: dict = {}
+
+    def claim_the_name():
+        destinations = holder["panel"].destinations()
+        for entry in destinations.values():
+            if entry.source.name == "Contested.txt":
+                entry.destination.parent.mkdir(parents=True, exist_ok=True)
+                entry.destination.write_bytes(b"someone else's file")
+
+    FakeService(barrier=threading.Barrier(2), after_barrier=_once(claim_the_name)).install(monkeypatch)
+    chosen = (book(tmp_path / "Loose", "Contested.txt", "Contested"), book(tmp_path / "Loose", "Free.txt", "Free"))
+    panel = real_panel(make_panel, direct=chosen)
+    holder["panel"] = panel
+    panel.workers_var.set("2")
+    assert panel.overwrite_var.get() is False, "a default run"
+
+    params = run_attempt(panel)
+
+    by_name = {item["source"].name: item["destination"] for item in params["items"]}
+    assert by_name["Contested.txt"].read_bytes() == b"someone else's file"
+    assert by_name["Free.txt"].stat().st_size > 0
+    result = panel._result
+    assert result.succeeded_count == 1 and result.has_retryable
+    assert _stage_files(params["run_directory"]) == []
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("route", ["direct", "folder"])
+def test_a_default_retry_never_replaces_a_file_at_its_destination(make_panel, output_base, tmp_path, monkeypatch, route):
+    """The real engines. The first attempt fails; something is then saved at that path; Retry Failed must leave it."""
+    service = FakeService(fail_word="Fragile").install(monkeypatch)
+    root = tmp_path / "Library"
+    chosen = (book(root, "Fragile.txt", "Fragile"), book(root, "Sturdy.txt", "Sturdy"))
+    panel = (real_panel(make_panel, direct=chosen) if route == "direct" else real_panel(make_panel, folders=(root,)))
+    panel.workers_var.set("2")
+    params = run_attempt(panel)
+    by_name = {item["source"].name: item["destination"] for item in params["items"]}
+    foreign = by_name["Fragile.txt"]
+    assert not foreign.exists()
+    foreign.write_bytes(b"not from any attempt")
+    kept = by_name["Sturdy.txt"].read_bytes()
+
+    service.fail_word = None
+    before = len(service.requests)
+    run_attempt(panel, panel.retry_failed)
+
+    assert foreign.read_bytes() == b"not from any attempt"
+    assert panel._result.has_retryable, "it failed, and says so"
+    assert "already exists" in log_text(panel)
+    assert len(service.requests) == before, "and did not synthesise a file it could never publish"
+    assert by_name["Sturdy.txt"].read_bytes() == kept
+    assert _stage_files(params["run_directory"]) == []
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("route", ["direct", "folder"])
+def test_a_ticked_box_replaces_on_retry_whole_and_only_for_that_run(make_panel, output_base, tmp_path, monkeypatch, route):
+    service = FakeService(fail_word="Fragile").install(monkeypatch)
+    root = tmp_path / "Library"
+    chosen = (book(root, "Fragile.txt", "Fragile"), book(root, "Sturdy.txt", "Sturdy"))
+    panel = (real_panel(make_panel, direct=chosen) if route == "direct" else real_panel(make_panel, folders=(root,)))
+    panel.workers_var.set("2")
+    panel.overwrite_var.set(True)
+    params = run_attempt(panel)
+    by_name = {item["source"].name: item["destination"] for item in params["items"]}
+    target = by_name["Fragile.txt"]
+    target.write_bytes(b"replace me")
+    panel.overwrite_var.set(False)  # the run froze its own choice
+
+    service.fail_word = None
+    run_attempt(panel, panel.retry_failed)
+
+    assert panel._result.has_retryable is False
+    assert target.read_bytes() != b"replace me" and target.stat().st_size > 0
+    assert _stage_files(params["run_directory"]) == []
+
+
+class _LocalEngineStubs:
+    """All three local engines at ``sys.modules``. Each writes to the path it is given, as the real ones do."""
+
+    def __init__(self, monkeypatch, *, during=None, failing=None):
+        self.calls: list[str] = []
+        self.during = during
+        self.failing = failing
+        for module_name, entry in (("tts.kokoro_synth", "kokoro_file_to_mp3"), ("tts.chatterbox_synth", "chatterbox_file_to_mp3"),
+                                   ("tts.qwen3_synth", "qwen3_file_to_mp3")):
+            module = types.ModuleType(module_name)
+            setattr(module, entry, self.engine)
+            monkeypatch.setitem(sys.modules, module_name, module)
+
+    def engine(self, source_path, output_mp3_path, voice_id, **kwargs):
+        self.calls.append(str(output_mp3_path))
+        if self.during is not None:
+            self.during()
+        Path(output_mp3_path).write_bytes(b"half an encode")
+        if self.failing is not None:
+            raise self.failing
+        Path(output_mp3_path).write_bytes(b"new audio")
+
+
+LOCAL_ENGINES = [panel_module.convert_with_kokoro, panel_module.convert_with_chatterbox, panel_module.convert_with_qwen3]
+
+
+def _local_params(overwrite=None):
+    params = {"voice_id": "v", "kokoro_speed": 1.0, "end_pause": 0, "paragraph_pause": 1, "bitrate": "192k"}
+    if overwrite is not None:
+        params["overwrite"] = overwrite
+    return params
+
+
+def _local_item(tmp_path):
+    source = tmp_path / "book.txt"
+    source.write_text("Words.", encoding="utf-8")
+    destination = tmp_path / "run" / "book-Voice.mp3"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    return {"item_id": "occ-1", "source": source, "destination": destination}
+
+
+@pytest.mark.parametrize("convert", LOCAL_ENGINES)
+def test_a_local_engine_publishes_whole_and_never_writes_at_the_destination_itself(tmp_path, monkeypatch, convert):
+    item = _local_item(tmp_path)
+    stubs = _LocalEngineStubs(monkeypatch)
+    convert(item, _local_params(False), None, lambda _m: None, lambda: False)
+    assert item["destination"].read_bytes() == b"new audio"
+    assert Path(stubs.calls[0]) != item["destination"]
+    assert _stage_files(item["destination"].parent) == []
+
+
+@pytest.mark.parametrize("convert", LOCAL_ENGINES)
+@pytest.mark.parametrize("overwrite", [False, None], ids=["off", "absent"])
+def test_a_local_engine_does_not_even_start_when_it_could_not_publish(tmp_path, monkeypatch, convert, overwrite):
+    item = _local_item(tmp_path)
+    item["destination"].write_bytes(b"theirs")
+    stubs = _LocalEngineStubs(monkeypatch)
+    with pytest.raises(FileExistsError):
+        convert(item, _local_params(overwrite), None, lambda _m: None, lambda: False)
+    assert stubs.calls == [], "no model loaded for a file it could never publish"
+    assert item["destination"].read_bytes() == b"theirs"
+
+
+@pytest.mark.parametrize("convert", LOCAL_ENGINES)
+def test_a_local_engine_never_replaces_a_file_that_appears_while_it_runs(tmp_path, monkeypatch, convert):
+    item = _local_item(tmp_path)
+    _LocalEngineStubs(monkeypatch, during=lambda: item["destination"].write_bytes(b"appeared meanwhile"))
+    with pytest.raises(FileExistsError):
+        convert(item, _local_params(False), None, lambda _m: None, lambda: False)
+    assert item["destination"].read_bytes() == b"appeared meanwhile"
+    assert _stage_files(item["destination"].parent) == []
+
+
+@pytest.mark.parametrize("convert", LOCAL_ENGINES)
+def test_a_ticked_box_lets_a_local_engine_replace_whole(tmp_path, monkeypatch, convert):
+    item = _local_item(tmp_path)
+    item["destination"].write_bytes(b"replace me")
+    _LocalEngineStubs(monkeypatch)
+    convert(item, _local_params(True), None, lambda _m: None, lambda: False)
+    assert item["destination"].read_bytes() == b"new audio"
+
+
+@pytest.mark.parametrize("convert", LOCAL_ENGINES)
+@pytest.mark.parametrize("failure", [RuntimeError("the engine failed"), panel_module.ConversionCancelled("cancelled")],
+                         ids=["failed", "cancelled"])
+def test_a_failed_or_cancelled_local_engine_leaves_a_ticked_destination_untouched(tmp_path, monkeypatch, convert, failure):
+    """The engine's half-written file is in scratch; the old output stays whole, even with permission to replace it."""
+    item = _local_item(tmp_path)
+    item["destination"].write_bytes(b"the old valid output")
+    _LocalEngineStubs(monkeypatch, failing=failure)
+    with pytest.raises(type(failure)):
+        convert(item, _local_params(True), None, lambda _m: None, lambda: False)
+    assert item["destination"].read_bytes() == b"the old valid output"
+    assert _stage_files(item["destination"].parent) == []
+
+
+@needs_ffmpeg
+def test_a_run_whose_assemblies_cannot_overlap_still_synthesises_side_by_side(make_panel, output_base, tmp_path,
+                                                                              monkeypatch):
+    """The second memory layer: when memory allows one assembly at a time, only assembly waits. The barrier proves all
+    four files were inside synthesis together; the counter proves no two were assembling at once."""
+    from tts.epub2tts_edge import runner
+
+    machine(monkeypatch)
+    # The plan admits all four; the gate then sees real sizes and only 1 GiB usable, so each takes the whole of it.
+    tight = worker_limits.MemoryInfo(5 * GB, 16 * GB)
+    gate = worker_limits.AssemblyGate(lambda: tight, poll_seconds=0.01)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE", gate)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
+    monkeypatch.setattr(worker_limits, "FILE_BASE_BYTES", int(0.8 * GB))  # each join budgeted at more than half of it
+    lock = threading.Lock()
+    inside = [0]
+    peak = [0]
+    real_make = runner.make_mp3
+
+    def make_mp3(*args, **kwargs):
+        with lock:
+            inside[0] += 1
+            peak[0] = max(peak[0], inside[0])
+        try:
+            time.sleep(0.05)
+            return real_make(*args, **kwargs)
+        finally:
+            with lock:
+                inside[0] -= 1
+
+    monkeypatch.setattr(runner, "make_mp3", make_mp3)
+    FakeService(barrier=threading.Barrier(4)).install(monkeypatch)
+    chosen = tuple(book(tmp_path / "Loose", f"{w}.txt", w) for w in ("One", "Two", "Three", "Four"))
+    panel = real_panel(make_panel, direct=chosen)
+    panel.workers_var.set("4")
+
+    params = run_attempt(panel)
+
+    assert panel._result.succeeded_count == 4
+    assert peak[0] == 1
+    assert all(item["destination"].stat().st_size > 0 for item in params["items"])
 
 
 @needs_ffmpeg

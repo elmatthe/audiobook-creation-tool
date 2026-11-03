@@ -22,6 +22,7 @@ from .epub2tts_edge import (
     DEFAULT_SPEAKER,
     DEFAULT_TITLE_PAUSE_MS,
     DEFAULT_TRIM_SILENCE_DB,
+    _ensure_shared_on_path,
     add_cover,
     generate_metadata,
     get_book,
@@ -142,7 +143,14 @@ def run_conversion_job(
     ``progress_callback(done, total)`` reports paragraph-level progress from
     ``read_book`` on the calling (worker) thread — GUI callers must enqueue
     from it, never touch Tk widgets directly.
+
+    The result reaches ``output_dir`` only through :mod:`tts.publication`: complete, all at once, and (unless
+    ``overwrite``) never over a file that is already there, however late that file appeared. :class:`FileExistsError`
+    otherwise, with that file untouched.
     """
+    _ensure_shared_on_path()
+    from tts import publication, worker_limits
+
     sourcefile = os.path.abspath(sourcefile)
     if not os.path.isfile(sourcefile):
         raise FileNotFoundError(sourcefile)
@@ -207,7 +215,10 @@ def run_conversion_job(
             if cover_local:
                 add_cover(cover_local, artifact)
         elif audio_format == "mp3":
-            artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
+            # The whole narration is about to be decoded into memory at once: wait here if memory needs it. It is
+            # finished work by now, so a Cancel does not discard it, here or later.
+            with worker_limits.assembly_slot(worker_limits.decoded_size(files), note=print):
+                artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
         else:
             raise ValueError(f"Unknown audio_format: {audio_format}")
 
@@ -217,12 +228,7 @@ def run_conversion_job(
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_dir = dest_dir.resolve()
         dest = dest_dir / os.path.basename(artifact)
-        if dest.exists():
-            if overwrite:
-                dest.unlink()
-            else:
-                raise FileExistsError(str(dest))
-        shutil.move(artifact, str(dest))
+        publication.publish_file(artifact, dest, overwrite=overwrite)
         print(f"Saved: {dest}")
         return str(dest)
     finally:

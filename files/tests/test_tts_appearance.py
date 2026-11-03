@@ -231,7 +231,7 @@ def test_a_live_toggle_preserves_every_piece_of_panel_state(make_panel, tk_root,
     panel.workers_var.set("3")
     panel.bitrate_var.set("320k")
     panel.resume_var.set(False)
-    panel.overwrite_var.set(False)
+    panel.overwrite_var.set(True)
     panel.log.append("kept across the toggle")
     panel.log.append_detail("a detailed line")
     widgets = (panel.importer.list.listbox, panel.voice_combo, panel.spin_workers,
@@ -251,7 +251,7 @@ def test_a_live_toggle_preserves_every_piece_of_panel_state(make_panel, tk_root,
     assert panel.kokoro_speed_var.get() == "1.25"
     assert panel.workers_var.get() == "3"
     assert panel.bitrate_var.get() == "320k"
-    assert panel.resume_var.get() is False and panel.overwrite_var.get() is False
+    assert panel.resume_var.get() is False and panel.overwrite_var.get() is True
     assert "kept across the toggle" in panel.log.summary
     assert "a detailed line" in panel.log.details
     assert panel._layout_mode == mode

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
+import os
 import re as _re
+import secrets
 import shutil
 import threading
 import time
@@ -39,7 +40,7 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils, output_paths
-from tts import audio_tail, edge_failures, output_names, worker_limits
+from tts import audio_tail, edge_failures, output_names, publication, worker_limits
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -51,6 +52,26 @@ CHUNK_PAUSE_MS = 50  # between two chunks only; v0.7.0 (Q1) removed the 3000 ms 
 INTER_CHUNK_DELAY_SEC = 0.8
 CHUNK_MAX_RETRIES = 5
 PDF_MAX_RETRIES = 2
+#: A source's scratch folder gets a new chunk every few seconds while it is synthesising, so one untouched for this long
+#: is not busy, unless the process named in it is alive and assembling.
+STALE_CHUNK_FOLDER_SECONDS = 3600
+_CHUNK_FOLDER_NAME = _re.compile(r"([0-9a-f]{8})-[0-9a-f]{8}")
+
+
+def _new_chunk_folder_name() -> str:
+    """Private to one conversion, so two runs sharing an output folder can never read each other's audio, and short,
+    so a deep output tree does not push the scratch paths past what the platform allows."""
+    return f"{os.getpid() & 0xFFFFFFFF:08x}-{secrets.token_hex(4)}"
+
+
+def _is_stale_chunk_folder(folder: Path) -> bool:
+    try:
+        if not folder.is_dir() or time.time() - folder.stat().st_mtime <= STALE_CHUNK_FOLDER_SECONDS:
+            return False
+    except OSError:  # gone already: another run finished with it
+        return False
+    owner = _CHUNK_FOLDER_NAME.fullmatch(folder.name)
+    return owner is None or not publication.process_is_alive(int(owner.group(1), 16))
 
 
 def _natural_sort_key(path: Path) -> list[object]:
@@ -133,7 +154,9 @@ def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,
             combined += silence
         combined += AudioSegment.from_mp3(chunk_path)
     combined, tail = audio_tail.apply_final_tail_policy_to_segment(combined)
+    publication.check_narration(combined)
     combined.export(output_mp3_path, **ffmpeg_utils.mp3_export_options(bitrate))
+    publication.verify_finished_mp3(output_mp3_path, len(combined))
     return tail
 
 
@@ -148,6 +171,7 @@ def convert_single_pdf(
     out_mp3: Path | None = None,
     bitrate: str | None = None,
     speech_prep=None,
+    overwrite: bool = False,
 ) -> tuple[str, Path, str | None]:
     """Convert one source file (.pdf or .txt) to MP3.
 
@@ -157,20 +181,17 @@ def convert_single_pdf(
     ``bitrate`` is the run's chosen MP3 bitrate, passed through to the final
     encode so this folder path and the Edge direct path agree on the output
     contract instead of one of them silently using ffmpeg's default.
+
+    The MP3 reaches ``out_mp3`` only through :mod:`tts.publication`: complete, all at once, and (unless ``overwrite``)
+    never over a file that is already there. A failed or cancelled attempt leaves that path exactly as it found it. Cancel
+    is honoured between chunks; a narration with all its chunks is finished work, and is published.
     """
     stem = pdf_path.stem
     if out_mp3 is None:
         out_mp3 = output_dir / f"{stem}.mp3"
-    # Temp dir must be unique per SOURCE, not per stem — two same-named files in
-    # different subfolders would otherwise share (and clobber) one chunk dir. It is
-    # a short digest of the destination (v0.7.0 P02B): the joined relative path was
-    # one folder name that a deep tree or a long voice label could push past 255.
-    try:
-        relative = out_mp3.relative_to(output_dir).as_posix()
-    except ValueError:  # out_mp3 not under output_dir (direct caller)
-        relative = out_mp3.name
-    tmp_key = hashlib.sha256(relative.encode("utf-8", "surrogatepass")).hexdigest()[:16]
-    tmp_root = output_dir / ".tmp_chunks" / tmp_key
+    # The temp dir must be this conversion's alone: two same-named files in different subfolders, or two runs sharing
+    # this output folder, would otherwise share (and clobber) one chunk dir, and a run could publish another's audio.
+    tmp_root = output_dir / ".tmp_chunks" / _new_chunk_folder_name()
     last_err: str | None = None
 
     def _cancelled() -> bool:
@@ -179,6 +200,12 @@ def convert_single_pdf(
     try:
         if _cancelled():
             return "cancelled", pdf_path, None
+        try:
+            publication.refuse_existing(out_mp3, overwrite)  # before hours of synthesis it could never publish
+        except publication.DestinationExists as exc:
+            if progress_report is not None:
+                progress_report(stem, "failed")
+            return "failed", pdf_path, str(exc)
         for pdf_attempt in range(PDF_MAX_RETRIES + 1):
             chunk_paths: list[str] = []
             if pdf_attempt > 0:
@@ -239,10 +266,14 @@ def convert_single_pdf(
                     chunk_paths.append(cpath)
                     time.sleep(INTER_CHUNK_DELAY_SEC)
 
-                out_mp3.parent.mkdir(parents=True, exist_ok=True)
-                tail = merge_mp3s(chunk_paths, str(out_mp3), bitrate)
-                if tail is not None:  # test doubles of merge_mp3s return nothing
-                    log(f"  {pdf_path.name}: {tail.summary()}")
+                with publication.Stage(out_mp3, overwrite=overwrite) as stage:
+                    # The whole narration is about to be decoded into memory at once: wait here if memory needs it. It
+                    # is finished work by now, so a Cancel does not discard it, here or later.
+                    with worker_limits.assembly_slot(worker_limits.decoded_size(chunk_paths), note=log):
+                        tail = merge_mp3s(chunk_paths, str(stage.path), bitrate)
+                    if tail is not None:  # test doubles of merge_mp3s return nothing
+                        log(f"  {pdf_path.name}: {tail.summary()}")
+                    stage.publish()
                 if progress_report is not None:
                     progress_report(stem, "completed")
                 return "success", pdf_path, None
@@ -301,9 +332,11 @@ def run_batch_convert(
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    for leftover in publication.sweep_orphans(output_dir):
+        log(f"  Removed an unfinished file from an interrupted run: {leftover.name}")
     tmp_chunks_root = output_dir / ".tmp_chunks"
     if tmp_chunks_root.exists():
-        orphaned = [d for d in tmp_chunks_root.iterdir() if d.is_dir()]
+        orphaned = [d for d in tmp_chunks_root.iterdir() if _is_stale_chunk_folder(d)]
         if orphaned:
             log(
                 f"  Found {len(orphaned)} in-progress temp dir(s) from a previous interrupted run — cleaning up..."
@@ -343,7 +376,10 @@ def run_batch_convert(
         jobs = kept
 
     # v0.7.1: the same worker policy as the app (queue, Edge service ceiling, processors, free memory).
-    plan = worker_limits.plan_for_sources(workers, "edge", [p for p, _target in jobs])
+    plan = worker_limits.plan_for_sources(workers, "edge",
+                                          [worker_limits.QueuedSource(p, direct=False) for p, _target in jobs],
+                                          settings=worker_limits.NarrationSettings(rate=rate),
+                                          should_stop=cancel_check)
     workers = plan.effective
 
     log("============================================")
@@ -414,9 +450,10 @@ def run_batch_convert(
                     f.cancel()
                 break
 
-    tmp_chunks = output_dir / ".tmp_chunks"
-    if tmp_chunks.exists():
-        shutil.rmtree(tmp_chunks, ignore_errors=True)
+    try:
+        (output_dir / ".tmp_chunks").rmdir()  # each source removed its own folder; another run's would still be here
+    except OSError:
+        pass
 
     elapsed = time.perf_counter() - t0
     mins, sec = divmod(int(elapsed), 60)

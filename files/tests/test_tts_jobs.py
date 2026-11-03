@@ -218,6 +218,12 @@ def mixed_panel(make_panel, tmp_path, roots=1, **kwargs):
     return panel, direct, tuple(folders)
 
 
+def landed(params) -> list[str]:
+    """Every MP3 that really reached the run's folder, relative to it. What an engine is handed is private scratch."""
+    run = params["run_directory"]
+    return sorted(relative(path, run) for path in Path(run).rglob("*.mp3"))
+
+
 def relative(path, root) -> str:
     return str(Path(path).relative_to(root)).replace("\\", "/")
 
@@ -246,15 +252,12 @@ class FailingStubs(_Stubs):
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
                                progress_report=None, cancel_check=None, out_mp3=None,
-                               bitrate=None, speech_prep=None):
+                               bitrate=None, speech_prep=None, overwrite=False):
             self.batch_items.append({
                 "source": path, "output_dir": output_dir, "speaker": speaker,
-                "rate": rate, "out_mp3": out_mp3, "bitrate": bitrate})
+                "rate": rate, "out_mp3": out_mp3, "bitrate": bitrate, "overwrite": overwrite})
             if self.marker in Path(path).name:
-                # A partial artifact is exactly what a failed conversion leaves
-                # behind, and Phase 7 must not mistake it for a resume skip.
-                Path(out_mp3).parent.mkdir(parents=True, exist_ok=True)
-                Path(out_mp3).write_bytes(b"partial")
+                # v0.7.1: a failed folder conversion leaves nothing at its destination (tts.publication).
                 return "failed", Path(path), "chunk merge failed"
             Path(out_mp3).parent.mkdir(parents=True, exist_ok=True)
             Path(out_mp3).write_bytes(b"audio")
@@ -315,7 +318,7 @@ class GatedStubs(_Stubs):
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
                                progress_report=None, cancel_check=None, out_mp3=None,
-                               bitrate=None, speech_prep=None):
+                               bitrate=None, speech_prep=None, overwrite=False):
             self.batch_items.append({"source": path, "out_mp3": out_mp3,
                                      "bitrate": bitrate})
             hold(Path(path).name)
@@ -385,7 +388,7 @@ def test_every_processing_option_the_worker_uses_is_frozen_in_tool_options(
     panel.workers_var.set("3")
     panel.rate_var.set("+10%")
     panel.resume_var.set(False)
-    panel.overwrite_var.set(False)
+    panel.overwrite_var.set(True)
     params = run_attempt(panel)
 
     options = params["snapshot"].tool_options
@@ -393,7 +396,7 @@ def test_every_processing_option_the_worker_uses_is_frozen_in_tool_options(
     assert options["workers"] == 3
     assert options["rate"] == "+10%"
     assert options["resume"] is False
-    assert options["overwrite"] is False
+    assert options["overwrite"] is True
     assert options["speaker"] == "en-US-SteffanNeural"
     # Phase 10 replaced the single ``kokoro_voice_id`` field with the run's
     # explicit engine identity, which is what the three-way dispatch reads.
@@ -952,6 +955,48 @@ def test_a_retry_never_overwrites_an_earlier_success(
     assert survivor.read_bytes() == b"the first success"
 
 
+def test_the_overwrite_box_starts_unticked_and_a_default_run_freezes_it_off(make_panel, output_base, tmp_path, stubs):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
+    assert panel.overwrite_var.get() is False, "nothing is replaced unless the person asks, for that run"
+    params = run_attempt(panel)
+    assert params["snapshot"].tool_options["overwrite"] is False
+    assert params["overwrite"] is False
+
+
+def test_ticking_the_box_permits_replacing_for_that_run_and_only_that_run(make_panel, output_base, tmp_path, stubs):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
+    panel.overwrite_var.set(True)
+    assert run_attempt(panel)["snapshot"].tool_options["overwrite"] is True
+    panel.overwrite_var.set(False)
+    assert run_attempt(panel)["snapshot"].tool_options["overwrite"] is False
+
+
+@pytest.mark.parametrize("ticked_first", [False, True])
+def test_a_retry_keeps_the_runs_own_overwrite_whatever_the_box_says_now(make_panel, output_base, tmp_path, failing_stubs,
+                                                                        ticked_first):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "good.txt", "bad.txt")
+    panel.overwrite_var.set(ticked_first)
+    run_attempt(panel)
+    panel.overwrite_var.set(not ticked_first)
+    second = run_attempt(panel, panel.retry_failed)
+    assert second["snapshot"].tool_options["overwrite"] is ticked_first
+    assert second["overwrite"] is ticked_first
+
+
+def test_numbering_of_colliding_names_does_not_depend_on_the_box(make_panel, output_base, tmp_path, stubs):
+    """Collisions are resolved when the run is planned, numbered, ticked or not."""
+    seen = []
+    for ticked in (False, True):
+        chosen = sources(tmp_path / f"a{ticked}", "same.txt") + sources(tmp_path / f"b{ticked}", "same.txt")
+        panel = make_panel(choose_files=lambda chosen=chosen: chosen)
+        panel.importer.add_files()
+        panel.overwrite_var.set(ticked)
+        params = run_attempt(panel)
+        seen.append(sorted(item["destination"].name for item in params["items"]))
+    assert seen[0] == seen[1]
+    assert len(set(seen[0])) == 2 and any("-1.mp3" in name for name in seen[0])
+
+
 def test_a_retry_reads_no_live_widget_manager_or_configuration(
     make_panel, output_base, tmp_path, failing_stubs
 ):
@@ -963,7 +1008,7 @@ def test_a_retry_reads_no_live_widget_manager_or_configuration(
     panel.bitrate_var.set("128k")
     panel.workers_var.set("9")
     panel.rate_var.set("+50%")
-    panel.overwrite_var.set(False)
+    panel.overwrite_var.set(True)
     panel.importer.options.set_types(("txt",))
 
     second = run_attempt(panel, panel.retry_failed)
@@ -971,7 +1016,7 @@ def test_a_retry_reads_no_live_widget_manager_or_configuration(
     assert options["bitrate"] == "192k"
     assert options["workers"] == 2
     assert options["rate"] == "+0%"
-    assert options["overwrite"] is True
+    assert options["overwrite"] is False
     assert second["items"], "a cleared queue does not empty a frozen retry"
 
 
@@ -1119,7 +1164,7 @@ def test_a_folder_edge_service_refusal_reaches_the_failure_record_the_same_way(
     from tts import batch_convert
 
     def refused(path, output_dir, speaker, rate, log=print, progress_report=None, cancel_check=None,
-                out_mp3=None, bitrate=None, speech_prep=None):
+                out_mp3=None, bitrate=None, speech_prep=None, overwrite=False):
         error = _refused_by_the_edge_service()
         return "failed", Path(path), f"{error}\nTraceback (most recent call last):\n  ..."
 
@@ -1337,10 +1382,10 @@ def test_a_cancelled_run_keeps_the_outputs_that_already_finished(
     assert panel._result.cancelled is True
 
 
-def test_a_failed_item_leaves_no_partial_at_its_own_destination(
+def test_a_failed_item_leaves_nothing_at_its_own_destination(
     make_panel, output_base, tmp_path, failing_stubs
 ):
-    """The batch worker's partial is this occurrence's own, and only its own."""
+    """Nothing appears for the failed occurrence, and a sibling's finished output is not touched."""
     root = tmp_path / "Library"
     sources(root, "01.pdf")
     sources(root / "Book A", "bad.txt")
@@ -1353,12 +1398,60 @@ def test_a_failed_item_leaves_no_partial_at_its_own_destination(
     failed_id = result.retryable_ids[0]
     planned = panel.destinations()
 
-    assert not planned[failed_id].destination.exists(), (
-        "the failed occurrence's partial artifact was cleaned")
+    assert not planned[failed_id].destination.exists()
     survivor = next(entry.destination for item_id, entry in planned.items()
                     if item_id != failed_id)
     assert survivor.exists(), "a sibling's finished output was never touched"
     assert survivor.is_relative_to(params["run_directory"])
+
+
+def test_a_failed_edge_item_never_deletes_a_file_it_did_not_write(
+    make_panel, output_base, tmp_path, failing_stubs
+):
+    """Codex HIGH-001: a file was deleted only because its path matched the failed occurrence's plan. Retry Failed
+    is the real way to meet this: the first attempt failed, then something appeared at that path."""
+    root = tmp_path / "Library"
+    sources(root, "01.pdf")
+    sources(root / "Book A", "bad.txt")
+    panel = make_panel(choose_folder=lambda: (root,))
+    panel.importer.add_folder()
+    panel._pump.tick()
+
+    run_attempt(panel)
+    failed_id = panel._result.retryable_ids[0]
+    foreign = panel.destinations()[failed_id].destination
+    foreign.parent.mkdir(parents=True, exist_ok=True)
+    foreign.write_bytes(b"not from any attempt")
+
+    run_attempt(panel, panel.retry_failed)  # still refused by the stub: a second failure at the same path
+
+    assert panel._result.retryable_ids == (failed_id,)
+    assert foreign.read_bytes() == b"not from any attempt"
+
+
+def test_a_cancelled_queued_item_never_deletes_a_file_it_did_not_write(
+    make_panel, output_base, tmp_path, gated_stubs
+):
+    """Cancelled before it started, an occurrence has written nothing, so its path is not its to clean."""
+    panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "queued.txt")
+    panel.workers_var.set("1")
+    panel.run_job()
+    worker = panel._worker
+    controller = panel._controller
+    try:
+        assert gated_stubs.entered.wait(WAIT)
+        queued_id = panel._snapshot.item_ids[1]
+        foreign = panel.destinations()[queued_id].destination
+        foreign.parent.mkdir(parents=True, exist_ok=True)
+        foreign.write_bytes(b"not from any attempt")
+
+        panel.cancel_job()
+        gated_stubs.release.set()
+        wait_for(lambda: controller.state is JobState.CANCELLED, "the run never cancelled", panel=panel)
+    finally:
+        worker.join(WAIT)
+
+    assert foreign.read_bytes() == b"not from any attempt"
 
 
 def test_closing_the_panel_during_a_paused_run_is_safe(

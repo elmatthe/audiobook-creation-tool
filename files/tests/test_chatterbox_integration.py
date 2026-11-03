@@ -50,6 +50,7 @@ from tts import epub2tts_gui as panel_module  # noqa: E402
 from tts import voice_registry as vr  # noqa: E402
 
 # The Phase 6/7 fixtures own "a TtsPanel built safely" and the engine stubs.
+from test_tts_jobs import landed  # noqa: E402
 from test_tts_importing import (  # noqa: E402,F401
     PANEL_SOURCE,
     _Stubs,
@@ -857,7 +858,7 @@ def test_a_direct_txt_converts_with_chatterbox_and_lands_flat(
     call = chatterbox.calls[0]
     assert call["source"] == str(chosen[0]), "a TXT is handed over as it stands"
     assert call["voice_id"] == "chatterbox-female-1"
-    assert relative(call["output"], params["run_directory"]) == f"solo-{FEMALE_1}.mp3"
+    assert landed(params) == [f"solo-{FEMALE_1}.mp3"]
     assert stubs.conversion_jobs == [] and stubs.batch_items == []
 
 
@@ -873,8 +874,7 @@ def test_a_direct_pdf_goes_through_the_existing_extractor_first(
     assert len(chatterbox.calls) == 1
     assert chatterbox.calls[0]["source"] != str(chosen[0]), "a temp .txt is used"
     assert chatterbox.calls[0]["source"].endswith(".txt")
-    assert relative(chatterbox.calls[0]["output"],
-                    params["run_directory"]) == f"book-{FEMALE_1}.mp3"
+    assert landed(params) == [f"book-{FEMALE_1}.mp3"]
 
 
 def test_a_direct_chatterbox_output_is_named_like_the_other_local_engine(
@@ -905,8 +905,7 @@ def test_two_deliberate_duplicates_stay_two_collision_safe_outputs(
     select(panel)
     params = run_attempt(panel)
 
-    outputs = sorted(relative(call["output"], params["run_directory"])
-                     for call in chatterbox.calls)
+    outputs = landed(params)
     assert len(outputs) == 2 == len(set(outputs))
 
 
@@ -921,8 +920,7 @@ def test_all_four_approved_voices_route_identically_by_voice_id(
     params = run_attempt(panel)
     assert params["backend"] == "chatterbox"
     assert [call["voice_id"] for call in chatterbox.calls] == [voice_id]
-    assert relative(chatterbox.calls[0]["output"],
-                    params["run_directory"]) == f"one-{label}.mp3"
+    assert landed(params) == [f"one-{label}.mp3"]
 
 
 # --------------------------------------------------------------------------- #
@@ -938,8 +936,7 @@ def test_folder_imported_files_mirror_their_root_with_chatterbox(
     select(panel)
     params = run_attempt(panel)
 
-    outputs = sorted(relative(call["output"], params["run_directory"])
-                     for call in chatterbox.calls)
+    outputs = landed(params)
     assert outputs == [f"01-{FEMALE_1}.mp3", f"Book A/02-{FEMALE_1}.mp3"]
     assert stubs.batch_items == [], "the Edge batch worker was not used"
 
@@ -957,8 +954,7 @@ def test_a_nested_folder_pdf_is_extracted_then_synthesised_in_place(
     params = run_attempt(panel)
 
     assert len(stubs.extracted) == 1
-    assert relative(chatterbox.calls[0]["output"],
-                    params["run_directory"]) == f"Series/Book One/ch1-{FEMALE_1}.mp3"
+    assert landed(params) == [f"Series/Book One/ch1-{FEMALE_1}.mp3"]
 
 
 def test_the_same_stem_in_two_subfolders_stays_two_outputs(
@@ -974,8 +970,7 @@ def test_the_same_stem_in_two_subfolders_stays_two_outputs(
     select(panel)
     params = run_attempt(panel)
 
-    outputs = sorted(relative(call["output"], params["run_directory"])
-                     for call in chatterbox.calls)
+    outputs = landed(params)
     assert outputs == [f"A/same-{FEMALE_1}.mp3", f"B/same-{FEMALE_1}.mp3"]
 
 
@@ -1001,8 +996,7 @@ def test_a_mixed_chatterbox_run_places_each_half_by_its_provenance(
     select(panel)
     params = run_attempt(panel)
 
-    outputs = sorted(relative(call["output"], params["run_directory"])
-                     for call in chatterbox.calls)
+    outputs = landed(params)
     assert outputs == [f"01-{FEMALE_1}.mp3", f"Book A/02-{FEMALE_1}.mp3",
                        f"notes-{FEMALE_1}.mp3", f"solo-{FEMALE_1}.mp3"]
     assert len(chatterbox.calls) == 4, "one run, one queue"
@@ -1018,8 +1012,7 @@ def test_a_mixed_multi_root_chatterbox_run_keeps_each_root_in_its_container(
     select(panel)
     params = run_attempt(panel)
 
-    outputs = sorted(relative(call["output"], params["run_directory"])
-                     for call in chatterbox.calls)
+    outputs = landed(params)
     assert outputs == [
         f"Library 1/01-{FEMALE_1}.mp3", f"Library 1/Book A/02-{FEMALE_1}.mp3",
         f"Library 2/01-{FEMALE_1}.mp3", f"Library 2/Book A/02-{FEMALE_1}.mp3",
@@ -1317,8 +1310,7 @@ def test_a_kokoro_run_is_untouched_by_the_new_backend(
     assert {call["voice_id"] for call in stubs.kokoro_calls} == {kokoro.voice_id}
     assert params["kokoro_speed"] == 1.0
     assert chatterbox.calls == []
-    assert sorted(relative(call["output"], params["run_directory"])
-                  for call in stubs.kokoro_calls) == [
+    assert landed(params) == [
         f"01-{kokoro.display_label}.mp3", f"Book A/02-{kokoro.display_label}.mp3",
         f"notes-{kokoro.display_label}.mp3", f"solo-{kokoro.display_label}.mp3"]
 

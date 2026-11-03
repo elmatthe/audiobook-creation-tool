@@ -88,6 +88,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/output_names.py",
     # Added by v0.7.1: how many files one run converts at once (queue, engine, Edge service, processors, memory).
     "tts/worker_limits.py",
+    # Added by v0.7.1: how a finished Edge narration reaches its final name, on every Edge route.
+    "tts/publication.py",
     # Added by v0.7.0 P05B Stage 1: the optional-voice planner and setup worker (both shipped by P05A without being
     # listed here, which already failed this allow-list check) and the operation lifecycle the worker answers through.
     "tts/optional_setup.py",

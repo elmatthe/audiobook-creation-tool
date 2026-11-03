@@ -333,6 +333,8 @@ def collect_edge_folder() -> dict:
 
             def fake_merge(chunk_paths, output_path, bitrate=None, _merged=merged):
                 _merged.append(len(chunk_paths))
+                Path(output_path).write_bytes(b"mp3")  # v0.7.1: a success must publish something
+                Path(output_path).write_bytes(b"mp3")  # v0.7.1: a success must publish something
 
             output_dir = Path(tmp) / f"out_{name}"
             output_dir.mkdir()

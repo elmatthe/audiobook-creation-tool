@@ -255,7 +255,7 @@ def test_all_28_voices_name_their_file_by_the_selected_label_through_the_panel(
         expected = f"one-{entry.display_label}.mp3"
         assert [item["destination"].name for item in params["items"]] == [expected]
         if entry.backend != "edge":
-            assert calls[entry.backend][-1]["output"] == str(run / expected), "the engine wrote the planned path"
+            assert calls[entry.backend][-1]["output"] != str(run / expected), "an engine writes to private scratch"
         assert published(run) == [expected], "nothing else, and no engine-private name, was published"
         reached.append(entry.key)
     assert reached == [SHIPPED_KEYS[i] for i in order]
@@ -339,8 +339,7 @@ def test_a_duplicate_occurrence_on_a_local_engine_gets_its_own_file(
     select(panel, "Qwen3 - Male 2")
     params = run_attempt(panel)
     run = params["run_directory"]
-    assert sorted(Path(c["output"]).name for c in calls["qwen3"]) == [
-        "twice-Qwen3 - Male 2-1.mp3", "twice-Qwen3 - Male 2.mp3"]
+    assert len(calls["qwen3"]) == 2
     assert published(run) == ["twice-Qwen3 - Male 2-1.mp3", "twice-Qwen3 - Male 2.mp3"]
 
 
@@ -441,7 +440,6 @@ def test_a_qwen3_clone_retry_keeps_its_frozen_label_after_a_rename(
     run_attempt(panel, panel.retry_failed)
 
     assert calls["qwen3"][-1]["voice_id"] == "qwen3-female-1"
-    assert Path(calls["qwen3"][-1]["output"]) == run / "bad-Qwen3 - Female 1.mp3"
     assert published(run) == ["bad-Qwen3 - Female 1.mp3", "good-Qwen3 - Female 1.mp3"]
     # A new run, by contrast, takes the new label: the old one was frozen, not hard-coded.
     select(panel, "Narrator Q")

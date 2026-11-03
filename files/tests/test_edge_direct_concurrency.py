@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 from pydub import AudioSegment
+from pydub.generators import Sine
 
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
@@ -44,7 +45,7 @@ def _clip() -> bytes:
     if "mp3" not in _STUB:
         ffmpeg_utils.configure_pydub()
         buf = io.BytesIO()
-        AudioSegment.silent(duration=90, frame_rate=24000).export(buf, format="mp3")
+        Sine(440, sample_rate=24000).to_audio_segment(duration=90, volume=-20).export(buf, format="mp3")
         _STUB["mp3"] = buf.getvalue()
     return _STUB["mp3"]
 

@@ -135,15 +135,41 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     return full.strip()
 
 
-def pdf_page_count(pdf_path: str):
-    """The PDF's page count, or ``None`` when it cannot be opened (used to size a run's workers, v0.7.1)."""
+#: Above this many characters a page is not given the conversion's line cleaning when sizing: that cost grows with the
+#: square of the page's lines (tens of seconds on one abnormal page), and a dense but ordinary page is well below it.
+SIZING_CLEAN_CHARS = 16_000
+_SINGLE_LINE_BREAK = re.compile(r"(?<!\n)\n(?!\n)")
+
+
+def pdf_text_sample(pdf_path: str, max_pages: int, keep_reading=None):
+    """``(page count, pages read, text)`` for sizing a run's workers, or ``None`` when the PDF cannot be opened.
+
+    Every page of a PDF up to ``max_pages`` long, and otherwise ``max_pages`` pages spread evenly through it, stopping
+    early when ``keep_reading()`` says so; it is asked before each page, so the time spent here has a bound: the limit
+    given, plus one page. Each ordinary page gets the same cleaning a conversion gives it; the joins across pages that
+    ``extract_text_from_pdf`` makes afterwards only remove paragraph breaks, so this never under-counts them.
+    """
     with _PYMUPDF_LOCK:
         try:
             doc = fitz.open(pdf_path)
-        except Exception:  # noqa: BLE001 - any unreadable file simply has no page count
+        except Exception:  # noqa: BLE001 - an unreadable file simply has no size to offer
             return None
         try:
-            return doc.page_count
+            pages = doc.page_count
+            wanted = min(pages, max(1, int(max_pages)))
+            read = 0
+            parts: list[str] = []
+            for index in range(wanted):
+                if keep_reading is not None and not keep_reading():
+                    break
+                raw = doc[index * pages // wanted].get_text("text") or ""
+                read += 1
+                if raw.strip():
+                    parts.append(_clean_page_text(raw) if len(raw) <= SIZING_CLEAN_CHARS
+                                 else _SINGLE_LINE_BREAK.sub(" ", raw))
+            return pages, read, "\n\n".join(parts)
+        except Exception:  # noqa: BLE001 - a damaged page table: the conversion will say so properly
+            return None
         finally:
             doc.close()
 

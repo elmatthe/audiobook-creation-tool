@@ -205,10 +205,10 @@ def silent_mp3(tmp_path_factory) -> bytes:
     if not ffmpeg_utils.have_ffmpeg():  # pragma: no cover - environment guard
         pytest.skip("ffmpeg not available for pydub")
     ffmpeg_utils.configure_pydub()
-    from pydub import AudioSegment
+    from pydub.generators import Sine
 
-    path = tmp_path_factory.mktemp("clip") / "silent.mp3"
-    AudioSegment.silent(duration=120).export(str(path), format="mp3")
+    path = tmp_path_factory.mktemp("clip") / "clip.mp3"  # audible: a silent narration is no longer a success
+    Sine(440, sample_rate=24000).to_audio_segment(duration=120, volume=-20).export(str(path), format="mp3")
     return path.read_bytes()
 
 
@@ -363,6 +363,8 @@ def test_direct_a_failure_publishes_no_output_through_the_runner(tmp_path, monke
 
 # --------------------------------------------------------------------------- #
 # 5. Edge folder (convert_single_pdf / run_batch_convert)
+#
+# (Running out of memory while assembling is a local problem too: synthesising the whole file again cannot cure it.)
 # --------------------------------------------------------------------------- #
 
 

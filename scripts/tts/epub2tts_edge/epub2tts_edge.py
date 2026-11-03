@@ -347,6 +347,26 @@ def intra_sentence_chunks(sentence: str) -> list[tuple[str, int]]:
     return merged if merged else [(sentence, 0)]
 
 
+def _decoded_size(paths):
+    """The PCM bytes these finished audio files decode to, read from their headers (``worker_limits``)."""
+    _ensure_shared_on_path()
+    from tts import worker_limits
+
+    return worker_limits.decoded_size(paths)
+
+
+def _assembly_slot(pcm_bytes, cancel_check):
+    """Wait, when memory requires it, before joining this much audio in memory (``worker_limits.assembly_slot``).
+
+    ``cancel_check`` only while more synthesis is still to come: past the book's last checkpoint the narration is finished
+    work, which a Cancel does not discard.
+    """
+    _ensure_shared_on_path()
+    from tts import worker_limits
+
+    return worker_limits.assembly_slot(pcm_bytes, cancel_check=cancel_check, note=print)
+
+
 def read_book(
     book_contents,
     speaker,
@@ -486,14 +506,18 @@ def read_book(
                         sentence_segments[si] = sentence_segments[si] + AudioSegment.silent(
                             duration=pause
                         )
-                    combined = AudioSegment.empty()
-                    if os.path.exists(title_clip):
-                        combined += AudioSegment.from_file(title_clip)
-                        if title_trailing_pause > 0:
-                            combined += AudioSegment.silent(title_trailing_pause)
-                    for seg in sentence_segments:
-                        combined += seg
-                    combined.export(ptemp, format="flac")
+                    # An ordinary paragraph is below the gate's threshold and takes no slot: only a paragraph long enough
+                    # to matter (a source with no line breaks) waits for memory before it is joined (v0.7.1).
+                    with _assembly_slot(sum(len(seg.raw_data) for seg in sentence_segments),
+                                        None if last_paragraph else cancel_check):
+                        combined = AudioSegment.empty()
+                        if os.path.exists(title_clip):
+                            combined += AudioSegment.from_file(title_clip)
+                            if title_trailing_pause > 0:
+                                combined += AudioSegment.silent(title_trailing_pause)
+                        for seg in sentence_segments:
+                            combined += seg
+                        combined.export(ptemp, format="flac")
                     if os.path.exists(title_clip):
                         os.remove(title_clip)
                 files.append(ptemp)
@@ -501,10 +525,12 @@ def read_book(
             # combine paragraphs into chapter
             if not last_chapter:
                 append_silence(files[-1], chapter_trailing_pause)
-            combined = AudioSegment.empty()
-            for file in files:
-                combined += AudioSegment.from_file(file)
-            combined.export(partname, format="flac")
+            with _assembly_slot(_decoded_size(files), None if last_chapter else cancel_check):
+                combined = AudioSegment.empty()
+                for file in files:
+                    combined += AudioSegment.from_file(file)
+                combined.export(partname, format="flac")
+                del combined  # not left in memory, outside any reservation, while the next chapter is synthesised
             for file in files:
                 os.remove(file)
             segments.append(partname)
@@ -601,11 +627,13 @@ def make_mp3(files, sourcefile, speaker, bitrate="192k"):
         combined += AudioSegment.from_file(fname)
     # v0.7.0 final-tail policy, on the lossless assembly inside this one MP3 encode (no extra generation).
     _ensure_shared_on_path()
-    from tts import audio_tail
+    from tts import audio_tail, publication
 
     combined, tail = audio_tail.apply_final_tail_policy_to_segment(combined)
     print(tail.summary())
+    publication.check_narration(combined)
     combined.export(outputmp3, format="mp3", bitrate=bitrate)
+    publication.verify_finished_mp3(outputmp3, len(combined))
     for f in files:
         os.remove(f)
     return outputmp3

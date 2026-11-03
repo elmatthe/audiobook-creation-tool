@@ -1184,7 +1184,7 @@ class _Stubs:
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
                                progress_report=None, cancel_check=None, out_mp3=None,
-                               bitrate=None, speech_prep=None):
+                               bitrate=None, speech_prep=None, overwrite=False):
             self.batch_items.append({
                 "source": path, "output_dir": output_dir, "speaker": speaker,
                 "rate": rate, "out_mp3": out_mp3, "bitrate": bitrate})
@@ -1333,9 +1333,7 @@ def test_a_kokoro_voice_still_takes_the_kokoro_engine_for_both_provenances(
     assert {call["voice_id"] for call in stubs.kokoro_calls} == {kokoro.voice_id}
     assert stubs.conversion_jobs == [] and stubs.batch_items == []
     run = params["run_directory"]
-    relatives = sorted(
-        str(Path(call["output"]).relative_to(run)).replace("\\", "/")
-        for call in stubs.kokoro_calls)
+    relatives = sorted(str(path.relative_to(run)).replace("\\", "/") for path in Path(run).rglob("*.mp3"))
     label = kokoro.display_label
     assert relatives == [f"01-{label}.mp3", f"Book A/02-{label}.mp3", f"notes-{label}.mp3", f"solo-{label}.mp3"]
 

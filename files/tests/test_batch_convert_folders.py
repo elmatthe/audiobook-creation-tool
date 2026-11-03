@@ -1,13 +1,12 @@
 """Batch convert: nested-folder mirroring, same-stem collision safety, .txt inputs.
 
 No network: synthesize_chunk_mp3 is monkeypatched to copy a locally generated
-silent MP3, so Edge TTS is never touched. Needs a local ffmpeg (pydub encode/
+tiny MP3, so Edge TTS is never touched. Needs a local ffmpeg (pydub encode/
 decode) — the whole module skips cleanly if none is resolvable.
 """
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 from pathlib import Path
 
@@ -20,7 +19,7 @@ if not ffmpeg_utils.have_ffmpeg():  # pragma: no cover - environment guard
 
 ffmpeg_utils.configure_pydub()
 
-from pydub import AudioSegment  # noqa: E402
+from pydub.generators import Sine  # noqa: E402
 
 import tts.batch_convert as bc  # noqa: E402
 
@@ -30,16 +29,16 @@ S = "Edge Male - Steffan (en-US)"
 
 
 @pytest.fixture(scope="module")
-def silent_mp3(tmp_path_factory) -> str:
-    """One tiny silent MP3 the fake synthesizer copies for every chunk."""
-    p = tmp_path_factory.mktemp("clip") / "silent.mp3"
-    AudioSegment.silent(duration=120).export(str(p), format="mp3")
+def clip_mp3(tmp_path_factory) -> str:
+    """One tiny MP3 the fake synthesizer copies for every chunk. Audible: a silent narration is no longer a success."""
+    p = tmp_path_factory.mktemp("clip") / "clip.mp3"
+    Sine(440, sample_rate=24000).to_audio_segment(duration=120, volume=-20).export(str(p), format="mp3")
     return str(p)
 
 
 @pytest.fixture
-def fake_synth(monkeypatch, silent_mp3):
-    """No-network synthesis: record the texts, copy the silent clip into place.
+def fake_synth(monkeypatch, clip_mp3):
+    """No-network synthesis: record the texts, copy the clip into place.
 
     Also zeroes the polite inter-chunk delay so the suite stays fast.
     """
@@ -47,7 +46,7 @@ def fake_synth(monkeypatch, silent_mp3):
 
     def _fake(text: str, path: str, voice: str, rate: str) -> None:
         texts.append(text)
-        shutil.copyfile(silent_mp3, path)
+        shutil.copyfile(clip_mp3, path)
 
     monkeypatch.setattr(bc, "synthesize_chunk_mp3", _fake)
     monkeypatch.setattr(bc, "INTER_CHUNK_DELAY_SEC", 0)
@@ -224,7 +223,8 @@ def test_the_temp_chunk_folder_name_is_short_for_a_deep_long_destination(tmp_pat
     seen: list = []
 
     def _fake_merge(chunk_paths, output_mp3_path, bitrate=None):
-        seen.extend(chunk_paths)  # the destination itself is not written: only the scratch folder is under test
+        seen.extend(chunk_paths)  # only the scratch folder is under test, so the "encode" is one byte
+        Path(output_mp3_path).write_bytes(b"\x00")
 
     monkeypatch.setattr(bc, "synthesize_chunk_mp3", lambda text, path, voice, rate: open(path, "wb").close())
     monkeypatch.setattr(bc, "merge_mp3s", _fake_merge)
@@ -239,9 +239,47 @@ def test_the_temp_chunk_folder_name_is_short_for_a_deep_long_destination(tmp_pat
     status, _path, message = bc.convert_single_pdf(source, out, "v", "+0%", lambda s: None, None, None, target)
 
     assert status == "success", message
-    key = hashlib.sha256(target.relative_to(out).as_posix().encode()).hexdigest()[:16]
-    assert seen and {Path(p).parent for p in seen} == {out / ".tmp_chunks" / key}
-    assert not (out / ".tmp_chunks" / key).exists(), "this source's scratch folder is still removed afterwards"
+    folders = {Path(p).parent for p in seen}
+    assert len(folders) == 1
+    folder = folders.pop()
+    assert folder.parent == out / ".tmp_chunks"
+    assert len(folder.name) <= 20, "short, whatever the destination"
+    assert not folder.exists(), "this source's scratch folder is still removed afterwards"
+
+
+def test_two_conversions_of_one_destination_never_share_a_scratch_folder(tmp_path, monkeypatch):
+    """Two runs sharing an output folder used to share one folder per destination: one could merge the other's chunks and
+    publish that audio as its own, as a success (found by review)."""
+    folders = []
+    monkeypatch.setattr(bc, "synthesize_chunk_mp3", lambda text, path, voice, rate: folders.append(Path(path).parent)
+                        or Path(path).write_bytes(b""))
+    monkeypatch.setattr(bc, "merge_mp3s", lambda paths, output, bitrate=None: Path(output).write_bytes(b"mp3") and None)
+    monkeypatch.setattr(bc, "INTER_CHUNK_DELAY_SEC", 0)
+    source = tmp_path / "ch.txt"
+    source.write_text("Body text.", encoding="utf-8")
+    out = tmp_path / "out"
+    for _ in range(2):
+        bc.convert_single_pdf(source, out, "v", "+0%", lambda s: None, out_mp3=out / "x.mp3", overwrite=True)
+    assert len(set(folders)) == 2
+
+
+def test_only_a_scratch_folder_nobody_owns_any_more_is_stale(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(bc.publication, "process_is_alive", lambda pid: pid == 0xa11)
+    root = tmp_path / ".tmp_chunks"
+    old = 1_000_000
+    cases = {"00000a11-00000000": False,  # old, but its process is alive: a long wait or a long merge
+             "00000bad-00000000": True,   # old, and its process is gone
+             "legacyname": True}          # old, and names no process
+    for name, _stale in cases.items():
+        (root / name).mkdir(parents=True)
+        os.utime(root / name, (old, old))
+    (root / "00000bad-11111111").mkdir()  # its process is gone, but it was touched just now: another computer's, perhaps
+    for name, stale in cases.items():
+        assert bc._is_stale_chunk_folder(root / name) is stale, name
+    assert bc._is_stale_chunk_folder(root / "00000bad-11111111") is False
+    assert bc._is_stale_chunk_folder(root / "gone") is False
 
 
 def test_an_oversized_workers_request_is_bounded_and_logged(tmp_path, fake_synth, monkeypatch):

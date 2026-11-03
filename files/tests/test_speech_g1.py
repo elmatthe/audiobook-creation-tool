@@ -108,7 +108,7 @@ def test_edge_direct_and_edge_folder_each_apply_the_matrix_through_their_own_ent
     assert contents[0]["paragraphs"] == ["Mister Smith paid $5 for 1/2 cup & a three to one ratio in nineteen ninety nine."]
     sent: list[str] = []
     monkeypatch.setattr(bc, "synthesize_chunk_mp3", lambda chunk, path, voice, rate: sent.append(chunk) or Path(path).write_bytes(b""))
-    monkeypatch.setattr(bc, "merge_mp3s", lambda paths, output, bitrate=None: None)
+    monkeypatch.setattr(bc, "merge_mp3s", lambda paths, output, bitrate=None: Path(output).write_bytes(b"mp3") and None)
     status = bc.convert_single_pdf(source, tmp_path / "o", "v", "+0%", log=lambda m: None, out_mp3=tmp_path / "o" / "a.mp3",
                                    speech_prep=production)
     assert status[0] == "success"

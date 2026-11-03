@@ -233,6 +233,12 @@ def mp3_encodes(monkeypatch):
         real_encode = False
 
     captures = Captures()
+    from tts import publication
+
+    real_verify = publication.verify_finished_mp3
+    # A placeholder is not an MP3: the check of the finished file applies only when there really is one.
+    monkeypatch.setattr(publication, "verify_finished_mp3",
+                        lambda path, expected_ms=None: real_verify(path, expected_ms) if captures.real_encode else None)
 
     def capture(self, out_f=None, format="mp3", **kwargs):
         if format != "mp3":
@@ -404,11 +410,13 @@ def local_engine(monkeypatch, tmp_path, mp3_encodes):
             folder.mkdir(exist_ok=True)  # the panel's converters create it; direct callers find it existing
             return folder / name
 
-        def run(self, engine: str, renders: list[np.ndarray], *, voice_id: str | None = None, cancel_check=None):
+        def run(self, engine: str, renders: list[np.ndarray], *, voice_id: str | None = None, cancel_check=None,
+                overwrite: bool = False):
             source = tmp_path / "book.txt"
             source.write_text(self.text(engine, len(renders)), encoding="utf-8")
             self.queue(renders)
             params = _frozen_params(voice_id or LOCAL_VOICES[engine])
+            params["overwrite"] = overwrite
             item = {"source": source, "destination": self.destination(), "item_id": "item-1"}
             converters[engine](item, params, None, lambda _m: None, cancel_check or (lambda: False))
             self.drained()
@@ -594,7 +602,7 @@ def test_cancelling_a_finished_qwen3_run_leaves_the_existing_file_untouched(loca
     destination = local_engine.destination()
     destination.write_bytes(b"OLD GOOD FILE")
     with pytest.raises(ConversionCancelled):
-        local_engine.run("qwen3", [_tone(0.5)], cancel_check=lambda: local_engine.state_["worker_done"])
+        local_engine.run("qwen3", [_tone(0.5)], cancel_check=lambda: local_engine.state_["worker_done"], overwrite=True)
     assert destination.read_bytes() == b"OLD GOOD FILE" and not local_engine.any_encode()
 
 

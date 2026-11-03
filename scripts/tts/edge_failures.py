@@ -21,6 +21,7 @@ import asyncio
 import enum
 import re
 import socket
+import struct
 
 #: The edge-tts version the requirements file pins. ``test_edge_failures`` keeps it equal to that pin; it
 #: exists only so an install that has drifted from the pin can be named in the advice.
@@ -78,6 +79,14 @@ def _conversion_cancelled():
     return ConversionCancelled
 
 
+def _encode_failure() -> tuple:
+    try:
+        from pydub.exceptions import CouldntEncodeError
+    except ImportError:  # pragma: no cover - pydub is a pinned requirement
+        return ()
+    return (CouldntEncodeError,)
+
+
 def _status_kind(status: int | None) -> EdgeFailureKind:
     if status in _REFUSED_STATUSES:
         return EdgeFailureKind.SERVICE_REFUSED
@@ -115,7 +124,9 @@ def classify(exc: BaseException) -> EdgeFailureKind:
         return EdgeFailureKind.NETWORK  # connector, disconnect, payload and timeout errors
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError, ConnectionError, socket.gaierror)):
         return EdgeFailureKind.NETWORK  # before OSError: these are OSError subclasses
-    if isinstance(exc, (OSError, ValueError, TypeError)):
+    # MemoryError, a failed encode (FFmpeg's disk full, say) and pydub's WAV size limit (struct.error) are all about this
+    # computer and this file: synthesising the whole file again cannot cure them.
+    if isinstance(exc, (OSError, ValueError, TypeError, MemoryError, struct.error, *_encode_failure())):
         return EdgeFailureKind.LOCAL
     return EdgeFailureKind.UNKNOWN
 
