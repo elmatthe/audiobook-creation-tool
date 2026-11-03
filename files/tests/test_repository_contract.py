@@ -336,7 +336,7 @@ def test_the_application_version_is_unchanged():
 
     # v0.7.0 release-candidate identity (owner directive 2026-10-30; was 0.6.6).
     # This pins application identity; it does not assert publication.
-    assert VERSION == "0.7.0"
+    assert VERSION == "0.7.1"
 
 
 def test_the_launcher_carries_no_cleanup_behaviour():

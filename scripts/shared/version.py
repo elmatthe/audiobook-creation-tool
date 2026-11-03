@@ -6,4 +6,4 @@ the distribution zips, and available to any future about-box / ``--version``
 output.
 """
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
