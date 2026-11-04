@@ -2,6 +2,42 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.1 independent-review remediation committed; gate PASS on `c64140a`; branch pushed; awaiting a FRESH independent Codex review and owner listening/GUI acceptance; NOT merged/tagged/published (2026-11-03, Claude Code Opus 5.5)
+
+Authority: owner prompt 2026-11-03 (bounded remediation of the BLOCKED review of `3efbb77`; stop at the review checkpoint).
+Plan: `files/plans/ACT-v0.7.1-Edge-Multi-File-Workers-Plan.md` §10 (contract, admission, what is measured and what is
+not), §11 (the fresh review brief), §9 (owner steps, 11-13 new). Decision record: `Decisions.md` 2026-11-03 (publication and
+admission). Evidence (ignored): `files/dev-work/act071-remediation/` (`logs/`, `probes/`, `review-probes/`, `real-runs/`).
+
+- **Branch `feature/0.7.1-multi-file-workers`:** `c64140a` (remediation), then this docs commit. Pushed; not merged.
+- **Owner ruling (2026-11-03): Overwrite is off by default.** An existing output is never replaced, Retry Failed included,
+  unless the box is ticked for that run; frozen in the snapshot; colliding names still numbered at planning.
+- **HIGH-001 fixed:** every route and engine publishes through `tts/publication.py`: private staging beside the
+  destination, one atomic operation, `overwrite=False` enforced by that operation, nothing partial ever published (nor,
+  on Edge, silent or cut short); a failed attempt removes only its own staging file. `discard_partial` is gone. Kokoro,
+  Chatterbox Turbo and Qwen3-TTS get private scratch from the panel; their engine modules are unchanged.
+- **HIGH-002 fixed:** `tts/worker_limits.py` models each file from its real text and frozen settings, within a bound; a
+  runtime gate admits each whole-narration assembly by its real size. Admission counts each file's synthesis memory plus
+  the largest single assembly, so whole-novel queues run side by side and take turns to assemble.
+- **LOW-003 fixed:** unmeasured memory is on its own `Worker note:` line whenever it could have mattered.
+- **INFORMATIONAL-004 characterized, not changed:** a final heading with no text after it is not spoken. Pinned by
+  `test_a_final_heading_with_nothing_after_it_is_not_spoken`. Changing it needs the owner.
+- **Gate:** `verify.py` **RESULT: PASS on `c64140a`** (`files/dev-work/act070-remediation/verify/ACT071-REM-c64140a-run1/`): pytest 13006 passed, 65 skipped, 38 min 56 s;
+  guarded v3-planning 457 + v3-supervisor 75 passed; deps, docs, docnames, config (0.7.1), tree unchanged. The owner's 14
+  uncommitted local deletions, `.ai/`, `files/run-temp/` and `scripts/project-status.py` are as found, in no commit.
+- **Real HOME-PC runs on this code:** `R3-D8`: 8 direct files, Workers 8: peak 8 in flight, 23.81 s, 8 succeeded. `R3-E4`: 3 direct + 4 folder files, Workers 4: peak 4, 14.86 s, 7 succeeded, every direct file overlapping every folder file. Every planned name present, no staging left, QA folder unchanged. One short file each, Workers 8, effective 1: Kokoro 11.65 s (32.0 s of audio), Chatterbox Turbo 51.58 s (34.2 s), Qwen3-TTS 51.12 s (35.0 s); planned names, no staging. **Offline:** MP3 bytes, decoded PCM and request text identical to
+  `3efbb77` on 18 outputs (9 sources, both routes).
+- **Not done:** a real second volume, exFAT and network drives were not exercised (simulated; owner step 11). macOS was
+  not run. Nobody has listened yet. A file appearing at a planned name during a run fails that item rather than taking a
+  new number, because planned destinations are frozen; say if you would rather it were numbered.
+- **Open, pre-existing, flagged not fixed:** a narration of about 24.85 hours or more cannot be encoded (pydub encodes
+  through a 32-bit WAV): it now fails with a reason and no re-synthesis on the final assembly, and the plan warns; a
+  single chapter that long on the direct route still fails with a bare `struct.error`. Plus the earlier flags below (PDF
+  first line, 400-line log pane, `occ-…` label).
+- **Owner / NOT DONE:** listening (`SAMPLE-INDEX.md`); plan §9 manual steps; FRESH independent Codex review (plan §11).
+  Phase 9 (local-engine concurrency research) not started: gated on acceptance, merge and owner authorization.
+- **Next:** Codex review + owner acceptance; merge/tag/release only on owner approval.
+
 ## CURRENT STATE — v0.7.1 Edge multi-file workers implemented; gate PASS on `48f6667`; branch pushed; awaiting independent Codex review and owner listening/acceptance; NOT merged/tagged/published (2026-11-03, Claude Code Opus 5.5)
 
 Authority: owner prompt 2026-11-02 (v0.7.1: Edge only; stop at the review/acceptance checkpoint). Plan, results,

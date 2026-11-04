@@ -15,6 +15,38 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.1 independent-review remediation (2026-11-03) — identity 0.7.1; NOT published, tagged or merged
+
+- **Changed:** **Overwrite existing outputs without asking** now starts unticked. An existing output is never replaced,
+  Retry Failed included, unless you tick the box for that run; the run keeps the choice it started with. Names that
+  collide are still numbered when the run is planned. This applies to every voice, Edge and local alike.
+- **Fixed (data safety):** a finished MP3 now appears under its final name only once, whole. An Edge file used to be moved from
+  the system temp folder with a call that, across drives, copies straight onto the final name (half an MP3 was left when
+  that copy died) and that replaced an existing file even with overwriting off; the folder route and the local engines
+  encoded straight onto the final name. Now the file is finished, written beside its destination under a private name, flushed to
+  disk, and given its name in one operation. With the box unticked, a file that appears at any moment is left alone and
+  the item fails with a reason; ticked, the old file stays good until the instant the new one replaces
+  it. A locked file is waited for briefly, then named in the failure. A failed attempt removes only what it created: a
+  file was being deleted merely because its path matched the plan. An empty result is never published, and on Edge neither
+  is a silent, invalid or cut-short one. A later run removes leftovers of a killed run (`.act-tmp-*.part`) once their
+  process is gone and they are an hour old.
+- **Fixed (memory):** the worker count now comes from each file's real text. It used to count bytes, so inserted pauses were
+  invisible (10 tiny paragraphs: 2.5 s estimated, 8.6 s of audio), and PDFs by a fixed 3,000 characters a page (a dense page
+  held 15,499). And a measurement now backs the estimate: just before a narration is decoded into memory, its real size
+  is checked, and if it would not fit beside what is assembling it waits its turn while other files keep synthesising. So
+  a queue of whole volumes runs side by side where it used to fall to one worker, and a machine that could not hold even one
+  of those assemblies runs one file at a time. Where free memory cannot be read, a cautious 4 GB is assumed, and the log says so.
+- **Fixed (log):** `Worker note:` says what could not be measured whenever it could have mattered, not only when a worker
+  was removed.
+- **Fixed (failures):** running out of memory, a failed encode and an over-long narration no longer make the folder route
+  synthesise the whole file again. Two standalone `batch_convert` runs sharing an output folder can no longer read each
+  other's audio or remove each other's working files.
+- **Documented, not changed:** a last heading with no text after it is not spoken (inherited); changing what a heading
+  narrates is the owner's decision.
+- **Verified:** finished MP3 bytes, decoded audio and every request's text are identical to the code before this entry on
+  18 outputs; `verify.py` RESULT: PASS on `c64140a` (13006 passed, 65 skipped). Not exercised: a real second drive,
+  exFAT or network drives. Not listened to.
+
 ### v0.7.1 Edge multi-file workers (2026-11-03) — identity 0.7.1; NOT published, tagged or merged
 
 - **Changed:** files added directly with **Add Files** now convert side by side with the Edge voices, as folder

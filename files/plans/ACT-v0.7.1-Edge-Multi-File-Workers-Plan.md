@@ -62,6 +62,8 @@ boundary for no gain: the engine's only process-wide dependency is the working d
 
 ### 3.2 Worker policy (`scripts/tts/worker_limits.py`, stdlib only, pure and testable)
 
+*The memory ceiling below was replaced by the review remediation: see §10.2.*
+
 `effective = max(1, min(requested, queued files, engine ceiling, Edge service ceiling, CPU ceiling, memory ceiling))`
 
 - Engine ceiling: Kokoro, Chatterbox, Qwen3 = 1 (unchanged constants and reasons).
@@ -194,6 +196,8 @@ rather than the file name (also in v0.7.0 screenshots).
 
 ## 8. Independent Codex verification brief
 
+*For the review of `3efbb77`, kept for the record. The current brief is §11.*
+
 See `md-instructions/Handoff.md` (current state) for the exact branch/SHA. Audit, independently of this plan's claims:
 
 1. **Process-wide state.** `scripts/tts/epub2tts_edge/runner.py`, `epub2tts_edge.py`: no `os.chdir`; every scratch
@@ -251,3 +255,119 @@ In the app (launch with `Setup_and_Run-audiobook-creation-tool.bat`, TTS tool):
 9. Pick another Edge voice (e.g. Jenny) with 4 files and Workers 4. PASS: effective 4, all succeed.
 10. Throughout: no pre-existing file anywhere is replaced; Kokoro/Chatterbox/Qwen3 with Workers 8 still show
     `Effective workers: 1` and `Worker limit: <engine> converts one file at a time.`
+11. Another drive (added by the remediation; only a real run can prove this): in **Preferences & Data** choose **Use a custom
+    folder** on another drive (`D:`), add 4 files, Workers 4, Start, and watch the run folder. PASS: each `…-<voice>.mp3` appears only when
+    that file is finished, and plays to its end; a short-lived `.act-tmp-*.part` may be seen beside them and none remains
+    at the end. Then put the output folder back.
+12. Whole books: queue 2-4 of your own long PDFs or TXT (hours of narration), Workers 4, Start. PASS: the log says
+    `Effective workers: 4` unless your free memory is low (it then names the reason); all finish, one or two at a time
+    near the end, with `Waiting for memory` in Detailed if they had to take turns; Windows stays usable throughout.
+13. Overwrite (owner ruling): open the tool. PASS: **Overwrite existing outputs without asking** is unticked. Empty
+    `cap-09-empty-then-fixed.txt` again and run step 8 up to its failed file. Before pressing **Retry Failed**, put the sentence
+    back and copy any other MP3 into that run's folder under the name the failed file would take
+    (`cap-09-empty-then-fixed-<voice>.mp3`). Press **Retry Failed**. PASS: that file fails, saying it "already exists and
+    overwriting is off, so it was left as it is", and your copy still plays as it did. Repeat the whole step as a new run with
+    the box ticked before Start. PASS: the retry succeeds and that file now holds the new narration.
+
+## 10. Remediation of the independent review of `3efbb77` (2026-11-03)
+
+The review was BLOCKED. Each finding was reproduced first (`files/dev-work/act071-remediation/logs/repro-before-3efbb77.jsonl`,
+ignored). A second, fresh internal review of the fix found twelve more items, listed in §10.4. The owner then ruled that
+**Overwrite** stays off unless ticked for a run, which the local engines' path also had to honour.
+
+### 10.1 HIGH-001: the publication contract (`scripts/tts/publication.py`)
+
+| Requirement | How it holds |
+|---|---|
+| Finished before the name is visible | The encode and its checks finish first; the name is given last |
+| Private staging on the destination's filesystem | `.act-tmp-<pid 8 hex><5 hex>.part` beside the destination, `O_EXCL`. A cross-volume file is copied into it; nothing is ever copied onto a final name |
+| Atomic | One same-filesystem operation |
+| `overwrite=False`, no time-of-check window | The operation itself refuses: Windows `os.rename` (`MoveFileExW`, no replace, no copy), elsewhere `os.link`. `refuse_existing` before synthesis is only a courtesy |
+| `overwrite=True` | `os.replace`; the old file is never deleted first and stays valid on any failure |
+| Locks, permissions, disk | A real lock is waited out for about 3 s (the staged file, the finished file, the check, the destination), then named. Disk-full is named. An unsupported drive fails with a message; there is no fallback |
+| Attempt ownership | Only the staging file this attempt created. `discard_partial` is gone |
+| Overwrite (owner ruling) | Unticked by default; frozen in the snapshot, so a retry keeps the run's choice; numbering at planning unchanged. A name taken after planning fails that item, because destinations are frozen |
+| Siblings, numbering, destinations, frozen settings, Retry Failed, mirroring, resume, sources | Not touched: destinations are still planned once and frozen. Real-panel tests cover Retry Failed after an interrupted publication on both routes |
+| Orphans | `sweep_orphans`: exact name, regular file, owner gone and an hour old (a pid may belong to another computer on a shared folder), or this process with no attempt using it. At each Edge run over the tool's output folder, and by the standalone batch |
+| Nothing invalid reported | Edge routes: `check_narration` (not silent, not over the WAV limit) before the encode; `verify_finished_mp3` (a real MP3, the length encoded, not cut short) after. Every route: empty refused at publication |
+
+Routes: `run_conversion_job` (standalone and via the panel), `convert_with_edge_engine`, `convert_single_pdf`,
+`run_batch_convert`, and `_convert_with_local_engine` for Kokoro, Chatterbox Turbo and Qwen3-TTS. An AST test forbids `shutil.move`, `os.rename` and `os.replace` in those modules. **Primitive
+proof (HOME-PC NTFS, separate processes, 8 racing for one name, 100 rounds):** `os.rename` and `os.link`: one winner every
+round, no partial view; the control, `exists()` then `os.replace`: several winners in 42 of 100
+(`logs/noclobber-primitives-100.jsonl`). **Cancel:** a narration past its last checkpoint is kept; see Decisions.
+
+### 10.2 HIGH-002: admission (`scripts/tts/worker_limits.py`)
+
+Layers and every number's status are in that module's docstring. Effective memory ceiling = the most files whose synthesis
+memory fits beside the largest single assembly, in `available - max(1 GiB, 25 % of RAM)`.
+
+| | Before | After |
+|---|---|---|
+| Ten `A.` lines (8.649 s of audio in the review's offline run) | 2.5 s | 12.5 s |
+| Dense one-page PDF, 15,499 characters | 3,000 characters | its extracted text |
+| Eight 160 KB pause-heavy files, 16 GiB machine with 8 free | 2 workers | 1 (about 7 GiB each to assemble, 4 GiB usable) |
+| Eight 370,000-character volumes (about 8 hours each, about 4.4 GB each to assemble), 8 GiB usable | 1 worker | 8, assembling in turns |
+| Ten real narrations (`logs/estimate-vs-real.jsonl`) | | model / real = 1.42-1.58, never below 1 |
+
+**Measured:** see "Real process memory" in §10.5. **Modelled:**
+each file's narration and peak: an estimate, never presented as measured. **Cannot be bounded in advance:** a page a sample
+did not read; a source changed after planning; a long paragraph the model did not see (its memory builds during synthesis,
+and it is reserved only when joined).
+
+### 10.3 LOW-003 and INFORMATIONAL-004
+
+`log_lines` prints `Worker limit:` only for a reduction and `Worker note:` whenever something unmeasured could have mattered
+(not when something else holds the run to one file). A final heading with nothing after it stays unspoken:
+`test_a_final_heading_with_nothing_after_it_is_not_spoken` characterizes it, and the five mandatory "blank" sentences,
+spoken headings and the speech goldens are unchanged.
+
+### 10.4 What the fresh internal review changed
+
+A quadratic pattern hung planning on a long run of dots, found first (`logs/regex-timing-before.txt`, `-after.txt`), then
+from the review: a real lock was not retried (Python's `open` gives no Windows error number); planning was unbounded inside
+one PDF and ignored Cancel; a Cancel during the memory wait discarded finished work, depending only on queue order; a source
+with no line breaks was outside the gate; unknown memory set no limit; two standalone runs shared a chunk folder and one
+could publish the other's audio as a success; a failed encode re-synthesised the whole file three times; the over-24-hour
+failure was a bare `struct.error`; a note could leak a reservation; the gate's start figure could go stale; a "cut short"
+check allowed 10 %; a lone carriage return was not a line; a length-based estimate ignored the frozen pauses; several tests
+did not prove their names. All fixed, except that the review's "flush long paragraphs to disk" was declined (Decisions).
+
+### 10.5 Verification
+
+- **Gate on `c64140a`:** `python -u scripts/verify.py --evidence-dir files/dev-work/act070-remediation/verify/ACT071-REM-c64140a-run1` → `RESULT: PASS`: pytest 13006 passed, 65
+  skipped, 38 min 56 s; guarded v3-planning 457 + v3-supervisor 75 passed; deps, docs, docnames, config (0.7.1), tree unchanged.
+- **Audio unchanged:** the same sources through `3efbb77` and the final tree, offline with one deterministic clip: MP3 bytes,
+  decoded PCM and request text identical on 18 outputs (`logs/identity-result.txt`). No golden changed.
+- **Real runs, real panel, this code** (`probes/evidence/R3-D8.json`, `R3-E4.json`, `R2-kokoro.json`, `R2-chatterbox.json`,
+  `R2-qwen3.json`): `R3-D8`: 8 direct files, Workers 8: peak 8 in flight, 23.81 s, 8 succeeded. `R3-E4`: 3 direct + 4 folder files, Workers 4: peak 4, 14.86 s, 7 succeeded, every direct file overlapping every folder file. Every planned name present, no staging left, QA folder unchanged. One short file each, Workers 8, effective 1: Kokoro 11.65 s (32.0 s of audio), Chatterbox Turbo 51.58 s (34.2 s), Qwen3-TTS 51.12 s (35.0 s); planned names, no staging.
+- **Real process memory:** peak working set above the process's start, FFmpeg children not counted, no network (each request copies one real-format clip through the real runner, engine and folder worker; `logs/memory-measurements-final.jsonl`). One pause-heavy file of 1,799 s: 268 MB, against a 348 MB modelled budget. Eight files of 1,199 s each, side by side with ample memory: 592 MB, against a 791 MB admission budget (the eight individual modelled peaks sum to 2,037 MB), 174 s. The same eight with the gate forcing turns: 189 MB, 476 s. Sources of many hours have not been measured; those figures remain modelled (owner step 12 exercises them).
+- **Test doubles changed:** silent fake clips became audible, because silence is now a failure; merges that wrote nothing now
+  write, because a success must publish something; tests that read the path handed to a local engine now read where the file
+  really lands; `test_a_failed_item_leaves_no_partial_at_its_own_destination`, which codified the deletion by path, was
+  replaced by tests that a foreign file survives; tests that assumed Overwrite started on were updated. No test was skipped
+  or xfailed; the new publication tests carry two environment conditions (Windows for a real lock, FFmpeg for real
+  clips), and neither fired here.
+- **Not exercised:** a real second volume, exFAT, network drives (owner step 11 covers the second volume); macOS.
+
+## 11. Fresh independent Codex review brief
+
+Branch `feature/0.7.1-multi-file-workers`, from `c0896d8`. `c64140a` is the code; the commit after it is documentation only.
+Verify independently of this plan's claims. The checkout needs its own Python environment with this repo's packages; a short
+path; and Git ownership for the user running it. An isolated checkout without them produces provisioning failures, not findings.
+
+1. **Publication and Overwrite.** `scripts/tts/publication.py` and its callers, including the local engines' path. Try to get a
+   partial, silent or wrong file under a final name, a replaced file with the box unticked (the default, on a first run or a
+   retry), a deleted file that the attempt did not create, or a leftover the sweep wrongly removes.
+   `files/tests/test_edge_publication.py`; a real lock and a real junction are used there.
+2. **Admission.** `scripts/tts/worker_limits.py`. Try adversarial sources and machines; is any peak still far above what is
+   admitted, and can planning stall? `files/tests/test_worker_limits.py`. Is "synthesis memory + the largest assembly"
+   sound given the gate?
+3. **The gate.** Races, deadlock, fairness, reservation leaks. It wraps joins in `read_book`, the runner's `make_mp3` and
+   `merge_mp3s`.
+4. **Cancel.** A narration past its last checkpoint is kept, by decision. Is any path left where a finished file is lost, or a
+   Cancel never takes effect?
+5. **Regressions.** Direct, folder and mixed still overlap; no `chdir`; assembly, pauses, tails and words unchanged; Kokoro,
+   Chatterbox Turbo and Qwen3-TTS at one worker; the "blank" and heading behaviour; other tools untouched.
+6. **Not a finding, unless you disagree with the reasoning:** the last-heading behaviour (owner's call); the over-24-hour limit
+   (pre-existing, flagged); a name taken after planning failing its item rather than being numbered (frozen destinations).

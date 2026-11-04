@@ -32,6 +32,20 @@
   waits.
 - **Narration:** chapters carry `narrate_title`; an author-written heading is spoken whatever its text, consecutive
   headings are joined, the `"blank"` placeholder is only a name. No word filtering exists.
+- **Publication (remediation, 2026-11-03):** `tts/publication.py` is the one way a finished narration reaches its name
+  (runner, panel direct, folder, standalone, and the local engines through the panel's private scratch): private staging
+  beside the destination, one atomic operation, `overwrite` enforced by that operation, nothing partial published, a failed
+  attempt removes only its own staging file, orphans of dead processes swept by exact name. **Overwrite** is off unless
+  ticked for a run (owner ruling), frozen in the snapshot. Cancel does not discard a narration past its last synthesis
+  checkpoint.
+- **Memory admission (remediation, 2026-11-03; supersedes the memory figures in the bullet above):** `plan_for_sources`
+  models each file from its real text and the run's frozen settings, within 5 s and 400 PDF pages. Effective memory limit
+  = each file's synthesis memory + the largest single assembly. `ASSEMBLY_GATE` admits each join by its real decoded size,
+  first come first served, so assemblies take turns while synthesis stays parallel. Unknown memory: 4 GiB assumed for the
+  plan, 2 GiB for the gate, and the log says so. Measured values, assumptions and what cannot be bounded are spelled
+  out in the module's docstring and the plan's §10.
+- **Known limits:** a final heading with no text after it is not spoken (inherited; owner's call); a narration of about
+  24.85 hours or more cannot be encoded (pydub's WAV step; the plan warns, the final assembly fails with a reason).
 - Decision record: `Decisions.md` 2026-11-03. Live state, evidence and review brief: `Handoff.md` and
   `files/plans/ACT-v0.7.1-Edge-Multi-File-Workers-Plan.md`.
 

@@ -4,6 +4,54 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-03 - TTS output is published atomically through one contract; Overwrite is off unless ticked for a run; workers are admitted by a text-based model and each assembly by its real size; a finished narration survives Cancel; the last heading stays as it is (v0.7.1 review remediation)
+
+**Context.** The independent review of `3efbb77` was BLOCKED: partial MP3s under final names, `overwrite=False` not enforced,
+`discard_partial` deleting by path, and a memory estimate that ignored inserted pauses and PDF density. A second, fresh
+internal review of the fix then found planning that could hang, finished work lost to a Cancel, and two CLI runs able to
+publish each other's audio.
+
+**Decision.**
+- *Overwrite is off unless the person ticks it for that run (owner ruling, 2026-11-03).* The box used to start ticked and did
+  nothing; once publication obeyed it, a default run could have replaced a file. So: unticked by default; existing outputs are
+  never replaced, Retry Failed included; the choice is frozen in the run's snapshot. Numbering stays where it is, at planning.
+  A name taken after planning fails that item with a reason rather than taking a new number, because planned destinations
+  are frozen and a retry must land where it was planned.
+- *One publication contract (`tts/publication.py`), for every route and engine.* The local engines encoded straight onto their
+  destination, so the ruling could not hold for them; they now get private scratch from the panel and publish the same way,
+  with their engine modules unchanged. Staging is a private file beside the destination,
+  created with `O_EXCL`. It is not in a subfolder, and has a 27-character stem-free name, so it fits wherever a planned
+  name fits. No-clobber is the operation, never a look first: on Windows `os.rename` (`MoveFileExW` without replace or
+  copy), elsewhere `os.link` then unlink, because a POSIX rename replaces silently. Rejected as primary on Windows: a hard
+  link, which fails on exFAT and leaves two names for a moment. A drive that cannot do this fails with a message: there is
+  no fallback. Always a copy into staging, so the output takes the destination folder's permissions, at the cost of a
+  second copy of the finished file on the direct route (seconds, next to hours of synthesis).
+- *Cancel does not discard a finished narration.* `test_a_success_finishing_during_cancellation_is_recorded_not_orphaned`
+  was already the contract. Cancel stops synthesis at its checkpoints and stops a file waiting for memory only while it
+  has more synthesis to come; past the last checkpoint the file is assembled in its turn, published and counted. A person
+  who wanted it gone can delete one file; hours of synthesis cannot be got back. Qwen3's rule differs and is unchanged.
+- *Attempt ownership.* `discard_partial` is gone: nothing of an attempt is ever at a destination, so there is nothing there for
+  an attempt to remove. A path matching a plan proves nothing about who wrote the file.
+- *Two memory layers.* The plan is a model (`estimate_text_seconds`: real text, frozen pauses, rate, the run's speech
+  preparation, a PDF's extracted text; bounded at 400 pages and 5 s, checked between pages). The gate is a measurement
+  (the real decoded size, from headers, before each join), and a lone assembly always runs. Rejected: modelling alone,
+  because a PDF cannot be sized without reading it; flushing long paragraphs to disk, because it changes the assembly.
+- *Admission = each file's synthesis memory + the largest single assembly.* Counting all files' assemblies as if they peaked
+  together held eight whole novels to one worker, the very symptom v0.7.1 exists to end, although the gate keeps those
+  assemblies apart and they need little until then. A source with no paragraph breaks counts whole as synthesis memory.
+- *Unknown memory is an assumption, stated as one:* 4 GiB for the plan, 2 GiB for the gate. This supersedes "where free
+  memory cannot be read it is not used" in the entry below: on such a machine any queue was admitted, however large.
+- *The last heading stays unspoken.* A chapter exists only once text follows its heading, so `# First / Body. / # Last` does
+  not speak "Last". Inherited, informational, and what a heading narrates is the owner's to change. Pinned by a test.
+
+**Why:** a file under its final name must be the whole file, and a file nobody asked us to touch must stay; and a memory limit
+is worth having only if it is true, which a model alone cannot promise and which must not cost the concurrency this
+release is for.
+
+— Directed by the owner on 2026-11-03; implemented by Claude Code.
+
+---
+
 ## 2026-11-03 - Directly added Edge files convert side by side in private work folders; the worker count that runs is the smallest of request, queue, engine, Edge service, processors and measured memory; headings are spoken by identity (v0.7.1)
 
 **Context.** v0.7.0 converted a queue of directly added Edge files one at a time whatever File workers said: the
