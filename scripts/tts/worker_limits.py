@@ -16,33 +16,45 @@ and the run log says ``Requested workers: N | Effective workers: M`` plus, when 
 * **Memory.** See below.
 
 **Memory has two layers, because a plan made from text can be wrong, and because a file needs little until the end.**
-While a file is being synthesised it holds about one paragraph in memory (the rest is on disk); then its whole narration
-is decoded into memory for the one MP3 encode.
+While a file is being synthesised it holds at most :data:`SYNTHESIS_HELD_PCM_BYTES` of audio in memory (the rest is on
+disk); then its whole narration is decoded into memory for the one MP3 encode, if it fits.
 
-*During the run, a measurement.* Immediately before a narration is decoded into memory, :data:`ASSEMBLY_GATE` is given
-its real size, read from the finished audio files' headers. Assemblies overlap only while everything reserved fits in
-what is usable now; otherwise a file waits its turn, first come first served, while synthesis on every other worker
-carries on. A single assembly always runs: however large, it is the job.
+*During the run, measurements.* A long paragraph is written out as it grows, and a clip too long to hold is never decoded
+into memory at all (``epub2tts_edge.read_book``), so synthesis stays small whatever the plan believed. Immediately before
+a narration is assembled, :data:`ASSEMBLY_GATE` is given its real size, read from the finished audio files' headers, and
+reads what is free now. It decides, first come first served:
+
+* **It fits** in what is usable now, with everything else reserved counted: assemble in memory, as ever.
+* **It does not fit, and other files are assembling in memory:** wait for them, while synthesis on every other worker
+  carries on. Their memory comes back.
+* **It does not fit, and nothing here will free any:** assemble on disk (:mod:`tts.disk_assembly`). The same audio, the
+  same bytes, for :data:`DISK_ASSEMBLY_BYTES`. Being the only assembly says nothing about the memory that synthesis,
+  FFmpeg, other programs and Windows are using, so no assembly is ever let into memory for being first.
+* **Not even that much is free:** wait for it, for at most :data:`ASSEMBLY_MEMORY_WAIT_SECONDS`, then fail this file with
+  a reason (:class:`AssemblyMemoryError`). Nothing has been written to its destination and Retry Failed can run it again;
+  it is not retried by itself, because the same machine in the same state would only fail again.
 
 *Before the run, a model.* Each queued file's narration is estimated from its real text and the run's frozen settings
 (:func:`estimate_text_seconds`). The run keeps ``max(1 GiB, 25 % of physical memory)`` free for Windows and other
 programs, and admits as many files as fit in the rest with **the largest single assembly** on top of **each file's
 synthesis memory**: the gate is what keeps several assemblies from being added together. So a queue of whole novels runs
 side by side and takes turns to assemble, while a machine that could not hold even one of those assemblies, or a source
-with no paragraph breaks (its whole narration is in memory during synthesis), is held back. The model is an upper
+with no paragraph breaks (counted whole, though synthesis now writes it out as it goes), is held back. The model is an upper
 estimate, not a measurement of the file, and it stays bounded: a source is never synthesised, a PDF is read for at most
 :data:`PDF_SCAN_PAGES` pages, and the whole queue for at most :data:`PLAN_SCAN_SECONDS`, checked between pages, after
-which a source is sized from its length and the log says so.
+which a source is sized from its length and the log says so. A fully read PDF is sized from the text a conversion will
+speak, its pages joined the same way; a longer one's longest paragraph is scaled up with its sample.
 
 *What cannot be bounded in advance.* Nothing says a PDF's text can be known without reading it, a sample cannot see a
-page it did not read, and a source can change after planning. The gate covers what such a source does at assembly. It
-cannot cover a long paragraph the model did not see: that one's memory builds up during synthesis and is reserved only
-when it is joined.
+page it did not read, and a source can change after planning. That is why the plan is not what keeps memory safe: the
+measurements above hold whatever the plan believed.
 
 **What each number is.** *Measured on HOME-PC, Windows 11:* Edge audio is 24 kHz mono 16-bit, 48,000 PCM bytes per second,
 for all five voices; the peak was 144-150 KB per narration second on the direct route, pause-heavy files included, and
 115 KB/s on the folder route (:data:`PEAK_BYTES_PER_NARRATION_SECOND` rounds up); FFmpeg children 22-24 MB. Speech (real
-Edge, ``Steffan``, ``Andrew``, ``Aria``, ``Ava``, ``Jenny``; ``files/dev-work/act071-remediation/logs/``, ignored): prose at
+Edge, ``Steffan``, ``Andrew``, ``Aria``, ``Ava``, ``Jenny``; ``files/dev-work/act071-remediation/logs/``, ignored): assembling
+on disk added 31-32 MB to the process tree, children included, on narrations of 2 and 4.6 hours (680 MB and 2,297 MB in
+memory; ``files/dev-work/act071-rem2/logs/``, ignored); prose at
 worst 17.2 characters per second; a one-letter word at most 0.40 s; a digit at most 0.41 s; a spoken symbol at most 0.51 s;
 up to 1.47 s of padding on a clip nobody trims; on the folder route, where the service chooses its own pauses, 0.70 s
 after a sentence, 0.28 s at a comma or dash, 0.89 s at an ellipsis. Ten real narrations came out at 1.42-1.58 x below the
@@ -130,10 +142,19 @@ ROUGH_CHARS_PER_PARAGRAPH = 40
 
 #: Below this much PCM (about 5.5 minutes of narration) a join takes no slot: ordinary paragraphs never touch the gate.
 ASSEMBLY_GATE_MIN_PCM_BYTES = 16 * 1024 ** 2
+#: The most audio a file holds in memory while it is being synthesised (about 5.5 minutes): at this much, a paragraph
+#: writes what it has to disk and carries on, and a clip this long is never decoded into memory.
+SYNTHESIS_HELD_PCM_BYTES = 16 * 1024 ** 2
+#: What assembling on disk needs, whatever the narration's length: small read and write buffers, the last moments of the
+#: audio for the final tail, and one FFmpeg at a time (measured at 32 MB at most). See :mod:`tts.disk_assembly`.
+DISK_ASSEMBLY_BYTES = 64 * 1024 ** 2
+#: How long a file waits for even that much to be free, with nothing of this run's to wait for, before it fails.
+ASSEMBLY_MEMORY_WAIT_SECONDS = 300
 #: What the plan assumes is usable where free memory cannot be read. An assumption, not a measurement: enough for a
 #: queue of ordinary files, and too little for several sources that hold whole books in memory.
 UNKNOWN_MEMORY_PLAN_BYTES = 4 * 1024 ** 3
-#: How much may assemble at once where free memory cannot be read. An assumption too: beyond it, files take turns.
+#: How much may assemble in memory at once where free memory cannot be read. An assumption too: beyond it, files take
+#: turns, and one too large for this on its own assembles on disk.
 UNKNOWN_MEMORY_ASSEMBLY_BYTES = 2 * 1024 ** 3
 #: PCM per stored byte for an audio file whose header cannot be read: no ordinary compression of speech goes beyond it.
 UNREADABLE_AUDIO_EXPANSION = 32
@@ -255,65 +276,99 @@ def plan_workers(requested, backend: str, budgets: Sequence[FileBudget], *, cpu_
 # --------------------------------------------------------------------------- the runtime gate
 
 
-class AssemblyGate:
-    """Admits whole-narration assemblies by their real size, one process's worth, first come first served."""
+class AssemblyMemoryError(MemoryError):
+    """Not even assembling on disk has the memory it needs. Nothing was written; the file can be run again."""
 
-    def __init__(self, memory_reader: Optional[Callable[[], Optional[MemoryInfo]]] = None, poll_seconds: float = 0.25):
+
+class AssemblyGate:
+    """Decides where each whole-narration assembly happens, by its real size and what is free now, first come first
+    served: in memory, on disk, or not until there is room (the module docstring has the rule)."""
+
+    def __init__(self, memory_reader: Optional[Callable[[], Optional[MemoryInfo]]] = None, poll_seconds: float = 0.25,
+                 wait_seconds: Optional[float] = None, clock: Callable[[], float] = time.monotonic):
         self._reader = memory_reader
         self._poll = poll_seconds
+        self._wait_seconds = wait_seconds
+        self._clock = clock
         self._condition = threading.Condition()
-        self._in_use = 0
+        self._in_use = 0        # every reservation, in bytes, counted against what is free
+        self._in_memory = 0     # how many of them are whole narrations in memory, whose end will free real memory
         self._queue: deque = deque()
 
     def _read(self) -> Optional[MemoryInfo]:
         return memory_info() if self._reader is None else self._reader()
 
-    def _fits(self, need: int) -> bool:
-        if self._in_use == 0:  # one assembly always runs: it is the job, and nothing else competes for the memory
-            return True
+    def _route(self, need: int) -> Optional[bool]:
+        """True: assemble in memory. False: on disk. None: not yet."""
         memory = self._read()
-        if memory is None:
-            return self._in_use + need <= UNKNOWN_MEMORY_ASSEMBLY_BYTES
         # All that is reserved is counted against what is free now, though what has been allocated is already gone from
         # it: there is no telling which has been, and a wrongly counted assembly only makes this one wait a little.
-        return self._in_use + need <= memory.available - memory_reserve(memory)
+        usable = UNKNOWN_MEMORY_ASSEMBLY_BYTES if memory is None else memory.available - memory_reserve(memory)
+        if self._in_use + need <= usable:
+            return True
+        if self._in_memory:
+            return None  # their memory comes back when they finish
+        if memory is None or self._in_use + DISK_ASSEMBLY_BYTES <= memory.available:
+            return False  # the memory set aside for Windows is a margin, and this is the way to stay small
+        return None
 
     @contextlib.contextmanager
     def reserve(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
                 note: Optional[Callable[[str], None]] = None):
-        """Hold ``need`` bytes of assembly budget for the duration of the ``with`` block. Waits while it does not fit.
+        """A place for an assembly of ``need`` bytes, for the duration of the ``with`` block. Yields ``True`` when it may
+        be held in memory and ``False`` when it must be assembled on disk; waits while neither has room yet.
 
         ``cancel_check`` is for a file with more synthesis still to come, which a Cancel would stop anyway: it raises
         :class:`ConversionCancelled` from the wait. A finished narration passes none, and is assembled in its turn.
+        Raises :class:`AssemblyMemoryError` when, with nothing here left to wait for, too little stayed free for too long.
         """
         ticket = object()
         told = False
+        starved_since: Optional[float] = None
+        patience = ASSEMBLY_MEMORY_WAIT_SECONDS if self._wait_seconds is None else self._wait_seconds
         with self._condition:
             self._queue.append(ticket)
             try:
-                while not (self._queue[0] is ticket and self._fits(need)):
+                while True:
+                    first = self._queue[0] is ticket
+                    in_memory = self._route(need) if first else None
+                    if in_memory is not None:
+                        break
                     if cancel_check is not None and cancel_check():
                         raise ConversionCancelled("Conversion cancelled by user.")
                     if not told and note is not None:
                         told = True
                         note(f"Waiting for memory: this file's narration needs about {_gb(need)} to assemble, and "
-                             "other files are assembling. Synthesis of other files continues.")
+                             "other files are assembling or too little is free. Synthesis of other files continues.")
+                    if first and not self._in_memory:  # nothing of this run's is going to give memory back
+                        now = self._clock()
+                        starved_since = now if starved_since is None else starved_since
+                        if now - starved_since >= patience:
+                            raise AssemblyMemoryError(
+                                f"Too little memory is free to assemble this file's narration, even on disk (it needs "
+                                f"about {_gb(DISK_ASSEMBLY_BYTES)}), and that did not change for "
+                                f"{round(patience)} seconds. Nothing was saved for this file. Close other programs, "
+                                "then use Retry Failed.")
+                    else:
+                        starved_since = None
                     self._condition.wait(self._poll)
             finally:
                 self._queue.remove(ticket)
                 self._condition.notify_all()
-            alone = self._in_use == 0
-            self._in_use += need
+            held = need if in_memory else DISK_ASSEMBLY_BYTES
+            self._in_use += held
+            self._in_memory += in_memory
         try:
-            if alone and note is not None:
-                memory = self._read()
-                if memory is not None and need > memory.available - memory_reserve(memory):
-                    note(f"This file's narration needs about {_gb(need)} to assemble, more than this computer has "
-                         "free now, so this step may be slow. Closing other programs would help.")
-            yield
+            if not in_memory and note is not None:
+                why = "and free memory cannot be read here" if self._read() is None else \
+                    "more than this computer has free now"
+                note(f"This file's narration needs about {_gb(need)} to assemble, {why}, so it is being assembled on disk: "
+                     "the same audio, using little memory.")
+            yield in_memory
         finally:
             with self._condition:
-                self._in_use -= need
+                self._in_use -= held
+                self._in_memory -= in_memory
                 self._condition.notify_all()
 
 
@@ -324,12 +379,21 @@ ASSEMBLY_GATE = AssemblyGate()
 @contextlib.contextmanager
 def assembly_slot(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
                   note: Optional[Callable[[str], None]] = None):
-    """A place at :data:`ASSEMBLY_GATE` for joining this much decoded audio in memory, when it is enough to matter."""
+    """A place at :data:`ASSEMBLY_GATE` for assembling this much decoded audio, when it is enough to matter. Yields
+    ``False`` when the caller must assemble it on disk (:mod:`tts.disk_assembly`), and ``True`` when it may hold it in
+    memory. Every caller honours the answer (``test_assembly_on_disk`` checks that it reads it)."""
     if pcm_bytes < ASSEMBLY_GATE_MIN_PCM_BYTES:
-        yield
+        yield True
         return
-    with ASSEMBLY_GATE.reserve(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, note=note):
-        yield
+    with ASSEMBLY_GATE.reserve(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, note=note) as in_memory:
+        yield in_memory
+
+
+def sample_rate(path) -> int:
+    """The sample rate of a finished audio file, from its header."""
+    import mutagen
+
+    return mutagen.File(path).info.sample_rate
 
 
 def decoded_size(paths: Iterable) -> int:
@@ -535,7 +599,9 @@ def _rough_seconds(size: int, source: QueuedSource, settings: NarrationSettings)
 def _from_text(text: str, scale: float, read_all: bool, source: QueuedSource, settings: NarrationSettings) -> SourceEstimate:
     spoken = _prepared(text, source.direct, settings)
     seconds = estimate_text_seconds(spoken, direct=source.direct, settings=settings)
-    longest = _longest_paragraph_seconds(spoken, settings) if source.direct else 0.0  # the folder route's chunks are on disk
+    # The folder route's chunks are on disk. In a sample, a paragraph that continues from one page read to the next also
+    # runs through the pages between them, so it is scaled up with everything else.
+    longest = _longest_paragraph_seconds(spoken, settings) * scale if source.direct else 0.0
     return SourceEstimate(seconds * scale, longest, "text" if read_all else "sampled")
 
 

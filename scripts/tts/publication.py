@@ -287,7 +287,12 @@ def publish_file(finished, destination, *, overwrite: bool = False) -> Path:
 def check_narration(segment) -> None:
     """What must hold before a whole narration is worth encoding."""
     require_audible(segment)
-    if len(segment.raw_data) >= 2 ** 32:
+    require_encodable(len(segment.raw_data))
+
+
+def require_encodable(pcm_bytes: int) -> None:
+    """Refuse a narration the encoder's WAV file cannot state the size of."""
+    if pcm_bytes >= 2 ** 32:
         raise PublicationError("This narration is over 24 hours long, more than one MP3 can hold here (the encoder goes "
                                "through a WAV file, whose sizes stop at 4 GB). Split the source into shorter files.")
 

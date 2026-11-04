@@ -890,6 +890,70 @@ def test_a_run_whose_assemblies_cannot_overlap_still_synthesises_side_by_side(ma
 
 
 @needs_ffmpeg
+def test_a_run_with_no_room_to_assemble_in_memory_finishes_every_file_on_disk_side_by_side(make_panel, output_base, tmp_path,
+                                                                                         monkeypatch):
+    """Codex HIGH-002B through the real panel: the plan admitted four, the gate sees nothing fits in memory. All four still
+    synthesise together (the barrier) and all four finish, with the bytes a roomy machine gives, no memory route touched."""
+    from tts.epub2tts_edge import runner
+
+    words = ("One", "Two", "Three", "Four")
+    FakeService().install(monkeypatch)
+    roomy = real_panel(make_panel, direct=tuple(book(tmp_path / "Roomy", f"{w}.txt", w) for w in words))
+    roomy.workers_var.set("4")
+    expected = {item["source"].name: item["destination"].read_bytes() for item in run_attempt(roomy)["items"]}
+
+    tight = worker_limits.MemoryInfo(3 * GB, 16 * GB)  # below the 4 GiB kept for Windows; room for the disk route
+    gate = worker_limits.AssemblyGate(lambda: tight, poll_seconds=0.01)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE", gate)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("assembled in memory after being told not to")
+
+    monkeypatch.setattr(runner, "make_mp3", forbidden)
+    FakeService(barrier=threading.Barrier(4)).install(monkeypatch)
+    panel = real_panel(make_panel, direct=tuple(book(tmp_path / "Tight", f"{w}.txt", w) for w in words))
+    panel.workers_var.set("4")
+
+    params = run_attempt(panel)
+
+    assert panel._result.succeeded_count == 4
+    assert "Requested workers: 4 | Effective workers: 4" in log_text(panel)
+    assert "assembled on disk" in log_text(panel)
+    assert {item["source"].name: item["destination"].read_bytes() for item in params["items"]} == expected
+    assert gate._in_use == 0
+
+
+@needs_ffmpeg
+def test_with_too_little_memory_even_for_the_disk_only_that_file_fails_and_retry_failed_finishes_it(make_panel, output_base,
+                                                                                                  tmp_path, monkeypatch):
+    """The recovery the failure message promises: nothing published, its siblings untouched, and Retry Failed finishes it
+    at the planned destination once there is memory again."""
+    service = FakeService().install(monkeypatch)
+    machine_state = {"free": 0}
+    gate = worker_limits.AssemblyGate(lambda: worker_limits.MemoryInfo(machine_state["free"], 16 * GB), poll_seconds=0.01,
+                                      wait_seconds=0.05)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE", gate)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
+    panel = real_panel(make_panel, direct=(book(tmp_path / "Loose", "Starved.txt", "Starved"),))
+
+    params = run_attempt(panel)
+
+    destination = params["items"][0]["destination"]
+    assert panel._result.succeeded_count == 0 and panel._result.has_retryable
+    assert "Too little memory" in log_text(panel) and "Retry Failed" in log_text(panel)
+    assert not destination.exists()
+    before = len(service.requests)
+
+    machine_state["free"] = 16 * GB
+    retry = run_attempt(panel, panel.retry_failed)
+
+    assert retry["items"][0]["destination"] == destination
+    assert destination.is_file() and panel._result.has_retryable is False
+    assert len(service.requests) > before
+
+
+@needs_ffmpeg
 def test_cancelling_a_real_concurrent_run_leaves_no_output(make_panel, output_base, tmp_path, monkeypatch):
     panel_holder: dict = {}
     asked = threading.Lock()

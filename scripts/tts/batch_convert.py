@@ -160,6 +160,18 @@ def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,
     return tail
 
 
+def merge_mp3s_on_disk(chunk_paths: list[str], output_mp3_path: str, bitrate: str | None, spool_path) -> str:
+    """:func:`merge_mp3s`, to the byte, for a narration that does not fit in memory (:mod:`tts.disk_assembly`).
+    Returns the final tail's summary for the caller's log."""
+    from tts import disk_assembly
+
+    silence = AudioSegment.silent(duration=CHUNK_PAUSE_MS)
+    parts = [part for index, chunk in enumerate(chunk_paths) for part in ((silence, chunk) if index else (chunk,))]
+    options = ffmpeg_utils.mp3_export_options(bitrate)
+    return disk_assembly.encode_mp3(parts, output_mp3_path, spool_path, format="mp3", codec=options["codec"],
+                                    bitrate=options["bitrate"])
+
+
 def convert_single_pdf(
     pdf_path: Path,
     output_dir: Path,
@@ -267,12 +279,17 @@ def convert_single_pdf(
                     time.sleep(INTER_CHUNK_DELAY_SEC)
 
                 with publication.Stage(out_mp3, overwrite=overwrite) as stage:
-                    # The whole narration is about to be decoded into memory at once: wait here if memory needs it. It
-                    # is finished work by now, so a Cancel does not discard it, here or later.
-                    with worker_limits.assembly_slot(worker_limits.decoded_size(chunk_paths), note=log):
-                        tail = merge_mp3s(chunk_paths, str(stage.path), bitrate)
-                    if tail is not None:  # test doubles of merge_mp3s return nothing
-                        log(f"  {pdf_path.name}: {tail.summary()}")
+                    # The whole narration is about to be assembled: in memory if it fits, after a wait if other files need
+                    # that memory first, and on disk if it does not. It is finished work by now, so a Cancel does not
+                    # discard it, here or later.
+                    with worker_limits.assembly_slot(worker_limits.decoded_size(chunk_paths), note=log) as in_memory:
+                        if in_memory is False:
+                            summary = merge_mp3s_on_disk(chunk_paths, str(stage.path), bitrate, tmp_root / "assembly.wav")
+                        else:
+                            tail = merge_mp3s(chunk_paths, str(stage.path), bitrate)
+                            summary = None if tail is None else tail.summary()  # test doubles of merge_mp3s return nothing
+                    if summary is not None:
+                        log(f"  {pdf_path.name}: {summary}")
                     stage.publish()
                 if progress_report is not None:
                     progress_report(stem, "completed")

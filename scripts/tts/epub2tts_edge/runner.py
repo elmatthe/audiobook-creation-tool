@@ -28,6 +28,7 @@ from .epub2tts_edge import (
     get_book,
     make_m4b,
     make_mp3,
+    make_mp3_on_disk,
     read_book,
 )
 
@@ -215,10 +216,14 @@ def run_conversion_job(
             if cover_local:
                 add_cover(cover_local, artifact)
         elif audio_format == "mp3":
-            # The whole narration is about to be decoded into memory at once: wait here if memory needs it. It is
-            # finished work by now, so a Cancel does not discard it, here or later.
-            with worker_limits.assembly_slot(worker_limits.decoded_size(files), note=print):
-                artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
+            # The whole narration is about to be assembled: in memory if it fits, after a wait if other files need that
+            # memory first, and on disk if it does not. It is finished work by now, so a Cancel does not discard it, here
+            # or later.
+            with worker_limits.assembly_slot(worker_limits.decoded_size(files), note=print) as in_memory:
+                if in_memory is False:
+                    artifact = make_mp3_on_disk(files, work_txt, speaker, bitrate=mp3_bitrate)
+                else:
+                    artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
         else:
             raise ValueError(f"Unknown audio_format: {audio_format}")
 

@@ -356,7 +356,8 @@ def _decoded_size(paths):
 
 
 def _assembly_slot(pcm_bytes, cancel_check):
-    """Wait, when memory requires it, before joining this much audio in memory (``worker_limits.assembly_slot``).
+    """Wait, when memory requires it, before assembling this much audio; yields ``False`` when it must be done on disk
+    (``worker_limits.assembly_slot``).
 
     ``cancel_check`` only while more synthesis is still to come: past the book's last checkpoint the narration is finished
     work, which a Cancel does not discard.
@@ -365,6 +366,66 @@ def _assembly_slot(pcm_bytes, cancel_check):
     from tts import worker_limits
 
     return worker_limits.assembly_slot(pcm_bytes, cancel_check=cancel_check, note=print)
+
+
+class _ParagraphOnDisk:
+    """The part of one paragraph's finished audio already written out, in order, as FLAC: lossless, so what is later joined
+    is what was held. A paragraph reaches this only when it is too long to hold while it is synthesised
+    (``worker_limits.SYNTHESIS_HELD_PCM_BYTES``); then the chapter join takes these files in its place.
+    """
+
+    def __init__(self, workdir, pindex, title_clip, title_pause):
+        self._workdir, self._pindex = workdir, pindex
+        self._title_clip, self._title_pause = title_clip, title_pause
+        self.parts = []
+        self.rate = None
+
+    def _next(self):
+        return _in_workdir(self._workdir, f"pgraphs{self._pindex}.{len(self.parts)}.flac")
+
+    def write(self, segments):
+        """What is held in memory, as the next file. The chapter's title, if it is still waiting, goes first."""
+        combined = AudioSegment.empty()
+        titled = os.path.exists(self._title_clip)
+        if titled:
+            combined += AudioSegment.from_file(self._title_clip)
+            if self._title_pause > 0:
+                combined += AudioSegment.silent(self._title_pause)
+        for seg in segments:
+            combined += seg
+        if not combined.raw_data:
+            return
+        part = self._next()
+        combined.export(part, format="flac")
+        if titled:
+            os.remove(self._title_clip)
+        self.parts.append(part)
+        self.rate = combined.frame_rate
+
+    def write_clip(self, clip, *, trim=None, pause_ms=0):
+        """One clip too long to hold, which never comes into memory at all (``disk_assembly``)."""
+        _ensure_shared_on_path()
+        from tts import disk_assembly
+
+        part = self._next()
+        self.rate = disk_assembly.clip_to_flac(clip, part, f"{part}.wav", trim=trim, pause_ms=pause_ms)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(clip)
+        self.parts.append(part)
+
+
+def _append_chapter_pause(files, duration, pause_file):
+    """The pause after a chapter goes on its last file, unless that file is too long to bring back into memory."""
+    _ensure_shared_on_path()
+    from tts import worker_limits
+
+    if duration <= 0 or _decoded_size(files[-1:]) < worker_limits.SYNTHESIS_HELD_PCM_BYTES:
+        append_silence(files[-1], duration)
+        return
+    from tts import disk_assembly
+
+    disk_assembly.pause_as_file(duration, worker_limits.sample_rate(files[-1]), pause_file)
+    files.append(pause_file)
 
 
 def read_book(
@@ -386,10 +447,15 @@ def read_book(
     """Synthesize every chapter into ``part<i>.flac`` and return their paths.
 
     ``workdir`` (v0.7.1) is the conversion's own private folder: every scratch file (``part<i>.flac``,
-    ``pgraphs<n>.flac``, ``sntnc*.mp3``) is written there and the returned paths are inside it. ``None`` keeps the
-    historical behaviour (bare names, relative to the current folder) for direct callers.
+    ``pgraphs<n>.flac``, ``pgraphs<n>.<m>.flac`` for a paragraph too long to hold, ``sntnc*.mp3``) is written there and
+    the returned paths are inside it. ``None`` keeps the historical behaviour (bare names, relative to the current folder)
+    for direct callers.
     """
     segments = []
+    _ensure_shared_on_path()
+    from tts import worker_limits
+
+    held_limit = worker_limits.SYNTHESIS_HELD_PCM_BYTES
 
     # progress_callback(done, total) reports whole-book progress in paragraph
     # units (the natural work step: each paragraph is a batch of network TTS
@@ -466,7 +532,12 @@ def read_book(
                     # intermediate lossy MP3 re-encode per sub-chunk/sentence.
                     # Approved by the maintainer's Phase 5 iteration 1/4 listening
                     # verdict (v0.6.5 Phase 6 integration).
+                    # v0.7.1: a paragraph too long to hold writes what it has as lossless FLAC and carries on, so what one
+                    # file holds in memory while it is synthesised has a limit, whatever the plan believed about it.
                     sentence_segments: list[AudioSegment] = []
+                    written = _ParagraphOnDisk(workdir, pindex, title_clip, title_trailing_pause)
+                    if os.path.exists(title_clip) and _decoded_size([title_clip]) >= held_limit:
+                        written.write_clip(title_clip, pause_ms=title_trailing_pause)  # a title clip is never trimmed
                     sent_counter = 1
                     for _si, sentence in enumerate(sentences):
                         _checkpoint()  # between sentence chunks (each is a network round-trip)
@@ -477,13 +548,23 @@ def read_book(
                         for sub_idx, (sub_text, intra_pause_ms) in enumerate(subs):
                             sub_path = _in_workdir(workdir, f"sntnc{sent_counter}_sub{sub_idx}.mp3")
                             run_edgespeak(sub_text, speaker, sub_path)
+                            # The book's final sub-chunk: its ending is the final-tail policy's (make_mp3).
+                            final_chunk = (last_paragraph and _si == n_sents - 1
+                                           and sub_idx == len(subs) - 1)
+                            if _decoded_size([sub_path]) >= held_limit:
+                                # Minutes of speech with no sentence end, comma or dash: never brought into memory.
+                                written.write(sentence_segments + sub_segments)
+                                sentence_segments, sub_segments = [], []
+                                written.write_clip(
+                                    sub_path, pause_ms=intra_pause_ms,
+                                    trim=(lambda sound, keep=final_chunk: trim_silence_segment(
+                                        sound, silence_threshold=trim_silence_db, chunk_size=trim_chunk_ms,
+                                        keep_trailing=keep)) if trim_tts_padding else None)
+                                continue
                             seg = AudioSegment.from_file(sub_path)
                             with contextlib.suppress(FileNotFoundError):
                                 os.remove(sub_path)
                             if trim_tts_padding:
-                                # The book's final sub-chunk: its ending is the final-tail policy's (make_mp3).
-                                final_chunk = (last_paragraph and _si == n_sents - 1
-                                               and sub_idx == len(subs) - 1)
                                 seg = trim_silence_segment(
                                     seg,
                                     silence_threshold=trim_silence_db,
@@ -493,44 +574,54 @@ def read_book(
                             if intra_pause_ms > 0:
                                 seg = seg + AudioSegment.silent(duration=intra_pause_ms)
                             sub_segments.append(seg)
+                            if sum(len(s.raw_data) for s in sentence_segments + sub_segments) >= held_limit:
+                                written.write(sentence_segments + sub_segments)
+                                sentence_segments, sub_segments = [], []
                         merged_sent = AudioSegment.empty()
                         for seg in sub_segments:
                             merged_sent += seg
+                        # The final word of the book takes no pause: nothing follows it.
+                        if not (last_paragraph and _si == n_sents - 1):
+                            pause = AudioSegment.silent(
+                                duration=sentencepause if _si < n_sents - 1 else paragraphpause
+                            )
+                            # With all of this sentence on disk, the pause takes the rate appending it would have given it.
+                            merged_sent = (pause.set_frame_rate(written.rate) if written.rate and not merged_sent.raw_data
+                                           else merged_sent + pause)
                         sentence_segments.append(merged_sent)
                         sent_counter += 1
 
-                    for si in range(len(sentence_segments)):
-                        if last_paragraph and si == len(sentence_segments) - 1:
-                            break  # the final word of the book: nothing follows it
-                        pause = sentencepause if si < n_sents - 1 else paragraphpause
-                        sentence_segments[si] = sentence_segments[si] + AudioSegment.silent(
-                            duration=pause
-                        )
-                    # An ordinary paragraph is below the gate's threshold and takes no slot: only a paragraph long enough
-                    # to matter (a source with no line breaks) waits for memory before it is joined (v0.7.1).
-                    with _assembly_slot(sum(len(seg.raw_data) for seg in sentence_segments),
-                                        None if last_paragraph else cancel_check):
-                        combined = AudioSegment.empty()
-                        if os.path.exists(title_clip):
-                            combined += AudioSegment.from_file(title_clip)
-                            if title_trailing_pause > 0:
-                                combined += AudioSegment.silent(title_trailing_pause)
-                        for seg in sentence_segments:
-                            combined += seg
-                        combined.export(ptemp, format="flac")
+                    if written.parts:
+                        written.write(sentence_segments)
+                        files.extend(written.parts)
+                        _tick()
+                        continue
+                    combined = AudioSegment.empty()
+                    if os.path.exists(title_clip):
+                        combined += AudioSegment.from_file(title_clip)
+                        if title_trailing_pause > 0:
+                            combined += AudioSegment.silent(title_trailing_pause)
+                    for seg in sentence_segments:
+                        combined += seg
+                    combined.export(ptemp, format="flac")
                     if os.path.exists(title_clip):
                         os.remove(title_clip)
                 files.append(ptemp)
                 _tick()
             # combine paragraphs into chapter
             if not last_chapter:
-                append_silence(files[-1], chapter_trailing_pause)
-            with _assembly_slot(_decoded_size(files), None if last_chapter else cancel_check):
-                combined = AudioSegment.empty()
-                for file in files:
-                    combined += AudioSegment.from_file(file)
-                combined.export(partname, format="flac")
-                del combined  # not left in memory, outside any reservation, while the next chapter is synthesised
+                _append_chapter_pause(files, chapter_trailing_pause, _in_workdir(workdir, f"part{i}.pause.flac"))
+            with _assembly_slot(_decoded_size(files), None if last_chapter else cancel_check) as in_memory:
+                if in_memory is False:
+                    from tts import disk_assembly
+
+                    disk_assembly.join_to_flac(files, partname, f"{partname}.wav")
+                else:
+                    combined = AudioSegment.empty()
+                    for file in files:
+                        combined += AudioSegment.from_file(file)
+                    combined.export(partname, format="flac")
+                    del combined  # not left in memory, outside any reservation, while the next chapter is synthesised
             for file in files:
                 os.remove(file)
             segments.append(partname)
@@ -634,6 +725,21 @@ def make_mp3(files, sourcefile, speaker, bitrate="192k"):
     publication.check_narration(combined)
     combined.export(outputmp3, format="mp3", bitrate=bitrate)
     publication.verify_finished_mp3(outputmp3, len(combined))
+    for f in files:
+        os.remove(f)
+    return outputmp3
+
+
+def make_mp3_on_disk(files, sourcefile, speaker, bitrate="192k"):
+    """:func:`make_mp3`, to the byte, for a narration that does not fit in memory (``tts.disk_assembly``)."""
+    basefile = sourcefile.replace(".txt", "")
+    outputmp3 = f"{basefile} ({speaker}).mp3"
+    if os.path.isfile(outputmp3):
+        os.remove(outputmp3)
+    _ensure_shared_on_path()
+    from tts import disk_assembly
+
+    print(disk_assembly.encode_mp3(files, outputmp3, f"{basefile}.assembly.wav", bitrate=bitrate))
     for f in files:
         os.remove(f)
     return outputmp3

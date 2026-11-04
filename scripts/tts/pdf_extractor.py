@@ -67,6 +67,10 @@ def _strip_noise_lines(text: str) -> str:
     return text
 
 
+#: A block ending in one of these has finished; the next block does not continue it.
+_ENDS_A_BLOCK = frozenset('.!?:)"\'—')
+
+
 def _merge_blocks_across_page_gaps(text: str) -> str:
     """
     Join \\n\\n-separated blocks when the first block does not end a sentence
@@ -75,22 +79,28 @@ def _merge_blocks_across_page_gaps(text: str) -> str:
     blocks = [b.strip() for b in re.split(r"\n\s*\n+", text) if b.strip()]
     if len(blocks) < 2:
         return text
-    out: list[str] = []
+    # Each entry is the pieces of one joined block, and only ever its last piece is looked at for how it ends (blocks are
+    # stripped): joining as it goes costs the square of the block's length, and prose that continues across every page of
+    # a book is one block. Worker sizing reads this too (``pdf_text_sample``), so it has to stay linear.
+    out: list[list[str]] = []
+    joined_length = 0
     for b in blocks:
         if not out:
-            out.append(b)
+            out.append([b])
+            joined_length = len(b)
             continue
-        prev = out[-1]
-        if _looks_like_heading_line(prev):
-            out.append(b)
+        # ``_looks_like_heading_line`` is False from 80 characters up: only a short block needs joining to be asked.
+        if joined_length < 80 and _looks_like_heading_line(" ".join(out[-1])):
+            out.append([b])
+            joined_length = len(b)
             continue
-        prev_ends = bool(re.search(r'[.!?:)"\'—]\s*$', prev))
-        looks_heading = _looks_like_heading_line(b)
-        if prev_ends or looks_heading:
-            out.append(b)
+        if out[-1][-1][-1] in _ENDS_A_BLOCK or _looks_like_heading_line(b):
+            out.append([b])
+            joined_length = len(b)
         else:
-            out[-1] = prev + " " + b
-    return "\n\n".join(out)
+            out[-1].append(b)
+            joined_length += 1 + len(b)
+    return "\n\n".join(" ".join(pieces) for pieces in out)
 
 
 def _clean_page_text(text: str) -> str:
@@ -126,6 +136,12 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     if not parts:
         raise ValueError("No readable text found in PDF. File may be scanned/image-based.")
 
+    return _join_pages(parts)
+
+
+def _join_pages(parts: list[str]) -> str:
+    """Cleaned pages as the one text a conversion speaks. Sizing reads pages through this too, so the two cannot disagree
+    about where a paragraph ends: prose that continues across a page is one paragraph, in memory as one."""
     full = "\n\n".join(parts)
     full = full.replace("\x0c", "\n")
     full = _merge_blocks_across_page_gaps(full)
@@ -145,9 +161,11 @@ def pdf_text_sample(pdf_path: str, max_pages: int, keep_reading=None):
     """``(page count, pages read, text)`` for sizing a run's workers, or ``None`` when the PDF cannot be opened.
 
     Every page of a PDF up to ``max_pages`` long, and otherwise ``max_pages`` pages spread evenly through it, stopping
-    early when ``keep_reading()`` says so; it is asked before each page, so the time spent here has a bound: the limit
-    given, plus one page. Each ordinary page gets the same cleaning a conversion gives it; the joins across pages that
-    ``extract_text_from_pdf`` makes afterwards only remove paragraph breaks, so this never under-counts them.
+    early when ``keep_reading()`` says so; it is asked before each page, so reading has a bound: the limit given, plus
+    one page. Each ordinary page gets the same cleaning a conversion gives it, and the pages are joined the way a
+    conversion joins them (:func:`_join_pages`), so a paragraph that continues across pages is sized as the one paragraph
+    it will be. When only some pages were read, a join between two of them stands for the pages between: the caller scales
+    the result up.
     """
     with _PYMUPDF_LOCK:
         try:
@@ -167,7 +185,7 @@ def pdf_text_sample(pdf_path: str, max_pages: int, keep_reading=None):
                 if raw.strip():
                     parts.append(_clean_page_text(raw) if len(raw) <= SIZING_CLEAN_CHARS
                                  else _SINGLE_LINE_BREAK.sub(" ", raw))
-            return pages, read, "\n\n".join(parts)
+            return pages, read, _join_pages(parts)
         except Exception:  # noqa: BLE001 - a damaged page table: the conversion will say so properly
             return None
         finally:

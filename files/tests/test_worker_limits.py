@@ -922,20 +922,25 @@ def test_an_assembly_that_would_not_fit_waits_for_the_memory_and_says_why():
         thread.join(5)
 
 
-def test_a_lone_assembly_always_runs_however_large():
-    """Refusing the only file running would only turn a slow finish into none."""
+def test_a_lone_assembly_that_does_not_fit_is_never_held_in_memory():
+    """Codex HIGH-002B: being the only assembly says nothing about what else is using the memory. It still finishes: on
+    disk, not by being refused. ``test_assembly_on_disk`` proves that route gives the same file."""
     gate = wl.AssemblyGate(Machine(2, 32))  # free memory already below the reserve
-    with gate.reserve(100 * GB):
-        pass
+    with gate.reserve(100 * GB) as in_memory:
+        assert in_memory is False
+        assert gate._in_use == wl.DISK_ASSEMBLY_BYTES, "and what it reserves is what that route really needs"
+    assert gate._in_use == 0
 
 
-def test_a_lone_assembly_too_large_for_free_memory_says_so_and_runs():
+def test_a_lone_assembly_too_large_for_free_memory_goes_to_disk_and_says_so():
     gate = wl.AssemblyGate(Machine(10, 32))  # 2 GB usable after the 8 GB reserve
     notes: list[str] = []
-    with gate.reserve(3 * GB, note=notes.append):
-        assert len(notes) == 1 and "more than this computer has free" in notes[0]
+    with gate.reserve(3 * GB, note=notes.append) as in_memory:
+        assert in_memory is False
+        assert len(notes) == 1 and "more than this computer has free" in notes[0] and "on disk" in notes[0]
     notes.clear()
-    with gate.reserve(1 * GB, note=notes.append):
+    with gate.reserve(1 * GB, note=notes.append) as in_memory:
+        assert in_memory is True
         assert notes == []
 
 
@@ -956,8 +961,12 @@ def test_a_note_that_fails_never_leaks_the_reservation():
 def test_a_lone_assembly_where_memory_cannot_be_read_says_nothing_it_cannot_know():
     gate = wl.AssemblyGate(lambda: None)
     notes: list[str] = []
-    with gate.reserve(100 * GB, note=notes.append):
-        assert notes == []
+    with gate.reserve(100 * GB, note=notes.append) as in_memory:
+        assert in_memory is False, "too large for the amount assumed when nothing can be read"
+        assert len(notes) == 1 and "cannot be read" in notes[0] and "has free" not in notes[0]
+    notes.clear()
+    with gate.reserve(wl.UNKNOWN_MEMORY_ASSEMBLY_BYTES, note=notes.append) as in_memory:
+        assert in_memory is True and notes == []
 
 
 def test_the_gate_is_first_come_first_served():
