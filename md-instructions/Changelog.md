@@ -15,6 +15,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.1 second independent-review remediation (2026-11-04) — identity 0.7.1; NOT published, tagged or merged
+
+- **Fixed (memory):** a PDF of prose that runs on across pages is now sized as the one long paragraph it becomes. It was sized page by page, so an 80-page PDF could be given eight workers on an 8 GB
+  computer; it now gets one, and an ordinary book keeps all eight.
+- **Fixed (memory):** a very long paragraph no longer builds up in memory while it is being read aloud: it is written out as it grows, and one enormous clip never comes into memory at all.
+- **Fixed (memory):** being the first file to finish no longer lets it be assembled in memory regardless of what is free. If it fits, nothing changes. If other files are assembling, it waits for them. If it
+  cannot fit, it is **assembled on disk**: the same audio, byte for byte, using about 32 MB instead of hundreds of MB or more. The log says so. It needs temporary disk space about the size of the uncompressed audio, as the
+  encoder always has. Only if under 64 MB stays free for five minutes does that file fail, with a reason; its siblings are untouched and Retry Failed runs it again.
+- **Not changed:** every voice's audio, pauses, endings and output names; Overwrite; publication; Kokoro, Chatterbox Turbo and Qwen3-TTS at one file at a time.
+
 ### v0.7.1 independent-review remediation (2026-11-03) — identity 0.7.1; NOT published, tagged or merged
 
 - **Changed:** **Overwrite existing outputs without asking** now starts unticked. An existing output is never replaced,

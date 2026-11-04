@@ -44,6 +44,11 @@
   first come first served, so assemblies take turns while synthesis stays parallel. Unknown memory: 4 GiB assumed for the
   plan, 2 GiB for the gate, and the log says so. Measured values, assumptions and what cannot be bounded are spelled
   out in the module's docstring and the plan's §10.
+- **Memory safety (second remediation, 2026-11-04; supersedes "`ASSEMBLY_GATE` admits each join" above):** the plan is not what keeps memory safe. `read_book` holds at most `SYNTHESIS_HELD_PCM_BYTES` while
+  synthesising (long paragraphs write FLAC as they grow; a clip that long never comes into memory). `AssemblyGate.reserve` yields `True` (in memory) or `False` (on disk) after reading what is free, every time: nothing
+  enters memory for being first. `tts/disk_assembly.py` assembles on disk for a fixed `DISK_ASSEMBLY_BYTES`, to the same MP3 bytes: pydub's decode command, pydub's WAV file, `audio_tail` over a mapping, the
+  engine's `trim_silence_segment`, pydub's encode arguments. Under that much free for `ASSEMBLY_MEMORY_WAIT_SECONDS`: `AssemblyMemoryError`, that file fails, Retry Failed runs it. Sizing and conversion share
+  `pdf_extractor._join_pages`. Decision record: `Decisions.md` 2026-11-04.
 - **Known limits:** a final heading with no text after it is not spoken (inherited; owner's call); a narration of about
   24.85 hours or more cannot be encoded (pydub's WAV step; the plan warns, the final assembly fails with a reason).
 - Decision record: `Decisions.md` 2026-11-03. Live state, evidence and review brief: `Handoff.md` and

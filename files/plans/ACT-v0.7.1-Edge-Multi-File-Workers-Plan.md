@@ -261,13 +261,15 @@ In the app (launch with `Setup_and_Run-audiobook-creation-tool.bat`, TTS tool):
     at the end. Then put the output folder back.
 12. Whole books: queue 2-4 of your own long PDFs or TXT (hours of narration), Workers 4, Start. PASS: the log says
     `Effective workers: 4` unless your free memory is low (it then names the reason); all finish, one or two at a time
-    near the end, with `Waiting for memory` in Detailed if they had to take turns; Windows stays usable throughout.
+    near the end, with `Waiting for memory` in Detailed if they had to take turns, or `assembled on disk` if one could not fit; Windows stays usable throughout.
 13. Overwrite (owner ruling): open the tool. PASS: **Overwrite existing outputs without asking** is unticked. Empty
     `cap-09-empty-then-fixed.txt` again and run step 8 up to its failed file. Before pressing **Retry Failed**, put the sentence
     back and copy any other MP3 into that run's folder under the name the failed file would take
     (`cap-09-empty-then-fixed-<voice>.mp3`). Press **Retry Failed**. PASS: that file fails, saying it "already exists and
     overwriting is off, so it was left as it is", and your copy still plays as it did. Repeat the whole step as a new run with
     the box ticked before Start. PASS: the retry succeeds and that file now holds the new narration.
+
+14. Fresh-install layout (found by the second review; a known defect, for your decision): on a copy with Kokoro not installed, make the window as small as it goes (920x600), and pick a Kokoro voice. Today Start and everything below it are out of view until the window is made taller. Say whether you want it fixed; any larger window is fine.
 
 ## 10. Remediation of the independent review of `3efbb77` (2026-11-03)
 
@@ -371,3 +373,63 @@ path; and Git ownership for the user running it. An isolated checkout without th
    Chatterbox Turbo and Qwen3-TTS at one worker; the "blank" and heading behaviour; other tools untouched.
 6. **Not a finding, unless you disagree with the reasoning:** the last-heading behaviour (owner's call); the over-24-hour limit
    (pre-existing, flagged); a name taken after planning failing its item rather than being numbered (frozen destinations).
+
+## 12. Remediation of the fresh independent review of `e19527e` (2026-11-04)
+
+The review: HIGH-001 **PASS** on the exercised Windows NTFS contract; HIGH-002A and HIGH-002B **BLOCKED**. Both were reproduced first, with the reviewer's own recipe
+(`files/dev-work/act071-rem2/logs/repro-before-e19527e.json`, ignored; `repro_findings.py` beside it), to its figures exactly.
+
+### 12.1 What changed
+
+| Finding | Before | After |
+|---|---|---|
+| 002A sizing: the reviewer's 80-page PDF, fully read | longest paragraph 209.1 s; working budget 98.6 MB; 8 workers on 8 GiB | 16,667.4 s, as the real paragraph; 2.57 GB; 1 worker, memory named as the reason |
+| 002A sizing: an ordinary book | | still 8 workers: paragraphs that finish are not joined |
+| 002A runtime: a paragraph too long to hold | builds up in memory, then waits at the gate holding it | writes FLAC as it grows; holds at most `SYNTHESIS_HELD_PCM_BYTES`; there is no paragraph join to wait at |
+| 002A runtime: one enormous clip | decoded whole, before any gate | never comes into memory (`clip_to_flac`) |
+| 002B: first assembly, 0 bytes free | admitted, with a warning | waits, then `AssemblyMemoryError`; nothing entered, nothing left held |
+| 002B: first assembly, too large for what is free | admitted, with a warning | assembled on disk |
+| 002B: synthesis already using the memory | invisible: only reservations were counted | read every time, from the operating system |
+
+The rule is in `worker_limits`'s docstring and the reasoning, with what was rejected, in `Decisions.md` 2026-11-04. Files: `tts/disk_assembly.py` (new), `tts/worker_limits.py`, `tts/pdf_extractor.py`,
+`tts/epub2tts_edge/epub2tts_edge.py`, `tts/epub2tts_edge/runner.py`, `tts/batch_convert.py`; in `tts/publication.py` one check became its own function, and HIGH-001's contract is otherwise untouched.
+
+### 12.2 The evidence (all in `files/dev-work/act071-rem2/`, ignored)
+
+- **The same audio.** Real Edge audio: 41 real requests, 3 voices, TXT and PDF, both routes; memory, disk, forced spills and forced long clips gave one MP3 (`logs/real-audio-identity-final.json`, on `743572c`). That folder case is one chunk, so 6 more requests compare a 3-chunk source, in 2 voices, across the pause between chunks: identical (`logs/real-audio-folder-chunks.json`). `e19527e` against this tree on the ordinary
+  route: 18 outputs identical in MP3 bytes, PCM and request text (`logs/identity-final.json`, `logs/identity-final-result.txt`). The 9 folder outputs are one chunk each of one stub clip, so they vouch for request text and that path, not for 9 different audios. No golden changed.
+- **Real process-tree memory** (`logs/memory-final-*.json` and `memory-before-*`; the new route on `743572c`; sampled every 10 ms, children included, by the reviewer's method; working sets, so a paged-out commit peak would not show). Told 1 GiB is free of 8:
+
+| Narration | Route | Added during assembly | Added over the whole run | SHA-256 |
+|---|---|---:|---:|---|
+| 2 hours, ordinary | `e19527e` | 680 MB | 689 MB | `6559aa56…` |
+| 2 hours, ordinary | now | 30 MB | 151 MB | `6559aa56…` |
+| 4.6 hours, the reviewed paragraph | `e19527e` | 2,297 MB | 3,069 MB | `92e3781e…` |
+| 4.6 hours, the reviewed paragraph | now | 30 MB | 327 MB | `92e3781e…` |
+
+  An earlier run on this logic gave 31 and 32 MB for assembly (`memory-after-*`), which is why 32 MB is the figure quoted elsewhere. What is left of the whole-run figures is not audio: `logs/where-memory-goes-final.json` puts the clip step itself at +1 MB (+2 MB earlier), and about 100 MB of the 4.6-hour figure is the measuring script's own fake clip. With plenty free, both narrations still assemble in memory (`final-*-roomy`).
+- **Do the tests bite?** 41 of 41 mutations caught, each by a named test (`logs/mutations.log`; `mutate.py` works on private copies with the real FFmpeg). A no-change control passes with nothing skipped: the first attempt had no FFmpeg pin in its copies, so
+  most tests skipped and the mutants looked alive, which the control exposed. Survivors then found three real gaps, now closed: narrations whose ending the tail policy never cut; a check that read a header and not the file; and a build-dependent default codec. One check turned out redundant, and went.
+- **Real HOME-PC runs on this code, `743572c`** (`probes/evidence/R5-D8.json`, `R5-E4.json`): 8 direct files, Workers 8: peak 8, 25.54 s, 8 succeeded. 3 direct + 4 folder files, Workers 4: peak 4, 15.79 s, 7 succeeded.
+- **Gate on `743572c`:** `python -u scripts/verify.py --evidence-dir files/dev-work/act070-remediation/verify/ACT071-REM2-743572c-run1` → `RESULT: PASS`: pytest 13085 passed, 65 skipped, 50:48; guarded v3-planning 457 + v3-supervisor 75 passed; deps, docs, docnames, config (0.7.1), tree unchanged.
+- **The first gate run failed:** on `18d6a5f`, 1 failed, 13,084 passed, 65 skipped (`files/dev-work/act070-remediation/verify/ACT071-REM2-18d6a5f-run1`). `test_no_guard_over_production_modules_still_walks_scripts_with_a_raw_rglob` caught the new assembly guard walking `scripts/` directly, where it would also read machine-local files. The guard now uses `source_probe.application_python_files`; no exemption was added, and `743572c` changes only `test_assembly_on_disk.py`. Two added mutants prove it still reaches the direct and folder sites, and an existing one the chapter join.
+
+### 12.3 Limits, stated
+
+Physical memory was never actually exhausted, and no long real book has been run end to end: the long narrations above use real FFmpeg and a real encode, with a synthetic tone for speech. Disk full is injected. The disk route on a second volume, exFAT and network drives is not exercised (a folder route's working file is beside its output), and macOS was not run. On a machine whose free memory cannot be read, an assembly over the 2 GiB assumption now uses disk.
+
+### 12.4 Found on the way, flagged, not changed
+
+Four tests fail in a checkout without the optional voices; Codex reproduced them on `c0896d8`, and they pass in this machine's gate. See `Handoff.md`. One of them is a real, narrow layout defect at exactly 920x600 with Kokoro selected and not installed (owner step 14).
+
+## 13. Fresh independent Codex review brief (replaces §11)
+
+Branch `feature/0.7.1-multi-file-workers`, from `c0896d8`. `18d6a5f` is the code, `743572c` corrects one test in it, and the commit after that is documentation only. Verify independently of this plan's claims. The checkout needs its own Python environment with this repo's packages, a pinned FFmpeg pair and the NLTK data; a short path; and Git ownership for the user running it. Without the optional voices installed, expect the four failures of §12.4; they do not need rediscovering, but disagree if you think they are more than that.
+
+1. **The two findings.** Rerun your `fresh_probes.py` recipe. Is the plan right about real paragraph formation (`pdf_extractor._join_pages`), and does anything still let memory grow past what the gate decided?
+2. **Hold it to its claim of the same bytes.** `tts/disk_assembly.py` says it gives pydub's file. Try formats, edge lengths, real audio, ends that round past the last frame. A different byte anywhere is a finding: this route exists to be indistinguishable.
+3. **The disk route's own failures.** A full disk, a killed FFmpeg, a process killed mid-assembly, a locked or read-only working folder, a name taken meanwhile. Publication must still be HIGH-001's: try to get anything under a final name that should not be there.
+4. **The gate.** Races, fairness, a reservation leak, a wait that never ends, Cancel during each wait. Is the three-way decision sound? `DISK_ASSEMBLY_BYTES` is a measured figure with a margin: try to exceed it for real.
+5. **The spill.** Paragraphs, sentences of many clauses, a long clip at each position (title, first, comma, last words of a chapter, last words of the book), zero pauses, resume with a leftover file.
+6. **Regressions.** Direct, folder and mixed overlap; ordinary narrations byte-for-byte as `e19527e`; HIGH-001 unchanged; local engines at one worker, untouched.
+7. **Not a finding, unless you disagree with the reasoning:** a plan that stays conservative though synthesis would now fit more (`Decisions.md`); the failure at under 64 MiB free for five minutes; temporary disk space about the size of the uncompressed audio. And everything §11 listed.

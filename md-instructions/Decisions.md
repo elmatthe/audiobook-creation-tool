@@ -4,6 +4,35 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-04 - A narration that does not fit in memory is assembled on disk, to the same bytes; no assembly enters memory for being first; what a file holds while it is synthesised has a limit (v0.7.1 second review remediation)
+
+**Context.** The fresh independent review of `e19527e` passed publication and blocked memory. A fully read PDF was sized by its pages while a
+conversion joins prose across them (HIGH-002A), audio built up before any gate was asked, and `AssemblyGate` let the first assembly in with zero bytes free,
+with a warning (HIGH-002B). This supersedes two choices in the entry below: "a lone assembly always runs" and "Rejected: flushing long paragraphs to disk,
+because it changes the assembly". The reason for the second no longer holds: it is proved not to.
+
+**Decision.**
+- *Sizing reads pages through one function with conversion (`pdf_extractor._join_pages`).* A second copy of the rule is how they came to disagree.
+  The join was quadratic in a block's length, which is a whole book of continuous prose, so it was made linear; a differential test holds it to the old rule's output.
+- *The plan stays conservative and is not what keeps memory safe.* The admission formula is unchanged, so that PDF gets 1 worker though synthesis would now fit more.
+  Rejected: raising a duration constant (the review had already refused that), and crediting the new limits to the plan (a change of worker counts with no owner request behind it).
+- *Synthesis holds at most `SYNTHESIS_HELD_PCM_BYTES` (16 MiB).* A paragraph writes lossless FLAC as it grows and a clip that long never comes into memory. This removes hold-and-wait:
+  nothing waits at the gate while holding audio, so there is no deadlock to reason about. Rejected: growing reservations during synthesis, which is exactly that deadlock.
+- *Every admission reads what is free, and the answer has three outcomes:* in memory; wait for what is assembling in memory, whose memory comes back; or on disk. A caller must honour it, and an
+  AST test checks each one reads it. Below 64 MiB free, with nothing to wait for, a file waits up to 300 s and then fails: `AssemblyMemoryError`, classified local, so it is not
+  re-synthesised by itself, and Retry Failed runs it again. A finished narration still ignores Cancel during this wait (bounded), per the entry below.
+- *The disk route, not refusal.* Rejected: refusing what does not fit, which fails a book that v0.7.0 finished, after hours of synthesis, on a machine where closing programs may never be enough.
+  Rejected: admitting it when commit charge allows, which is safe from `MemoryError` but not from paging the machine to a standstill, and is the warning again in other words. Rejected: the disk route always,
+  which would change a correct route with no need; it remains the rule for what does not fit.
+- *The same bytes, by construction, then by test.* Parts decode by pydub's command; the WAV file is the one pydub writes; the final tail is `audio_tail` over a mapping of it; trimming is the engine's own
+  function over a small stand-in; FFmpeg gets pydub's arguments. Nothing is re-implemented that could drift. A part in another format is refused, not converted.
+
+**Why:** a memory limit is true only if it holds when the plan is wrong and when something else has the memory, and the only way to keep a promise to finish a long book on a small machine is not to need the memory.
+
+— Directed by the owner on 2026-11-04; implemented by Claude Code. Awaiting independent review.
+
+---
+
 ## 2026-11-03 - TTS output is published atomically through one contract; Overwrite is off unless ticked for a run; workers are admitted by a text-based model and each assembly by its real size; a finished narration survives Cancel; the last heading stays as it is (v0.7.1 review remediation)
 
 **Context.** The independent review of `3efbb77` was BLOCKED: partial MP3s under final names, `overwrite=False` not enforced,

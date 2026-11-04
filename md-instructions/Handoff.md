@@ -2,6 +2,54 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.1 second independent-review remediation committed; gate PASS on `743572c`; branch pushed; awaiting a FRESH independent Codex review and owner listening/GUI acceptance; NOT merged/tagged/published (2026-11-04, Claude Code Opus 5.5)
+
+Authority: owner prompt 2026-11-04 (resolve the BLOCKED fresh review of `e19527e`; stop at the review checkpoint).
+Findings: Codex's `FRESH-REVIEW.md` for `e19527e` (in its isolated checkout, `%TEMP%\act71-fresh\files\run-temp\`; not in this
+repository): HIGH-001 **PASS**, HIGH-002A and HIGH-002B **BLOCKED**. Plan: `files/plans/ACT-v0.7.1-Edge-Multi-File-Workers-Plan.md` §12 (what
+changed and how it was proved), §13 (the fresh review brief), §9 (owner steps; 12 changed, 14 new). Decision record: `Decisions.md`
+2026-11-04. Evidence (ignored): `files/dev-work/act071-rem2/` (`logs/`, `probes/evidence/R5-*`, `real-runs/`).
+
+- **Branch `feature/0.7.1-multi-file-workers`:** `18d6a5f` (remediation), `743572c` (one test corrected, below), then this docs commit. Pushed; not merged.
+- **HIGH-002A fixed, both halves.** *Sizing:* `pdf_text_sample` joined pages with a blank line where a conversion joins prose that
+  continues across pages, so a fully read 80-page PDF was sized at 209 s for a paragraph of 16,667 s (98.6 MB against 2.57 GB, and eight
+  workers on 8 GiB). Both now use one `_join_pages`; that PDF gets 1 worker; an ordinary book still gets 8. A sampled PDF's longest paragraph
+  scales with the sample. *Runtime:* what one file holds while synthesising now has a limit whatever the plan believed
+  (`SYNTHESIS_HELD_PCM_BYTES`, 16 MiB): a long paragraph writes lossless FLAC as it grows, and a clip that long never comes into memory.
+- **HIGH-002B fixed.** No assembly enters memory for being first: every admission reads what is free. It does not fit and others are
+  assembling in memory: it waits for them. It does not fit and nothing here will free any: it is **assembled on disk**
+  (`tts/disk_assembly.py`), the same bytes for a fixed 64 MiB budget. Not even that much free: it waits up to 300 s, then that file fails with
+  a reason (`AssemblyMemoryError`), nothing published, not re-synthesised by itself, Retry Failed runs it again.
+- **Why not simply refuse:** a book too large for free memory finished on v0.7.0, by paging; refusing it would turn hours of synthesis
+  into a failure that closing programs might never cure. Why not keep the warning: that is the finding.
+- **The same audio, proved three ways:** real Edge audio (47 real requests, 3 voices, TXT and PDF, both routes, and a 3-chunk folder source in 2 voices so the pause between chunks
+  is compared on real speech): memory, disk, forced spills and forced long clips all gave one MP3. Synthetic tests compare bytes, including pydub's own WAV file and FFmpeg command line. And `e19527e`
+  against the final tree, ordinary route: 18 outputs identical in MP3 bytes, PCM and request text (its 9 folder outputs are one chunk each of one stub clip, so they vouch for request text and that path, not for 9 different audios); no golden changed.
+- **Real memory, process tree, children included** (`logs/memory-final-*.json`, on `743572c`), told 1 GiB is free of 8: 2-hour book, assembly adds 680 MB before and
+  30 MB now; the reviewed 4.6-hour paragraph, whole run +3,069 MB before and +327 MB now (assembly 2,297 and 30 MB, 31-32 MB in an earlier run; of the rest, about
+  100 MB is the measuring script's own fake clip, and the clip step itself adds 1-2 MB). Same SHA-256 each way. Working sets, not proof of every commit peak.
+- **Real HOME-PC runs on this code (`743572c`):** `R5-D8`: 8 direct files, Workers 8: peak 8, 25.54 s, 8 succeeded. `R5-E4`: 3 direct + 4 folder files,
+  Workers 4: peak 4, 15.79 s, 7 succeeded.
+- **Tests:** `test_assembly_on_disk.py` (new) plus panel tests in `test_tts_worker_concurrency.py`. 41 of 41 mutations of this code caught, each by a named test
+  (`logs/mutations.log`; a no-change control passes with nothing skipped). The two tests that encoded the bypass now assert the opposite.
+- **Gate:** `verify.py` **RESULT: PASS on `743572c`** (`files/dev-work/act070-remediation/verify/ACT071-REM2-743572c-run1`): pytest 13085 passed, 65 skipped, 50:48; guarded v3-planning 457 + v3-supervisor 75
+  passed; deps, docs, docnames, config (0.7.1), tree unchanged. **The first run, on `18d6a5f`, failed one test** (`files/dev-work/act070-remediation/verify/ACT071-REM2-18d6a5f-run1`): the new AST guard walked `scripts/` with a raw `rglob`,
+  which `test_application_source_boundary` forbids because it also reads machine-local files. Corrected by using `source_probe.application_python_files`, not by adding an exemption; `743572c` changes only that test
+  file, and it still reaches all three production sites (mutants). The owner's 14 uncommitted local deletions, `.ai/`, `files/run-temp/` and
+  `scripts/project-status.py` are as found, in no commit.
+- **Flagged for the owner, not changed (baseline: Codex reproduced all four on `c0896d8`; all four pass in this machine's gate):** a checkout without the
+  optional voices installed fails four tests. Three in `test_qwen3_gui.py`: on a fresh install the panel rightly offers Install & Continue, and the
+  tests' thread stand-in cannot run that dialog: a test assumption. `test_the_tallest_voice_notices_still_fit_at_the_real_minimum[Kokoro…]` is a **real, narrow
+  defect**: at exactly 920x600 with Kokoro selected and not installed, the "not installed" line stacks on the older notice and Start and everything below it
+  are out of view. That notice is also stale: it says the first run "may download" a model, which stopped being true in v0.7.0. Likely fix: hide the notice while the
+  status line is showing. Say if you want these done.
+- **Not done:** real second volume on the disk route, exFAT, network drives (simulated or not exercised); macOS not run; physical memory never actually
+  exhausted, and a long real book has not been run end to end. Nobody has listened yet. CLI-only M4B metadata still decodes each chapter to read its length (`get_duration`):
+  the app always writes MP3, so it was left.
+- **Owner / NOT DONE:** listening (`SAMPLE-INDEX.md`); plan §9 manual steps; FRESH independent Codex review (plan §13). Phase 9 (local-engine concurrency
+  research) not started: gated on acceptance, merge and owner authorization.
+- **Next:** Codex review + owner acceptance; merge/tag/release only on owner approval.
+
 ## CURRENT STATE — v0.7.1 independent-review remediation committed; gate PASS on `c64140a`; branch pushed; awaiting a FRESH independent Codex review and owner listening/GUI acceptance; NOT merged/tagged/published (2026-11-03, Claude Code Opus 5.5)
 
 Authority: owner prompt 2026-11-03 (bounded remediation of the BLOCKED review of `3efbb77`; stop at the review checkpoint).
