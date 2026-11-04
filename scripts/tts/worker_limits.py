@@ -636,8 +636,12 @@ def assemble(pcm_bytes: int, in_memory: Callable, on_disk: Callable, *, cancel_c
                 except Exception as exc:  # noqa: BLE001 - only an allocation failure is taken further, below
                     if not is_memory_failure(exc):
                         raise
-                # Out of that block, so the failed attempt's frames, and all it managed to build, have gone already.
+                # Out of that block, so the failed attempt's frames, and all it managed to build, have gone already. What it left on
+                # disk goes too: the disk route is about to need that room.
                 admitted.to_disk()
+                from tts import ffmpeg_watch
+
+                ffmpeg_watch.remove_temporaries()
                 _say(note, "Memory ran out while assembling this file's narration, so it is being assembled on disk instead: the "
                            "same audio, using little memory. Nothing is being requested from the voice service again.")
             for attempt in range(2):

@@ -17,6 +17,7 @@ import inspect
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import weakref
@@ -633,10 +634,76 @@ def test_what_pydub_uses_is_what_was_replaced():
     import pydub.utils
 
     assert ffmpeg_watch.installed()
-    assert "subprocess.Popen(" in inspect.getsource(pydub.audio_segment)
+    source = inspect.getsource(pydub.audio_segment)
+    assert "subprocess.Popen(" in source and "from tempfile import" in source and "NamedTemporaryFile(" in source
     source = inspect.getsource(pydub.utils)
     assert "from subprocess import Popen" in source and "Popen(" in source
     assert "os.system" not in source and "check_output" not in source and "subprocess.run" not in source
+
+
+@needs_ffmpeg
+def test_a_failed_export_leaves_no_temporary_file_behind(tmp_path, monkeypatch):
+    """pydub keeps two when it fails: the first is the whole narration as a WAV."""
+    ffmpeg_utils.configure_pydub()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    segment = AudioSegment.silent(200)
+    with ffmpeg_watch.controlled(None):
+        with pytest.raises(CouldntEncodeError):
+            segment.export(tmp_path / "o.flac", format="flac", parameters=["-no-such-option"])
+        assert len(list(tmp_path.glob("tmp*"))) == 2, "pydub really does leave them"
+    assert not list(tmp_path.glob("tmp*"))
+
+
+@needs_ffmpeg
+def test_an_export_that_works_keeps_nothing_in_memory_or_on_disk(tmp_path, monkeypatch):
+    ffmpeg_utils.configure_pydub()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with ffmpeg_watch.controlled(None):
+        for _ in range(5):
+            AudioSegment.silent(200).export(tmp_path / "o.flac", format="flac")
+        assert not list(tmp_path.glob("tmp*"))
+        remembered = ffmpeg_watch._control.get().temporaries
+        assert len(remembered) <= 2, "those that have gone are forgotten as it goes"
+
+
+@needs_ffmpeg
+def test_falling_back_removes_what_the_failed_export_left_before_the_disk_route_needs_the_room(tmp_path, quick_gate, monkeypatch):
+    ffmpeg_utils.configure_pydub()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    seen = []
+
+    def in_memory():
+        AudioSegment.silent(200).export(tmp_path / "o.flac", format="flac", parameters=["-no-such-option"])
+
+    def failing_in_memory():
+        try:
+            in_memory()
+        except CouldntEncodeError:
+            raise MemoryError() from None
+
+    with ffmpeg_watch.controlled(None):
+        wl.assemble(48_000 * 3600, failing_in_memory, lambda: seen.append(list(tmp_path.glob("tmp*"))))
+    assert seen == [[]]
+
+
+@needs_ffmpeg
+def test_the_direct_route_leaves_no_work_folder_when_the_final_encode_fails(tmp_path, offline, monkeypatch):
+    from tts.epub2tts_edge import runner
+
+    source = write_book(tmp_path / "in", LONG_BOOK)
+    direct_mp3(source, tmp_path / "plain")  # every clip is made once, by the export replaced below, and kept
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    real_export = AudioSegment.export
+
+    def export(self, out_f=None, format="mp3", **kwargs):
+        if format == "mp3":
+            kwargs["parameters"] = ["-no-such-option"]
+        return real_export(self, out_f, format=format, **kwargs)
+
+    monkeypatch.setattr(AudioSegment, "export", export)
+    with pytest.raises(CouldntEncodeError):
+        runner.run_conversion_job(str(source), output_dir=str(tmp_path / "out"), speaker="v", audio_format="mp3")
+    assert not list(tmp_path.glob("epub2tts_*")) and not list(tmp_path.glob("tmp*"))
 
 
 def test_nothing_else_on_these_routes_starts_a_process_with_threads_of_its_own():
@@ -1009,7 +1076,7 @@ def _assert_ended_cleanly(report, *, statuses=None):
     assert report["exit_code"] == 0, report.get("child_output", "")
     assert report["survivors"] == [], "no FFmpeg of this probe is left running"
     assert report["gate_after"] == {"in_use": 0, "in_memory": 0, "queued": 0}, "no reservation left"
-    assert [path for path in report["leftovers"] if path.endswith((".part", ".wav", ".kept", ".flac"))] == [], report["leftovers"]
+    assert report["leftovers"] == [], "nothing at all stays, in the output folder or in temporary files"
     for name, result in report["results"].items():
         assert result["status"] in ("success", "failed", "cancelled"), (name, result)
         if result["status"] == "failed":

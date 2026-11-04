@@ -12,6 +12,7 @@ import re
 import unicodedata
 import shutil
 import tempfile
+import traceback
 from pathlib import Path
 
 from .epub2tts_edge import (
@@ -256,5 +257,10 @@ def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cove
         publication.publish_file(artifact, dest, overwrite=overwrite)
         print(f"Saved: {dest}")
         return str(dest)
+    except BaseException as exc:
+        # A failed pydub export is still holding its output open in a frame of this traceback, and Windows will not delete an open
+        # file: without this the whole folder below stays. Those frames have finished, so their locals can go now.
+        traceback.clear_frames(exc.__traceback__)
+        raise
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

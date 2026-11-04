@@ -14,6 +14,10 @@ process and kills one that has stopped making progress, or whose conversion was 
 pydub is pointed at this by replacing the ``subprocess`` name in its modules (:func:`install`): its commands, and so its audio, are
 unchanged, and no call site can be missed. pydub is pinned, and ``test_low_memory`` fails if these names ever stop being what it uses.
 
+A failed ``export`` leaves pydub's two temporary files behind, the first holding the whole narration as a WAV, and nothing else knows
+their names. So its ``NamedTemporaryFile`` is replaced as well: inside a :func:`controlled` block they are remembered, and the block's
+end removes any still there (:func:`remove_temporaries`, which a fallback calls sooner, because it needs that disk space).
+
 **The deadlines.** Measured from the last progress: bytes read from FFmpeg, or growth of the file it is writing.
 
 * :data:`STALL_SECONDS`: no progress at all: killed, and the file fails with :class:`ProcessingStalled`.
@@ -43,8 +47,8 @@ WATCH_SECONDS = 0.25
 STALL_SECONDS = 300
 #: After Cancel, how long finished narration may go without progress.
 CANCEL_STALL_SECONDS = 30
-#: After Cancel, how long finishing one step may take however well it is going: a 24-hour narration took about 3 minutes to
-#: assemble on HOME-PC, so this leaves room for a much slower computer.
+#: After Cancel, how long finishing one step may take however well it is going: 4.6 hours of narration took about 30 s to assemble
+#: on HOME-PC, so about 3 minutes for 24 hours, and this leaves room for a much slower computer.
 CANCEL_FINISH_SECONDS = 600
 #: Enough of what FFmpeg said to explain a failure. It prints its build options first, which can run to a few KB.
 STDERR_TAIL_BYTES = 64 * 1024
@@ -59,6 +63,7 @@ class ProcessingStalled(RuntimeError):
 class _Control:
     cancel_check: Optional[Callable[[], bool]] = None
     abort_on_cancel: bool = False
+    temporaries: Optional[list] = None  # pydub's temporary files, while in a ``controlled`` block
 
 
 _control: contextvars.ContextVar[_Control] = contextvars.ContextVar("ffmpeg_watch_control", default=_Control())
@@ -69,16 +74,39 @@ def controlled(cancel_check: Optional[Callable[[], bool]], *, abort_on_cancel: b
     """Every FFmpeg this thread starts inside the block answers to ``cancel_check``. ``abort_on_cancel`` is for work a Cancel
     would discard anyway; without it, what is running may be finished narration, which a Cancel lets finish while it progresses."""
     _ensure_watchdog()
-    token = _control.set(_Control(cancel_check, abort_on_cancel))
+    token = _control.set(_Control(cancel_check, abort_on_cancel, []))
     try:
         yield
     finally:
+        remove_temporaries()
         _control.reset(token)
 
 
 def abort_on_cancel(abort: bool) -> None:
     """For the rest of the enclosing :func:`controlled` block: is what comes next work a Cancel would discard anyway?"""
-    _control.set(_Control(_control.get().cancel_check, abort))
+    current = _control.get()
+    _control.set(_Control(current.cancel_check, abort, current.temporaries))
+
+
+def _named_temporary_file(*args, **kwargs):
+    """pydub's ``NamedTemporaryFile``. A file it asked to keep (it removes those itself, if nothing fails) is remembered."""
+    handle = tempfile.NamedTemporaryFile(*args, **kwargs)
+    remembered = _control.get().temporaries
+    if remembered is not None and not kwargs.get("delete", True):
+        remembered[:] = [other for other in remembered if os.path.exists(other.name)]
+        remembered.append(handle)
+    return handle
+
+
+def remove_temporaries() -> None:
+    """Remove what a failed pydub export of this conversion left. Only ever this conversion's: they are remembered per thread."""
+    remembered = _control.get().temporaries
+    if remembered:
+        for handle in remembered:
+            with contextlib.suppress(OSError):
+                handle.close()
+                os.unlink(handle.name)
+        remembered.clear()
 
 
 class _Watched:
@@ -301,6 +329,7 @@ def install() -> None:
     import pydub.utils
 
     pydub.audio_segment.subprocess = _FOR_PYDUB
+    pydub.audio_segment.NamedTemporaryFile = _named_temporary_file
     pydub.utils.Popen = Supervised
 
 
@@ -310,6 +339,7 @@ def uninstall() -> None:
     import pydub.utils
 
     pydub.audio_segment.subprocess = subprocess
+    pydub.audio_segment.NamedTemporaryFile = tempfile.NamedTemporaryFile
     pydub.utils.Popen = subprocess.Popen
 
 
@@ -317,4 +347,5 @@ def installed() -> bool:
     import pydub.audio_segment
     import pydub.utils
 
-    return pydub.audio_segment.subprocess is _FOR_PYDUB and pydub.utils.Popen is Supervised
+    return (pydub.audio_segment.subprocess is _FOR_PYDUB and pydub.utils.Popen is Supervised
+            and pydub.audio_segment.NamedTemporaryFile is _named_temporary_file)
