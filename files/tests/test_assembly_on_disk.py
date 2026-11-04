@@ -35,6 +35,7 @@ from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError, CouldntEncodeError
 from pydub.generators import Sine
 
+from source_probe import application_python_files
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
 from tts import audio_tail, batch_convert, disk_assembly, edge_failures, pdf_extractor, publication
@@ -351,9 +352,8 @@ def test_an_ordinary_join_takes_no_place_at_the_gate():
 
 def test_every_production_assembly_reads_the_gates_answer():
     """A caller that ignored the answer would hold a whole narration in memory after being told not to."""
-    scripts = Path(wl.__file__).resolve().parents[1]
     found = 0
-    for path in scripts.rglob("*.py"):
+    for path in application_python_files():  # the one definition of the shipped source
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.With):
