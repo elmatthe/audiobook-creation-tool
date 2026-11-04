@@ -944,18 +944,19 @@ def test_a_lone_assembly_too_large_for_free_memory_goes_to_disk_and_says_so():
         assert notes == []
 
 
-def test_a_note_that_fails_never_leaks_the_reservation():
+def test_a_note_that_fails_neither_stops_the_work_nor_leaks_the_reservation():
     """Reading a closed pipe's print, for one: the budget must come back, or a later assembly waits forever (found by
-    review)."""
+    review). And a log that cannot be written, most likely out of memory itself, is no reason to lose a narration (R2)."""
     gate = wl.AssemblyGate(Machine(10, 32))
 
     def broken_note(_message):
         raise BrokenPipeError
 
-    with pytest.raises(BrokenPipeError):
-        with gate.reserve(3 * GB, note=broken_note):
-            pass
-    assert gate._in_use == 0
+    entered = False
+    with gate.reserve(3 * GB, note=broken_note) as in_memory:
+        entered = True
+        assert in_memory is False
+    assert entered and gate._in_use == 0 and gate._on_disk == 0
 
 
 def test_a_lone_assembly_where_memory_cannot_be_read_says_nothing_it_cannot_know():
@@ -1108,16 +1109,18 @@ def test_a_large_join_asks_the_gate_for_its_budget(monkeypatch):
 
     class Spy:
         def __enter__(self):
-            return self
+            return wl.AssemblyPlace(None, True, 0)
 
         def __exit__(self, *exc):
             return False
 
-    def reserve(need, *, cancel_check=None, note=None):
+    def place(need, **_kwargs):
         asked.append(need)
         return Spy()
 
-    monkeypatch.setattr(wl.ASSEMBLY_GATE, "reserve", reserve)
+    gate = wl.AssemblyGate()
+    gate.place = place
+    monkeypatch.setattr(wl, "ASSEMBLY_GATE", gate)
     pcm = 48_000 * 3600  # an hour
     with wl.assembly_slot(pcm):
         pass

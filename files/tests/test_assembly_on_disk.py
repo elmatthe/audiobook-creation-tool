@@ -350,24 +350,24 @@ def test_an_ordinary_join_takes_no_place_at_the_gate():
         assert in_memory is True
 
 
-def test_every_production_assembly_reads_the_gates_answer():
-    """A caller that ignored the answer would hold a whole narration in memory after being told not to."""
+def test_every_production_assembly_goes_through_assemble_with_both_routes():
+    """A caller of the gate directly could ignore its answer and hold a whole narration in memory after being told not to, and
+    would have no way down to disk if memory ran out afterwards. ``assemble`` takes both routes, so neither can be left out."""
     found = 0
     for path in application_python_files():  # the one definition of the shipped source
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.With):
+        if path.name == "worker_limits.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
                 continue
-            for item in node.items:
-                call = item.context_expr
-                name = getattr(getattr(call, "func", None), "attr", None) or getattr(getattr(call, "func", None), "id", None)
-                if name not in ("assembly_slot", "_assembly_slot") or path.name == "worker_limits.py":
-                    continue
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            assert name not in ("assembly_slot", "assembly_place", "reserve_assembly"), f"{path.name}:{node.lineno} bypasses assemble"
+            if isinstance(node.func, ast.Attribute) and getattr(node.func.value, "id", "") == "worker_limits" and name == "assemble":
                 found += 1
-                assert isinstance(item.optional_vars, ast.Name), f"{path.name}:{node.lineno} ignores the gate's answer"
-                read = [n for stmt in node.body for n in ast.walk(stmt)
-                        if isinstance(n, ast.Name) and n.id == item.optional_vars.id and isinstance(n.ctx, ast.Load)]
-                assert read, f"{path.name}:{node.lineno} binds the gate's answer and never reads it"
+                assert len(node.args) == 3, f"{path.name}:{node.lineno}: the size, the route in memory and the route on disk"
+                assert not any(isinstance(arg, ast.Constant) for arg in node.args[1:])
+                assert {keyword.arg for keyword in node.keywords} & {"cancel_check", "finishing_check"}, \
+                    f"{path.name}:{node.lineno} must say what a Cancel does here"
     assert found == 3, "the chapter join, the direct route's final assembly and the folder route's"
 
 
@@ -632,7 +632,7 @@ def test_a_full_disk_fails_the_file_stops_ffmpeg_and_leaves_nothing_behind(tmp_p
     """The one thing this route needs that memory does not. It must fail as a local problem, not hang on a decoder that is
     still writing into a pipe nobody reads."""
     started = []
-    real_popen = disk_assembly.subprocess_utils.popen
+    real_popen = subprocess.Popen
 
     def popen(*args, **kwargs):
         process = real_popen(*args, **kwargs)
@@ -642,12 +642,13 @@ def test_a_full_disk_fails_the_file_stops_ffmpeg_and_leaves_nothing_behind(tmp_p
     def no_space(self, _data):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(disk_assembly.subprocess_utils, "popen", popen)
+    monkeypatch.setattr(subprocess, "Popen", popen)
     monkeypatch.setattr(disk_assembly.WavSpool, "_write", no_space)
-    with pytest.raises(OSError, match="No space left"):
+    with pytest.raises(publication.PublicationError, match="ran out of space") as caught:
         disk_assembly.join_to_flac(long_parts, tmp_path / "out.flac", tmp_path / "spool.wav")
     assert started and all(process.poll() is not None for process in started), "no FFmpeg is left running"
     assert not (tmp_path / "out.flac").exists() and not (tmp_path / "spool.wav").exists()
+    assert not edge_failures.is_retryable(caught.value)
     assert not edge_failures.is_retryable(OSError(28, "No space left on device"))
 
 
@@ -759,15 +760,15 @@ def test_eight_files_with_memory_coming_and_going_all_finish_with_the_same_bytes
         return wl.MemoryInfo((16 if (routes["memory"] + routes["disk"]) % 2 == 0 else 1) * GB, 32 * GB)
 
     gate = wl.AssemblyGate(reading, poll_seconds=0.001)
-    real_reserve = gate.reserve
+    real_place = gate.place
 
     @contextlib.contextmanager
     def counting(need, **kwargs):
-        with real_reserve(need, **kwargs) as in_memory:
-            routes["memory" if in_memory else "disk"] += 1
-            yield in_memory
+        with real_place(need, **kwargs) as admitted:
+            routes["memory" if admitted.in_memory else "disk"] += 1
+            yield admitted
 
-    monkeypatch.setattr(gate, "reserve", counting)
+    monkeypatch.setattr(gate, "place", counting)
     monkeypatch.setattr(wl, "ASSEMBLY_GATE", gate)
     monkeypatch.setattr(wl, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
 
@@ -841,9 +842,9 @@ def test_a_paragraph_held_to_its_limit_never_waits_at_the_gate_holding_it(tmp_pa
     monkeypatch.setattr(wl, "SYNTHESIS_HELD_PCM_BYTES", 200_000)
     monkeypatch.setattr(wl, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
     seen: list[int] = []
-    real = wl.AssemblyGate.reserve
+    real = wl.AssemblyGate.place
 
-    def reserve(self, need, **kwargs):
+    def place(self, need, **kwargs):
         frame = sys._getframe(1)
         while frame is not None and frame.f_code.co_name != "read_book":
             frame = frame.f_back
@@ -851,7 +852,7 @@ def test_a_paragraph_held_to_its_limit_never_waits_at_the_gate_holding_it(tmp_pa
             seen.append(sum(len(s.raw_data) for s in frame.f_locals.get("sentence_segments", [])))
         return real(self, need, **kwargs)
 
-    monkeypatch.setattr(wl.AssemblyGate, "reserve", reserve)
+    monkeypatch.setattr(wl.AssemblyGate, "place", place)
     direct_mp3(source, tmp_path / "out")
     assert seen and max(seen) < 200_000
 

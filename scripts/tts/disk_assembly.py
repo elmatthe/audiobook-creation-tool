@@ -20,11 +20,12 @@ would be caught either.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
+import shutil
 import struct
 import subprocess
 import sys
-import tempfile
 import wave
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Union
@@ -34,8 +35,7 @@ from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError, CouldntEncodeError, TooManyMissingFrames
 from pydub.utils import ratio_to_db
 
-from shared import subprocess_utils
-from tts import audio_tail, publication
+from tts import audio_tail, ffmpeg_watch, publication
 
 SAMPLE_WIDTH = 2
 #: ``wave`` writes this much before the audio, always, for PCM.
@@ -120,27 +120,24 @@ class WavSpool:
         if format:
             command += ["-f", format]
         command += ["-i", str(path), "-acodec", "pcm_s16le", "-vn", "-f", "wav", "-"]
-        with tempfile.TemporaryFile() as errors:
-            process = subprocess_utils.popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors)
+        child = ffmpeg_watch.Supervised(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
             try:
-                try:
-                    self._begin(*_wav_format(process.stdout))
-                    while block := process.stdout.read(BLOCK_BYTES):
-                        self._write(block)
-                except CouldntDecodeError:
-                    if process.wait() == 0:
-                        raise
-                    # What FFmpeg said is the better explanation, below.
-                except BaseException:
-                    process.kill()
+                self._begin(*_wav_format(child.stdout))
+                for block in child.blocks(BLOCK_BYTES):
+                    self._write(block)
+            except CouldntDecodeError:
+                # With FFmpeg gone, what it said is the better explanation, below. If it were still running it would be waiting
+                # for this read, which has ended.
+                child.kill()
+                if child.finish() == 0:
                     raise
-            finally:
-                process.stdout.close()
-                code = process.wait()
+            code = child.finish()
             if code != 0:
-                errors.seek(0)
-                said = errors.read().decode(errors="ignore")[-2000:]
+                said = child.error_text().decode(errors="ignore")[-2000:]
                 raise CouldntDecodeError(f"Decoding failed. ffmpeg returned error code: {code}\n\n{said}")
+        finally:
+            child.abandon()
 
     def append_segment(self, segment: AudioSegment) -> None:
         """Append a small segment, converted as ``AudioSegment.__add__`` converts what it is given."""
@@ -204,7 +201,7 @@ class WavSpool:
         if sys.platform == "darwin" and codec == "mp3":
             command += ["-write_xing", "0"]
         command += ["-f", format, str(output)]
-        done = subprocess_utils.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        done = ffmpeg_watch.run(command)
         if done.returncode != 0:
             said = done.stderr.decode(errors="ignore")[-2000:]
             raise CouldntEncodeError(f"Encoding failed. ffmpeg returned error code: {done.returncode}\n\n{said}")
@@ -267,6 +264,38 @@ class SoundOnDisk:
 Part = Union[str, os.PathLike, AudioSegment]
 
 
+def _disk_is_full(exc: BaseException) -> bool:
+    if isinstance(exc, OSError):
+        return exc.errno == errno.ENOSPC or getattr(exc, "winerror", None) in (39, 112)  # ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL
+    return isinstance(exc, (CouldntDecodeError, CouldntEncodeError)) and "no space left" in str(exc).lower()
+
+
+@contextlib.contextmanager
+def _naming_a_full_disk(folder):
+    """A full disk says so, and where, in words someone can act on. The finished parts are not this module's to keep."""
+    try:
+        yield
+    except (OSError, CouldntDecodeError, CouldntEncodeError) as exc:
+        if isinstance(exc, publication.PublicationError) or not _disk_is_full(exc):
+            raise
+        raise publication.PublicationError(
+            f"The drive holding {folder} ran out of space while this file's narration was being assembled, so nothing was saved "
+            "for it. It needs about as much free space as the uncompressed audio. Free some space, then use Retry Failed.") from exc
+
+
+def _require_room(parts: Iterable[Part], spool_path) -> None:
+    """Refuse before starting when the working file can be seen not to fit: the alternative is finding out at the end."""
+    from tts import worker_limits
+
+    folder = Path(spool_path).resolve().parent
+    need = worker_limits.decoded_size([part for part in parts if not isinstance(part, AudioSegment)])
+    free = shutil.disk_usage(folder).free
+    if need > free:
+        raise publication.PublicationError(
+            f"The drive holding {folder} has {free / 1024 ** 3:.1f} GB free, and this file's narration needs about "
+            f"{need / 1024 ** 3:.1f} GB there to be assembled, so nothing was saved for it. Free some space, then use Retry Failed.")
+
+
 def _append(spool: WavSpool, parts: Iterable[Part], format: Optional[str]) -> None:
     for part in parts:
         if isinstance(part, AudioSegment):
@@ -277,7 +306,9 @@ def _append(spool: WavSpool, parts: Iterable[Part], format: Optional[str]) -> No
 
 def join_to_flac(files: Iterable, output, spool_path) -> None:
     """A chapter's audio files as one FLAC file: what decoding them, adding them up and exporting FLAC gives."""
-    with WavSpool(spool_path) as spool:
+    files = list(files)
+    _require_room(files, spool_path)
+    with _naming_a_full_disk(Path(spool_path).parent), WavSpool(spool_path) as spool:
         _append(spool, files, None)
         spool.finish()
         spool.export(output, format="flac")
@@ -287,7 +318,9 @@ def encode_mp3(parts: Iterable[Part], output, spool_path, *, format: Optional[st
                bitrate: Optional[str] = None) -> str:
     """A whole narration as a checked MP3, with the steps and the checks of the in-memory routes, in their order. ``parts``
     are audio files (of ``format``, when given) and short segments; returns the final tail's summary for the log."""
-    with WavSpool(spool_path) as spool:
+    parts = list(parts)
+    _require_room(parts, spool_path)
+    with _naming_a_full_disk(Path(spool_path).parent), WavSpool(spool_path) as spool:
         _append(spool, parts, format)
         spool.finish()
         summary = spool.apply_final_tail()

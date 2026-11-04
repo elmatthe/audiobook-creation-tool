@@ -758,7 +758,12 @@ def test_the_folder_route_does_not_synthesise_a_whole_file_again_for_a_local_fai
     def failing_merge(chunk_paths, output_path, bitrate=None):
         raise failure
 
+    def failing_disk_merge(chunk_paths, output_path, bitrate, spool_path):
+        raise failure
+
     monkeypatch.setattr(batch_convert, "merge_mp3s", failing_merge)
+    monkeypatch.setattr(batch_convert, "merge_mp3s_on_disk", failing_disk_merge)  # where a MemoryError goes next
+    monkeypatch.setattr(worker_limits, "DISK_RETRY_PAUSE_SECONDS", 0)
     status, _path, _message = batch_convert.convert_single_pdf(source, out, "v", "+0%", lambda _m: None, out_mp3=target)
     assert status == "failed"
     assert len(synthesised) == 1
@@ -1141,7 +1146,8 @@ def _hold_the_gate(monkeypatch):
 
 
 def _route_waits_then_finishes(gate, convert, cancelled):
-    """Runs *convert* while another assembly holds the gate; presses Cancel once it is waiting; then frees the gate."""
+    """Runs *convert* while another assembly holds the gate; presses Cancel once it is waiting; a finished narration then
+    stops waiting for its turn, and is assembled on disk while the other still holds its place."""
     outcome = {}
 
     def work():
@@ -1155,9 +1161,8 @@ def _route_waits_then_finishes(gate, convert, cancelled):
             assert time.monotonic() < deadline, "it never reached the gate"
             time.sleep(0.005)
         cancelled.set()
-        time.sleep(0.05)
-        assert worker.is_alive(), "Cancel does not throw away a finished narration waiting for its turn"
-    worker.join(60)
+        worker.join(60)
+        assert not worker.is_alive(), "Cancel sends a finished narration to disk: it does not wait for the other file"
     return outcome["result"]
 
 
@@ -1180,14 +1185,9 @@ def test_cancel_during_the_memory_wait_keeps_a_finished_folder_narration(tmp_pat
     source = source_file(tmp_path / "in")
     target = tmp_path / "out" / "book-Voice.mp3"
     cancelled = threading.Event()
-    answers_before_the_gate = iter([False, False])  # the start, then the chunk: both before the Cancel
-
-    def cancel_check():
-        return next(answers_before_the_gate, True) if not cancelled.is_set() else True
-
     status = _route_waits_then_finishes(
         gate, lambda: batch_convert.convert_single_pdf(source, tmp_path / "out", "v", "+0%", lambda _m: None,
-                                                       cancel_check=cancel_check, out_mp3=target), cancelled)
+                                                       cancel_check=cancelled.is_set, out_mp3=target), cancelled)
     assert status[0] == "success"
     publication.verify_finished_mp3(target)
 
@@ -1228,13 +1228,15 @@ def test_cancel_during_the_memory_wait_stops_a_book_with_more_to_synthesise(tmp_
 def test_the_gate_is_given_each_narrations_real_size(tmp_path, offline_engine, offline_folder, monkeypatch, route):
     """Not an estimate: what is reserved for the final assembly matches the audio that comes out."""
     asked = []
-    real_reserve = worker_limits.ASSEMBLY_GATE.reserve
+    gate = worker_limits.AssemblyGate()
+    real_place = gate.place
 
-    def reserve(need, **kwargs):
+    def place(need, **kwargs):
         asked.append(need)
-        return real_reserve(need, **kwargs)
+        return real_place(need, **kwargs)
 
-    monkeypatch.setattr(worker_limits.ASSEMBLY_GATE, "reserve", reserve)
+    gate.place = place
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE", gate)
     monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
     source = source_file(tmp_path / "in")
     if route == "direct":

@@ -531,6 +531,102 @@ def test_direct_and_folder_files_overlap_with_the_real_engines(make_panel, outpu
     assert grouped["FolderC"] == ["FolderC speaks first. FolderC speaks again.\n\nFolderC closes the file."]
 
 
+def test_a_folder_run_leaves_no_empty_working_folder_in_its_output(make_panel, output_base, tmp_path, monkeypatch):
+    FakeService().install(monkeypatch)
+    root = tmp_path / "Library"
+    book(root, "c.txt", "FolderC")
+    book(root, "d.txt", "FolderD")
+    panel = real_panel(make_panel, folders=(root,))
+    panel.workers_var.set("2")
+    params = run_attempt(panel)
+    assert panel._result.succeeded_count == 2
+    assert not (Path(params["run_directory"]) / ".tmp_chunks").exists()
+
+
+def test_a_run_clears_only_what_an_interrupted_run_of_its_own_left(make_panel, output_base, tmp_path, monkeypatch):
+    """An unfinished assembly's working WAV can be as large as the narration, in the owner's output folder, for good."""
+    from tts import batch_convert, publication
+
+    FakeService().install(monkeypatch)
+    monkeypatch.setattr(publication, "process_is_alive", lambda pid: False)
+    old = time.time() - batch_convert.STALE_CHUNK_FOLDER_SECONDS - 60
+
+    def left_behind(run, name, age):
+        folder = output_base / "TTS-Audiobook-Outputs" / run / ".tmp_chunks" / name
+        folder.mkdir(parents=True)
+        (folder / "assembly.wav").write_bytes(b"x")
+        os.utime(folder, (age, age))
+        return folder
+
+    stale = left_behind("TTS-Audiobook-1", "00000bad-deadbeef", old)
+    recent = left_behind("TTS-Audiobook-2", "00000bad-deadbee0", time.time())
+    theirs = left_behind("TTS-Audiobook-3", "not-one-of-ours", old)
+    root = tmp_path / "Library"
+    book(root, "c.txt", "FolderC")
+    panel = real_panel(make_panel, folders=(root,))
+    run_attempt(panel)
+    assert panel._result.succeeded_count == 1
+    assert not stale.exists() and recent.exists() and theirs.exists()
+    assert f"Removed working files left by an interrupted run: {stale.name}" in log_text(panel)
+
+
+def test_running_out_of_memory_on_both_routes_falls_back_and_succeeds_through_the_panel(make_panel, output_base, tmp_path, monkeypatch):
+    from pydub import AudioSegment
+
+    service = FakeService().install(monkeypatch)
+    _clip()  # it is made by the export refused below, and kept
+    real_export = AudioSegment.export
+    refused = []
+
+    def export(self, out_f=None, *args, **kwargs):
+        if kwargs.get("format") == "mp3":
+            refused.append(out_f)
+            raise MemoryError()
+        return real_export(self, out_f, *args, **kwargs)
+
+    monkeypatch.setattr(AudioSegment, "export", export)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
+    direct = (book(tmp_path / "Loose", "a.txt", "DirectA"),)
+    root = tmp_path / "Library"
+    book(root, "c.txt", "FolderC")
+    panel = real_panel(make_panel, direct=direct, folders=(root,))
+    panel.workers_var.set("2")
+    params = run_attempt(panel)
+    assert panel._result.succeeded_count == 2 and len(refused) == 2
+    assert all(item["destination"].is_file() for item in params["items"])
+    assert log_text(panel).count("Memory ran out while assembling") == 2
+    grouped = service.texts_by_source()
+    assert len(grouped["DirectA"]) == len(set(grouped["DirectA"])), "nothing asked for twice"
+    assert len(grouped["FolderC"]) == 1
+
+
+def test_running_out_of_memory_with_nothing_left_to_try_tells_the_person_why(make_panel, output_base, tmp_path, monkeypatch):
+    from tts import batch_convert, disk_assembly
+    from tts.epub2tts_edge import runner
+
+    FakeService().install(monkeypatch)
+    out_of_memory = lambda *a, **k: (_ for _ in ()).throw(MemoryError())  # noqa: E731
+
+    monkeypatch.setattr(runner, "make_mp3", out_of_memory)
+    monkeypatch.setattr(batch_convert, "merge_mp3s", out_of_memory)
+    monkeypatch.setattr(disk_assembly, "encode_mp3", out_of_memory)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
+    monkeypatch.setattr(worker_limits, "DISK_RETRY_PAUSE_SECONDS", 0)
+    direct = (book(tmp_path / "Loose", "a.txt", "DirectA"),)
+    root = tmp_path / "Library"
+    book(root, "c.txt", "FolderC")
+    panel = real_panel(make_panel, direct=direct, folders=(root,))
+    panel.workers_var.set("2")
+    params = run_attempt(panel)
+    assert panel._result.succeeded_count == 0
+    records = panel._result.failures.records
+    assert len(records) == 2
+    for record in records:
+        assert "ran out of memory" in record.display_message and "Close other programs" in record.display_message, record
+    assert not any(item["destination"].exists() for item in params["items"])
+    assert worker_limits.ASSEMBLY_GATE._in_use == 0
+
+
 @needs_ffmpeg
 def test_a_direct_pdf_and_a_direct_txt_convert_together(make_panel, output_base, tmp_path, monkeypatch):
     from tts import pdf_extractor

@@ -3071,6 +3071,8 @@ class _RunContext:
             # folder or a sibling's. It cannot be mistaken for an output, but nothing else would ever remove it.
             for leftover in publication.sweep_orphans(Path(params["run_directory"]).parent):
                 self.log(f"Removed an unfinished file left by an interrupted run: {leftover.name}")
+            for leftover in batch_convert.sweep_stale_chunk_folders(Path(params["run_directory"]).parent):
+                self.log(f"Removed working files left by an interrupted run: {leftover.name}")
         # v0.7.1: direct and folder items alike, sized by the queued files themselves, their frozen settings and this
         # machine. A worker thread, so this may take a moment; it stops looking if the run is cancelled meanwhile.
         plan = worker_limits.plan_for_sources(
@@ -3151,6 +3153,10 @@ class _RunContext:
                 self.advance(item)
                 if self.cancel_check():
                     self.cancelled = True
+        if params["run_directory"] is not None:
+            # Each folder item removed its own working folder; nothing else is using this one now.
+            with contextlib.suppress(OSError):
+                (Path(params["run_directory"]) / ".tmp_chunks").rmdir()
 
     # -- settlement --------------------------------------------------------- #
 

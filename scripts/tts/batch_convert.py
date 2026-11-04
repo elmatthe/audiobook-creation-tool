@@ -40,11 +40,14 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils, output_paths
-from tts import audio_tail, edge_failures, output_names, publication, worker_limits
+from shared.cancellation import ConversionCancelled
+from tts import audio_tail, edge_failures, ffmpeg_watch, output_names, publication, worker_limits
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import EDGE_FOLDER
+
+ffmpeg_watch.install()  # every FFmpeg pydub starts for this route can be stopped, and cannot hang it
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
 CHUNK_TARGET = 3000
@@ -72,6 +75,24 @@ def _is_stale_chunk_folder(folder: Path) -> bool:
         return False
     owner = _CHUNK_FOLDER_NAME.fullmatch(folder.name)
     return owner is None or not publication.process_is_alive(int(owner.group(1), 16))
+
+
+def sweep_stale_chunk_folders(root: Path) -> list[Path]:
+    """Remove what an interrupted run left in its chunk folders, anywhere below ``root``. Only a folder named as this tool names
+    them, directly inside a ``.tmp_chunks``, whose owner is gone and which has lain untouched (:func:`_is_stale_chunk_folder`): nothing
+    in one can be resumed, and an unfinished assembly's working WAV can be as large as the whole narration."""
+    removed: list[Path] = []
+    for folder, subfolders, _names in os.walk(root, followlinks=False):
+        subfolders[:] = [sub for sub in subfolders if not output_paths._is_link(Path(folder) / sub)]
+        if Path(folder).name == ".tmp_chunks":
+            for sub in list(subfolders):
+                candidate = Path(folder) / sub
+                if _CHUNK_FOLDER_NAME.fullmatch(sub) and _is_stale_chunk_folder(candidate):
+                    shutil.rmtree(candidate, ignore_errors=True)
+                    if not candidate.exists():
+                        removed.append(candidate)
+            subfolders[:] = []
+    return removed
 
 
 def _natural_sort_key(path: Path) -> list[object]:
@@ -196,8 +217,16 @@ def convert_single_pdf(
 
     The MP3 reaches ``out_mp3`` only through :mod:`tts.publication`: complete, all at once, and (unless ``overwrite``)
     never over a file that is already there. A failed or cancelled attempt leaves that path exactly as it found it. Cancel
-    is honoured between chunks; a narration with all its chunks is finished work, and is published.
+    is honoured between chunks; a narration with all its chunks is finished work, and is published, within the deadlines of
+    :mod:`tts.ffmpeg_watch`.
     """
+    with ffmpeg_watch.controlled(cancel_check):
+        return _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_report, cancel_check, out_mp3, bitrate,
+                                   speech_prep, overwrite)
+
+
+def _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_report, cancel_check, out_mp3, bitrate, speech_prep,
+                        overwrite) -> tuple[str, Path, str | None]:
     stem = pdf_path.stem
     if out_mp3 is None:
         out_mp3 = output_dir / f"{stem}.mp3"
@@ -280,22 +309,28 @@ def convert_single_pdf(
 
                 with publication.Stage(out_mp3, overwrite=overwrite) as stage:
                     # The whole narration is about to be assembled: in memory if it fits, after a wait if other files need
-                    # that memory first, and on disk if it does not. It is finished work by now, so a Cancel does not
-                    # discard it, here or later.
-                    with worker_limits.assembly_slot(worker_limits.decoded_size(chunk_paths), note=log) as in_memory:
-                        if in_memory is False:
-                            summary = merge_mp3s_on_disk(chunk_paths, str(stage.path), bitrate, tmp_root / "assembly.wav")
-                        else:
-                            tail = merge_mp3s(chunk_paths, str(stage.path), bitrate)
-                            summary = None if tail is None else tail.summary()  # test doubles of merge_mp3s return nothing
+                    # that memory first, and on disk if it does not or if memory runs out on the way. It is finished work by
+                    # now, so a Cancel sends it to disk, not away, and the deadlines after Cancel are ffmpeg_watch's.
+                    def in_memory():
+                        tail = merge_mp3s(chunk_paths, str(stage.path), bitrate)
+                        return None if tail is None else tail.summary()  # test doubles of merge_mp3s return nothing
+
+                    summary = worker_limits.assemble(
+                        worker_limits.decoded_size(chunk_paths), in_memory,
+                        lambda: merge_mp3s_on_disk(chunk_paths, str(stage.path), bitrate, tmp_root / "assembly.wav"),
+                        finishing_check=_cancelled, note=log)
                     if summary is not None:
                         log(f"  {pdf_path.name}: {summary}")
                     stage.publish()
                 if progress_report is not None:
                     progress_report(stem, "completed")
                 return "success", pdf_path, None
+            except ConversionCancelled:
+                return "cancelled", pdf_path, None  # already said out loud, if it cost a finished narration
             except Exception as e:
                 # The log may be shared for diagnosis: scrub handshake tokens out of the message and traceback.
+                if worker_limits.is_memory_failure(e):  # however it surfaced, it says what happened
+                    e = worker_limits.AssemblyMemoryError(worker_limits.out_of_memory_text(f"{type(e).__name__}: {e}"[:200]))
                 last_err = edge_failures.scrub(f"{e}\n{traceback.format_exc()}")
                 # Redoing the whole file cannot cure a permanent failure (refused/changed service, local problem).
                 if pdf_attempt < PDF_MAX_RETRIES and edge_failures.is_retryable(e):

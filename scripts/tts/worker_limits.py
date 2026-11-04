@@ -24,15 +24,27 @@ into memory at all (``epub2tts_edge.read_book``), so synthesis stays small whate
 a narration is assembled, :data:`ASSEMBLY_GATE` is given its real size, read from the finished audio files' headers, and
 reads what is free now. It decides, first come first served:
 
-* **It fits** in what is usable now, with everything else reserved counted: assemble in memory, as ever.
+* **It fits** in what is usable now (:func:`memory_usable`: physical memory and commit, process and job limits), with what is
+  reserved and not yet visible in those readings counted: assemble in memory, as ever.
 * **It does not fit, and other files are assembling in memory:** wait for them, while synthesis on every other worker
   carries on. Their memory comes back.
 * **It does not fit, and nothing here will free any:** assemble on disk (:mod:`tts.disk_assembly`). The same audio, the
   same bytes, for :data:`DISK_ASSEMBLY_BYTES`. Being the only assembly says nothing about the memory that synthesis,
   FFmpeg, other programs and Windows are using, so no assembly is ever let into memory for being first.
-* **Not even that much is free:** wait for it, for at most :data:`ASSEMBLY_MEMORY_WAIT_SECONDS`, then fail this file with
-  a reason (:class:`AssemblyMemoryError`). Nothing has been written to its destination and Retry Failed can run it again;
-  it is not retried by itself, because the same machine in the same state would only fail again.
+* **Not even that much is free:** wait for it, then fail with a reason (:class:`AssemblyMemoryError`). The wait,
+  :data:`ASSEMBLY_MEMORY_WAIT_SECONDS`, belongs to the gate and not to each file: a whole queue of waiters ends together, not one
+  after another. Nothing has been written to a destination and Retry Failed can run each one again; it is not retried by itself,
+  because the same machine in the same state would only fail again.
+
+*An answer is not a promise.* Memory can go after the gate has said yes, and a reading cannot see every limit. So :func:`assemble`
+treats an allocation failure in memory as one more route decision: it gives back the reservation, and the same finished audio is
+assembled on disk, once, without asking the service for anything again. If even that runs out, the file fails with a reason. Every
+FFmpeg on these routes is one this program can stop (:mod:`tts.ffmpeg_watch`), so none of this can end in a hang.
+
+*Cancel.* A file with more synthesis to come stops waiting at once. Finished narration is kept if it can be: on Cancel it stops
+waiting for its turn or for anybody's memory and is assembled on disk straight away; if even that much is not free within
+:data:`CANCEL_FINISH_WAIT_SECONDS` it says that it was not saved, and stops. What is already being assembled has the deadlines in
+:mod:`tts.ffmpeg_watch`.
 
 *Before the run, a model.* Each queued file's narration is estimated from its real text and the run's frozen settings
 (:func:`estimate_text_seconds`). The run keeps ``max(1 GiB, 25 % of physical memory)`` free for Windows and other
@@ -68,6 +80,21 @@ preparation on the text it sizes.
 Where free memory cannot be read, a cautious :data:`UNKNOWN_MEMORY_PLAN_BYTES` is assumed for the plan and
 :data:`UNKNOWN_MEMORY_ASSEMBLY_BYTES` for the gate, and the log says so: assumptions, stated as such.
 
+**What the readings mean, and what is counted against them.** All in bytes. *Physical* (``ullAvailPhys``) less
+:func:`memory_reserve`, because Windows and other programs need room to run. *Commit* (``ullAvailPageFile``: what this process can
+still commit; Windows counts every allocation against it when it is made, whether or not it is ever touched, and a process can run out
+of it with plenty of physical memory free) less :data:`COMMIT_RESERVE_BYTES`, because at zero every program on the computer starts
+failing. *A Job Object's* limit on this process or its job, where one applies and can be read, less :data:`LIMIT_MARGIN_BYTES`: nothing
+else depends on that room. A reading that is not available is left out, and the others decide. To disk only the bare amount is required:
+it is the way to stay small, and those margins are there for a route that needs far more.
+
+An allocation shows up in those readings as soon as it is made, so a reservation must not be counted against them a second time.
+What is counted (:meth:`AssemblyGate._claimed`) is what has been reserved less what this process has allocated since the first
+reservation was made: the part of each reservation still to come. That difference is an estimate, and errs both ways by small
+amounts: FFmpeg's own memory is in the readings and not in this process's growth, and a synthesising worker's growth looks like an
+assembly's. The first is about 24 MB per FFmpeg, and the second is far below every margin above; and if it ever matters, an
+allocation failure is handled. Where this process's own usage cannot be read, the whole reservation is counted, which only waits longer.
+
 Standard library and ``shared.cancellation`` at import time; ``mutagen`` and ``pdf_extractor`` are imported when used, so
 PyMuPDF stays behind its lock.
 """
@@ -75,6 +102,7 @@ PyMuPDF stays behind its lock.
 from __future__ import annotations
 
 import contextlib
+import errno
 import math
 import os
 import re
@@ -148,8 +176,20 @@ SYNTHESIS_HELD_PCM_BYTES = 16 * 1024 ** 2
 #: What assembling on disk needs, whatever the narration's length: small read and write buffers, the last moments of the
 #: audio for the final tail, and one FFmpeg at a time (measured at 32 MB at most). See :mod:`tts.disk_assembly`.
 DISK_ASSEMBLY_BYTES = 64 * 1024 ** 2
-#: How long a file waits for even that much to be free, with nothing of this run's to wait for, before it fails.
+#: What this process itself needs of :data:`DISK_ASSEMBLY_BYTES` (measured at 14 MB at most, the rest being FFmpeg's): the amount
+#: compared with a limit that applies to each process separately, FFmpeg having a limit of its own.
+DISK_ASSEMBLY_PROCESS_BYTES = 24 * 1024 ** 2
+#: How long the gate goes on with too little free even for that, with nothing of this run's to wait for, before every file
+#: waiting fails: one deadline for the whole queue.
 ASSEMBLY_MEMORY_WAIT_SECONDS = 300
+#: After Cancel, how long finished narration waits for enough to be free to assemble it on disk.
+CANCEL_FINISH_WAIT_SECONDS = 30
+#: Before the disk route's one further attempt, at least this long: what took the memory may have been a moment's peak.
+DISK_RETRY_PAUSE_SECONDS = 2
+#: Commit left for everything else on the computer. At zero, every program's next allocation fails, not just this one's.
+COMMIT_RESERVE_BYTES = 1024 ** 3
+#: Room left under a Job Object's limit, which only this process depends on.
+LIMIT_MARGIN_BYTES = 32 * 1024 ** 2
 #: What the plan assumes is usable where free memory cannot be read. An assumption, not a measurement: enough for a
 #: queue of ordinary files, and too little for several sources that hold whole books in memory.
 UNKNOWN_MEMORY_PLAN_BYTES = 4 * 1024 ** 3
@@ -167,6 +207,9 @@ LONGEST_NARRATION_SECONDS = 2 ** 32 / EDGE_PCM_BYTES_PER_SECOND
 class MemoryInfo:
     available: int  # bytes the OS can hand out now without paging
     total: int      # physical memory
+    commit_available: Optional[int] = None  # what this process can still commit (Windows); None: not read
+    process_headroom: Optional[int] = None  # a Job Object's per-process limit, less what this process has committed
+    job_headroom: Optional[int] = None      # a Job Object's limit on its whole job, less what the job has committed
 
 
 @dataclass(frozen=True)
@@ -216,6 +259,17 @@ def memory_reserve(memory: MemoryInfo) -> int:
     return max(MIN_MEMORY_RESERVE, int(MEMORY_RESERVE_FRACTION * memory.total))
 
 
+def memory_usable(memory: MemoryInfo) -> int:
+    """How much of what is free may be used for an assembly in memory: the tightest of what was read, each less its own margin."""
+    usable = memory.available - memory_reserve(memory)
+    if memory.commit_available is not None:
+        usable = min(usable, memory.commit_available - COMMIT_RESERVE_BYTES)
+    for headroom in (memory.process_headroom, memory.job_headroom):
+        if headroom is not None:
+            usable = min(usable, headroom - LIMIT_MARGIN_BYTES)
+    return usable
+
+
 def _memory_ceiling(budgets: Sequence[FileBudget], usable: int) -> int:
     """How many files can synthesise at once with the largest single assembly on top. The gate adds up the rest."""
     used = max(budget.assembly for budget in budgets)
@@ -256,8 +310,10 @@ def plan_workers(requested, backend: str, budgets: Sequence[FileBudget], *, cpu_
                              "assemble one at a time")
         else:
             reserve = memory_reserve(memory)
-            usable = memory.available - reserve
+            usable = memory_usable(memory)
             situation = f"{_gb(memory.available)} free, {_gb(reserve)} kept for Windows and other programs"
+            if usable < memory.available - reserve:
+                situation += f", and at most {_gb(max(0, usable))} can be committed"
         if budgets:
             ceiling = _memory_ceiling(budgets, usable)
             if ceiling < queued:  # memory limits only when it cannot hold every queued file at once
@@ -277,7 +333,56 @@ def plan_workers(requested, backend: str, budgets: Sequence[FileBudget], *, cpu_
 
 
 class AssemblyMemoryError(MemoryError):
-    """Not even assembling on disk has the memory it needs. Nothing was written; the file can be run again."""
+    """Not even assembling on disk has the memory it needs. Nothing was published; the file can be run again."""
+
+
+def is_memory_failure(exc: BaseException) -> bool:
+    """Did this fail because this computer ran out of memory, however it surfaced? :class:`AssemblyMemoryError` is the
+    answer to that question and not another occurrence of it."""
+    if isinstance(exc, AssemblyMemoryError):
+        return False
+    if isinstance(exc, MemoryError):
+        return True
+    if isinstance(exc, OSError):
+        # ERROR_NOT_ENOUGH_MEMORY, ERROR_OUTOFMEMORY, ERROR_NO_SYSTEM_RESOURCES, ERROR_COMMITMENT_LIMIT
+        return getattr(exc, "winerror", None) in (8, 14, 1450, 1455) or exc.errno == errno.ENOMEM
+    text = str(exc).lower()
+    if isinstance(exc, RuntimeError):
+        return "can't start new thread" in text
+    # FFmpeg's own allocation failed: it says so, or dies with STATUS_NO_MEMORY / STATUS_COMMITMENT_LIMIT.
+    if type(exc).__name__ in ("CouldntDecodeError", "CouldntEncodeError"):
+        return any(mark in text for mark in ("cannot allocate memory", "out of memory", "not enough memory",
+                                             "error code: 3221225495", "error code: 3221225773"))
+    return False
+
+
+class AssemblyPlace:
+    """One admitted assembly's place at the gate, for as long as it lasts."""
+
+    def __init__(self, gate: Optional["AssemblyGate"], in_memory: bool, held: int) -> None:
+        self._gate, self.in_memory, self._held = gate, in_memory, held
+
+    def to_disk(self) -> None:
+        """This assembly now needs only the disk route's memory: the rest of its reservation goes back, and whoever waits for it
+        is told. It keeps its place, so falling back never has to wait for anything."""
+        if self.in_memory and self._gate is not None:
+            self._gate._give_back(self)
+        self.in_memory = False
+
+    def wait_for_room(self, stop: Optional[Callable[[], bool]] = None) -> None:
+        """Before trying again on disk: until no other file here is holding a narration in memory (their peak may be all that
+        was in the way), for at most the gate's wait, and at least :data:`DISK_RETRY_PAUSE_SECONDS`. ``stop`` ends it early."""
+        if self._gate is not None:
+            self._gate._wait_for_memory_holders(stop)
+        else:
+            time.sleep(DISK_RETRY_PAUSE_SECONDS)
+
+
+def _say(note: Optional[Callable[[str], None]], text: str) -> None:
+    """Saying something must never be what stops the work: the log may well be out of memory too."""
+    if note is not None:
+        with contextlib.suppress(Exception):
+            note(text)
 
 
 class AssemblyGate:
@@ -285,91 +390,201 @@ class AssemblyGate:
     served: in memory, on disk, or not until there is room (the module docstring has the rule)."""
 
     def __init__(self, memory_reader: Optional[Callable[[], Optional[MemoryInfo]]] = None, poll_seconds: float = 0.25,
-                 wait_seconds: Optional[float] = None, clock: Callable[[], float] = time.monotonic):
+                 wait_seconds: Optional[float] = None, clock: Callable[[], float] = time.monotonic,
+                 private_reader: Optional[Callable[[], Optional[int]]] = None):
         self._reader = memory_reader
+        # With a stated memory reading and no stated usage, nothing allocated can be seen, so all of a reservation is counted.
+        self._private_reader = private_reader if private_reader is not None else (
+            None if memory_reader is not None else lambda: own_private_bytes())
         self._poll = poll_seconds
         self._wait_seconds = wait_seconds
         self._clock = clock
         self._condition = threading.Condition()
-        self._in_use = 0        # every reservation, in bytes, counted against what is free
+        self._in_use = 0        # every reservation, in bytes
         self._in_memory = 0     # how many of them are whole narrations in memory, whose end will free real memory
+        self._on_disk = 0       # how many are on disk
+        self._private_base: Optional[int] = None  # this process's usage when the current reservations began
+        self._starved_since: Optional[float] = None
         self._queue: deque = deque()
 
     def _read(self) -> Optional[MemoryInfo]:
         return memory_info() if self._reader is None else self._reader()
 
+    def _private(self) -> Optional[int]:
+        if self._private_reader is None:
+            return None
+        try:
+            return self._private_reader()
+        except (OSError, ValueError, AttributeError, MemoryError):
+            return None
+
+    def _allocated(self) -> int:
+        """What this process has allocated since the current reservations began, and so is already in any reading."""
+        now = self._private()
+        if now is None or self._private_base is None:
+            return 0
+        return max(0, now - self._private_base)
+
+    def _claimed(self) -> int:
+        """What has been reserved and is not yet visible in what the operating system reports."""
+        return max(0, self._in_use - self._allocated())
+
+    def _disk_has_room(self, memory: Optional[MemoryInfo]) -> bool:
+        if memory is None:
+            return True
+        room = [memory.available]
+        room += [value for value in (memory.commit_available, memory.job_headroom) if value is not None]
+        if self._claimed() + DISK_ASSEMBLY_BYTES > min(room):
+            return False
+        if memory.process_headroom is not None:
+            # A per-process limit does not cover FFmpeg, which has its own: only this process's part counts against it.
+            mine = self._in_use - self._on_disk * (DISK_ASSEMBLY_BYTES - DISK_ASSEMBLY_PROCESS_BYTES) - self._allocated()
+            if max(0, mine) + DISK_ASSEMBLY_PROCESS_BYTES > memory.process_headroom:
+                return False
+        return True
+
     def _route(self, need: int) -> Optional[bool]:
         """True: assemble in memory. False: on disk. None: not yet."""
         memory = self._read()
-        # All that is reserved is counted against what is free now, though what has been allocated is already gone from
-        # it: there is no telling which has been, and a wrongly counted assembly only makes this one wait a little.
-        usable = UNKNOWN_MEMORY_ASSEMBLY_BYTES if memory is None else memory.available - memory_reserve(memory)
-        if self._in_use + need <= usable:
+        usable = UNKNOWN_MEMORY_ASSEMBLY_BYTES if memory is None else memory_usable(memory)
+        if self._claimed() + need <= usable:
             return True
         if self._in_memory:
             return None  # their memory comes back when they finish
-        if memory is None or self._in_use + DISK_ASSEMBLY_BYTES <= memory.available:
-            return False  # the memory set aside for Windows is a margin, and this is the way to stay small
-        return None
+        return False if self._disk_has_room(memory) else None
+
+    def _admit(self, need: int, in_memory: bool) -> AssemblyPlace:
+        if not self._in_memory and not self._on_disk:
+            self._private_base = self._private()
+        held = need if in_memory else DISK_ASSEMBLY_BYTES
+        self._in_use += held
+        self._in_memory += in_memory
+        self._on_disk += not in_memory
+        self._starved_since = None
+        return AssemblyPlace(self, in_memory, held)
+
+    def _give_back(self, place: AssemblyPlace) -> None:
+        with self._condition:
+            self._in_use -= place._held - DISK_ASSEMBLY_BYTES
+            place._held = DISK_ASSEMBLY_BYTES
+            self._in_memory -= 1
+            self._on_disk += 1
+            self._condition.notify_all()
+
+    def _release(self, place: AssemblyPlace) -> None:
+        with self._condition:
+            self._in_use -= place._held
+            self._in_memory -= place.in_memory
+            self._on_disk -= not place.in_memory
+            if not self._in_memory and not self._on_disk:
+                self._private_base = None
+            self._condition.notify_all()
+
+    def _nothing_will_change(self) -> bool:
+        return not self._in_memory and not self._on_disk
+
+    def _wait_for_memory_holders(self, stop: Optional[Callable[[], bool]] = None) -> None:
+        start = self._clock()
+        patience = ASSEMBLY_MEMORY_WAIT_SECONDS if self._wait_seconds is None else self._wait_seconds
+        while True:
+            if stop is not None and stop():
+                return
+            with self._condition:
+                waited = self._clock() - start
+                if waited >= patience or (not self._in_memory and waited >= min(patience, DISK_RETRY_PAUSE_SECONDS)):
+                    return
+                self._condition.wait(self._poll)
 
     @contextlib.contextmanager
-    def reserve(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-                note: Optional[Callable[[str], None]] = None):
-        """A place for an assembly of ``need`` bytes, for the duration of the ``with`` block. Yields ``True`` when it may
-        be held in memory and ``False`` when it must be assembled on disk; waits while neither has room yet.
+    def place(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
+              finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+        """A place for an assembly of ``need`` bytes for the duration of the ``with`` block: an :class:`AssemblyPlace`. Waits
+        while neither route has room.
 
         ``cancel_check`` is for a file with more synthesis still to come, which a Cancel would stop anyway: it raises
-        :class:`ConversionCancelled` from the wait. A finished narration passes none, and is assembled in its turn.
+        :class:`ConversionCancelled` from the wait. ``finishing_check`` is for finished narration: a Cancel ends the wait for its
+        turn and sends it to disk, and raises only if not even that has room within :data:`CANCEL_FINISH_WAIT_SECONDS`.
         Raises :class:`AssemblyMemoryError` when, with nothing here left to wait for, too little stayed free for too long.
+        ``note`` is never called with the gate's lock held.
         """
         ticket = object()
         told = False
-        starved_since: Optional[float] = None
+        finishing_since: Optional[float] = None
         patience = ASSEMBLY_MEMORY_WAIT_SECONDS if self._wait_seconds is None else self._wait_seconds
+        admitted: Optional[AssemblyPlace] = None
         with self._condition:
             self._queue.append(ticket)
-            try:
-                while True:
-                    first = self._queue[0] is ticket
-                    in_memory = self._route(need) if first else None
-                    if in_memory is not None:
-                        break
-                    if cancel_check is not None and cancel_check():
+        try:
+            while admitted is None:
+                # Asked with no lock held: these belong to the run, and may take locks of their own.
+                cancelled = cancel_check is not None and cancel_check()
+                finishing = finishing_check is not None and finishing_check()
+                message = None
+                with self._condition:
+                    now = self._clock()
+                    if finishing:
+                        if self._disk_has_room(self._read()):
+                            admitted = self._admit(need, False)
+                            break
+                        finishing_since = now if finishing_since is None else finishing_since
+                        if now - finishing_since >= CANCEL_FINISH_WAIT_SECONDS:
+                            raise ConversionCancelled(
+                                "Cancelled before this file was saved: its narration was complete, but too little memory stayed free "
+                                "to assemble it, so nothing was saved for it. Start it again to convert it.")
+                    elif self._queue[0] is ticket:
+                        route = self._route(need)
+                        if route is not None:
+                            admitted = self._admit(need, route)
+                            break
+                        if cancelled:
+                            raise ConversionCancelled("Conversion cancelled by user.")
+                        if self._nothing_will_change():  # nothing of this run's is going to give memory back
+                            self._starved_since = now if self._starved_since is None else self._starved_since
+                            if now - self._starved_since >= patience:
+                                raise AssemblyMemoryError(
+                                    f"Too little memory is free to assemble this file's narration, even on disk (it needs "
+                                    f"about {_gb(DISK_ASSEMBLY_BYTES)}), and that did not change for "
+                                    f"{round(patience)} seconds. Nothing was saved for this file. Close other programs, "
+                                    "then use Retry Failed.")
+                        else:
+                            self._starved_since = None
+                    elif cancelled:
                         raise ConversionCancelled("Conversion cancelled by user.")
                     if not told and note is not None:
                         told = True
-                        note(f"Waiting for memory: this file's narration needs about {_gb(need)} to assemble, and "
-                             "other files are assembling or too little is free. Synthesis of other files continues.")
-                    if first and not self._in_memory:  # nothing of this run's is going to give memory back
-                        now = self._clock()
-                        starved_since = now if starved_since is None else starved_since
-                        if now - starved_since >= patience:
-                            raise AssemblyMemoryError(
-                                f"Too little memory is free to assemble this file's narration, even on disk (it needs "
-                                f"about {_gb(DISK_ASSEMBLY_BYTES)}), and that did not change for "
-                                f"{round(patience)} seconds. Nothing was saved for this file. Close other programs, "
-                                "then use Retry Failed.")
+                        message = (f"Waiting for memory: this file's narration needs about {_gb(need)} to assemble, and "
+                                   "other files are assembling or too little is free. Synthesis of other files continues.")
                     else:
-                        starved_since = None
-                    self._condition.wait(self._poll)
-            finally:
-                self._queue.remove(ticket)
-                self._condition.notify_all()
-            held = need if in_memory else DISK_ASSEMBLY_BYTES
-            self._in_use += held
-            self._in_memory += in_memory
-        try:
-            if not in_memory and note is not None:
-                why = "and free memory cannot be read here" if self._read() is None else \
-                    "more than this computer has free now"
-                note(f"This file's narration needs about {_gb(need)} to assemble, {why}, so it is being assembled on disk: "
-                     "the same audio, using little memory.")
-            yield in_memory
+                        self._condition.wait(self._poll)
+                if message is not None:
+                    _say(note, message)
         finally:
             with self._condition:
-                self._in_use -= held
-                self._in_memory -= in_memory
+                self._queue.remove(ticket)
+                if not self._queue:
+                    self._starved_since = None
                 self._condition.notify_all()
+        try:
+            if not admitted.in_memory and note is not None:
+                if finishing:
+                    why = "and Cancel was pressed, so it is not waiting its turn"
+                elif self._read() is None:
+                    why = "and free memory cannot be read here"
+                else:
+                    why = "more than this computer has free now"
+                _say(note, f"This file's narration needs about {_gb(need)} to assemble, {why}, so it is being assembled on disk: "
+                           "the same audio, using little memory.")
+            yield admitted
+        finally:
+            self._release(admitted)
+
+    @contextlib.contextmanager
+    def reserve(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
+                finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+        """:meth:`place`, for a caller with no use for falling back: yields ``True`` when it may be held in memory and ``False``
+        when it must be assembled on disk."""
+        with self.place(need, cancel_check=cancel_check, finishing_check=finishing_check, note=note) as admitted:
+            yield admitted.in_memory
 
 
 #: The one gate for this process (one run at a time; a second process's use shows up in the memory reading).
@@ -377,16 +592,68 @@ ASSEMBLY_GATE = AssemblyGate()
 
 
 @contextlib.contextmanager
-def assembly_slot(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-                  note: Optional[Callable[[str], None]] = None):
-    """A place at :data:`ASSEMBLY_GATE` for assembling this much decoded audio, when it is enough to matter. Yields
-    ``False`` when the caller must assemble it on disk (:mod:`tts.disk_assembly`), and ``True`` when it may hold it in
-    memory. Every caller honours the answer (``test_assembly_on_disk`` checks that it reads it)."""
+def assembly_place(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
+                   finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+    """A place at :data:`ASSEMBLY_GATE` for assembling this much decoded audio. Below :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` it is
+    too little to matter, and takes no reservation."""
     if pcm_bytes < ASSEMBLY_GATE_MIN_PCM_BYTES:
-        yield True
+        yield AssemblyPlace(None, True, 0)
         return
-    with ASSEMBLY_GATE.reserve(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, note=note) as in_memory:
-        yield in_memory
+    with ASSEMBLY_GATE.place(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, finishing_check=finishing_check,
+                             note=note) as admitted:
+        yield admitted
+
+
+@contextlib.contextmanager
+def assembly_slot(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
+                  finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+    """:func:`assembly_place` as an answer alone: ``False`` when it must be assembled on disk, ``True`` when it may be held in
+    memory. A conversion uses :func:`assemble`, which also handles the answer turning out to be wrong."""
+    with assembly_place(pcm_bytes, cancel_check=cancel_check, finishing_check=finishing_check, note=note) as admitted:
+        yield admitted.in_memory
+
+
+def out_of_memory_text(detail: str) -> str:
+    """The reason given when even the smallest way of doing this ran out."""
+    return ("This computer ran out of memory while converting this file, even assembling it on disk, so nothing was saved for it. "
+            f"Close other programs, then use Retry Failed. ({detail})")
+
+
+def assemble(pcm_bytes: int, in_memory: Callable, on_disk: Callable, *, cancel_check: Optional[Callable[[], bool]] = None,
+             finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+    """Assemble this much finished audio where the gate says, and return what the route returned.
+
+    If memory runs out on the way, the same parts are assembled on disk: ``in_memory`` and ``on_disk`` must both leave them where
+    they were until they have succeeded. The disk route is tried at most twice, the second time after :meth:`AssemblyPlace.wait_for_room`,
+    and if it runs out then too, :class:`AssemblyMemoryError` says so. Either way every reservation goes back. A Cancel that stops
+    finished narration from being saved is said out loud here, for the file it belongs to.
+    """
+    try:
+        with assembly_place(pcm_bytes, cancel_check=cancel_check, finishing_check=finishing_check, note=note) as admitted:
+            if admitted.in_memory:
+                try:
+                    return in_memory()
+                except Exception as exc:  # noqa: BLE001 - only an allocation failure is taken further, below
+                    if not is_memory_failure(exc):
+                        raise
+                # Out of that block, so the failed attempt's frames, and all it managed to build, have gone already.
+                admitted.to_disk()
+                _say(note, "Memory ran out while assembling this file's narration, so it is being assembled on disk instead: the "
+                           "same audio, using little memory. Nothing is being requested from the voice service again.")
+            for attempt in range(2):
+                try:
+                    return on_disk()
+                except Exception as exc:  # noqa: BLE001
+                    if not is_memory_failure(exc):
+                        raise
+                    detail = f"{type(exc).__name__}: {exc}"[:200]
+                if attempt == 0:
+                    admitted.wait_for_room(finishing_check)
+            raise AssemblyMemoryError(out_of_memory_text(detail))
+    except ConversionCancelled as exc:
+        if finishing_check is not None:
+            _say(note, str(exc))
+        raise
 
 
 def sample_rate(path) -> int:
@@ -438,9 +705,85 @@ def memory_info() -> Optional[MemoryInfo]:
             return _windows_memory()
         if sys.platform.startswith("linux"):
             return _linux_memory()
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, MemoryError):
         return None
     return None
+
+
+def own_private_bytes() -> Optional[int]:
+    """What this process has committed (Windows) or holds in memory (Linux), or ``None`` where that cannot be read."""
+    try:
+        if sys.platform == "win32":
+            return _windows_private_bytes()
+        if sys.platform.startswith("linux"):
+            with open("/proc/self/statm", encoding="ascii") as handle:
+                return int(handle.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError, AttributeError, MemoryError, IndexError):
+        return None
+    return None
+
+
+def _windows_private_bytes() -> Optional[int]:
+    import ctypes
+    import ctypes.wintypes as wt
+
+    class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+        _fields_ = [("cb", wt.DWORD), ("PageFaultCount", wt.DWORD)] + [(name, ctypes.c_size_t) for name in (
+            "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+            "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = wt.HANDLE
+    kernel32.K32GetProcessMemoryInfo.argtypes = [wt.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX), wt.DWORD]
+    counters = PROCESS_MEMORY_COUNTERS_EX()
+    counters.cb = ctypes.sizeof(counters)
+    if not kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+        return None
+    return int(counters.PrivateUsage)
+
+
+def _windows_job_headroom() -> tuple[Optional[int], Optional[int]]:
+    """``(process, job)``: what is left under a memory limit of the Job Object this process is in. ``None``: no such limit that
+    can be read. A process in nested jobs is reported on by its innermost, which is what Windows answers with."""
+    import ctypes
+    import ctypes.wintypes as wt
+
+    process_limit_flag, job_limit_flag = 0x100, 0x200
+    extended_limit_information, memory_usage_information = 9, 28
+
+    class BASIC(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong),
+                    ("LimitFlags", wt.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wt.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wt.DWORD), ("SchedulingClass", wt.DWORD)]
+
+    class IO(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in ("r", "w", "o", "rb", "wb", "ob")]
+
+    class EXTENDED(ctypes.Structure):
+        _fields_ = [("Basic", BASIC), ("Io", IO), ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    class USAGE(ctypes.Structure):
+        _fields_ = [("JobMemory", ctypes.c_ulonglong), ("PeakJobMemoryUsed", ctypes.c_ulonglong)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    query = kernel32.QueryInformationJobObject
+    query.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD, ctypes.c_void_p]
+    limits = EXTENDED()
+    if not query(None, extended_limit_information, ctypes.byref(limits), ctypes.sizeof(limits), None):
+        return None, None  # in no job, or one this process may not ask about
+    process = job = None
+    if limits.Basic.LimitFlags & process_limit_flag:
+        private = _windows_private_bytes()
+        if private is not None:
+            process = int(limits.ProcessMemoryLimit) - private
+    if limits.Basic.LimitFlags & job_limit_flag:
+        usage = USAGE()
+        if query(None, memory_usage_information, ctypes.byref(usage), ctypes.sizeof(usage), None):
+            job = int(limits.JobMemoryLimit) - int(usage.JobMemory)
+    return process, job
 
 
 def _windows_memory() -> Optional[MemoryInfo]:
@@ -457,7 +800,8 @@ def _windows_memory() -> Optional[MemoryInfo]:
     status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
     if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
         return None
-    return MemoryInfo(int(status.ullAvailPhys), int(status.ullTotalPhys))
+    process, job = _windows_job_headroom()
+    return MemoryInfo(int(status.ullAvailPhys), int(status.ullTotalPhys), int(status.ullAvailPageFile), process, job)
 
 
 def _linux_memory() -> Optional[MemoryInfo]:

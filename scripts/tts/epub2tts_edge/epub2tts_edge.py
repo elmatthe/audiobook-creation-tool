@@ -30,6 +30,12 @@ def _ensure_shared_on_path() -> None:
         sys.path.insert(0, root)
 
 
+_ensure_shared_on_path()
+from tts import ffmpeg_watch  # noqa: E402
+
+ffmpeg_watch.install()  # every FFmpeg pydub starts for this engine can be stopped, and cannot hang it
+
+
 def _run_ffmpeg(cmd):
     """Run an ffmpeg command through the shared console-suppressing wrapper.
 
@@ -355,17 +361,11 @@ def _decoded_size(paths):
     return worker_limits.decoded_size(paths)
 
 
-def _assembly_slot(pcm_bytes, cancel_check):
-    """Wait, when memory requires it, before assembling this much audio; yields ``False`` when it must be done on disk
-    (``worker_limits.assembly_slot``).
-
-    ``cancel_check`` only while more synthesis is still to come: past the book's last checkpoint the narration is finished
-    work, which a Cancel does not discard.
-    """
+def _is_memory_failure(exc):
     _ensure_shared_on_path()
     from tts import worker_limits
 
-    return worker_limits.assembly_slot(pcm_bytes, cancel_check=cancel_check, note=print)
+    return worker_limits.is_memory_failure(exc)
 
 
 class _ParagraphOnDisk:
@@ -384,23 +384,44 @@ class _ParagraphOnDisk:
         return _in_workdir(self._workdir, f"pgraphs{self._pindex}.{len(self.parts)}.flac")
 
     def write(self, segments):
-        """What is held in memory, as the next file. The chapter's title, if it is still waiting, goes first."""
-        combined = AudioSegment.empty()
-        titled = os.path.exists(self._title_clip)
-        if titled:
-            combined += AudioSegment.from_file(self._title_clip)
-            if self._title_pause > 0:
-                combined += AudioSegment.silent(self._title_pause)
-        for seg in segments:
-            combined += seg
-        if not combined.raw_data:
+        """What is held in memory, as the next file. The chapter's title, if it is still waiting, goes first. Joining it takes
+        memory of its own: if there is none, each piece becomes a file, which the chapter join treats the same."""
+        failed = False
+        try:
+            combined = AudioSegment.empty()
+            titled = os.path.exists(self._title_clip)
+            if titled:
+                combined += AudioSegment.from_file(self._title_clip)
+                if self._title_pause > 0:
+                    combined += AudioSegment.silent(self._title_pause)
+            for seg in segments:
+                combined += seg
+            if not combined.raw_data:
+                return
+            part = self._next()
+            combined.export(part, format="flac")
+        except Exception as exc:  # noqa: BLE001 - only an allocation failure goes further
+            if not _is_memory_failure(exc):
+                raise
+            failed = True
+        if failed:  # out of the block above, so what the attempt built has gone
+            combined = None
+            self._write_each(segments)
             return
-        part = self._next()
-        combined.export(part, format="flac")
         if titled:
             os.remove(self._title_clip)
         self.parts.append(part)
         self.rate = combined.frame_rate
+
+    def _write_each(self, segments):
+        if os.path.exists(self._title_clip):
+            self.write_clip(self._title_clip, pause_ms=self._title_pause)
+        for seg in segments:
+            if seg.raw_data:
+                part = self._next()
+                seg.export(part, format="flac")
+                self.parts.append(part)
+                self.rate = seg.frame_rate
 
     def write_clip(self, clip, *, trim=None, pause_ms=0):
         """One clip too long to hold, which never comes into memory at all (``disk_assembly``)."""
@@ -420,8 +441,12 @@ def _append_chapter_pause(files, duration, pause_file):
     from tts import worker_limits
 
     if duration <= 0 or _decoded_size(files[-1:]) < worker_limits.SYNTHESIS_HELD_PCM_BYTES:
-        append_silence(files[-1], duration)
-        return
+        try:
+            append_silence(files[-1], duration)
+            return
+        except Exception as exc:  # noqa: BLE001 - only an allocation failure goes further
+            if not _is_memory_failure(exc):
+                raise
     from tts import disk_assembly
 
     disk_assembly.pause_as_file(duration, worker_limits.sample_rate(files[-1]), pause_file)
@@ -484,6 +509,9 @@ def read_book(
         # v0.7.0 (Q1): the book's final sentence gets no sentence/paragraph pause and its chapter no chapter pause;
         # every pause between rendered content is unchanged. ``end_of_book_pause`` adds nothing (see its default).
         last_chapter = i == len(book_contents)
+        # With speech still to come a Cancel stops any FFmpeg of this file at once. After the last paragraph has begun, this may be
+        # the end of a finished narration, which a Cancel does not discard.
+        ffmpeg_watch.abort_on_cancel(True)
         files = []
         partname = _in_workdir(workdir, f"part{i}.flac")
         title_clip = _in_workdir(workdir, "sntnc0.mp3")
@@ -519,6 +547,7 @@ def read_book(
                 tqdm(chapter["paragraphs"], desc=f"Generating audio files: ", unit='pg', position=0)
             ):
                 _checkpoint()  # between paragraphs
+                ffmpeg_watch.abort_on_cancel(not (last_chapter and pindex == len(chapter["paragraphs"]) - 1))
                 ptemp = _in_workdir(workdir, f"pgraphs{pindex}.flac")
                 if os.path.isfile(ptemp):
                     print(f"{ptemp} exists, skipping to next paragraph")
@@ -551,8 +580,26 @@ def read_book(
                             # The book's final sub-chunk: its ending is the final-tail policy's (make_mp3).
                             final_chunk = (last_paragraph and _si == n_sents - 1
                                            and sub_idx == len(subs) - 1)
-                            if _decoded_size([sub_path]) >= held_limit:
-                                # Minutes of speech with no sentence end, comma or dash: never brought into memory.
+                            on_disk = _decoded_size([sub_path]) >= held_limit  # minutes of speech with no sentence end, comma or dash
+                            if not on_disk:
+                                try:
+                                    seg = AudioSegment.from_file(sub_path)
+                                    if trim_tts_padding:
+                                        seg = trim_silence_segment(
+                                            seg,
+                                            silence_threshold=trim_silence_db,
+                                            chunk_size=trim_chunk_ms,
+                                            keep_trailing=final_chunk,
+                                        )
+                                    if intra_pause_ms > 0:
+                                        seg = seg + AudioSegment.silent(duration=intra_pause_ms)
+                                except Exception as exc:  # noqa: BLE001 - only an allocation failure goes further
+                                    if not _is_memory_failure(exc):
+                                        raise
+                                    seg = None
+                                    on_disk = True  # this clip has been paid for: it does not need asking for again
+                            if on_disk:
+                                # Never brought into memory.
                                 written.write(sentence_segments + sub_segments)
                                 sentence_segments, sub_segments = [], []
                                 written.write_clip(
@@ -561,18 +608,8 @@ def read_book(
                                         sound, silence_threshold=trim_silence_db, chunk_size=trim_chunk_ms,
                                         keep_trailing=keep)) if trim_tts_padding else None)
                                 continue
-                            seg = AudioSegment.from_file(sub_path)
                             with contextlib.suppress(FileNotFoundError):
                                 os.remove(sub_path)
-                            if trim_tts_padding:
-                                seg = trim_silence_segment(
-                                    seg,
-                                    silence_threshold=trim_silence_db,
-                                    chunk_size=trim_chunk_ms,
-                                    keep_trailing=final_chunk,
-                                )
-                            if intra_pause_ms > 0:
-                                seg = seg + AudioSegment.silent(duration=intra_pause_ms)
                             sub_segments.append(seg)
                             if sum(len(s.raw_data) for s in sentence_segments + sub_segments) >= held_limit:
                                 written.write(sentence_segments + sub_segments)
@@ -596,14 +633,26 @@ def read_book(
                         files.extend(written.parts)
                         _tick()
                         continue
-                    combined = AudioSegment.empty()
-                    if os.path.exists(title_clip):
-                        combined += AudioSegment.from_file(title_clip)
-                        if title_trailing_pause > 0:
-                            combined += AudioSegment.silent(title_trailing_pause)
-                    for seg in sentence_segments:
-                        combined += seg
-                    combined.export(ptemp, format="flac")
+                    joined = True
+                    try:
+                        combined = AudioSegment.empty()
+                        if os.path.exists(title_clip):
+                            combined += AudioSegment.from_file(title_clip)
+                            if title_trailing_pause > 0:
+                                combined += AudioSegment.silent(title_trailing_pause)
+                        for seg in sentence_segments:
+                            combined += seg
+                        combined.export(ptemp, format="flac")
+                    except Exception as exc:  # noqa: BLE001 - only an allocation failure goes further
+                        if not _is_memory_failure(exc):
+                            raise
+                        joined = False
+                    if not joined:
+                        combined = None
+                        written.write(sentence_segments)
+                        files.extend(written.parts)
+                        _tick()
+                        continue
                     if os.path.exists(title_clip):
                         os.remove(title_clip)
                 files.append(ptemp)
@@ -611,17 +660,20 @@ def read_book(
             # combine paragraphs into chapter
             if not last_chapter:
                 _append_chapter_pause(files, chapter_trailing_pause, _in_workdir(workdir, f"part{i}.pause.flac"))
-            with _assembly_slot(_decoded_size(files), None if last_chapter else cancel_check) as in_memory:
-                if in_memory is False:
-                    from tts import disk_assembly
+            def _join_in_memory(files=files, partname=partname):
+                combined = AudioSegment.empty()
+                for file in files:
+                    combined += AudioSegment.from_file(file)
+                combined.export(partname, format="flac")
 
-                    disk_assembly.join_to_flac(files, partname, f"{partname}.wav")
-                else:
-                    combined = AudioSegment.empty()
-                    for file in files:
-                        combined += AudioSegment.from_file(file)
-                    combined.export(partname, format="flac")
-                    del combined  # not left in memory, outside any reservation, while the next chapter is synthesised
+            def _join_on_disk(files=files, partname=partname):
+                from tts import disk_assembly
+
+                disk_assembly.join_to_flac(files, partname, f"{partname}.wav")
+
+            worker_limits.assemble(_decoded_size(files), _join_in_memory, _join_on_disk, note=print,
+                                   cancel_check=None if last_chapter else cancel_check,
+                                   finishing_check=cancel_check if last_chapter else None)
             for file in files:
                 os.remove(file)
             segments.append(partname)

@@ -150,6 +150,26 @@ def run_conversion_job(
     otherwise, with that file untouched.
     """
     _ensure_shared_on_path()
+    from tts import ffmpeg_watch, worker_limits
+
+    try:
+        with ffmpeg_watch.controlled(cancel_check):
+            return _convert(
+                sourcefile, output_dir=output_dir, speaker=speaker, audio_format=audio_format, mp3_bitrate=mp3_bitrate,
+                cover=cover, paragraphpause=paragraphpause, sentencepause=sentencepause,
+                title_trailing_pause=title_trailing_pause, chapter_trailing_pause=chapter_trailing_pause,
+                end_of_book_pause=end_of_book_pause, trim_tts_padding=trim_tts_padding, trim_silence_db=trim_silence_db,
+                overwrite=overwrite, cancel_check=cancel_check, progress_callback=progress_callback, speech_prep=speech_prep)
+    except Exception as exc:  # noqa: BLE001 - only an allocation failure is changed, into one that says what happened
+        if not worker_limits.is_memory_failure(exc):
+            raise
+        detail = f"{type(exc).__name__}: {exc}"[:200]
+    raise worker_limits.AssemblyMemoryError(worker_limits.out_of_memory_text(detail))
+
+
+def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cover, paragraphpause, sentencepause,
+             title_trailing_pause, chapter_trailing_pause, end_of_book_pause, trim_tts_padding, trim_silence_db, overwrite,
+             cancel_check, progress_callback, speech_prep) -> str:
     from tts import publication, worker_limits
 
     sourcefile = os.path.abspath(sourcefile)
@@ -217,13 +237,13 @@ def run_conversion_job(
                 add_cover(cover_local, artifact)
         elif audio_format == "mp3":
             # The whole narration is about to be assembled: in memory if it fits, after a wait if other files need that
-            # memory first, and on disk if it does not. It is finished work by now, so a Cancel does not discard it, here
-            # or later.
-            with worker_limits.assembly_slot(worker_limits.decoded_size(files), note=print) as in_memory:
-                if in_memory is False:
-                    artifact = make_mp3_on_disk(files, work_txt, speaker, bitrate=mp3_bitrate)
-                else:
-                    artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
+            # memory first, and on disk if it does not or if memory runs out on the way. It is finished work by now, so a Cancel
+            # sends it to disk, not away, and the deadlines after Cancel are ffmpeg_watch's.
+            artifact = worker_limits.assemble(
+                worker_limits.decoded_size(files),
+                lambda: make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate),
+                lambda: make_mp3_on_disk(files, work_txt, speaker, bitrate=mp3_bitrate),
+                finishing_check=cancel_check, note=print)
         else:
             raise ValueError(f"Unknown audio_format: {audio_format}")
 

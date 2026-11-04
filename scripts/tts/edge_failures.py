@@ -32,6 +32,8 @@ EXPECTED_EDGE_TTS = "7.3.1"
 GUIDANCE_SEPARATOR = " | Technical detail: "
 
 _DETAIL_LIMIT = 300
+#: How a folder item's failure reads when memory ran out (``worker_limits``): it carries no exception's name.
+_OUT_OF_MEMORY = ("This computer ran out of memory", "Too little memory is free")
 _URL = re.compile(r"(?:wss?|https?)://[^\s'\"<>]+")
 _TOKEN = re.compile(r"(?i)\b(TrustedClientToken|Sec-MS-GEC(?:-Version)?|ConnectionId)=[^\s&'\"]+")
 
@@ -87,6 +89,22 @@ def _encode_failure() -> tuple:
     return (CouldntEncodeError,)
 
 
+def _stalled() -> tuple:
+    try:
+        from tts.ffmpeg_watch import ProcessingStalled
+    except ImportError:  # pragma: no cover - scripts/ is always on the path for the callers
+        return ()
+    return (ProcessingStalled,)
+
+
+def _is_memory_failure(exc: BaseException) -> bool:
+    try:
+        from tts.worker_limits import is_memory_failure
+    except ImportError:  # pragma: no cover
+        return False
+    return is_memory_failure(exc)
+
+
 def _status_kind(status: int | None) -> EdgeFailureKind:
     if status in _REFUSED_STATUSES:
         return EdgeFailureKind.SERVICE_REFUSED
@@ -124,9 +142,12 @@ def classify(exc: BaseException) -> EdgeFailureKind:
         return EdgeFailureKind.NETWORK  # connector, disconnect, payload and timeout errors
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError, ConnectionError, socket.gaierror)):
         return EdgeFailureKind.NETWORK  # before OSError: these are OSError subclasses
-    # MemoryError, a failed encode (FFmpeg's disk full, say) and pydub's WAV size limit (struct.error) are all about this
-    # computer and this file: synthesising the whole file again cannot cure them.
-    if isinstance(exc, (OSError, ValueError, TypeError, MemoryError, struct.error, *_encode_failure())):
+    # MemoryError, a failed encode (FFmpeg's disk full, say), a stopped FFmpeg and pydub's WAV size limit (struct.error) are all
+    # about this computer and this file: synthesising the whole file again cannot cure them.
+    if isinstance(exc, (OSError, ValueError, TypeError, MemoryError, struct.error, *_encode_failure(), *_stalled())):
+        return EdgeFailureKind.LOCAL
+    # A decoder that ran out of memory says so, and looks otherwise like a damaged clip, which is worth asking for again.
+    if _is_memory_failure(exc):
         return EdgeFailureKind.LOCAL
     return EdgeFailureKind.UNKNOWN
 
@@ -236,6 +257,9 @@ def split_failure_text(text: str) -> str | None:
     prefix = "EdgeServiceError: "
     if first.startswith(prefix):
         first = first[len(prefix):]
+    memory_prefix = "AssemblyMemoryError: "
+    if first.startswith(memory_prefix) or first.startswith(_OUT_OF_MEMORY):  # its message is written for the person reading it
+        return first[len(memory_prefix):] if first.startswith(memory_prefix) else first
     if GUIDANCE_SEPARATOR not in first:
         return None
     advice = first.split(GUIDANCE_SEPARATOR, 1)[0].strip()
