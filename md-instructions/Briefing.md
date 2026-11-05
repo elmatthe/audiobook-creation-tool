@@ -16,6 +16,14 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
+## v0.7.2 Windows hardening, feature map and verification gate (in progress, 2026-11-05) — identity 0.7.1 until the release checkpoint; NOT merged/tagged/published
+
+Branch `feature/0.7.2-windows-hardening-verification` from `origin/master` = `204c33b` (v0.7.1, merged by fast-forward 2026-11-04). Plan: `files/plans/ACT-v0.7.2-Windows-Hardening-Feature-Map-and-Verification-Gate-Implementation-Plan.md` (Phases 0–10; the owner's 2026-11-04 kickoff runs Phases 0–8 continuously; a fresh independent Codex Extra High review and the owner's checks come before any merge).
+
+- **Cancel (Phase 1, done):** stops every active file within one look (0.25 s poll, woken at once by the panel): requests in flight, back-offs, memory waits, assembly, encoding and the copy into staging; no fallback, retry or request after the latch; publication refuses at the instant before the atomic rename, and a file whose rename already happened stays. Primitives: `shared.cancellation.wait_unless_cancelled` / `await_unless_cancelled`; `ffmpeg_watch.current_cancel_check()` gives a request loop its conversion's check; `ffmpeg_watch.wake()` and `AssemblyGate.wake()` end a poll early. Pause unchanged (active files finish, nothing new starts, cancellable at once). Regression: `files/tests/test_cancel_semantics.py`. Decision: `Decisions.md` 2026-11-05. This supersedes the "Cancel does not discard a narration past its last synthesis checkpoint" and "Cancel of finished narration … 600 s in all" statements in the v0.7.1 section below.
+- **Phase 0 findings (audit evidence, ignored: `files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/`):** UI Automation sees a Tk window as unnamed panes, so the native Windows adapter is stdlib `ctypes` input (SendInput, SetWindowPos, WM_CLOSE, kill-on-close Job Objects) plus Pillow screenshots and a test-only in-process observation channel; no new dependency. The venv's `python.exe` is Windows' launcher stub (windows belong to the grandchild). Setting `shared.paths.SETTINGS_FILE` / `LOGS_DIR` / `RESOURCES_DIR` before importing `launcher` isolates an out-of-process instance.
+- **Still to come (Phases 2–8):** the canonical gate under `files/dev-work/verification-gate/`, native and real-media acceptance, the feature map and `coverage.json`, log following, MP3 metadata precedence, the four fresh-environment test failures, cross-tool hardening, measured M4B Converter optimisation, final self-verification.
+
 ## v0.7.1 Edge multi-file workers (2026-11-03) — identity 0.7.1, NOT merged/tagged/published
 
 - **Concurrency:** every Edge queue (Add Files TXT/PDF, Add Folder, mixed) runs whole files side by side, for every

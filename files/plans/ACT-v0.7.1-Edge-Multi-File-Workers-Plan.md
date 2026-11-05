@@ -526,6 +526,11 @@ Allocation failure is real but confined to one process by a Job Object: a whole 
 
 ### 14.8 What the owner will see differently
 
+> **Superseded in v0.7.2 (owner instruction of 2026-11-04, plan `ACT-v0.7.2-Windows-Hardening-...`, Phase 1).** Cancel now stops
+> every active file promptly, finished narration included: no assembly, encode, fallback, retry or publication after the latch,
+> and nothing unfinished is saved. §9 step 7's original expectation ("the run ends Cancelled within a few seconds") is the
+> contract again. The paragraph below is the v0.7.1 behaviour as it was measured and shipped, kept as history.
+
 The steps of §9 stand. One expectation changes: Cancel on a long book whose narration is already finished no longer ends in a few seconds. It assembles that narration on disk and saves it, which takes as long as that takes, up to 10 minutes, or says in the log that it was not saved.
 
 ### 14.9 After v0.7.1

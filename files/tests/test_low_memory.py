@@ -280,11 +280,13 @@ def test_a_note_never_runs_with_the_gates_lock_held():
 # --------------------------------------------------------------------------- Cancel at the gate
 
 
-def test_cancel_sends_a_finished_narration_to_disk_past_whoever_holds_or_waits():
+def test_cancel_stops_a_finished_narration_waiting_at_the_gate_at_once():
+    """v0.7.2: a Cancel ends the wait for everyone, finished narration included, behind whoever holds or waits; nothing is
+    sent to disk because of it. (Until v0.7.2 a finished narration was rerouted to disk here instead of stopped.)"""
     gate = wl.AssemblyGate(Machine(4, 4), poll_seconds=0.01)
     holding, done = threading.Event(), threading.Event()
     cancelled = threading.Event()
-    answers = []
+    outcome = []
 
     def holder():
         with gate.reserve(GB):
@@ -296,8 +298,11 @@ def test_cancel_sends_a_finished_narration_to_disk_past_whoever_holds_or_waits()
             pass
 
     def finished():
-        with gate.reserve(3 * GB, finishing_check=cancelled.is_set) as in_memory:
-            answers.append(in_memory)
+        try:
+            with gate.reserve(3 * GB, cancel_check=cancelled.is_set) as in_memory:
+                outcome.append(in_memory)
+        except ConversionCancelled:
+            outcome.append("cancelled")
 
     threads = [threading.Thread(target=holder)]
     threads[0].start()
@@ -307,25 +312,25 @@ def test_cancel_sends_a_finished_narration_to_disk_past_whoever_holds_or_waits()
     time.sleep(0.05)
     threads[2].start()
     time.sleep(0.05)
-    assert not answers
+    assert not outcome
     started = time.monotonic()
     cancelled.set()
     threads[2].join(5)
-    assert answers == [False] and time.monotonic() - started < 1
+    assert outcome == ["cancelled"] and time.monotonic() - started < 1
     done.set()
     for thread in threads:
         thread.join(5)
     assert gate._in_use == 0 and not gate._queue
 
 
-def test_cancel_with_no_room_even_on_disk_says_it_was_not_saved_within_its_deadline(monkeypatch):
-    monkeypatch.setattr(wl, "CANCEL_FINISH_WAIT_SECONDS", 0.3)
+def test_cancel_with_no_room_even_on_disk_stops_at_once_with_no_deadline_of_its_own():
+    """v0.7.2: there is no finishing allowance to wait out: a Cancel with nothing free is a Cancel, within the poll."""
     gate = wl.AssemblyGate(Machine(0, 8), poll_seconds=0.01, wait_seconds=60)
     started = time.monotonic()
-    with pytest.raises(ConversionCancelled, match="nothing was saved"):
-        with gate.reserve(GB, finishing_check=lambda: True):
+    with pytest.raises(ConversionCancelled, match="cancelled by user"):
+        with gate.reserve(GB, cancel_check=lambda: True):
             pass
-    assert 0.25 <= time.monotonic() - started < 2
+    assert time.monotonic() - started < 1
     assert gate._in_use == 0 and not gate._queue
 
 
@@ -575,15 +580,14 @@ def test_giving_memory_back_wakes_whoever_was_waiting_for_it():
     assert woken == [True] and gate._in_use == 0
 
 
-def test_a_cancel_that_loses_finished_narration_is_said_out_loud_for_that_file(quick_gate):
-    notes = []
-
-    def stopped():
-        raise ConversionCancelled("Cancelled before this file was saved: nothing was saved for it.")
+def test_a_cancel_latched_before_assembly_runs_no_route_and_announces_nothing(quick_gate):
+    """v0.7.2: a Cancel is a Cancel, finished narration or not; the run's own log says Cancelled, this says nothing more."""
+    notes, calls = [], []
 
     with pytest.raises(ConversionCancelled):
-        wl.assemble(48_000 * 3600, stopped, lambda: None, finishing_check=lambda: False, note=notes.append)
-    assert notes == ["Cancelled before this file was saved: nothing was saved for it."]
+        wl.assemble(48_000 * 3600, lambda: calls.append("memory"), lambda: calls.append("disk"), cancel_check=lambda: True,
+                    note=notes.append)
+    assert calls == [] and notes == []
 
 
 def test_a_mid_book_cancel_is_not_announced_as_a_lost_narration(quick_gate):
@@ -770,7 +774,7 @@ def test_growth_of_the_file_being_written_is_progress(monkeypatch, tmp_path):
 
 def test_cancel_with_more_to_synthesise_stops_it_within_one_look(monkeypatch):
     cancelled = threading.Event()
-    with ffmpeg_watch.controlled(cancelled.is_set, abort_on_cancel=True):
+    with ffmpeg_watch.controlled(cancelled.is_set):
         child = ffmpeg_watch.Supervised(_python("import time;time.sleep(60)"), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     threading.Timer(0.2, cancelled.set).start()
     started = time.monotonic()
@@ -779,35 +783,26 @@ def test_cancel_with_more_to_synthesise_stops_it_within_one_look(monkeypatch):
     assert time.monotonic() - started < 3
 
 
-def test_cancel_of_finished_narration_lets_it_finish_while_it_progresses(monkeypatch):
-    monkeypatch.setattr(ffmpeg_watch, "CANCEL_STALL_SECONDS", 0.7)
-    code = "import sys,time;\nfor _ in range(6):\n  sys.stdout.buffer.write(b'x'*(1<<20));sys.stdout.buffer.flush();time.sleep(0.3)"
+def test_cancel_of_finished_narration_is_stopped_within_one_look_while_it_progresses():
+    """v0.7.2: the allowance that let finished narration run on after Cancel (30 s idle / 600 s in all) is gone. The exact
+    child the old test let finish is now killed within one look, with its output unfinished and unused."""
+    code = "import sys,time;\nfor _ in range(40):\n  sys.stdout.buffer.write(b'x'*(1<<20));sys.stdout.buffer.flush();time.sleep(0.1)"
     with ffmpeg_watch.controlled(lambda: True):
         child = ffmpeg_watch.Supervised(_python(code), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output, _errors = child.communicate()
-    assert child.returncode == 0 and len(output) == 6 << 20
+    started = time.monotonic()
+    with pytest.raises(ConversionCancelled, match="cancelled by user"):
+        child.communicate()
+    assert time.monotonic() - started < 3
+    assert child.process.poll() is not None
 
 
-def test_cancel_of_finished_narration_that_has_stopped_ends_at_its_deadline(monkeypatch):
-    monkeypatch.setattr(ffmpeg_watch, "CANCEL_STALL_SECONDS", 0.5)
+def test_cancel_of_finished_narration_that_has_stopped_is_killed_within_one_look_not_at_a_deadline():
     with ffmpeg_watch.controlled(lambda: True):
         child = ffmpeg_watch.Supervised(_python("import time;time.sleep(60)"), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     started = time.monotonic()
-    with pytest.raises(ConversionCancelled, match="nothing was saved"):
+    with pytest.raises(ConversionCancelled, match="cancelled by user"):
         child.communicate()
-    assert time.monotonic() - started < 10
-
-
-def test_cancel_of_finished_narration_ends_at_its_cap_however_well_it_is_going(monkeypatch):
-    monkeypatch.setattr(ffmpeg_watch, "CANCEL_STALL_SECONDS", 30)
-    monkeypatch.setattr(ffmpeg_watch, "CANCEL_FINISH_SECONDS", 1)
-    code = "import sys,time;\nwhile True: sys.stdout.buffer.write(b'x'*(1<<20));sys.stdout.buffer.flush();time.sleep(0.1)"
-    with ffmpeg_watch.controlled(lambda: True):
-        child = ffmpeg_watch.Supervised(_python(code), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    started = time.monotonic()
-    with pytest.raises(ConversionCancelled):
-        child.communicate()
-    assert time.monotonic() - started < 15
+    assert time.monotonic() - started < 3
 
 
 def test_a_cancel_check_that_fails_does_not_stop_the_stall_deadline(monkeypatch):
@@ -1155,30 +1150,32 @@ def test_memory_gone_for_good_after_the_gate_said_yes_is_a_named_failure(tmp_pat
 @windows_only
 @pytest.mark.parametrize("route", ["direct", "folder"])
 def test_cancel_with_one_file_in_memory_and_others_waiting_under_a_real_limit(tmp_path, real_clip, reference, route):
+    """v0.7.2: the file assembling in memory is killed and the files waiting leave the gate, all within the stop budget;
+    whatever was published before the Cancel is the reference audio, and nothing else is published."""
     report = _supervised(tmp_path, real_clip, route=route, headroom_mb=100, gate="one-fits", cancel_when="waiting", files=3)
     _assert_ended_cleanly(report)
     _assert_same_audio(report, reference)
     assert report["cancelled_with_waiting"]["queued"] >= 1 and report["cancelled_with_waiting"]["in_memory"] >= 1, "it really was waiting"
-    assert report["cancel_to_end_seconds"] < 60, "the finishing deadlines: nothing waits on anyone else's memory after Cancel"
+    assert "cancelled" in {result["status"] for result in report["results"].values()}, "the files still working were stopped"
+    assert report["cancel_to_end_seconds"] < 5, "nothing finishes after Cancel: the run ends within the stop budget"
 
 
 @windows_only
 @pytest.mark.parametrize("route, stall", [("direct", "final"), ("folder", "final"), ("folder", "decode")])
-def test_cancel_after_ffmpeg_really_stops_ends_at_its_deadline_and_says_so(tmp_path, real_clip, route, stall):
-    report = _supervised(tmp_path, real_clip, route=route, files=1, gate="roomy", stall=stall, cancel_when="stalled",
-                         constants={"tts.ffmpeg_watch.CANCEL_STALL_SECONDS": 5})
+def test_cancel_after_ffmpeg_really_stops_ends_within_one_look(tmp_path, real_clip, route, stall):
+    """v0.7.2: a stalled FFmpeg of finished narration is killed within one look of the Cancel, not at a 30 s deadline."""
+    report = _supervised(tmp_path, real_clip, route=route, files=1, gate="roomy", stall=stall, cancel_when="stalled")
     _assert_ended_cleanly(report, statuses=["cancelled"])
     assert report["published"] == {}
     assert "stalled" in report, "FFmpeg really was suspended"
-    assert 4 <= report["cancel_to_end_seconds"] < 20
-    assert "nothing was saved for it" in report["child_output_tail"], "the person is told"
+    assert report["cancel_to_end_seconds"] < 5
 
 
 @windows_only
 def test_cancel_with_more_to_synthesise_stops_midbook_ffmpeg_at_once(tmp_path, real_clip):
-    """A chapter is still to come, so Cancel would discard this anyway: it does not sit out a stalled FFmpeg's deadline."""
+    """A chapter is still to come: the stalled FFmpeg is killed within one look, exactly as for a finished one now."""
     report = _supervised(tmp_path, real_clip, route="direct", files=1, chapters=2, clips_per_file=1, gate="roomy", stall="decode", cancel_when="stalled",
-                         constants={"tts.ffmpeg_watch.CANCEL_STALL_SECONDS": 300}, deadline=60)
+                         deadline=60)
     _assert_ended_cleanly(report, statuses=["cancelled"])
     assert report["cancel_to_end_seconds"] < 5
 
@@ -1202,12 +1199,13 @@ def test_a_starved_queue_of_eight_ends_at_one_deadline_for_real(tmp_path, real_c
 
 
 @windows_only
-def test_a_starved_narration_given_cancel_reports_it_was_not_saved_at_the_deadline(tmp_path, real_clip):
-    report = _supervised(tmp_path, real_clip, route="direct", files=2, clips_per_file=1, gate="starved", cancel_after=3,
-                         constants={"tts.worker_limits.CANCEL_FINISH_WAIT_SECONDS": 3})
+def test_a_starved_narration_given_cancel_stops_at_once(tmp_path, real_clip):
+    """v0.7.2: finished narration waiting for memory that is not coming stops with the Cancel, within the poll."""
+    report = _supervised(tmp_path, real_clip, route="direct", files=2, clips_per_file=1, gate="starved", cancel_after=3)
     _assert_ended_cleanly(report, statuses=["cancelled"] * 2)
-    assert report["cancel_to_end_seconds"] < 15
-    assert all("nothing was saved" in result["message"] for result in report["results"].values())
+    assert report["published"] == {}
+    assert report["cancel_to_end_seconds"] < 5
+    assert all("cancelled by user" in result["message"] for result in report["results"].values())
 
 
 @windows_only

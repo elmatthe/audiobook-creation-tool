@@ -238,13 +238,13 @@ def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cove
                 add_cover(cover_local, artifact)
         elif audio_format == "mp3":
             # The whole narration is about to be assembled: in memory if it fits, after a wait if other files need that
-            # memory first, and on disk if it does not or if memory runs out on the way. It is finished work by now, so a Cancel
-            # sends it to disk, not away, and the deadlines after Cancel are ffmpeg_watch's.
+            # memory first, and on disk if it does not or if memory runs out on the way. A Cancel at any point from here to the
+            # instant of publication stops it, and nothing of it is saved (v0.7.2).
             artifact = worker_limits.assemble(
                 worker_limits.decoded_size(files),
                 lambda: make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate),
                 lambda: make_mp3_on_disk(files, work_txt, speaker, bitrate=mp3_bitrate),
-                finishing_check=cancel_check, note=print)
+                cancel_check=cancel_check, note=print)
         else:
             raise ValueError(f"Unknown audio_format: {audio_format}")
 
@@ -254,7 +254,7 @@ def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cove
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_dir = dest_dir.resolve()
         dest = dest_dir / os.path.basename(artifact)
-        publication.publish_file(artifact, dest, overwrite=overwrite)
+        publication.publish_file(artifact, dest, overwrite=overwrite, cancel_check=cancel_check)
         print(f"Saved: {dest}")
         return str(dest)
     except BaseException as exc:

@@ -142,7 +142,7 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import publication, worker_limits
+from tts import ffmpeg_watch, publication, worker_limits
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -2839,9 +2839,13 @@ class TtsPanel(ttk.Frame):
         if controller is None or controller.is_terminal:
             return
         controller.request_cancel()
+        # Whoever is asleep until its next poll learns of the latch now: the FFmpeg watchdog kills any encoder or decoder of
+        # this run within one look, and a file waiting at the memory gate leaves it (v0.7.2). Both are no-ops when idle.
+        ffmpeg_watch.wake()
+        worker_limits.ASSEMBLY_GATE.wake()
         # A panel-authored status line, not engine transcript: it belongs in
         # both panes, matching the sibling tools' own ``_say``/``append`` use.
-        self.log.append("Cancelling… will stop at the next checkpoint (chapter / chunk).")
+        self.log.append("Cancelling… stopping the files being converted now; nothing unfinished will be saved.")
 
     # ------- teardown -------
 
@@ -3129,9 +3133,10 @@ class _RunContext:
                         **speech_prep_kwargs(params),
                     )
                     if status != "success":
-                        return status, item, message, None
+                        # A file the folder route stopped for a Cancel had started: "stopped", not "skipped", below.
+                        return status, item, ("stopped" if status == "cancelled" else message), None
             except ConversionCancelled:
-                return "cancelled", item, None, None
+                return "cancelled", item, "stopped", None
             except Exception as exc:  # noqa: BLE001 - one item, not the run
                 return "failed", item, f"{type(exc).__name__}: {exc}", None
             category = ETA_CATEGORY_DIRECT if item["direct"] else ETA_CATEGORY_FOLDER
@@ -3147,7 +3152,11 @@ class _RunContext:
                 elif status == "cancelled":
                     self.cancelled = True
                     stamp = datetime.now().strftime("%H:%M:%S")
-                    self.log(f"[{stamp}] {item['source'].name} — skipped (cancelled)")
+                    # Two truths, told apart: a file that never started was skipped; one that had started was stopped,
+                    # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
+                    what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
+                            else "skipped (cancelled)")
+                    self.log(f"[{stamp}] {item['source'].name} — {what}")
                 else:
                     self.record_failure(item, message or "the conversion failed")
                 self.advance(item)
@@ -3269,10 +3278,10 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
             **{k: v for k, v in pause_kw.items() if k not in skip},
             **speech_prep_kwargs(params),
         )
-        publication.publish_file(produced, destination, overwrite=params["overwrite"])
+        publication.publish_file(produced, destination, overwrite=params["overwrite"], cancel_check=cancel_check)
 
 
-def _convert_with_local_engine(item, params, log, synthesize) -> None:
+def _convert_with_local_engine(item, params, log, synthesize, cancel_check=None) -> None:
     """What the local engines share: their one PDF-to-text seam, and publication.
 
     Each engine writes one MP3 to the path it is given, and would truncate or replace whatever is there. It is given a
@@ -3298,7 +3307,7 @@ def _convert_with_local_engine(item, params, log, synthesize) -> None:
             text_path = str(Path(scratch) / f"{source.stem}.txt")
             pdf_to_txt(str(source), text_path)
             synthesize(text_path, output)
-        publication.publish_file(output, destination, overwrite=overwrite)
+        publication.publish_file(output, destination, overwrite=overwrite, cancel_check=cancel_check)
     log(f"Saved: {destination}")
 
 
@@ -3333,7 +3342,9 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    _convert_with_local_engine(item, params, log, synthesize)
+    # The engine's one encode goes through pydub, so under this control a Cancel kills it within one look (v0.7.2).
+    with ffmpeg_watch.controlled(cancel_check):
+        _convert_with_local_engine(item, params, log, synthesize, cancel_check)
 
 
 def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
@@ -3376,7 +3387,9 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    _convert_with_local_engine(item, params, log, synthesize)
+    # The engine's one encode goes through pydub, so under this control a Cancel kills it within one look (v0.7.2).
+    with ffmpeg_watch.controlled(cancel_check):
+        _convert_with_local_engine(item, params, log, synthesize, cancel_check)
 
 
 def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:

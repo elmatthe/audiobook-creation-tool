@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import contextlib
+import contextvars
 import copy
 import io
 import os
@@ -509,9 +510,6 @@ def read_book(
         # v0.7.0 (Q1): the book's final sentence gets no sentence/paragraph pause and its chapter no chapter pause;
         # every pause between rendered content is unchanged. ``end_of_book_pause`` adds nothing (see its default).
         last_chapter = i == len(book_contents)
-        # With speech still to come a Cancel stops any FFmpeg of this file at once. After the last paragraph has begun, this may be
-        # the end of a finished narration, which a Cancel does not discard.
-        ffmpeg_watch.abort_on_cancel(True)
         files = []
         partname = _in_workdir(workdir, f"part{i}.flac")
         title_clip = _in_workdir(workdir, "sntnc0.mp3")
@@ -547,7 +545,6 @@ def read_book(
                 tqdm(chapter["paragraphs"], desc=f"Generating audio files: ", unit='pg', position=0)
             ):
                 _checkpoint()  # between paragraphs
-                ffmpeg_watch.abort_on_cancel(not (last_chapter and pindex == len(chapter["paragraphs"]) - 1))
                 ptemp = _in_workdir(workdir, f"pgraphs{pindex}.flac")
                 if os.path.isfile(ptemp):
                     print(f"{ptemp} exists, skipping to next paragraph")
@@ -657,7 +654,8 @@ def read_book(
                         os.remove(title_clip)
                 files.append(ptemp)
                 _tick()
-            # combine paragraphs into chapter
+            # combine paragraphs into chapter. A Cancel by now stops here too: finished speech is not joined after it (v0.7.2).
+            _checkpoint()
             if not last_chapter:
                 _append_chapter_pause(files, chapter_trailing_pause, _in_workdir(workdir, f"part{i}.pause.flac"))
             def _join_in_memory(files=files, partname=partname):
@@ -671,9 +669,7 @@ def read_book(
 
                 disk_assembly.join_to_flac(files, partname, f"{partname}.wav")
 
-            worker_limits.assemble(_decoded_size(files), _join_in_memory, _join_on_disk, note=print,
-                                   cancel_check=None if last_chapter else cancel_check,
-                                   finishing_check=cancel_check if last_chapter else None)
+            worker_limits.assemble(_decoded_size(files), _join_in_memory, _join_on_disk, note=print, cancel_check=cancel_check)
             for file in files:
                 os.remove(file)
             segments.append(partname)
@@ -822,20 +818,35 @@ def _retry_delay(failed_attempt: int, draw=None) -> float:
     return base * (1 - RETRY_JITTER + 2 * RETRY_JITTER * (random.random() if draw is None else draw()))
 
 
-def run_edgespeak(sentence, speaker, filename):
+def run_edgespeak(sentence, speaker, filename, cancel_check=None):
+    """One clip from the service, with up to three attempts.
+
+    The conversion's Cancel (v0.7.2) is read before every attempt, during the request itself and through every back-off: a
+    Cancel makes no further request, sits out no wait, and leaves no partial file, raising
+    :class:`~shared.cancellation.ConversionCancelled`. ``cancel_check`` defaults to the check of the :func:`ffmpeg_watch.controlled`
+    block this thread is converting inside, so callers hand it nothing new.
+    """
     if not _SPEAKABLE.search(sentence):
         AudioSegment.silent(duration=50).export(filename, format="mp3")
         return
     _ensure_shared_on_path()
+    from shared.cancellation import ConversionCancelled, raise_if_cancelled, wait_unless_cancelled
     from tts import edge_failures
 
+    if cancel_check is None:
+        cancel_check = ffmpeg_watch.current_cancel_check()
     for speakattempt in range(3):
+        raise_if_cancelled(cancel_check, "Conversion cancelled by user.")
         try:
             communicate = edge_tts.Communicate(sentence, speaker)
-            run_save(communicate, filename)
+            run_save(communicate, filename, cancel_check)
             if os.path.getsize(filename) == 0:
                 raise RuntimeError("Failed to save file from edge_tts")
             break
+        except ConversionCancelled:
+            with contextlib.suppress(OSError):
+                os.remove(filename)  # whatever the abandoned request had written
+            raise
         except Exception as e:
             # Only a failure another attempt can plausibly cure is retried: a refused handshake (HTTP 401/403),
             # a changed protocol or a local file problem would fail identically three times. The log names the
@@ -848,11 +859,20 @@ def run_edgespeak(sentence, speaker, filename):
                 if final is e:
                     raise
                 raise final from e
-            # wait a few seconds in case it is a transient network issue (growing, spread: see _retry_delay)
-            time.sleep(_retry_delay(speakattempt))
+            # wait a few seconds in case it is a transient network issue (growing, spread: see _retry_delay); a Cancel ends it
+            try:
+                wait_unless_cancelled(_retry_delay(speakattempt), cancel_check)
+            except ConversionCancelled:
+                with contextlib.suppress(OSError):
+                    os.remove(filename)
+                raise
 
-def run_save(communicate, filename):
-    asyncio.run(communicate.save(filename))
+def run_save(communicate, filename, cancel_check=None):
+    """The request itself. With a ``cancel_check`` the request is abandoned as soon as a Cancel is seen (v0.7.2)."""
+    _ensure_shared_on_path()
+    from shared.cancellation import await_unless_cancelled
+
+    asyncio.run(await_unless_cancelled(communicate.save(filename), cancel_check))
 
 async def parallel_edgespeak(sentences, speakers, filenames):
     semaphore = asyncio.Semaphore(10)  # Limit the number of concurrent tasks
@@ -864,7 +884,9 @@ async def parallel_edgespeak(sentences, speakers, filenames):
                 loop = asyncio.get_running_loop()
                 sentence = re.sub(r'[!]+', '!', sentence)
                 sentence = re.sub(r'[?]+', '?', sentence)
-                task = loop.run_in_executor(executor, run_edgespeak, sentence, speaker, filename)
+                # The executor thread gets this conversion's context, so its request answers to the same Cancel (v0.7.2).
+                context = contextvars.copy_context()
+                task = loop.run_in_executor(executor, context.run, run_edgespeak, sentence, speaker, filename)
                 tasks.append(task)
         await asyncio.gather(*tasks)
 

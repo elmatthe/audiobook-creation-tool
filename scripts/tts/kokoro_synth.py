@@ -389,6 +389,10 @@ def kokoro_file_to_mp3(
     if not rendered:
         raise RuntimeError("Kokoro produced no audio segments.")
 
+    if cancel_check is not None and cancel_check():  # before the one encode: nothing unfinished is written (v0.7.2)
+        from shared.cancellation import ConversionCancelled
+
+        raise ConversionCancelled("Conversion cancelled by user.")
     log("  Assembling Kokoro audio...")
     _export_mp3(np.concatenate(rendered), SAMPLE_RATE, output_mp3_path, bitrate, log=log)
 

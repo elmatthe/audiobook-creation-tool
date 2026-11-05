@@ -366,8 +366,8 @@ def test_every_production_assembly_goes_through_assemble_with_both_routes():
                 found += 1
                 assert len(node.args) == 3, f"{path.name}:{node.lineno}: the size, the route in memory and the route on disk"
                 assert not any(isinstance(arg, ast.Constant) for arg in node.args[1:])
-                assert {keyword.arg for keyword in node.keywords} & {"cancel_check", "finishing_check"}, \
-                    f"{path.name}:{node.lineno} must say what a Cancel does here"
+                assert "cancel_check" in {keyword.arg for keyword in node.keywords}, \
+                    f"{path.name}:{node.lineno} must hand the run's Cancel through (v0.7.2: every assembly stops on it)"
     assert found == 3, "the chapter join, the direct route's final assembly and the folder route's"
 
 
@@ -721,8 +721,11 @@ def test_too_little_memory_even_for_the_disk_route_fails_the_file_and_is_not_syn
 
 
 @needs_ffmpeg
-def test_cancel_during_assembly_on_disk_keeps_the_finished_narration(tmp_path, offline, no_room, monkeypatch):
-    """The owner's decision holds on this route: past the last checkpoint a narration is finished work."""
+def test_cancel_during_assembly_on_disk_stops_it_and_publishes_nothing(tmp_path, offline, no_room, monkeypatch):
+    """v0.7.2: past the last checkpoint a narration is still work a Cancel stops, and the disk route is no exception: the
+    encoder is killed or the publication refused, and nothing reaches the output folder."""
+    from shared.cancellation import ConversionCancelled
+
     source = write_book(tmp_path / "in")
     pressed = threading.Event()
     real = disk_assembly.encode_mp3
@@ -732,8 +735,11 @@ def test_cancel_during_assembly_on_disk_keeps_the_finished_narration(tmp_path, o
         return real(*args, **kwargs)
 
     monkeypatch.setattr(disk_assembly, "encode_mp3", cancel_during)
-    produced = direct_mp3(source, tmp_path / "out", cancel_check=pressed.is_set)
-    assert pressed.is_set() and len(produced) > 0
+    with pytest.raises(ConversionCancelled):
+        direct_mp3(source, tmp_path / "out", cancel_check=pressed.is_set)
+    assert pressed.is_set()
+    out = tmp_path / "out"
+    assert not out.exists() or not list(out.rglob("*.mp3"))
 
 
 @needs_ffmpeg

@@ -1112,9 +1112,10 @@ def test_cancel_before_the_last_synthesis_step_publishes_nothing_on_either_route
 
 
 @needs_ffmpeg
-def test_cancel_during_publication_never_leaves_a_partial_and_keeps_finished_work(tmp_path, offline_engine, monkeypatch):
-    """A narration past its last synthesis step is finished work (``test_a_success_finishing_during_cancellation...``):
-    a Cancel pressed mid-copy lets the copy finish, the name appears whole, and the item counts as a success."""
+def test_cancel_during_publication_publishes_nothing_and_leaves_no_partial(tmp_path, offline_engine, monkeypatch):
+    """v0.7.2: a Cancel pressed while the finished file is being copied into staging stops it. Nothing appears under the
+    final name at any moment, no staging file stays, and the item is cancelled, not a success. (A file whose commit had
+    already happened stays: ``test_cancel_semantics``.)"""
     source = source_file(tmp_path / "in")
     destination = tmp_path / "run" / "book-Voice.mp3"
     cancelled = threading.Event()
@@ -1128,11 +1129,12 @@ def test_cancel_during_publication_never_leaves_a_partial_and_keeps_finished_wor
         return real_copy(reader, writer)
 
     monkeypatch.setattr(publication, "_copy_chunk", copy)
-    panel_module.convert_with_edge_engine(direct_item(source, destination), direct_params(False), None, cancelled.is_set)
+    with pytest.raises(ConversionCancelled):
+        panel_module.convert_with_edge_engine(direct_item(source, destination), direct_params(False), None, cancelled.is_set)
 
     assert cancelled.is_set()
     assert not any(during)
-    publication.verify_finished_mp3(destination)
+    assert not destination.exists()
     assert stage_files(destination.parent) == []
 
 
@@ -1145,13 +1147,16 @@ def _hold_the_gate(monkeypatch):
     return gate
 
 
-def _route_waits_then_finishes(gate, convert, cancelled):
-    """Runs *convert* while another assembly holds the gate; presses Cancel once it is waiting; a finished narration then
-    stops waiting for its turn, and is assembled on disk while the other still holds its place."""
+def _route_waits_then_is_cancelled(gate, convert, cancelled):
+    """Runs *convert* while another assembly holds the gate; presses Cancel once it is waiting. v0.7.2: a finished narration
+    then leaves the gate at once, like any other file, while the other still holds its place."""
     outcome = {}
 
     def work():
-        outcome["result"] = convert()
+        try:
+            outcome["result"] = convert()
+        except ConversionCancelled as exc:
+            outcome["error"] = exc
 
     with gate.reserve(1024 ** 3):  # the other file, assembling
         worker = threading.Thread(target=work)
@@ -1160,36 +1165,41 @@ def _route_waits_then_finishes(gate, convert, cancelled):
         while not gate._queue:
             assert time.monotonic() < deadline, "it never reached the gate"
             time.sleep(0.005)
+        started = time.monotonic()
         cancelled.set()
-        worker.join(60)
-        assert not worker.is_alive(), "Cancel sends a finished narration to disk: it does not wait for the other file"
-    return outcome["result"]
+        worker.join(10)
+        assert not worker.is_alive(), "a Cancel ends the wait at once, finished narration or not"
+        outcome["seconds"] = time.monotonic() - started
+    return outcome
 
 
 @needs_ffmpeg
-def test_cancel_during_the_memory_wait_keeps_a_finished_direct_narration(tmp_path, offline_engine, monkeypatch):
-    """Whether a finished file survived a Cancel used to depend on its place in the queue (found by review)."""
+def test_cancel_during_the_memory_wait_stops_a_finished_direct_narration(tmp_path, offline_engine, monkeypatch):
+    """v0.7.2: whether a file survives a Cancel no longer depends on its place in the queue, because none does: the
+    direct route raises, within the stop budget, and publishes nothing."""
     gate = _hold_the_gate(monkeypatch)
     source = source_file(tmp_path / "in")
-    # The chapter's own join comes first; with the book's last checkpoint behind it, that one does not honour Cancel either.
     cancelled = threading.Event()
-    produced = _route_waits_then_finishes(
+    outcome = _route_waits_then_is_cancelled(
         gate, lambda: runner.run_conversion_job(str(source), output_dir=str(tmp_path / "out"), audio_format="mp3",
                                                 cancel_check=cancelled.is_set), cancelled)
-    publication.verify_finished_mp3(produced)
+    assert "error" in outcome and "result" not in outcome
+    assert outcome["seconds"] < 5
+    out = tmp_path / "out"
+    assert not out.exists() or list(out.iterdir()) == []
 
 
 @needs_ffmpeg
-def test_cancel_during_the_memory_wait_keeps_a_finished_folder_narration(tmp_path, offline_folder, monkeypatch):
+def test_cancel_during_the_memory_wait_stops_a_finished_folder_narration(tmp_path, offline_folder, monkeypatch):
     gate = _hold_the_gate(monkeypatch)
     source = source_file(tmp_path / "in")
     target = tmp_path / "out" / "book-Voice.mp3"
     cancelled = threading.Event()
-    status = _route_waits_then_finishes(
+    outcome = _route_waits_then_is_cancelled(
         gate, lambda: batch_convert.convert_single_pdf(source, tmp_path / "out", "v", "+0%", lambda _m: None,
                                                        cancel_check=cancelled.is_set, out_mp3=target), cancelled)
-    assert status[0] == "success"
-    publication.verify_finished_mp3(target)
+    assert outcome["result"][0] == "cancelled" and outcome["seconds"] < 5
+    assert not target.exists() and stage_files(tmp_path / "out") == []
 
 
 @needs_ffmpeg

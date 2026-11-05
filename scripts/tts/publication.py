@@ -16,9 +16,11 @@ the standalone ``batch_convert`` and the standalone ``runner``.
   name, and a locked or unwritable destination keeps the old file.
 * A failed attempt removes only the staging file it created. Nothing here ever deletes a file because of where it is or
   what it is called, and nothing here ever removes a destination.
-* Cancel does not reach in here. It stops a conversion at the synthesis checkpoints; a narration that got past the last
-  one is finished work, possibly hours of it, and is assembled, published and counted as ever (Decisions, 2026-11-03). So
-  a Cancel pressed during publication costs at most the moments the copy takes, and never a partial file.
+* Cancel wins until the instant of the commit (v0.7.2). The one same-filesystem operation that gives the file its name is the
+  boundary: ``cancel_check`` is read immediately before it, and a Cancel seen there (or during the copy into staging) raises
+  :class:`~shared.cancellation.ConversionCancelled` with nothing under the final name and the staging file removed. A Cancel
+  that arrives after that last look has lost: the operation completes, the file is whole, and it stays, as every file
+  published before the Cancel stays. There is no window in which a partial file carries the final name.
 * A staging file left by a killed process is recognised by its exact name (:func:`sweep_orphans`) and removed only when
   the process named in it is gone and the file has lain untouched for an hour. It never ends in ``.mp3``, so nothing can
   mistake it for an output.
@@ -42,6 +44,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from shared import output_paths
+from shared.cancellation import CancelCheck, raise_if_cancelled
 
 #: ``.act-tmp-<pid: 8 hex><token: 5 hex>.part``, 27 characters and no stem. ``output_names`` keeps 20 units of room beyond
 #: every planned name and that name is at least 7 long (``x-L.mp3``), so a folder that can hold the output can hold this.
@@ -202,13 +205,14 @@ class Stage:
             raise _explain(self.destination, exc) from exc
         raise PublicationError(f"{self.destination.name} could not be saved: no free private name beside it")
 
-    def receive(self, finished) -> None:
+    def receive(self, finished, cancel_check: CancelCheck = None) -> None:
         """Copy a finished file into staging: this is the only way a file from another folder (perhaps another drive)
-        reaches a destination. Always a copy, so the output takes the destination folder's permissions."""
+        reaches a destination. Always a copy, so the output takes the destination folder's permissions. A Cancel seen between
+        two chunks ends the copy with :class:`~shared.cancellation.ConversionCancelled`; the staging file goes with the attempt."""
         def copy() -> tuple[int, int]:
             with open(finished, "rb") as reader, open(self.path, "wb") as writer:
                 while _copy_chunk(reader, writer):
-                    pass
+                    raise_if_cancelled(cancel_check, "Conversion cancelled by user.")
                 writer.flush()
                 os.fsync(writer.fileno())
             return os.path.getsize(self.path), os.path.getsize(finished)
@@ -228,16 +232,24 @@ class Stage:
         with open(self.path, "rb+") as handle:
             os.fsync(handle.fileno())
 
-    def publish(self) -> Path:
-        """Give the staged file its final name, or raise with nothing changed."""
+    def publish(self, cancel_check: CancelCheck = None) -> Path:
+        """Give the staged file its final name, or raise with nothing changed.
+
+        ``cancel_check`` is read immediately before the one operation that commits the name: a Cancel seen there raises
+        :class:`~shared.cancellation.ConversionCancelled` and nothing is published; a Cancel after it has lost, and the
+        published file stays (v0.7.2).
+        """
         if self.path is None or self.published:
             raise RuntimeError("this stage has nothing to publish")
+        raise_if_cancelled(cancel_check, "Conversion cancelled by user.")
         if self.overwrite and (output_paths._is_link(self.destination) or self.destination.is_dir()):
             raise PublicationError(f"{self.destination} is a link or a folder, which is never replaced")
         publisher = _publish_replacing if self.overwrite else _publish_no_clobber
 
         def flush_and_publish() -> None:
             self._flush_staged()
+            # The last look. Past this line the commit is the destination's, whatever the person presses.
+            raise_if_cancelled(cancel_check, "Conversion cancelled by user.")
             publisher(self.path, self.destination)
 
         try:
@@ -274,11 +286,11 @@ class Stage:
             _active.discard(os.path.normcase(str(self.path)))
 
 
-def publish_file(finished, destination, *, overwrite: bool = False) -> Path:
+def publish_file(finished, destination, *, overwrite: bool = False, cancel_check: CancelCheck = None) -> Path:
     """Publish an already finished file at *destination* under the contract above. *finished* is left where it is."""
     with Stage(destination, overwrite=overwrite) as stage:
-        stage.receive(finished)
-        return stage.publish()
+        stage.receive(finished, cancel_check)
+        return stage.publish(cancel_check)
 
 
 # --------------------------------------------------------------------------- is the finished audio any good?

@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.2 Phase 1 — Cancel stops now (2026-11-05) — identity 0.7.1 until the v0.7.2 release checkpoint; NOT published, tagged or merged
+
+- **Changed (Cancel):** Cancel stops every file being converted at once, whatever it is doing: asking the voice service for speech, a request in flight, a wait between attempts, a wait for memory, the narration being put together or encoded, and the last step of saving. Nothing unfinished is saved, nothing is asked of the voice service again, and nothing falls back to disk or tries again after Cancel. A file that was already saved before Cancel stays. Until now a narration whose speech was complete was allowed to finish and be saved for up to 10 minutes after Cancel.
+- **Changed (Cancel, local voices):** the Kokoro and Chatterbox voices' final encode now also stops on Cancel; Qwen3's already did.
+- **Changed (log):** a file stopped by Cancel is logged as "stopped (cancelled); nothing unfinished was saved"; a file that never started stays "skipped (cancelled)". Neither is a failure, and Retry Failed offers neither. The Cancel line itself now says what happens instead of "will stop at the next checkpoint".
+- **Not changed:** Pause (files already converting finish; nothing new starts until Resume; Cancel works while paused), every voice's audio and output names, Overwrite, publication (a saved file appears whole, once), the memory safety and no-hang guarantees of v0.7.1.
+- Measured on HOME-PC under a real memory limit with the real FFmpeg (`files/tests/test_low_memory.py`): Cancel-to-end 0.02–0.28 s across seven scenarios (a stalled encoder, a file assembling in memory with others waiting, a starved queue), nothing published after Cancel, no process or reservation left.
+
 ### v0.7.1 R2 review remediation (2026-11-04) — identity 0.7.1; NOT published, tagged or merged
 
 - **Fixed (hang):** running out of memory while a narration was being put together could stop the whole run for ever, with Cancel doing nothing. That can no longer happen: every FFmpeg on the Edge routes can now be stopped, and has nothing it can block on.

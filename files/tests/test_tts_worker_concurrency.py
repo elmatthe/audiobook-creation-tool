@@ -323,28 +323,32 @@ def test_chatterbox_never_exceeds_one_concurrent_file_even_when_more_are_request
 # --------------------------------------------------------------------------- #
 
 
-def test_a_success_finishing_during_cancellation_is_recorded_not_orphaned(make_panel, output_base, tmp_path,
-                                                                          gated_stubs):
-    """An item that finishes successfully *after* cancel was requested is still recorded, and its output kept."""
-    panel, _chosen = direct_panel(make_panel, tmp_path, "keep.txt", "gate.txt")
+def test_work_finishing_after_cancel_is_not_published(make_panel, output_base, tmp_path, gated_stubs):
+    """v0.7.2: an engine that finishes *after* Cancel was requested has lost the race at the commit boundary. Nothing of it
+    is published, the item is cancelled rather than a success or a failure, and the run is cancelled. (A file whose
+    publication won before the Cancel stays: ``test_a_cancelled_run_keeps_the_outputs_that_already_finished``.)"""
+    gated_stubs.gate_on = ".txt"  # every file holds inside its conversion until released
+    panel, _chosen = direct_panel(make_panel, tmp_path, "first.txt", "second.txt")
     panel.workers_var.set("2")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
     try:
         assert gated_stubs.entered.wait(WAIT)
+        wait_for(lambda: len(gated_stubs.order) == 2, "both files never entered their conversions", panel=panel)
         panel.cancel_job()
         gated_stubs.release.set()
         wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
     finally:
+        gated_stubs.release.set()
         worker.join(WAIT)
     wait_for(lambda: panel._result is not None, "the settled result never reached the panel", panel=panel)
     result = panel._result
     assert result.cancelled is True
-    assert result.succeeded_count == 2
-    for name in ("keep.txt", "gate.txt"):
+    assert result.succeeded_count == 0 and result.failed_count == 0, "cancelled is neither a success nor a failure"
+    for name in ("first.txt", "second.txt"):
         destination = next(entry.destination for entry in panel.destinations().values() if entry.source.name == name)
-        assert destination.exists(), f"{name}'s output must survive -- a recorded success is never discarded"
+        assert not destination.exists(), f"{name}: nothing unfinished is published after Cancel"
 
 
 # --------------------------------------------------------------------------- #
