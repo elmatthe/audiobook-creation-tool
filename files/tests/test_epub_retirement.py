@@ -67,6 +67,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_runtime.py",
     "tts/qwen3_synth.py",
     "tts/qwen3_worker.py",
+    # Added by the v0.7.1 R2 remediation: what supervises every FFmpeg on the Edge routes. Same reasoning as chatterbox_synth.py above.
+    "tts/ffmpeg_watch.py",
     "tts/speech/__init__.py",
     "tts/speech/document.py",
     "tts/speech/classes.py",
@@ -211,18 +213,20 @@ def requirement_names() -> dict[str, str]:
 
 
 def test_the_runner_accepts_exactly_pdf_and_txt():
-    """``run_conversion_job``'s own suffix gate is the single dispatch authority."""
+    """The suffix gate of ``run_conversion_job`` and the ``_convert`` it runs under supervision is the single dispatch authority."""
     from tts.epub2tts_edge.runner import run_conversion_job  # noqa: F401
 
     tree = parse("tts/epub2tts_edge/runner.py")
-    job = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "run_conversion_job"
-    )
+    functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    job, convert = functions["run_conversion_job"], functions["_convert"]
+    assert any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_convert"
+        for node in ast.walk(job)
+    ), "the job must go through the function holding the gate"
     suffixes = {
         value
-        for value in string_constants(job)
+        for function in (job, convert)
+        for value in string_constants(function)
         if value.startswith(".") and len(value) <= 6
     }
     assert suffixes == {".pdf", ".txt"}, suffixes

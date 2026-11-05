@@ -32,6 +32,7 @@ from shared.cancellation import ConversionCancelled
 from tts import batch_convert, disk_assembly, edge_failures, ffmpeg_watch, publication
 from tts import worker_limits as wl
 from tts.epub2tts_edge import epub2tts_edge as engine
+from tts.epub2tts_edge import runner  # Here, with ``engine``: ``test_epub_retirement`` leaves a fresh copy of both in ``sys.modules``.
 
 from test_assembly_on_disk import clip_for, direct_mp3, folder_mp3, write_book
 
@@ -688,8 +689,6 @@ def test_falling_back_removes_what_the_failed_export_left_before_the_disk_route_
 
 @needs_ffmpeg
 def test_the_direct_route_leaves_no_work_folder_when_the_final_encode_fails(tmp_path, offline, monkeypatch):
-    from tts.epub2tts_edge import runner
-
     source = write_book(tmp_path / "in", LONG_BOOK)
     direct_mp3(source, tmp_path / "plain")  # every clip is made once, by the export replaced below, and kept
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
@@ -955,8 +954,6 @@ def test_running_out_on_the_folder_route_gives_the_same_bytes_with_no_new_reques
 
 @needs_ffmpeg
 def test_when_nothing_can_be_done_the_direct_route_names_it_and_publishes_nothing(tmp_path, offline, monkeypatch):
-    from tts.epub2tts_edge import runner
-
     source = write_book(tmp_path / "in", LONG_BOOK)
     monkeypatch.setattr(wl, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
     monkeypatch.setattr(wl, "DISK_RETRY_PAUSE_SECONDS", 0)
@@ -970,8 +967,6 @@ def test_when_nothing_can_be_done_the_direct_route_names_it_and_publishes_nothin
 
 
 def test_a_memory_error_anywhere_in_the_direct_route_is_never_a_blank_message(tmp_path, monkeypatch):
-    from tts.epub2tts_edge import runner
-
     source = tmp_path / "book.txt"
     source.write_text("Words.\n", encoding="utf-8")
     monkeypatch.setattr(runner, "get_book", lambda *a, **k: (_ for _ in ()).throw(MemoryError()))
