@@ -32,6 +32,27 @@ REQUEST_STOP_SECONDS = 1.0
 _REQUEST_THREAD_PREFIX = "act-request"
 _request_numbers = itertools.count(1)
 
+#: Names the one thread that runs the collections dropped requests are owed. It belongs to no request, so it is not one of theirs.
+_COLLECTOR_THREAD_NAME = "act-dropped-requests-collector"
+
+#: How many times, and how far apart, that thread tries for a collection of its own while another thread's is under way: 30 s in
+#: all. Only a finalizer that blocks can make it wait that long, and then it goes, so that it can never stay.
+_COLLECTION_LOOKS = 1500
+_COLLECTION_LOOK_SECONDS = 0.02
+
+#: How long that thread stands aside after each collection. A collection holds up every other thread, so the requests it held up
+#: have not yet had a turn to say they were dropped; start the next at once and it covers few of them. Eight workers on a heap
+#: like a full run's cost three collections and 3.6-3.7 s without this pause, two and 2.7-2.8 s with it (measured). This buys
+#: sharing, never correctness: a drop it misses is covered by the next collection.
+_COLLECTION_GATHER_SECONDS = 0.1
+
+#: What dropped requests are owed, as numbers rather than a queue: each drop takes the next number, and a collection that began
+#: after a drop covers that number and every one before it. Guards the three below and is never held across a collection.
+_collections = threading.Condition()
+_drops = 0
+_drops_covered = 0
+_collector_running = False
+
 
 def wait_unless_cancelled(seconds: float, cancel_check: CancelCheck, *, step: float = CANCEL_POLL_SECONDS,
                           message: str = "Conversion cancelled by user.") -> None:
@@ -97,12 +118,13 @@ def run_request(main: Coroutine[object, object, T], *, stop_seconds: float = REQ
 
     A task that has still not stopped is dropped. That stops it for good and does not leave it running somewhere: a coroutine
     only ever runs when its loop runs it, and this loop is closed. Its coroutine is closed too, which runs its ``finally`` and
-    ``with`` blocks so that a partial file it holds is let go, and the collection that follows closes the sockets it held. An
-    asynchronous generator left open gets the same deadline: past it, its cleanup is cancelled and then dropped.
+    ``with`` blocks so that a partial file it holds is let go, and a collection that begins after that closes the sockets it held
+    (:func:`_collect_dropped`). An asynchronous generator left open gets the same deadline: past it, its cleanup is cancelled and
+    then dropped.
     Nothing is claimed that was not seen: ``note`` is told about anything that had to be dropped, about a generator's cleanup
-    that was cut short, and about any blocking call still under way on an executor thread, which Python cannot interrupt. Such
-    a call makes no further request, its answer goes nowhere and its thread ends when the operating system answers; closing the
-    application waits for that thread.
+    that was cut short, about a collection that could not be set going, and about any blocking call still under way on an
+    executor thread, which Python cannot interrupt. Such a call makes no further request, its answer goes nowhere and its thread
+    ends when the operating system answers; closing the application waits for that thread.
 
     A request that finishes is unchanged: its result or exception comes back as from ``asyncio.run``, nothing is said.
     """
@@ -127,8 +149,10 @@ def _shut_down(loop: asyncio.AbstractEventLoop, prefix: str, stop_seconds: float
         cut_short, cleanup_dropped = _close_generators(loop, remaining)
     finally:
         loop.close()  # also tells the executor to stop, without waiting for it
+    collection_on_its_way = True
     if refused or cleanup_dropped:
-        gc.collect()  # the dropped tasks' sockets are closed when they are collected; do not leave that to chance
+        # The dropped tasks' sockets are closed when they are collected; do not leave that to chance.
+        collection_on_its_way = _collect_dropped(remaining())
     threads = [thread for thread in threading.enumerate() if thread.name.startswith(f"{prefix}_")]
     for thread in threads:
         thread.join(remaining())
@@ -141,6 +165,97 @@ def _shut_down(loop: asyncio.AbstractEventLoop, prefix: str, stop_seconds: float
     if any(thread.is_alive() for thread in threads):
         _say(note, "A cancelled network request left a call still waiting for the operating system, usually a name lookup. "
                    "Nothing is waiting for it and its answer is ignored.")
+    if not collection_on_its_way:
+        _say(note, "A dropped network request may keep its connection open for now, because the program could not start a thread "
+                   "to release it, usually for lack of memory. It closes later, at the latest when the application closes.")
+
+
+def _collect_dropped(wait_seconds: float) -> bool:
+    """See to it that a full collection begins after this call, and wait up to ``wait_seconds`` for it to end. ``False`` if no
+    thread could be started for one, so that nothing is on its way.
+
+    Something a dropped request holds in a reference cycle, as a real client's session and connection are, is released by nothing
+    else. But a full collection costs the whole process's heap (0.33-0.45 s on a full run's), every other thread waits while it
+    runs, and one for each request made eight workers' Cancel wait for up to eight in a row. So requests dropped together share:
+    a collection covers whatever was dropped before it began, and only that, since it chose its garbage when it began. Whatever is
+    dropped while it runs is covered by the next, however many they are.
+
+    They run on one thread that exists only while something is owed, so a finalizer that blocks holds that thread and not a Cancel.
+    A caller that stops waiting leaves its number on the account and is still covered. What no wait can shorten is a collection
+    already running: it holds the interpreter, and with it every thread here, until it ends or a finalizer lets go.
+
+    No collection ever runs on the caller, even when the thread cannot be started. A collection has no deadline and cannot be
+    stopped, so one here could hold the Cancel for as long as a finalizer liked (measured), and Cancel comes first. So that case
+    costs the connection instead: the number stays owed and ``False`` comes back, because nothing is on its way. The next drop that
+    gets a thread covers it; until then only the interpreter's own collections, or the process's end, can release what it held.
+    """
+    global _drops, _collector_running
+    with _collections:
+        _drops += 1
+        mine = _drops
+        start = not _collector_running
+        _collector_running = True
+    if start:
+        try:
+            threading.Thread(target=_collect_what_is_owed, name=_COLLECTOR_THREAD_NAME, daemon=True).start()
+        except (RuntimeError, MemoryError):  # no room for a thread, or the interpreter is going away
+            with _collections:
+                _collector_running = False
+            return False
+    # This runs in run_request's ``finally``, so it must not replace the outcome. A wait allocates a lock, and memory can refuse
+    # that too; the collection does not depend on anyone waiting for it.
+    with contextlib.suppress(RuntimeError, MemoryError), _collections:
+        _collections.wait_for(lambda: _drops_covered >= mine, wait_seconds)
+    return True
+
+
+def _collect_what_is_owed() -> None:
+    """The collector thread: one full collection at a time until nothing is owed, then gone. Starting afresh is a later drop's job."""
+    global _drops_covered, _collector_running
+    try:
+        looks_left = _COLLECTION_LOOKS
+        pause = threading.Event()
+        while True:
+            with _collections:
+                covering = _drops  # read before the collection begins: it covers these and perhaps more, never fewer
+                if not looks_left or covering == _drops_covered:
+                    _collector_running = False  # in one step with that look: a drop after this one starts another thread
+                    return
+            if _a_full_collection_began():
+                looks_left = _COLLECTION_LOOKS
+                with _collections:
+                    _drops_covered = covering
+                    _collections.notify_all()
+                pause.wait(_COLLECTION_GATHER_SECONDS)
+            else:
+                looks_left -= 1
+                pause.wait(_COLLECTION_LOOK_SECONDS)
+    except BaseException:  # above all MemoryError, at any step: this thread must not die holding its place
+        with _collections:
+            _collector_running = False  # what is owed stays owed, and a later drop starts another thread
+        raise  # to threading.excepthook: not hidden
+
+
+def _a_full_collection_began() -> bool:
+    """Ask for a full collection and say whether one really began; when this returns ``True`` it has also ended.
+
+    While a collection is under way on another thread ``gc.collect()`` does nothing and returns 0 (measured: at once), and 0 is
+    also what it returns having found nothing. That other collection chose its garbage too early to count, so the only report to
+    trust is the interpreter's own that a collection began on this thread.
+    """
+    this_thread = threading.get_ident()
+    began: list[bool] = []
+
+    def watch(phase: str, info: dict) -> None:
+        if phase == "start" and info["generation"] == 2 and threading.get_ident() == this_thread:
+            began.append(True)
+
+    gc.callbacks.append(watch)
+    try:
+        gc.collect()
+    finally:
+        gc.callbacks.remove(watch)
+    return bool(began)
 
 
 def _end_tasks(loop: asyncio.AbstractEventLoop, tasks, remaining: Callable[[], float]) -> bool:

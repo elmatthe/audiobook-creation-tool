@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import contextvars
 import gc
 import logging
 import os
+import random
 import socket
 import subprocess
 import sys
@@ -1509,6 +1511,517 @@ def test_neither_edge_request_is_driven_by_asyncio_run_any_more():
     for relative, name in (("tts/epub2tts_edge/epub2tts_edge.py", "run_save"), ("tts/batch_convert.py", "synthesize_chunk_mp3")):
         called = source_probe.calls(source_probe.function(relative, name))
         assert "run_request" in called and "run" not in called, f"{name}: {called}"
+
+
+# ---- what a dropped request's connection waits for: one full collection that began after the drop, and it is shared
+#
+# The full gate failed the eight workers above at 5.27 s against 5.25 s: each dropped request ran a full collection of its own,
+# a collection holds every other thread up, and on the heap a full run builds one costs 0.33-0.45 s. Removing the collection is
+# not the answer, because a connection held in a reference cycle is released by nothing else (the tests above). And a
+# ``gc.collect()`` made while another is under way does nothing at all, so a request dropped during one was simply left open.
+
+COLLECTOR_THREAD = "act-dropped-requests-collector"
+
+
+class _Collections:
+    """Every full collection that really ran, as the interpreter reports them: a ``gc.collect()`` that found another under way
+    never appears. Automatic collection is off inside, so only what was asked for is counted and nothing is closed by luck."""
+
+    def __enter__(self):
+        self.began = 0
+        self.seconds: list[float] = []
+        self._enabled = gc.isenabled()
+        gc.disable()
+        gc.callbacks.append(self._saw)
+        return self
+
+    def __exit__(self, *_exception):
+        gc.callbacks.remove(self._saw)
+        if self._enabled:
+            gc.enable()
+
+    def _saw(self, phase, info):
+        if info["generation"] == 2 and phase == "start":
+            self.began += 1
+            self._started = time.perf_counter()
+        elif info["generation"] == 2:
+            self.seconds.append(time.perf_counter() - self._started)
+
+
+class _Stuck:
+    """Garbage whose finalizer holds the collection that found it until the test lets go: a long collection, made deterministic.
+    A finalizer runs after the collection has chosen what is garbage, so whatever is dropped from then on is not among it."""
+
+    def __init__(self, reached: threading.Event, release: threading.Event):
+        self.reached, self.release, self.myself = reached, release, self
+
+    def __del__(self):
+        self.reached.set()
+        self.release.wait(WAIT)
+
+
+@contextlib.contextmanager
+def _a_collection_under_way():
+    """A real full collection that is nobody's request, held until the block ends. The first of the block's collections."""
+    reached, release = threading.Event(), threading.Event()
+    _Stuck(reached, release)
+    collecting = threading.Thread(target=gc.collect, daemon=True)
+    collecting.start()
+    assert reached.wait(WAIT)
+    try:
+        yield
+    finally:
+        release.set()
+        collecting.join(WAIT)
+
+
+class _RefusedConnection:
+    """A real request on the real driver: it connects to this test, keeps the connection only through a reference cycle, the way
+    a client's session and connector do, and refuses to stop. ``holding`` makes something else that only the cycle keeps."""
+
+    def __init__(self, holding=None):
+        self.holding = holding
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.listener.settimeout(WAIT)
+        self.armed = threading.Event()
+        self.notes: list[str] = []
+        self.outcome: list[object] = []
+        self.driver = threading.Thread(target=self._drive, daemon=True)
+        self.driver.start()
+        self.peer, _address = self.listener.accept()
+        self.peer.settimeout(WAIT)
+        assert self.peer.recv(5) == b"hello"
+
+    async def _request(self):
+        _reader, writer = await asyncio.open_connection("127.0.0.1", self.listener.getsockname()[1])
+        writer.write(b"hello")
+        await writer.drain()
+        held = {"writer": writer, "also": self.holding() if self.holding else None}
+        held["self"] = held
+        del writer, _reader  # ``held`` stays: garbage from the moment this frame goes, and not before
+        while True:
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                pass
+
+    def _drive(self):
+        try:
+            edge_requests.run_request(edge_requests.await_unless_cancelled(self._request(), self.armed.is_set, poll=0.01, stop_seconds=0.05),
+                                      stop_seconds=0.05, note=self.notes.append)
+        except BaseException as exc:  # noqa: BLE001 - judged by the test
+            self.outcome.append(exc)
+
+    def driver_ended_as_a_cancel(self) -> bool:
+        self.driver.join(WAIT)
+        return not self.driver.is_alive() and isinstance(self.outcome[0], ConversionCancelled)
+
+    def far_end_sees_it_closed(self) -> bool:
+        return self.peer.recv(1) == b""
+
+    def close(self) -> None:
+        self.peer.close()
+        self.listener.close()
+
+
+def _collector_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name == COLLECTOR_THREAD]
+
+
+def _wait_for_the_collector_to_end() -> None:
+    deadline = time.monotonic() + WAIT
+    while _collector_threads() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert not _collector_threads(), "a collector thread is still running with nothing owed"
+
+
+@pytest.fixture(autouse=True)
+def _no_collection_outlives_its_test():
+    """A dropped request's collection may outlast its request. It may not run on into the next test, and it may not stay."""
+    yield
+    _wait_for_the_collector_to_end()
+
+
+def test_a_request_dropped_during_a_collection_is_not_forgotten():
+    """A ``gc.collect()`` made while another is under way returns at once having done nothing, and that one chose its garbage
+    before this request was dropped. Left at that, nothing would ever close this connection."""
+    connection = _RefusedConnection()
+    try:
+        with _Collections() as collections:
+            with _a_collection_under_way():
+                connection.armed.set()
+                assert connection.driver_ended_as_a_cancel()
+            assert connection.far_end_sees_it_closed(), "the connection of the dropped request is still open"
+            _wait_for_the_collector_to_end()
+        assert collections.began == 2, "the one under way, and one that began after the drop"
+    finally:
+        connection.close()
+
+
+def test_a_request_dropped_during_another_requests_collection_is_not_forgotten():
+    """The same, between two requests: the first one's collection is the one under way when the second is dropped."""
+    reached, release = threading.Event(), threading.Event()
+    first = _RefusedConnection(holding=lambda: _Stuck(reached, release))
+    second = _RefusedConnection()
+    try:
+        with _Collections() as collections:
+            first.armed.set()
+            assert reached.wait(WAIT), "the first drop's collection never began"
+            second.armed.set()
+            second.driver.join(WAIT)
+            release.set()
+            assert first.driver_ended_as_a_cancel() and second.driver_ended_as_a_cancel()
+            assert first.far_end_sees_it_closed()
+            assert second.far_end_sees_it_closed(), "the second connection was left to a collection that began before its drop"
+            _wait_for_the_collector_to_end()
+        assert collections.began == 2
+    finally:
+        release.set()
+        first.close()
+        second.close()
+
+
+def test_eight_requests_dropped_during_one_collection_share_a_single_further_one():
+    """The sharing, with its order fixed by a barrier: all eight real connections close, on one collection between them."""
+    connections = [_RefusedConnection() for _ in range(8)]
+    try:
+        with _Collections() as collections:
+            with _a_collection_under_way():
+                for connection in connections:
+                    connection.armed.set()
+                assert all(connection.driver_ended_as_a_cancel() for connection in connections), \
+                    "a driver is waiting for a collection, and the wait has no end while this one is held"
+            assert all(connection.far_end_sees_it_closed() for connection in connections), "a dropped request's connection is still open"
+            _wait_for_the_collector_to_end()
+        assert collections.began == 2, f"{collections.began} collections: the one under way and exactly one more"
+    finally:
+        for connection in connections:
+            connection.close()
+
+
+def test_a_finalizer_that_blocks_cannot_hold_the_cancel():
+    """Whatever the dropped objects' finalizers do, the driver's wait has an end, and the collection finishes when they do."""
+    reached, release = threading.Event(), threading.Event()
+    connection = _RefusedConnection(holding=lambda: _Stuck(reached, release))
+    try:
+        started = time.monotonic()
+        connection.armed.set()
+        assert reached.wait(WAIT), "the collection never began"
+        connection.driver.join(2)
+        assert not connection.driver.is_alive(), "Cancel is waiting for a finalizer"
+        assert isinstance(connection.outcome[0], ConversionCancelled), connection.outcome
+        assert time.monotonic() - started < 2
+        assert len(_collector_threads()) == 1, "the collection is under way, on its own thread"
+        release.set()
+        assert connection.far_end_sees_it_closed()
+    finally:
+        release.set()
+        connection.close()
+
+
+def test_the_collector_goes_when_nothing_is_owed_and_a_later_drop_starts_another():
+    """No thread stays behind, nothing is left on the interpreter's list of callbacks, and a request dropped later still counts."""
+    callbacks = list(gc.callbacks)
+    for _round in range(2):
+        connection = _RefusedConnection()
+        try:
+            connection.armed.set()
+            assert connection.driver_ended_as_a_cancel()
+            assert connection.far_end_sees_it_closed()
+            _wait_for_the_collector_to_end()
+            assert gc.callbacks == callbacks
+        finally:
+            connection.close()
+
+
+def test_a_request_that_needs_no_collection_gets_none():
+    """Sockets are only ever at stake for what was dropped: a request that finishes, or stops when asked, costs nothing."""
+    async def finishes():
+        await asyncio.sleep(0)
+        return "finished"
+
+    async def stops():
+        await asyncio.sleep(3600)
+
+    before = set(threading.enumerate())
+    notes: list[str] = []
+    with _Collections() as collections:
+        assert edge_requests.run_request(finishes(), note=notes.append) == "finished"
+        with pytest.raises(ConversionCancelled):
+            edge_requests.run_request(edge_requests.await_unless_cancelled(stops(), lambda: True, poll=0.01), note=notes.append)
+    assert collections.began == 0 and notes == []
+    assert set(threading.enumerate()) <= before, "a thread was started for nothing"
+
+
+@pytest.mark.parametrize("refusal", [RuntimeError("can't start new thread"), MemoryError()], ids=["no-thread", "no-memory"])
+def test_no_thread_for_the_collector_costs_the_connection_and_never_the_cancel(monkeypatch, refusal):
+    """Memory or the interpreter's own shutdown can refuse a thread. A collection has no deadline and cannot be stopped, so one on
+    the cancelling thread could hold the Cancel for as long as a finalizer liked. The connection waits instead, the log says so,
+    and the next drop that gets a thread pays for it. ``run_request`` ends in a ``finally``, so the refusal must not get out either."""
+    real_start = threading.Thread.start
+
+    def start(thread):
+        if thread.name == COLLECTOR_THREAD:
+            raise refusal
+        real_start(thread)
+
+    reached, release = threading.Event(), threading.Event()
+    earlier = _RefusedConnection(holding=lambda: _Stuck(reached, release))
+    later = _RefusedConnection()
+    try:
+        with _Collections() as collections:
+            with monkeypatch.context() as refused:
+                refused.setattr(threading.Thread, "start", start)
+                earlier.armed.set()
+                earlier.driver.join(2)
+                assert not earlier.driver.is_alive(), "Cancel is waiting for a collection on its own thread"
+                assert isinstance(earlier.outcome[0], ConversionCancelled), earlier.outcome
+            assert not reached.is_set() and collections.began == 0, "a collection ran with no thread of its own"
+            assert any("connection open" in note for note in earlier.notes), earlier.notes
+            earlier.peer.settimeout(0.1)
+            with pytest.raises(TimeoutError):
+                earlier.far_end_sees_it_closed()
+            earlier.peer.settimeout(WAIT)
+            release.set()
+            later.armed.set()
+            assert later.driver_ended_as_a_cancel()
+            assert later.far_end_sees_it_closed()
+            assert earlier.far_end_sees_it_closed(), "the debt was forgotten"
+            assert not any("connection open" in note for note in later.notes), later.notes
+            _wait_for_the_collector_to_end()
+        assert collections.began == 1
+    finally:
+        release.set()
+        earlier.close()
+        later.close()
+
+
+def test_a_wait_that_cannot_be_set_up_does_not_replace_the_cancel_or_cost_the_collection(monkeypatch):
+    """A condition's wait allocates a lock, so memory can refuse the wait too. The wait is worth having, and not worth the outcome."""
+    def refused(*_arguments, **_keywords):
+        raise MemoryError
+
+    connection = _RefusedConnection()
+    try:
+        monkeypatch.setattr(edge_requests._collections, "wait_for", refused)
+        connection.armed.set()
+        assert connection.driver_ended_as_a_cancel(), connection.outcome
+        assert connection.far_end_sees_it_closed(), "the collection depended on somebody waiting for it"
+    finally:
+        connection.close()
+
+
+def test_a_collection_held_by_a_finalizer_cannot_stop_the_application_closing():
+    """In a child with a hard timeout, because this ends with a thread stuck for good: Cancel returns, and the process still exits."""
+    scripts = str(Path(edge_requests.__file__).resolve().parents[1])
+    code = f"""
+import asyncio, sys, threading
+sys.path.insert(0, {scripts!r})
+from shared.cancellation import ConversionCancelled
+from tts import edge_requests
+
+reached = threading.Event()
+
+class Stuck:
+    def __del__(self):
+        reached.set()
+        threading.Event().wait()
+
+async def refuses():
+    held = {{"stuck": Stuck()}}
+    held["self"] = held
+    while True:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            pass
+
+try:
+    edge_requests.run_request(edge_requests.await_unless_cancelled(refuses(), lambda: True, poll=0.01, stop_seconds=0.05),
+                              stop_seconds=0.05, note=lambda _note: None)
+except ConversionCancelled:
+    print("cancelled", reached.wait(10))
+"""
+    finished = subprocess.run(_python(code), capture_output=True, text=True, timeout=WAIT)
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.strip() == "cancelled True", finished.stdout + finished.stderr
+
+
+def test_a_collector_that_could_not_get_a_turn_leaves_its_debt_to_the_next_drop(monkeypatch):
+    """Its looks are bounded so that it can never stay for good. What it could not collect stays owed, and is not forgotten."""
+    monkeypatch.setattr(edge_requests, "_COLLECTION_LOOKS", 2)
+    monkeypatch.setattr(edge_requests, "_COLLECTION_LOOK_SECONDS", 0.001)
+    earlier, later = _RefusedConnection(), _RefusedConnection()
+    try:
+        with _Collections() as collections:
+            with _a_collection_under_way():
+                earlier.armed.set()
+                assert earlier.driver_ended_as_a_cancel()
+                _wait_for_the_collector_to_end()
+            assert collections.began == 1, "it gave up without a turn"
+            earlier.peer.settimeout(0.1)
+            with pytest.raises(TimeoutError):
+                earlier.far_end_sees_it_closed()
+            earlier.peer.settimeout(WAIT)
+            later.armed.set()
+            assert later.driver_ended_as_a_cancel()
+            assert later.far_end_sees_it_closed()
+            assert earlier.far_end_sees_it_closed(), "the debt was forgotten"
+            _wait_for_the_collector_to_end()
+        assert collections.began == 2
+    finally:
+        earlier.close()
+        later.close()
+
+
+@pytest.mark.parametrize("step", ["in-the-collection", "after-the-collection"])
+def test_a_collector_that_fails_does_not_keep_its_place_and_does_not_hide_it(monkeypatch, step):
+    """Short of memory above all, and at any step. If it died still counted as running, no later drop would start another and
+    nothing would be collected again. What it could not collect stays owed, and the failure reaches ``threading.excepthook``."""
+    def fails():
+        raise MemoryError
+
+    reported: list[object] = []
+    earlier, later = _RefusedConnection(), _RefusedConnection()
+    try:
+        with _Collections() as collections:
+            with monkeypatch.context() as failing:
+                failing.setattr(threading, "excepthook", reported.append)
+                if step == "in-the-collection":
+                    failing.setattr(edge_requests, "_a_full_collection_began", fails)
+                else:
+                    failing.setattr(edge_requests, "_COLLECTION_GATHER_SECONDS", "not a length of time")
+                earlier.armed.set()
+                assert earlier.driver_ended_as_a_cancel()
+                _wait_for_the_collector_to_end()
+            assert [report.exc_type for report in reported] == [MemoryError if step == "in-the-collection" else TypeError], reported
+            later.armed.set()
+            assert later.driver_ended_as_a_cancel()
+            assert later.far_end_sees_it_closed()
+            assert earlier.far_end_sees_it_closed(), "the debt was forgotten"
+            _wait_for_the_collector_to_end()
+        assert collections.began == (1 if step == "in-the-collection" else 2)
+    finally:
+        earlier.close()
+        later.close()
+
+
+def test_the_collector_stands_aside_after_a_collection_so_that_those_it_held_up_share_the_next(monkeypatch):
+    """A collection holds every other thread up, so at its end they have not yet said they were dropped. Started at once, the next
+    collection covers few of them: on the loaded heap below, three collections and 3.6-3.7 s where two and 2.7-2.8 s will do
+    (measured). That test's limits allow for it, so a window opened wide shows it every time: two drops in it, one further collection."""
+    monkeypatch.setattr(edge_requests, "_COLLECTION_GATHER_SECONDS", 2.0)
+    first, second, third = _RefusedConnection(), _RefusedConnection(), _RefusedConnection()
+    try:
+        with _Collections() as collections:
+            first.armed.set()
+            assert first.far_end_sees_it_closed(), "the first collection never ran"
+            assert collections.began == 1
+            second.armed.set()
+            assert second.driver_ended_as_a_cancel()
+            third.armed.set()
+            assert third.driver_ended_as_a_cancel()
+            assert collections.began == 1, "the next collection did not wait for those it had held up"
+            assert second.far_end_sees_it_closed() and third.far_end_sees_it_closed()
+            _wait_for_the_collector_to_end()
+        assert collections.began == 2
+    finally:
+        for connection in (first, second, third):
+            connection.close()
+
+
+#: Filler for the heap below: 1.0 M dicts, about 220 MB, cost about 0.42 s a collection, every collection (measured), where the full
+#: suite's own heap costs 0.33-0.45 s. Neither a count nor a plain build will do. 1.5 M empty lists cost 0.02 s. And a collection
+#: leaves its objects in the order it reached them: reached in memory order, as an unshuffled list would be, 0.3 s falls to 0.06 s.
+LOADED_HEAP_DICTS = 1_000_000
+
+
+@pytest.fixture
+def loaded_heap():
+    """A heap whose full collection costs what a full run's does: the gate's failure, without the gate."""
+    filler = [{"number": number, "link": None} for number in range(LOADED_HEAP_DICTS)]
+    previous = filler[0]
+    random.Random(7).shuffle(filler)
+    for item in filler:
+        item["link"], previous = previous, item
+    del previous, item
+    yield
+    filler.clear()
+    gc.collect()  # the links close a cycle, so that clearing alone would leave about 720,000 of them for some later test (measured)
+
+
+def _cancel_workers_inside_refusing_requests(workers: int, monkeypatch, tmp_path, refusing_client) -> float:
+    """The failing test's scenario, for any number of workers: how long from Cancel until the last of them has ended as one."""
+    from tts.epub2tts_edge import epub2tts_edge as engine
+    from tts.epub2tts_edge import runner
+
+    refusing_client.made, refusing_client.live = [], []
+    cancelled = threading.Event()
+    monkeypatch.setattr(engine.edge_tts, "Communicate", refusing_client)
+    monkeypatch.setattr(engine, "ensure_punkt", lambda: None, raising=False)
+    outcomes: dict[int, object] = {}
+
+    def convert(n: int, source: Path) -> None:
+        try:
+            outcomes[n] = runner.run_conversion_job(str(source), output_dir=str(tmp_path / f"out{workers}" / str(n)),
+                                                    audio_format="mp3", cancel_check=cancelled.is_set)
+        except BaseException as exc:  # noqa: BLE001 - recorded, then judged
+            outcomes[n] = exc
+
+    threads = []
+    for n in range(workers):
+        folder = tmp_path / f"in{workers}" / str(n)
+        folder.mkdir(parents=True)
+        source = folder / "book.txt"
+        source.write_text("# One\n\nA sentence to read.\n", encoding="utf-8")
+        threads.append(threading.Thread(target=convert, args=(n, source), daemon=True))
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + WAIT
+    while len(refusing_client.live) < workers and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert len(refusing_client.live) == workers, "every worker is inside its request"
+    started = time.monotonic()
+    cancelled.set()
+    for thread in threads:
+        thread.join(WAIT)
+    seconds = time.monotonic() - started
+    assert all(not thread.is_alive() for thread in threads), "a worker is still waiting for its request"
+    assert all(isinstance(outcomes[n], ConversionCancelled) for n in range(workers)), outcomes
+    assert len(refusing_client.made) == workers, "exactly one request per worker: none after the latch"
+    assert not list((tmp_path / f"out{workers}").rglob("*.mp3"))
+    return seconds
+
+
+def test_on_a_loaded_heap_eight_workers_share_their_collections_and_their_wait_does_not_grow_with_them(monkeypatch, tmp_path, refusing_client, loaded_heap, request):
+    """The gate's failure, seen directly. A collection each made Cancel's wait grow by a full collection for every worker. Eight
+    workers now cost what one does, plus at most the collection under way when the first arrives and the one after it. Three are
+    allowed because the workers' looks at Cancel, up to 0.25 s apart, can straddle two collections; two is what is measured. What
+    was asked for is counted as well as what ran: a request's own ``gc.collect()`` during another's ran nothing and said nothing."""
+    real_collect = gc.collect
+    asked: list[int] = []
+
+    def counted_collect(*arguments):
+        asked.append(1)
+        return real_collect(*arguments)
+
+    with _Collections() as one_worker:
+        alone = _cancel_workers_inside_refusing_requests(1, monkeypatch, tmp_path, refusing_client)
+        _wait_for_the_collector_to_end()
+    monkeypatch.setattr(gc, "collect", counted_collect)
+    with _Collections() as eight_workers:
+        together = _cancel_workers_inside_refusing_requests(8, monkeypatch, tmp_path, refusing_client)
+        _wait_for_the_collector_to_end()
+    cost = min(one_worker.seconds)
+    measured = (f"{alone:.2f} s alone, {together:.2f} s together; collections cost {[round(s, 2) for s in one_worker.seconds]} alone and "
+                f"{[round(s, 2) for s in eight_workers.seconds]} together, {len(asked)} asked for")
+    request.node.user_properties.append(("loaded_heap", measured))
+    assert one_worker.began == 1, measured
+    assert len(asked) <= 3 and eight_workers.began <= 3, measured
+    assert together - alone < 2 * cost + edge_requests.CANCEL_POLL_SECONDS, f"seven more workers added collections' worth of waiting: {measured}"
+    assert together < REQUEST_LIMIT + 1.5, measured
 
 
 # ---- the real client, with no network: edge_tts + aiohttp against a WebSocket on this machine that never answers
