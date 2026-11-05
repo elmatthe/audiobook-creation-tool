@@ -4,6 +4,25 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-04 - No low-memory path can hang: every FFmpeg on the Edge routes has no threads of its own and can be stopped; memory running out after admission falls back to disk; Cancel and failure have stated deadlines (v0.7.1 R2 remediation)
+
+**Context.** The independent R2 review of `e0aab03` passed publication, sizing and the disk route's bytes, and blocked on one finding: a real allocation failure while pydub read FFmpeg's output hung the whole run for ever, with its gate reservation held and Cancel powerless. The owner ruled it in scope and blocking, not pre-existing, though plain Python and FFmpeg hang the same way. This supersedes, in the entry below: "a finished narration still ignores Cancel during this wait", and every-admission "reads what is free" as physical memory alone.
+
+**Decision.**
+- *Supervise the process, at the seam pydub already has.* `communicate` on Windows puts each pipe on a thread, and the thread that dies of `MemoryError` tells nobody. `tts/ffmpeg_watch.py` reads output on the asking thread, sends stderr to a file and has one watchdog that can kill. pydub is pointed at it by replacing the `subprocess` name in its modules, because that leaves its commands and audio unchanged and no call site to miss; `test_what_pydub_uses_is_what_was_replaced` holds the pinned version to it. Rejected: catching `MemoryError` (it is raised on another thread); a timeout on a thread (the process stays blocked); only checking memory better (it can go after the check); replacing every pydub call with our own decode and export (a bigger change for the same effect, and it would have had to rebuild the byte-identity proof at every site).
+- *An answer from the gate is not a promise.* `worker_limits.assemble` takes both routes. An allocation failure in memory gives back the reservation and assembles the same parts on disk, with no new request. At most two disk attempts, the second after those holding memory have finished; then a named failure. Fixed attempts, because after that the same machine in the same state would only fail again, and the person has a better next move than a loop.
+- *Read commit and limits too.* Commit is what an allocation actually needs, physical free says nothing about it, and on HOME-PC it was at times the tighter of the two. Windows can grow a page file, so commit can read low: then a narration goes to disk, which is the same bytes, so erring that way costs nothing that matters.
+- *Do not count allocated memory twice.* What counts against a reading is what is reserved less what this process has allocated since. Its known errors are small and either way below the margins; if it is ever wrong, allocation failure is handled now.
+- *One starvation deadline for a queue.* Per file it reached 40 minutes on 8 workers and hours on 32, with Cancel ignored throughout.
+- *Cancel keeps finished narration if it can, and says so if it cannot.* Speech still to come stops at once. Finished narration stops waiting for its turn or anybody's memory and goes to disk at once, with limits: 30 s to find the memory, 30 s without progress, 600 s in all. Past those it is reported as not saved. Rejected: no limit (Cancel might never end) and stopping at once (hours of synthesis lost for no reason).
+- *Clean what is provably ours, and only that.* A run removes an interrupted run's stale `.tmp_chunks/<ours>`. `%TEMP%` after a kill is left for the planned hardening: it needs its own ownership design.
+
+**Why:** a person with a low-memory computer must get an output or a reason, and Cancel must work, whatever the memory is doing. No reading of memory can promise that: only being able to stop every process, and having somewhere to go when an allocation fails, can.
+
+— Directed by the owner on 2026-11-04; implemented by Claude Code. Awaiting a fresh independent Codex review, then owner acceptance.
+
+---
+
 ## 2026-11-04 - A narration that does not fit in memory is assembled on disk, to the same bytes; no assembly enters memory for being first; what a file holds while it is synthesised has a limit (v0.7.1 second review remediation)
 
 **Context.** The fresh independent review of `e19527e` passed publication and blocked memory. A fully read PDF was sized by its pages while a

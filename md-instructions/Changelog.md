@@ -15,6 +15,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.1 R2 review remediation (2026-11-04) — identity 0.7.1; NOT published, tagged or merged
+
+- **Fixed (hang):** running out of memory while a narration was being put together could stop the whole run for ever, with Cancel doing nothing. That can no longer happen: every FFmpeg on the Edge routes can now be stopped, and has nothing it can block on.
+- **Changed (memory):** if memory runs out while a narration is assembled, or while a clip or paragraph is processed, that work now carries on using disk: the same audio, byte for byte, with nothing requested from the voice service again. Only if even that runs out, twice, does that file fail, with a reason saying what to do, where it used to say just `MemoryError:`.
+- **Changed (memory):** deciding whether a narration fits now also looks at how much Windows can still commit, and at any Job Object limit, as well as free physical memory.
+- **Changed (Cancel):** Cancel now works everywhere. A file with speech still to come stops at once. A finished narration no longer waits its turn: it goes to disk straight away and is saved, or, if that cannot finish (30 seconds without memory or progress, 10 minutes in all), the log says it was not saved.
+- **Fixed:** with too little memory for even the disk route, a whole queue now fails together after five minutes, not one file after another, which could take hours.
+- **Fixed:** FFmpeg stalling for five minutes now fails that file with a reason, and the files waiting behind it carry on.
+- **Fixed:** a full disk is named, with where and how much space is needed, and refused before starting when that can be seen. A run clears working files that an interrupted run of its own left in the output folder, and leaves no empty `.tmp_chunks`.
+- **Not changed:** every voice's audio, pauses, endings, headings and output names; Overwrite; publication; worker counts for ordinary files; Kokoro, Chatterbox Turbo and Qwen3-TTS at one file at a time.
+- **Known, left for planned hardening:** after a program is killed, its working folder in `%TEMP%` stays, up to about the size of the narration.
+
 ### v0.7.1 second independent-review remediation (2026-11-04) — identity 0.7.1; NOT published, tagged or merged
 
 - **Fixed (memory):** a PDF of prose that runs on across pages is now sized as the one long paragraph it becomes. It was sized page by page, so an 80-page PDF could be given eight workers on an 8 GB

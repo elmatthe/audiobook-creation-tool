@@ -433,3 +433,112 @@ Branch `feature/0.7.1-multi-file-workers`, from `c0896d8`. `18d6a5f` is the code
 5. **The spill.** Paragraphs, sentences of many clauses, a long clip at each position (title, first, comma, last words of a chapter, last words of the book), zero pauses, resume with a leftover file.
 6. **Regressions.** Direct, folder and mixed overlap; ordinary narrations byte-for-byte as `e19527e`; HIGH-001 unchanged; local engines at one worker, untouched.
 7. **Not a finding, unless you disagree with the reasoning:** a plan that stays conservative though synthesis would now fit more (`Decisions.md`); the failure at under 64 MiB free for five minutes; temporary disk space about the size of the uncompressed audio. And everything §11 listed.
+
+## 14. Remediation of the independent R2 review of `e0aab03` (2026-11-04)
+
+The review: HIGH-001 and HIGH-002A **PASS**, disk assembly byte-identical, regressions clean; HIGH-002B **BLOCKED** by R2-1, a real allocation failure that hung a whole run for ever. The owner accepted R2-1 as in scope and blocking, not as pre-existing. Everything measured below is in `files/dev-work/act071-rem3/` (ignored): `r2-review-evidence/` and `r2-review-probes/` (the review's own), `runs/pre-fix/` (the failure, kept), `runs/chain2/` (the numbered results on the final code, `664d8b6`; its `00-` and `99-code-hashes.txt` show the code did not change while it ran), `runs/final3/`, `runs/panel/`, `probes/`.
+
+### 14.1 The cause, and why the obvious fixes do not work
+
+`Popen.communicate` with two pipes on Windows reads each on a Python thread. When memory runs out while FFmpeg's output is read, the stdout thread dies of `MemoryError` and nothing reads that pipe again: FFmpeg blocks writing to it, and `communicate` waits for ever for the stderr thread, which is waiting for FFmpeg. Nothing is raised. pydub decodes and exports through exactly that call, from one place in each of two modules; plain Python and FFmpeg hang the same way with none of this tool's code (`runs/`, the review's `p7c-control.log`). So catching `MemoryError` cannot help (it is on another thread), a timeout on a thread leaves the process blocked, and a better memory check still loses to memory that goes after the check.
+
+### 14.2 The design
+
+| Part | What it does |
+|---|---|
+| `tts/ffmpeg_watch.py` | A `Supervised` process has no threads of its own. Output is read by the thread that asked for it, so `MemoryError` is raised where it can be handled, and that thread kills the process on its way out. Stderr goes to a temporary file, so it cannot block. One watchdog looks at every live process and kills one that has stalled or been cancelled, which also ends a blocking read. |
+| The seam | `ffmpeg_watch.install()` replaces the `subprocess` name in `pydub.audio_segment` and `Popen` in `pydub.utils`. pydub's commands, and so its audio, are unchanged, no call site can be missed, and `test_what_pydub_uses_is_what_was_replaced` fails if a new pydub starts FFmpeg another way. `disk_assembly` uses `Supervised` directly. Audited: `from_file`, `from_mp3`, `export`, `mediainfo_json` on both routes. Left alone, on purpose: `_run_ffmpeg` for CLI-only M4B (`subprocess.run` with no pipes, so it cannot deadlock this way, but it has no deadline), `generate_voice_samples.py`, which is dev-only. |
+| `worker_limits.assemble` | The one way to assemble, given both routes (an AST test counts the three callers). An allocation failure in memory, however it surfaces, gives back the reservation (`AssemblyPlace.to_disk`, which wakes waiters) and assembles the same parts on disk, with no new request to the service. The disk route is tried at most twice, the second time after the files holding memory have finished (at most the gate's wait, at least 2 s). Then `AssemblyMemoryError`, in words a person can act on. |
+| Inside synthesis | A clip's decode, a paragraph's join and a chapter's pause fall back the same way, so hours of paid-for speech are not thrown away over one small allocation. Anything else out of memory is named too: never again a blank `MemoryError:`, and classed local, so never synthesised again by itself. |
+| What is read | Physical less `memory_reserve`; commit (`ullAvailPageFile`) less `COMMIT_RESERVE_BYTES` (1 GiB); a Job Object's process or job limit, where one applies and can be read (`QueryInformationJobObject`), less `LIMIT_MARGIN_BYTES` (32 MiB). The tightest wins. A reading that is unavailable is left out. To disk, only the bare amount is required, with this process's part alone (`DISK_ASSEMBLY_PROCESS_BYTES`, 24 MiB) compared with a per-process limit, FFmpeg having its own. |
+| Reservations | An allocation is in those readings as soon as it is made, so what is counted is what is reserved less what this process has allocated since the first reservation began (`AssemblyGate._claimed`). Where this process's usage cannot be read, all of it counts, which only waits longer. |
+| The gate's lock | Notes run outside it. A note that fails no longer stops the work: the log may be out of memory too. |
+
+### 14.3 The deadlines
+
+Defaults, in `ffmpeg_watch` and `worker_limits`. Measured with the real gate, runner and FFmpeg, and a really suspended FFmpeg (`NtSuspendProcess`) for a stall; a shortened constant where marked, because a test does not wait five minutes.
+
+| Situation | Deadline | Measured |
+|---|---|---|
+| FFmpeg makes no progress, no Cancel | `STALL_SECONDS` 300 s, then that file fails, named | 6.31 s with the constant at 6; those waiting behind it went on and matched the reference |
+| Too little for even the disk route, nothing here to wait for | `ASSEMBLY_MEMORY_WAIT_SECONDS` 300 s, **for the whole queue** | 8 files, constant at 6: all 8 ended together, at 6.25 s. Before: one after another, 48 s for the same 8; by the same arithmetic 40 minutes at the default on 8 workers, 2.67 hours on 32 |
+| Cancel, speech still to come, waiting or in FFmpeg | One poll (0.25 s) | Suspended FFmpeg: 0.25 s |
+| Cancel, finished narration waiting for its turn or memory | Goes to disk at once | All 3 published in 10.08 s (direct) and 11.80 s (folder), while others held memory; bytes as the reference |
+| Cancel, finished narration, no room even on disk | `CANCEL_FINISH_WAIT_SECONDS` 30 s, then says it was not saved | 30.41 s |
+| Cancel, finished narration, FFmpeg no longer progressing | `CANCEL_STALL_SECONDS` 30 s, then says it was not saved | 30.08 s (direct), 30.07 s (folder), 30.00 s (a decode, folder) |
+| Cancel, finished narration, progressing but long | `CANCEL_FINISH_SECONDS` 600 s in all | Test with the constant at 1 s. Not measured at full length: 4.6 hours took 31 s here, which scales to about 3 minutes for 24 hours |
+
+### 14.4 The results
+
+**Before and after**, the same scenario on an exact copy of `e0aab03` (`runs/pre-fix/`) and on the fix. Three files in `run_conversion_job` or `convert_single_pdf`, an hour each, real FFmpeg, startup commit measured (about 1,136 MB) and the limit set above it. A parent outside the limit, with the child and all it starts in its own kill-on-close job, gave each 240 s.
+
+| Scenario | `e0aab03` | Fix |
+|---|---|---|
+| 60 MB headroom, real gate | **Hung** at 240 s | 3 of 3 published, 21.2 s |
+| 60 MB, gate told it fits, direct | **Hung** at 240 s | 3 of 3 published, 16.4 s |
+| 60 MB, gate told it fits, folder | **Hung** at 240 s | 3 of 3 published, 13.5 s |
+
+**The whole matrix on the fix** (`runs/chain2/02-matrix.txt`, 30 scenarios, 57 files published): nothing hung; every run ended by itself, no reservation left, no FFmpeg of ours surviving, nothing at all left behind in the output folder or temporary files, and never more than one pass of requests (nothing asked for twice). Every published MP3 matches the unlimited reference (`db037d42…` direct, `4d85d49b…` folder):
+
+- 25, 60, 100, 200 and 300 MB with the gate told it fits, so the in-memory route really meets the limit and route selection cannot hide it, on direct, folder and mixed queues.
+- 60, 100 and 200 MB on the real gate: it reads the limit and chooses disk (`peak in_memory` 0). A limit on a whole job (300 MB, FFmpeg included) is read and respected too.
+- Memory going after the gate said yes (a real ballast, started once a file was admitted): fell back with the same bytes when 70 MB stayed free; a named failure when nothing did.
+- Workers plus waiters with Cancel, a stalled holder with those waiting behind it, a starved queue of 8.
+- A limit below what the process needs is refused as `invalid` by the probe, never reported.
+
+**The real panel under a real limit** (`runs/chain2/03-panel-lowmem.txt`): real Tk, importer, worker pool and settlement; 4 files, direct and folder: at 60, 100 and 200 MB forced in memory (6 fallbacks each) and 100 MB on the real gate, all `SUCCEEDED` with the same bytes as the unlimited panel run; Cancel with one in memory and one waiting settled in 11.45 s; a starved queue of 8 settled in 6.97 s (wait 5 s), each file's one-line message saying why.
+
+**Memory** (process tree, children included, peak private commit as well as working sets): assembling in memory now peaks **lower** than before, because output no longer doubles while it is read: 2 hours in one part 662 MB (993 MB at `e0aab03`), 4.6 hours 1,522 MB (2,281 MB). The budget is unchanged, so it is conservative here: 0.63 of it. Disk 26.8 MB at 4.6 hours against the 64 MiB budget, this process's part 12.7 MB against 24 MiB. HIGH-002A held: a long paragraph 71.0 MB (`e19527e` 1,357 MB) and a 2-hour clip 38.0 MB (1,001 MB), with the same SHA-256 as `e19527e`; and under a real 1,300 MB limit the paragraph completes, at 71.8 MB, where `e19527e` fails. Eight files on disk at once 229 MB.
+
+**The same audio** (`runs/identity-result.json`): the review's own harness against its own results on `e0aab03`, config by config: **470 of 470 outputs identical in MP3 bytes and requests**, 280 on offline clips and 190 on 84 clips of real Edge audio (2 voices) recorded during R2. That includes a new config in which every paragraph file, chapter file and MP3 runs out of memory at its one in-memory export (70 outputs, 350 forced fallbacks). A 2-hour narration on the folder route and a 4.6-hour one on the direct route: memory and disk one SHA-256, the same as at `e0aab03`.
+
+**Publication and concurrency:** the review's failure probes, with their two seams moved (`runs/chain2/07-p6.txt`): 47 of 49 as expected. The other two end acceptably: an output folder removed during assembly is made again and a complete file published, and a killed folder-route decoder is retried once and publishes a valid file. Real kills mid-assembly (`08-p9.txt`): no final name in any. 8 processes racing for one name, 12 rounds each (`09-p12.txt`): one winner without Overwrite, all complete with it, no bad payload, no staging left. Real HOME-PC panel, real Edge (`12-real-edge.txt`): 8 direct on Workers 8, peak 8, 8.42 s, 8 succeeded; 3 direct + 4 folder on Workers 4, peak 4, 9.47 s, 12 of 12 pairs overlapping; 8 direct forced to disk, peak 8, 7.98 s, the same durations; 4 + 4 with Cancel at 4 s, settled in 5.47 s with 4 valid files and no staging.
+
+**Do the tests bite?** 78 of 78 mutants of this code caught, with a no-change control that passes with nothing skipped (`runs/chain2/13-mutations.txt`). They include the old hang itself, which `test_the_old_hang_is_what_this_test_would_see` also keeps as a permanent negative control: pydub back on the raw module, the same limit, and the hang must be seen with the stacks the review found. Survivors on the way found real gaps, now closed: tests that passed without the waiter ever waiting, Cancel behind a head that keeps waiting, the stall deadline with a failing cancel check, and one no-op (clearing frames the end of the `except` block had already released), which went. The control also caught a new test depending on the order of the tests before it.
+
+**What tracing the leftovers found** (`664d8b6`). The first chain ran on `f29281d` and its matrix counted two scenarios with files left behind, which the test then filtered out by extension. Traced instead of explained away, they were a real defect: a failed pydub export leaves two temporary files, the first holding the whole narration as a WAV, and nothing else knows their names; and on the direct route that export's frames kept its output open, so Windows refused to delete the work folder. Both are fixed, a fallback now removes them before the disk route needs the room, and the test requires nothing at all to be left. The gate on `f29281d` was stopped on purpose and is not evidence; everything above is `664d8b6`.
+
+**Gate:** the first on `664d8b6` **failed four tests**, none of them the known optional-voice ones and none a production defect (`files/dev-work/act070-remediation/verify/ACT071-R2-664d8b6-run1`, kept). The targeted runs had not reached them. A guard read the suffix gate of `run_conversion_job` by AST, and the remediation had moved it to `_convert`; the allow-list of production modules did not have the new `ffmpeg_watch.py`; and two new tests imported `runner` inside the test, where `test_epub_retirement`, which purges `tts.epub2tts_edge` and leaves a fresh copy in `sys.modules`, gave them a runner on another engine than the one the stub had patched. `b185186` corrects these in the two test files and changes no production file (`cmp` of the hashes with `runs/chain2/00-code-hashes.txt`), so the evidence above stands. No guard was loosened: the first now reads both functions and also requires the job to call `_convert`, with the same exact set, and the second puts one more module under the EPUB guards. Negative controls in the order the full suite runs them (`runs/gate-fix/controls.txt`): the inner import brought back, EPUB let through, `_convert` bypassed, the module off the list, a retired import in the new module, a work folder held open and a changed reason all fail; no change passes. The final gate, on `b185186`, **passed**: 13,200 passed, 65 skipped, nothing failed, none of the skips in `test_low_memory.py`, and the tree unchanged during the run (`files/dev-work/act070-remediation/verify/ACT071-R2-b185186-run1`).
+
+### 14.5 Existing tests changed, and why
+
+None was skipped or xfailed. `test_every_production_assembly_reads_the_gates_answer` became `..._goes_through_assemble_with_both_routes`, a stronger check of the new one path. `test_a_note_that_fails_never_leaks_the_reservation` now also requires the work to carry on: a deliberate change. The full-disk test now expects the named error. Cancel-during-the-wait tests now require the narration to be finished while the other file still holds its place, where they required it to wait. Four spies moved from `reserve` to `place`, two of them onto a private gate, because `monkeypatch` restores an attribute set on an instance by leaving the bound method there, which hid later patches of the class. One test's stubs had to allow for `MemoryError` now going on to disk.
+
+### 14.6 What the review found, and what became of it
+
+| Finding | Disposition |
+|---|---|
+| R2-1, the hang | **Fixed** (§14.1-14.4) |
+| Blank `MemoryError:` | **Fixed**: named everywhere on both routes, and one line in the panel |
+| Large files left after a kill | **Partly fixed.** A run now removes an interrupted run's `.tmp_chunks/<ours>`, in the tool's own output folder, only with this tool's exact name, its owner gone and untouched for the stale age. **Left, for the planned hardening:** `%TEMP%\epub2tts_*`, `tts_direct_*` and pydub's temporary files after the program itself is killed, up to about the size of the narration: not swept, because nothing here should delete from `%TEMP%` without an ownership design of its own |
+| Disk-full wording, no check before starting | **Fixed**: named, with where and how much, and refused before starting when it can be seen not to fit. A real full disk is still injected |
+| Serial starvation | **Fixed**: one deadline for the queue |
+| Note under the gate's lock | **Fixed** |
+| Empty `.tmp_chunks` | **Fixed** |
+| Whole-file retry after a killed decoder | **Kept, bounded at 2**: a damaged clip is worth asking for again. A decoder out of memory is now local and is not |
+| `NoAudioReceived` at 4 concurrent requests in R2's fetch | Recorded only: looks service-side, and not reproduced on any panel run here |
+| Four optional-voice failures; Kokoro at 920x600 | Untouched, as instructed: pending hardening. This checkout has those voices installed, and all four passed in both gates here; a checkout without them should expect the four of §12.4 |
+| CLI-only M4B `_run_ffmpeg` | Left unsupervised and recorded: `subprocess.run` with no pipes cannot deadlock this way, but it has no deadline. Not on the Edge routes |
+
+### 14.7 Limits, stated
+
+Allocation failure is real but confined to one process by a Job Object: a whole machine's commit was never exhausted, so what other programs do at that point is not observed. A full disk is injected. Second volume, exFAT, network drives and macOS were not exercised; on macOS memory is unreadable, so the gate assumes as before, and the watch and fallback are written for POSIX but unrun there. A long real book has not been run end to end, nobody has listened yet, and Kokoro, Chatterbox Turbo and Qwen3-TTS were not synthesised here: their modules are unchanged, one-worker dispatch is by test, and pydub's seam reaches their exports too, which adds only the stall deadline. The evidence chain ran on `664d8b6`, the last commit to change production code; the gate on `b185186`, which changes two test files on top of it.
+
+### 14.8 What the owner will see differently
+
+The steps of §9 stand. One expectation changes: Cancel on a long book whose narration is already finished no longer ends in a few seconds. It assembles that narration on disk and saves it, which takes as long as that takes, up to 10 minutes, or says in the log that it was not saved.
+
+### 14.9 After v0.7.1
+
+The owner's 50-question requirements consultation (hardening, verification gate, feature map, logging, metadata, M4B performance and more) is the next planning priority once v0.7.1 is accepted and merged. Source: `files/plans/reference-handoff-of-mc-answers/markdown-handoff-prompt-50-multiple-choice-questions-for-gpt-work-chat.md` (untracked, on HOME-PC only; register in its §4). None of it is in this work. Where its sequencing differs from this checkpoint, see `Handoff.md`.
+
+## 15. Fresh independent Codex review brief (replaces §13)
+
+Branch `feature/0.7.1-multi-file-workers`, from `c0896d8`. Production code last changed at `664d8b6`; `b185186` corrects two test files, and the gate ran on it; the commit after that is documentation only. This is the independent review that stands between the branch and the owner's acceptance. The previous one (R2, `e0aab03`) passed HIGH-001 and HIGH-002A and blocked HIGH-002B on R2-1, so weight the work toward R2-1 and what its fix touched, but reach your own verdict on all three. Verify independently of this plan's claims. The checkout needs its own Python environment with this repo's packages, a pinned FFmpeg pair and the NLTK data; a short path; and Git ownership for the user running it. Without the optional voices installed, expect the four failures of §12.4. A fresh clone has neither the ignored evidence nor the review's probes: on HOME-PC they are in the owner's checkout under `files/dev-work/act071-rem3/`, to be read, not changed. A targeted run should include `test_epub_retirement.py` and keep the suite's order: it purges `tts.epub2tts_edge` and leaves a fresh copy behind, and the first gate here failed on what targeted runs had missed.
+
+1. **R2-1.** `files/tests/low_memory_probe.py` is the harness; `test_low_memory.py` the cases. Try other headrooms, a limit on the whole job, memory going at other moments. Does anything still hang? `test_the_old_hang_is_what_this_test_would_see` must keep seeing the hang when the seam is undone.
+2. **Any FFmpeg outside the watch on these routes?** Any way for a reservation to stay held, or for a waiter not to be woken?
+3. **The readings.** Is `ullAvailPageFile` right to use as it is, and is `_claimed` sound when synthesis is growing too?
+4. **Cancel.** Each deadline in §14.3. Is anything finished discarded silently, or anything unfinished published?
+5. **Not regressed:** HIGH-001, HIGH-002A, bytes (`r2-review-probes/p3_engine.py`), direct/folder/mixed overlap, pacing, headings, the "blank" handling, endings, filenames, Overwrite, one worker for the local engines.
+6. **Not a finding, unless you disagree with the reasoning:** `%TEMP%` leftovers after a kill, CLI-only M4B `_run_ffmpeg` and the optional-voice failures (§14.6); and everything §13 listed.
