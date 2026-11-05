@@ -351,6 +351,143 @@ def test_work_finishing_after_cancel_is_not_published(make_panel, output_base, t
         assert not destination.exists(), f"{name}: nothing unfinished is published after Cancel"
 
 
+def test_the_file_that_won_the_commit_is_a_success_and_the_one_that_lost_is_stopped(make_panel, output_base, tmp_path, gated_stubs,
+                                                                                    monkeypatch):
+    """Both sides of the commit boundary in one real run, through the real panel, the real controller and the real publication.
+    "first" has been authorized and is inside its rename when Cancel is pressed; "second" is still converting. Cancel returns
+    with the rename still parked (the GUI thread is never held up) and names the one commit it cannot stop. The winner is whole
+    and a success; the loser is denied and leaves nothing; the run is cancelled; Retry Failed offers neither.
+
+    The per-item status of a stopped file is ``NOT_ATTEMPTED``, not a status of its own (Decisions 2026-11-05): the result object
+    cannot tell it from a file that never started, and the log line can. Pinned here so that limitation stays deliberate."""
+    publication = panel_module.publication  # the instance the panel publishes through, whatever an earlier test re-imported
+
+    reached, release = threading.Event(), threading.Event()
+    real = publication._publish_no_clobber
+
+    def parked_rename(staged, final):
+        if "first" in Path(final).name:
+            reached.set()
+            assert release.wait(WAIT), "the rename was never released"
+        return real(staged, final)
+
+    monkeypatch.setattr(publication, "_publish_no_clobber", parked_rename)
+    gated_stubs.gate_on = "second"  # still converting when Cancel is pressed
+    panel, _chosen = direct_panel(make_panel, tmp_path, "first.txt", "second.txt")
+    panel.workers_var.set("2")
+    panel.run_job()
+    worker = panel._worker
+    controller = panel._controller
+    destinations = {entry.source.name: entry.destination for entry in panel.destinations().values()}
+    try:
+        assert reached.wait(WAIT), "the first file never reached its rename"
+        assert gated_stubs.entered.wait(WAIT), "the second file never started"
+        panel.cancel_job()  # on this thread, the GUI thread: were it held up behind the rename, this line would never return
+        assert controller.cancel_check() is True
+        assert controller.commits_in_flight == 1, "the commit that can still land is named"
+        assert not destinations["first.txt"].exists(), "the rename is still parked: this is the window under test"
+        assert not controller.is_terminal, "the run settled with a result still becoming final"
+    finally:
+        release.set()
+        gated_stubs.release.set()
+    wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
+    worker.join(WAIT)
+    wait_for(lambda: panel._result is not None, "the settled result never reached the panel", panel=panel)
+    result = panel._result
+    assert controller.commits_in_flight == 0
+    assert result.cancelled is True
+    assert destinations["first.txt"].read_bytes() == b"audio", "the winner is whole"
+    assert not destinations["second.txt"].exists(), "the loser left nothing"
+    assert result.succeeded_count == 1 and result.failed_count == 0 and result.not_attempted_count == 1
+    assert result.retryable_ids == (), "Retry Failed offers neither"
+    text = log_text(panel)
+    assert "first.txt — completed" in text
+    assert "second.txt — stopped (cancelled); nothing unfinished was saved" in text
+    assert "first.txt — stopped" not in text and "second.txt — completed" not in text
+
+
+def test_a_cancel_that_loses_to_the_last_files_commit_still_ends_as_a_cancelled_run(make_panel, output_base, tmp_path, gated_stubs,
+                                                                                    monkeypatch):
+    """The run-level answer when every file finished anyway: the person pressed Cancel, so the run says Cancelled, and the item
+    says what really became of the file. Behaviour since v0.6.5 (the loop's ``if self.cancel_check()``), not changed here: pinned
+    so that the report of it stays true. The file is whole and a success, and nothing is offered for retry."""
+    publication = panel_module.publication
+    reached, release = threading.Event(), threading.Event()
+    real = publication._publish_no_clobber
+
+    def parked_rename(staged, final):
+        reached.set()
+        assert release.wait(WAIT), "the rename was never released"
+        return real(staged, final)
+
+    monkeypatch.setattr(publication, "_publish_no_clobber", parked_rename)
+    panel, _chosen = direct_panel(make_panel, tmp_path, "only.txt")
+    panel.run_job()
+    worker = panel._worker
+    controller = panel._controller
+    destination = next(entry.destination for entry in panel.destinations().values())
+    try:
+        assert reached.wait(WAIT), "the file never reached its rename"
+        panel.cancel_job()
+    finally:
+        release.set()
+    wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
+    worker.join(WAIT)
+    wait_for(lambda: panel._result is not None, "the settled result never reached the panel", panel=panel)
+    result = panel._result
+    assert result.cancelled is True
+    assert result.succeeded_count == 1 and result.failed_count == 0 and result.retryable_ids == ()
+    assert destination.read_bytes() == b"audio"
+    assert "only.txt — completed" in log_text(panel)
+
+
+@pytest.mark.parametrize("ending", ["finished", "fatal"])
+def test_a_run_does_not_settle_while_a_commit_it_authorized_is_still_landing(make_panel, output_base, tmp_path, gated_stubs,
+                                                                             monkeypatch, ending):
+    """No Cancel in sight, and the other file is done. The run still waits for the file inside its rename, on the way to a normal
+    ending and when the run loop itself breaks: no terminal state is reported until that attempt is over."""
+    publication = panel_module.publication
+    reached, release = threading.Event(), threading.Event()
+    real = publication._publish_no_clobber
+
+    def parked_rename(staged, final):
+        if "first" in Path(final).name:
+            reached.set()
+            assert release.wait(WAIT), "the rename was never released"
+        return real(staged, final)
+
+    monkeypatch.setattr(publication, "_publish_no_clobber", parked_rename)
+    record_success = panel_module._RunContext.record_success
+    recorded = threading.Event()
+
+    def recording(self, *arguments, **options):
+        recorded.set()
+        if ending == "fatal":
+            raise RuntimeError("the run loop broke")
+        return record_success(self, *arguments, **options)
+
+    monkeypatch.setattr(panel_module._RunContext, "record_success", recording)
+    panel, _chosen = direct_panel(make_panel, tmp_path, "first.txt", "second.txt")
+    panel.workers_var.set("2")
+    panel.run_job()
+    worker = panel._worker
+    controller = panel._controller
+    destinations = {entry.source.name: entry.destination for entry in panel.destinations().values()}
+    try:
+        assert reached.wait(WAIT), "the first file never reached its rename"
+        assert recorded.wait(WAIT), "the second file never finished"
+        time.sleep(SETTLE)
+        assert controller.commits_in_flight == 1
+        assert not controller.is_terminal, "the run settled with a result still becoming final"
+    finally:
+        release.set()
+    wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
+    worker.join(WAIT)
+    assert controller.commits_in_flight == 0
+    assert destinations["first.txt"].read_bytes() == b"audio", "the file that was landing is whole"
+    assert controller.state is (panel_module.JobState.FAILED if ending == "fatal" else panel_module.JobState.SUCCEEDED)
+
+
 # --------------------------------------------------------------------------- #
 # E. Real engines through the real panel: only the network request is replaced
 # --------------------------------------------------------------------------- #
@@ -512,6 +649,60 @@ def test_the_detailed_log_stays_readable_while_eight_files_convert_at_once(make_
     for word in words:
         bars = [line for line in details if line.startswith(f"[{word}.txt] ") and "Generating audio files" in line]
         assert len(bars) == 1 and "100%" in bars[0], bars
+
+
+def _commit_owners(monkeypatch) -> list:
+    """What each attempt to make a result final was ordered against, as the real publication saw it. A wrapped check has no owner
+    and falls back to a last look, and a run with no Cancel in it would otherwise look exactly the same."""
+    publication = panel_module.publication
+    real = publication.authorized_commit
+    owners: list = []
+
+    def spy(cancel_check, message="Cancelled."):
+        owners.append(getattr(cancel_check, "__self__", None))
+        return real(cancel_check, message)
+
+    monkeypatch.setattr(publication, "authorized_commit", spy)
+    return owners
+
+
+@needs_ffmpeg
+def test_both_edge_routes_order_every_commit_against_the_runs_own_controller(make_panel, output_base, tmp_path, monkeypatch):
+    owners = _commit_owners(monkeypatch)
+    FakeService(barrier=threading.Barrier(2)).install(monkeypatch)
+    root = tmp_path / "Library"
+    book(root, "b.txt", "FolderB")
+    panel = real_panel(make_panel, direct=(book(tmp_path / "Loose", "a.txt", "DirectA"),), folders=(root,))
+    panel.workers_var.set("2")
+
+    params = run_attempt(panel)
+
+    assert panel._result.succeeded_count == 2
+    # Direct: the engine's private scratch file, then the destination. Folder: the destination.
+    assert owners == [params["controller"]] * 3
+
+
+@pytest.mark.parametrize("backend", ["kokoro", "chatterbox", "qwen3"])
+def test_each_local_engine_orders_its_commit_against_the_runs_own_controller(make_panel, output_base, tmp_path, monkeypatch, backend):
+    from tts import voice_registry as vr
+    from tts.epub2tts_edge import epub2tts_edge as engine
+
+    _LocalEngineStubs(monkeypatch)
+    owners = _commit_owners(monkeypatch)
+    monkeypatch.setattr(engine, "ensure_punkt", lambda: None)
+    monkeypatch.setattr(panel_module, "ensure_punkt", lambda: None)
+    voice = next(voice for voice in vr.VOICES if voice.backend == backend)
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
+    panel.selected_voice_label.set(voice.display_label)
+    panel._on_voice_selected()
+    # Whether this machine has the voice's models is not the question here, and a refusal is a modal dialog nobody would answer.
+    monkeypatch.setattr(panel, "_refresh_voice_status", lambda _entry: (True, ""))
+    monkeypatch.setattr(panel_module.messagebox, "showwarning", lambda *arguments, **options: pytest.fail(f"refused: {arguments}"))
+
+    params = run_attempt(panel)
+
+    assert panel._result.succeeded_count == 1
+    assert owners == [params["controller"]]
 
 
 @needs_ffmpeg
@@ -942,6 +1133,20 @@ def test_a_failed_or_cancelled_local_engine_leaves_a_ticked_destination_untouche
     _LocalEngineStubs(monkeypatch, failing=failure)
     with pytest.raises(type(failure)):
         convert(item, _local_params(True), None, lambda _m: None, lambda: False)
+    assert item["destination"].read_bytes() == b"the old valid output"
+    assert _stage_files(item["destination"].parent) == []
+
+
+@pytest.mark.parametrize("convert", LOCAL_ENGINES)
+def test_a_cancel_after_a_local_engine_finished_publishes_nothing(tmp_path, monkeypatch, convert):
+    """The model and the encoder are done, only publication is left, and Cancel lands. All three local routes answer to it: the
+    review candidate left Qwen3's call to the shared publication step without the check, so Qwen3 published regardless."""
+    item = _local_item(tmp_path)
+    item["destination"].write_bytes(b"the old valid output")
+    cancelled = threading.Event()
+    _LocalEngineStubs(monkeypatch, during=cancelled.set)
+    with pytest.raises(panel_module.ConversionCancelled):
+        convert(item, _local_params(True), None, lambda _m: None, cancelled.is_set)
     assert item["destination"].read_bytes() == b"the old valid output"
     assert _stage_files(item["destination"].parent) == []
 

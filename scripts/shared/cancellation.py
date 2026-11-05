@@ -38,17 +38,10 @@ Cancel buttons.
 
 from __future__ import annotations
 
-import asyncio
-import time
-from typing import Awaitable, Callable, Optional, TypeVar
+from typing import Callable, Optional
 
 # A cancel check is a zero-arg predicate; ``None`` means cancellation is not wired up.
 CancelCheck = Optional[Callable[[], bool]]
-
-T = TypeVar("T")
-
-#: How often a wait or an awaited request looks at its cancel check (v0.7.2): the same look the FFmpeg watchdog takes.
-CANCEL_POLL_SECONDS = 0.25
 
 
 class ConversionCancelled(Exception):
@@ -80,55 +73,3 @@ def raise_if_cancelled(
     """
     if cancel_check is not None and cancel_check():
         raise ConversionCancelled(message)
-
-
-def wait_unless_cancelled(seconds: float, cancel_check: CancelCheck, *, step: float = CANCEL_POLL_SECONDS,
-                          message: str = "Conversion cancelled by user.") -> None:
-    """Sleep for ``seconds``, looking at ``cancel_check`` every ``step``; a Cancel ends the sleep at once with
-    :class:`ConversionCancelled` (v0.7.2).
-
-    A back-off between two attempts, a pause between two chunks: none of them may keep a cancelled conversion alive.
-    ``cancel_check`` of ``None`` is one plain ``time.sleep(seconds)``. With a check, the wait is ``time.sleep`` in slices of
-    ``step``, counted down from ``seconds`` rather than from the clock, so a test that replaces ``time.sleep`` sees the whole
-    schedule and nothing spins.
-    """
-    raise_if_cancelled(cancel_check, message)
-    remaining = max(0.0, float(seconds))
-    if cancel_check is None:
-        if remaining:
-            time.sleep(remaining)
-        return
-    while remaining > 0:
-        slice_ = min(step, remaining)
-        time.sleep(slice_)
-        remaining -= slice_
-        raise_if_cancelled(cancel_check, message)
-
-
-async def await_unless_cancelled(awaitable: Awaitable[T], cancel_check: CancelCheck, *, poll: float = CANCEL_POLL_SECONDS,
-                                 message: str = "Conversion cancelled by user.") -> T:
-    """Await ``awaitable`` while looking at ``cancel_check`` every ``poll`` seconds (v0.7.2).
-
-    A Cancel cancels the task (an in-flight network request is closed by its own library's cleanup) and raises
-    :class:`ConversionCancelled`; the task's own result or exception is otherwise returned or raised as if awaited directly.
-    ``cancel_check`` of ``None`` is a plain ``await``.
-    """
-    task = asyncio.ensure_future(awaitable)
-    if cancel_check is None:
-        return await task
-    try:
-        while True:
-            done, _pending = await asyncio.wait({task}, timeout=poll)
-            if done:
-                return task.result()
-            if cancel_check():
-                task.cancel()
-                try:
-                    await task
-                except BaseException:  # noqa: BLE001 - whatever the abandoned request raised, the answer is Cancel
-                    pass
-                raise ConversionCancelled(message)
-    except BaseException:
-        if not task.done():
-            task.cancel()
-        raise

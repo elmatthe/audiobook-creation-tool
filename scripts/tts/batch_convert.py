@@ -14,7 +14,7 @@ an earlier run, get ``-1``/``-2`` instead of being overwritten.
 from __future__ import annotations
 
 import argparse
-import asyncio
+import contextlib
 import os
 import re as _re
 import secrets
@@ -40,8 +40,9 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils, output_paths
-from shared.cancellation import ConversionCancelled, await_unless_cancelled, wait_unless_cancelled
+from shared.cancellation import ConversionCancelled
 from tts import audio_tail, edge_failures, ffmpeg_watch, output_names, publication, worker_limits
+from tts.edge_requests import await_unless_cancelled, run_request, wait_unless_cancelled
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -153,7 +154,10 @@ async def chunk_to_mp3(text: str, path: str, voice: str, rate: str, cancel_check
     try:
         await await_unless_cancelled(comm.save(path), cancel_check)
     except ConversionCancelled:
-        Path(path).unlink(missing_ok=True)
+        # A request that would not stop still holds it open, and that is no reason to report anything but the Cancel: the
+        # item's working folder goes at the end of the attempt, by which time the request has been dropped.
+        with contextlib.suppress(OSError):
+            Path(path).unlink(missing_ok=True)
         raise
 
 
@@ -161,7 +165,7 @@ def synthesize_chunk_mp3(text: str, path: str, voice: str, rate: str, cancel_che
     # Called with the four arguments it always took unless a check is given explicitly: the offline probes stand in for
     # ``chunk_to_mp3`` with that shape, and the production route finds its check in the controlled context anyway.
     request = chunk_to_mp3(text, path, voice, rate) if cancel_check is None else chunk_to_mp3(text, path, voice, rate, cancel_check)
-    asyncio.run(request)
+    run_request(request, note=print)
 
 
 def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,

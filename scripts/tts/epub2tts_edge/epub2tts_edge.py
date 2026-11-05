@@ -830,8 +830,9 @@ def run_edgespeak(sentence, speaker, filename, cancel_check=None):
         AudioSegment.silent(duration=50).export(filename, format="mp3")
         return
     _ensure_shared_on_path()
-    from shared.cancellation import ConversionCancelled, raise_if_cancelled, wait_unless_cancelled
+    from shared.cancellation import ConversionCancelled, raise_if_cancelled
     from tts import edge_failures
+    from tts.edge_requests import wait_unless_cancelled
 
     if cancel_check is None:
         cancel_check = ffmpeg_watch.current_cancel_check()
@@ -868,11 +869,11 @@ def run_edgespeak(sentence, speaker, filename, cancel_check=None):
                 raise
 
 def run_save(communicate, filename, cancel_check=None):
-    """The request itself. With a ``cancel_check`` the request is abandoned as soon as a Cancel is seen (v0.7.2)."""
+    """The request itself. With a ``cancel_check`` a Cancel abandons it within a bounded time, whatever it does (v0.7.2)."""
     _ensure_shared_on_path()
-    from shared.cancellation import await_unless_cancelled
+    from tts.edge_requests import await_unless_cancelled, run_request
 
-    asyncio.run(await_unless_cancelled(communicate.save(filename), cancel_check))
+    run_request(await_unless_cancelled(communicate.save(filename), cancel_check), note=print)
 
 async def parallel_edgespeak(sentences, speakers, filenames):
     semaphore = asyncio.Semaphore(10)  # Limit the number of concurrent tasks

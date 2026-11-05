@@ -76,6 +76,11 @@ Truthfulness
 Pause and cancel are *requests*. ``PAUSE_REQUESTED`` and ``CANCEL_REQUESTED`` exist
 as first-class states precisely so the UI can say "Pause requested" while an
 indivisible stage keeps running, instead of claiming an OS call stopped instantly.
+
+v0.7.2 adds the one place a request and a worker must agree on who went first: a
+worker about to make a result final asks :meth:`JobController.authorize_commit`,
+under the same lock the Cancel latch is taken under. Exactly one of them wins, the
+outcome is recorded, and that lock is never held while the result is being made final.
 """
 
 from __future__ import annotations
@@ -1374,6 +1379,7 @@ class JobController:
     __slots__ = (
         "_run_id", "_condition", "_state", "_revision", "_cancel_requested",
         "_cancel_acknowledged", "_failure_message", "_failure_detail", "_listener",
+        "_commits_in_flight",
     )
 
     def __init__(
@@ -1395,6 +1401,7 @@ class JobController:
         self._failure_message = ""
         self._failure_detail = ""
         self._listener = listener
+        self._commits_in_flight = 0
 
     # -- reading ----------------------------------------------------------- #
 
@@ -1431,6 +1438,17 @@ class JobController:
     def cancel_acknowledged(self) -> bool:
         with self._condition:
             return self._cancel_acknowledged
+
+    @property
+    def commits_in_flight(self) -> int:
+        """How many results were authorized to become final and have not finished trying.
+
+        Once cancellation has been requested this can only fall, because nothing new is
+        authorized. So reading it after :meth:`request_cancel` is the complete answer to
+        "what can still appear now?": at most this many results, and nothing else.
+        """
+        with self._condition:
+            return self._commits_in_flight
 
     def snapshot(self) -> JobSnapshot:
         """The run as it is right now. Reading changes nothing and blocks nobody."""
@@ -1510,6 +1528,34 @@ class JobController:
         if changed:
             self._dispatch(snapshot)
         return snapshot
+
+    # -- the commit boundary ------------------------------------------------ #
+
+    def authorize_commit(self) -> bool:
+        """Cancel or this commit: whichever takes the lock first wins (review finding P1-R01).
+
+        ``False`` means cancellation was requested first, and the result must not become
+        final. ``True`` means this commit won: it is recorded before the lock is released,
+        so a :meth:`request_cancel` arriving now can be told about it, and the caller
+        proceeds with no lock held. A checked flag alone cannot do this. It orders the read
+        but leaves nothing behind, so nobody could tell a commit about to land from none
+        at all. Pair each ``True`` with :meth:`commit_finished`.
+
+        Deliberately not a state change and not a new revision: no observer of the run
+        has anything new to show until the commit's own result arrives.
+        """
+        with self._condition:
+            if self._cancel_requested:
+                return False
+            self._commits_in_flight += 1
+            return True
+
+    def commit_finished(self) -> None:
+        """The authorized attempt is over, whether or not the result became final."""
+        with self._condition:
+            if self._commits_in_flight <= 0:
+                raise JobContractError("commit_finished without an authorized commit")
+            self._commits_in_flight -= 1
 
     # -- the worker-facing checkpoint --------------------------------------- #
 
@@ -1592,6 +1638,10 @@ class JobController:
                 raise JobContractError(
                     "the worker has not acknowledged cancellation at a checkpoint; a "
                     "run may not be reported cancelled until it has actually stopped")
+            if self._commits_in_flight:
+                raise JobContractError(
+                    "a result this run authorized may still become final; a run may "
+                    "not be reported cancelled until that attempt has finished")
         return self._settle(JobState.CANCELLED)
 
     # -- internals ---------------------------------------------------------- #

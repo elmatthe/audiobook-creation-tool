@@ -3431,7 +3431,7 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    _convert_with_local_engine(item, params, log, synthesize)
+    _convert_with_local_engine(item, params, log, synthesize, cancel_check)
 
 
 class QueueWriter(io.TextIOBase):
