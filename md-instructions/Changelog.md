@@ -23,6 +23,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - **Fixed (Windows):** the gate sets Windows error dialogs off for itself and everything it starts, and proves it on a real child, so a gate started from any terminal can no longer hang on a dialog waiting for a person. Each child runs in a kill-on-close Job Object with a time limit and a stall limit.
 - **Fixed (test):** `test_a_missing_file_is_probe_failed` never tested a missing file, because its stand-in ffprobe could not start at all. It stays as the test of that case, documented, beside a new test with a real ffprobe and a real missing file.
 - **Not in this phase:** native Windows journeys, real-media journeys, the reviewed feature inventory and the qualification scenarios. Each is reported as NOT RUN, naming the phase that owns it. No application behaviour changed.
+- **Added (a pass has to stay true):** reading a passed run later now checks the environment as well as the source, so a pass no longer counts as current after FFmpeg, pytest or the interpreter changes.
+- **Verified:** the complete migrated gate passed on `749e6c7`: ordinary 13,435 passed, 65 skipped, 0 failed; guarded 457 + 75 passed; dependency, docs, naming and configuration gates passed. That is the routine scope only, and the owner has not accepted it yet. Earlier full runs are kept: `69f072b` failed 3 tests because one test's disposable checkout did not copy the gate's new session probe, and `98761df` passed but was replaced when the environment check above was added.
 
 ### v0.7.2 Phase 1 — Cancel stops now (2026-11-05) — identity 0.7.1 until the v0.7.2 release checkpoint; NOT published, tagged or merged
 

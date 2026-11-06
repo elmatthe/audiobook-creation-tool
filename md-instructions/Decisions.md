@@ -4,6 +4,16 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-06 - A bare gate command is invalid, 38 test identities changed with the gate, and a later read must match the environment (v0.7.2 Phase 2)
+
+**A bare command runs nothing.** `verify.py` with no arguments now exits 64. It used to start the whole gate, which takes about 80 minutes. The plan's command list always names a mode but never says what a bare command does, so this was the implementer's choice, and it is the owner's to overrule. The cost is that any note still saying "run verify.py" fails at once instead of running, which is the better way for it to be wrong.
+
+**Test identities.** The owner asked for existing identities to be preserved. Of the 13,366 ordinary identities in the accepted Phase 1 gate, 13,328 are kept and 38 are gone, because they drove an option (`--evidence-dir`), an exit code (2 for bad arguments) or a file (`scripts/verify.py`) that no longer exists. Keeping a name over changed behaviour would claim a continuity that is not there, so each one is mapped to its replacements instead: 18 stricter, 4 the same, 15 whose premise is gone because the caller no longer supplies a directory, and 1 the change above. The mapping is `removed-ids-map.md` in the Phase 2 audit evidence, and it fails if a replacement was not collected.
+
+**A later read compares the environment as well as the source.** Plan §13.3 lets evidence carry forward only where the digests "and environment match". The first version compared digests only, so a PASS would have gone on reading current after FFmpeg, pytest or the interpreter was replaced. `--status --require-current` now also compares the operating system build, machine, interpreter, its prefixes, Tk, pytest and the FFmpeg hash, and a reader that brings no environment cannot read current. The error mode and the desktop are recorded but not compared, because they describe whichever session is reading, so comparing them could only raise false alarms. A documents-only difference exits 3, never 0: the evidence carries forward with the docs checks rerun and both SHAs recorded, and it is not the same source. This fix is why the full gate ran a third time, after a run that had passed.
+
+Signed: Claude Code (Opus 5.5), under the owner's Phase 2 authorization of 2026-11-06.
+
 ## 2026-11-06 - The canonical gate moves to files/dev-work/verification-gate; a guarded basetemp stays where production pins it, and scratch stays short (v0.7.2 Phase 2)
 
 **Decision.** `files/dev-work/verification-gate/verify.py` is the one developer gate, tracked under a narrowed ignore rule (`files/dev-work/*` with exceptions; a directory rule would make any exception dead). `scripts/verify.py` is removed with no forwarding script. Status and exit codes follow plan §6.1. Every invocation past its arguments owns one new child of `outputs/`, and a run reads PASS only through `read_run_status`.
