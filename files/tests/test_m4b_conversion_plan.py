@@ -1727,8 +1727,19 @@ def test_a_file_that_is_not_media_is_probe_failed(real_books):
 
 
 def test_a_missing_file_is_probe_failed(tmp_path, pinned_ffmpeg):
+    """What this really proves: an ffprobe that cannot start at all is PROBE_FAILED. ``pinned_ffmpeg``'s ffprobe is an invalid
+    executable, so it fails the same way whether or not the file exists. A real missing file is the test below."""
     found = m4b_probe.probe_source(tmp_path / "nothing-here.m4b")
     assert found.probe.status is ProbeStatus.PROBE_FAILED
+
+
+def test_a_real_ffprobe_reports_a_real_missing_file_as_probe_failed(real_books, tmp_path):
+    assert m4b_probe.probe_source(real_books["chaptered"]).probe.status is not ProbeStatus.PROBE_FAILED, "the control"
+    missing = tmp_path / "nothing-here.m4b"
+    found = m4b_probe.probe_source(missing)
+    assert found.probe.status is ProbeStatus.PROBE_FAILED
+    assert found.probe.chapters == ()
+    assert not missing.exists()
 
 
 def test_a_real_chaptered_book_plans_its_whole_timeline(real_books, tmp_path):

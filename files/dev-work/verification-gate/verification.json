@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "about": "Execution policy of files/dev-work/verification-gate/verify.py: budgets, the frozen scenario names, what a skip may be, and what the routine gate does not yet cover. coverage.json holds the feature identities. A change here changes what PASS means, so this file is part of the policy digest of every run.",
+  "stages": {
+    "preflight": {"timeout_seconds": 120},
+    "collect": {"timeout_seconds": 1500, "stall_seconds": 900},
+    "pytest": {"timeout_seconds": 14400, "stall_seconds": 1500},
+    "guarded": {"timeout_seconds": 5400, "stall_seconds": 1500}
+  },
+  "process": {"drain_seconds": 15, "kill_wait_seconds": 20},
+  "scenarios": {
+    "m4b-scaling": {"phase": 7, "network": [], "detail": "M4B chapter-splitting scale and output comparison; defined with the Phase 7 profiling work"},
+    "edge-low-memory": {"phase": 8, "network": ["online-edge"], "detail": "real Edge overlap under low memory; defined with the Phase 8 readiness package"},
+    "optional-engines": {"phase": 8, "network": [], "detail": "bounded real synthesis on Kokoro, Chatterbox Turbo and Qwen3-TTS; defined with the Phase 8 readiness package"},
+    "fresh-windows": {"phase": 8, "network": [], "detail": "fresh Windows extraction, launch and repair; defined with the Phase 8 readiness package"}
+  },
+  "later_phase_requirements": [
+    {"id": "native-journeys", "phase": 3, "required": false, "detail": "complete native Windows GUI journeys for each of the six tools"},
+    {"id": "real-media-journeys", "phase": 3, "required": false, "detail": "real-media output journeys with independent oracles"},
+    {"id": "coverage-inventory", "phase": 4, "required": false, "detail": "reviewed feature inventory with every required entry mapped and satisfied"}
+  ],
+  "inventory": {
+    "minimum_ordinary": 13000,
+    "modules_without_tests": {
+      "test_kokoro_voices.py": "a manual five-voice harness run as a script; it is named test_ but defines no pytest test"
+    },
+    "minimum_guarded": {"v3-planning": 450, "v3-supervisor": 70},
+    "guarded_membership": {
+      "v3-planning": [
+        "test_optional_setup_exchange_v3.py",
+        "test_optional_setup_confirmation_v3.py",
+        "test_optional_setup_display_controller_v3.py",
+        "test_optional_setup_planning_worker_v3.py",
+        "test_optional_setup_readonly_context_v3.py",
+        "test_optional_setup_tk_harness_v3.py",
+        "test_spacy_consumer.py",
+        "test_p05b_isolation.py"
+      ],
+      "v3-supervisor": ["test_optional_setup_supervisor_v3.py"]
+    }
+  },
+  "required_self_tests": [
+    "files/tests/test_verification_gate_contract.py",
+    "files/tests/test_verify_evidence.py",
+    "files/tests/test_verify_guarded.py",
+    "files/tests/test_repository_contract.py"
+  ],
+  "skip_policy": {
+    "win32": [
+      {"id": "native-macos-only", "pattern": "^(aqua geometry regression: native macOS metrics only|the aqua branch needs aqua)$", "max": 39},
+      {"id": "no-symlink-privilege", "pattern": "^this (environment|account) (cannot create|may not create)", "max": 16},
+      {"id": "case-insensitive-filesystem", "pattern": "^(this filesystem is case-insensitive, so the two names are one file|the Windows path layer is case-blind by definition)$", "max": 3},
+      {"id": "local-fixture-absent", "pattern": "^(set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture folder to run|no local A4 listening folder|no local ordered export|files/runtime-data/ currently holds no colliding test basename)$", "max": 6},
+      {"id": "empty-parameter-set", "pattern": "^got empty parameter set for ", "max": 1}
+    ]
+  },
+  "focused": {
+    "required_guards": ["files/tests/test_application_source_boundary.py"]
+  },
+  "changed": {
+    "always": ["files/tests/test_application_source_boundary.py", "files/tests/test_repository_contract.py"],
+    "no_selection": [
+      "files/plans/",
+      "files/release-history/",
+      "md-instructions/",
+      "README.md",
+      "AI-WORKSPACE.md",
+      "REPO-STRUCTURE.md",
+      "scripts/project-status.py"
+    ],
+    "routes": {
+      "files/dev-work/verification-gate/": [
+        "files/tests/test_verification_gate_contract.py",
+        "files/tests/test_verify_evidence.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_repository_contract.py"
+      ],
+      "files/dev-work/feature-map/": ["files/tests/test_repository_contract.py"],
+      ".gitignore": ["files/tests/test_dev_work_isolation.py", "files/tests/test_repository_contract.py"],
+      "pytest.ini": ["files/tests/test_dev_work_isolation.py"],
+      "config.toml": ["files/tests/test_repository_contract.py", "files/tests/test_developer_mode.py"],
+      "scripts/README.md": ["files/tests/test_layout_canary.py"],
+      "scripts/shared/release.py": ["files/tests/test_release_packaging.py"]
+    },
+    "full_on": [
+      "scripts/shared/",
+      "scripts/requirements",
+      "scripts/qwen3-",
+      "files/tests/conftest.py",
+      "files/tests/guarded_",
+      "files/tests/gate_",
+      "files/tests/source_probe.py",
+      "files/tests/write_tripwire.py",
+      "files/tests/cache_sandbox.py",
+      "files/tests/tk_gate.py",
+      "Setup_and_Run"
+    ]
+  }
+}

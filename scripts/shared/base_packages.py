@@ -2,7 +2,7 @@
 pip policy every ACT-managed pip command of the app environment runs under (v0.7.0 portability remediation).
 
 Standard library only, under ``shared/`` on purpose: ``bootstrap`` runs it on the app's base Python before the app
-environment has any packages, and ``scripts/verify.py`` and the developer lock generator read the same rules.
+environment has any packages, and the development gate and the developer lock generator read the same rules.
 
 * **The lock** (``scripts/requirements-lock-windows-py312.txt``) names every package of the app environment on
   Windows x86-64 CPython 3.12, transitive ones included, at one version, with the SHA-256 of the one artifact pip

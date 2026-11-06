@@ -12,7 +12,6 @@ Everything a fresh copy of the Audiobook Creation Tool needs in order to run liv
 | `mp3/` | The MP3 Tool |
 | `m4b/` | The M4B Converter (`m4b/converter/`), M4B Maker (`m4b/maker/`) and M4B Metadata Editor (`m4b/metadata/`), plus the M4B code they share |
 | `artwork/` | The Cover Image tool, plus the artwork code the MP3 Tool, M4B Maker and M4B Metadata Editor share |
-| `verify.py` | The repository's verification gate (`python scripts/verify.py`); a development tool |
 | `requirements.txt` | Pinned packages for the main environment (`.venv`) |
 | `qwen3-requirements.txt` | Hash-pinned packages for the optional Qwen3 environment (`.venv-qwen3`) |
 

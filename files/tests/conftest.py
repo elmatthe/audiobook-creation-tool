@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 import cache_sandbox
+import gate_session_probe
 
 # Collection can import librosa/Numba before any fixture is entered.
 NUMBA_TEST_CACHE = cache_sandbox.install()
@@ -27,6 +28,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+
+
+def pytest_configure(config):
+    """Inside a verification-gate stage, keep the session's own record for the gate to reconcile. Inert otherwise."""
+    gate_session_probe.register(config)
 
 
 # --------------------------------------------------------------------------- #

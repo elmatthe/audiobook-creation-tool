@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "about": "Seed only. These are the stable feature identities known so far, each naming the test modules `--feature` selects. It is NOT the reviewed inventory the plan requires: most of the application is not listed, nothing here claims native or real-media verification, and a test module named below is a selection, not proof of coverage. Phases 3 and 4 complete and enforce it.",
+  "inventory_reviewed": false,
+  "features": [
+    {
+      "id": "ACT.TTS.CANCEL",
+      "tool": "tts-audiobook",
+      "source": [{"path": "scripts/tts/epub2tts_gui.py", "symbols": ["TtsPanel.cancel_job"]}, {"path": "scripts/shared/job_control.py", "symbols": ["JobController.request_cancel"]}],
+      "selection": ["files/tests/test_cancel_semantics.py", "files/tests/test_low_memory.py"]
+    },
+    {
+      "id": "ACT.TTS.PAUSE",
+      "tool": "tts-audiobook",
+      "source": [{"path": "scripts/tts/epub2tts_gui.py", "symbols": ["TtsPanel.pause", "TtsPanel.resume"]}, {"path": "scripts/shared/job_control.py", "symbols": ["JobController.request_pause"]}],
+      "selection": ["files/tests/test_job_controller.py", "files/tests/test_cancel_semantics.py"]
+    },
+    {
+      "id": "ACT.TTS.CANCEL.PUBLICATION",
+      "tool": "tts-audiobook",
+      "source": [{"path": "scripts/tts/publication.py", "symbols": ["authorized_commit"]}, {"path": "scripts/shared/job_control.py", "symbols": ["JobController.authorize_commit"]}],
+      "selection": ["files/tests/test_cancel_semantics.py", "files/tests/test_edge_publication.py"]
+    },
+    {
+      "id": "ACT.TTS.CANCEL.EDGE-REQUEST",
+      "tool": "tts-audiobook",
+      "source": [{"path": "scripts/tts/edge_requests.py", "symbols": ["run_request", "wait_unless_cancelled"]}],
+      "selection": ["files/tests/test_cancel_semantics.py"]
+    },
+    {
+      "id": "ACT.TTS.CANCEL.MEMORY-WAIT",
+      "tool": "tts-audiobook",
+      "source": [{"path": "scripts/tts/worker_limits.py", "symbols": ["AssemblyGate.place", "AssemblyPlace.wait_for_room"]}],
+      "selection": ["files/tests/test_worker_limits.py", "files/tests/test_low_memory.py"]
+    },
+    {
+      "id": "ACT.TTS.CANCEL.FFMPEG",
+      "tool": "tts-audiobook",
+      "source": [{"path": "scripts/tts/ffmpeg_watch.py", "symbols": ["controlled", "run"]}],
+      "selection": ["files/tests/test_low_memory.py"]
+    },
+    {
+      "id": "ACT.SHARED.CANCELLATION",
+      "tool": "shared",
+      "source": [{"path": "scripts/shared/cancellation.py", "symbols": ["is_cancelled", "raise_if_cancelled"]}],
+      "selection": ["files/tests/test_plan3_boundaries.py"]
+    },
+    {
+      "id": "ACT.GATE.RUNNER",
+      "tool": "verification-gate",
+      "source": [{"path": "files/dev-work/verification-gate/verify.py", "symbols": ["main", "GateRun"]}],
+      "selection": ["files/tests/test_verification_gate_contract.py", "files/tests/test_verify_evidence.py"]
+    },
+    {
+      "id": "ACT.GATE.GUARDED",
+      "tool": "verification-gate",
+      "source": [{"path": "files/tests/guarded_pytest.py", "symbols": ["main", "production_roots"]}],
+      "selection": ["files/tests/test_verify_guarded.py", "files/tests/test_p05b_isolation.py"]
+    }
+  ]
+}

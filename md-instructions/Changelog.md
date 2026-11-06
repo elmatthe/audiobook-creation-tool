@@ -15,6 +15,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.7.2 Phase 2 — the canonical verification gate (2026-11-06) — development tooling only; identity stays 0.7.1; NOT published, tagged or merged
+
+- **Changed (the gate moved):** the one developer gate is now `files/dev-work/verification-gate/verify.py`, with modes `focused`, `changed`, `full` and `qualification`, and exit codes 0 PASS, 1 FAIL, 2 BLOCKED, 3 NOT RUN or incomplete, 64 invalid invocation, 130 interrupted. A bare command is now an invalid invocation rather than a 75-minute run.
+- **Removed:** `scripts/verify.py`. Nothing forwards to it, and nothing the application ships or runs ever used it. Evidence of earlier runs stays where it was and reads as legacy.
+- **Added (a pass has to be earned):** exit 0 alone no longer passes. The JUnit report and a record written from inside the pytest session must exist and agree. Ordinary and guarded collections must be disjoint and cover every test module, every skip must match a named reason, and selected, collected and executed tests must be the same set. A source change during the run, a leftover process or a stale or forged run directory each stops a PASS.
+- **Fixed (Windows):** the gate sets Windows error dialogs off for itself and everything it starts, and proves it on a real child, so a gate started from any terminal can no longer hang on a dialog waiting for a person. Each child runs in a kill-on-close Job Object with a time limit and a stall limit.
+- **Fixed (test):** `test_a_missing_file_is_probe_failed` never tested a missing file, because its stand-in ffprobe could not start at all. It stays as the test of that case, documented, beside a new test with a real ffprobe and a real missing file.
+- **Not in this phase:** native Windows journeys, real-media journeys, the reviewed feature inventory and the qualification scenarios. Each is reported as NOT RUN, naming the phase that owns it. No application behaviour changed.
+
 ### v0.7.2 Phase 1 — Cancel stops now (2026-11-05) — identity 0.7.1 until the v0.7.2 release checkpoint; NOT published, tagged or merged
 
 - **Changed (Cancel):** Cancel stops every file being converted at once, whatever it is doing: asking the voice service for speech, a request in flight, a wait between attempts, a wait for memory, the narration being put together or encoded, and the last step of saving. Nothing unfinished is saved, nothing is asked of the voice service again, and nothing falls back to disk or tries again after Cancel. A file that was already saved before Cancel stays, and so does one in the last instant of being saved when Cancel was pressed, whole. Until now a narration whose speech was complete was allowed to finish and be saved for up to 10 minutes after Cancel.

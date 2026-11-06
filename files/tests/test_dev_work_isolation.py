@@ -9,7 +9,7 @@ shadowed the real suite: **158 import-file-mismatch errors plus 6 unimportable
 snapshot modules**, and 5021 of the 5083 items it did collect came from the
 clean-room rather than from the project.
 
-``python scripts/verify.py`` never broke, because it passes ``files/tests`` as an
+The verification gate never broke, because it passes ``files/tests`` as an
 explicit path. That is exactly what made the breakage easy to miss, and it is why
 the fix pins *both* entry points to the same tree rather than trusting the gate
 alone.
@@ -72,12 +72,8 @@ def test_the_verifier_and_a_bare_pytest_agree_on_the_tree():
     ``verify.py`` passes an explicit path, so it ignores ``testpaths`` entirely --
     which is precisely how the suite stayed green while ``pytest`` was broken.
     """
-    import sys
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
-    try:
-        import verify
-    finally:
-        sys.path.pop(0)
+    import gate_locator
+    verify = gate_locator.load_gate("act_verify_isolation")
     declared = Path(_ini().get("pytest", "testpaths").split()[0])
     assert verify.TESTS_DIR.resolve() == (REPO_ROOT / declared).resolve()
 
@@ -112,6 +108,24 @@ def test_the_patterns_are_basenames_not_paths():
 def test_the_local_workspace_is_gitignored():
     text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "files/dev-work/" in text
+
+
+def test_the_gate_and_map_are_trackable_and_everything_else_in_the_workspace_is_not():
+    """A directory rule would make the exceptions dead: git never looks inside an excluded directory."""
+    import subprocess
+
+    def ignored(path):
+        return subprocess.run(["git", "check-ignore", "--no-index", "-q", path], cwd=REPO_ROOT).returncode == 0
+
+    for path in ("files/dev-work/verification-gate/verify.py", "files/dev-work/verification-gate/verification.json",
+                 "files/dev-work/verification-gate/helpers/winproc.py", "files/dev-work/feature-map/README.md"):
+        assert not ignored(path), path
+    for path in ("files/dev-work/verification-gate/outputs/run/results.json", "files/dev-work/act070-remediation/x",
+                 "files/dev-work/p05b-stage4c/x", "files/dev-work/local-model-worker-template.py",
+                 "files/dev-work/verification-gate/helpers/__pycache__/x.pyc"):
+        assert ignored(path), path
+    assert "files/dev-work/verification-gate/verify.py" in subprocess.run(
+        ["git", "ls-files", "--", "files/dev-work/verification-gate"], cwd=REPO_ROOT, capture_output=True, text=True).stdout
 
 
 @pytest.mark.parametrize("name", LOCAL_WORKSPACES)

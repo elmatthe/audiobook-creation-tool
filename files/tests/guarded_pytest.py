@@ -25,16 +25,23 @@ sys.path[:0] = [str(ROOT / "files/tests"), str(ROOT / "scripts")]
 import write_tripwire as tripwire
 
 
-def production_roots():
+def production_roots(current=()):
+    """Read-only for a guarded run. ``current`` names what this run itself owns below the qualification root: everything
+    else there is an earlier run's, and the gate's own source and evidence are never a test's to write."""
     paths = (".venv", ".venv-qwen3", "files/runtime-data", "files/Cloned-Voice-Uploads",
              "files/Chatterbox-Voice-Uploads", "files/voice-previews", "files/dev-work/P04B q",
-             "files/dev-work/P04C q", "files/dev-work/act070-remediation", "scripts/tts/data", "config.toml",
+             "files/dev-work/P04C q", "files/dev-work/act070-remediation", "files/dev-work/verification-gate",
+             "files/dev-work/feature-map", "scripts/tts/data", "config.toml",
              "files/run-temp", ".ai", "scripts/project-status.py", "files/bin")
     roots = [ROOT / path for path in paths]
     roots += list(ROOT.glob(".venv*act67-preserved-*"))
     roots += list((ROOT / "files").glob("runtime-data.act67-preserved-*"))
     # Every earlier checkpoint is read-only. The current run is deliberately elsewhere.
     roots += [path for path in (ROOT / "files/dev-work").glob("p05b-stage*") if path.name != "p05b-stage4c"]
+    owned = ROOT / "files/dev-work/p05b-stage4c"
+    if owned.is_dir():
+        mine = {Path(os.path.normcase(path)) for path in current}
+        roots += [path for path in owned.iterdir() if Path(os.path.normcase(path)) not in mine]
     return roots
 
 
@@ -311,15 +318,20 @@ def main(*, plugins=()):
         raise ValueError("one explicit disposable --basetemp= is required")
     temp = Path(temp_args[0]).absolute()
     owned = ROOT / "files/dev-work/p05b-stage4c"
-    if not temp.is_relative_to(owned) or not temp.resolve().is_relative_to(owned.resolve()):
+    if temp == owned or not temp.is_relative_to(owned) or not temp.resolve().is_relative_to(owned.resolve()):
         raise ValueError("basetemp must be in this checkpoint's disposable tree")
+    if os.path.lexists(temp):  # pytest would clear it: nothing that exists is ever a basetemp
+        raise ValueError("basetemp must not exist yet")
     report_path = report_path.absolute()
     if not report_path.is_relative_to(owned) or not report_path.resolve().is_relative_to(owned.resolve()):
         raise ValueError("report must stay in the checkpoint's owned tree")
+    if os.path.lexists(report_path):  # a report is written once, by the run it describes
+        raise ValueError("report must not exist yet")
     process_temp = report_path.with_name(report_path.stem + "-process-temp")
     process_temp.mkdir(exist_ok=False)
     policy = ProcessPolicy(config, temp, process_temp)
-    protected = production_roots()
+    relative = report_path.relative_to(owned).parts
+    protected = production_roots(current=(temp, process_temp, owned / relative[0]))
     roots = tuple(tripwire._norm(str(p)) for p in protected)
     boundary = tripwire.armed(protected)
     boundary.__enter__()
@@ -361,6 +373,7 @@ def main(*, plugins=()):
         report = {"version": 1, "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
                   "runner_sha256": runner_sha256,
                   "disposable_process_roots": [str(path) for path in policy.disposable_roots],
+                  "error_mode": hex(ctypes.WinDLL("kernel32").GetErrorMode()) if os.name == "nt" else None,
                   "pytest_exit": int(code), "raw_refusals": raw, "production_refusals": real,
                   "unintended_production_refusals": accidental, "allowed_processes": policy.allowed,
                   "unexpected_processes": policy.refused, "network_model_refusals": blocked}

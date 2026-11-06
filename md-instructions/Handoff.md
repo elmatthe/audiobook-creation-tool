@@ -2,6 +2,14 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 2 (canonical gate): implemented and committed; targeted verification passed; the full migrated gate on this commit is the next step; NOT accepted; Phase 3 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-06, Claude Code)
+
+Authority: the owner's Phase 2 prompt of 2026-11-06, after the Phase 1 checkpoint was reviewed and approved for progression. This block supersedes the "NOT accepted; Phase 2 not opened" of the block below, which otherwise stands as the record of `0c1ef43`. Plan: §§5, 6, 10, 13, 14 Phase 2. Decision: `Decisions.md`, the newest two entries. References to `scripts/verify.py`, `--evidence-dir` or `run_gate.py` in anything below this block are historical: they describe commands that were true then.
+
+- **The command now.** `.venv\Scripts\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows`, from any directory, in a harness background shell. See `--help`, and Briefing's v0.7.2 section. Read the result with `--status <run dir> --require-current`.
+- **Evidence (ignored).** Phase 2 audit: `files/dev-work/verification-gate/outputs/2026-11-06_phase2_audit_c41a/` (error-mode measurements, old and new gate comparison, inventory delta, mutation results, the retired gate as a comparison fixture). Phase 0 and Phase 1 evidence is untouched.
+- **Open for the owner.** The ignored local instructions still name the old command: `.claude/CLAUDE.md` line 19, `.codex/CODEX.md` line 16, `AI-WORKSPACE.md` line 107. `scripts/project-status.py` reads a state file the gate does not write.
+
 ## CURRENT STATE — v0.7.2 Phase 1 (Cancel): the complete full gate PASSED on `0c1ef43`; the commit that adds this block changes the four canonical documents only; READY FOR OWNER ACCEPTANCE REVIEW; NOT accepted; Phase 2 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-05, Claude Code)
 
 Authority: owner prompts of 2026-11-05 (the autonomous Phase 1 remediation and verification loop; its resume after the PC restart). This block supersedes the "NOT yet" and "Next" of the block below, which otherwise stands as the record of `0c1ef43`. Decision: `Decisions.md`, the newest entry. Evidence (ignored): `files/dev-work/act070-remediation/verify/ACT072-P1-0c1ef43-full3` and `ACT072-P1-0c1ef43-full3-telemetry` beside it; `files/dev-work/act070-remediation/rca/ACT072-P1-launch-correction/`.

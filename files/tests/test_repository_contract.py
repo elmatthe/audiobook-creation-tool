@@ -5,7 +5,7 @@ and casing forever, and no case-variant alias may reappear. This suite proves
 that with **real directory entries**, never ``Path.exists()`` — on Windows a
 path lookup is case-insensitive, so ``md-instructions/CHANGELOG.md`` "exists"
 even though the file is ``Changelog.md``. That is precisely how a stale
-reference survived unnoticed in ``scripts/verify.py``.
+reference survived unnoticed in the verification gate.
 
 Because a case-insensitive filesystem will not let us stage a real alias beside
 the canonical file, the negative cases run against temporary trees through the
@@ -14,7 +14,6 @@ gate's injectable parameters.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import subprocess
 import sys
@@ -23,6 +22,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+from gate_locator import GATE_PATH, load_gate  # noqa: E402
 from source_probe import application_python_files  # noqa: E402
 MD_DIR = REPO_ROOT / "md-instructions"
 
@@ -39,12 +39,8 @@ FORBIDDEN_ALIASES = (
 
 
 def load_verify():
-    """Import scripts/verify.py as a module so its checks can be called directly."""
-    spec = importlib.util.spec_from_file_location("act_verify", REPO_ROOT / "scripts" / "verify.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["act_verify"] = module
-    spec.loader.exec_module(module)
-    return module
+    """Import the gate as a module so its checks can be called directly."""
+    return load_gate("act_verify")
 
 
 def build_md_tree(root: Path, doc_names) -> Path:
@@ -137,7 +133,7 @@ def test_verify_py_holds_no_stale_alias_as_a_real_string_value():
     """
     import ast
 
-    tree = ast.parse((REPO_ROOT / "scripts" / "verify.py").read_text(encoding="utf-8"))
+    tree = ast.parse(GATE_PATH.read_text(encoding="utf-8"))
     docstrings = set()
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):

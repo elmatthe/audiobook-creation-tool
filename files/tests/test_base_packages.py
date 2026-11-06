@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pytest
 
+import gate_locator
 from shared import base_packages, bootstrap
 from source_probe import application_python_files
 
@@ -595,8 +596,7 @@ def test_the_requirements_fingerprint_covers_the_lock(tmp_path, monkeypatch):
     (lambda text: text.replace("--hash=sha256:", "--hash=md5:", 1), "not 'name==version"),
 ])
 def test_the_deps_gate_refuses_a_stale_incomplete_or_loosened_lock(tmp_path, monkeypatch, damage, expected):
-    sys.path.insert(0, str(SCRIPTS))
-    import verify
+    verify = gate_locator.load_gate("act_verify_base_packages")
 
     requirements = tmp_path / "requirements.txt"
     shutil.copyfile(REQUIREMENTS, requirements)
@@ -608,8 +608,7 @@ def test_the_deps_gate_refuses_a_stale_incomplete_or_loosened_lock(tmp_path, mon
 
 
 def test_the_deps_gate_passes_on_the_committed_files_and_requires_the_lock(tmp_path, monkeypatch):
-    sys.path.insert(0, str(SCRIPTS))
-    import verify
+    verify = gate_locator.load_gate("act_verify_base_packages")
 
     name, ok, detail = verify.check_requirements()
     assert ok is True and "locks 170 packages" in detail, detail
