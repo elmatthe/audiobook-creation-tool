@@ -371,6 +371,25 @@ def test_a_full_run_runs_exactly_the_six_gates_in_the_established_order(verify, 
     assert [name for name in names if name in GATE_ORDER] == GATE_ORDER
 
 
+def test_only_the_installation_decides_whether_two_environments_match():
+    load_gate("act_verify_evidence_environment")
+    from helpers import runstore
+
+    base = {key: f"value of {key}" for key in runstore.COMPARED_ENVIRONMENT}
+    assert runstore.compare_environment(base, dict(base)) == []
+    for key in runstore.COMPARED_ENVIRONMENT:
+        assert runstore.compare_environment(base, {**base, key: "another"}) == [f"environment.{key}"]
+    assert runstore.compare_environment({**base, key: None}, {k: v for k, v in base.items() if k != key}) == []
+    session = {"error_mode": "0x3", "interactive_desktop": False}
+    assert runstore.compare_environment({**base, "error_mode": "0x8003", "interactive_desktop": True}, {**base, **session}) == []
+    for recorded, current in ((None, base), (base, None), ({}, base), (base, {})):
+        assert runstore.compare_environment(recorded, current) == ["environment unavailable"]
+    # A path that differs only by case is the same path exactly where the filesystem says so, and not otherwise.
+    shouted = {**base, "executable": base["executable"].upper()}
+    expected = [] if os.path.normcase("A") == "a" else ["environment.executable"]
+    assert runstore.compare_environment(base, shouted) == expected
+
+
 def test_the_real_gate_lists_the_static_gates_in_order():
     module = load_gate("act_verify_evidence_static")
     assert [(name, fn) for name, fn in module._static_gates()] == [

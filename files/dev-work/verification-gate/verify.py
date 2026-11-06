@@ -1475,8 +1475,8 @@ def _status_command(args) -> int:
         print(f"legacy evidence: {runstore.read_legacy_evidence_status(directory)}. A historical record of its own source, "
               "under the old schema; never current acceptance.")
         return runstore.EXIT_NOT_RUN
-    identity = tree_fingerprint() if args.require_current else None
-    outcome = runstore.read_run_status(directory, identity)
+    identity, environment = (tree_fingerprint(), environment_identity()) if args.require_current else (None, None)
+    outcome = runstore.read_run_status(directory, identity, environment)
     print(f"status: {outcome['status']}" + (f" (run {outcome['results'].get('run_id')})" if outcome["results"] else ""))
     for problem in outcome["problems"]:
         print(f"  problem: {problem}")
@@ -1486,7 +1486,11 @@ def _status_command(args) -> int:
         return runstore.EXIT_NOT_RUN
     code = runstore.EXIT_FOR_STATUS.get(outcome["status"], runstore.EXIT_NOT_RUN)
     if args.require_current and code == runstore.EXIT_PASS and outcome["current"] != "exact":
-        print("  this PASS does not describe the current source")
+        if outcome["current"] == "docs-only":
+            print("  code, tests, policy, locks and environment match; only documents differ. That is not the same source: "
+                  "this evidence carries forward only with the docs checks rerun and both SHAs recorded (plan section 13.3)")
+        else:
+            print("  this PASS does not describe the current source and environment")
         return runstore.EXIT_NOT_RUN
     return code
 
@@ -1505,7 +1509,7 @@ exit codes: 0 PASS for the requested scope; 1 FAIL; 2 BLOCKED, a prerequisite is
 including no tests executed; 64 invalid invocation or configuration; 130 interrupted. Exit 0 does not imply release readiness.
 
 --status reads a finished run back and checks it holds together, read-only. With --require-current a PASS must also describe
-the current source; its digests decide, never the directory name.
+the current source and environment; its digests and installation decide, never the directory name.
 """
 
 
@@ -1526,7 +1530,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--collect-only", action="store_true", help="also collect and check the partition; run no test")
     parser.add_argument("--label", metavar="NAME", help="a short name recorded with the run")
     parser.add_argument("--status", metavar="RUN_DIR", help="read a run back instead of starting one")
-    parser.add_argument("--require-current", action="store_true", help="with --status: a PASS must describe the current source")
+    parser.add_argument("--require-current", action="store_true", help="with --status: a PASS must describe the current source and environment")
     args = parser.parse_args(argv)
     if bool(args.mode) == bool(args.status):
         parser.error("give exactly one of --mode and --status")

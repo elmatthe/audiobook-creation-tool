@@ -735,6 +735,52 @@ def test_a_docs_only_change_is_reported_as_docs_only_and_never_as_the_same_sourc
     tree.write("md-instructions/Handoff.md", "# a docs-only edit\n")
     status = tree.status(str(directory), "--require-current")
     assert "current: docs-only" in status.stdout and status.returncode == 3, status.stdout
+    assert "only documents differ" in status.stdout and "both SHAs" in status.stdout, status.stdout
+
+
+@pytest.mark.parametrize("field, value", [
+    ("python", "3.99.0 (another interpreter)"),
+    ("ffmpeg_sha256", "0" * 64),
+    ("executable", "C:/elsewhere/python.exe"),
+])
+def test_a_pass_from_another_environment_is_not_current_even_on_the_same_source(passing_run, field, value):
+    """Plan section 13.3: evidence carries only where the environment matches too. A replaced FFmpeg is not the run that passed."""
+    tree, directory = passing_run
+    assert "current: exact" in tree.status(str(directory), "--require-current").stdout
+    _rewrite_results(directory, lambda r: r["environment"].update({field: value}), reseal=True)
+    status = tree.status(str(directory), "--require-current")
+    assert status.returncode == 3 and "current: stale" in status.stdout, status.stdout
+    assert f"environment.{field}" in status.stdout and "does not describe" in status.stdout, status.stdout
+    assert tree.status(str(directory)).returncode == 0, "still a true record of the environment it ran on"
+
+
+def test_a_docs_change_cannot_carry_evidence_across_a_changed_environment(passing_run):
+    tree, directory = passing_run
+    _rewrite_results(directory, lambda r: r["environment"].update(tk="8.0.0"), reseal=True)
+    tree.write("md-instructions/Handoff.md", "# a docs-only edit\n")
+    status = tree.status(str(directory), "--require-current")
+    assert status.returncode == 3 and "current: stale" in status.stdout and "environment.tk" in status.stdout, status.stdout
+
+
+def test_the_session_reading_a_pass_does_not_make_it_stale(passing_run):
+    """Whichever shell reads the result has its own error mode and desktop. Neither says anything about the run."""
+    tree, directory = passing_run
+    _rewrite_results(directory, lambda r: r["environment"].update(error_mode="0x3", interactive_desktop=False), reseal=True)
+    status = tree.status(str(directory), "--require-current")
+    assert status.returncode == 0 and "current: exact" in status.stdout, status.stdout
+
+
+def test_a_reader_that_brings_no_environment_cannot_read_current(passing_run):
+    _tree, directory = passing_run
+    load_gate("act_verify_contract_no_environment")
+    from helpers import runstore
+
+    results = json.loads((directory / "results.json").read_text(encoding="utf-8"))
+    recorded = results["identity"]["start"]
+    outcome = runstore.read_run_status(directory, recorded)
+    assert (outcome["status"], outcome["current"]) == ("PASS", "stale"), outcome["current"]
+    assert outcome["identity_differences"] == ["environment unavailable"]
+    assert runstore.read_run_status(directory, recorded, results["environment"])["current"] == "exact"
 
 
 def test_a_run_with_a_marker_left_behind_is_incomplete_whatever_its_result_says(passing_run):

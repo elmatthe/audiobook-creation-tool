@@ -38,6 +38,10 @@ _WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", 
 # Digests whose change means the recorded execution no longer describes this source. "docs" is the one class that can
 # change while the execution evidence still applies (plan §13.3), and only if none of these moved.
 EXECUTION_DIGESTS = ("source_digest", "test_digest", "policy_digest", "locks_digest", "other_digest")
+# What "the same environment" means to a later reader (plan §13.3): properties of the installation. The error mode and the
+# desktop are recorded too, but they describe whichever session is reading, so comparing them could only cry wolf.
+COMPARED_ENVIRONMENT = ("os_build", "machine", "python", "executable", "prefix", "base_prefix", "sys_platform", "tk",
+                        "pytest", "ffmpeg_sha256")
 
 
 class RunRefused(ValueError):
@@ -277,11 +281,27 @@ def _remove_entry(path: Path, problems: list[str]) -> None:
             problems.append(f"{path}: {type(exc).__name__}: {exc}")
 
 
-def compare_identity(recorded: dict, current: dict) -> tuple[str, list[str]]:
-    """``exact``, ``docs-only`` (the execution evidence carries, the docs checks must be rerun) or ``stale``."""
+def compare_environment(recorded: dict | None, current: dict | None) -> list[str]:
+    """The compared fields that differ, as ``environment.<field>``. A side with no record at all is never the same."""
+    if not recorded or not current:
+        return ["environment unavailable"]
+
+    def comparable(value):
+        return os.path.normcase(value) if isinstance(value, str) else value  # C:\X and c:\x are one interpreter on Windows
+
+    return [f"environment.{key}" for key in COMPARED_ENVIRONMENT if comparable(recorded.get(key)) != comparable(current.get(key))]
+
+
+def compare_identity(recorded: dict, current: dict, recorded_environment: dict | None = None,
+                     current_environment: dict | None = None) -> tuple[str, list[str]]:
+    """``exact``, ``docs-only`` (the execution evidence carries, the docs checks must be rerun) or ``stale``.
+
+    Evidence carries only where the environment matches as well, so a reader that brings no environment gets ``stale``.
+    """
     if not recorded or not current:
         return "stale", ["identity unavailable"]
     moved = [key for key in EXECUTION_DIGESTS if not recorded.get(key) or recorded.get(key) != current.get(key)]
+    moved += compare_environment(recorded_environment, current_environment)
     if moved:
         return "stale", moved
     if recorded.get("docs_digest") != current.get("docs_digest"):
@@ -289,12 +309,13 @@ def compare_identity(recorded: dict, current: dict) -> tuple[str, list[str]]:
     return "exact", []
 
 
-def read_run_status(directory: Path, current_identity: dict | None = None) -> dict:
+def read_run_status(directory: Path, current_identity: dict | None = None, current_environment: dict | None = None) -> dict:
     """What a run directory may honestly be taken to say, as ``{"status", "valid", "problems", "current", "results"}``.
 
     ``status`` is one of the recorded results, or INCOMPLETE, or INVALID when the directory does not hold up. Only a
-    finalized, self-consistent record with no marker can say PASS. ``current`` compares the run's source identity with
-    ``current_identity`` when one is given; a PASS that is not current must not be taken as acceptance of this source.
+    finalized, self-consistent record with no marker can say PASS. ``current`` compares the run's source identity and
+    environment with ``current_identity`` and ``current_environment`` when an identity is given; a PASS that is not current
+    must not be taken as acceptance of this source on this installation.
     """
     directory = Path(directory)
     if not directory.is_dir():
@@ -314,8 +335,8 @@ def read_run_status(directory: Path, current_identity: dict | None = None) -> di
     outcome = _status(status, [], results)
     outcome["valid"] = True
     if current_identity is not None:
-        outcome["current"], outcome["identity_differences"] = compare_identity(results.get("identity", {}).get("start"),
-                                                                               current_identity)
+        outcome["current"], outcome["identity_differences"] = compare_identity(
+            results.get("identity", {}).get("start"), current_identity, results.get("environment"), current_environment)
     return outcome
 
 
