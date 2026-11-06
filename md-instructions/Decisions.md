@@ -4,6 +4,18 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-05 - The full gate runs with Windows error dialogs off; nothing tracked changed for it (v0.7.2 Phase 1, attempts on `0c1ef43`)
+
+**Decision.** A full gate on Windows runs `scripts/verify.py` in a process whose error mode is `0x8003` (no critical-error, crash or open-file dialogs), set before its first child starts and proved to reach a child. It is never launched through `Start-Process`, which gives it mode 0. Until the canonical gate of Phase 2 takes this over, a local helper outside the tested source does it: `files/dev-work/act070-remediation/rca/ACT072-P1-launch-correction/run_gate.py`. The command it runs, the tests selected, every limit and the acceptance criteria are unchanged. This records how a gate is started; it is not an acceptance policy.
+
+**Why.** The test fixture's `ffmpeg.exe` and `ffprobe.exe` are deliberately invalid and two tests really try to start them. In mode 0 Windows answers with a modal "Unsupported 16-Bit Application" dialog and the test waits for a person, 2,343.6 s and 441.9 s in `ACT072-P1-0c1ef43-full1`. With the mode set the start fails at once with WinError 216, the failure those tests expect. Removing the fixture or changing those tests would have hidden the launch problem and lost the negative test; the product's handling of invalid media is untouched.
+
+**Limits.** `verify.py` inherits its mode, so a hand launch from a mode-0 parent can still block. The helper is untracked, so it is not among the inputs a tree fingerprint covers. A pytest process does not always keep the mode it was given: it can fall to `0x8001` during a test, losing crash-dialog suppression and keeping what stops the dialog above; what sets it is not established. Phase 2's gate should own the launch, and check the mode rather than assume it. Watching for a dialog stays necessary until it does.
+
+**Evidence.** `Handoff.md`, the top block; `files/dev-work/act070-remediation/rca/ACT072-P1-launch-correction/`; `files/dev-work/act070-remediation/verify/ACT072-P1-0c1ef43-full3`.
+
+Signed: Claude Code (Opus 5.5) under the owner's prompts of 2026-11-05, which directed the dialog-suppressed launch. Phase 1 acceptance stays with the owner.
+
 ## 2026-11-05 - A dropped request's collection is shared, runs on its own thread and never on the cancelling one (v0.7.2 Phase 1, full gate failure on `43568ac`)
 
 **Context.** The full gate on `43568ac` failed one test of 13,351: eight workers cancelled inside refusing requests took 5.27 s against a 5.25 s limit. `_shut_down` ran one full `gc.collect()` per dropped request. A collection holds up every other thread, so they ran in a row, and the cost scales with the heap: 0.03 s on one test's 174 K objects, 0.45 s on a full run's 1.61 M (`rca/ACT072-P1-43568ac-full1`). Targeted runs cannot see this. Separately, a `gc.collect()` made during another thread's collection returns 0 at once and does nothing, so a request dropped during one was left open with nothing said. This entry refines "a collection closes sockets held in reference cycles" in the entry below.
