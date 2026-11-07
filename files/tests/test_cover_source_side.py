@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import queue
+import sys
 import threading
 from pathlib import Path
 
@@ -358,6 +359,31 @@ def test_replacement_refuses_a_linked_source(tmp_path):
         pytest.skip(f"this environment cannot create a file symlink: {exc}")
     with pytest.raises(op.UnsafePathError):
         op.validate_source_for_replacement(link)
+
+
+def test_replacement_refuses_a_junction_or_directory_link(tmp_path):
+    """The link refusal on a real link this account can always make.
+
+    A file symlink needs a Windows privilege the account may not hold, so the
+    test above can skip; a junction needs none (a directory symlink elsewhere).
+    Without the link check the validator would still refuse, but as "not a
+    file", so the message is what proves the link was recognised as one
+    (v0.7.2 Phase 4).
+    """
+    real = tmp_path / "art" / "real"
+    real.mkdir(parents=True)
+    make_image(real / "cover.jpg")
+    link = tmp_path / "art" / "link.jpg"
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(real), str(link))
+    else:
+        link.symlink_to(real, target_is_directory=True)
+    with pytest.raises(op.UnsafePathError) as excinfo:
+        op.validate_source_for_replacement(link)
+    assert "is a link" in excinfo.value.message
+    assert (real / "cover.jpg").is_file(), "the link's target is untouched"
 
 
 def test_replacement_refuses_a_missing_or_directory_source(tmp_path):

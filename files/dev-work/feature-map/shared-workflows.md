@@ -195,6 +195,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 
 - In-place changes are written to a temporary file beside the original, then swapped in with one atomic replace. Any failure before the swap leaves the original as it was and no temporary file behind.
 - Linked, missing or folder sources are refused; numbered copies beside the source never collide.
+- Checked on Windows on a junction, the one link an ordinary account can always create. A file symlink is checked only where the account holds the privilege to make one, which the gate's machine does not, so the gate does not count that case.
 
 ### Saved settings file and malformed-file recovery
 `ACT.SHARED.SETTINGS`

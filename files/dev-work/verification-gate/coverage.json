@@ -6557,7 +6557,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_mp3_tool_layout.py::test_primary_and_job_controls_never_overlap[minimum]"
+            "test": "files/tests/test_mp3_tool_appearance.py::test_primary_and_job_controls_never_overlap_in_the_real_shell[920x600]"
           },
           {
             "kind": "behavior",
@@ -16668,7 +16668,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_cover_source_side.py::test_replacement_refuses_a_linked_source"
+            "test": "files/tests/test_cover_source_side.py::test_replacement_refuses_a_junction_or_directory_link"
           },
           {
             "kind": "behavior",
