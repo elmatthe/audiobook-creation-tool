@@ -1,61 +1,1065 @@
 {
   "schema_version": 1,
-  "about": "Seed only. These are the stable feature identities known so far, each naming the test modules `--feature` selects. It is NOT the reviewed inventory the plan requires: most of the application is not listed, nothing here claims native or real-media verification, and a test module named below is a selection, not proof of coverage. Phases 3 and 4 complete and enforce it.",
+  "about": "The one coverage inventory. NOT yet the reviewed inventory the plan requires: Phase 4 completes and reviews it, so inventory_reviewed stays false and most of the application's controls are not listed yet. Each verification names an exact test id or scenario; a module named under selection is what --feature selects and proves nothing by itself. The gate holds this file to account: a dead id, an unknown scenario or a test standing in for native or media evidence stops a clean run.",
   "inventory_reviewed": false,
   "features": [
     {
       "id": "ACT.TTS.CANCEL",
       "tool": "tts-audiobook",
-      "source": [{"path": "scripts/tts/epub2tts_gui.py", "symbols": ["TtsPanel.cancel_job"]}, {"path": "scripts/shared/job_control.py", "symbols": ["JobController.request_cancel"]}],
-      "selection": ["files/tests/test_cancel_semantics.py", "files/tests/test_low_memory.py"]
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel.cancel_job"
+          ]
+        },
+        {
+          "path": "scripts/shared/job_control.py",
+          "symbols": [
+            "JobController.request_cancel"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_cancel_semantics.py",
+        "files/tests/test_low_memory.py"
+      ]
     },
     {
       "id": "ACT.TTS.PAUSE",
       "tool": "tts-audiobook",
-      "source": [{"path": "scripts/tts/epub2tts_gui.py", "symbols": ["TtsPanel.pause", "TtsPanel.resume"]}, {"path": "scripts/shared/job_control.py", "symbols": ["JobController.request_pause"]}],
-      "selection": ["files/tests/test_job_controller.py", "files/tests/test_cancel_semantics.py"]
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel.pause",
+            "TtsPanel.resume"
+          ]
+        },
+        {
+          "path": "scripts/shared/job_control.py",
+          "symbols": [
+            "JobController.request_pause"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_job_controller.py",
+        "files/tests/test_cancel_semantics.py"
+      ]
     },
     {
       "id": "ACT.TTS.CANCEL.PUBLICATION",
       "tool": "tts-audiobook",
-      "source": [{"path": "scripts/tts/publication.py", "symbols": ["authorized_commit"]}, {"path": "scripts/shared/job_control.py", "symbols": ["JobController.authorize_commit"]}],
-      "selection": ["files/tests/test_cancel_semantics.py", "files/tests/test_edge_publication.py"]
+      "source": [
+        {
+          "path": "scripts/tts/publication.py",
+          "symbols": [
+            "authorized_commit"
+          ]
+        },
+        {
+          "path": "scripts/shared/job_control.py",
+          "symbols": [
+            "JobController.authorize_commit"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_cancel_semantics.py",
+        "files/tests/test_edge_publication.py"
+      ]
     },
     {
       "id": "ACT.TTS.CANCEL.EDGE-REQUEST",
       "tool": "tts-audiobook",
-      "source": [{"path": "scripts/tts/edge_requests.py", "symbols": ["run_request", "wait_unless_cancelled"]}],
-      "selection": ["files/tests/test_cancel_semantics.py"]
+      "source": [
+        {
+          "path": "scripts/tts/edge_requests.py",
+          "symbols": [
+            "run_request",
+            "wait_unless_cancelled"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_cancel_semantics.py"
+      ]
     },
     {
       "id": "ACT.TTS.CANCEL.MEMORY-WAIT",
       "tool": "tts-audiobook",
-      "source": [{"path": "scripts/tts/worker_limits.py", "symbols": ["AssemblyGate.place", "AssemblyPlace.wait_for_room"]}],
-      "selection": ["files/tests/test_worker_limits.py", "files/tests/test_low_memory.py"]
+      "source": [
+        {
+          "path": "scripts/tts/worker_limits.py",
+          "symbols": [
+            "AssemblyGate.place",
+            "AssemblyPlace.wait_for_room"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_worker_limits.py",
+        "files/tests/test_low_memory.py"
+      ]
     },
     {
       "id": "ACT.TTS.CANCEL.FFMPEG",
       "tool": "tts-audiobook",
-      "source": [{"path": "scripts/tts/ffmpeg_watch.py", "symbols": ["controlled", "run"]}],
-      "selection": ["files/tests/test_low_memory.py"]
+      "source": [
+        {
+          "path": "scripts/tts/ffmpeg_watch.py",
+          "symbols": [
+            "controlled",
+            "run"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_low_memory.py"
+      ]
     },
     {
       "id": "ACT.SHARED.CANCELLATION",
       "tool": "shared",
-      "source": [{"path": "scripts/shared/cancellation.py", "symbols": ["is_cancelled", "raise_if_cancelled"]}],
-      "selection": ["files/tests/test_plan3_boundaries.py"]
+      "source": [
+        {
+          "path": "scripts/shared/cancellation.py",
+          "symbols": [
+            "is_cancelled",
+            "raise_if_cancelled"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_plan3_boundaries.py"
+      ]
     },
     {
       "id": "ACT.GATE.RUNNER",
       "tool": "verification-gate",
-      "source": [{"path": "files/dev-work/verification-gate/verify.py", "symbols": ["main", "GateRun"]}],
-      "selection": ["files/tests/test_verification_gate_contract.py", "files/tests/test_verify_evidence.py"]
+      "source": [
+        {
+          "path": "files/dev-work/verification-gate/verify.py",
+          "symbols": [
+            "main",
+            "GateRun"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_verification_gate_contract.py",
+        "files/tests/test_verify_evidence.py"
+      ]
     },
     {
       "id": "ACT.GATE.GUARDED",
       "tool": "verification-gate",
-      "source": [{"path": "files/tests/guarded_pytest.py", "symbols": ["main", "production_roots"]}],
-      "selection": ["files/tests/test_verify_guarded.py", "files/tests/test_p05b_isolation.py"]
+      "source": [
+        {
+          "path": "files/tests/guarded_pytest.py",
+          "symbols": [
+            "main",
+            "production_roots"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_p05b_isolation.py"
+      ]
+    },
+    {
+      "id": "ACT.LAUNCHER.OPEN-TOOLS",
+      "tool": "launcher",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/launcher.py",
+          "symbols": [
+            "LauncherApp.select_tool"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "launcher.six-tools-at-three-sizes"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "launcher.six-tools-at-three-sizes"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.LAUNCHER.SETTINGS",
+      "tool": "launcher",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/launcher.py",
+          "symbols": [
+            "LauncherApp._on_close"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "launcher.settings-survive-relaunch"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "launcher.settings-survive-relaunch"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.LAUNCHER.SWITCH-DURING-WORK",
+      "tool": "launcher",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/launcher.py",
+          "symbols": [
+            "LauncherApp.select_tool"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "launcher.switch-tools-during-work"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "launcher.switch-tools-during-work"
+          },
+          {
+            "kind": "media",
+            "scenario": "launcher.switch-tools-during-work"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.TTS.DIRECT",
+      "tool": "tts-audiobook",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel.run_job"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "tts.edge-replay-direct-file"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "tts.edge-replay-direct-file"
+          },
+          {
+            "kind": "media",
+            "scenario": "tts.edge-replay-direct-file"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.TTS.FOLDER",
+      "tool": "tts-audiobook",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/batch_convert.py",
+          "symbols": [
+            "chunk_to_mp3"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "tts.edge-replay-folder-mixed"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "tts.edge-replay-folder-mixed"
+          },
+          {
+            "kind": "media",
+            "scenario": "tts.edge-replay-folder-mixed"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.TTS.RETRY",
+      "tool": "tts-audiobook",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel.retry_failed"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "tts.service-failure-then-retry"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "tts.service-failure-then-retry"
+          },
+          {
+            "kind": "media",
+            "scenario": "tts.service-failure-then-retry"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.TTS.CANCEL.NATIVE",
+      "tool": "tts-audiobook",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel.cancel_job"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "tts.cancel-during-narration"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "tts.cancel-during-narration"
+          },
+          {
+            "kind": "media",
+            "scenario": "tts.cancel-during-narration"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.TTS.PAUSE.NATIVE",
+      "tool": "tts-audiobook",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel.pause",
+            "TtsPanel.resume"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "tts.pause-at-file-boundary"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "tts.pause-at-file-boundary"
+          },
+          {
+            "kind": "media",
+            "scenario": "tts.pause-at-file-boundary"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.TTS.NO-TEXT",
+      "tool": "tts-audiobook",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/pdf_extractor.py",
+          "symbols": []
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "tts.pdf-without-text"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "tts.pdf-without-text"
+          },
+          {
+            "kind": "media",
+            "scenario": "tts.pdf-without-text"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.MP3.WRITE-AND-COMBINE",
+      "tool": "mp3-tool",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/mp3/mp3_tool.py",
+          "symbols": [
+            "MP3ToolUI.write_id3_tags",
+            "MP3ToolUI.combine_mp3s"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "mp3.write-id3-then-combine"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "mp3.write-id3-then-combine"
+          },
+          {
+            "kind": "media",
+            "scenario": "mp3.write-id3-then-combine"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.MP3.UNREADABLE",
+      "tool": "mp3-tool",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/mp3/mp3_tool.py",
+          "symbols": [
+            "MP3ToolUI.combine_mp3s"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "mp3.unreadable-track"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "mp3.unreadable-track"
+          },
+          {
+            "kind": "media",
+            "scenario": "mp3.unreadable-track"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.CONVERTER.SPLIT",
+      "tool": "m4b-converter",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/converter/m4b_converter.py",
+          "symbols": [
+            "M4BConverterUI.start_convert"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "converter.split-by-chapter"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "converter.split-by-chapter"
+          },
+          {
+            "kind": "media",
+            "scenario": "converter.split-by-chapter"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.CONVERTER.WHOLE",
+      "tool": "m4b-converter",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/converter/m4b_converter.py",
+          "symbols": [
+            "M4BConverterUI.start_convert"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "converter.whole-book-replace-metadata"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "converter.whole-book-replace-metadata"
+          },
+          {
+            "kind": "media",
+            "scenario": "converter.whole-book-replace-metadata"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.CONVERTER.CORRUPT",
+      "tool": "m4b-converter",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/converter/m4b_converter.py",
+          "symbols": [
+            "M4BConverterUI.start_convert"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "converter.corrupt-source"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "converter.corrupt-source"
+          },
+          {
+            "kind": "media",
+            "scenario": "converter.corrupt-source"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.CONVERTER.CANCEL",
+      "tool": "m4b-converter",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/converter/m4b_converter.py",
+          "symbols": [
+            "M4BConverterUI.cancel"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "converter.cancel-during-encode"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "converter.cancel-during-encode"
+          },
+          {
+            "kind": "media",
+            "scenario": "converter.cancel-during-encode"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.MAKER.BUILD",
+      "tool": "m4b-maker",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/maker/m4b_maker.py",
+          "symbols": [
+            "M4BMakerUI.build"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "maker.build-with-chapters-and-artwork"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "maker.build-with-chapters-and-artwork"
+          },
+          {
+            "kind": "media",
+            "scenario": "maker.build-with-chapters-and-artwork"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.MAKER.UNREADABLE",
+      "tool": "m4b-maker",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/maker/m4b_maker.py",
+          "symbols": [
+            "M4BMakerUI.build"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "maker.unreadable-track"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "maker.unreadable-track"
+          },
+          {
+            "kind": "media",
+            "scenario": "maker.unreadable-track"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.METADATA.SAVE-AND-CLEAR",
+      "tool": "m4b-metadata-editor",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
+          "symbols": [
+            "M4BMetadataEditorUI.save",
+            "M4BMetadataEditorUI.on_clear_all_tags"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "metadata.save-tags-then-clear"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "metadata.save-tags-then-clear"
+          },
+          {
+            "kind": "media",
+            "scenario": "metadata.save-tags-then-clear"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.METADATA.DECLINED",
+      "tool": "m4b-metadata-editor",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
+          "symbols": [
+            "M4BMetadataEditorUI.on_remove_series_numbering"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "metadata.confirmation-declined"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "metadata.confirmation-declined"
+          },
+          {
+            "kind": "media",
+            "scenario": "metadata.confirmation-declined"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.METADATA.UNREADABLE",
+      "tool": "m4b-metadata-editor",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
+          "symbols": [
+            "M4BMetadataEditorUI.save"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "metadata.unreadable-file"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "metadata.unreadable-file"
+          },
+          {
+            "kind": "media",
+            "scenario": "metadata.unreadable-file"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.COVER.LETTERBOX",
+      "tool": "cover-image",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/artwork/cover_resizer.py",
+          "symbols": [
+            "CoverResizerUI.start_resize"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "cover.letterbox-numbered-run"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "cover.letterbox-numbered-run"
+          },
+          {
+            "kind": "media",
+            "scenario": "cover.letterbox-numbered-run"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.COVER.CROP",
+      "tool": "cover-image",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/artwork/cover_resizer.py",
+          "symbols": [
+            "CoverResizerUI.start_resize"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "cover.center-crop"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "cover.center-crop"
+          },
+          {
+            "kind": "media",
+            "scenario": "cover.center-crop"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.COVER.CORRUPT",
+      "tool": "cover-image",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/artwork/cover_resizer.py",
+          "symbols": [
+            "CoverResizerUI.start_resize"
+          ]
+        }
+      ],
+      "selection": [],
+      "journeys": [
+        "cover.corrupt-image"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "cover.corrupt-image"
+          },
+          {
+            "kind": "media",
+            "scenario": "cover.corrupt-image"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.SHARED.CLOSE-DURING-WORK",
+      "tool": "shared",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/launcher.py",
+          "symbols": [
+            "main"
+          ]
+        },
+        {
+          "path": "scripts/shared/subprocess_utils.py",
+          "symbols": [
+            "stop_media_children"
+          ]
+        }
+      ],
+      "selection": [
+        "files/tests/test_close_stops_media_children.py"
+      ],
+      "journeys": [
+        "shutdown.tts-close-during-work",
+        "shutdown.tts-close-forced-landing",
+        "shutdown.converter-close-during-work",
+        "shutdown.converter-close-forced-landing",
+        "shutdown.mp3-close-during-work",
+        "shutdown.mp3-close-forced-landing",
+        "shutdown.maker-close-during-work",
+        "shutdown.maker-close-forced-landing",
+        "shutdown.metadata-close-during-work",
+        "shutdown.metadata-close-forced-landing",
+        "shutdown.cover-close-during-work",
+        "shutdown.cover-close-forced-landing"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "native",
+            "scenario": "shutdown.tts-close-during-work"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.tts-close-forced-landing"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.converter-close-during-work"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.converter-close-forced-landing"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.mp3-close-during-work"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.mp3-close-forced-landing"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.maker-close-during-work"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.maker-close-forced-landing"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.metadata-close-during-work"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.metadata-close-forced-landing"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.cover-close-during-work"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.cover-close-forced-landing"
+          }
+        ]
+      },
+      "exceptions": []
     }
   ]
 }

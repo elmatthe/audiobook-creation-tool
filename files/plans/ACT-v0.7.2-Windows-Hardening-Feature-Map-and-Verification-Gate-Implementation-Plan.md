@@ -480,6 +480,8 @@ Stress tests run separately; routine small semantic/regression tests run in the 
 
 ### 13.1 Filesystem and process ownership
 
+**Owner amendment, 2026-11-06:** one exception to "inside the repository" is approved: the gate's disposable scratch in `%TEMP%\act-gate`, on the conditions in `md-instructions/Decisions.md`. Only uniquely identified ACT-owned scratch may be created or cleaned; another application's files and an active process's workspace are never touched; failed-run diagnostics are preserved inside repository evidence; exact ownership and inactivity come before any removal; no general TEMP sweep. Everything else below stands.
+
 All new development work and test inputs/outputs stay inside the repository. There is no inherited authorization for the other project's TEST-PC directory or external historical snapshot. Each gate invocation owns only its run child. Redirect `TEMP`/`TMP`, settings, logging, caches and framework scratch per **child environment**, not globally. Set pytest basetemp/cache/JUnit paths to unique children; pytest may clear its own disposable basetemp, so never point it at outputs root, repository, immutable fixtures or an earlier run.
 
 Containment must check lexical traversal, canonical paths and symlink/junction/reparse behavior before writes/deletion; include malicious link-swap negative tests for critical cleanup operations. Never widen a production guard to the whole repository merely to make a fixture work. For application output paths, preserve the product's actual rules while fixtures constrain their chosen destinations to the run.

@@ -12,6 +12,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Categories: **Added** / **Changed** / **Fixed** / **Deprecated** / **Removed** / **Security**.
 
 ---
+
+## [Unreleased] — v0.7.2 Phase 3 (2026-11-06)
+
+**Fixed**
+- Closing the window while M4B Maker or MP3 Tool was working could leave FFmpeg running after the app had exited. Closing now stops the work and the FFmpeg it started. M4B Metadata Editor also stops its run now, as the other three tools already did. Any other process, including another program's FFmpeg, is left alone.
+
+**Added (development only; nothing here ships)**
+- A native Windows and real-media acceptance stage in the verification gate: 46 scenarios that drive the real application with real mouse and keyboard input, and read the real output back independently.
+- `--audit-scratch` and owner records for the gate's `%TEMP%\act-gate` scratch, approved by the owner. A failed run keeps its failing tests' folders in its own evidence.
 
 ## [Unreleased]
 

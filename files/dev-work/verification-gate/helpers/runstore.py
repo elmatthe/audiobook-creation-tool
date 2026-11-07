@@ -414,7 +414,8 @@ def _pass_problems(results: dict) -> list[str]:
         problems.append("PASS without a matching start and end identity")
     if results.get("cleanup", {}).get("owned_children_remaining") != 0:
         problems.append("PASS without a clean process cleanup")
-    if not (results.get("counts") or {}).get("executed"):
+    counts = results.get("counts") or {}
+    if not (counts.get("executed") or counts.get("journeys_passed")):
         problems.append("PASS with no executed tests")
     return problems
 

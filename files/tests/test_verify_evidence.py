@@ -31,7 +31,7 @@ from gate_locator import GATE_DIR, GATE_PATH, load_gate
 
 GATE_ORDER = ["pytest", "guarded", "deps", "docs", "docnames", "config"]
 EVIDENCE_FILES = {"logs/verify.log", "logs/pytest.log", "reports/pytest.xml", "reports/pytest-probe.jsonl", "start.json",
-                  "results.json", "selection.json", "summary.md"}
+                  "results.json", "selection.json", "summary.md", "coverage-report.md"}
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the tree fingerprint needs git")
 

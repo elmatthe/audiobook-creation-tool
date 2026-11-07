@@ -106,6 +106,7 @@ single-row composition. Only where things sit differs; every control, label
 and callback is the same.
 """
 
+import gc
 import queue
 import sys
 import time
@@ -2428,6 +2429,13 @@ class MP3ToolUI(ttk.Frame):
                 variable.trace_remove("write", token)
             except (tk.TclError, ValueError):
                 pass
+
+    def destroy(self) -> None:
+        """Tear the panel down and finish the teardown on this thread, as the Converter and Cover panels do. Without this a closing window
+        never reaches :meth:`close`, so a running worker is never told to stop (measured, v0.7.2 Phase 3)."""
+        self.close()
+        super().destroy()
+        gc.collect()
 
 
 def build_ui(parent: tk.Misc, theme=None) -> MP3ToolUI:

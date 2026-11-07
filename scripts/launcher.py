@@ -800,6 +800,8 @@ def main() -> int:
     root = tk.Tk()
     LauncherApp(root)
     root.mainloop()
+    # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
+    sp.stop_media_children()
     return 0
 
 

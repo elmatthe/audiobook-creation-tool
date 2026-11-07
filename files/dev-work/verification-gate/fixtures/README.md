@@ -1,0 +1,9 @@
+# Acceptance fixtures
+
+`manifest.json` holds the recipes. `helpers/media_fixtures.py` builds each fixture fresh inside the run from those recipes and the pinned FFmpeg, and validates it before any application sees it, so nothing here depends on an earlier run's output. They are synthetic and contain no private data. A fixture that fails validation is an infrastructure failure, never an application defect.
+
+**Tiers.** Text and PDF with real text layers; MP3 tracks built from known samples; a routine M4B (AAC in MP4 with embedded chapters at odd starts, tags and artwork); images with four distinguishable corners; and adverse inputs, each a real input damaged in one known way (`truncated`) or deterministic non-media bytes (`garbage`). `book-long-m4b` repeats real AAC packets for an hour so that work takes real time. Its content repeats, so its signal is never compared, and its timestamps lose about 21 ms at each loop junction.
+
+**Fake fixtures.** `fake_orchestration_fixtures` in the manifest names the older tests' fake inputs. They remain useful for orchestration and can never satisfy a real-media requirement.
+
+**Oracle calibration, measured once on the pinned ffmpeg 9.0.1 build (`helpers/media_oracle.py`).** At the comparison rate of 22,050 Hz, the Converter's real output-side route on the routine M4B measures lag 0, correlation 1.0 and length difference 0 on all five chapters. The historical input-side seek measures lags of 57 to 250 samples and correlation about 0.67 on four chapters; the fifth has correlation 1.0 and is caught only by its lag of 192 samples. That is why the lag limit is 16 samples and is never aligned away. An MP3 Tool FAST concat keeps each track's own encoder padding, so later tracks sit a few frames late, which is why that one comparison allows a wider, stated lag.

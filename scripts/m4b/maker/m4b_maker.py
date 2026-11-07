@@ -80,6 +80,7 @@ line of its own -- the same seam the MP3 Tool reads. A bundle without those
 hints gets the compact composition. Only where things sit differs.
 """
 
+import gc
 import queue
 import sys
 import tempfile
@@ -1993,6 +1994,13 @@ class M4BMakerUI(ttk.Frame):
                 variable.trace_remove("write", token)
             except (tk.TclError, ValueError):
                 pass
+
+    def destroy(self) -> None:
+        """Tear the panel down and finish the teardown on this thread, as the Converter and Cover panels do. Without this a closing window
+        never reaches :meth:`close`, so a running worker is never told to stop (measured, v0.7.2 Phase 3)."""
+        self.close()
+        super().destroy()
+        gc.collect()
 
 
 def build_ui(parent: tk.Misc, theme=None) -> M4BMakerUI:

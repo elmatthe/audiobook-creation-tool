@@ -76,6 +76,7 @@ class Tree:
         policy["inventory"] = {"minimum_ordinary": 1, "minimum_guarded": {"only": 1},
                                "guarded_membership": {"only": ["test_guarded.py"]}}
         policy["required_self_tests"] = ["files/tests/test_ordinary.py"]
+        policy["acceptance"] = {"required_tools": [], "required_scenarios": [], "optional_scenarios": [], "journey_routes": {}}
         policy["focused"]["required_guards"] = []
         policy["changed"]["always"] = []
         policy["process"] = {"drain_seconds": 3, "kill_wait_seconds": 10}
@@ -211,10 +212,9 @@ def test_the_known_good_tree_passes(tree):
 def test_later_phase_requirements_are_reported_as_not_run_and_never_as_satisfied(tree):
     outcome = tree.full()
     assert outcome.code == 0, outcome
-    native = outcome.check("requirement:native-journeys")
-    assert native["status"] == "NOT RUN" and native["required"] is False and "Phase 3" in native["detail"]
-    assert outcome.check("requirement:coverage-inventory")["status"] == "NOT RUN"
-    assert "NOT full acceptance" in outcome.stdout and "native-journeys" in outcome.stdout
+    inventory = outcome.check("requirement:coverage-inventory")
+    assert inventory["status"] == "NOT RUN" and inventory["required"] is False and "Phase 4" in inventory["detail"]
+    assert "NOT full acceptance" in outcome.stdout and "coverage-inventory" in outcome.stdout
     assert outcome.results["coverage"]["inventory_reviewed"] is False
 
 
@@ -1365,3 +1365,255 @@ def test_no_active_caller_depends_on_the_retired_gate_path():
     active = [path for path in done.stdout.splitlines()
               if path not in allowed and not path.startswith(("files/plans/", "files/release-history/"))]
     assert not active, active
+
+
+# --------------------------------------------------------------------------- #
+# The native and real-media stage, proved from outside with a scripted runner (v0.7.2 Phase 3)
+# --------------------------------------------------------------------------- #
+#: Stands where acceptance_runner.py stands, as a real child under the gate's real job: it writes what it is told to and exits as it is told to.
+_SCRIPTED_RUNNER = """
+import argparse, json, os, sys, time
+from pathlib import Path
+parser = argparse.ArgumentParser()
+for name in ("report", "token", "evidence", "scratch"):
+    parser.add_argument("--" + name)
+parser.add_argument("--only", action="append", default=[])
+args = parser.parse_args()
+script = json.loads((Path(__file__).parent / "scripted.json").read_text(encoding="utf-8"))
+if script.get("hang"):
+    time.sleep(120)
+if script.get("no_report"):
+    sys.exit(script.get("exit", 0))
+evidence = Path(args.evidence)
+entries = []
+for identifier in args.only:
+    folder = evidence / identifier
+    (folder / "screenshots").mkdir(parents=True)
+    (folder / "app-actions.jsonl").write_text("{}", encoding="utf-8")
+    (folder / "screenshots" / "done.png").write_bytes(bytes.fromhex("89504e470d0a1a0a") + bytes(32))
+    entry = {"id": identifier, "tool": "mp3-tool", "layers": ["native", "media"], "tier": "journey", "status": "PASS", "reason": "", "seconds": 1.0,
+             "checks": [{"name": "output", "ok": True, "detail": ""}], "outputs": [{"name": "a.mp3", "bytes": 1, "sha256": "ab"}],
+             "fixtures": [{"id": "t", "kind": "mp3-track", "validation": [{"name": "decodes", "ok": True}]}],
+             "screenshots": [{"name": "done.png", "path": identifier + "/screenshots/done.png"}], "native_inputs": 3, "sessions": ["app"], "notes": {}}
+    entry.update(script.get("entry", {}))
+    entries.append(entry)
+report = {"schema_version": 1, "token": script.get("token", args.token), "registered": script.get("registered", args.only), "scenarios": entries,
+          "finished": True, "unknown": [], "runtime_before": {"a": 1}, "runtime_after": script.get("after", {"a": 1})}
+report.update(script.get("report", {}))
+Path(args.report).write_text(json.dumps(report), encoding="utf-8")
+sys.exit(script.get("exit", 0))
+"""
+
+
+def _with_runner(tree, script=None, *, required=("mp3.journey",), tools=("mp3-tool",), **policy_overrides) -> None:
+    tree.write("files/dev-work/verification-gate/acceptance_runner.py", _SCRIPTED_RUNNER)
+    tree.write("files/dev-work/verification-gate/scripted.json", json.dumps(script or {}))
+    policy = tree.policy()
+    policy["acceptance"] = {"required_tools": list(tools), "required_scenarios": list(required), "optional_scenarios": [], "journey_routes": {}}
+    policy["stages"]["acceptance"] = {"timeout_seconds": 60, "stall_seconds": 6}
+    policy.update(policy_overrides)
+    tree.write_policy(policy)
+    tree.commit("acceptance")
+
+
+def _journey(tree, *ids, **kwargs):
+    return tree.run("--mode", "focused", *[f"--journey={item}" for item in ids], **kwargs)
+
+
+def _with_feature(tree, verification, **extra) -> None:
+    tree.write("files/dev-work/verification-gate/coverage.json", json.dumps({"schema_version": 1, "inventory_reviewed": False, "features": [
+        {"id": "ACT.MP3.X", "tool": "mp3-tool", "release_required": True, "source": [], "verification": {"all_of": verification}, **extra}]}))
+    tree.commit("coverage")
+
+
+def test_the_no_change_control_a_complete_journey_passes_the_stage(tree):
+    _with_runner(tree)
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 0, outcome
+    assert outcome.check("acceptance")["status"] == "PASS"
+    assert (outcome.directory / "acceptance-report.md").is_file() and (outcome.directory / "visual-candidates.md").is_file()
+    assert (outcome.directory / "acceptance" / "mp3.journey" / "screenshots" / "done.png").is_file()
+    assert "focused selection only" in outcome.stdout
+
+
+_MAPPED = [{"kind": "native", "scenario": "mp3.journey"}, {"kind": "media", "scenario": "mp3.journey"}]
+
+
+def test_a_full_run_requires_every_registered_journey_and_it_runs_first(tree):
+    _with_runner(tree)
+    _with_feature(tree, _MAPPED)
+    outcome = tree.full()
+    assert outcome.code == 0, outcome
+    names = [item["name"] for item in outcome.results["checks"]]
+    assert names.index("acceptance") < names.index("pytest") < names.index("guarded")
+    assert outcome.check("coverage")["status"] == "PASS"
+
+
+def test_an_unknown_journey_is_an_invalid_invocation(tree):
+    _with_runner(tree)
+    outcome = _journey(tree, "nothing.here")
+    assert outcome.code == 64 and "unknown journey" in outcome.results["invocation_error"]
+
+
+def test_a_journey_with_no_tests_or_selection_is_refused_before_anything_runs(tree):
+    _with_runner(tree)
+    done = tree.run("--mode", "focused")
+    assert done.code == 64 and "an empty selection is not a test run" in done.stderr
+
+
+def test_no_report_from_the_runner_is_not_run(tree):
+    _with_runner(tree, {"no_report": True})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 3 and outcome.check("acceptance")["status"] == "NOT RUN", outcome
+
+
+def test_a_runner_that_exits_badly_with_a_clean_looking_report_is_a_failure(tree):
+    """A fake PASS the other way round: the report looks fine and the child says otherwise."""
+    _with_runner(tree, {"exit": 1})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "disagree" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_report_copied_from_an_old_run_is_refused(tree):
+    _with_runner(tree, {"token": "2020-01-01_000000_full_0000-acceptance"})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "copied or stale" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_status_contradicting_its_checks_is_a_failure(tree):
+    _with_runner(tree, {"entry": {"checks": [{"name": "tag", "ok": False, "detail": "wrong"}]}})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "failed checks" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_claimed_pass_with_no_media_output_is_a_failure(tree):
+    _with_runner(tree, {"entry": {"outputs": []}})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "no inspected output" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_claimed_pass_with_no_picture_is_a_failure(tree):
+    _with_runner(tree, {"entry": {"screenshots": []}})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "no screenshot" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_locked_desktop_is_blocked_and_the_rest_of_the_run_still_happens(tree):
+    _with_runner(tree, {"report": {"blocked": "DesktopUnavailable: the input desktop cannot be opened"}})
+    _with_feature(tree, _MAPPED)
+    outcome = tree.full()
+    assert outcome.code == 2 and outcome.results["status"] == "BLOCKED", outcome
+    assert outcome.check("acceptance")["status"] == "BLOCKED"
+    assert outcome.check("pytest")["status"] == "PASS", "a missing desktop does not stop what can still run"
+
+
+def test_a_failure_outranks_a_blocked_desktop_and_both_stay_visible(tree):
+    _with_runner(tree, {"report": {"blocked": "DesktopUnavailable: locked"}})
+    _with_feature(tree, _MAPPED)
+    tree.write("files/tests/test_bad.py", "def test_bad():\n    assert False\n")
+    tree.commit("a failing test")
+    outcome = tree.full()
+    assert outcome.code == 1 and outcome.results["status"] == "FAIL", outcome
+    assert outcome.check("acceptance")["status"] == "BLOCKED" and outcome.check("pytest")["status"] == "FAIL"
+
+
+def test_a_hung_runner_is_stopped_and_fails(tree):
+    _with_runner(tree, {"hang": True})
+    began = time.monotonic()
+    outcome = _journey(tree, "mp3.journey")
+    assert time.monotonic() - began < 60, "the stall budget did not bound the stage"
+    assert outcome.code == 1 and "stall" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_writing_outside_the_run_is_a_failure(tree):
+    _with_runner(tree, {"after": {"a": 2}})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "runtime data" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_tool_with_no_complete_journey_stops_a_full_run(tree):
+    _with_runner(tree, tools=("mp3-tool", "cover-image"))
+    outcome = tree.full()
+    assert outcome.code == 1 and "cover-image has no complete" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_scenario_added_without_a_policy_edit_stops_the_run(tree):
+    _with_runner(tree, {"registered": ["mp3.journey", "sneaked.in"]})
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "sneaked.in" in outcome.check("acceptance")["detail"], outcome
+
+
+def test_a_dead_test_id_in_the_inventory_stops_a_full_run(tree):
+    _with_runner(tree)
+    _with_feature(tree, [{"kind": "behavior", "test": "files/tests/test_ordinary.py::test_deleted_long_ago"}])
+    outcome = tree.full()
+    assert outcome.code == 1 and "dead test id" in outcome.check("coverage")["detail"], outcome
+
+
+def test_a_dead_scenario_in_the_inventory_stops_a_full_run(tree):
+    _with_runner(tree)
+    _with_feature(tree, [{"kind": "native", "scenario": "gone.away"}])
+    outcome = tree.full()
+    assert outcome.code == 1 and "dead scenario id" in outcome.check("coverage")["detail"], outcome
+
+
+def test_a_test_standing_in_for_native_evidence_stops_a_full_run(tree):
+    _with_runner(tree)
+    _with_feature(tree, [{"kind": "native", "test": "files/tests/test_ordinary.py::test_one"}])
+    outcome = tree.full()
+    assert outcome.code == 1 and "a test cannot stand in" in outcome.check("coverage")["detail"], outcome
+
+
+def test_a_sound_mapping_is_satisfied_by_what_really_ran(tree):
+    _with_runner(tree)
+    _with_feature(tree, [{"kind": "behavior", "test": "files/tests/test_ordinary.py::test_one"}, {"kind": "native", "scenario": "mp3.journey"},
+                         {"kind": "media", "scenario": "mp3.journey"}])
+    outcome = tree.full()
+    assert outcome.code == 0, outcome
+    coverage = outcome.results["coverage"]
+    assert coverage["mapped_required"] == coverage["satisfied_required"] == 1 and coverage["inventory_reviewed"] is False
+    assert (outcome.directory / "coverage-report.md").is_file()
+
+
+def test_a_baseline_an_agent_approved_stops_the_run_and_a_run_never_writes_one(tree):
+    _with_runner(tree)
+    approved = tree.gate / "baselines" / "approved.json"
+    untouched = approved.read_bytes()
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 0 and approved.read_bytes() == untouched, "a normal run must not touch the approved list"
+    assert outcome.check("visual-baselines")["status"] == "NOT RUN", "listing candidates is not comparing or approving them"
+    tree.write("files/dev-work/verification-gate/baselines/approved.json", json.dumps({"approved": [
+        {"name": "x", "approved_by": "claude", "sha256": "a", "os": "w", "tk": "8.6", "dpi": 96, "client": [1, 1]}]}))
+    tree.commit("a self-approved baseline")
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 1 and "not approved by the owner" in outcome.check("visual-baselines")["detail"], outcome
+
+
+def test_deleting_a_picture_after_the_run_invalidates_its_pass(tree):
+    _with_runner(tree)
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.code == 0, outcome
+    assert tree.status(str(outcome.directory)).returncode == 0
+    (outcome.directory / "acceptance" / "mp3.journey" / "screenshots" / "done.png").unlink()
+    status = tree.status(str(outcome.directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and "done.png" in status.stdout, status.stdout
+
+
+def test_a_failed_test_leaves_its_folder_in_the_runs_evidence(tree):
+    tree.write("files/tests/test_bad.py", "from pathlib import Path\n\ndef test_bad(tmp_path):\n    (tmp_path / 'why.txt').write_text('because')\n    assert False\n")
+    tree.commit("a failing test")
+    outcome = tree.focused("files/tests/test_bad.py")
+    assert outcome.code == 1, outcome
+    assert (outcome.directory / "failed-scratch" / "pytest" / "test_bad0" / "why.txt").read_text() == "because"
+    assert Path(outcome.results["cleanup"]["scratch"]).is_dir(), "the scratch itself stays until someone deliberately removes it"
+
+
+def test_a_runs_scratch_carries_its_owner_and_the_audit_reads_it(tree):
+    tree.write("files/tests/test_bad.py", "def test_bad():\n    assert False\n")
+    tree.commit("a failing test")
+    outcome = tree.focused("files/tests/test_bad.py")
+    scratch = Path(outcome.results["cleanup"]["scratch"])
+    owner = json.loads((scratch / "act-gate-owner.json").read_text(encoding="utf-8"))
+    assert owner["run_id"] == outcome.directory.name and owner["kind"] == "act-gate-scratch"
+    done = tree.run("--audit-scratch")
+    assert done.code == 0 and scratch.name in done.stdout and "abandoned" in done.stdout and scratch.is_dir(), done

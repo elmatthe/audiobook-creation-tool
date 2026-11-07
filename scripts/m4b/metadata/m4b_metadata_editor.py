@@ -81,6 +81,7 @@ bundle without those hints gets the compact composition. Only where things
 sit differs.
 """
 
+import gc
 import queue
 import sys
 import time
@@ -1884,6 +1885,13 @@ class M4BMetadataEditorUI(ttk.Frame):
                 self.var_outdir.trace_remove("write", self._outdir_trace)
             except (tk.TclError, ValueError):
                 pass
+
+    def destroy(self) -> None:
+        """Tear the panel down and finish the teardown on this thread, as the Converter and Cover panels do. Without this a closing window
+        never reaches :meth:`close`, so a running worker is never told to stop (measured, v0.7.2 Phase 3)."""
+        self.close()
+        super().destroy()
+        gc.collect()
 
 
 def build_ui(parent: tk.Misc, theme=None) -> M4BMetadataEditorUI:

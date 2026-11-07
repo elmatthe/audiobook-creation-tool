@@ -48,6 +48,62 @@ def check_output(cmd, **kwargs) -> bytes | str:
     return subprocess.check_output(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
+#: What :func:`stop_media_children` may end. Never a detached helper: repair and cleanup deliberately outlive the window that started them.
+_MEDIA_CHILDREN = frozenset({"ffmpeg.exe", "ffprobe.exe"})
+
+
+def stop_media_children() -> list[int]:
+    """End FFmpeg and ffprobe processes this process itself started, and return their pids. Windows only; never raises.
+
+    A tool's worker blocks in :func:`run` while FFmpeg works. It is a daemon thread, so it dies with the interpreter, and FFmpeg does not
+    notice: closing the window during an M4B Maker build left FFmpeg encoding with nobody to publish the result (measured, v0.7.2 Phase 3).
+    A process is ended only if its parent is this very process and its image is one of the media tools, so a sentinel FFmpeg started by
+    anyone else is untouched and a name alone is never enough.
+    """
+    if sys.platform != "win32":
+        return []
+    stopped: list[int] = []
+    try:
+        import ctypes
+        import ctypes.wintypes as w
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [("dwSize", w.DWORD), ("cntUsage", w.DWORD), ("th32ProcessID", w.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                        ("th32ModuleID", w.DWORD), ("cntThreads", w.DWORD), ("th32ParentProcessID", w.DWORD), ("pcPriClassBase", w.LONG),
+                        ("dwFlags", w.DWORD), ("szExeFile", w.WCHAR * 260)]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateToolhelp32Snapshot.restype = w.HANDLE
+        kernel32.CreateToolhelp32Snapshot.argtypes = [w.DWORD, w.DWORD]
+        kernel32.Process32FirstW.argtypes = [w.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32NextW.argtypes = [w.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.OpenProcess.restype = w.HANDLE
+        kernel32.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+        kernel32.TerminateProcess.argtypes = [w.HANDLE, w.UINT]
+        kernel32.CloseHandle.argtypes = [w.HANDLE]
+        snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+        if snapshot == w.HANDLE(-1).value:
+            return stopped
+        try:
+            entry = PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+            mine = os.getpid()
+            more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while more:
+                if entry.th32ParentProcessID == mine and entry.szExeFile.lower() in _MEDIA_CHILDREN:
+                    handle = kernel32.OpenProcess(0x0001, False, entry.th32ProcessID)  # PROCESS_TERMINATE
+                    if handle:
+                        if kernel32.TerminateProcess(handle, 1):
+                            stopped.append(int(entry.th32ProcessID))
+                        kernel32.CloseHandle(handle)
+                more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            kernel32.CloseHandle(snapshot)
+    except Exception:  # noqa: BLE001 - closing the application is never the moment to raise
+        return stopped
+    return stopped
+
+
 _POPEN_PATCHED = False
 
 

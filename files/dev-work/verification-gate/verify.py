@@ -4,7 +4,7 @@
 Run it with the project environment's interpreter, from any directory:
 
     .venv\\Scripts\\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows
-    ... --mode focused --test files/tests/test_cancel_semantics.py [--test <node id>] [--feature ACT.TTS.CANCEL]
+    ... --mode focused --test files/tests/test_cancel_semantics.py [--test <node id>] [--feature ACT.TTS.CANCEL] [--journey cover.center-crop]
     ... --mode changed --base origin/master
     ... --mode qualification --scenario m4b-scaling
     ... --status files/dev-work/verification-gate/outputs/<run> [--require-current]
@@ -14,13 +14,17 @@ What a mode means (plan §6):
   focused        the named tests or features plus the required guards. PASS for that scope only.
   changed        the tests a merge-base diff plus dirty files reach; an unmapped or shared change widens to every test.
                  PASS for the selected scope, never full acceptance.
-  full           the whole ordinary suite, every guarded group, deps, docs, docnames, config, the collection partition and
-                 the gate's own self-tests. The routine gate. Requirements owned by later phases are listed as NOT RUN in
-                 every result: this is not full acceptance and not release readiness until they exist and pass.
+  full           the native and real-media journeys first, then the whole ordinary suite, every guarded group, deps, docs, docnames,
+                 config, the collection partition, the coverage inventory and the gate's own self-tests. The routine gate. Requirements
+                 owned by later phases are listed as NOT RUN in every result: this is not full acceptance and not release readiness
+                 until they exist and pass.
   qualification  one named expensive scenario. None is implemented yet, so each reports NOT RUN and says which phase owns it.
 
 The gates of a full run, always in this order and all of them even after a failure:
 
+  acceptance  real Windows input into isolated instances of the real application, real media in and out, judged from outside
+            (acceptance_runner.py, helpers/acceptance_report.py). First, because it needs the desktop while someone is at it, and a locked
+            session reads BLOCKED, never a pass. Takes over the mouse and keyboard for its few minutes: nothing else should be used meanwhile.
   pytest    files/tests, leaving out the suites of files/tests/guarded_groups.json. Exit 0 alone never passes: the JUnit
             report and the session's own record must exist and agree with it.
   guarded   each group of guarded_groups.json through files/tests/guarded_pytest.py (process-lifetime write, process and
@@ -70,7 +74,7 @@ REPO_ROOT = GATE_DIR.parents[2]
 _on_path = str(GATE_DIR) in sys.path
 if not _on_path:
     sys.path.insert(0, str(GATE_DIR))
-from helpers import pytest_reports, runstore, selection as selection_rules, winproc  # noqa: E402
+from helpers import acceptance_report, coverage_model, pytest_reports, runstore, scratch as scratch_store, selection as selection_rules, winproc  # noqa: E402
 
 if not _on_path:
     sys.path.remove(str(GATE_DIR))
@@ -93,14 +97,17 @@ IMPORT_ROOT = SCRIPTS_DIR
 # Every run owns one new child of this folder (ignored).
 OUTPUTS_ROOT = GATE_DIR / "outputs"
 # A run's disposable scratch (pytest basetemp, TEMP, pytest cache) is one new child of this folder, in the system temp folder
-# where pytest has always put the suite's scratch. Deliberately not inside the repository, measured on HOME-PC (Decisions.md,
-# 2026-11-06). Something outside the process briefly holds directories created under the repository, so renaming one fails
+# where pytest has always put the suite's scratch. The owner approved this exact root as an exception on 2026-11-06, with the
+# conditions helpers/scratch.py keeps (Decisions.md, v0.7.2 Phase 3). Deliberately not inside the repository, measured on HOME-PC.
+# Something outside the process briefly holds directories created under the repository, so renaming one fails
 # with WinError 5: 7 to 18 of 1,500 there against 0 of 1,500 here, which makes test_venv_recovery fail 2 runs in 6. And inside
 # outputs/<run>/ git runs out of path: it is not long-path aware by default and a test's repository needs room for
 # .git/objects/xx/<38 hex>.
 SCRATCH_ROOT = Path(tempfile.gettempdir()) / "act-gate"
 POLICY_FILE = GATE_DIR / "verification.json"
 COVERAGE_FILE = GATE_DIR / "coverage.json"
+ACCEPTANCE_RUNNER = GATE_DIR / "acceptance_runner.py"
+BASELINES_FILE = GATE_DIR / "baselines" / "approved.json"
 # Runs of the old gate, under their old schema. Read-only: never moved, rewritten or made current.
 LEGACY_EVIDENCE_ROOT = REPO_ROOT / "files" / "dev-work" / "act070-remediation"
 # Untracked files can change what is tested only here: a new test, source file or gate helper not yet added. Other
@@ -120,7 +127,7 @@ DIGEST_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
 _OUTPUTS_RELATIVE = "files/dev-work/verification-gate/outputs/"
 SCENARIO_NAMES = ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows")
 MODES = ("focused", "changed", "full", "qualification")
-GATE_ORDER = ("pytest", "guarded", "deps", "docs", "docnames", "config")
+GATE_ORDER = ("acceptance", "pytest", "guarded", "deps", "docs", "docnames", "config")
 # Never inherited by a stage: each could narrow, extend or redirect what pytest runs without appearing on its command line.
 _SCRUBBED_ENV_PREFIXES = ("PYTEST_", "_PYTEST", "ACT_GATE_")
 _SCRUBBED_ENV = {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONBREAKPOINT"}
@@ -681,12 +688,13 @@ class Selection:
     kind: str
     ordinary: list[str] | None = None  # None: the whole ordinary scope
     guarded: dict[str, list[str]] | None = None  # None: every group whole; {} no guarded group
+    journeys: list[str] | None = None  # None: every registered journey; [] none
     requested: list[str] = field(default_factory=list)
     notes: dict = field(default_factory=dict)
 
     def record(self) -> dict:
-        return {"kind": self.kind, "ordinary": self.ordinary, "guarded": self.guarded, "requested": self.requested,
-                **self.notes}
+        return {"kind": self.kind, "ordinary": self.ordinary, "guarded": self.guarded, "journeys": self.journeys,
+                "requested": self.requested, **self.notes}
 
 
 class GateRun:
@@ -718,6 +726,8 @@ class GateRun:
         self.scratch_root: Path | None = None
         self.invocation_error: str | None = None
         self.scope = {"platform": sys.platform, "profile": args.mode, "full_acceptance": False}
+        self.acceptance: acceptance_report.Judgement | None = None
+        self.coverage_result: coverage_model.CoverageResult | None = None
 
     # ------------------------------------------------------------------ bookkeeping
     def enter(self, lifecycle: str) -> None:
@@ -765,6 +775,7 @@ class GateRun:
         """A disposable folder of this run. Short on purpose: see SCRATCH_ROOT."""
         if self.scratch_root is None:
             self.scratch_root = runstore.reserve_scratch_dir(SCRATCH_ROOT, SCRATCH_ROOT.parent)
+            scratch_store.write_owner(self.scratch_root, self.record.run_id, self.record.nonce)
             self.record.log(f"scratch: {self.scratch_root}")
         path = self.scratch_root / name
         path.mkdir()
@@ -822,6 +833,7 @@ class GateRun:
             self.check("execution", "NOT RUN", "--collect-only: no test ran, so this establishes nothing")
             return
         self.enter("running")
+        self.run_acceptance(selection)
         self.run_ordinary(selection)
         self.run_guarded(selection)
         if self.args.mode in ("full", "changed"):
@@ -913,8 +925,24 @@ class GateRun:
             self.scope["profile"] = "routine"
             return Selection("full")
         if mode == "focused":
-            return self._split(self._focused_selectors(), "focused")
+            selectors = self._focused_selectors()
+            journeys = self._focused_journeys()
+            chosen = self._split(selectors, "focused")
+            chosen.journeys = journeys
+            return chosen
         return self._changed_selection()
+
+    def _focused_journeys(self) -> list[str]:
+        policy = self.policy.get("acceptance", {})
+        known = [*policy.get("required_scenarios", []), *policy.get("optional_scenarios", [])]
+        features = {feature["id"]: feature for feature in self.coverage.get("features", [])}
+        wanted = list(self.args.journey or [])
+        for feature_id in self.args.feature or []:
+            wanted.extend(features[feature_id].get("journeys", []))
+        unknown = sorted(set(wanted) - set(known))
+        if unknown:
+            raise InvocationError(f"unknown journey {unknown}; known: {sorted(known)}")
+        return list(dict.fromkeys(wanted))
 
     def _focused_selectors(self) -> list[str]:
         features = {feature["id"]: feature for feature in self.coverage.get("features", [])}
@@ -953,7 +981,11 @@ class GateRun:
         self.scope["profile"] = "changed"
         if chosen.conservative_full:
             return Selection("changed-conservative-full", requested=sorted(changed), notes=notes)
-        return self._split(chosen.tests, "changed", **notes)
+        selected = self._split(chosen.tests, "changed", **notes)
+        acceptance = self.policy.get("acceptance", {})
+        selected.journeys = selection_rules.journeys_for_changes(
+            changed, acceptance.get("journey_routes", {}), [*acceptance.get("required_scenarios", []), *acceptance.get("optional_scenarios", [])])
+        return selected
 
     # ------------------------------------------------------------------ collection and partition
     def collect(self, selection: Selection) -> bool:
@@ -1070,6 +1102,54 @@ class GateRun:
                             "junit_summary": pytest_reports.junit_summary(report), "counts": parsed.counts, **result.record()})
         self.judge_cleanup("pytest", result)
         self.check("pytest", verdict.status, verdict.detail, exit_status=result.returncode, seconds=round(result.seconds, 3))
+
+    def run_acceptance(self, selection: Selection) -> None:
+        """Real input, real media, judged from outside the process that ran them. Never skipped quietly: nothing selected says so."""
+        self.current_gate = "acceptance"
+        self.mark()
+        policy = self.policy.get("acceptance", {})
+        required, optional = list(policy.get("required_scenarios", [])), list(policy.get("optional_scenarios", []))
+        wanted = [*required, *optional] if selection.journeys is None else list(selection.journeys)
+        if not wanted:
+            self.check("acceptance", "NOT APPLICABLE", "the selection holds no native or media journey", required=False)
+            return
+        scratch = self.scratch("a")
+        token = f"{self.record.run_id}-acceptance"
+        report = self.reports() / "acceptance.json"
+        evidence = self.directory / "acceptance"
+        log = self.directory / "logs" / "acceptance.log"
+        argv = [sys.executable, "-I", "-B", "-u", str(ACCEPTANCE_RUNNER), "--report", str(report), "--token", token,
+                "--evidence", str(evidence), "--scratch", str(scratch / "w")]
+        for scenario_id in wanted:
+            argv += ["--only", scenario_id]
+        env = self.stage_env(scratch / "t")
+        result = self.supervise("acceptance", argv, log=log, env=env, progress=(report,))
+        self.judge_cleanup("acceptance", result)
+        self.acceptance = acceptance_report.judge(
+            report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence, returncode=result.returncode,
+            ended=result.ended, required_tools=list(policy.get("required_tools", [])), whole_set=selection.journeys is None)
+        self.stages.append({"name": "acceptance", "log": self.relative(log), "report": self.relative(report) if report.is_file() else None,
+                            "scenarios": self.acceptance.scenarios, **result.record()})
+        (self.directory / "acceptance-report.md").write_text("\n".join(acceptance_report.report_lines(self.acceptance)) + "\n",
+                                                              encoding="utf-8", newline="\n")
+        self.check("acceptance", self.acceptance.status, self.acceptance.detail, exit_status=result.returncode, seconds=round(result.seconds, 3))
+        self.check_visual_candidates()
+
+    def check_visual_candidates(self) -> None:
+        """Pictures are candidates until the owner approves them. A normal run lists them for review and never writes the approved list."""
+        candidates = self.acceptance.candidates if self.acceptance else []
+        approved = load_approved_baselines()
+        lines = ["# Visual candidates for owner review", "",
+                 "Nothing here is approved by this run. Approving one takes an owner-signed entry in baselines/approved.json.", "",
+                 "| Scenario | Picture | Client size | DPI |", "|---|---|---|---|"]
+        lines += [f"| `{item['scenario']}` | {item.get('path')} | {item.get('client')} | {item.get('dpi')} |" for item in candidates]
+        (self.directory / "visual-candidates.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        problems = baseline_problems(approved)
+        if problems:
+            self.check("visual-baselines", "FAIL", "; ".join(problems[:5]))
+            return
+        self.check("visual-baselines", "NOT RUN", f"{len(approved)} approved, {len(candidates)} candidates listed in visual-candidates.md for "
+                                                  "the owner's review; no picture was compared or approved by this run", required=False)
 
     def guarded_root(self) -> Path:
         return REPO_ROOT / GUARDED_SUBDIR
@@ -1192,9 +1272,10 @@ class GateRun:
             self.check_error_mode()
             self.check_skips()
             self.check_inventory_executed()
+        if self.lifecycle_reached_tests():
+            self.check_coverage()
         if self.args.mode == "full" and self.lifecycle_reached_tests():
             self.check_self_tests()
-            self.check_coverage_seed()
             self.check_later_requirements()
         identity_end = tree_fingerprint() if self.identity_start else {}
         match = self.check_tree(identity_end)
@@ -1214,9 +1295,8 @@ class GateRun:
                          "tree_digest": self.identity_start.get("sha256"), "start_end_match": match,
                          "start": self.identity_start, "end": identity_end},
             "environment": self.environment, "counts": counts, "checks": self.checks, "stages": self.stages,
-            "coverage": {"inventory_reviewed": bool(self.coverage and self.coverage.get("inventory_reviewed")),
-                         "seeded_features": len((self.coverage or {}).get("features", [])), "mapped_required": 0,
-                         "satisfied_required": 0, "exceptions": []},
+            "coverage": {**(self.coverage_result.record() if self.coverage_result else {"inventory_reviewed": False}),
+                         "exceptions": [item for feature in (self.coverage or {}).get("features", []) for item in feature.get("exceptions", [])]},
             "qualification": {"required": [], "satisfied": [], "pending": list(SCENARIO_NAMES)},
             "pending_requirements": self.policy.get("later_phase_requirements", []),
             "release_ready": False,
@@ -1236,7 +1316,7 @@ class GateRun:
         return self.record.finalize(results)
 
     def lifecycle_reached_tests(self) -> bool:
-        return any(c["name"] in ("pytest", "guarded") for c in self.checks)
+        return any(c["name"] in ("acceptance", "pytest", "guarded") for c in self.checks)
 
     def check_error_mode(self) -> None:
         if not winproc.IS_WINDOWS:
@@ -1288,11 +1368,41 @@ class GateRun:
         self.check("self-tests", "FAIL" if missing else "PASS",
                    f"not executed: {missing}" if missing else "the gate's own negative controls executed in this run")
 
-    def check_coverage_seed(self) -> None:
-        problems = coverage_problems(self.coverage or {})
-        self.check("coverage-seed", "FAIL" if problems else "PASS", "; ".join(problems[:6]) if problems else
-                   f"{len((self.coverage or {}).get('features', []))} seeded feature identities resolve; the reviewed "
-                   "inventory does not exist yet")
+    def check_coverage(self) -> None:
+        """The inventory held to account: dead ids and missing tools stop a clean full run, and what this run satisfied is written down.
+
+        Only a full run can see every test id, so only a full run judges them. A narrower run reports its own satisfaction and says so.
+        """
+        full = self.args.mode == "full"
+        policy = self.policy.get("acceptance", {})
+        scenarios = {}
+        for scenario_id in [*policy.get("required_scenarios", []), *policy.get("optional_scenarios", [])]:
+            scenarios[scenario_id] = {"layers": _layers_of(scenario_id, self.acceptance)}
+        collected = None
+        if full and self.collected_ordinary is not None:
+            collected = set(self.collected_ordinary) | {node for nodes in self.collected_guarded.values() for node in nodes}
+        passed = {node for probe in self.probes.values() for node, outcome in probe.outcomes.items()
+                  if outcome.get("call") == "passed" and "failed" not in outcome.values()}
+        passed_scenarios = {item["id"] for item in self.acceptance.scenarios if item["verdict"] == "PASS"} if self.acceptance else set()
+        self.coverage_result = coverage_model.evaluate(
+            self.coverage or {}, scenarios=scenarios, passed_tests=passed, passed_scenarios=passed_scenarios, collected=collected,
+            disk_check=lambda relative: (REPO_ROOT / relative).is_file(), required_tools=list(policy.get("required_tools", [])))
+        result = self.coverage_result
+        if self.acceptance is None or any(not layers for layers in (scenario["layers"] for scenario in scenarios.values())):
+            # What a scenario gives is only known once it has been selected and reported. A narrower run cannot judge this; a full run reports them all.
+            result.problems = [item for item in result.problems if "does not give" not in item]
+        (self.directory / "coverage-report.md").write_text("\n".join(coverage_model.report_lines(result)) + "\n", encoding="utf-8", newline="\n")
+        if not full:
+            self.check("coverage", "NOT APPLICABLE", f"this {self.args.mode} run satisfied {result.satisfied_required} of {result.required} required "
+                                                     "entries; only a full run judges the inventory", required=False)
+            return
+        # A blocked journey is reported as blocked by its own check, and what it would have satisfied stays visible in the report. Only a
+        # run whose acceptance stage passed can be held to having satisfied everything.
+        unsatisfied = result.unsatisfied if self.acceptance is not None and self.acceptance.status == "PASS" else []
+        problems = [*result.problems, *(f"required but not satisfied in this full run: {item}" for item in unsatisfied[:20])]
+        self.check("coverage", "FAIL" if problems else "PASS", "; ".join(problems[:8]) if problems else
+                   f"{result.mapped_required} of {result.required} required entries mapped and {result.satisfied_required} satisfied here; "
+                   "the reviewed inventory is Phase 4's")
 
     def check_later_requirements(self) -> None:
         for item in self.policy.get("later_phase_requirements", []):
@@ -1320,7 +1430,8 @@ class GateRun:
         if self.invocation_error:
             return "NOT RUN", runstore.EXIT_INVALID
         status = _worst(c["status"] for c in self.checks if c.get("required", True))
-        if status == "PASS" and self.args.mode != "qualification" and not self.counts()["executed"]:
+        counts = self.counts()
+        if status == "PASS" and self.args.mode != "qualification" and not (counts["executed"] or counts["journeys_passed"]):
             status = "NOT RUN"
         return status, runstore.EXIT_FOR_STATUS[status]
 
@@ -1331,11 +1442,17 @@ class GateRun:
         for probe in self.probes.values():
             for key, value in probe.counts.items():
                 totals[key] = totals.get(key, 0) + value
+        # Kept apart from the test counts, which an independent recount of the JUnit must be able to reproduce.
+        scenarios = self.acceptance.scenarios if self.acceptance else []
+        totals["journeys_selected"] = len(scenarios)
+        totals["journeys_passed"] = sum(1 for item in scenarios if item["verdict"] == "PASS")
         return totals
 
     def remove_temp(self, status: str) -> list[str]:
         """Disposable scratch goes on PASS. After a failure it stays, as evidence, and results.json names where it is."""
         problems: list[str] = []
+        if status != "PASS":
+            self.preserve_failure_diagnostics()
         if status == "PASS":
             for path, within in self.temp_trees:
                 try:
@@ -1353,6 +1470,22 @@ class GateRun:
         if problems:
             self.record.log(f"scratch not removed: {problems}")
         return problems
+
+    def preserve_failure_diagnostics(self) -> None:
+        """A failing test's temp folder goes into this run's evidence, within limits, before anything can clean its scratch."""
+        if self.scratch_root is None:
+            return
+        preserved = {}
+        for stage, probe in self.probes.items():
+            failing = [node for node, outcome in probe.outcomes.items() if "failed" in outcome.values()]
+            basetemp = self.scratch_root / "o" / "b" if stage == "pytest" else None
+            if not failing or basetemp is None:
+                continue
+            preserved[stage] = scratch_store.preserve_failed(basetemp, failing, self.directory / "failed-scratch" / stage)
+        if preserved:
+            runstore.write_json_atomic(self.directory / "failed-scratch.json", preserved)
+            self.record.log(f"failed tests' temp folders copied into this run: "
+                            f"{ {stage: len(entry['copied']) for stage, entry in preserved.items()} }")
 
     def write_summary(self, results: dict) -> None:
         identity = results["identity"]
@@ -1373,6 +1506,33 @@ class GateRun:
             text = "\n\n".join(f"## {c['name']}: {c['status']}\n\n{c['detail']}" for c in failures)
             (self.directory / "failures.md").write_text(f"# What kept this run from PASS\n\n{text}\n", encoding="utf-8",
                                                         newline="\n")
+
+
+def _layers_of(scenario_id: str, judgement: acceptance_report.Judgement | None) -> list[str]:
+    if judgement is None:
+        return []
+    return next((item.get("layers", []) for item in judgement.scenarios if item["id"] == scenario_id), [])
+
+
+def load_approved_baselines(path: Path | None = None) -> list[dict]:
+    path = BASELINES_FILE if path is None else Path(path)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return list(data.get("approved", [])) if isinstance(data, dict) else []
+
+
+def baseline_problems(approved: list[dict]) -> list[str]:
+    """An approved baseline carries the owner's word and what it describes. An agent cannot approve one, and a run never writes one."""
+    problems = []
+    for entry in approved:
+        if str(entry.get("approved_by", "")).strip().lower() != "owner":
+            problems.append(f"baseline {entry.get('name')!r} is not approved by the owner")
+        missing = [key for key in ("name", "sha256", "os", "tk", "dpi", "client") if not entry.get(key)]
+        if missing:
+            problems.append(f"baseline {entry.get('name')!r} does not record {missing}")
+    return problems
 
 
 _SEVERITY = ("FAIL", "BLOCKED", "NOT RUN", "PASS", "NOT APPLICABLE")
@@ -1544,6 +1704,8 @@ qualification needs --scenario. --preflight-only and --collect-only leave eviden
 exit codes: 0 PASS for the requested scope; 1 FAIL; 2 BLOCKED, a prerequisite is unavailable; 3 NOT RUN or incomplete,
 including no tests executed; 64 invalid invocation or configuration; 130 interrupted. Exit 0 does not imply release readiness.
 
+--audit-scratch lists every child of the scratch root with its owning run, size and whether it is in use, and changes nothing.
+
 --status reads a finished run back and checks it holds together, read-only. With --require-current a PASS must also describe
 the current source and environment and still be where the gate wrote it; its digests, installation and place decide, never
 the directory name.
@@ -1558,6 +1720,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                         help="focused: a test module or node id under files/tests (repeatable)")
     parser.add_argument("--feature", action="append", metavar="ID",
                         help="focused: a stable feature id from coverage.json, such as ACT.TTS.CANCEL (repeatable)")
+    parser.add_argument("--journey", action="append", metavar="ID",
+                        help="focused: a native and real-media journey registered in verification.json (repeatable); needs the desktop")
     parser.add_argument("--base", action=_OnceOnly, metavar="REF", help="changed: compare with the merge base of this ref (default origin/master)")
     parser.add_argument("--platform", action=_OnceOnly, choices=("windows", "macos"), help="refuse to run (BLOCKED) on any other platform")
     parser.add_argument("--scenario", action=_OnceOnly, choices=SCENARIO_NAMES, help="qualification: the named scenario")
@@ -1568,17 +1732,22 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--label", action=_OnceOnly, metavar="NAME", help="a short name recorded with the run")
     parser.add_argument("--status", action=_OnceOnly, metavar="RUN_DIR", help="read a run back instead of starting one")
     parser.add_argument("--require-current", action="store_true", help="with --status: a PASS must describe the current source and environment")
+    parser.add_argument("--audit-scratch", action="store_true", help="report who owns each scratch folder; removes nothing")
     args = parser.parse_args(argv)
+    if args.audit_scratch:
+        if args.mode or args.status or args.require_current:
+            parser.error("--audit-scratch stands alone")
+        return args
     if bool(args.mode) == bool(args.status):
         parser.error("give exactly one of --mode and --status")
     if args.status:
         return args
     if args.require_current:
         parser.error("--require-current goes with --status")
-    if args.mode != "focused" and (args.test or args.feature):
-        parser.error("--test and --feature go with --mode focused")
-    if args.mode == "focused" and not (args.test or args.feature):
-        parser.error("--mode focused needs --test or --feature; an empty selection is not a test run")
+    if args.mode != "focused" and (args.test or args.feature or args.journey):
+        parser.error("--test, --feature and --journey go with --mode focused")
+    if args.mode == "focused" and not (args.test or args.feature or args.journey):
+        parser.error("--mode focused needs --test, --feature or --journey; an empty selection is not a test run")
     if args.mode != "changed" and args.base:
         parser.error("--base goes with --mode changed")
     if args.mode == "changed" and not args.base:
@@ -1614,6 +1783,9 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):  # a test name the console cannot encode must not crash a finished run
             stream.reconfigure(errors="backslashreplace")
     args = _parse_args(argv)
+    if args.audit_scratch:
+        print("\n".join(scratch_store.audit_lines(scratch_store.audit(SCRATCH_ROOT, OUTPUTS_ROOT))))
+        return runstore.EXIT_PASS
     if args.status:
         return _status_command(args)
     return _execute_run(args, list(sys.argv if argv is None else argv), established)

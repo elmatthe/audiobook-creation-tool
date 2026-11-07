@@ -2,29 +2,71 @@
   "schema_version": 1,
   "about": "Execution policy of files/dev-work/verification-gate/verify.py: budgets, the frozen scenario names, what a skip may be, and what the routine gate does not yet cover. coverage.json holds the feature identities. A change here changes what PASS means, so this file is part of the policy digest of every run.",
   "stages": {
-    "preflight": {"timeout_seconds": 120},
-    "collect": {"timeout_seconds": 1500, "stall_seconds": 900},
-    "pytest": {"timeout_seconds": 14400, "stall_seconds": 1500},
-    "guarded": {"timeout_seconds": 5400, "stall_seconds": 1500}
+    "preflight": {
+      "timeout_seconds": 120
+    },
+    "collect": {
+      "timeout_seconds": 1500,
+      "stall_seconds": 900
+    },
+    "pytest": {
+      "timeout_seconds": 14400,
+      "stall_seconds": 1500
+    },
+    "guarded": {
+      "timeout_seconds": 5400,
+      "stall_seconds": 1500
+    },
+    "acceptance": {
+      "timeout_seconds": 2400,
+      "stall_seconds": 420
+    }
   },
-  "process": {"drain_seconds": 15, "kill_wait_seconds": 20},
+  "process": {
+    "drain_seconds": 15,
+    "kill_wait_seconds": 20
+  },
   "scenarios": {
-    "m4b-scaling": {"phase": 7, "network": [], "detail": "M4B chapter-splitting scale and output comparison; defined with the Phase 7 profiling work"},
-    "edge-low-memory": {"phase": 8, "network": ["online-edge"], "detail": "real Edge overlap under low memory; defined with the Phase 8 readiness package"},
-    "optional-engines": {"phase": 8, "network": [], "detail": "bounded real synthesis on Kokoro, Chatterbox Turbo and Qwen3-TTS; defined with the Phase 8 readiness package"},
-    "fresh-windows": {"phase": 8, "network": [], "detail": "fresh Windows extraction, launch and repair; defined with the Phase 8 readiness package"}
+    "m4b-scaling": {
+      "phase": 7,
+      "network": [],
+      "detail": "M4B chapter-splitting scale and output comparison; defined with the Phase 7 profiling work"
+    },
+    "edge-low-memory": {
+      "phase": 8,
+      "network": [
+        "online-edge"
+      ],
+      "detail": "real Edge overlap under low memory; defined with the Phase 8 readiness package"
+    },
+    "optional-engines": {
+      "phase": 8,
+      "network": [],
+      "detail": "bounded real synthesis on Kokoro, Chatterbox Turbo and Qwen3-TTS; defined with the Phase 8 readiness package"
+    },
+    "fresh-windows": {
+      "phase": 8,
+      "network": [],
+      "detail": "fresh Windows extraction, launch and repair; defined with the Phase 8 readiness package"
+    }
   },
   "later_phase_requirements": [
-    {"id": "native-journeys", "phase": 3, "required": false, "detail": "complete native Windows GUI journeys for each of the six tools"},
-    {"id": "real-media-journeys", "phase": 3, "required": false, "detail": "real-media output journeys with independent oracles"},
-    {"id": "coverage-inventory", "phase": 4, "required": false, "detail": "reviewed feature inventory with every required entry mapped and satisfied"}
+    {
+      "id": "coverage-inventory",
+      "phase": 4,
+      "required": false,
+      "detail": "reviewed feature inventory with every required entry mapped and satisfied"
+    }
   ],
   "inventory": {
     "minimum_ordinary": 13000,
     "modules_without_tests": {
       "test_kokoro_voices.py": "a manual five-voice harness run as a script; it is named test_ but defines no pytest test"
     },
-    "minimum_guarded": {"v3-planning": 450, "v3-supervisor": 70},
+    "minimum_guarded": {
+      "v3-planning": 450,
+      "v3-supervisor": 70
+    },
     "guarded_membership": {
       "v3-planning": [
         "test_optional_setup_exchange_v3.py",
@@ -36,29 +78,60 @@
         "test_spacy_consumer.py",
         "test_p05b_isolation.py"
       ],
-      "v3-supervisor": ["test_optional_setup_supervisor_v3.py"]
+      "v3-supervisor": [
+        "test_optional_setup_supervisor_v3.py"
+      ]
     }
   },
   "required_self_tests": [
+    "files/tests/test_gate_scratch_exception.py",
+    "files/tests/test_native_acceptance.py",
+    "files/tests/test_real_media_acceptance.py",
+    "files/tests/test_repository_contract.py",
+    "files/tests/test_verification_coverage.py",
     "files/tests/test_verification_gate_contract.py",
     "files/tests/test_verify_evidence.py",
-    "files/tests/test_verify_guarded.py",
-    "files/tests/test_repository_contract.py"
+    "files/tests/test_verify_guarded.py"
   ],
   "skip_policy": {
     "win32": [
-      {"id": "native-macos-only", "pattern": "^(aqua geometry regression: native macOS metrics only|the aqua branch needs aqua)$", "max": 39},
-      {"id": "no-symlink-privilege", "pattern": "^this (environment|account) (cannot create|may not create)", "max": 16},
-      {"id": "case-insensitive-filesystem", "pattern": "^(this filesystem is case-insensitive, so the two names are one file|the Windows path layer is case-blind by definition)$", "max": 3},
-      {"id": "local-fixture-absent", "pattern": "^(set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture folder to run|no local A4 listening folder|no local ordered export|files/runtime-data/ currently holds no colliding test basename)$", "max": 6},
-      {"id": "empty-parameter-set", "pattern": "^got empty parameter set for ", "max": 1}
+      {
+        "id": "native-macos-only",
+        "pattern": "^(aqua geometry regression: native macOS metrics only|the aqua branch needs aqua)$",
+        "max": 39
+      },
+      {
+        "id": "no-symlink-privilege",
+        "pattern": "^this (environment|account) (cannot create|may not create)",
+        "max": 16
+      },
+      {
+        "id": "case-insensitive-filesystem",
+        "pattern": "^(this filesystem is case-insensitive, so the two names are one file|the Windows path layer is case-blind by definition)$",
+        "max": 3
+      },
+      {
+        "id": "local-fixture-absent",
+        "pattern": "^(set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture folder to run|no local A4 listening folder|no local ordered export|files/runtime-data/ currently holds no colliding test basename)$",
+        "max": 6
+      },
+      {
+        "id": "empty-parameter-set",
+        "pattern": "^got empty parameter set for ",
+        "max": 1
+      }
     ]
   },
   "focused": {
-    "required_guards": ["files/tests/test_application_source_boundary.py"]
+    "required_guards": [
+      "files/tests/test_application_source_boundary.py"
+    ]
   },
   "changed": {
-    "always": ["files/tests/test_application_source_boundary.py", "files/tests/test_repository_contract.py"],
+    "always": [
+      "files/tests/test_application_source_boundary.py",
+      "files/tests/test_repository_contract.py"
+    ],
     "no_selection": [
       "files/plans/",
       "files/release-history/",
@@ -70,17 +143,35 @@
     ],
     "routes": {
       "files/dev-work/verification-gate/": [
+        "files/tests/test_gate_scratch_exception.py",
+        "files/tests/test_native_acceptance.py",
+        "files/tests/test_real_media_acceptance.py",
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_verification_coverage.py",
         "files/tests/test_verification_gate_contract.py",
         "files/tests/test_verify_evidence.py",
-        "files/tests/test_verify_guarded.py",
+        "files/tests/test_verify_guarded.py"
+      ],
+      "files/dev-work/feature-map/": [
         "files/tests/test_repository_contract.py"
       ],
-      "files/dev-work/feature-map/": ["files/tests/test_repository_contract.py"],
-      ".gitignore": ["files/tests/test_dev_work_isolation.py", "files/tests/test_repository_contract.py"],
-      "pytest.ini": ["files/tests/test_dev_work_isolation.py"],
-      "config.toml": ["files/tests/test_repository_contract.py", "files/tests/test_developer_mode.py"],
-      "scripts/README.md": ["files/tests/test_layout_canary.py"],
-      "scripts/shared/release.py": ["files/tests/test_release_packaging.py"]
+      ".gitignore": [
+        "files/tests/test_dev_work_isolation.py",
+        "files/tests/test_repository_contract.py"
+      ],
+      "pytest.ini": [
+        "files/tests/test_dev_work_isolation.py"
+      ],
+      "config.toml": [
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_developer_mode.py"
+      ],
+      "scripts/README.md": [
+        "files/tests/test_layout_canary.py"
+      ],
+      "scripts/shared/release.py": [
+        "files/tests/test_release_packaging.py"
+      ]
     },
     "full_on": [
       "scripts/shared/",
@@ -95,5 +186,123 @@
       "files/tests/tk_gate.py",
       "Setup_and_Run"
     ]
+  },
+  "acceptance": {
+    "about": "The native Windows GUI and real-media journeys. A full run requires every scenario in required_scenarios; the runner's registered set must equal required plus optional, so a scenario cannot appear or vanish without an edit here. optional_scenarios need a declared applicability rule with evidence, and even then say nothing about engine qualification.",
+    "required_tools": [
+      "tts-audiobook",
+      "mp3-tool",
+      "m4b-converter",
+      "m4b-maker",
+      "m4b-metadata-editor",
+      "cover-image"
+    ],
+    "required_scenarios": [
+      "control.real-click-reaches-the-target",
+      "control.lost-foreground-blocks-input",
+      "control.covered-target-is-refused",
+      "control.disabled-target-is-refused",
+      "control.dead-input-path-blocks",
+      "control.second-run-refused-by-the-lease",
+      "control.other-desktop-is-blocked",
+      "control.forced-landing-sees-the-crash",
+      "control.act-orphan-seen-without-the-stop",
+      "control.act-crash-seen-with-the-root-released",
+      "launcher.six-tools-at-three-sizes",
+      "launcher.settings-survive-relaunch",
+      "launcher.switch-tools-during-work",
+      "cover.letterbox-numbered-run",
+      "cover.center-crop",
+      "cover.corrupt-image",
+      "mp3.write-id3-then-combine",
+      "mp3.unreadable-track",
+      "converter.split-by-chapter",
+      "converter.whole-book-replace-metadata",
+      "converter.corrupt-source",
+      "converter.cancel-during-encode",
+      "maker.build-with-chapters-and-artwork",
+      "maker.unreadable-track",
+      "metadata.save-tags-then-clear",
+      "metadata.confirmation-declined",
+      "metadata.unreadable-file",
+      "tts.edge-replay-direct-file",
+      "tts.edge-replay-folder-mixed",
+      "tts.service-failure-then-retry",
+      "tts.cancel-during-narration",
+      "tts.pause-at-file-boundary",
+      "tts.pdf-without-text",
+      "shutdown.tts-close-during-work",
+      "shutdown.tts-close-forced-landing",
+      "shutdown.converter-close-during-work",
+      "shutdown.converter-close-forced-landing",
+      "shutdown.mp3-close-during-work",
+      "shutdown.mp3-close-forced-landing",
+      "shutdown.maker-close-during-work",
+      "shutdown.maker-close-forced-landing",
+      "shutdown.metadata-close-during-work",
+      "shutdown.metadata-close-forced-landing",
+      "shutdown.cover-close-during-work",
+      "shutdown.cover-close-forced-landing"
+    ],
+    "optional_scenarios": [
+      "tts.kokoro-local"
+    ],
+    "journey_routes": {
+      "scripts/mp3/": [
+        "mp3.unreadable-track",
+        "mp3.write-id3-then-combine",
+        "shutdown.mp3-close-during-work",
+        "shutdown.mp3-close-forced-landing"
+      ],
+      "scripts/m4b/converter/": [
+        "converter.cancel-during-encode",
+        "converter.corrupt-source",
+        "converter.split-by-chapter",
+        "converter.whole-book-replace-metadata",
+        "shutdown.converter-close-during-work",
+        "shutdown.converter-close-forced-landing"
+      ],
+      "scripts/m4b/maker/": [
+        "maker.build-with-chapters-and-artwork",
+        "maker.unreadable-track",
+        "shutdown.maker-close-during-work",
+        "shutdown.maker-close-forced-landing"
+      ],
+      "scripts/m4b/metadata/": [
+        "metadata.confirmation-declined",
+        "metadata.save-tags-then-clear",
+        "metadata.unreadable-file",
+        "shutdown.metadata-close-during-work",
+        "shutdown.metadata-close-forced-landing"
+      ],
+      "scripts/artwork/": [
+        "cover.center-crop",
+        "cover.corrupt-image",
+        "cover.letterbox-numbered-run",
+        "shutdown.cover-close-during-work",
+        "shutdown.cover-close-forced-landing"
+      ],
+      "scripts/tts/": [
+        "shutdown.tts-close-during-work",
+        "shutdown.tts-close-forced-landing",
+        "tts.cancel-during-narration",
+        "tts.edge-replay-direct-file",
+        "tts.edge-replay-folder-mixed",
+        "tts.kokoro-local",
+        "tts.pause-at-file-boundary",
+        "tts.pdf-without-text",
+        "tts.service-failure-then-retry"
+      ],
+      "scripts/launcher.py": [
+        "launcher.settings-survive-relaunch",
+        "launcher.six-tools-at-three-sizes",
+        "launcher.switch-tools-during-work"
+      ],
+      "files/dev-work/verification-gate/adapters/": "all",
+      "files/dev-work/verification-gate/journeys/": "all",
+      "files/dev-work/verification-gate/fixtures/": "all",
+      "files/dev-work/verification-gate/acceptance_runner.py": "all",
+      "files/dev-work/verification-gate/helpers/media_": "all"
+    }
   }
 }

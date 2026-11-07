@@ -88,3 +88,16 @@ def select_for_changes(paths, policy: dict, test_sources: dict[str, str]) -> Cha
         selection.reasons.append(f"{path}: no selection rule covers this path, so every test is selected")
     selection.tests = in_suite_order(selected)
     return selection
+
+
+def journeys_for_changes(paths, routes: dict, known: list[str]) -> list[str]:
+    """The native and real-media journeys a change reaches. A route is a list of scenario ids, or "all"; an id the policy no longer knows is dropped
+    here only because the policy check names it. Nothing else widens or narrows what ``select_for_changes`` chose for the test suite."""
+    chosen: list[str] = []
+    for path in sorted(paths):
+        for prefix, scenarios in routes.items():
+            if path == prefix or path.startswith(prefix):
+                chosen.extend(known if scenarios == "all" else scenarios)
+    known_set = set(known)
+    return [item for item in dict.fromkeys(chosen) if item in known_set]
+
