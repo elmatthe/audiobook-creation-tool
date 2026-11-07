@@ -2,6 +2,46 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 4 (feature map and coverage inventory): implemented and committed as the candidate for its one planned full gate; the gate result is recorded by the closeout commit; NOT accepted; Phase 5 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
+
+Authority: the owner's Phase 4 prompt (Phase 3 accepted for progression). This block supersedes the status line of the block below. Decisions: `Decisions.md`, the newest entry.
+
+- **Built.**
+  - **The feature map.** `files/dev-work/feature-map/` holds a README and seven tool documents, describing 273 features by stable id with no test ids.
+  - **The inventory.** `coverage.json` schema 2 is the only mapping. It holds 273 features, 262 release-required; 298 static and 246 live surfaces, each mapped to a feature; review stamps for 144 source files; and a ledger of 57 issues, 47 open.
+  - **The checks.** `helpers/surface_discovery.py`, and `helpers/inventory.py` with `check`, `discover` and `restamp`. The coverage model now has release-pending kinds and maintenance checks. The `inventory.live-surfaces` journey has its negative control, `control.unmapped-live-control-is-caught`. The observation channel has a read-only `surfaces` operation.
+  - **The gate.** It now has a required `coverage-inventory` check in full and changed runs, and `--feature` and changed mode select by feature. Phase 4 delivered the `coverage-inventory` placeholder, so it is gone from `later_phase_requirements`.
+- **Tests.**
+  - New modules: `test_surface_discovery.py` and `test_no_window_guard.py`.
+  - Rewritten for schema 2: `test_verification_coverage.py`, which now runs in every changed run.
+  - Added to:
+    - `test_verification_gate_contract.py`: an unreviewed inventory stops full and changed runs, and ACT72-024 is fixed;
+    - `test_launcher_smoke.py`: Open log folder;
+    - `test_m4b_metadata_editor_ui.py`: Open Output Folder, Cancel Import and the scan confirmations.
+  - Corrected: `test_maker_custom_destination.py::test_source_mp3s_and_cover_are_never_written` asserted nothing.
+  - No application code changed.
+- **Targeted verification on the candidate's code, before commit.**
+  - The two inventory modules: 48 passed.
+  - `test_verification_gate_contract.py` run directly: 123 passed, and with ACT72-024 fixed it left nothing in the real `%TEMP%\act-gate`.
+  - Meta-guards (`test_application_source_boundary`, `test_dev_work_isolation`, `test_tk_gate`, `test_verify_guarded`, `test_native_acceptance`, `test_repository_contract`): 174 passed and 1 skipped (allowed by policy).
+  - The new gap tests: 7 passed. Five mutants, one per new check, each failed for its intended reason, after a no-change control passed.
+  - Focused `2026-11-07_150515_focused_0397`: `inventory.live-surfaces` and its control both PASS.
+  - Changed `2026-11-07_150852_changed_631f` (base `eba4026`): PASS, with 48 of 48 journeys, 532 tests, `coverage-inventory` PASS and 0 skips.
+  - After that run, four sentences in the feature-map documents were corrected to say gaps closed by the new tests; nothing else changed.
+- **Not verified, not claimed.**
+  - Display scaling other than 100%.
+  - Live discovery in installed optional-engine states: the scan saw the isolated, not-installed state, where every engine's controls are already built.
+  - Dialog contents beyond Preferences & Data.
+  - Real Edge, the real local engines, a fresh Windows and macOS.
+  - The 68 Phase 3 visual candidates, and the 5 new ones, are not approved.
+  - `release_ready` stays false.
+- **Carried into Phase 5, unchanged:**
+  - the Tk finalisation warning on a worker, and the slow TTS and Cover forced-shutdown arms of about 23 s and 18 s (ACT72-017);
+  - replayed Edge audio, which is not online engine qualification;
+  - the owner's 94 leftover dialog-history values.
+- **Scratch.** `%TEMP%\act-gate` holds three folders from this phase's own failing exploration runs (`0561`, `23d9`, `24c3`), kept by design. It also holds `135f`, from the direct contract run that reproduced ACT72-024, and `bfa7`, created at 10:58 before this session, which has `135f`'s shape. Its origin is not proven. None has been deleted.
+- **Next exact action.** The full gate on this commit, then a documents-only closeout. No merge, tag or release; the independent Codex review stays after Phase 8.
+
 ## CURRENT STATE — v0.7.2 Phase 3 (acceptance closeout): both withheld defects fixed in `118058c`; the complete full gate PASSED on `118058c`; the commit that adds this block changes canonical documents only; READY FOR OWNER REVIEW; NOT accepted; Phase 4 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
 
 Authority: the owner's Phase 3 targeted acceptance closeout prompt. This block supersedes the status line of the block below; that block's measurements stand.

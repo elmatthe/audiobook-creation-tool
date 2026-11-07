@@ -75,6 +75,7 @@ _on_path = str(GATE_DIR) in sys.path
 if not _on_path:
     sys.path.insert(0, str(GATE_DIR))
 from helpers import acceptance_report, coverage_model, pytest_reports, runstore, scratch as scratch_store, selection as selection_rules, winproc  # noqa: E402
+from helpers import inventory as inventory_tools  # noqa: E402
 
 if not _on_path:
     sys.path.remove(str(GATE_DIR))
@@ -951,11 +952,16 @@ class GateRun:
             if feature_id not in features:
                 raise InvocationError(f"unknown feature {feature_id!r}; known: {sorted(features)}")
             selectors.extend(features[feature_id].get("selection", []))
+            # The exact tests the feature is verified by, even where its selection does not name their module.
+            selectors.extend(item["test"] for item in coverage_model.verifications_of(features[feature_id]) if item.get("kind") == "behavior")
         return [*self.policy["focused"]["required_guards"], *selectors]
 
     def _split(self, selectors: list[str], kind: str, **notes) -> Selection:
         membership = {module: group["name"] for group in load_guarded_spec()["groups"] for module in group["modules"]}
         ordinary, guarded = [], {}
+        # A node of a module that is selected whole would only be collected a second time.
+        whole = {selector for selector in selectors if "::" not in selector}
+        selectors = [selector for selector in selectors if "::" not in selector or selector.split("::", 1)[0] not in whole]
         for selector in selection_rules.in_suite_order(selectors):
             module = selection_rules.module_name(selector)
             if module in membership:
@@ -976,15 +982,23 @@ class GateRun:
         sources = {f"files/tests/{path.name}": path.read_text(encoding="utf-8", errors="replace")
                    for path in sorted(TESTS_DIR.glob("test_*.py"))}
         chosen = selection_rules.select_for_changes(changed, self.policy["changed"], sources)
+        # The features whose source changed bring their own tests and journeys too: the reviewed mapping is a route, not only a word match.
+        touched = [feature for feature in (self.coverage or {}).get("features", [])
+                   if any(source.get("path") in changed for source in feature.get("source", []))]
+        by_feature = sorted({*(selector for feature in touched for selector in feature.get("selection", [])),
+                             *(item["test"] for feature in touched for item in coverage_model.verifications_of(feature)
+                               if item.get("kind") == "behavior")})
         notes = {"base": base, "merge_base": merge_base, "changed_paths": sorted(changed), "ignored_paths": chosen.ignored,
-                 "mapped": chosen.mapped, "widened_because": chosen.reasons}
+                 "mapped": chosen.mapped, "widened_because": chosen.reasons, "features_touched": [feature["id"] for feature in touched]}
         self.scope["profile"] = "changed"
         if chosen.conservative_full:
             return Selection("changed-conservative-full", requested=sorted(changed), notes=notes)
-        selected = self._split(chosen.tests, "changed", **notes)
+        selected = self._split([*chosen.tests, *by_feature], "changed", **notes)
         acceptance = self.policy.get("acceptance", {})
-        selected.journeys = selection_rules.journeys_for_changes(
-            changed, acceptance.get("journey_routes", {}), [*acceptance.get("required_scenarios", []), *acceptance.get("optional_scenarios", [])])
+        known = [*acceptance.get("required_scenarios", []), *acceptance.get("optional_scenarios", [])]
+        journeys = selection_rules.journeys_for_changes(changed, acceptance.get("journey_routes", {}), known)
+        journeys += [journey for feature in touched for journey in feature.get("journeys", []) if journey in known]
+        selected.journeys = list(dict.fromkeys(journeys))
         return selected
 
     # ------------------------------------------------------------------ collection and partition
@@ -1369,40 +1383,64 @@ class GateRun:
                    f"not executed: {missing}" if missing else "the gate's own negative controls executed in this run")
 
     def check_coverage(self) -> None:
-        """The inventory held to account: dead ids and missing tools stop a clean full run, and what this run satisfied is written down.
+        """The inventory held to account, in two checks kept apart.
 
-        Only a full run can see every test id, so only a full run judges them. A narrower run reports its own satisfaction and says so.
+        ``coverage-inventory`` is the inventory itself: reviewed, every discovered surface mapped, every application source file reviewed
+        as it is now and named by a feature, no dangling id, test, scenario, symbol or document. A full run also holds every test id to
+        this run's exact collection. It is required in full and changed runs when the policy requires a reviewed inventory, so a source
+        change cannot pass without its mapping being looked at again.
+
+        ``coverage`` is what this run satisfied. Only a full run can be held to every required routine verification; a narrower run
+        reports its own satisfaction and says so. Release-pending evidence (qualification, owner, planned) is reported, never satisfied.
         """
         full = self.args.mode == "full"
         policy = self.policy.get("acceptance", {})
-        scenarios = {}
-        for scenario_id in [*policy.get("required_scenarios", []), *policy.get("optional_scenarios", [])]:
-            scenarios[scenario_id] = {"layers": _layers_of(scenario_id, self.acceptance)}
+        coverage = self.coverage or {}
+        reviewed_required = bool(self.policy.get("coverage", {}).get("require_reviewed_inventory"))
         collected = None
         if full and self.collected_ordinary is not None:
             collected = set(self.collected_ordinary) | {node for nodes in self.collected_guarded.values() for node in nodes}
         passed = {node for probe in self.probes.values() for node, outcome in probe.outcomes.items()
                   if outcome.get("call") == "passed" and "failed" not in outcome.values()}
         passed_scenarios = {item["id"] for item in self.acceptance.scenarios if item["verdict"] == "PASS"} if self.acceptance else set()
+        if coverage.get("schema_version", 1) >= 2:
+            scenarios = inventory_tools.scenario_registry(self.policy)
+            problems = inventory_tools.problems(coverage, self.policy, repo_root=REPO_ROOT, collected=collected, scenarios=scenarios)
+        else:
+            scenarios = {scenario_id: {"layers": _layers_of(scenario_id, self.acceptance) or None}
+                         for scenario_id in [*policy.get("required_scenarios", []), *policy.get("optional_scenarios", [])]}
+            problems = coverage_model.problems_in_inventory(
+                coverage, scenarios=scenarios, collected=collected, disk_check=lambda relative: (REPO_ROOT / relative).is_file(),
+                required_tools=list(policy.get("required_tools", [])))
+            if reviewed_required:
+                problems.append(f"schema {coverage.get('schema_version', 1)}: a reviewed inventory is schema 2 or later")
         self.coverage_result = coverage_model.evaluate(
-            self.coverage or {}, scenarios=scenarios, passed_tests=passed, passed_scenarios=passed_scenarios, collected=collected,
-            disk_check=lambda relative: (REPO_ROOT / relative).is_file(), required_tools=list(policy.get("required_tools", [])))
+            coverage, scenarios=scenarios, passed_tests=passed, passed_scenarios=passed_scenarios, collected=collected,
+            required_tools=list(policy.get("required_tools", [])), qualification_scenarios=SCENARIO_NAMES)
         result = self.coverage_result
-        if self.acceptance is None or any(not layers for layers in (scenario["layers"] for scenario in scenarios.values())):
-            # What a scenario gives is only known once it has been selected and reported. A narrower run cannot judge this; a full run reports them all.
-            result.problems = [item for item in result.problems if "does not give" not in item]
+        result.problems = problems
         (self.directory / "coverage-report.md").write_text("\n".join(coverage_model.report_lines(result)) + "\n", encoding="utf-8", newline="\n")
+        if reviewed_required:
+            self.check("coverage-inventory", "FAIL" if problems else "PASS",
+                       "; ".join(problems[:8]) + (f" (and {len(problems) - 8} more in coverage-report.md)" if len(problems) > 8 else "")
+                       if problems else f"reviewed; {result.inventoried} features, {result.surfaces.get('static', 0)} static and "
+                                        f"{result.surfaces.get('live', 0)} live surfaces indexed, every application source file reviewed "
+                                        "as it is now; the live index is judged by inventory.live-surfaces",
+                       required=self.args.mode in ("full", "changed"))
+        else:
+            self.check("coverage-inventory", "NOT APPLICABLE", "this policy does not require a reviewed inventory", required=False)
         if not full:
             self.check("coverage", "NOT APPLICABLE", f"this {self.args.mode} run satisfied {result.satisfied_required} of {result.required} required "
-                                                     "entries; only a full run judges the inventory", required=False)
+                                                     "entries; only a full run judges satisfaction", required=False)
             return
         # A blocked journey is reported as blocked by its own check, and what it would have satisfied stays visible in the report. Only a
         # run whose acceptance stage passed can be held to having satisfied everything.
         unsatisfied = result.unsatisfied if self.acceptance is not None and self.acceptance.status == "PASS" else []
-        problems = [*result.problems, *(f"required but not satisfied in this full run: {item}" for item in unsatisfied[:20])]
-        self.check("coverage", "FAIL" if problems else "PASS", "; ".join(problems[:8]) if problems else
+        failing = [*([] if reviewed_required else problems), *(f"required but not satisfied in this full run: {item}" for item in unsatisfied[:20])]
+        pending = ", ".join(f"{kind} {len(items)}" for kind, items in sorted(result.release_pending.items())) or "none"
+        self.check("coverage", "FAIL" if failing else "PASS", "; ".join(failing[:8]) if failing else
                    f"{result.mapped_required} of {result.required} required entries mapped and {result.satisfied_required} satisfied here; "
-                   "the reviewed inventory is Phase 4's")
+                   f"{len(result.unmapped_required)} with no routine evidence; release-pending: {pending}")
 
     def check_later_requirements(self) -> None:
         for item in self.policy.get("later_phase_requirements", []):
@@ -1587,9 +1625,13 @@ def _report_lines(results: dict, directory: Path) -> list[str]:
             line += f" - {str(check['detail'])[:400]}"
         lines.append(line)
     pending = [item["id"] for item in results.get("pending_requirements", [])]
+    release = results.get("coverage", {}).get("release_pending", {})
     lines += ["-" * 60, f"  RESULT: {results['status']}"]
     if results["mode"] == "full":
-        lines.append(f"  scope: routine gate only; NOT full acceptance or release readiness; NOT RUN: {', '.join(pending)}")
+        waiting = [f"{kind} {len(items)} feature(s)" for kind, items in sorted(release.items())]
+        lines.append("  scope: routine gate only; NOT full acceptance or release readiness"
+                     + (f"; NOT RUN: {', '.join(pending)}" if pending else "")
+                     + (f"; release-pending: {', '.join(waiting)}" if waiting else ""))
     elif results["status"] == "PASS":
         lines.append(f"  scope: {results['mode']} selection only; NOT full acceptance")
     lines += ["=" * 60, f"  evidence: {directory}"]

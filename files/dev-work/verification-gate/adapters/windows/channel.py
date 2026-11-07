@@ -21,6 +21,15 @@ import tkinter as tk
 
 _STEP = re.compile(r"\.?([A-Za-z_][A-Za-z0-9_]*)|\[([^\]]+)\]")
 PUMP_MS = 15
+#: Where the walk that names live widgets may go: the application's own objects, Tk widgets, and plain containers. Nothing else is opened.
+_APP_MODULE_PREFIXES = ("shared.", "tts.", "mp3.", "m4b.", "artwork.")
+#: A widget's own Tk plumbing. ``master`` leads up and ``children`` names widgets by Tk's generated names, so neither gives a key.
+_TK_PLUMBING = frozenset({"master", "tk", "children", "_w", "_name", "widgetName", "_tclCommands", "_last_child_ids", "_root"})
+_TEXT_CLASSES = frozenset({"TButton", "Button", "TCheckbutton", "Checkbutton", "TRadiobutton", "Radiobutton", "TMenubutton", "Menubutton",
+                           "TLabel", "Label", "TLabelframe", "Labelframe"})
+_KEY_DEPTH = 6
+_KEY_BUDGET = 60000
+_CONTAINER_LIMIT = 400
 
 
 class KeyPathError(LookupError):
@@ -71,6 +80,73 @@ def _plain(value):
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     return type(value).__name__
+
+
+def _ours(value) -> bool:
+    module = type(value).__module__ or ""
+    return module == "launcher" or module.startswith(_APP_MODULE_PREFIXES)
+
+
+def _key_text(candidate) -> str | None:
+    """How ``_index`` will find this key again: an enum by its name, anything else by its text. None for a key a path cannot carry."""
+    import enum
+
+    text = candidate.name if isinstance(candidate, enum.Enum) else str(candidate)
+    return text if text and "]" not in text and "[" not in text else None
+
+
+def _steps(value, widget_type):
+    if isinstance(value, dict):
+        for candidate, child in list(value.items())[:_CONTAINER_LIMIT]:
+            text = _key_text(candidate)
+            if text is not None:
+                yield f"[{text}]", child
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(list(value)[:_CONTAINER_LIMIT]):
+            yield f"[{index}]", child
+    elif isinstance(value, widget_type) or _ours(value):
+        names = dict(getattr(value, "__dict__", {}))
+        # Much of the shared UI keeps its widgets in __slots__, which vars() cannot see. A slot is read through its member descriptor,
+        # which is the interpreter's, so this still runs nothing of the application.
+        for klass in type(value).__mro__:
+            for name in (klass.__dict__.get("__slots__") or ()):
+                if isinstance(name, str) and name not in names and name not in ("__dict__", "__weakref__"):
+                    try:
+                        names[name] = getattr(value, name)
+                    except AttributeError:
+                        pass
+        for name, child in names.items():
+            if name.startswith("__") or (isinstance(value, widget_type) and name in _TK_PLUMBING):
+                continue
+            yield f".{name}", child
+
+
+def key_paths(start, *, widget_type=None) -> dict[str, str]:
+    """Each widget reachable from ``start`` by attributes and indexes, under its shortest such path (breadth first, so the first path to
+    reach a widget is a shortest one). It reads ``vars``, slots and containers only: no property, no method, nothing of the application
+    runs. ``widget_type`` is what counts as a widget, ``tk.Misc`` unless a test says otherwise."""
+    widget_type = tk.Misc if widget_type is None else widget_type
+    found: dict[str, str] = {}
+    seen = {id(start)}
+    frontier = [(start, "")]
+    visited = 0
+    for depth in range(_KEY_DEPTH + 1):
+        following = []
+        for value, path in frontier:
+            visited += 1
+            if visited > _KEY_BUDGET:
+                return found
+            if isinstance(value, widget_type) and path:
+                found.setdefault(str(value), path.lstrip("."))
+            if depth == _KEY_DEPTH:
+                continue
+            for step, child in _steps(value, widget_type):
+                if id(child) in seen or child is None or isinstance(child, (str, bytes, int, float, bool)):
+                    continue
+                seen.add(id(child))
+                following.append((child, path + step))
+        frontier = following
+    return found
 
 
 def describe_widget(widget: tk.Misc) -> dict:
@@ -221,7 +297,38 @@ class Channel:
         if op == "toplevels":
             return {"ok": True, "toplevels": [describe_widget(w) for w in self._all(self.root) if w.winfo_class() in ("Toplevel", "Tk")
                                               and w.winfo_viewable()]}
+        if op == "surfaces":
+            return {"ok": True, "widgets": self._surfaces(request.get("scope"), request.get("exclude"))}
         return {"error": f"unknown op {op!r}"}
+
+    def _surfaces(self, scope, exclude) -> list[dict]:
+        """Every widget below one scope, named by the key path its owner keeps it under where there is one: what live discovery reads.
+
+        A tool's scope is its panel. The shell's scope (None) is the root, less whatever ``exclude`` names (the tool containers), so a
+        tool's controls are reported once, under the tool."""
+        start = self.resolve(scope)
+        top = start if isinstance(start, tk.Misc) else self.root
+        skipped: set[str] = set()
+        if exclude:
+            excluded = follow(start, exclude)
+            for widget in (excluded.values() if isinstance(excluded, dict) else excluded if isinstance(excluded, (list, tuple)) else [excluded]):
+                skipped.update(str(item) for item in self._all(widget))
+        keys = key_paths(start)
+        widgets = []
+        for widget in self._all(top):
+            path = str(widget)
+            if path in skipped:
+                continue
+            entry = {"path": path, "parent": widget.winfo_parent(), "class": widget.winfo_class(), "viewable": bool(widget.winfo_viewable()),
+                     "key": keys.get(path)}
+            # Only classes with a real text option: Tk abbreviates option names, so an entry's "text" is its textvariable, PY_VARn.
+            if entry["class"] in _TEXT_CLASSES:
+                try:
+                    entry["text"] = str(widget.cget("text"))
+                except tk.TclError:
+                    pass
+            widgets.append(entry)
+        return widgets
 
     def _target(self, request: dict) -> tk.Misc:
         if "path" in request:

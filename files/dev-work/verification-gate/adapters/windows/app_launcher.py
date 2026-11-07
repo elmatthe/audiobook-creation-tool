@@ -17,6 +17,8 @@ in exactly these places, each named in the journey's evidence:
     what the journey checks.
   * a journey that runs real Kokoro reads the installed model through the real cache, offline: ``HF_HUB_OFFLINE`` makes a missing file an
     error instead of a download, and the gate compares the real runtime data before and after.
+  * when the live-discovery negative control asks, one extra, unplaced button is added to a tool's panel (``_inject_control``), so that the
+    discovery journey can be shown to report a control nobody mapped.
 
 Usage: python app_launcher.py <config.json>
 """
@@ -187,6 +189,21 @@ def _force_worker_collection(root_gone: threading.Event, done: threading.Event, 
     done.set()
 
 
+def _inject_control(root, app, spec: dict) -> None:
+    """A negative control for live discovery: one button nobody mapped, added to a tool's panel once the tool has built it. It is never
+    placed on screen, because discovery reads the widget tree, not the screen, and placing it could disturb the panel's own layout."""
+    from tkinter import ttk
+
+    def add() -> None:
+        container = app.containers.get(spec["tool"])
+        if container is None or not container.winfo_children():
+            root.after(50, add)
+            return
+        ttk.Button(container.winfo_children()[0], text=spec["text"])
+
+    root.after(50, add)
+
+
 def main() -> int:
     config = _load_config()
     _isolate(config)
@@ -222,6 +239,8 @@ def main() -> int:
 
         channel = Channel(root, channel_file=config["channel_file"], resolve=scoped)
         root._acceptance_channel = channel
+        if config.get("inject_control"):
+            _inject_control(root, app, config["inject_control"])
         return app
 
     if config.get("control_no_stop_children"):

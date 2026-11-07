@@ -4,6 +4,60 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-07 - The coverage inventory is reviewed and the gate keeps it current; release-pending evidence is kept apart from routine evidence (v0.7.2 Phase 4)
+
+**Why.** Phase 4 completes the feature map (plan §7 and §14, Phase 4). The inventory had to become complete enough to trust and hard to let drift. The owner's Phase 4 prompt names the defects it must detect: an unmapped control or workflow, a deleted or renamed test, a missing scenario, a dangling feature id, required verification that did not run, an unapproved exception, and a source change without mapping review.
+
+**One inventory, schema 2.** `coverage.json` holds:
+
+- 273 features, 262 of them release-required, with their source symbols, contracts, `--feature` selection and verification;
+- the reviewed index of 298 static and 246 live surfaces, each mapped to a feature;
+- a review stamp for each of the 144 reviewed source files: the application's Python by the suite's registry, the two Setup_and_Run launchers and `bootstrap_host.ps1`;
+- the issue ledger.
+
+The eight documents in `files/dev-work/feature-map/` describe features by id and hold no test ids, so nothing in prose can drift from the inventory.
+
+**Routine and release evidence are kept apart.**
+
+- **Routine kinds** are what a routine full run executes and must satisfy: `behavior` (an exact test id), `native`, `media`, `control` (a gate negative-control journey) and `discovery` (the live scan).
+- **Release kinds** are never satisfied by a routine run. They keep `release_ready` false without failing the run:
+  - `qualification`: one of the four named scenarios;
+  - `owner`: a check only the owner can make;
+  - `planned`: a known gap, which must name an open issue in the ledger and a phase after 4.
+
+This keeps missing behaviour visible without turning the routine gate red. A full run fails on a mapped routine verification that did not pass, never on a planned gap.
+
+An agent cannot approve an exception. An exception needs `approved_by: owner` and evidence of where the owner approved it, and the real inventory has none.
+
+**Discovery is static and live.**
+
+- **Static discovery** reads the application's own files, found by `source_probe`'s registry, never by walking `scripts/`. It lists every control constructed directly, every standard dialog raised, every event or window protocol bound and every tool registered. Keys are file, class or function, control class and label, never line numbers.
+- **Live discovery** covers what static discovery cannot see: controls a helper builds or a loop multiplies. The `inventory.live-surfaces` journey opens a real isolated instance and, by real input, visits the shell, the six tools, Preferences & Data and one voice of each of the four engines. It names each interactive widget by the attribute path its panel keeps it under. The walk reads `__dict__`, `__slots__` and containers only, and runs no property or method. Every one of the 246 live controls got a key; none was anonymous.
+- **Its negative control.** The `control.unmapped-live-control-is-caught` journey adds one unplaced button to a real panel and must see exactly that one reported.
+
+**A source change cannot pass without review.** Each reviewed file carries the digest it had when its features were last reviewed. Any of these fails the `coverage-inventory` check, and with it a full or changed run:
+
+- a file that changed since its stamp;
+- a new or removed file;
+- a file no feature names.
+
+The check is required in full and changed runs and reported in focused ones. `test_verification_coverage.py`, which every changed run now selects, runs the same check.
+
+`helpers/inventory.py restamp <paths>` records a review by name only; nothing restamps wholesale. Every later phase that changes source will restamp. That is the maintenance decision 23A asks for.
+
+**Gaps found, and what was done with them.**
+
+- **Tests added.** Four required features had no routine evidence, and each now has tests, seen failing under a mutant first:
+  - Open log folder;
+  - the no-window guard, tested in a child interpreter so the test process is untouched;
+  - the Metadata Editor's Open Output Folder;
+  - the Metadata Editor's Cancel Import, with its scan confirmations.
+- **Recorded, not fixed.** 25 new findings (ACT72-025 to 049) and 8 groups of untested branches (ACT72-050 to 057) are in the ledger, each tied to its features as a planned gap. Phases 5 to 8 own them.
+- **Tests corrected.** A Maker test that asserted nothing (`or True`) now checks what its name says. Two weak Maker tests remain on the ledger as ACT72-032.
+- **Fixed or corrected here.** ACT72-024 is fixed. ACT72-035 was a wrong statement in the Briefing, now corrected.
+
+**How the slices were drafted.** Nine read-only agents drafted the slices from the source and the tests. Every test id, scenario layer, symbol, file and surface key was then checked mechanically against the collection at `118058c`, the journey registry and the source's AST, and the maintenance check runs on the result. Two of the drafts' claims were re-read in the source before they were used: the vacuous Maker test and the Metadata Editor's missing subfolders option.
+
 ## 2026-11-07 - The journeys' application runs at Low integrity so its file dialogs cannot write the owner's history, and the launcher owns its Tk root (v0.7.2 Phase 3 acceptance closeout)
 
 **Why.** The checkpoint reviewer withheld Phase 3 acceptance for two issues: the native file-dialog journeys modified the owner's Windows recent-file history, and real ACT still crashed with `Tcl_AsyncDelete` once the two accidental holders of its closed Tk root were removed.

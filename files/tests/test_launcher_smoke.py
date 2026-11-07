@@ -504,3 +504,21 @@ def test_a_notice_failure_cannot_break_the_launcher(fresh_root, fake_settings, m
     assert app.present_startup_notice() is None      # swallowed and logged, never raised into Tk's callback
     assert launcher.STARTUP_NOTICE_ENV not in __import__("os").environ
     assert app.root.winfo_exists()
+
+
+@windows_only
+def test_open_log_folder_creates_and_reveals_the_log_folder_and_nothing_else(fresh_root, fake_settings, monkeypatch, tmp_path):
+    """ACT.LAUNCHER.OPEN-LOG-FOLDER had no automated check; the v0.7.2 Phase 4 inventory found it. The status bar's button reveals the
+    session log folder, creating it first so the person always lands somewhere real, and reveals nothing else."""
+    import launcher
+    from shared import paths
+
+    target = tmp_path / "logs-not-yet-made"
+    monkeypatch.setattr(paths, "LOGS_DIR", target)
+    revealed: list = []
+    monkeypatch.setattr(launcher.sp, "reveal_in_file_manager", revealed.append)
+    app = launcher.LauncherApp(fresh_root)
+    fresh_root.update()
+    assert app._log_button.cget("text") == "Open log folder" and revealed == []
+    app._log_button.invoke()
+    assert revealed == [target] and target.is_dir()

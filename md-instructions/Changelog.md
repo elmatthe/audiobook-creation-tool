@@ -13,6 +13,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 4 (2026-11-07)
+
+**Added (development only; nothing here ships)**
+- The feature map: `files/dev-work/feature-map/`, a README and one document per tool, describing 273 features of the app by stable id. How each is verified lives only in `files/dev-work/verification-gate/coverage.json`, now the reviewed inventory. It holds every feature's source, contracts and verification, every control, dialog, key binding and tool found in the source or in a running copy of the app, a review record for every source file, and a ledger of 57 issues.
+- The gate now refuses a full or changed run when the inventory has fallen behind the app: a new or renamed control, a changed source file nobody has reviewed against its features, a deleted or renamed test, a journey no feature maps, or an id that no longer exists.
+- Tests for four required behaviours that had none: Open log folder, the hidden console window for every child process, and the M4B Metadata Editor's Open Output Folder and Cancel Import with its scan confirmations.
+
+**Fixed (development only)**
+- Running the gate's own contract tests directly no longer leaves a folder in `%TEMP%\act-gate`.
+- A Maker test that asserted nothing now checks what its name says.
+
+**Changed**
+- The project briefing no longer says the M4B Metadata Editor's Import Folder has a subfolders option. It has none and always includes subfolders.
+
 ## [Unreleased] — v0.7.2 Phase 3 acceptance closeout (2026-11-07)
 
 **Fixed**

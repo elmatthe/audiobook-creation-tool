@@ -403,11 +403,11 @@ def test_source_mp3s_and_cover_are_never_written(tmp_path):
     import ast
 
     source = Path(mk.__file__).read_text(encoding="utf-8")
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            assert node.func.attr not in ("write_bytes", "write_text") or True
-    # ffmpeg is always invoked with the sources as -i inputs, never as outputs.
-    assert "-i" in source
+    # v0.7.2 Phase 4: this loop ended in "or True" and a check of "-i" passed only on the text "m4b-idle", so neither asserted anything.
+    # The panel runs no FFmpeg itself (the processing module does); what it can be held to is never writing a file.
+    writes = [node.lineno for node in ast.walk(ast.parse(source))
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("write_bytes", "write_text")]
+    assert writes == [], f"the Maker panel writes a file at lines {writes}"
     assert "shutil.move" not in source
     assert "os.replace" not in source
 

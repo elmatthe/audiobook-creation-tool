@@ -79,6 +79,9 @@ class Tree:
         policy["acceptance"] = {"required_tools": [], "required_scenarios": [], "optional_scenarios": [], "journey_routes": {}}
         policy["focused"]["required_guards"] = []
         policy["changed"]["always"] = []
+        # This small tree carries a one-feature seed inventory, so it does not require the reviewed one. The real policy does
+        # (test_verification_coverage pins that), and test_an_unreviewed_inventory_stops_full_and_changed_runs turns it on here.
+        policy["coverage"] = {"require_reviewed_inventory": False}
         policy["process"] = {"drain_seconds": 3, "kill_wait_seconds": 10}
         policy["stages"] = {"preflight": {"timeout_seconds": 60}, "collect": {"timeout_seconds": 90, "stall_seconds": 60},
                             "pytest": {"timeout_seconds": 120, "stall_seconds": 60},
@@ -108,11 +111,7 @@ class Tree:
 
     def run(self, *argv: str, env: dict | None = None, creationflags: int = 0, timeout: float = 240,
             script: Path | None = None) -> "Outcome":
-        environment = {key: value for key, value in os.environ.items()
-                       if not key.upper().startswith(("PYTEST_", "ACT_GATE_"))}
-        # The gate's scratch lands here, so each tree's is its own and can be looked at.
-        self.system_temp.mkdir(exist_ok=True)
-        environment.update(TEMP=str(self.system_temp), TMP=str(self.system_temp), TMPDIR=str(self.system_temp))
+        environment = self.environment()
         environment.update(env or {})
         before = set(self.outputs.iterdir()) if self.outputs.is_dir() else set()
         done = subprocess.run([sys.executable, str(script or (self.gate / "verify.py")), *argv], cwd=self.outside,
@@ -120,6 +119,15 @@ class Tree:
         created = [path for path in self.outputs.iterdir() if path not in before] if self.outputs.is_dir() else []
         assert len(created) <= 1, created
         return Outcome(done, created[0] if created else None)
+
+    def environment(self) -> dict:
+        """What every gate this tree starts runs under. The gate's scratch lands in this tree's own temp, so each tree's is its own and can be
+        looked at, and nothing reaches the real %TEMP%\\act-gate (ACT72-024: one test started the gate without this and left a folder there)."""
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.upper().startswith(("PYTEST_", "ACT_GATE_"))}
+        self.system_temp.mkdir(exist_ok=True)
+        environment.update(TEMP=str(self.system_temp), TMP=str(self.system_temp), TMPDIR=str(self.system_temp))
+        return environment
 
     @property
     def system_temp(self) -> Path:
@@ -209,13 +217,43 @@ def test_the_known_good_tree_passes(tree):
     assert status.returncode == 0 and "status: PASS" in status.stdout and "current: exact" in status.stdout, status.stdout
 
 
+_LATER = {"id": "later-thing", "phase": 9, "required": False, "detail": "a requirement a later phase delivers"}
+
+
+def _with_later_requirement(tree, **overrides) -> None:
+    """The real policy has none left since Phase 4 delivered the coverage inventory; the mechanism stays for the next one."""
+    policy = tree.policy()
+    policy["later_phase_requirements"] = [{**_LATER, **overrides}]
+    tree.write_policy(policy)
+
+
 def test_later_phase_requirements_are_reported_as_not_run_and_never_as_satisfied(tree):
+    _with_later_requirement(tree)
     outcome = tree.full()
     assert outcome.code == 0, outcome
-    inventory = outcome.check("requirement:coverage-inventory")
-    assert inventory["status"] == "NOT RUN" and inventory["required"] is False and "Phase 4" in inventory["detail"]
-    assert "NOT full acceptance" in outcome.stdout and "coverage-inventory" in outcome.stdout
+    later = outcome.check("requirement:later-thing")
+    assert later["status"] == "NOT RUN" and later["required"] is False and "Phase 9" in later["detail"]
+    assert "NOT full acceptance" in outcome.stdout and "later-thing" in outcome.stdout
     assert outcome.results["coverage"]["inventory_reviewed"] is False
+    assert outcome.check("coverage-inventory")["status"] == "NOT APPLICABLE", "this tree's policy does not require the reviewed inventory"
+
+
+def test_an_unreviewed_inventory_stops_full_and_changed_runs(tree):
+    """The real policy's requirement, turned on in this tree: its one-feature seed is schema 1 and unreviewed, so neither run may pass."""
+    policy = tree.policy()
+    policy["coverage"] = {"require_reviewed_inventory": True}
+    tree.write_policy(policy)
+    tree.commit("require the reviewed inventory")
+    full = tree.full()
+    assert full.code == 1, full
+    check = full.check("coverage-inventory")
+    assert check["status"] == "FAIL" and check["required"] is True and "schema 1" in check["detail"]
+    assert full.check("pytest")["status"] == "PASS", "the suite passed; only the inventory check stops it"
+    tree.write("files/tests/test_ordinary.py", PASSING + "\n# touched\n")
+    changed = tree.run("--mode", "changed", "--base", "HEAD")
+    assert changed.code == 1 and changed.check("coverage-inventory")["status"] == "FAIL", changed
+    focused = tree.focused("files/tests/test_ordinary.py")
+    assert focused.code == 0 and focused.check("coverage-inventory")["required"] is False, "a focused run reports it without being stopped"
 
 
 def test_a_full_run_that_did_not_execute_the_gates_own_negative_controls_cannot_pass(tree):
@@ -231,10 +269,8 @@ def test_a_full_run_that_did_not_execute_the_gates_own_negative_controls_cannot_
 
 
 def test_a_later_requirement_made_required_stops_the_pass_until_it_exists(tree):
-    """How Phase 3 turns the requirement on: the same list, one flag. Until the check exists the run is NOT RUN."""
-    policy = tree.policy()
-    policy["later_phase_requirements"][0]["required"] = True
-    tree.write_policy(policy)
+    """How a phase turns a requirement on: the same list, one flag. Until the check exists the run is NOT RUN."""
+    _with_later_requirement(tree, required=True)
     outcome = tree.full()
     assert outcome.code == 3 and outcome.results["status"] == "NOT RUN", outcome
 
@@ -982,7 +1018,7 @@ def test_killing_the_gate_kills_its_tree_and_leaves_an_incomplete_run(tree, stag
             time.sleep(120)
         """)
     proc = subprocess.Popen([sys.executable, str(tree.gate / "verify.py"), "--mode", "focused", "--test=files/tests/test_waits.py"],
-                            cwd=tree.outside, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            cwd=tree.outside, env=tree.environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + 60
         while not pid_file.exists() and time.monotonic() < deadline:
@@ -1001,6 +1037,8 @@ def test_killing_the_gate_kills_its_tree_and_leaves_an_incomplete_run(tree, stag
     assert json.loads((run / "INCOMPLETE.json").read_text(encoding="utf-8"))["lifecycle"] == "running"
     status = tree.status(str(run))
     assert status.returncode == 3 and "status: INCOMPLETE" in status.stdout
+    owners = [json.loads(path.read_text(encoding="utf-8"))["run_id"] for path in (tree.system_temp / "act-gate").glob("*/act-gate-owner.json")]
+    assert owners == [run.name], "the killed run's scratch stays where this tree put it, never in the real %TEMP%\\act-gate"
 
 
 @WINDOWS_ONLY

@@ -38,7 +38,7 @@ sys.path.insert(0, str(GATE_DIR))
 SCHEMA_VERSION = 1
 FAILED_OUTPUT_LIMIT = 32 << 20
 MODULES = ("journeys.controls", "journeys.launcher", "journeys.cover", "journeys.mp3", "journeys.converter", "journeys.maker",
-           "journeys.metadata", "journeys.tts", "journeys.shutdown")
+           "journeys.metadata", "journeys.tts", "journeys.shutdown", "journeys.inventory")
 
 
 def load_scenarios() -> dict:

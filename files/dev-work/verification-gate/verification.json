@@ -50,14 +50,11 @@
       "detail": "fresh Windows extraction, launch and repair; defined with the Phase 8 readiness package"
     }
   },
-  "later_phase_requirements": [
-    {
-      "id": "coverage-inventory",
-      "phase": 4,
-      "required": false,
-      "detail": "reviewed feature inventory with every required entry mapped and satisfied"
-    }
-  ],
+  "later_phase_requirements": [],
+  "coverage": {
+    "about": "Since v0.7.2 Phase 4 the routine gate requires the reviewed inventory: schema 2, inventory_reviewed, every discovered surface mapped, every application source file reviewed as it is now. Required in full and changed runs.",
+    "require_reviewed_inventory": true
+  },
   "inventory": {
     "minimum_ordinary": 13000,
     "modules_without_tests": {
@@ -88,6 +85,7 @@
     "files/tests/test_native_acceptance.py",
     "files/tests/test_real_media_acceptance.py",
     "files/tests/test_repository_contract.py",
+    "files/tests/test_surface_discovery.py",
     "files/tests/test_verification_coverage.py",
     "files/tests/test_verification_gate_contract.py",
     "files/tests/test_verify_evidence.py",
@@ -130,7 +128,8 @@
   "changed": {
     "always": [
       "files/tests/test_application_source_boundary.py",
-      "files/tests/test_repository_contract.py"
+      "files/tests/test_repository_contract.py",
+      "files/tests/test_verification_coverage.py"
     ],
     "no_selection": [
       "files/plans/",
@@ -147,13 +146,15 @@
         "files/tests/test_native_acceptance.py",
         "files/tests/test_real_media_acceptance.py",
         "files/tests/test_repository_contract.py",
+        "files/tests/test_surface_discovery.py",
         "files/tests/test_verification_coverage.py",
         "files/tests/test_verification_gate_contract.py",
         "files/tests/test_verify_evidence.py",
         "files/tests/test_verify_guarded.py"
       ],
       "files/dev-work/feature-map/": [
-        "files/tests/test_repository_contract.py"
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_verification_coverage.py"
       ],
       ".gitignore": [
         "files/tests/test_dev_work_isolation.py",
@@ -208,6 +209,8 @@
       "control.forced-landing-sees-the-crash",
       "control.act-orphan-seen-without-the-stop",
       "control.act-crash-seen-with-the-root-released",
+      "control.unmapped-live-control-is-caught",
+      "inventory.live-surfaces",
       "launcher.six-tools-at-three-sizes",
       "launcher.settings-survive-relaunch",
       "launcher.switch-tools-during-work",
@@ -297,6 +300,17 @@
         "launcher.settings-survive-relaunch",
         "launcher.six-tools-at-three-sizes",
         "launcher.switch-tools-during-work"
+      ],
+      "scripts/": [
+        "inventory.live-surfaces"
+      ],
+      "files/dev-work/verification-gate/coverage.json": [
+        "control.unmapped-live-control-is-caught",
+        "inventory.live-surfaces"
+      ],
+      "files/dev-work/verification-gate/helpers/surface_": [
+        "control.unmapped-live-control-is-caught",
+        "inventory.live-surfaces"
       ],
       "files/dev-work/verification-gate/adapters/": "all",
       "files/dev-work/verification-gate/journeys/": "all",
