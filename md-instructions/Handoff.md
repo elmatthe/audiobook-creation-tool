@@ -2,6 +2,33 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 3 (acceptance closeout): both withheld defects fixed in `118058c`; the complete full gate PASSED on `118058c`; the commit that adds this block changes canonical documents only; READY FOR OWNER REVIEW; NOT accepted; Phase 4 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
+
+Authority: the owner's Phase 3 targeted acceptance closeout prompt. This block supersedes the status line of the block below; that block's measurements stand.
+
+- **Starting, tested, final.** Started at `f0e2d47`. Tested `118058c` (code and tests, pushed). This documents-only commit follows it.
+- **Task A, the owner's dialog history.** The gate now starts the application under test at Low integrity, so Windows itself refuses its file dialogs write access to the owner's history (`Decisions.md`, newest entry). Nothing writes, snapshots or restores the owner's registry, so no live-registry authorization is needed. This run's preflight: the process was born Low (`0x1000`), and every dialog-state key and both hive roots refused write access. Values naming `act-gate` in the history: 94 before the journeys, 94 after, 0 added. The 94 are Phase 3's own and were left in place. Removing them is the owner's call, and the older entries they pushed out cannot be restored from here.
+- **Task B, the Tk root.** `launcher.main()` now holds its root in `launcher._ROOT`.
+  - Before the fix, on `f0e2d47`, `files/tests/test_root_lifetime.py` emptied both accidental holders and the application crashed `0x80000003` with `Tcl_AsyncDelete`. After the fix, the same test exits 0, with a full collection proven to run on a worker.
+  - In the full run all six forced arms exit `0x0`, each recording the surviving holder as `globals of launcher`. That includes TTS, which resolves the unresolved TTS holder in the block below.
+  - All six plain closes exit `0x0` in 0.09 to 0.28 s, and no owned process survived.
+  - `Tcl_AsyncDelete` appears only in the two controls that must crash.
+  - Residual, not fixed: in the TTS and Cover forced arms, a worker's collection of a leftover `Variable` prints an ignored `RuntimeError: main thread is not in main loop`. Those arms still exit 0, after 23.0 s and 17.5 s.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-07_092441_full_3470/` (ignored), label `ACT072-P3C-118058c-candidate`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode full --platform windows --label ACT072-P3C-118058c-candidate`.
+  - 86 min 51 s, exit 0, RESULT PASS.
+  - Journeys: 46 of 46 PASS, with 252 real inputs, 765 checks and 68 pictures.
+  - Tests, recounted from the raw JUnit: ordinary suite 13,609 passed and 65 skipped; guarded 457 and 75 passed; 0 failed, 0 errors.
+  - `release_ready` is false. Not run, by design: visual baselines and the reviewed coverage inventory (Phase 4).
+- **Before it.**
+  - Two focused runs found where Low integrity bit: scenario outputs, and the forced worker's stack file, were written outside the Low folder. Both are fixed in the candidate.
+  - The next focused run passed 8 of 8. A changed run on the same code passed 46 journeys and 13,609 tests.
+  - Evidence: `outputs/2026-11-07_phase3_closeout_5c2e/` (`task-a/`, `task-b/`, `mutations/`, `logs/`).
+- **Task C, visual candidates.** The 68 candidates from `2026-11-06_232929_full_03f9` are indexed by tool, scenario, client size, DPI and hash, with one contact sheet per tool: `outputs/2026-11-07_phase3_closeout_5c2e/visual-review/index.md`. 0 are approved, and `baselines/approved.json` is unchanged. The owner's approval is pending.
+- **Scratch.** Three abandoned `%TEMP%\act-gate` folders from this work's own runs were removed under the owner's conditions: `5eda`, `70be` and `7689`, 1.14 GiB. Each was removed only after its owning process was shown to have ended, and hashed manifests are in `outputs/2026-11-07_phase3_closeout_5c2e/scratch-cleanup/`. `7689` was ACT72-024 again, left by a direct pytest of the contract tests. `%TEMP%\act-gate` is empty. The owner's 14 deletions and 4 untracked entries are untouched.
+- **Next exact action.** The owner and ChatGPT review. Phase 4 opens only on the owner's word. No merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 3 (closeout): the complete full gate PASSED on `abd6400`; the commit that adds this block changes canonical documents only; READY FOR OWNER ACCEPTANCE REVIEW; NOT accepted; Phase 4 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
 
 Authority: the owner's Phase 3 prompt. This block supersedes the status line of the block below and corrects its test count; the rest of that block stands.

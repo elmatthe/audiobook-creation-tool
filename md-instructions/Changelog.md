@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 3 acceptance closeout (2026-11-07)
+
+**Fixed**
+- Closing the app exited cleanly only because two internal lists happened to keep its closed main window alive. Without them, a background clean-up could crash the app on its way out (Windows error 0x80000003). The launcher now keeps its own window for the life of the program.
+
+**Changed (development only; nothing here ships)**
+- The verification gate's native journeys now run the app at Low integrity, so their real file dialogs can no longer add entries to the Windows recent-files history of the person running the gate. The gate refuses to run those journeys if it cannot show that this protection holds.
+
+**Verified**
+- The complete Windows gate passed on `118058c`: 46 of 46 scenarios and 14,206 tests, 65 of them skipped with named reasons. The journeys added no dialog-history entry.
+
 ## [Unreleased] — v0.7.2 Phase 3 (2026-11-06)
 
 **Fixed**
