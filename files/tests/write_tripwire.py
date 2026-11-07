@@ -14,12 +14,16 @@ raises ``PermissionError`` before it runs and is recorded. Reads are never refus
 treats that ``PermissionError`` as "cannot write the cache" and carries on, as it does on a read-only folder; such a
 refusal is retained raw. Only calls from CPython's frozen bytecode writer are classified as bytecode; a directory
 named ``__pycache__`` is not evidence of a Python bytecode write (Numba also uses it).
+
+``tempfile`` is the one caller that does not stop at that ``PermissionError``, so it is refused at its door: see
+:func:`_refuse_temporary_folder`.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import threading
 import traceback
 from contextlib import contextmanager
@@ -121,10 +125,34 @@ def _hook(event: str, args) -> None:
         _state.busy = False
 
 
+def _refuse_temporary_folder(real):
+    """Refuse a protected folder when ``tempfile`` is given it, before it starts trying names.
+
+    On Windows ``tempfile`` takes a ``PermissionError`` from the OS call to mean that a folder already holds the name, and tries
+    the next, up to ``TMP_MAX``, which is 2**31 - 1. So a refusal at the OS call never returned: measured on HOME-PC, a refused
+    ``mkstemp`` was still going after 300 s, and each attempt kept a stack, 2.8 GB in about 7 minutes. A regression that wrote
+    a protected path through a temporary file stalled its whole group instead of failing the test that did it.
+
+    ``_sanitize_params`` is what ``mkstemp``, ``mkdtemp``, ``NamedTemporaryFile`` and ``TemporaryFile`` all call first, looked up
+    when they run, so this holds however the caller imported them. The audit hook stays underneath it.
+    """
+    def sanitize(prefix, suffix, dir):
+        values = real(prefix, suffix, dir)
+        if _armed and not getattr(_state, "busy", False):
+            _state.busy = True
+            try:
+                _check("tempfile", values[2])
+            finally:
+                _state.busy = False
+        return values
+    return sanitize
+
+
 def install() -> None:
     global _installed
     if not _installed:
         sys.addaudithook(_hook)
+        tempfile._sanitize_params = _refuse_temporary_folder(tempfile._sanitize_params)
         _installed = True
 
 

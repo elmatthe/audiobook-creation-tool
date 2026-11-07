@@ -445,9 +445,40 @@ def test_malformed_arguments_exit_64_without_running_a_gate(verify, monkeypatch,
 def test_an_unsafe_label_is_refused_before_anything_exists(verify, monkeypatch, capsys, raw):
     monkeypatch.setattr(verify, "_pytest_command", lambda junit, **kw: pytest.fail("pytest was started"))
     with pytest.raises(SystemExit) as raised:
-        verify.main(["--mode", "full", "--label", raw] if raw else ["--mode", "full", "--label=x y"])
+        verify.main(["--mode", "full", f"--label={raw}"])
     assert raised.value.code == 64
-    assert "label" in capsys.readouterr().err
+    assert ("is not allowed" if raw else "may not be empty") in capsys.readouterr().err
+    assert not verify.OUTPUTS_ROOT.exists()
+
+
+@pytest.mark.parametrize("argv", [
+    ["--mode", "full", "--mode", "focused", "--test=files/tests/test_a.py"],
+    ["--status", "a", "--status", "b"],
+    ["--mode", "full", "--platform", "macos", "--platform", "windows"],
+    ["--mode", "full", "--label", "a", "--label", "b"],
+    ["--mode", "changed", "--base", "a", "--base", "b"],
+    ["--mode", "qualification", "--scenario", "m4b-scaling", "--scenario", "fresh-windows"],
+    ["--mode", "qualification", "--scenario", "edge-low-memory", "--network", "online-edge", "--network", "online-edge"],
+], ids=["mode", "status", "platform", "label", "base", "scenario", "network"])
+def test_a_repeated_option_exits_64_without_running_a_gate(verify, monkeypatch, capsys, argv):
+    """Otherwise the last value wins in silence: --platform macos --platform windows steps around the platform refusal, and
+    --status <missing> --status <good> reads PASS. --test and --feature repeat on purpose and are not in this list."""
+    monkeypatch.setattr(verify, "_pytest_command", lambda junit, **kw: pytest.fail("pytest was started"))
+    with pytest.raises(SystemExit) as raised:
+        verify.main(argv)
+    assert raised.value.code == 64
+    assert "may be given only once" in capsys.readouterr().err
+    assert not verify.OUTPUTS_ROOT.exists()
+
+
+@pytest.mark.parametrize("argv", [["--mode", "full", "--label="], ["--mode", "focused", "--test="], ["--status="],
+                                  ["--mode", "full", "--status="], ["--mode", "changed", "--base="]],
+                         ids=["label", "test", "status-alone", "status-with-mode", "base"])
+def test_an_empty_value_is_refused(verify, monkeypatch, argv):
+    monkeypatch.setattr(verify, "_pytest_command", lambda junit, **kw: pytest.fail("pytest was started"))
+    with pytest.raises(SystemExit) as raised:
+        verify.main(argv)
+    assert raised.value.code == 64
     assert not verify.OUTPUTS_ROOT.exists()
 
 
@@ -472,6 +503,21 @@ def test_each_run_takes_a_new_directory_and_leaves_the_last_byte_identical(verif
     code, second = run(verify)
     assert code == 1 and second != first
     assert {name: (first / name).read_bytes() for name in files_of(first)} == before
+
+
+def test_a_file_holding_the_drawn_name_is_left_alone_and_another_is_drawn(tmp_path, monkeypatch):
+    load_gate("act_verify_evidence_reserve_file")
+    from helpers import runstore
+
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    holder = outputs / "2026-01-01_000000_full_aaaa"
+    holder.write_text("keep me", encoding="utf-8")
+    monkeypatch.setattr(runstore, "datetime", _FrozenClock.at(holder.name))
+    draws = iter(["aaaa", "bbbb"])
+    monkeypatch.setattr(runstore.secrets, "token_hex", lambda n: next(draws))
+    assert runstore.reserve_run_dir(outputs, tmp_path, "full").name.endswith("_bbbb")
+    assert holder.read_text(encoding="utf-8") == "keep me"
 
 
 def test_a_name_already_taken_is_never_reused(verify, fake_pytest, monkeypatch):
@@ -670,9 +716,26 @@ def test_exit_zero_without_records_that_agree_is_not_a_pass(verify, fake_pytest,
     assert got == code
     results = load(target, "results.json")
     assert results["status"] == status
+    from helpers import runstore
+
+    assert runstore.read_run_status(target)["status"] == status
     gate = check(results, "pytest")
     assert gate["exit_status"] == 0 and gate["status"] == status
     assert gate["detail"].startswith(detail), gate["detail"]
+
+
+def test_a_failing_static_gate_stops_nothing_and_the_report_says_so(verify, fake_pytest, monkeypatch, capsys):
+    """RESULT is the line people and the project's instructions read, so a wrong one must fail a test. Nothing else asserted a
+    failing report: every other RESULT assertion is a PASS."""
+    use_child(monkeypatch, verify, fake_pytest, "pass")
+    calls = []
+    for function, gate in (("check_requirements", "deps"), ("check_docs", "docs"), ("check_doc_names", "docnames"),
+                           ("check_config", "config")):
+        monkeypatch.setattr(verify, function, lambda gate=gate: calls.append(gate) or (gate, gate != "docs", f"{gate} detail"))
+    code, _ = run(verify)
+    out = capsys.readouterr().out
+    assert code == 1 and calls == GATE_ORDER[2:]
+    assert "  [FAIL] docs     - docs detail" in out and "  RESULT: FAIL" in out
 
 
 def test_a_failing_non_pytest_gate_is_recorded_as_such(verify, fake_pytest, monkeypatch):

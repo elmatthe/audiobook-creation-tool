@@ -691,6 +691,58 @@ def test_a_copied_run_with_its_id_edited_and_resealed_is_caught_by_its_start_rec
     assert status.returncode == 3 and "names another run" in status.stdout, status.stdout
 
 
+@pytest.mark.parametrize("how", ["copied-out", "through-a-junction-inside-outputs", "a-junction-as-the-run", "traversal-out"])
+def test_a_run_that_does_not_live_in_outputs_is_never_current(passing_run, how):
+    """Plan section 10: an old run copied into a new directory is rejected as current acceptance, and the directory name is not
+    trusted. A copy normally keeps its folder name, and its id, nonce and manifest all travel with it, so only where it is can
+    tell it apart. A copy on the same source still tells the truth; it just is not the gate's own record of a run."""
+    tree, directory = passing_run
+    elsewhere = tree.root.parent / "elsewhere"
+    shutil.copytree(directory, elsewhere / directory.name)
+    target = str(elsewhere / directory.name)
+    if how == "through-a-junction-inside-outputs":
+        _junction_or_skip(elsewhere, tree.outputs / "redirect")
+        target = str(tree.outputs / "redirect" / directory.name)
+    elif how == "a-junction-as-the-run":
+        shutil.rmtree(directory)
+        _junction_or_skip(elsewhere / directory.name, directory)
+        target = str(directory)
+    elif how == "traversal-out":
+        target = f"../elsewhere/{directory.name}"
+    status = tree.status(target, "--require-current")
+    assert status.returncode == 3 and "current: elsewhere" in status.stdout and "current: exact" not in status.stdout, status.stdout
+
+
+def test_a_run_in_its_own_place_is_current_however_the_path_is_spelled(passing_run):
+    """The no-change control of the test above."""
+    tree, directory = passing_run
+    relative = directory.relative_to(tree.root).as_posix()
+    outputs = directory.parent.relative_to(tree.root).as_posix()
+    for raw in (str(directory), relative, f"{outputs}/../outputs/{directory.name}"):
+        status = tree.status(raw, "--require-current")
+        assert status.returncode == 0 and "current: exact" in status.stdout, (raw, status.stdout)
+
+
+def test_status_on_something_that_is_not_a_run_is_never_zero(passing_run):
+    tree, directory = passing_run
+    outputs = directory.parent.relative_to(tree.root).as_posix()
+    for raw, expected in ((f"{outputs}/no-such-run", "status: INVALID"), (outputs, "status: INCOMPLETE"),
+                          (str(directory / "results.json"), "status: INVALID")):
+        status = tree.status(raw)
+        assert status.returncode == 3 and expected in status.stdout, (raw, status.stdout)
+
+
+def test_an_artifact_reached_through_a_link_is_not_a_pass(passing_run):
+    """The manifest's hashes would still match, because a junction for logs/ serves the same bytes from somewhere else."""
+    tree, directory = passing_run
+    elsewhere = tree.root.parent / "logs-elsewhere"
+    shutil.copytree(directory / "logs", elsewhere)
+    shutil.rmtree(directory / "logs")
+    _junction_or_skip(elsewhere, directory / "logs")
+    status = tree.status(str(directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and "below a link" in status.stdout, status.stdout
+
+
 @pytest.mark.parametrize("edit, needle", [
     (lambda r: r.update(status="PASS", exit_code=1), "PASS with exit code"),
     (lambda r: r["identity"].update(start_end_match=False), "without a matching start and end identity"),

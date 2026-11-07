@@ -33,6 +33,8 @@ import atexit
 import gc
 import sys
 import threading
+import tkinter
+import weakref
 from tkinter import ttk
 
 import pytest
@@ -85,6 +87,9 @@ _OPEN_SCOPES = 0
 #: for. Set by the suite's autouse fixture; compared by the hook.
 _CURRENT_TEST = None
 _FINALISED_FOR = None
+#: Every root made once the hook is installed, held weakly. One that still exists and is not the shared root may be waiting to be
+#: collected. See ``finalise_before_thread``.
+_OWN_ROOTS: "weakref.WeakSet" = weakref.WeakSet()
 
 
 def _reset_root(root) -> None:
@@ -403,10 +408,31 @@ def finalise_before_thread() -> int:
     thread, before the worker exists; whatever is still reachable is exactly
     what cannot be collected on the worker.
 
+    **A root of its own (v0.7.2 Phase 2).** Code that opens its own root, as
+    ``TkPlanningHarness`` does, has no scope open, so this used to do nothing for
+    it, and that is worse than a stray variable. When the collector frees a
+    closed root on a worker, the interpreter goes with it, on the wrong thread:
+    ``Tcl_AsyncDelete: async handler deleted by the wrong thread``, and the
+    process ends with ``0x80000003``. A variable in the same cycle raises the
+    ``RuntimeError`` first, and pytest's unraisable hook keeps that exception, whose
+    traceback happens to keep the root alive until the main thread lets it go. So
+    the warning the gate's logs carried was this crash being prevented by accident,
+    and disarming the variable would have removed the accident. Whether the next
+    collection landed on the main thread or a worker was allocation history, so
+    the warning came and went with unrelated changes.
+
+    So the rule is the same one, on a test that may hold such a root: while a root
+    other than the shared one exists, collect here first. A closed root is then
+    gone before the worker exists, and a root still in use is one no worker can
+    collect. Almost no test has one, so nearly every test pays one ``any`` over an
+    empty or one-element set, and nothing else. Closing a root reopens this
+    boundary within the same test, for a worker started after the close.
+
     Returns how many objects the collection freed.
     """
     global _FINALISED_FOR
-    if _OPEN_SCOPES <= 0 or _SHARED_ROOT is None:
+    in_a_scope = _OPEN_SCOPES > 0 and _SHARED_ROOT is not None
+    if not in_a_scope and not any(root is not _SHARED_ROOT for root in _OWN_ROOTS):
         return 0
     if _FINALISED_FOR == _CURRENT_TEST:
         return 0
@@ -416,6 +442,27 @@ def finalise_before_thread() -> int:
     return gc.collect()
 
 
+def _track_own_roots() -> None:
+    """Note each root as it is made, even one whose construction goes on to fail, and reopen the boundary when one closes."""
+    if getattr(tkinter.Tk.__init__, "_tk_gate_tracked", False):
+        return
+    real_init, real_destroy = tkinter.Tk.__init__, tkinter.Tk.destroy
+
+    def init(self, *args, **kwargs):
+        _OWN_ROOTS.add(self)
+        real_init(self, *args, **kwargs)
+
+    def destroy(self):
+        global _FINALISED_FOR
+        try:
+            real_destroy(self)
+        finally:
+            _FINALISED_FOR = None
+
+    init._tk_gate_tracked = True  # type: ignore[attr-defined]
+    tkinter.Tk.__init__, tkinter.Tk.destroy = init, destroy  # type: ignore[method-assign]
+
+
 def install_thread_start_boundary() -> None:
     """Make every ``Thread.start`` from the main thread pass the boundary first.
 
@@ -423,6 +470,7 @@ def install_thread_start_boundary() -> None:
     wrapper is the whole hook: it adds nothing to the thread and changes
     nothing about how it runs.
     """
+    _track_own_roots()
     if getattr(threading.Thread.start, "_tk_gate_boundary", False):
         return
     real_start = threading.Thread.start

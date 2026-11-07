@@ -1466,6 +1466,22 @@ def _execute_run(args, argv: list[str], established: dict) -> int:
         record.close()
 
 
+def _not_in_place(directory: Path) -> str | None:
+    """Why this is not where the gate wrote a run, directly below ``outputs/`` with no link on the way, or None.
+
+    Plan section 10: a copied run is rejected as current acceptance and its directory name is not trusted. A copy normally keeps
+    its folder name, and its id, nonce and manifest travel with it, so its place is the one thing a copy cannot bring along.
+    """
+    path = Path(os.path.abspath(directory))
+    if Path(os.path.normcase(path.parent)) != Path(os.path.normcase(os.path.abspath(OUTPUTS_ROOT))):
+        return f"{path} is not directly below {OUTPUTS_ROOT}"
+    try:
+        runstore.refuse_links(path, REPO_ROOT)
+    except runstore.RunRefused as exc:
+        return str(exc)
+    return None
+
+
 def _status_command(args) -> int:
     directory = Path(args.status)
     if not directory.is_absolute():
@@ -1477,7 +1493,12 @@ def _status_command(args) -> int:
         return runstore.EXIT_NOT_RUN
     identity, environment = (tree_fingerprint(), environment_identity()) if args.require_current else (None, None)
     outcome = runstore.read_run_status(directory, identity, environment)
+    displaced = _not_in_place(directory)
+    if displaced and outcome["current"] is not None:
+        outcome["current"], outcome["identity_differences"] = "elsewhere", [displaced]
     print(f"status: {outcome['status']}" + (f" (run {outcome['results'].get('run_id')})" if outcome["results"] else ""))
+    if displaced and outcome["valid"]:
+        print(f"  not in place: {displaced}")
     for problem in outcome["problems"]:
         print(f"  problem: {problem}")
     if args.require_current:
@@ -1489,10 +1510,25 @@ def _status_command(args) -> int:
         if outcome["current"] == "docs-only":
             print("  code, tests, policy, locks and environment match; only documents differ. That is not the same source: "
                   "this evidence carries forward only with the docs checks rerun and both SHAs recorded (plan section 13.3)")
+        elif outcome["current"] == "elsewhere":
+            print("  a run is current only where the gate wrote it; a copy or a link is a record of that run, not acceptance "
+                  "of this source (plan section 10)")
         else:
             print("  this PASS does not describe the current source and environment")
         return runstore.EXIT_NOT_RUN
     return code
+
+
+class _OnceOnly(argparse.Action):
+    """A single-value option. Given twice, argparse would let the last win in silence, so --platform macos --platform windows
+    would step around the platform refusal and --status <missing> --status <good> would read PASS. Empty is never a value."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(namespace, self.dest) is not None:
+            parser.error(f"{option_string} may be given only once")
+        if not values:
+            parser.error(f"{option_string} may not be empty")
+        setattr(namespace, self.dest, values)
 
 
 class _GateParser(argparse.ArgumentParser):
@@ -1509,27 +1545,28 @@ exit codes: 0 PASS for the requested scope; 1 FAIL; 2 BLOCKED, a prerequisite is
 including no tests executed; 64 invalid invocation or configuration; 130 interrupted. Exit 0 does not imply release readiness.
 
 --status reads a finished run back and checks it holds together, read-only. With --require-current a PASS must also describe
-the current source and environment; its digests and installation decide, never the directory name.
+the current source and environment and still be where the gate wrote it; its digests, installation and place decide, never
+the directory name.
 """
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = _GateParser(prog="verify.py", description="The verification gate of the Audiobook Creation Tool.",
                          epilog=_HELP_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=MODES, help="what to verify; see below")
+    parser.add_argument("--mode", action=_OnceOnly, choices=MODES, help="what to verify; see below")
     parser.add_argument("--test", action="append", metavar="ID",
                         help="focused: a test module or node id under files/tests (repeatable)")
     parser.add_argument("--feature", action="append", metavar="ID",
                         help="focused: a stable feature id from coverage.json, such as ACT.TTS.CANCEL (repeatable)")
-    parser.add_argument("--base", metavar="REF", help="changed: compare with the merge base of this ref (default origin/master)")
-    parser.add_argument("--platform", choices=("windows", "macos"), help="refuse to run (BLOCKED) on any other platform")
-    parser.add_argument("--scenario", choices=SCENARIO_NAMES, help="qualification: the named scenario")
-    parser.add_argument("--network", metavar="POLICY", help="qualification: a network policy the scenario declares; there is "
+    parser.add_argument("--base", action=_OnceOnly, metavar="REF", help="changed: compare with the merge base of this ref (default origin/master)")
+    parser.add_argument("--platform", action=_OnceOnly, choices=("windows", "macos"), help="refuse to run (BLOCKED) on any other platform")
+    parser.add_argument("--scenario", action=_OnceOnly, choices=SCENARIO_NAMES, help="qualification: the named scenario")
+    parser.add_argument("--network", action=_OnceOnly, metavar="POLICY", help="qualification: a network policy the scenario declares; there is "
                                                             "no way to turn isolation off")
     parser.add_argument("--preflight-only", action="store_true", help="prove the prerequisites; run no test")
     parser.add_argument("--collect-only", action="store_true", help="also collect and check the partition; run no test")
-    parser.add_argument("--label", metavar="NAME", help="a short name recorded with the run")
-    parser.add_argument("--status", metavar="RUN_DIR", help="read a run back instead of starting one")
+    parser.add_argument("--label", action=_OnceOnly, metavar="NAME", help="a short name recorded with the run")
+    parser.add_argument("--status", action=_OnceOnly, metavar="RUN_DIR", help="read a run back instead of starting one")
     parser.add_argument("--require-current", action="store_true", help="with --status: a PASS must describe the current source and environment")
     args = parser.parse_args(argv)
     if bool(args.mode) == bool(args.status):

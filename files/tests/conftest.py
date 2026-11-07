@@ -31,8 +31,15 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 def pytest_configure(config):
-    """Inside a verification-gate stage, keep the session's own record for the gate to reconcile. Inert otherwise."""
+    """Inside a verification-gate stage, keep the session's own record for the gate to reconcile. Inert otherwise.
+
+    The session's guard measures from here: a test module that writes while it is imported has done so before any fixture
+    exists, and the redirect of ``shared.paths`` has not happened yet either. A collect-only run never reaches that guard, so
+    it does not pay for the walk.
+    """
     gate_session_probe.register(config)
+    if not config.getoption("collectonly", False):
+        _SESSION_BASELINE.update(_session_snapshot())
 
 
 # --------------------------------------------------------------------------- #
@@ -137,6 +144,12 @@ _GUARDED_PATHS = {
     "the real FFmpeg staging tree": (REPO_ROOT / "files" / "runtime-data"
                                      / "ffmpeg-staging"),
     "the real setup log directory": REPO_ROOT / "files" / "runtime-data" / "logs",
+    # v0.7.2 Phase 2 closeout: the session redirects shared.paths for its own process only, and only once conftest has run. A
+    # literal path, a child interpreter or an import-time write goes straight past that, and none of these guards was looking:
+    # measured on a disposable checkout, a test that overwrote settings.json either way passed with nothing said.
+    "the real settings file": REPO_ROOT / "files" / "runtime-data" / "settings.json",
+    # Session-scoped (not in _PER_TEST_GUARDED): the whole tree, measured from pytest_configure.
+    "the real runtime data": REPO_ROOT / "files" / "runtime-data",
     # v0.6.7 CP6: the Qwen3 voices keep an isolated environment, verified model snapshots, an install record and
     # per-run job folders. A test that writes any of them would fake an installation (or leak a job's text) on the
     # developer's machine, so each is fingerprinted. The environment is guarded through its one small marker file,
@@ -177,7 +190,7 @@ _GUARDED_PATHS = {
 #  wait in test_job_ui.py.
 _PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof", "the real Kokoro proof",
                      "the real FFmpeg pin", "the real installed FFmpeg build",
-                     "the real FFmpeg staging tree",
+                     "the real FFmpeg staging tree", "the real settings file",
                      "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
                      "the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout",
                      "the real canonical Qwen3 engine marker", "the real canonical Qwen3 engine launchers",
@@ -861,13 +874,22 @@ def production_writes_refused():
                     + "; ".join(f"{event} {path}" for event, path in attempts[:5]))
 
 
+#: What the session's guard compares with, taken in ``pytest_configure``, before collection imports anything.
+_SESSION_BASELINE: dict = {}
+
+
+def _session_snapshot() -> dict:
+    return _snapshot(_GUARDED_PATHS, [name for name in _GUARDED_PATHS if name not in _PER_TEST_GUARDED])
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_production_log_writes():
-    """The same contract for the log directory and the canonical Qwen3 engine's whole tree, checked once for the session.
+    """The same contract for the log directory, all the runtime data and the canonical Qwen3 engine's whole tree, checked once
+    for the session and measured from before collection.
 
     Session-scoped purely for cost — see the notes beside ``_GUARDED_PATHS`` and ``_canonical_engine_guard``.
     """
-    watched = _snapshot(_GUARDED_PATHS, [name for name in _GUARDED_PATHS if name not in _PER_TEST_GUARDED])
+    watched = dict(_SESSION_BASELINE) or _session_snapshot()
     yield
     changed = _violations(watched)
     if changed:

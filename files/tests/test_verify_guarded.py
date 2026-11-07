@@ -318,3 +318,58 @@ def test_a_real_refusal_by_the_runner_fails_the_group_even_though_the_test_passe
     assert audit[key] and done.returncode == 1 and audit["outer_exit"] == 1
     ok, text = load_verify()._judge_group("g", done.returncode, audit)
     assert not ok and label in text
+
+
+# --------------------------------------------------------------------------- #
+# A refusal has to end the call that was refused
+# --------------------------------------------------------------------------- #
+_REFUSED_TEMPORARY = """\
+import sys, tempfile
+sys.path[:0] = [sys.argv[1]]
+import write_tripwire
+from pathlib import Path
+protected = Path(sys.argv[2])
+with write_tripwire.armed([protected]):
+    try:
+        getattr(tempfile, sys.argv[3])(dir=protected)
+        print("created")
+    except PermissionError:
+        print("refused", len(write_tripwire.refusals))
+"""
+_REFUSED_SETTINGS = """\
+import sys
+sys.path[:0] = [sys.argv[1], sys.argv[3]]
+import write_tripwire
+from pathlib import Path
+from shared import settings
+protected = Path(sys.argv[2])
+settings.use_path(protected / "settings.json")
+with write_tripwire.armed([protected]):
+    print("saved" if settings.set("key", "value") else "reported failure", len(write_tripwire.refusals) > 0)
+"""
+
+
+@pytest.mark.parametrize("call", ["mkstemp", "mkdtemp"])
+def test_a_refused_temporary_name_ends_the_call_instead_of_being_retried(tmp_path, call):
+    """On Windows tempfile takes a PermissionError from the OS call to mean a folder holds that name and tries the next one, up
+    to TMP_MAX, which is 2**31 - 1. So a refusal at the OS call never returned: measured on HOME-PC, a refused mkstemp was still
+    going after 300 s, and each attempt kept a stack, 2.8 GB in about 7 minutes. A regression that wrote a protected path through a
+    temporary file stalled the whole group instead of failing the test that did it. The child is bounded, so this test cannot."""
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    done = subprocess.run([sys.executable, "-I", "-B", "-c", _REFUSED_TEMPORARY, str(Path(__file__).parent), str(protected), call],
+                          capture_output=True, text=True, timeout=45)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["refused", "1"]
+    assert list(protected.iterdir()) == []
+
+
+def test_a_refused_settings_write_comes_back_as_a_failed_save(tmp_path):
+    """The application's own atomic writer goes through mkstemp, so this is the shape the hang took in practice."""
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    done = subprocess.run([sys.executable, "-I", "-B", "-c", _REFUSED_SETTINGS, str(Path(__file__).parent), str(protected),
+                           str(REPO_ROOT / "scripts")], capture_output=True, text=True, timeout=45)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["reported", "failure", "True"]
+    assert list(protected.iterdir()) == []

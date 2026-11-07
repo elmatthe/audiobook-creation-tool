@@ -393,6 +393,114 @@ def test_the_same_shape_is_silent_once_disarmed():
 
 
 # --------------------------------------------------------------------------- #
+# C2. v0.7.2 Phase 2: a window that opens its own root, outside any gate scope
+# --------------------------------------------------------------------------- #
+# ``TkPlanningHarness`` makes its own ``tk.Tk()``, closes it and leaves it in a cycle. No gate scope is open in the modules that use
+# it, so the boundary did nothing there and the next collection decided. On the main thread, silence. On a worker, the interpreter is
+# deleted on the wrong thread and the process ends. Under pytest a variable in the cycle hides that, because the unraisable hook keeps
+# the exception, and its traceback keeps the root: that is the RuntimeError warning that came and went in the guarded planning group,
+# on 1 of 15 complete runs under the old gate and 3 of 3 under the new, with nothing about the hazard having changed.
+_OWN_ROOT_CHILD = textwrap.dedent(
+    """
+    import ctypes, gc, sys, threading, tkinter as tk
+    if sys.platform == "win32":
+        ctypes.windll.kernel32.SetErrorMode(0x8003)  # this child may end in a breakpoint; no dialog may hold it
+    sys.path.insert(0, {tests!r})
+    import tk_gate
+    if {boundary}:
+        tk_gate.install_thread_start_boundary()
+    gc.disable()
+    finalised_on_main = []
+    real = tk.Variable.__del__
+    def finaliser(variable):
+        finalised_on_main.append(threading.current_thread() is threading.main_thread())
+        real(variable)
+    tk.Variable.__del__ = finaliser
+    collections = []
+    gc.callbacks.append(lambda phase, info: collections.append(threading.current_thread().name) if phase == "start" else None)
+
+    def start_a_worker():
+        worker = threading.Thread(target=gc.collect, name="worker", daemon=True)
+        worker.start()
+        worker.join(10)
+        return not worker.is_alive()
+
+    def window():
+        root = tk.Tk(); root.withdraw()
+        class View: pass
+        view = View()
+        view.root, view.me = root, view
+        if {variable}:
+            view.variable = tk.StringVar(master=root, value="x")
+        if {worker_while_open}:
+            assert start_a_worker()
+            collections.clear()
+        root.destroy()
+
+    tk_gate.begin_test("a test that opens and closes its own window")
+    window()
+    if not {same_test}:
+        tk_gate.begin_test("the next test")
+    assert start_a_worker()
+    print("FINALISED", finalised_on_main)
+    print("AT_BOUNDARY", collections.count("MainThread"))
+    collections.clear()
+    tk_gate.begin_test("a later test with no Tk in it")
+    assert start_a_worker()
+    print("LATER", collections.count("MainThread"))
+    collections.clear()
+    tk_gate.begin_test("another")
+    assert start_a_worker()
+    print("LATER_AGAIN", collections.count("MainThread"))
+    """
+)
+
+
+def _run_own_root_child(*, boundary=True, variable=True, same_test=False, worker_while_open=False):
+    source = _OWN_ROOT_CHILD.format(tests=str(Path(__file__).resolve().parent), boundary=boundary, variable=variable,
+                                    same_test=same_test, worker_while_open=worker_while_open)
+    return subprocess.run([sys.executable, "-c", source], capture_output=True, text=True, timeout=BOUND * 3, cwd=REPO_ROOT)
+
+
+@pytest.mark.parametrize("variable", [False, True], ids=["root-alone", "root-with-a-variable"])
+def test_without_the_boundary_a_closed_root_collected_on_a_worker_ends_the_process(variable):
+    """The no-fix control of the tests below, and the reason they exist: not a warning, the end of the process."""
+    result = _run_own_root_child(boundary=False, variable=variable)
+    assert result.returncode != 0, result.stdout + result.stderr[-800:]
+    assert "Tcl_AsyncDelete" in result.stderr, result.stderr[-800:]
+    assert ("main thread is not in main loop" in result.stderr) == variable, result.stderr[-800:]
+
+
+@pytest.mark.parametrize("variable", [False, True], ids=["root-alone", "root-with-a-variable"])
+def test_a_closed_root_is_gone_before_the_next_tests_worker_exists(variable):
+    result = _run_own_root_child(variable=variable)
+    assert result.returncode == 0, result.stderr[-800:]
+    assert "Tcl_AsyncDelete" not in result.stderr and "main thread is not in main loop" not in result.stderr, result.stderr[-800:]
+    assert f"FINALISED {[True] if variable else []}" in result.stdout, result.stdout
+    assert "AT_BOUNDARY 1" in result.stdout, result.stdout
+
+
+def test_a_worker_started_after_the_close_in_the_same_test_is_safe_too():
+    result = _run_own_root_child(same_test=True)
+    assert result.returncode == 0, result.stderr[-800:]
+    assert "FINALISED [True]" in result.stdout, result.stdout + result.stderr[-800:]
+
+
+def test_a_worker_started_while_the_window_was_open_does_not_use_up_the_boundary():
+    """The boundary runs once per test, and that worker spent it while the root was still in use, so closing the root reopens it."""
+    result = _run_own_root_child(same_test=True, worker_while_open=True)
+    assert result.returncode == 0, result.stderr[-800:]
+    assert "FINALISED [True]" in result.stdout, result.stdout + result.stderr[-800:]
+
+
+def test_once_the_root_is_gone_a_test_pays_nothing_at_the_boundary():
+    """The cost rule of ``finalise_before_thread``: a full collection per worker-starting test more than doubled the suite."""
+    result = _run_own_root_child()
+    assert result.returncode == 0, result.stderr[-800:]
+    assert "LATER 0" in result.stdout and "LATER_AGAIN 0" in result.stdout, result.stdout
+
+
+# --------------------------------------------------------------------------- #
 # D. The invariant across a real UI module, in a bounded child pytest
 # --------------------------------------------------------------------------- #
 _CENSUS_PLUGIN = textwrap.dedent(

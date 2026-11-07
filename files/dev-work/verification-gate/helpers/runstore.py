@@ -385,7 +385,10 @@ def _artifact_problems(directory: Path, artifacts, results: dict) -> list[str]:
             problems.append(f"artifact {relative} is a link")
             continue
         path = root / relative
-        if is_link(path) or not path.is_file():
+        # A link further up serves the same bytes from somewhere else, so the hashes below would still match.
+        if any(is_link(root.joinpath(*Path(relative).parts[:depth])) for depth in range(1, len(Path(relative).parts))):
+            problems.append(f"artifact {relative} is below a link")
+        elif is_link(path) or not path.is_file():
             problems.append(f"artifact {relative} is missing")
         elif path.stat().st_size != item.get("size") or sha256_file(path) != item.get("sha256"):
             problems.append(f"artifact {relative} changed after the run")

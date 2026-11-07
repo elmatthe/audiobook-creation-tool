@@ -53,6 +53,16 @@ def test_the_guard_watches_the_real_setup_log_directory():
         set(conftest._GUARDED_PATHS.values())
 
 
+def test_the_guard_watches_the_real_settings_file_around_every_test():
+    assert conftest._GUARDED_PATHS["the real settings file"] == REPO_ROOT / "files" / "runtime-data" / "settings.json"
+    assert "the real settings file" in conftest._PER_TEST_GUARDED
+
+
+def test_the_guard_watches_all_the_real_runtime_data_once_per_session():
+    assert conftest._GUARDED_PATHS["the real runtime data"] == REPO_ROOT / "files" / "runtime-data"
+    assert "the real runtime data" not in conftest._PER_TEST_GUARDED
+
+
 # --------------------------------------------------------------------------- #
 # B. The guard can actually detect a change
 # --------------------------------------------------------------------------- #
