@@ -193,11 +193,11 @@ def orphan_without_stop(context: Context) -> None:
 
 
 @scenario("control.act-crash-seen-with-the-root-released", tool="gate", layers=("native", "control", "shutdown"), tier="control",
-          summary="The real application, with the module-level registry that happens to hold its closed root emptied: the forced collection must then crash it")
+          summary="The real application with every holder of its closed root emptied, its own included: the forced collection must then crash it")
 def crash_without_holder(context: Context) -> None:
     from journeys.common import open_tool
 
-    record = context.evidence / "forced.json"
+    record = context.work / "forced.json"  # written by the application, which may write only below its Low-labelled scratch
     session = context.app(last_tool="cover", force_worker_collection=record, control_release_root=True)
     open_tool(session, "cover")
     session.screenshot("idle")

@@ -9,7 +9,9 @@ in exactly these places, each named in the journey's evidence:
   * when a journey asks, the Edge service is replaced at ``edge_tts.Communicate`` by a local stand-in that hands back REAL MP3 frames and
     records each request. Everything after that point (requests, pacing, assembly, encoding, publication) is the production code. It is
     labelled replayed speech in the evidence, never engine qualification.
-  * when a journey asks, a garbage collection is forced onto a worker thread after the window has gone (see ``_force_worker_collection``).
+  * when a journey asks, a garbage collection is forced onto a worker thread after the window has gone (see ``_force_worker_collection``),
+    with the two module lists that happen to hold the closed root emptied first, so the application's own holder (``launcher._ROOT``) is
+    all that stands between it and the crash. The negative control takes that holder away too.
   * revealing a folder in Explorer is recorded instead of performed. A finished Converter run reveals its folder, and a journey must not
     leave Explorer windows on the owner's desktop or hand them the foreground. Whether the application asked, and for which folder, is
     what the journey checks.
@@ -150,7 +152,7 @@ def _holder_chain(root) -> list[str]:
     return ["no route found"]
 
 
-def _force_worker_collection(root_gone: threading.Event, done: threading.Event, record: Path, roots: list) -> None:
+def _force_worker_collection(root_gone: threading.Event, done: threading.Event, record: Path, roots: list, launcher) -> None:
     """Plan: a collection that lands on a worker after the window closed is what crashes Tk (Decisions.md, Phase 2 closeout). Where one
     lands normally follows allocation history, so a clean exit proves little; forcing it answers yes or no. Waits for the window to go,
     then collects on this daemon thread, as any worker's allocation could. If Tk finalises here the process dies in that call."""
@@ -177,9 +179,11 @@ def _force_worker_collection(root_gone: threading.Event, done: threading.Event, 
     alive = [ref() for ref in roots]
     still = [item for item in alive if item is not None]
     chain = _holder_chain(still[0]) if still else []
+    held = bool(still) and getattr(launcher, "_ROOT", None) is still[0]
     del alive, still
     record.write_text(json.dumps({"collected_on_worker": collected, "full_passes_on_worker": len(passes), "seconds": round(time.monotonic() - began, 3),
-                                  "root_still_reachable": any(ref() is not None for ref in roots), "root_holder_chain": chain}), encoding="utf-8")
+                                  "root_still_reachable": any(ref() is not None for ref in roots), "held_by_application": held,
+                                  "root_holder_chain": chain}), encoding="utf-8")
     done.set()
 
 
@@ -201,7 +205,7 @@ def main() -> int:
     force = config.get("force_worker_collection")
     roots: list = []
     if force:
-        threading.Thread(target=_force_worker_collection, args=(root_gone, collected, Path(force), roots),
+        threading.Thread(target=_force_worker_collection, args=(root_gone, collected, Path(force), roots, launcher),
                          name="forced-landing", daemon=True).start()
     real_app = launcher.LauncherApp
 
@@ -226,12 +230,13 @@ def main() -> int:
     exit_code = launcher.main()
     # main() has returned, so nothing on the main thread still holds the closed window.
     if force:
-        if config.get("control_release_root"):
-            # A negative control: what stands between the real application and the Phase 2 crash, taken away.
-            from shared import appearance, output_paths
+        # These two lists happen to hold the closed root as well. Empty them, so what is tested is the application's own holder alone.
+        from shared import appearance, output_paths
 
-            output_paths.forget_destination_hints()
-            appearance._listeners.clear()
+        output_paths.forget_destination_hints()
+        appearance._listeners.clear()
+        if config.get("control_release_root"):
+            launcher._ROOT = None  # a negative control: with the application's own holder gone too, the Phase 2 crash must be seen
         root_gone.set()
         collected.wait(30)
     return exit_code

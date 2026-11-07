@@ -3,7 +3,9 @@
 The Phase 2 hazard is a closed Tk root finalised on a worker thread: ``Tcl_AsyncDelete``, exit 0x80000003. Where a collection lands follows
 allocation history, so a clean exit from one unforced close proves little. Each tool therefore gets two arms: the plain close a person
 performs, and the same close with one collection forced onto a worker the moment ``main()`` has returned, which makes the hazard a yes or
-no. ``control.forced-landing-sees-the-crash`` shows that the forced arm really can see this crash.
+no. The two module lists that happen to hold the closed root are emptied first, so the application's own holder, ``launcher._ROOT``,
+is what the forced arm tests on every tool. ``control.forced-landing-sees-the-crash`` shows that the forced arm really can see this crash,
+and ``control.act-crash-seen-with-the-root-released`` that the real application crashes once its own holder is gone too.
 
 Everything is read from outside the process: its own exit status, its windows, the job's process list before kill-on-close could tidy up.
 """
@@ -11,6 +13,7 @@ Everything is read from outside the process: its own exit status, its windows, t
 from __future__ import annotations
 
 import json
+import shutil
 
 from journeys import tts as tts_journeys
 from journeys.common import Context, expect_clean_close, open_tool, oracle, scenario, wait_for_listbox, wait_until
@@ -49,7 +52,13 @@ def _finish(context: Context, session, *, tool: str, active: str, forced_record=
     if forced_record is not None:
         report.check("the forced collection really ran on a worker", forced_record.is_file(), str(forced_record.name))
         if forced_record.is_file():
-            context.notes["forced_collection"] = json.loads(forced_record.read_text(encoding="utf-8"))
+            # The application runs at Low integrity and writes only to its scratch; keep its record with the evidence.
+            for item in (forced_record, forced_record.with_suffix(".stacks.txt")):
+                if item.is_file():
+                    shutil.copy2(item, context.evidence / item.name)
+            forced = context.notes["forced_collection"] = json.loads(forced_record.read_text(encoding="utf-8"))
+            report.check("the closed root was held by the application itself, with the accidental holders emptied",
+                         forced.get("held_by_application") is True, forced.get("root_holder_chain"))
     return facts
 
 
@@ -63,7 +72,7 @@ def _published_mp3s(context: Context, slug: str) -> list:
 
 
 def _converter(context: Context, forced: bool) -> None:
-    record = context.evidence / "forced.json" if forced else None
+    record = context.work / "forced.json" if forced else None
     session = context.app(last_tool="m4b_converter", force_worker_collection=record)
     open_tool(session, "m4b_converter")
     session.click("m4b_converter", "importer.list.buttons[add_files]")
@@ -76,7 +85,7 @@ def _converter(context: Context, forced: bool) -> None:
 
 
 def _tts(context: Context, forced: bool) -> None:
-    record = context.evidence / "forced.json" if forced else None
+    record = context.work / "forced.json" if forced else None
     replay = tts_journeys.replay_config(context, delay_seconds=0.6)
     session = context.app(last_tool="tts", replay=replay, force_worker_collection=record)
     open_tool(session, "tts")
@@ -93,7 +102,7 @@ def _tts(context: Context, forced: bool) -> None:
 
 
 def _mp3(context: Context, forced: bool) -> None:
-    record = context.evidence / "forced.json" if forced else None
+    record = context.work / "forced.json" if forced else None
     session = context.app(last_tool="mp3_tool", force_worker_collection=record)
     open_tool(session, "mp3_tool")
     paths = [context.fixtures.path(item) for item in ("track-long-1", "track-long-2", "track-long-3")]
@@ -107,7 +116,7 @@ def _mp3(context: Context, forced: bool) -> None:
 
 
 def _maker(context: Context, forced: bool) -> None:
-    record = context.evidence / "forced.json" if forced else None
+    record = context.work / "forced.json" if forced else None
     session = context.app(last_tool="m4b_maker", force_worker_collection=record)
     open_tool(session, "m4b_maker")
     paths = [context.fixtures.path(item) for item in ("track-long-1", "track-long-2", "track-long-3")]
@@ -134,7 +143,7 @@ def _copies_of(context: Context, fixture: str, count: int) -> list:
 
 
 def _metadata(context: Context, forced: bool) -> None:
-    record = context.evidence / "forced.json" if forced else None
+    record = context.work / "forced.json" if forced else None
     session = context.app(last_tool="m4b_metadata", force_worker_collection=record)
     open_tool(session, "m4b_metadata")
     copies = _copies_of(context, "book-long-m4b", 6)
@@ -148,7 +157,7 @@ def _metadata(context: Context, forced: bool) -> None:
 
 
 def _cover(context: Context, forced: bool) -> None:
-    record = context.evidence / "forced.json" if forced else None
+    record = context.work / "forced.json" if forced else None
     session = context.app(last_tool="cover", force_worker_collection=record)
     open_tool(session, "cover")
     copies = _copies_of(context, "cover-landscape-jpeg", 40)
@@ -171,7 +180,7 @@ def _register(name: str, tool: str, function, summary: str) -> None:
     scenario(f"shutdown.{name}-close-during-work", tool=tool, layers=("native", "shutdown"), tier="shutdown",
              summary=f"{summary}: Alt+F4 while it works; exit status 0, no window, no owned process, no Tcl crash")(plain)
     scenario(f"shutdown.{name}-close-forced-landing", tool=tool, layers=("native", "shutdown"), tier="shutdown",
-             summary=f"{summary}: the same close with a collection forced onto a worker thread once the window has gone")(forced)
+             summary=f"{summary}: the same close, accidental root holders emptied, a collection forced onto a worker once the window has gone")(forced)
 
 
 _register("tts", "tts-audiobook", _tts, "TTS with narration requests in flight")

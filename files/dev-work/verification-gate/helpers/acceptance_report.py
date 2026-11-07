@@ -162,6 +162,13 @@ def judge(report_path: Path, *, token: str, wanted: list[str], required: list[st
     before, after = report.get("runtime_before"), report.get("runtime_after")
     if not before or before != after:
         problems.append(f"the real runtime data or the default output folder changed during the run: {before} -> {after}")
+    history = report.get("dialog_history") or {}
+    if (history.get("preflight") or {}).get("verdict") != "contained" or not isinstance(history.get("added"), dict):
+        problems.append("no proof that the owner's Windows dialog history was protected: the report lacks a contained preflight or "
+                        "the reading after the run")
+    elif history["added"]:
+        problems.append(f"the run added {len(history['added'])} values naming the gate's scratch to the owner's Windows dialog history: "
+                        f"{sorted(history['added'])[:5]}")
     if whole_set:
         for tool in required_tools:
             mine = [item for item in verdicts if item.get("tool") == tool and item.get("tier") == "journey" and {"native", "media"} <= set(item.get("layers", []))]

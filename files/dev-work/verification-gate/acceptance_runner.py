@@ -7,7 +7,12 @@ scenario's end means:
     OracleFailure, a wrong output, an unexpected state     FAIL
     InputRefused, a target that could not honestly be hit  FAIL
     DesktopUnavailable, ForegroundLost, ToolchainUnavailable  BLOCKED: no native evidence exists, so it is not a pass and not a product failure
+    ContainmentUnavailable                                 BLOCKED: the owner's dialog history could not be shown to be protected
     FixtureInvalid                                         FAIL, marked as infrastructure: the application never saw the input
+
+Before any scenario, ``containment.preflight`` must show that the application, started as every session starts it, cannot write the
+owner's Windows dialog history; otherwise nothing runs and the stage is BLOCKED. The history is read (never written) before and after,
+and the report carries both so the gate can see that nothing naming the gate's scratch was added.
 
 A scenario's folder stays in the run. On failure its outputs are copied in too (within a limit), and whatever is left of its process tree
 is ended by its own job. Nothing here is a retry: the first result stands.
@@ -75,7 +80,7 @@ def _keep_app_logs(session, evidence: Path) -> None:
 
 
 def run_one(scenario, *, evidence_root: Path, scratch_root: Path, tools, manifest, index: int) -> dict:
-    from adapters.windows import native_input as native
+    from adapters.windows import containment, native_input as native
     from helpers import media_fixtures, media_oracle as oracle
     from journeys.common import Context, JourneyTimeout
 
@@ -93,6 +98,8 @@ def run_one(scenario, *, evidence_root: Path, scratch_root: Path, tools, manifes
     # Short on purpose: application outputs and the Windows dialog both live below this.
     work = scratch_root / f"s{index:02d}"
     work.mkdir(parents=True)
+    # The application runs at Low integrity and may write only below a Low-labelled folder: its outputs, inputs and sessions are all here.
+    containment.label_low(work)
     fixtures = media_fixtures.FixtureSet(tools, manifest, work / "in")
     context = Context(scenario.id, evidence, work, tools, fixtures)
     began = time.monotonic()
@@ -103,7 +110,7 @@ def run_one(scenario, *, evidence_root: Path, scratch_root: Path, tools, manifes
         failed = context.report.failed
         entry["status"] = "FAIL" if failed else "PASS"
         entry["reason"] = "; ".join(f"{item['name']}: {item['detail']}" for item in failed)[:1500]
-    except native.DesktopUnavailable as exc:
+    except (native.DesktopUnavailable, containment.ContainmentUnavailable) as exc:
         entry.update(status="BLOCKED", reason=f"{type(exc).__name__}: {exc}")
     except oracle.ToolchainUnavailable as exc:
         entry.update(status="BLOCKED", reason=f"ToolchainUnavailable: {exc}")
@@ -152,7 +159,7 @@ def main(argv=None) -> int:
         print(json.dumps({key: {"tool": item.tool, "layers": item.layers, "tier": item.tier, "summary": item.summary}
                           for key, item in scenarios.items()}, indent=1))
         return 0
-    from adapters.windows import native_input as native
+    from adapters.windows import containment, native_input as native
     from helpers import media_fixtures, media_oracle as oracle, scratch as scratch_store
 
     native.set_dpi_aware()
@@ -163,7 +170,7 @@ def main(argv=None) -> int:
     unknown = [item for item in wanted if item not in scenarios]
     report = {"schema_version": SCHEMA_VERSION, "token": args.token, "pid": os.getpid(), "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
               "requested": wanted, "registered": list(scenarios), "scenarios": [], "finished": False, "unknown": unknown,
-              "desktop": {}, "toolchain": None, "runtime_before": None, "runtime_after": None}
+              "desktop": {}, "toolchain": None, "runtime_before": None, "runtime_after": None, "dialog_history": None}
 
     def save() -> None:
         temporary = report_path.with_name(report_path.name + ".tmp")
@@ -191,6 +198,16 @@ def main(argv=None) -> int:
         save()
         return 2
     try:
+        contained = containment.preflight(scratch / "containment")
+    except containment.ContainmentUnavailable as exc:
+        report["blocked"] = f"ContainmentUnavailable: {exc}"
+        report["finished"] = True
+        save()
+        return 2
+    history_before = containment.history_references()
+    report["dialog_history"] = {"preflight": contained, "needle": "act-gate", "before": len(history_before)}
+    save()
+    try:
         with native.DesktopLease():
             for index, identifier in enumerate(wanted):
                 if identifier in scenarios:
@@ -203,6 +220,8 @@ def main(argv=None) -> int:
     except native.DesktopUnavailable as exc:
         report["blocked"] = f"{type(exc).__name__}: {exc}"
     report["runtime_after"] = outside_state()
+    history_after = containment.history_references()
+    report["dialog_history"].update(after=len(history_after), added=containment.history_added(history_before, history_after))
     report["finished"] = True
     save()
     return 0

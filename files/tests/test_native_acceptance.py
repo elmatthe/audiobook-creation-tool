@@ -42,7 +42,8 @@ def _entry(root: Path, identifier="mp3.journey", **overrides) -> dict:
 
 def _write(tmp_path: Path, entries: list[dict], **overrides) -> Path:
     report = {"schema_version": 1, "token": TOKEN, "registered": [item["id"] for item in entries], "scenarios": entries, "finished": True, "unknown": [],
-              "runtime_before": {"runtime_data": "x"}, "runtime_after": {"runtime_data": "x"}}
+              "runtime_before": {"runtime_data": "x"}, "runtime_after": {"runtime_data": "x"},
+              "dialog_history": {"preflight": {"verdict": "contained"}, "before": 0, "after": 0, "added": {}}}
     report.update(overrides)
     path = tmp_path / "acceptance.json"
     path.write_text(json.dumps(report), encoding="utf-8")
@@ -94,6 +95,18 @@ def test_a_status_that_contradicts_its_own_checks_is_a_failure(tmp_path):
 def test_a_finished_report_from_a_runner_that_exited_badly_is_a_failure(tmp_path):
     verdict = _judge(tmp_path, [_entry(tmp_path)], returncode=1)
     assert verdict.status == "FAIL" and "disagree" in verdict.detail
+
+
+def test_a_report_without_proof_the_dialog_history_was_protected_is_a_failure(tmp_path):
+    for history in (None, {}, {"preflight": {"verdict": "contained"}}, {"preflight": {"verdict": "open"}, "added": {}}):
+        verdict = _judge(tmp_path / str(len(str(history))), [_entry(tmp_path / str(len(str(history))))], dialog_history=history)
+        assert verdict.status == "FAIL" and "dialog history was protected" in verdict.detail, (history, verdict.detail)
+
+
+def test_a_run_that_added_to_the_owners_dialog_history_is_a_failure(tmp_path):
+    added = {r"Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU\mp3\3": "ab"}
+    verdict = _judge(tmp_path, [_entry(tmp_path)], dialog_history={"preflight": {"verdict": "contained"}, "added": added})
+    assert verdict.status == "FAIL" and "added 1 values" in verdict.detail, verdict.detail
 
 
 def test_a_runner_that_timed_out_is_a_failure_whatever_its_report_says(tmp_path):
@@ -261,7 +274,8 @@ def test_only_the_test_launcher_starts_the_channel_and_nothing_shipped_imports_i
 
     from source_probe import application_python_files
 
-    test_only = {"adapters", "journeys", "channel", "app_launcher", "app_session", "native_input", "control_target", "acceptance_runner"}
+    test_only = {"adapters", "journeys", "channel", "app_launcher", "app_session", "native_input", "control_target", "acceptance_runner",
+                 "containment"}
     for path in application_python_files():
         for node in ast.walk(ast.parse(Path(path).read_text(encoding="utf-8"))):
             names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []

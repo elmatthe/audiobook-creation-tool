@@ -1398,7 +1398,8 @@ for identifier in args.only:
     entry.update(script.get("entry", {}))
     entries.append(entry)
 report = {"schema_version": 1, "token": script.get("token", args.token), "registered": script.get("registered", args.only), "scenarios": entries,
-          "finished": True, "unknown": [], "runtime_before": {"a": 1}, "runtime_after": script.get("after", {"a": 1})}
+          "finished": True, "unknown": [], "runtime_before": {"a": 1}, "runtime_after": script.get("after", {"a": 1}),
+          "dialog_history": {"preflight": {"verdict": "contained"}, "before": 0, "after": 0, "added": {}}}
 report.update(script.get("report", {}))
 Path(args.report).write_text(json.dumps(report), encoding="utf-8")
 sys.exit(script.get("exit", 0))

@@ -3,6 +3,10 @@
 Every input is decided from fresh bounds and goes through ``_guard``. If the foreground has gone elsewhere nothing is sent and the journey
 is BLOCKED; a target that is covered, disabled or off its window is refused without sending anything. Every action lands in
 ``actions.jsonl`` with what it aimed at, so a result can be traced back to the input that caused it.
+
+The application runs at Low integrity from its first instruction (``containment.py``), so Windows refuses it, and its children, any write
+to the owner's own dialog history; its scratch is labelled so it can write there. The session refuses to go on unless every process in its
+job is Low, and checks the dialog's owner again before typing into any file or folder dialog.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ if str(GATE_DIR) not in sys.path:
 
 from helpers import winproc  # noqa: E402
 
+from . import containment  # noqa: E402
 from . import native_input as native  # noqa: E402
 
 STARTUP_SECONDS = 90
@@ -95,6 +100,7 @@ class AppSession:
         self.input_count = 0
         self.began = time.monotonic()
         self.stderr_path = evidence / f"{name}-stderr.log"
+        self.containment: dict | None = None
 
     # -- lifetime ------------------------------------------------------------------------------- #
     def start(self, startup: float = STARTUP_SECONDS) -> "AppSession":
@@ -103,6 +109,7 @@ class AppSession:
         if not status.ok:
             raise native.DesktopUnavailable(status.reason)
         self.work.mkdir(parents=True, exist_ok=True)
+        label = containment.label_low(self.work)  # before anything the application must write is created below it
         temp = self.work / "t"
         temp.mkdir(exist_ok=True)
         channel_file = self.work / f"{self.name}-channel.json"
@@ -115,19 +122,20 @@ class AppSession:
         for key in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "ACT_STARTUP_NOTICE"):
             env.pop(key, None)
         self.job = winproc._Job()
-        sink = open(self.stderr_path, "xb")
+        open(self.stderr_path, "xb").close()
         try:
-            self.proc = subprocess.Popen([sys.executable, "-I", "-B", str(self.script), str(config_path)], cwd=str(self.work), env=env,
-                                         stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT,
-                                         creationflags=winproc.CREATE_SUSPENDED)
-            self.job.adopt_and_resume(self.proc)
-        finally:
-            sink.close()
+            self.proc = containment.spawn_low([sys.executable, "-I", "-B", str(self.script), str(config_path)], cwd=self.work, env=env,
+                                              output=self.stderr_path)
+        except OSError as exc:
+            raise containment.ContainmentUnavailable(f"the application could not be started at Low integrity: {exc}") from exc
+        self.job.adopt_and_resume(self.proc)
         self._log("launched", launcher_pid=self.proc.pid, ownership="job")
         info = wait_until(lambda: self._read_channel_file(channel_file), startup, "the application's observation channel")
         self.pid = int(info["pid"])
         if self.pid not in self.job.pids():
             raise RuntimeError(f"interpreter {self.pid} is not in this session's job {self.job.pids()}")
+        self.containment = {"scratch_label": label, **containment.require_low(self.job.pids(), "the application under test")}
+        self._log("containment", **self.containment)
         self.client = _Client(info)
         self.hwnd = wait_until(self._main_window, startup, "the application's main window")
         self._log("window", pid=self.pid, hwnd=self.hwnd, job_pids=self.job.pids())
@@ -389,9 +397,16 @@ class AppSession:
 
         return wait_until(found, timeout, f"a native dialog{f' titled {title!r}' if title else ''}")
 
+    def require_contained(self, what: str) -> dict:
+        """Refuse, before any input, unless this session's interpreter is still running at Low integrity."""
+        if self.containment is None or self.pid is None:
+            raise containment.ContainmentUnavailable(f"{what}: this session never established its containment")
+        return containment.require_low([self.pid], what)
+
     def file_dialog(self, paths: list[Path] | Path, *, title: str | None = None) -> None:
         """The real Windows file dialog: wait for it, type the path or quoted paths as keys, press Return, see it go."""
         dialog = self.wait_for_dialog(title=title)
+        self.require_contained("the file dialog")
         wait_until(lambda: native.foreground_owner()[0] == dialog["hwnd"], 10, "the file dialog to take the foreground")
         self._guard("the file dialog", window=dialog["hwnd"])
         names = paths if isinstance(paths, list) else [paths]
@@ -419,6 +434,7 @@ class AppSession:
     def folder_dialog(self, folder: Path, *, title: str | None = None) -> None:
         """The real folder picker: type the path and Return, which may only navigate, then its own Select Folder button if it is still open."""
         dialog = self.wait_for_dialog(title=title)
+        self.require_contained("the folder dialog")
         wait_until(lambda: native.foreground_owner()[0] == dialog["hwnd"], 10, "the folder dialog to take the foreground")
         self._guard("the folder dialog", window=dialog["hwnd"])
         native.type_text(str(folder))

@@ -770,6 +770,13 @@ class LauncherApp:
         self.root.destroy()
 
 
+# The application's own hold on its Tk root, for the life of the process. Tcl deletes its interpreter on whichever thread frees the root,
+# and a closed root freed by a collection on a worker thread ends the process with Tcl_AsyncDelete (0x80000003). Until v0.7.2 Phase 3
+# only two module lists happened to keep it reachable. Held here, the interpreter is deleted only when Python shuts down, on the main
+# thread, once it no longer runs daemon workers. Nothing else may clear this.
+_ROOT: tk.Tk | None = None
+
+
 def _configure_hf_cache() -> None:
     """Keep the HuggingFace model cache inside the project tree.
 
@@ -792,12 +799,13 @@ def _configure_hf_cache() -> None:
 
 
 def main() -> int:
+    global _ROOT
     # Install the global no-window guard first, before anything imports pydub /
     # edge-tts, so their internal ffmpeg spawns during the TTS combine stage
     # inherit hidden-window flags and do not flash console windows on Windows.
     sp.install_no_window_guard()
     _configure_hf_cache()
-    root = tk.Tk()
+    root = _ROOT = tk.Tk()
     LauncherApp(root)
     root.mainloop()
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
