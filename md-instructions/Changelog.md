@@ -29,6 +29,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - **Fixed (closeout, test isolation):** the suite now fails a run that writes the real settings file or any real runtime data, however the write was made, including by a child process or during import. A write the tripwire refuses inside `tempfile` now ends the call instead of retrying until the group stalled.
 - **Fixed (closeout, a crash found behind a warning):** a Tk root closed by code outside a shared-root scope could be collected on a worker thread, which ends the process with `0x80000003` (`Tcl_AsyncDelete`). The `main thread is not in main loop` warning in the guarded group was this, held off by accident. The suite now collects on the main thread before such a worker starts. No application code changed; closing a real window while a worker runs is recorded for Phase 3.
 - **Restored:** four test requirements lost in the migration, found by an independent audit of the 38 retired test ids. The earlier statement that nothing was lost was wrong.
+- **Verified (closeout):** the complete migrated gate passed on `47ba778`: ordinary 13,472 passed, 65 skipped, 0 failed; guarded 457 + 75 passed; dependency, docs, naming and configuration gates passed. That is the routine scope only, and the owner has not accepted it yet. Where ordinary test scratch lives is still the owner's decision.
 
 ### v0.7.2 Phase 1 — Cancel stops now (2026-11-05) — identity 0.7.1 until the v0.7.2 release checkpoint; NOT published, tagged or merged
 
