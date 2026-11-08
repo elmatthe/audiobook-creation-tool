@@ -6499,27 +6499,45 @@
           "symbols": [
             "MP3ToolUI.cancel",
             "MP3ToolUI.on_cancel",
-            "MP3ToolUI._worker"
+            "MP3ToolUI._worker",
+            "MP3ToolUI._run_attempt"
           ]
         },
         {
           "path": "scripts/mp3/mp3_processing.py",
           "symbols": [
-            "_check"
+            "_check",
+            "run_ff",
+            "_supervised",
+            "write_id3_run",
+            "combine_run",
+            "_stage_clean_copy",
+            "combine_book"
+          ]
+        },
+        {
+          "path": "scripts/shared/subprocess_utils.py",
+          "symbols": [
+            "run_supervised",
+            "cancellable",
+            "_stop",
+            "_cancelled",
+            "_tail"
           ]
         }
       ],
       "contracts": [
-        "Cancel stops the run at its next checkpoint (between tracks, stages or Books); no later Book starts.",
+        "Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle, and otherwise stops the run at its next checkpoint (between tracks, stages or Books); no later FFmpeg step and no later Book starts.",
         "Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published.",
         "Retry Failed is not offered after a cancelled run.",
-        "Cancel cannot interrupt an FFmpeg step that is already running (ACT72-023)."
+        "A stopped step is never a failed or retryable track and never the 999 launch failure; its half-written staged track or combined file is removed. Only that step's own process is stopped: any other FFmpeg, even one this program started, is untouched. Pause never stops or suspends a running step."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
         "files/tests/test_mp3_hardening.py",
         "files/tests/test_mp3_write_id3.py",
-        "files/tests/test_mp3_combine.py"
+        "files/tests/test_mp3_combine.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -6542,15 +6560,97 @@
           },
           {
             "kind": "planned",
-            "gap": "Cancel cannot interrupt a running FFmpeg step (blocking subprocess run in run_ff); there is no native or real-media cancel journey for the MP3 Tool",
-            "phase": 6,
-            "issue": "ACT72-023"
-          },
-          {
-            "kind": "planned",
             "gap": "A cancelled run leaves its .work staging folder: ConversionCancelled propagates out of write_id3_run/combine_run before discard_run_staging, and no retry can reuse it",
             "phase": 6,
             "issue": "ACT72-037"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_the_running_child_through_its_own_handle_promptly"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_cancel_already_requested_starts_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_child_that_floods_both_streams_cannot_block_and_only_the_tails_are_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_child_that_will_not_stop_is_killed_and_waited_for_only_boundedly[killed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_child_that_will_not_stop_is_killed_and_waited_for_only_boundedly[never-exits]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_an_error_while_watching_still_stops_and_collects_the_child"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_both_worker_bodies_hand_their_ffmpeg_steps_the_non_blocking_cancel_check"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[source-duration]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[copy]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[append]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[trim]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[staged-duration]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[eligibility-probe]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[fast-concat]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[safe-normalize]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[safe-concat]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_mp3_ffmpeg_step_and_nothing_runs_after_it[combined-duration]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_latched_between_two_steps_starts_no_further_ffmpeg"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_launch_failure_is_still_the_999_failure_and_a_cancel_is_never_one"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_mp3_cancel_during_a_real_encode_stops_it_at_once_and_keeps_the_earlier_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_mp3_panel_cancel_stops_a_real_combine_encode"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_every_ffmpeg_call_of_the_engines_goes_through_the_supervisor[mp3/mp3_processing.py]"
           }
         ]
       },
@@ -6575,15 +6675,22 @@
             "MP3ToolUI.on_pause",
             "MP3ToolUI.on_resume"
           ]
+        },
+        {
+          "path": "scripts/mp3/mp3_processing.py",
+          "symbols": [
+            "_supervised"
+          ]
         }
       ],
       "contracts": [
         "Pause asks the run to stop at its next checkpoint; 'Paused.' is shown only once the worker has stopped there.",
         "While paused, Resume is offered and Pause is not; Resume continues the same run to its end.",
-        "An FFmpeg step already running is never suspended."
+        "An FFmpeg step already running is never suspended or stopped: it finishes, and 'Paused.' follows at the next checkpoint."
       ],
       "selection": [
-        "files/tests/test_mp3_orchestration.py"
+        "files/tests/test_mp3_orchestration.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -6591,6 +6698,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_orchestration.py::test_pause_is_shown_only_once_the_worker_acknowledged_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_mp3_pause_lets_the_running_encode_finish_and_waits_at_the_next_book"
           }
         ]
       },
@@ -6631,7 +6742,8 @@
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
-        "files/tests/test_mp3_hardening.py"
+        "files/tests/test_mp3_hardening.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -6651,6 +6763,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_orchestration.py::test_a_cancelled_retry_keeps_the_prior_results"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_genuine_mp3_failure_in_a_supervised_run_stays_retryable_and_retry_failed_rebuilds_it"
           }
         ]
       },
@@ -10703,7 +10819,20 @@
             "stage_book",
             "normalize_to_wav",
             "run_ffmpeg",
-            "decoded_duration_us"
+            "decoded_duration_us",
+            "_probe_output",
+            "ffprobe_duration_ms",
+            "validate_staged_m4b"
+          ]
+        },
+        {
+          "path": "scripts/shared/subprocess_utils.py",
+          "symbols": [
+            "run_supervised",
+            "cancellable",
+            "_stop",
+            "_cancelled",
+            "_tail"
           ]
         }
       ],
@@ -10711,13 +10840,15 @@
         "Cancel is honoured at the next checkpoint: between Books and between steps inside a Book.",
         "The Book being built publishes nothing and its staging is removed; Books not reached are Not attempted; Books already published are kept.",
         "A cancel arriving while a Book is publishing keeps that Book and stops at the next boundary.",
-        "Cancel stops a running FFmpeg step promptly."
+        "Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (any other FFmpeg is untouched), and no later step starts. A stopped step is never a failed encode: no FAST-to-Safe fallback and no retryable failure.",
+        "Cancel while a candidate kept from an earlier attempt is being checked or numbered discards it; no Series Part is committed and nothing is published."
       ],
       "selection": [
         "files/tests/test_m4b_maker_batch.py",
         "files/tests/test_m4b_maker_ui.py",
         "files/tests/test_m4b_combined_hardening.py",
-        "files/tests/test_m4b_maker_processing.py"
+        "files/tests/test_m4b_maker_processing.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -10743,10 +10874,72 @@
             "test": "files/tests/test_m4b_combined_hardening.py::test_cancel_arriving_during_publication_keeps_that_book_and_stops_at_the_boundary[maker]"
           },
           {
-            "kind": "planned",
-            "gap": "Cancel cannot interrupt a running FFmpeg step: run_ffmpeg and decoded_duration_us are blocking subprocess runs with no cancel or deadline, so a long encode finishes before the cancel is seen. No native Maker cancel journey exists.",
-            "phase": 6,
-            "issue": "ACT72-023"
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_the_running_child_through_its_own_handle_promptly"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_cancel_already_requested_starts_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_child_that_floods_both_streams_cannot_block_and_only_the_tails_are_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_child_that_will_not_stop_is_killed_and_waited_for_only_boundedly[killed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_child_that_will_not_stop_is_killed_and_waited_for_only_boundedly[never-exits]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_an_error_while_watching_still_stops_and_collects_the_child"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_both_worker_bodies_hand_their_ffmpeg_steps_the_non_blocking_cancel_check"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[decoded-duration]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[fast-concat]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[normalize]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[silence]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[safe-concat]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[validate-probe]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_stops_every_maker_ffmpeg_step_and_nothing_runs_after_it[number-probe]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_cancel_while_a_retained_candidate_is_checked_discards_it_and_publishes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_maker_cancel_during_a_real_encode_stops_it_at_once_and_keeps_the_earlier_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_every_ffmpeg_call_of_the_engines_goes_through_the_supervisor[m4b/maker/m4b_maker_processing.py]"
           }
         ]
       },
@@ -10775,18 +10968,21 @@
           "symbols": [
             "MakerRun.pause",
             "MakerRun.resume",
-            "Attempt._execute"
+            "Attempt._execute",
+            "Attempt.run"
           ]
         }
       ],
       "contracts": [
         "Pause is acknowledged at the next checkpoint (between Books or steps) and nothing further runs while paused.",
-        "Resume continues the same attempt and the run then settles normally."
+        "Resume continues the same attempt and the run then settles normally.",
+        "An FFmpeg step already running finishes; Pause never stops or suspends it."
       ],
       "selection": [
         "files/tests/test_m4b_maker_batch.py",
         "files/tests/test_m4b_maker_ui.py",
-        "files/tests/test_m4b_combined_hardening.py"
+        "files/tests/test_m4b_combined_hardening.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -10802,6 +10998,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_combined_hardening.py::test_a_pause_at_a_book_boundary_is_acknowledged_before_the_next_book[maker]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_maker_pause_lets_the_running_encode_finish_and_waits_at_the_next_book"
           }
         ]
       },
@@ -17842,7 +18042,8 @@
             "run",
             "popen",
             "check_output",
-            "install_no_window_guard"
+            "install_no_window_guard",
+            "run_supervised"
           ]
         },
         {
@@ -17858,7 +18059,8 @@
       ],
       "selection": [
         "files/tests/test_ffmpeg_runtime_trust.py",
-        "files/tests/test_no_window_guard.py"
+        "files/tests/test_no_window_guard.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -17870,6 +18072,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_no_window_guard.py::test_the_launcher_installs_the_guard_before_it_imports_or_starts_anything"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_ffmpeg_cancel.py::test_a_supervised_child_gets_no_console_window"
           }
         ]
       },
@@ -21818,13 +22024,14 @@
       "id": "ACT72-023",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Cancel in M4B Maker and MP3 Tool cannot interrupt a running FFmpeg step (blocking subprocess run); read from code, unmeasured",
       "features": [
         "ACT.MAKER.CANCEL",
         "ACT.MP3.CANCEL"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (6C): shared/subprocess_utils.run_supervised runs every FFmpeg and ffprobe step of the MP3 Tool (mp3_processing.run_ff) and the M4B Maker (m4b_maker_processing.run_ffmpeg, decoded_duration_us, ffprobe_duration_ms) with its output in delete-on-close temporary files, and inside the worker's cancellable block (MP3: write_id3_run/combine_run, handed the controller's cancel_check by the panel; Maker: Attempt.run) watches the controller's non-blocking cancel_check every 50 ms. Cancel terminates, then kills, that very child through its Popen handle, waits at most 2 s after each step, acknowledges at the controller's checkpoint and raises ConversionCancelled, never a failure code; a latched Cancel starts no further step; Pause never touches a running step. Reproduced at 56c3b55 on a one-hour source: Cancel waited 9.1 s (MP3 Write ID3, which then published the Book and settled SUCCEEDED), 9.0 s (MP3 Combine) and 27.0 s (Maker) for FFmpeg to finish; after: 0.015 to 0.016 s, the child gone, the run CANCELLED, nothing published, an FFmpeg sentinel of the same process alive. Evidence files/dev-work/verification-gate/outputs/2026-11-08_phase6c_work_97d0/act72-023/ (test_ffmpeg_cancel.py)."
     },
     {
       "id": "ACT72-024",
@@ -22273,9 +22480,9 @@
     "scripts/m4b/m4b_winaudio.py": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
     "scripts/m4b/maker/m4b_maker.py": "7c334c33653043bfaca6899c72b6bcb28d74ec5cf9608c5861d510c8d1f30920",
-    "scripts/m4b/maker/m4b_maker_batch.py": "57dc48721aef1f13c6f1092a15697c9e8319bc8d21cacde17ded47df95715e8e",
+    "scripts/m4b/maker/m4b_maker_batch.py": "6ab12e7da931ed3a11fde3ec599c6e62ee8c298b236bbc80eff4e544604b2c08",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
-    "scripts/m4b/maker/m4b_maker_processing.py": "62115943f5fbe9ceeb61dd7f888e6b1b16bb219919c10860388d913ab44b1e9b",
+    "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
     "scripts/m4b/metadata/m4b_metadata_batch.py": "4387c5f12b60959d466d3ba102477a462f91653837449d1ea991078c48be843d",
@@ -22285,8 +22492,8 @@
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "3dc33d55e3231c22d0f11b4d112e3cf91029a0b63239e1106007ebfa0f84c720",
-    "scripts/mp3/mp3_processing.py": "cda5ee985cabbaa22b7a81a525aaa7f5247eacc13233d06b3f0a3e6ce8d27b6c",
-    "scripts/mp3/mp3_tool.py": "f87559345bec435d46ccd2499f630fee970d1fefbe9f2df4b44b636eef651403",
+    "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
+    "scripts/mp3/mp3_tool.py": "f181360095300d97b1bceb34af22d12db332925a9a30e034af5d42a22cb2c85b",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
@@ -22335,7 +22542,7 @@
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
     "scripts/shared/settings.py": "f65259720ef0d15f8c5e72f0fe241ab7bbf5528f8a8e5cc79279063f8594462b",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "bf06430b33e0df6df4e9869842da2d621b10ee4b1405b85e7d1f8d790be025d5",
+    "scripts/shared/subprocess_utils.py": "c5dab84aa620faac8179f85b9c382347c8ccfbe32af48544de503f6db05465b5",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
     "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",

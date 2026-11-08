@@ -4,6 +4,35 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-08 - Cancel stops a running FFmpeg step in the MP3 Tool and the M4B Maker through one small supervisor; Pause still lets the step finish (v0.7.2 Phase 6C, ACT72-023)
+
+**Why.** ACT72-023: both tools ran every FFmpeg and ffprobe step through a blocking `subprocess.run`, so Cancel was seen only at the next checkpoint. Measured at `56c3b55` on a one-hour source: Cancel waited 9.1 s (MP3 Write ID3), 9.0 s (MP3 Combine) and 27.0 s (Maker) for FFmpeg to finish on its own, and a Write ID3 run whose only Book was encoding when Cancel was pressed published that Book and settled SUCCEEDED.
+
+**One supervisor, `shared/subprocess_utils.run_supervised`, in the module every child already goes through.**
+
+- Small on purpose: no process-management framework and no patching of `subprocess`. Only the two tools' own FFmpeg wrappers call it (`mp3_processing.run_ff`; `m4b_maker_processing.run_ffmpeg`, `decoded_duration_us`, `ffprobe_duration_ms`). The M4B Converter keeps `m4b_execution.run_argv`, TTS keeps `ffmpeg_watch`; the Metadata Editor's remux (ACT72-033) and the command line's M4B step (ACT72-010) are separate slices.
+- Output to two delete-on-close temporary files, not pipes: nothing can block on a full pipe and there is no reader thread (v0.7.1's low-memory lesson); each stream keeps its last 1 MiB, enough for a probe's output and a failure's reason. stdin is the null device; the child is started through `popen`, so it gets no console window.
+- Ownership is the `Popen` handle: a stopped step is `terminate`d, then `kill`ed, through that handle only, with at most 2 s of waiting after each; never a name or a bare process id, so an FFmpeg this same process started for anything else survives. FFmpeg and ffprobe start no children, so the handle is the whole tree; no Job Object. An exception while watching also stops and collects the child.
+- `cancellation` is imported relatively, with the same bare fallback `ffmpeg_health` uses, so the pre-venv import chain (`bootstrap` → `ffmpeg_health` → `subprocess_utils`) stays standard-library only. `shared/cancellation.py` itself is unchanged (its names are pinned).
+
+**Cancel reaches it through the worker: `subprocess_utils.cancellable(cancel_check, acknowledge)`.**
+
+- A context variable on the worker thread. The MP3 run functions take a new `cancel_check` (the panel passes the controller's) and enter the block; the Maker's `Attempt.run` enters it around the whole attempt, so the batch's own checks of a kept candidate and of a numbered one are covered too.
+- The predicate is the controller's non-blocking `cancel_check`, never its `checkpoint`: the checkpoint waits while paused and would claim PAUSED in the middle of an encode (a planted defect proves the tests see that). So Pause still lets the running step finish and takes hold at the next checkpoint, as the feature contracts approve.
+- `acknowledge` is the controller's `checkpoint`: once the child is gone it records that the worker observed the Cancel and raises `ConversionCancelled`, so `finish_cancelled` can settle the run. A Cancel already latched starts nothing, which matters where no checkpoint lies between two steps (a track's duration probe and its encode).
+
+**A Cancel is never a failure.** `run_ff` lets `ConversionCancelled` through before its broad `except` (it would otherwise have become the 999 launch-failure code and a retryable track); the Maker's `run_ffmpeg` raises it, never `CalledProcessError`, so a Cancel never falls back from FAST to Safe; `validate_staged_m4b` and the batch's numbering check let it through instead of reporting an unreadable file or a numbering failure.
+
+**What a stopped step leaves.** The MP3 Tool removes the half-written staged track or combined file of the step it stopped, as it already did for a failed one; the rest of `.work` stays (ACT72-037, unchanged). The Maker removes the Book's staging as before, and a candidate kept from an earlier attempt when Cancel arrives while it is checked or numbered (Cancel at the checkpoint after it already did). Nothing of a cancelled step is ever published.
+
+**`run_ff`'s text.** FFmpeg's bytes are decoded as UTF-8 with replacement, universal newlines kept. Before, `text=True` used the locale code page, where one undecodable byte would have turned a whole call into the 999 failure (read from code, not observed).
+
+**Verified.** Targeted only in this commit; the canonical changed-area gate result is recorded by the closeout. A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. This is not accepted until the checkpoint review and the owner say so.
+
+— Implemented by Claude Code under the owner's Phase 6C prompt.
+
+---
+
 ## 2026-11-08 - The TTS routes' temporary files live in an owned work area, and a run's start removes only what is provably a dead owner's (v0.7.2 Phase 6B, ACT72-009)
 
 **Why.** ACT72-009 (Major): a killed program's `epub2tts_*`, `tts_direct_*`, `tts_local_*` folders, pydub temporaries and encode WAVs lay loose in `%TEMP%` under names any program could have chosen, so nothing could ever safely remove them (31 such folders were found in HOME-PC's TEMP at entry). Plan §11.5 and §13.1.

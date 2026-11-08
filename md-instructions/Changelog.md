@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6C (2026-11-08)
+
+**Fixed**
+- MP3 Tool and M4B Maker: Cancel now stops FFmpeg at once, even in the middle of a long encode. Before, it waited for the running step to finish (measured: about 9 seconds for the MP3 Tool and 27 for the Maker on a one-hour book), and a Write ID3 run whose only Book was being encoded when Cancel was pressed went on to publish it. Nothing of a cancelled Book is published, Books already finished stay, and a stopped step is never reported as a failure to retry. Pause is unchanged: the running step finishes, then the run pauses.
+
+**Added (development only; nothing here ships)**
+- Tests that press Cancel and Pause during real encodes and during every FFmpeg step of both tools, and prove an unrelated FFmpeg survives; each seen failing on a planted defect.
+
+**Verified**
+- Targeted tests and negative controls only in this commit; the changed-area gate result is recorded at closeout. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
 ## [Unreleased] — v0.7.2 Phase 6B (2026-11-08)
 
 **Fixed**

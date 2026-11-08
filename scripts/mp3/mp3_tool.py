@@ -49,7 +49,9 @@ thread. The engine knows nothing of any of that: it is handed the controller's
 ``ProcessingEvent`` lines into the shared job events on the worker's own
 thread — no widget is ever reached from there. Pause, Resume and Cancel are
 the controller's: ``PAUSED`` is shown only once the worker acknowledged it at
-a checkpoint, and Cancel stops at the next one, leaving the Books it never
+a checkpoint, and Cancel stops a running FFmpeg step at once (the engine is
+handed the controller's non-blocking ``cancel_check`` too; v0.7.2, ACT72-023)
+or otherwise at the next checkpoint, leaving the Books it never
 reached ``NOT_ATTEMPTED`` and the batch ``CANCELLED`` (there is no Book-level
 "cancelled"). When the terminal event is drained the per-Book ``RunResult``
 values the engine settled compose into the Plan 6 ``WorkspaceRunResult`` on
@@ -2195,7 +2197,9 @@ class MP3ToolUI(ttk.Frame):
         engine = (mp3_processing.combine_run
                   if plan.operation is mp3_plan.MP3Operation.COMBINE
                   else mp3_processing.write_id3_run)
+        # cancel_check, not checkpoint, is what a running FFmpeg step watches: Cancel stops it (ACT72-023), Pause waits.
         report = engine(plan, checkpoint=attempt.controller.checkpoint,
+                        cancel_check=attempt.controller.cancel_check,
                         on_event=attempt.projection, on_book=attempt.record,
                         retry_items=attempt.retry_items)
         attempt.report = report
@@ -2332,11 +2336,13 @@ class MP3ToolUI(ttk.Frame):
             controller.resume()
 
     def cancel(self) -> None:
-        """Ask the run to stop at its next checkpoint. Cooperative, never forced.
+        """Ask the run to stop. A running FFmpeg step is stopped at once (ACT72-023).
 
-        No later Book starts; the one in flight stops between its stages; the
-        Books never reached settle as ``NOT_ATTEMPTED`` and the batch as
-        ``CANCELLED`` once the worker has acknowledged it -- never before.
+        No later Book starts and no later FFmpeg step; the one in flight is
+        terminated through its own process handle and a half-written staged
+        track or combined file removed (the ``.work`` folder itself stays, as
+        ACT72-037 records); the Books never reached settle as ``NOT_ATTEMPTED`` and the
+        batch as ``CANCELLED`` once the worker has acknowledged it -- never before.
         """
         controller = self.job_controller
         if controller is not None and self._busy:

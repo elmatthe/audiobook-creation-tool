@@ -12,7 +12,10 @@ What this composes, and defines none of
   every state it actually reaches into the event stream, so nothing here keeps
   a rival state machine. Pause, Resume and Cancel are the controller's
   requests; the worker honours them at ``checkpoint`` between Books and, through
-  the Phase 4 engine, between steps inside a Book.
+  the Phase 4 engine, between steps inside a Book. Cancel also stops a running
+  FFmpeg or ffprobe at once: :meth:`Attempt.run` puts the attempt inside
+  ``subprocess_utils.cancellable`` with the controller's non-blocking
+  ``cancel_check`` (v0.7.2, ACT72-023). Pause never interrupts a step.
 - **One worker body per attempt** (:meth:`Attempt.run`), run exactly once on
   whatever thread the caller chooses. Nothing here starts a thread or touches
   a widget; events cross to the UI through the ``publish`` callable the caller
@@ -60,6 +63,7 @@ from pathlib import Path
 from typing import Any
 
 from shared import metadata
+from shared import subprocess_utils as sp
 from shared.book_workspace import WorkspaceRunResult, retry_failed_books
 from shared.cancellation import ConversionCancelled
 from shared.importing import IdFactory
@@ -169,7 +173,10 @@ class Attempt:
             self.result = self._owner._settle(self, final.state)
 
         try:
-            self._execute(records)
+            # Every FFmpeg and ffprobe of the attempt answers to the controller's non-blocking cancel_check: Cancel
+            # stops the running one and no later one starts (v0.7.2, ACT72-023). Pause stays at the checkpoints.
+            with sp.cancellable(controller.cancel_check, controller.checkpoint):
+                self._execute(records)
             final = (controller.complete_with_failures()
                      if any(not entry.succeeded for entry in records)
                      else controller.succeed())
@@ -243,6 +250,10 @@ class Attempt:
             try:
                 proc.validate_staged_m4b(book, book.staged)
                 reporter.technical(f"[kept] {book.filename}: reusing the staged candidate")
+            except ConversionCancelled:
+                # Cancel during the check is Cancel at the checkpoint below: the candidate goes.
+                proc.discard_staging(book, work_root=work_root)
+                raise
             except proc.ProcessingError:
                 retained = False
                 proc.discard_staging(book, work_root=work_root)
@@ -264,6 +275,10 @@ class Attempt:
                     tags["series"] = book.series
                 metadata.write_m4b_tags(book.staged, tags)
                 proc.validate_staged_m4b(book, book.staged)
+            except ConversionCancelled:
+                # Not a numbering failure and not retryable: as at the checkpoint below. Nothing was committed.
+                proc.discard_staging(book, work_root=work_root)
+                raise
             except Exception as exc:  # noqa: BLE001 - the candidate is retained for a retry
                 return failed("number", "the series part could not be written",
                               f"{type(exc).__name__}: {exc}")

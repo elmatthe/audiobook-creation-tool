@@ -63,13 +63,14 @@ from __future__ import annotations
 import shlex
 import tempfile
 from collections.abc import Callable, Collection, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from shared import ffmpeg_utils, paths
 from shared import subprocess_utils as sp
+from shared.cancellation import ConversionCancelled
 from shared.job_control import FailureLog, FailureRecord, JobState, RunResult
 from artwork import mp3_artwork
 from mp3 import mp3_plan
@@ -122,14 +123,25 @@ def ensure_ffmpeg_available() -> bool:
 
 
 def run_ff(args: List[str]) -> Tuple[int, str, str]:
-    """Run ffmpeg/ffprobe and return (code, stdout, stderr) as text."""
-    try:
-        from subprocess import PIPE
+    """Run ffmpeg/ffprobe and return (code, stdout, stderr) as text.
 
-        p = sp.run(args, stdout=PIPE, stderr=PIPE, text=True)
-        return p.returncode, p.stdout, p.stderr
+    Supervised since v0.7.2 (ACT72-023): inside a run's Cancel block the running
+    child is stopped and :class:`ConversionCancelled` propagates. A Cancel is not
+    a failed step, so it is never turned into the ``999`` launch-failure code.
+    FFmpeg writes UTF-8; each stream is at most its supervised tail.
+    """
+    try:
+        p = sp.run_supervised(args)
+    except ConversionCancelled:
+        raise
     except Exception as e:
         return 999, "", f"Subprocess failed: {e}"
+    return p.returncode, _text(p.stdout), _text(p.stderr)
+
+
+def _text(data: bytes) -> str:
+    """What ``text=True`` gave, without failing on a byte the locale cannot decode."""
+    return data.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def save_error_log(folder: Path, title: str, args: List[str], stderr: str):
@@ -749,7 +761,21 @@ def _retry_subset(retry_items: RetryItems | None, book: mp3_plan.BookPlan):
     return subset
 
 
+def _supervised(checkpoint: Checkpoint | None, cancel_check: Callable[[], bool] | None):
+    """Every FFmpeg the run starts answers to ``cancel_check`` (v0.7.2, ACT72-023).
+
+    ``cancel_check`` is the controller's non-blocking predicate: Cancel stops the
+    running FFmpeg within a poll and no later one starts. Pause is left to
+    ``checkpoint``, between tracks, stages and Books, so a step is never
+    suspended or cut short by it. ``checkpoint`` acknowledges the Cancel.
+    """
+    if cancel_check is None:
+        return nullcontext()
+    return sp.cancellable(cancel_check, checkpoint)
+
+
 def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
+                  cancel_check: Callable[[], bool] | None = None,
                   on_event: Listener | None = None, on_book: BookListener | None = None,
                   retry_items: RetryItems | None = None) -> RunReport:
     """Run every planned Book in frozen order. A failed Book never stops the next.
@@ -759,7 +785,8 @@ def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = Non
     retry of the **same** plan: only the named Books run, only their named
     occurrences are re-staged, every other staged piece of theirs is reused,
     and each is published whole from the same ``BookPlan``. Nothing is
-    re-planned, re-reserved or re-captured.
+    re-planned, re-reserved or re-captured. ``cancel_check`` lets Cancel stop
+    a running FFmpeg step (:func:`_supervised`).
     """
     if not isinstance(plan, mp3_plan.RunPlan):
         raise ProcessingError(f"plan must be a RunPlan, got {type(plan).__name__}")
@@ -767,13 +794,14 @@ def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = Non
         raise ProcessingError(
             f"write_id3_run runs a Write ID3 plan, not {plan.operation.value}")
     reports: list[BookReport] = []
-    for book in plan.books:
-        only = _retry_subset(retry_items, book)
-        if only == ():
-            continue
-        _check(checkpoint)
-        reports.append(_settled(on_book, write_id3_book(
-            book, checkpoint=checkpoint, on_event=on_event, only=only)))
+    with _supervised(checkpoint, cancel_check):
+        for book in plan.books:
+            only = _retry_subset(retry_items, book)
+            if only == ():
+                continue
+            _check(checkpoint)
+            reports.append(_settled(on_book, write_id3_book(
+                book, checkpoint=checkpoint, on_event=on_event, only=only)))
     mp3_plan.discard_run_staging(plan)
     return RunReport(plan=plan, books=tuple(reports))
 
@@ -930,7 +958,11 @@ def _stage_clean_copy(book: mp3_plan.BookPlan, track: mp3_plan.TrackPlan) -> flo
                 args = _clean_copy_args(source, track.staged)
                 expected = source_duration
                 stage = "copy"
-            code, _out, err = run_ff(args)
+            try:
+                code, _out, err = run_ff(args)
+            except ConversionCancelled:
+                _discard_staged(track.staged)  # what the stopped FFmpeg had written so far
+                raise
             if code != 0:
                 _discard_staged(track.staged)
                 raise ProcessingError(
@@ -1094,11 +1126,12 @@ def fast_eligibility(staged: List[Path]) -> Tuple[bool, str]:
 
 
 def combine_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
+                cancel_check: Callable[[], bool] | None = None,
                 on_event: Listener | None = None, on_book: BookListener | None = None,
                 retry_items: RetryItems | None = None) -> RunReport:
     """Run every planned Book in frozen order. A failed Book never stops the next.
 
-    ``on_book`` and ``retry_items`` mean what they mean for
+    ``on_book``, ``retry_items`` and ``cancel_check`` mean what they mean for
     :func:`write_id3_run`: a retry re-stages only the named constituents,
     reuses the rest, and redoes the whole finalisation — concat, tag,
     timestamps, validation, publication — from the same ``BookPlan``.
@@ -1108,13 +1141,14 @@ def combine_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
     if plan.operation is not mp3_plan.MP3Operation.COMBINE:
         raise ProcessingError(f"combine_run runs a Combine plan, not {plan.operation.value}")
     reports: list[BookReport] = []
-    for book in plan.books:
-        only = _retry_subset(retry_items, book)
-        if only == ():
-            continue
-        _check(checkpoint)
-        reports.append(_settled(on_book, combine_book(
-            book, checkpoint=checkpoint, on_event=on_event, only=only)))
+    with _supervised(checkpoint, cancel_check):
+        for book in plan.books:
+            only = _retry_subset(retry_items, book)
+            if only == ():
+                continue
+            _check(checkpoint)
+            reports.append(_settled(on_book, combine_book(
+                book, checkpoint=checkpoint, on_event=on_event, only=only)))
     mp3_plan.discard_run_staging(plan)
     return RunReport(plan=plan, books=tuple(reports))
 
@@ -1211,6 +1245,9 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
     except ProcessingError as exc:
         _discard_staged(book.combined_staged)
         return fatal(exc.stage, f"the combined MP3 could not be created: {exc}", exc.detail)
+    except ConversionCancelled:
+        _discard_staged(book.combined_staged)  # a concat the Cancel stopped part-way
+        raise
 
     # 3. Tag, timestamps, validate, publish — the Book's own steps.
     try:

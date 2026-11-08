@@ -212,7 +212,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - The shared Cancel button. Cancel takes effect at once: a running FFmpeg is asked to stop, killed after 5 seconds if it refuses, and always reaped.
 - The interrupted output and the rest of that book are removed; books already finished stay. No further book starts. Cancelling while sources are still being read reserves no folder.
 - The run shows Cancelled only after cleanup; books never reached are "not attempted", not failures.
-- **Difference:** unlike the M4B Maker and MP3 Tool (ACT72-023), the Converter's Cancel interrupts a running FFmpeg step.
+- **Same as:** the M4B Maker and MP3 Tool, which also stop a running FFmpeg step since v0.7.2 Phase 6C (ACT72-023); the Converter keeps its own runner.
 - **Known gap:** the log still says "Cancelling… will stop after the current file.", which no longer describes what happens (new finding, Phase 6). A cancelled split book may leave its empty book folder behind.
 
 ### Retry Failed
@@ -243,7 +243,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 
 - The Converter writes variable-bitrate MP3 (`-q:a`, user-chosen 0–9), not the TTS tool's constant bitrate.
 - It imports only `.m4b`.
-- Cancel interrupts the running FFmpeg (the Maker and MP3 Tool cannot yet, ACT72-023); Pause still waits for the next output boundary.
+- Pause waits for the next output boundary; Cancel interrupts the running FFmpeg, as the Maker and MP3 Tool now also do (ACT72-023).
 - Auto-number is off by default and applies only to Whole book; split outputs use chapter order as the track.
 - Preserve is an allowlist (title, artist, album artist, album, track); narrator, genre and other true but unsupported fields are dropped on purpose.
 - Books refused at preflight are not retried in place; only conversion failures are.

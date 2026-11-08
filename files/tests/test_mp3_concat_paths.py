@@ -248,13 +248,15 @@ def test_no_ffmpeg_call_is_made_through_a_shell():
 
 
 def test_run_ff_is_given_a_list_not_a_string():
+    """Since v0.7.2 (ACT72-023) run_ff starts its child through the supervised
+    runner, so Cancel can stop it; the argument vector rule is unchanged."""
     tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     function = next(n for n in ast.walk(tree)
                     if isinstance(n, ast.FunctionDef) and n.name == "run_ff")
     calls = [n for n in ast.walk(function)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "run"]
-    assert calls, "run_ff must call subprocess.run"
+             and n.func.attr == "run_supervised"]
+    assert calls, "run_ff must call subprocess_utils.run_supervised"
     for call in calls:
         assert isinstance(call.args[0], ast.Name), "the command must be a list variable"
 

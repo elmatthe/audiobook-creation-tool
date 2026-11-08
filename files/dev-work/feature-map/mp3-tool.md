@@ -273,13 +273,13 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 
 - **Purpose:** Stop a long batch safely.
 - **How to reach it:** Shared job bar: 'Cancel'.
-- **States:** Shown during a run; the state is Cancel requested until the worker reaches a checkpoint.
-- **Inputs and outputs:** Already published Books stay; nothing is deleted from the output folder.
-- **Failure, cancel and retry:** A cancelled retry keeps the earlier attempt's results.
+- **States:** Shown during a run; the state is Cancel requested until the worker acknowledges it: at once when an FFmpeg or ffprobe step is running (that step is stopped), otherwise at the next checkpoint.
+- **Inputs and outputs:** Already published Books stay; nothing is deleted from the output folder. A half-written staged track or combined file of the stopped step is removed; the rest of `.work` stays (ACT72-037).
+- **Failure, cancel and retry:** A cancelled retry keeps the earlier attempt's results. A stopped step is never recorded as a failed or retryable track.
 - **Persistence:** None.
-- **Intentional differences:** Cooperative only, like the M4B Maker; the M4B Converter has its own cancel behaviour.
-- **What must hold:** Cancel stops the run at its next checkpoint (between tracks, stages or Books); no later Book starts. Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published. Retry Failed is not offered after a cancelled run. Cancel cannot interrupt an FFmpeg step that is already running (ACT72-023).
-- **Known gap:** ACT72-023 (Phase 6): Cancel cannot interrupt an FFmpeg step that is already running, and there is no native or real-media cancel journey for this tool.
+- **Intentional differences:** Like the M4B Maker (and the M4B Converter's own runner), Cancel stops a running FFmpeg step; Pause never does.
+- **What must hold:** Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (an unrelated FFmpeg, even one this program started, is untouched), and otherwise stops the run at its next checkpoint (between tracks, stages or Books); no later FFmpeg step and no later Book starts. Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published. Retry Failed is not offered after a cancelled run. (ACT72-023, fixed in v0.7.2 Phase 6C.)
+- **Known gap:** No native (real-window) cancel journey for this tool; Cancel during a running encode is proved on real media through the panel's own worker with real threads.
 - **Known gap:** New (Phase 6): a cancelled run also leaves its .work folder behind, and a cancelled run never offers Retry Failed, so nothing can reuse it.
 
 ### Retry Failed
@@ -348,13 +348,13 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - Combine embeds no chapter frames; chapter positions go to `combined_time-stamps.txt` instead (M4B Maker embeds chapters).
 - The Shared group has exactly five fields; Auto-number, Start # and Chapter Titles are per Book only.
 - Source tags are an editing aid: they pre-fill a Book once and are never used later as an output fallback, except a track's own Title.
-- Pause and Cancel are cooperative and act only between tracks, stages or Books, as in M4B Maker.
+- Pause acts only between tracks, stages or Books; Cancel also stops a running FFmpeg step at once, as in M4B Maker.
 - The log has no Copy button and no level selector; Clear Log clears only the visible text.
 
 ### Not verified here
 
 - Windows display scaling other than 100% and the owner's approval of the captured layout screenshots (owner checks).
-- Real cancel latency while a long FFmpeg step runs (ACT72-023); there is no native cancel, pause or retry journey for the MP3 Tool.
+- There is no native cancel, pause or retry journey for the MP3 Tool. Cancel and Pause while a long FFmpeg step runs are measured on real media through the panel's worker (ACT72-023), not through a native window.
 - Behaviour on a machine with no proved FFmpeg beyond the availability check itself.
 - HEIC/HEIF artwork on a machine whose capability probe cannot decode it, and the opposite case, are each exercised only where the test machine happens to fall.
 - macOS (aqua) composition: the layout hints exist, but Windows is the acceptance target.

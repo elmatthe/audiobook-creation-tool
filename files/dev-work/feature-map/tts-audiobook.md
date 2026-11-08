@@ -379,8 +379,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 
 - The way a file was added (directly or through a folder) chooses the Edge route, not only the output layout.
 - Several files can convert at once (Edge only); the other tools work through their queue one item at a time.
-- Cancel stops work inside a file (requests, memory waits and FFmpeg), where the MP3 Tool and M4B Maker cannot yet
-  interrupt a running FFmpeg step (ACT72-023).
+- Cancel stops work inside a file (requests, memory waits and FFmpeg); since v0.7.2 Phase 6C the MP3 Tool and M4B
+  Maker also stop a running FFmpeg step (ACT72-023), each through its own supervisor.
 - Pause acts only between source files.
 - Output names follow `<stem>-<voice label>.mp3`, a TTS-only policy; the output location has no per-run browse
   control.

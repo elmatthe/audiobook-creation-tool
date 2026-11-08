@@ -174,14 +174,14 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 `ACT.MAKER.PAUSE`
 
 - The shared Pause takes hold at the next checkpoint, between Books or between steps of a Book; nothing more runs while paused. Resume continues the same run.
-- An FFmpeg step that is already running finishes first (the same blocking call as ACT72-023). A paused run does not survive closing the application.
+- An FFmpeg step that is already running finishes first: Pause never stops or suspends it (Cancel does). A paused run does not survive closing the application.
 
 ### Cancel a build
 `ACT.MAKER.CANCEL`
 
-- The shared Cancel is honoured at the next checkpoint, between Books and between steps of a Book. The Book being built publishes nothing and its staging is removed; Books not reached are Not attempted; Books already published stay. A cancel that arrives while a Book is being published keeps that Book. In custom mode the chosen folder is never removed.
+- The shared Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (an unrelated FFmpeg is untouched), and is otherwise honoured at the next checkpoint, between Books and between steps of a Book. No later step starts. The Book being built publishes nothing and its staging is removed (a candidate kept from an earlier attempt too, if Cancel arrives while it is checked or numbered); Books not reached are Not attempted; Books already published stay. A stopped step is never a failed encode: it does not fall back from FAST to Safe and is not offered to Retry Failed. A cancel that arrives while a Book is being published keeps that Book. In custom mode the chosen folder is never removed. (ACT72-023, fixed in v0.7.2 Phase 6C.)
 - Not attempted Books are not offered to Retry Failed; press Build again for a new run.
-- Known issue ACT72-023 (Phase 6): Cancel cannot interrupt a running FFmpeg step, so a long encode finishes before the cancel is seen. There is no native Maker cancel journey.
+- There is no native Maker cancel journey; Cancel during a running encode is proved on real media through the batch worker.
 
 ### Retry Failed
 `ACT.MAKER.RETRY`
@@ -222,7 +222,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 
 - Closing the window always reaches the panel's close: it asks the run to cancel, closes the importer, stops the event pump and closes every component; closing twice is harmless. A closed panel stops following appearance changes.
 - Closing the application while a Maker build encodes should end with exit status 0, no window, no leftover owned process and no Tcl crash, and no partial M4B under a final name.
-- The running FFmpeg is ended by the launcher, not by the panel (ACT72-023). Staging under `.work` can be left behind and the shutdown journey accepts that (new gap, Phase 6; read from code, not measured).
+- The cancel that closing asks for now also reaches a running FFmpeg step (ACT72-023, fixed in v0.7.2 Phase 6C); whether the worker stops it before the interpreter ends is not measured, so the launcher's end-of-process sweep of the FFmpeg it started remains the guarantee. Staging under `.work` can be left behind and the shutdown journey accepts that (new gap, Phase 6; read from code, not measured).
 
 ### Intentional differences from other tools
 
