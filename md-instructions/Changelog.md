@@ -29,6 +29,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 **Added (development only; nothing here ships)**
 - Regression tests for each fix, on real widgets at real sizes and on the tags real runs publish, and a native journey that types and scrolls with real input. The tests that depended on whether Qwen3 was installed on the machine running them now state the state they assume.
 
+**Verified**
+- The complete Windows gate passed on `607ae39`, its first run: 49 of 49 scenarios and 14,327 tests, 65 of them skipped with named reasons. All 262 release-required features are mapped, and routine evidence in that run satisfied every one. 93 of them still wait on release evidence: owner checks, planned gaps or qualification. This is the routine gate, not a release.
+
 ## [Unreleased] — v0.7.2 Phase 4 (2026-11-07)
 
 **Added (development only; nothing here ships)**

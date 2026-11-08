@@ -42,6 +42,15 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 **Native evidence.** A new journey, `mp3.typed-values-survive-first-import`, types and clears with real keys before a real Add Files, then reads the published tags. It also turns the real wheel over the Summary pane across three runs. The gate gained a guarded `wheel` verb, and its channel reports a Text pane's top line and whether the newest line shows. Run against `fa9d3c3`'s two source files, the journey failed on both defects.
 
+**Verified.** The full gate passed on `607ae39` (`2026-11-07_205607_full_5196`), its first run:
+- 49 of 49 journeys passed, the new one included;
+- 13,730 + 457 + 75 tests passed and 65 were skipped;
+- 262 of 262 required features are mapped and were satisfied by routine evidence;
+- release-pending: owner checks on 19 features, planned gaps on 60, qualification on 27;
+- `release_ready` is false.
+
+This is not accepted until the owner says so.
+
 — Decided and implemented by Claude Code under the owner's Phase 5 prompt; ACT72-058 awaits the owner.
 
 ---

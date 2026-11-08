@@ -2,6 +2,36 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 5 (closeout): the complete full gate PASSED on `607ae39`; the commit that adds this block changes canonical documents only; READY FOR OWNER ACCEPTANCE REVIEW; NOT accepted; Phase 6 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
+
+Authority: the owner's Phase 5 prompt. This block supersedes the status line and the "Next exact action" bullet of the block below; that block's account of what was fixed stands.
+
+- **Starting, tested, final.** Started at `fa9d3c3`. The candidate `607ae39` (code, tests, inventory and documents, pushed) passed its one planned full gate on the first run. This documents-only commit follows it. The gate ran on `607ae39`, not on this commit; under plan §13.3 its results carry forward. The docs, docnames and config checks and the test modules that read these documents were rerun on this commit.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-07_205607_full_5196/` (ignored), label `ACT072-P5-607ae39-candidate`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode full --platform windows --label ACT072-P5-607ae39-candidate`.
+  - 95 min 36 s, exit 0, RESULT PASS. The tree was unchanged during the run.
+  - Journeys: 49 of 49 PASS, including the new `mp3.typed-values-survive-first-import`, `inventory.live-surfaces` and its control `control.unmapped-live-control-is-caught`.
+  - Tests, recounted from the raw JUnit: the ordinary suite 13,730 passed and 65 skipped; guarded 457 and 75 passed; 0 failed and 0 errors, 14,327 in all. Selected, collected and executed are the same set. Every skip has a reason the policy names.
+  - The 3 warnings are Phase 4's: two third-party deprecations (`audioop`, `pkg_resources`) and one `record_property` notice.
+  - `coverage-inventory`: PASS. 273 features, 300 static and 246 live surfaces, every application source file reviewed as it is now.
+  - `coverage`: all 262 required features are mapped, and routine evidence in this run satisfied all 262. 169 of them have nothing release-pending (163 after Phase 4).
+  - Release-pending, kept visible: owner checks on 19 features, planned gaps on 60 (70 after Phase 4), qualification on 27. Line coverage is not collected. `release_ready` is false.
+  - `visual-baselines` NOT RUN: 0 approved. 75 candidates wait for the owner: Phase 4's 73 and the new journey's 2 (`typed-then-added.png`, `log-followed.png`).
+  - Dialog history: the preflight child was born Low (`0x1000`), verdict contained. The values naming `act-gate` stood at 94 before and 94 after, so 0 were added. A count after the run also found 94.
+  - Cleanup: no owned process remained after any stage, and the run removed its own scratch.
+- **Scratch.** This work's two abandoned folders in `%TEMP%\act-gate` were removed. First, `--audit-scratch` listed both as abandoned, and each owner record matched its run's evidence (run id, nonce) and a process that had ended.
+  - `7d39`: the deliberately failing journey control, run `2026-11-07_201735_focused_391c`. Its 197 files were copied first and hash-checked, to `journey-control/scratch-7d39/`.
+  - `d29a`: the collect-only run `2026-11-07_202450_focused_5ea7`, 2 files.
+  - Manifest: `2026-11-07_phase5_work_d628/scratch-cleanup-manifest.json`. `bfa7` was not touched.
+- **Open for Phase 6 and later.** 42 of the ledger's 59 issues are open:
+  - Phase 6, 36 issues: 2 Major, 29 Minor and 5 Suggestion. The two Major ones are ACT72-058 (a Qwen3 voice at 920x600, the owner's call) and ACT72-009 (temporaries that outlive a killed program). ACT72-058 and ACT72-059 (Minor, setup logs always jump to the newest line) are Phase 5's new findings.
+  - Phase 7: ACT72-012 (Major, Converter split cost).
+  - Phase 8, 5 issues: 3 Minor and 2 Suggestion, including ACT72-057's PDF half.
+- **Not verified, not claimed.** As in the block below: display scaling other than 100%; real optional engines and real Edge; a Qwen3 voice at 920x600; macOS.
+- **Unchanged and carried.** The 75 visual candidates (none approved), the owner's 94 dialog-history values, `bfa7`, the owner's 14 deletions and 4 untracked entries. The version is still 0.7.1.
+- **Next exact action.** The owner's acceptance review of Phase 5. Phase 6 is not opened. No merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 5 (known log, metadata and optional-state defects): implemented and committed as the candidate for its one planned full gate; the gate result is recorded by the closeout commit; NOT accepted; Phase 6 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
 
 Authority: the owner's Phase 5 prompt (Phase 4 accepted for progression). This block supersedes the status line of the block below. Decisions: `Decisions.md`, the newest entry.
