@@ -350,11 +350,13 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Behaviour:** wide windows put Sources, Voice & Audio and Output & Run in a left column and Activity on the right;
   the launcher's 920x600 and 1024x720 sizes split the workflow with Activity still on the right; only a smaller panel
   stacks Activity beneath. Only the queue list and the log scroll. Light and Dark repaint without moving any state.
-- **Optional voices at the minimum:** every Kokoro and Chatterbox state, installed or not, keeps Start and Cancel on
-  screen at 920x600: a Kokoro voice shows one message at a time (ACT72-007, fixed in Phase 5).
-- **Known gap:** a Qwen3 voice at 920x600. Its required hardware and speed disclosure and the Install / repair button
-  need more height than either column has there, so the panel stacks and Start leaves the window (ACT72-058, Phase 6,
-  the owner's call on what gives way). 1024x720 and larger are fine.
+- **Optional voices at the minimum:** every Kokoro, Chatterbox and Qwen3 state, installed or not, keeps Start and
+  Cancel on screen at 920x600: a Kokoro voice shows one message at a time (ACT72-007, fixed in Phase 5).
+- **Qwen3 disclosure at the minimum (v0.7.2 Phase 6, ACT72-058, owner-approved):** the hardware and speed disclosure
+  is shown in full wherever it fits, which is 1024x720 and larger. Only where the split arrangement cannot fit it (the
+  920x600 minimum) does the notice line step aside for a **Hardware and speed...** button on the Install / repair row,
+  after it in Tab order, which shows the complete text. The model's own state line and Install / repair stay, the
+  queue and the log keep their floors, and resizing or Light/Dark moves between the two presentations.
 
 ### Standalone command-line converters (developer only)
 `ACT.TTS.CLI`
@@ -423,7 +425,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 `ACT.TTS.ENGINE.QWEN3`
 
 - **Purpose:** narrates with Qwen3-TTS: Aiden and Ryan (CustomVoice model) and six cloned voices (Base model).
-- **How to reach it:** choose a "Qwen3 - ..." voice. The panel shows where it will run (GPU or CPU) and an **Install / repair Qwen3 voices...** button. Press Start.
+- **How to reach it:** choose a "Qwen3 - ..." voice. The panel shows where it will run (GPU or CPU) and how fast to expect it, and an **Install / repair Qwen3 voices...** button; at the 920x600 minimum that disclosure sits behind a **Hardware and speed...** button beside it (see the TTS layout). Press Start.
 - **States:** Windows only. Ready when the engine environment and the voice's model are installed, and for a clone when its recording and approved transcript check out. Elsewhere the voices say they are not yet available.
 - **Inputs and outputs:** each file gets its own worker process in the engine environment. Chunks are whole sentences that never cross a paragraph, and each carries a stable seed. Chunk audio is read back in plan order, checked, joined with pauses between chunks only, encoded once with the app's FFmpeg, and moved into place in one step. The job folder under `files/runtime-data/qwen3/jobs` holds the user's text and is removed after every run.
 - **Failure, cancel, retry:** a failure names its stage (loading, generating, out of memory) and leaves any existing output untouched. A damaged engine points to Check and repair. A chunk that runs away is rendered again with the next seed.

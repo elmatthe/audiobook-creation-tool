@@ -3068,6 +3068,23 @@ def optional_estimates() -> dict:
 # ===========================================================================
 #  First-run Tk dialog
 # ===========================================================================
+def _append_following(log_box, msg: str) -> None:
+    """Add one line to a setup window's read-only log. Tk thread only.
+
+    v0.7.2 Phase 6 (ACT72-059): the rule of the app's own Summary | Detailed log (``shared/job_ui.py``, ACT72-005),
+    kept here because this file stays standard-library only. A reader is at the bottom when the newest line is on
+    screen, even partly; then the log follows the new line. A reader who has scrolled up keeps their place -- Tk keeps
+    the top line through an insert below the view -- and follows again once back at the bottom. A pane not yet laid
+    out (one pixel high) has no reader to disturb, so it follows.
+    """
+    follow = log_box.winfo_height() <= 1 or log_box.dlineinfo("end-2c") is not None
+    log_box.configure(state="normal")
+    log_box.insert("end", msg + "\n")
+    log_box.configure(state="disabled")
+    if follow:
+        log_box.see("end")
+
+
 def run_with_gui(skip_kokoro_default: bool = False) -> int:
     """Show the first-run setup dialog: four optional voice choices, the base install on a worker thread, then the
     review-and-install panel for the chosen voices, then launch the app."""
@@ -3191,10 +3208,7 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         ui_queue.put(("done", ok, final))
 
     def append_log(msg: str) -> None:
-        log_box.configure(state="normal")
-        log_box.insert("end", msg + "\n")
-        log_box.see("end")
-        log_box.configure(state="disabled")
+        _append_following(log_box, msg)
 
     def begin() -> None:
         if state["started"]:
@@ -3379,10 +3393,7 @@ def show_repair_dialog(
     LOG.set_ui_sink(ui_log)
 
     def append(msg: str) -> None:
-        log_box.configure(state="normal")
-        log_box.insert("end", msg + "\n")
-        log_box.see("end")
-        log_box.configure(state="disabled")
+        _append_following(log_box, msg)
 
     def worker() -> None:
         ok = False

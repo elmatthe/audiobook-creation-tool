@@ -364,6 +364,12 @@ def _default_chatterbox_status(voice_id: str) -> tuple[bool, str]:
 #: What the engine line says when a Qwen3-TTS voice is selected (the preset and cloned voices share one engine).
 QWEN3_ENGINE_LABEL = "Qwen3-TTS (Local AI)"
 
+#: v0.7.2 Phase 6 (ACT72-058, owner-approved). Where the window is too small for the full hardware and speed disclosure
+#: (Decisions Q3/Q7) -- the 920x600 minimum -- it is presented as this button beside Install / repair, and the button
+#: shows the complete disclosure. The label stays short enough to share that row in the split arrangement.
+QWEN3_DETAILS_LABEL = "Hardware and speed..."
+QWEN3_DETAILS_TITLE = "Qwen3 hardware and speed"
+
 
 def qwen3_status(voice_id: str) -> tuple[bool, str]:
     """The panel's one question to the Qwen3 engine: can this voice run right now?
@@ -1221,12 +1227,27 @@ class TtsPanel(ttk.Frame):
         self.voice_status_lbl.grid_remove()
         self._wrap(self.voice_status_lbl, voice)
 
+        # The Qwen3 actions' row. Its own frame, so that the row's width -- both buttons side by side -- is part of
+        # what the layout measures, and so that it takes no height at all while neither button shows.
+        self.qwen3_actions = ttk.Frame(voice, style=st("surface"))
+        self.qwen3_actions.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.qwen3_actions.grid_remove()
         # The one in-app way to install or repair the Qwen3 voices (the same action for a first-time user and an
         # existing one). Shown only while a Qwen3 voice is selected and the platform offers it.
         self.qwen3_setup_btn = ttk.Button(
-            voice, text="Install / repair Qwen3 voices...", command=self.open_qwen3_setup, style=st("button"))
-        self.qwen3_setup_btn.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            self.qwen3_actions, text="Install / repair Qwen3 voices...", command=self.open_qwen3_setup,
+            style=st("button"))
+        self.qwen3_setup_btn.grid(row=0, column=0, sticky="w")
         self.qwen3_setup_btn.grid_remove()
+        # The compact presentation of the hardware and speed disclosure (ACT72-058): shown instead of the notice line
+        # only where the full text cannot fit (_layout_for), never at the same time as it. After Install in Tab order.
+        self.qwen3_details_btn = ttk.Button(
+            self.qwen3_actions, text=QWEN3_DETAILS_LABEL, command=self.show_qwen3_details, style=st("button"))
+        self.qwen3_details_btn.grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.qwen3_details_btn.grid_remove()
+        # Whether a Qwen3 disclosure is being shown, and whether it is shown compactly.
+        self._qwen3_disclosure = False
+        self._disclosure_compact = False
 
         self.voice_separator = ttk.Separator(voice, orient=tk.HORIZONTAL,
                                              style=st("separator"))
@@ -1537,6 +1558,7 @@ class TtsPanel(ttk.Frame):
             self.qwen3_setup_btn.grid()
         else:
             self.qwen3_setup_btn.grid_remove()
+        self._qwen3_disclosure = False
 
         # Only the two retained, user-editable controls (Band 3) take a default
         # from the preset now; the pause/trim fields Phase 7 removed are read
@@ -1571,9 +1593,10 @@ class TtsPanel(ttk.Frame):
             self.edge_rate_frm.grid_remove()
             note = self._qwen3_hardware()
             self.kokoro_notice_var.set(note)
-            if note:
-                self.kokoro_notice_lbl.grid()
-            else:  # e.g. a platform where the voices are not yet available: the status line says so, nothing else does
+            # Shown in full, or compactly where it cannot fit (_show_disclosure). Without a note -- e.g. a platform
+            # where the voices are not yet available -- the status line says so, and nothing else does.
+            self._qwen3_disclosure = bool(note)
+            if not note:
                 self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
         elif entry.backend == "kokoro":
@@ -1607,10 +1630,37 @@ class TtsPanel(ttk.Frame):
             self.edge_rate_frm.grid()
             self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
+        # In the presentation the current size last called for; _content_changed decides it again just below.
+        self._show_disclosure(self._disclosure_compact)
         # A notice or setup message may have appeared or gone: the sections'
         # heights changed, so the layout's floors (and possibly its
         # arrangement) are re-derived from the widgets as they now are.
         self._content_changed()
+
+    def _show_disclosure(self, compact: bool) -> None:
+        """Present a Qwen3 voice's hardware and speed disclosure in full, or compactly (ACT72-058).
+
+        Compact is the owner-approved presentation for a window too small for the full text: the notice line steps
+        aside and the "Hardware and speed..." button beside Install / repair shows the complete disclosure. The text
+        itself is never cut -- ``kokoro_notice_var`` keeps all of it. Main thread only; grid positions only.
+        """
+        self._disclosure_compact = bool(compact)
+        if self._qwen3_disclosure and self._disclosure_compact:
+            self.kokoro_notice_lbl.grid_remove()
+            self.qwen3_details_btn.grid()
+        else:
+            self.qwen3_details_btn.grid_remove()
+            if self._qwen3_disclosure:
+                self.kokoro_notice_lbl.grid()
+        # The actions' row takes no height while neither of its buttons shows.
+        if self.qwen3_setup_btn.winfo_manager() or self.qwen3_details_btn.winfo_manager():
+            self.qwen3_actions.grid()
+        else:
+            self.qwen3_actions.grid_remove()
+
+    def show_qwen3_details(self) -> None:
+        """The complete hardware and speed disclosure, from the compact presentation's button. Main thread only."""
+        messagebox.showinfo(QWEN3_DETAILS_TITLE, self.kokoro_notice_var.get(), parent=self)
 
     def open_qwen3_setup(self) -> None:
         """Open the install/repair dialog. Main thread only.
@@ -2144,6 +2194,11 @@ class TtsPanel(ttk.Frame):
         needs: dict = {}
         sections = {"sources": self.sources_section, "voice": self.voice_section,
                     "run": self.run_section}
+        # Every arrangement is measured with a Qwen3 disclosure in full; the
+        # compact presentation is measured once more below (ACT72-058), and
+        # whatever was on screen is put back at the end.
+        presented_compact = self._disclosure_compact
+        self._show_disclosure(False)
         for inner in ("stack", "side", "narrow"):
             self._arrange_sections(inner)
             for label, _owner, _reserve in self._wrapped:
@@ -2181,6 +2236,15 @@ class TtsPanel(ttk.Frame):
                 # "split" has to fit beneath Output & Run.
                 needs["activity_narrow"] = (self.activity.winfo_reqwidth(),
                                             self.activity.winfo_reqheight())
+                # ACT72-058: Voice & Audio again with a Qwen3 disclosure shown
+                # compactly, which only "split" may use (_layout_for).
+                if self._qwen3_disclosure:
+                    self._show_disclosure(True)
+                    self.update_idletasks()
+                    needs["voice_compact"] = (
+                        max(widths["voice"], self.voice_section.winfo_reqwidth()),
+                        self.voice_section.winfo_reqheight())
+                    self._show_disclosure(False)
         row_px = listbox.winfo_reqheight() / IMPORTER_LIST_HEIGHT
         needs["list_row_px"] = row_px
         needs["list_give"] = int(row_px * (IMPORTER_LIST_HEIGHT - IMPORTER_FLOOR_ROWS))
@@ -2189,18 +2253,25 @@ class TtsPanel(ttk.Frame):
         line = tkfont.Font(font=self.log.summary_text.cget("font")).metrics("linespace")
         needs["log_give"] = int(line) * (LOG_HEIGHT - LOG_FLOOR_LINES)
         self._needs = needs
+        self._show_disclosure(presented_compact)
         if self._layout_mode is not None:
             self._arrange_sections(self._layout_mode[1])
             self._size_list()
 
-    def _workflow_needs(self, inner: str) -> tuple[int, int]:
-        """The workflow column's natural width and its floor height."""
+    def _workflow_needs(self, inner: str, compact: bool = False) -> tuple[int, int]:
+        """The workflow column's natural width and its floor height.
+
+        ``compact`` asks for the split arrangement's left column with a Qwen3
+        disclosure shown compactly (ACT72-058); without one it changes nothing.
+        """
         n = self._needs
         sources, voice, run = n[inner]["sources"], n[inner]["voice"], n[inner]["run"]
         floor = sources[1] - n["list_give"]
         if inner == "narrow":
             # The split arrangement's left column: 1 over 2 only, the list at
             # its split floor.
+            if compact and "voice_compact" in n:
+                voice = n["voice_compact"]
             floor = sources[1] - n["list_give_split"]
             return (max(sources[0], voice[0]), floor + SECTION_GAP + voice[1])
         if inner == "side":
@@ -2234,6 +2305,17 @@ class TtsPanel(ttk.Frame):
         right ("split"), when both columns' measured floors fit. Only a panel
         too small even for that drops Activity beneath the workflow.
         """
+        return self._layout_for(width, height)[0]
+
+    def _layout_for(self, width: int, height: int) -> tuple[tuple[str, str], bool]:
+        """The arrangement for a panel of this size, and whether a Qwen3
+        disclosure is shown compactly in it. A pure function of the size.
+
+        v0.7.2 Phase 6 (ACT72-058, owner-approved): compact only when "split"
+        fits with the compact presentation and not with the full one -- the
+        920x600 minimum. Wherever the full disclosure fits, it is shown in full;
+        "wide" and "stacked" always show it in full.
+        """
         room_w = width - 2 * OUTER_PAD
         room_h = height - 2 * OUTER_PAD
         activity_w, activity_h = self._needs["activity"]
@@ -2241,14 +2323,15 @@ class TtsPanel(ttk.Frame):
         flow_w, flow_floor = self._workflow_needs("stack")
         if (room_w - COLUMN_GAP >= flow_w + activity_w
                 and max(flow_floor, activity_floor) <= room_h):
-            return ("wide", "stack")
-        left_w, left_floor = self._workflow_needs("narrow")
+            return ("wide", "stack"), False
         right_w, right_floor = self._split_right_needs()
-        if (room_w - COLUMN_GAP >= left_w + right_w
-                and max(left_floor, right_floor) <= room_h):
-            return ("split", "narrow")
+        for compact in ((False, True) if "voice_compact" in self._needs else (False,)):
+            left_w, left_floor = self._workflow_needs("narrow", compact)
+            if (room_w - COLUMN_GAP >= left_w + right_w
+                    and max(left_floor, right_floor) <= room_h):
+                return ("split", "narrow"), compact
         side_w, _ = self._workflow_needs("side")
-        return ("stacked", "side" if room_w >= side_w else "stack")
+        return ("stacked", "side" if room_w >= side_w else "stack"), False
 
     def _apply_layout(self, mode: tuple[str, str]) -> None:
         """Grid the workflow and Activity for one arrangement, then set floors."""
@@ -2326,7 +2409,7 @@ class TtsPanel(ttk.Frame):
         platform where it can least afford it (plan Section 11's "Activity is
         dominant").
         """
-        flow_w, _ = self._workflow_needs(inner)
+        flow_w, _ = self._workflow_needs(inner, self._disclosure_compact)
         if width <= 1 or self._is_aqua:
             return flow_w
         # In split the right column's own need is Output & Run's measured
@@ -2415,8 +2498,11 @@ class TtsPanel(ttk.Frame):
         width, height = self.winfo_width(), self.winfo_height()
         if width <= 1 or height <= 1:
             return
-        mode = self._choose_layout(width, height)
-        if force or mode != self._layout_mode:
+        mode, compact = self._layout_for(width, height)
+        if force or mode != self._layout_mode or compact != self._disclosure_compact:
+            # Before the layout is applied, so its floors are measured from the
+            # presentation actually on screen.
+            self._show_disclosure(compact)
             self._apply_layout(mode)
             return
         self._size_columns()

@@ -4,6 +4,27 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-08 - A Qwen3 voice at 920x600 shows its disclosure compactly; the setup logs follow like the tools' logs (v0.7.2 Phase 6A)
+
+**Why.** Phase 5 recorded ACT72-058 as the owner's call and ACT72-059 as a Phase 6 Minor. The owner accepted Phase 5 and authorized Phase 6, limited for this session to these two issues.
+
+**Qwen3 at 920x600: compact only where the full disclosure cannot fit (owner-approved).**
+
+- The owner approved a compact presentation of the hardware and speed disclosure (Q3/Q7) at the minimum size, with the complete text available through an accessible, clearly labelled details control. The minimum size, the queue and log floors, the model's state line and Install / repair all stay; no whole-panel scrollbar.
+- The compact form is one **Hardware and speed...** button on the Install / repair row, which shows the complete text in a message box. Measured at 920x600: Voice & Audio may be 241 px tall there, and an absent Qwen3 voice already needs 236 px for the engine line, the 3-line state line and the Install row. No separate short summary line fits beside that, so the button's own label is the compact presentation. Its label is short enough to share the row (127 px; "Hardware and speed details..." at 164 px would not).
+- The choice is measured, never a pixel constant or a window size: the layout measures Voice & Audio both ways and uses the compact form only when the split arrangement fits with it and not with the full text. Every arrangement is measured from the full presentation, so re-measuring while compact cannot mistake the compact height for the full one. "wide" and "stacked" always show the full text.
+- The details button is information, not a processing control, so it is not locked during a run (like Clear Log and Open Output Folder).
+
+**Setup logs: the tools' follow rule, written where setup can use it.**
+
+- The first-run and repair windows (`shared/bootstrap.py`) and the optional-voices panel follow a reader at the bottom (the newest line on screen, even partly) and hold a reader who scrolled up, the rule ACT72-005 gave every tool's log. Tk keeps the top line through an insert below the view, so holding needs no anchor of its own.
+- `bootstrap.py` runs before the app's environment exists and imports only standard-library-only modules, so it cannot import `shared/job_ui.py`. The rule is one helper there, `_append_following`, for its two windows, and the same three lines in `OptionalSetupPanel._append`; no shared module and no framework were added.
+- The optional-voices panel was not named in ACT72-059 but is the step the first-run window shows next and had the same defect. It was fixed under the same issue rather than left as a new one.
+
+— The compact presentation approved by the owner; implemented by Claude Code under the owner's Phase 6A prompt.
+
+---
+
 ## 2026-11-07 - Unset is an absent key; a log pane follows only while its newest line is on screen; a Qwen3 voice at 920x600 is the owner's call (v0.7.2 Phase 5)
 
 **Why.** Phase 5 corrects the known log, metadata and optional-state defects (plan §11.2 to §11.4, Phase 5) found by Phase 0 and the Phase 4 inventory: ACT72-005, 006, 007, 008, 020, 044, 045 and the `models_status` half of 057. Each was reproduced on `fa9d3c3` before it was fixed, and each new test was seen failing under a planted defect after a no-change control passed.

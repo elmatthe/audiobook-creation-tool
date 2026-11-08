@@ -13,6 +13,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6A (2026-11-08)
+
+**Fixed**
+- TTS: a Qwen3 voice selected at the 920x600 minimum pushed Start, Cancel and the log out of the window. At that size the hardware and speed note now sits behind a **Hardware and speed...** button beside Install / repair, which shows the whole note. Larger windows show the note in full, as before.
+- Setup: the first-run and repair windows, and the optional-voices step, threw a person reading earlier log lines back to the newest line on every new message. The log now follows new lines only while its newest line is on screen, and follows again once the reader is back at the bottom.
+
+**Added (development only; nothing here ships)**
+- Regression tests at real sizes in the real launcher for every Qwen3 state, and tests that run the real setup windows with the real mouse wheel. Each failed on the old code.
+
 ## [Unreleased] — v0.7.2 Phase 5 (2026-11-07)
 
 **Fixed**

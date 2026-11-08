@@ -2399,7 +2399,10 @@
             "TtsPanel._wrap",
             "TtsPanel._on_appearance_changed",
             "TtsPanel._style",
-            "TtsPanel._tone"
+            "TtsPanel._tone",
+            "TtsPanel._layout_for",
+            "TtsPanel._show_disclosure",
+            "TtsPanel.show_qwen3_details"
           ]
         }
       ],
@@ -2407,7 +2410,8 @@
         "Wide windows put the workflow (Sources over Voice & Audio over Output & Run) left and Activity right; 920x600 and 1024x720 use the split arrangement with Activity still on the right; only a smaller panel stacks Activity beneath.",
         "Every required control stays wholly on screen at 920x600, 1024x720 and larger; only the queue list and the log scroll, each with a measured floor; no whole-panel scrollbar.",
         "A voice notice appearing or disappearing re-measures the layout; switching Light/Dark recolours everything without moving any state or a running job.",
-        "Every Kokoro and Chatterbox voice state, installed or not, keeps Start and Cancel on screen at 920x600 and larger; Qwen3 states do at 1024x720 and larger (920x600 is ACT72-058)."
+        "Every Kokoro, Chatterbox and Qwen3 voice state, installed or not, keeps Start and Cancel on screen at 920x600 and larger.",
+        "A Qwen3 voice's hardware and speed disclosure is shown in full wherever it fits (1024x720 and larger); only where the split arrangement cannot fit it (the 920x600 minimum) is it presented as a 'Hardware and speed...' button beside Install / repair, reachable by Tab, that shows the complete text. The minimum size, the queue and log floors and every action stay as they are."
       ],
       "selection": [
         "files/tests/test_tts_compact_ui.py",
@@ -2478,10 +2482,36 @@
             "test": "files/tests/test_tts_voice_states_layout.py::test_resizing_and_the_appearance_toggle_keep_an_absent_kokoro_usable"
           },
           {
-            "kind": "planned",
-            "phase": 6,
-            "issue": "ACT72-058",
-            "gap": "A Qwen3 voice at 920x600: its required hardware and speed disclosure and Install / repair button need 10 px (installed) to 63 px (absent) more height than either split column has left at its floors, so the panel stacks and Start, Cancel and the log leave the window. Fine at 1024x720 and larger."
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[qwen3-absent-920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[qwen3-installed-920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_a_qwen3_voice_at_the_minimum_is_compact_and_keeps_every_action_on_screen[qwen3-absent-cpu]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_a_qwen3_voice_at_the_minimum_is_compact_and_keeps_every_action_on_screen[qwen3-installed-gpu]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_the_details_control_is_reachable_by_keyboard_and_shows_the_complete_disclosure"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_larger_windows_keep_the_full_qwen3_disclosure[qwen3-absent-1024x720]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_resizing_and_the_appearance_toggle_move_between_compact_and_full_disclosure"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_a_qwen3_voice_becoming_installed_or_missing_at_the_minimum_stays_usable"
           }
         ]
       },
@@ -17805,7 +17835,9 @@
             "stale_layout_notice",
             "show_repair_dialog",
             "show_warning_dialog",
-            "SetupLog"
+            "SetupLog",
+            "_append_following",
+            "show_repair_dialog.append"
           ]
         }
       ],
@@ -17814,12 +17846,14 @@
         "Every launch runs one bounded self-heal (environment, packages, FFmpeg, Kokoro) and never runs the full first-run install",
         "Recoverable problems are collected and shown as exactly one warning, and only after launch_gui reports the window started; a fatal environment still reports before any GUI",
         "launch_gui starts scripts/launcher.py detached with its output captured in files/runtime-data/logs/launch_<date>.log and reports failure if the child exits non-zero inside a 1.5 s grace window",
-        "A leftover pre-v0.6.7 scripts/Universal folder is reported once through ACT_STARTUP_NOTICE and never deleted"
+        "A leftover pre-v0.6.7 scripts/Universal folder is reported once through ACT_STARTUP_NOTICE and never deleted",
+        "The repair window's live log follows new lines while its reader is at the bottom, keeps a reader who scrolled up in place and follows again once back at the bottom"
       ],
       "selection": [
         "files/tests/test_launch_self_heal.py",
         "files/tests/test_venv_recovery.py",
-        "files/tests/test_layout_canary.py"
+        "files/tests/test_layout_canary.py",
+        "files/tests/test_setup_log_follow.py"
       ],
       "journeys": [],
       "verification": {
@@ -17857,6 +17891,10 @@
             "gap": "launch_gui's early-crash detection (child exits non-zero inside the grace window, launch reported as failed with the tail of launch_<date>.log) has no automated test; every test stubs Popen with a process that never exits",
             "phase": 8,
             "issue": "ACT72-055"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_log_follow.py::test_the_repair_window_log_follows_holds_a_reader_and_resumes"
           }
         ]
       },
@@ -17894,7 +17932,9 @@
             "_open_folder",
             "_run_headless",
             "SetupLog",
-            "install_path_problem"
+            "install_path_problem",
+            "_append_following",
+            "run_with_gui.append_log"
           ]
         }
       ],
@@ -17903,7 +17943,8 @@
         "Nothing is installed until Begin Setup is pressed; the base install then runs on one worker thread with a live log",
         "The base install is five steps (Python, environment, packages, FFmpeg, English sentence data) and starts no other process of its own; no voice model is downloaded",
         "A folder too deep for Windows is refused before anything is touched",
-        "A failed base install shows 'Setup did not complete' with Open log folder and Close; a successful one moves to the optional-voices review (or launches straight away if none were chosen)"
+        "A failed base install shows 'Setup did not complete' with Open log folder and Close; a successful one moves to the optional-voices review (or launches straight away if none were chosen)",
+        "The progress log follows new lines while its reader is at the bottom, keeps a reader who scrolled up in place to the pixel, follows again once back at the bottom and keeps every line; only the Tk thread writes it"
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_dialog_fit.py",
@@ -17911,7 +17952,8 @@
         "files/tests/test_chatterbox_bootstrap.py",
         "files/tests/test_release_installer.py",
         "files/tests/test_first_run_contract.py",
-        "files/tests/test_sentence_data.py"
+        "files/tests/test_sentence_data.py",
+        "files/tests/test_setup_log_follow.py"
       ],
       "journeys": [],
       "verification": {
@@ -17951,9 +17993,13 @@
           },
           {
             "kind": "planned",
-            "gap": "No automated test builds the real first-run window: Begin Setup, the progress log, the 'Setup did not complete' dialog and Open log folder are checked only from source text, and no registered native journey drives them",
+            "gap": "The 'Setup did not complete' dialog and Open log folder are checked only from source text, and no registered native journey drives the first-run window (Begin Setup and the live progress log are driven in the real window since v0.7.2 Phase 6)",
             "phase": 8,
             "issue": "ACT72-055"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_log_follow.py::test_the_first_run_window_log_follows_holds_a_reader_and_resumes"
           }
         ]
       },
@@ -18861,7 +18907,8 @@
             "OptionalSetupPanel._show_failure",
             "OptionalSetupPanel._retry",
             "OptionalSetupPanel._set_buttons",
-            "OptionalSetupPanel._poll"
+            "OptionalSetupPanel._poll",
+            "OptionalSetupPanel._append"
           ]
         },
         {
@@ -18922,12 +18969,14 @@
         "The click mints exactly one consent whose terms are exactly what the worker derives from the shown plan; a second click does nothing and Install is never the Enter-key default",
         "Skip, Cancel and closing never download anything and keep what already works; Try again makes a new plan and needs a new confirmation",
         "The setup worker runs only in the app's .venv and only if its whole process tree can be contained; a timed-out worker and its children are ended",
-        "Each request gets exactly one terminal result, published once and never replaced"
+        "Each request gets exactly one terminal result, published once and never replaced",
+        "The install log follows new steps while its reader is at the bottom and keeps a reader who scrolled up (wheel or scrollbar) in place"
       ],
       "selection": [
         "files/tests/test_release_installer.py",
         "files/tests/test_optional_tts_setup.py",
-        "files/tests/test_optional_setup_acquisition.py"
+        "files/tests/test_optional_setup_acquisition.py",
+        "files/tests/test_setup_log_follow.py"
       ],
       "journeys": [],
       "verification": {
@@ -18963,6 +19012,10 @@
           {
             "kind": "qualification",
             "scenario": "fresh-windows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_log_follow.py::test_the_optional_voices_install_log_follows_holds_a_reader_and_resumes"
           }
         ]
       },
@@ -20941,6 +20994,7 @@
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Missing input": "ACT.TTS.RUN",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice not recognised": "ACT.TTS.VOICE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice unavailable": "ACT.TTS.VOICE",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.show_qwen3_details::messagebox.showinfo:QWEN3_DETAILS_TITLE": "ACT.TTS.LAYOUT",
       "dialog:scripts/tts/qwen3_install_ui.py::_ask_yes_no::messagebox.askyesno:title": "ACT.TTS.SETUP.QWEN3",
       "tool:cover": "ACT.LAUNCHER.OPEN-TOOLS",
       "tool:m4b_converter": "ACT.LAUNCHER.OPEN-TOOLS",
@@ -21076,6 +21130,7 @@
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Button:Install / repair Qwen3 voices...": "ACT.TTS.SETUP.QWEN3",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Button:Open Output Folder": "ACT.TTS.OUTPUT-FOLDER",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Button:Start": "ACT.TTS.RUN",
+      "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Button:text=QWEN3_DETAILS_LABEL": "ACT.TTS.LAYOUT",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Overwrite existing outputs without asking": "ACT.TTS.PUBLICATION",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Resume (skip existing MP3s)": "ACT.TTS.RESUME",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Combobox:var=self.bitrate_var": "ACT.TTS.BITRATE",
@@ -21364,6 +21419,7 @@
         "log.details_text": "ACT.SHARED.LOG-VIEW",
         "log.frame": "ACT.SHARED.LOG-VIEW",
         "log.summary_text": "ACT.SHARED.LOG-VIEW",
+        "qwen3_details_btn": "ACT.TTS.LAYOUT",
         "qwen3_setup_btn": "ACT.TTS.SETUP.QWEN3",
         "spin_kokoro_speed": "ACT.TTS.ENGINE.KOKORO",
         "spin_workers": "ACT.TTS.WORKERS",
@@ -22034,24 +22090,27 @@
       "id": "ACT72-058",
       "severity": "Major",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A Qwen3 voice at 920x600: its owner-required hardware and speed disclosure (Q3/Q7) and the Install / repair button need 10 px (installed) to 63 px (absent) more height than either split column has at its floors, so the panel stacks and Start, Cancel and the log leave the window; what gives way at that size is the owner's call",
       "features": [
         "ACT.TTS.LAYOUT"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-07_phase5_work_d628/act72-007/budget-after.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-07_phase5_work_d628/act72-007/budget-after.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (owner-approved compact presentation): at the 920x600 minimum, where the split arrangement cannot fit the full disclosure, the notice line steps aside for a 'Hardware and speed...' button beside Install / repair (same row, after it in Tab order) that shows the complete text; the full disclosure stays wherever it fits. Every Qwen3 state keeps Start, Cancel and the log on screen at 920x600 with the queue and log at their floors (test_tts_voice_states_layout.py); reproduced at 5170b8f in files/dev-work/verification-gate/outputs/2026-11-08_phase6a_work_32db/act72-058/."
     },
     {
       "id": "ACT72-059",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The setup windows' progress logs (shared/bootstrap.py run_with_gui and show_repair_dialog) scroll to the newest line on every message, so a person cannot scroll back to read while setup is writing",
       "features": [
         "ACT.SETUP.FIRST-RUN",
-        "ACT.SETUP.LAUNCH"
+        "ACT.SETUP.LAUNCH",
+        "ACT.SETUP.OPTIONAL-VOICES"
       ],
-      "evidence": "v0.7.2 Phase 5 log-view audit (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 5 log-view audit (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: bootstrap._append_following (both windows) and OptionalSetupPanel._append (the optional-voices step the first-run window shows next, the same defect, found while reproducing) follow only a reader at the bottom, the rule of the app's own log (ACT72-005); the real windows are driven in test_setup_log_follow.py; reproduced at 5170b8f in files/dev-work/verification-gate/outputs/2026-11-08_phase6a_work_32db/act72-059/."
     }
   ],
   "source_review": {
@@ -22101,7 +22160,7 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "f8fc5d4933ba9b8590aa2e031835a3077ccb12e4fe9f203d0b2e3a09eb437b03",
+    "scripts/shared/bootstrap.py": "885c785a704f4a08fa8c26fb1cca337958836dfdda524bf17db4d5dcf7b6d05e",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
@@ -22126,7 +22185,7 @@
     "scripts/shared/optional_setup_client.py": "7749824d1c40ac595903d4ebac8339e9000a23daf280bc69fd3bbd8f7e2f898e",
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
-    "scripts/shared/optional_setup_panel.py": "29f1855a0e3a81e747a2df4889b60fd50cd0916a2412591ef8ba5391b6df7707",
+    "scripts/shared/optional_setup_panel.py": "03f84e54aa466ed7d1dcf5ab1f2512c420ba2c089c996c10767c298bf61365d9",
     "scripts/shared/optional_setup_planning_bridge_v3.py": "99b22eea9f7df653de65ad1a1ab89b5ca114820626f0763ebc6d227cd85f771d",
     "scripts/shared/optional_setup_protocol.py": "0d7383dc419eefc25997a051a9269f1b9015ccdde3ff9b48c7a7edd699d3fda4",
     "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
@@ -22156,7 +22215,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "9486ce7e24d76ab357d0d07967e22fc21c4e79416c359352025e06b2720ab1a0",
     "scripts/tts/epub2tts_edge/runner.py": "0a5548b940c391226c06d2f1fda9e4012d07000398c2aef5e3623f1a97ef765c",
-    "scripts/tts/epub2tts_gui.py": "a9a318a6e021db6fccf8ffceb2bf7a9eb81559094b4e8ef67b8688cb6c1a410d",
+    "scripts/tts/epub2tts_gui.py": "00cbf6e2c0e0e3e5fec2e1203d8d05f388ee5c0da9f595f0720990a5e41ef428",
     "scripts/tts/ffmpeg_watch.py": "88fb80064a3366decf79b346c36224f8db203ab2a794c4700b9d3da4bfbc886f",
     "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
     "scripts/tts/kokoro_synth.py": "45d140427faa7a85ecf54eed97dabd159617ba8154c06878c30da1a012a15844",
