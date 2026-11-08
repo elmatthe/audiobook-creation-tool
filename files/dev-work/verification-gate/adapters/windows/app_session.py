@@ -371,6 +371,34 @@ class AppSession:
         self.input_count += 1
         self._action("chord", keys=[modifier, name])
 
+    def wheel(self, tool: str | None, key: str, notches: int, *, settle: float = 0.05) -> dict:
+        """The mouse wheel turned over a widget, as a hand turns it: positive notches scroll up (v0.7.2 Phase 5).
+
+        The same refusals as a click: the widget must be on screen in the owned window, the pointer must really be over
+        it, nothing may cover the point, and the foreground must still be ours when the notches are sent."""
+        label = f"{tool}:{key}"
+        target = self.widget(tool, key)
+        if not target.get("exists") or not target.get("viewable"):
+            self._log("refused", purpose=f"wheel over {label}", state=target)
+            raise native_refused(f"{label} is not on screen: {target}")
+        x, y = target["x"] + target["width"] // 2, target["y"] + target["height"] // 2
+        native.move_to(x, y)
+        time.sleep(0.03)
+        self._guard(f"wheel over {label}")
+        at = self.client.call("containing", x=x, y=y)["path"]
+        if at != target["path"]:
+            self._log("refused", purpose=f"wheel over {label}", containing=at, wanted=target["path"])
+            raise native_refused(f"{label}: the widget under the pointer is {at}, not {target['path']}")
+        hwnd = native.foreground_owner()[0]
+        if native.root_window_at(x, y) != hwnd:
+            self._log("refused", purpose=f"wheel over {label}", root_at_point=native.root_window_at(x, y), foreground=hwnd)
+            raise native_refused(f"{label}: another window covers the point {x},{y}")
+        native.wheel_at(x, y, notches)
+        self.input_count += 1
+        self._action("wheel", target=label, widget=target["path"], x=x, y=y, notches=notches)
+        time.sleep(settle)
+        return target
+
     def select_combo(self, tool: str | None, key: str, value: str) -> None:
         """Open its list with a click, walk there with the arrow keys, Return: what a person's hand does. The widget says what it now holds."""
         target = self.widget(tool, key)

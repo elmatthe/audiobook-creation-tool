@@ -36,8 +36,9 @@ ID_MENTION = re.compile(r"\bACT\.[A-Z][A-Z0-9]*(?:\.[A-Z0-9]+(?:-[A-Z0-9]+)*)+\b
 #: An exact test id in prose would be a second, drifting copy of the mapping.
 TEST_ID_MENTION = re.compile(r"files/tests/test_[A-Za-z0-9_]+\.py::")
 TEST_ID = re.compile(r"^files/tests/test_[A-Za-z0-9_.\-]+\.py::[^\s]+$")
-#: The phase that completed the inventory; a planned gap belongs to a later one.
-INVENTORY_PHASE = 4
+#: The last phase completed against the inventory; a planned gap belongs to a later one. Phase 4 built the inventory;
+#: v0.7.2 Phase 5 closed its gaps, so none may still claim Phase 5.
+INVENTORY_PHASE = 5
 
 
 @dataclass

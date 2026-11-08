@@ -195,7 +195,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - A failure is named by book and output in Summary (for example "A.m4b: A.mp3 could not be written."), with the exit code and FFmpeg's last lines in Detailed.
 - The FFmpeg status line on opening and the run's closing line appear in both panes.
 - Clear Log clears the visible text only and never locks. History is capped at 400 lines per pane.
-- **Known issue:** after a run, Summary prints "All done." above "Running." and "Finished." twice (ACT72-018, Phase 6). Log following is a shared issue (ACT72-005, Phase 5).
+- **Known issue:** after a run, Summary prints "All done." above "Running." and "Finished." twice (ACT72-018, Phase 6). Log following is the shared view's (ACT.SHARED.LOG-VIEW).
 
 ### Pause and Resume
 

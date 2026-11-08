@@ -182,6 +182,10 @@ def describe_widget(widget: tk.Misc) -> dict:
         entry["selection"] = [int(index) for index in widget.curselection()]
     if cls == "Text":
         entry["content"] = widget.get("1.0", "end-1c")
+        # What the reader sees of a log: the line at the top, and whether the newest line is on screen (v0.7.2 Phase 5).
+        entry["top_line"] = int(widget.index("@0,0").split(".")[0])
+        entry["top_text"] = widget.get("@0,0 linestart", "@0,0 lineend")
+        entry["newest_line_shown"] = widget.dlineinfo("end-1c") is not None
     if cls == "Treeview":
         entry["items"] = [str(item) for item in widget.get_children()]
     return entry

@@ -74,9 +74,10 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Behaviour:** frozen per run and sent with every folder-route Edge request; directly added Edge files always use
   Edge's natural pace.
 - **Persistence:** reset to the voice's preset (+0%) whenever a voice is selected.
-- **Known gap (new finding, phase 5):** the value is not checked at Start. Anything the service refuses (for example
-  "10%" without a sign) reserves a run folder and then fails every folder-imported Edge file. The field is also not
-  locked during a run (ACT72-014).
+- **Checked at Start (v0.7.2 Phase 5, ACT72-044):** a rate the Edge voices refuse (anything but a sign, a whole number
+  and %, for example "10%") is refused with "Edge speech rate" before anything is frozen or reserved, whenever
+  folder-imported files would send it; a queue of directly added files never uses it, so it is not judged there.
+- **Known gap:** the field is not locked during a run (ACT72-014).
 
 ### Numbered run folder and Open Output Folder
 `ACT.TTS.OUTPUT-FOLDER`
@@ -120,7 +121,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
   Folder-only Edge runs and local engines never need it.
 - **Behaviour:** a question names the size, source and folder. No starts nothing and says so; Yes downloads it in a
   small window with a Cancel button, then starts that same run. A failed or cancelled download starts nothing.
-- **Known gap (new finding, phase 5):** the messages say "Press Create again", but the button is labelled Start.
+- **Wording:** the not-started messages say "Press Start again", naming the button the person sees (ACT72-045,
+  fixed in Phase 5).
 
 ### Install a missing voice and continue the same run
 `ACT.TTS.INSTALL-AND-CONTINUE`
@@ -132,7 +134,7 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Failure/cancel:** Skip, Cancel, a failed install, closing the window, closing the panel, or a source file changed or
   removed during the install all leave nothing created and say "Conversion not started" where the panel is still open.
   A second Start while the window is open does nothing.
-- **Known gap (new finding, phase 5):** the same "Press Create again" wording.
+- **Wording:** "Press Start again", like every message that asks for another try (ACT72-045, fixed in Phase 5).
 
 ### Narrate a directly added file with the Edge chapter engine
 `ACT.TTS.DIRECT`
@@ -253,7 +255,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Behaviour:** Summary shows state, progress, failures and the ending; Detailed adds each step and the engines'
   output, one whole line at a time, prefixed with the file name. Clear Log empties the visible panes only. Each run or
   retry adds a divider; history is capped at 400 lines.
-- **Known gap:** the panes jump back on every update and never follow new lines (ACT72-005, phase 5).
+- **Following:** each pane follows new lines at the bottom and holds a reader who scrolled up (the shared view,
+  ACT72-005, fixed in Phase 5).
 
 ### Controls lock while a run is active
 `ACT.TTS.LOCK-DURING-RUN`
@@ -347,8 +350,11 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Behaviour:** wide windows put Sources, Voice & Audio and Output & Run in a left column and Activity on the right;
   the launcher's 920x600 and 1024x720 sizes split the workflow with Activity still on the right; only a smaller panel
   stacks Activity beneath. Only the queue list and the log scroll. Light and Dark repaint without moving any state.
-- **Known gap:** with a Kokoro voice selected and not installed at 920x600, the not-installed line stacks on an older
-  notice, Start scrolls out of view, and the notice still promises a first-run download (ACT72-007, phase 5).
+- **Optional voices at the minimum:** every Kokoro and Chatterbox state, installed or not, keeps Start and Cancel on
+  screen at 920x600: a Kokoro voice shows one message at a time (ACT72-007, fixed in Phase 5).
+- **Known gap:** a Qwen3 voice at 920x600. Its required hardware and speed disclosure and the Install / repair button
+  need more height than either column has there, so the panel stacks and Start leaves the window (ACT72-058, Phase 6,
+  the owner's call on what gives way). 1024x720 and larger are fine.
 
 ### Standalone command-line converters (developer only)
 `ACT.TTS.CLI`
@@ -467,7 +473,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Behaviour:** the checks read files only. They load no model, download nothing, write nothing and never raise an error. Qwen3 checks the platform, then the engine, then the model, then the clone's recording and transcript, and each reason names one next step. One unavailable voice never affects another voice or engine, and is never swapped for a different voice.
 - **Persistence:** Chatterbox remembers its answer per process until the recording's size or time stamp changes.
 - **Differences:** Edge voices are never checked. Kokoro and Chatterbox call any file that is not ready "not installed", while Qwen3 distinguishes missing, partly installed and damaged.
-- **Known gaps:** the panel's Kokoro/Chatterbox check (`voice_install.models_status`) has no direct test (new finding, Phase 5). Three Qwen3 GUI tests assume an installed state and fail on a fresh install (ACT72-008, Phase 5).
+- **Machine state in tests (v0.7.2 Phase 5):** the panel's Kokoro/Chatterbox check (`voice_install.models_status`) runs unreplaced against real stand-in files in every state (ACT72-057's first half), and the Qwen3 panel tests state the installed and fresh-install machine explicitly instead of reading the machine they run on (ACT72-008). Simulated readiness is asset health, never engine qualification.
 
 ### Cloned voices' reference recordings and transcripts
 `ACT.TTS.VOICE-CLONE-REFERENCES`
@@ -485,7 +491,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Outcome:** success only after the files are checked again, recorded, and Kokoro is proved to load. From the panel, the conversion the user asked for then starts once, by itself. Skip, Cancel, closing the window or a failure starts nothing and creates nothing.
 - **Failure, cancel, retry:** wrong bytes are never installed. Cancel keeps a partial file that a later, newly confirmed install resumes. A retry needs a fresh plan and a fresh confirmation.
 - **States:** missing, damaged, ready, unverified, busy, unsupported Python, or engine proved broken. In the last case nothing is downloaded, because the app's own environment repair fixes packages.
-- **Known gaps:** at 920x600 with a Kokoro voice selected and not installed, the "not installed" line stacks on the older Kokoro notice and Start scrolls out of view. The notice also still says the first run "may download" about 300 MB, which stopped being true in v0.7.0 (ACT72-007, Phase 5).
+- **In the panel (v0.7.2 Phase 5, ACT72-007):** one Kokoro message at a time. While the voice can run, the notice says it runs locally from its installed model files and promises no download; while it cannot, only the setup line naming Install & Continue shows. At 920x600 Start and Cancel stay on screen in both.
 
 ### Install the Chatterbox Turbo model
 `ACT.TTS.SETUP.CHATTERBOX`

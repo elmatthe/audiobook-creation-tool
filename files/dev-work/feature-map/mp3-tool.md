@@ -79,8 +79,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Failure, cancel and retry:** A tag that cannot be read yields blank values, not an import failure.
 - **Persistence:** Observations are kept per occurrence for the session and dropped by Clear All Imports.
 - **Intentional differences:** M4B Maker is the plan's comparison for correct first-population precedence (plan section 11.3).
-- **What must hold:** A Book's first files pre-fill Artist, Album Artist and Album with the normalised majority of their tags (first seen wins a tie); a blank majority writes nothing. Files added to a Book that already has tracks never change its stored values. A field whose sources disagree shows 'Mixed source metadata' ('Mixed' in the tight layout); the marker is never a value. Values typed or cleared before a Book's first import must survive that import (currently broken, ACT72-006).
-- **Known gap:** ACT72-006 (Phase 5): a Book's first population overwrites values the user typed or deliberately cleared before that import, including a Book that was emptied and refilled.
+- **What must hold:** A Book's first files pre-fill Artist, Album Artist and Album with the normalised majority of their tags (first seen wins a tie); a blank majority writes nothing. Files added to a Book that already has tracks never change its stored values. A field whose sources disagree shows 'Mixed source metadata' ('Mixed' in the tight layout); the marker is never a value. Only a field with no value at all is filled by a Book's first files: a value typed or cleared before that import, a duplicate's carried values and the values an emptied Book kept all survive it, in the panel and in the tags written (ACT72-006, fixed in Phase 5).
 
 ### Intentional blank values
 `ACT.MP3.BLANK-VALUES`
@@ -91,8 +90,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Inputs and outputs:** Blank fields produce no TPE1 / TPE2 / TALB frame; track Titles still fall back to the source title or filename.
 - **Failure, cancel and retry:** Not applicable.
 - **Persistence:** Session only.
-- **What must hold:** Clearing a field stores an empty value; the source value never comes back for it. A blank Artist, Album Artist or Album is absent from the written tag, never inherited from the source file. A blank Album leaves the combined file with no Title and no Album frame; nothing is invented. A value cleared before a Book's first import must stay cleared (currently broken, ACT72-006).
-- **Known gap:** ACT72-006 (Phase 5): a field cleared before a Book's first import is refilled from the source tags by that import.
+- **What must hold:** Clearing a field stores an empty value; the source value never comes back for it. A blank Artist, Album Artist or Album is absent from the written tag, never inherited from the source file. A blank Album leaves the combined file with no Title and no Album frame; nothing is invented. A value cleared before a Book's first import stays cleared through it, in the panel and in the written tags (ACT72-006, fixed in Phase 5).
 
 ### Track list reorder and remove
 `ACT.MP3.TRACK-ORDER`
@@ -150,6 +148,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Inputs and outputs:** Input: an image path. Output: one APIC front cover (type 3) on every written track and on the combined file; the source image is never written and no converted file is saved.
 - **Failure, cancel and retry:** 'Book Artwork: …' error dialog on a bad choice; at run time an undecodable image is an item-less Book failure.
 - **Persistence:** The path is held for the session only.
+- **Layout:** Choose… and Clear each get at least their label's width, so both read whole (ACT72-020, fixed in Phase 5).
 - **Intentional differences:** Artwork is a file control owned by this panel, not a shared text field.
 - **What must hold:** JPG/JPEG and PNG are always offered; HEIC/HEIF only when the shared capability probe can decode it. A chosen file is decoded first; a refusal shows an error and keeps the previous choice. JPG/PNG are embedded as their own bytes; HEIC/HEIF become an in-memory PNG; the tag gets exactly one front-cover APIC, and no artwork means no APIC. Shared artwork overrides every Book without erasing a Book's own choice. Artwork that no longer decodes at run time fails the Book (not retryable) and publishes nothing.
 
@@ -301,7 +300,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **How to reach it:** 'Activity' section: Summary | Detailed tabs (shared log view, ACT.SHARED.LOG-VIEW) and 'Clear Log'.
 - **States:** Clear Log is never locked.
 - **Inputs and outputs:** Up to 400 lines per pane; no ffmpeg_log.txt or extra log file is written by the engine.
-- **Failure, cancel and retry:** Follow/scroll behaviour of the panes is the shared view's (ACT72-005, owned by ACT.SHARED.LOG-VIEW).
+- **Failure, cancel and retry:** Follow/hold/resume of the panes is the shared view's (ACT.SHARED.LOG-VIEW).
 - **Persistence:** Visible history lasts the session; technical lines also go to the shared session log.
 - **Intentional differences:** No Copy button and no level selector (the panes are selectable).
 - **What must hold:** Log history survives from run to run; a divider marks each run, each retry and each Clear All Imports, and import lines sit between. Clear Log clears only the visible text; the event history, the session log and the run result are untouched and cleared lines never return. Import problems go to the log, not a dialog; technical detail goes to Detailed and the session log, never the Summary.

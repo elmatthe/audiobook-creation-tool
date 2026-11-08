@@ -81,7 +81,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - The chosen image is decoded straight away; an unusable file shows an "Artwork:" error and leaves the previous choice in place. The image file itself is never written.
 - Shared artwork overrides and disables every Book's artwork control.
 - What happens to the cover: Save Tags keeps the file's cover unless you chose one; Clear All Tags removes it unless you chose one; Remove Series Numbering never changes it.
-- Known gap: "Choose…" is clipped to "Choose." at 920x600 (ACT72-020, Phase 5).
+- Choose… and Clear each get at least their label's width, so both read whole at every size (ACT72-020, fixed in Phase 5; the M4B Maker and MP3 Tool were clipped the same way).
 
 ### Chapter Titles
 `ACT.METADATA.CHAPTER-TITLES`
@@ -199,7 +199,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - One Summary | Detailed log at the bottom. Each action (and each Retry Failed attempt) starts with a divider naming it and the run folder; history is kept across runs and across Clear All Imports (up to 400 lines per pane).
 - Detailed lists each Book's steps in order; Summary marks each published file with ✓.
 - Clear Log clears the visible text only and is never locked.
-- Known gaps: no test presses Clear Log in this panel or checks a second run's divider (Phase 5); the panes do not follow new lines (ACT72-005, Phase 5, shared log view).
+- Known gaps: no test presses Clear Log in this panel or checks a second run's divider (ACT72-053, Phase 6); the panes follow, hold and resume as the shared log view does.
 
 ### Layout and keyboard
 `ACT.METADATA.LAYOUT`
@@ -207,7 +207,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - Four stacked sections: 1. Import & Books, 2. Metadata, 3. Chapters & Save, Activity. Nothing scrolls the whole tool; only the Chapter Titles box and the log scroll and shrink.
 - In the launcher's small windows (920x600, 1024x720) a tighter layout shrinks padding and uses shorter wording (the Auto-number option joins the chapter caption line, the preserve note joins the Current Book caption); nothing is hidden. Choosing artwork does not make the Metadata section grow.
 - Tab moves through the sections in order; Ctrl+A, Delete, BackSpace and Alt+Up/Down in a text field only edit that text.
-- Known gap: "Choose…" clipped at 920x600 (ACT72-020, Phase 5). Display scaling other than 100% is an owner check.
+- Display scaling other than 100% is an owner check.
 
 ### Light / Dark appearance
 `ACT.METADATA.APPEARANCE`

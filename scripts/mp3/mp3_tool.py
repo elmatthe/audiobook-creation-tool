@@ -500,7 +500,10 @@ def _layout_hints(theme) -> dict:
         "label_wrap": metrics.get("field_label_wrap"),
         "label_wrap_narrow": metrics.get("field_label_wrap_narrow"),
         "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
-        "artwork_gap": int(metrics.get("artwork_gap", 8)),
+        # The fields' own gap (6): at 920x600 Book Settings is full to the
+        # pixel, and the 2 px this returns are what "Choose…" needed to show
+        # its whole label (v0.7.2 Phase 5, ACT72-020). Aqua's metrics keep 8.
+        "artwork_gap": int(metrics.get("artwork_gap", 6)),
         # v0.6.4 Phase 13 (macOS parity): Clear All Imports widened this band
         # past the aqua host, squeezing the import status bar to one pixel.
         "import_band_layout": str(metrics.get("import_band_layout", "compact")),
@@ -564,14 +567,17 @@ class _ArtworkControl:
         # Fixed character widths keep the pair compact; a theme whose native
         # buttons carry their own bezel padding (aqua) asks for the natural
         # width instead. ``theme`` is the appearance bundle and only styles.
+        # Each takes its label's own width (ttk width 0), never a fixed
+        # allocation: a width of 7 cut "Choose…" to "Choose." (v0.7.2 Phase 5,
+        # ACT72-020; the same correction as artwork.m4b_artwork_ui).
         self.btn_choose = ttk.Button(self.frame, text="Choose…",
                                      style=style_name(theme, "button"),
                                      command=self._choose,
-                                     **({} if natural else {"width": 7}))
+                                     **({} if natural else {"width": 0}))
         self.btn_clear = ttk.Button(self.frame, text="Clear",
                                     style=style_name(theme, "button"),
                                     command=self._clear,
-                                    **({} if natural else {"width": 5}))
+                                    **({} if natural else {"width": 0}))
         # Two rows only -- caption, then the two buttons side by side -- with
         # the preview spanning both on the left, so the control is no taller
         # than a label and an entry and the band it sits in stays compact.

@@ -2,6 +2,31 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 5 (known log, metadata and optional-state defects): implemented and committed as the candidate for its one planned full gate; the gate result is recorded by the closeout commit; NOT accepted; Phase 6 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
+
+Authority: the owner's Phase 5 prompt (Phase 4 accepted for progression). This block supersedes the status line of the block below. Decisions: `Decisions.md`, the newest entry.
+
+- **Starting point.** `fa9d3c3`. Every defect was reproduced there before it was fixed; evidence `files/dev-work/verification-gate/outputs/2026-11-07_phase5_work_d628/` (ignored), one folder per issue, with the planted defects in `mutants/act_p5_mutant.py`.
+- **Fixed.**
+  - **ACT72-005, log follow (all six tools).** `shared/job_ui.SummaryDetailsView` renders by the smallest edit and keeps a follow state per pane. It follows while the newest line is on screen and holds a scrolled reader's line, to the pixel, through new lines, trimmed history, rewritten tails, resizes and tab or tool switches. It resumes at the bottom. Before: the pane sat at line 1 after every render (`act72-005/before-fa9d3c3.json`).
+  - **ACT72-006, MP3 precedence.** `mp3_workflow._prepopulated` fills only absent keys. Before: a typed Album became "Src Album" and a cleared Artist "Src Artist", in the panel and in the written tags.
+  - **ACT72-007, Kokoro at 920x600.** One Kokoro message at a time, and the notice no longer promises a download. Start and Cancel stay on screen in every Kokoro and Chatterbox state. Before: absent Kokoro stacked two messages and stacked the whole panel, 45 px over (`act72-007/budget-before.json`, `budget-after.json`).
+  - **ACT72-008, Qwen3 GUI tests.** Tests only: the three tests state the installed and fresh-install machine explicitly. Before: with this machine answering as a fresh install, exactly those three failed; now 56 of 56 pass either way.
+  - **ACT72-020, artwork "Choose…".** It was cut to "Choose." in the MP3 Tool, M4B Maker and Metadata Editor, at every size (52 px for a 59 px label). Both artwork buttons now take their label's width; the MP3 Tool's artwork gap is the fields' 6 px.
+  - **ACT72-044, Edge rate.** Start refuses a rate the pinned `edge_tts` refuses, before anything is frozen or reserved, when folder-imported files would send it.
+  - **ACT72-045, wording.** Five messages said "Press Create again"; they say Start.
+  - **ACT72-057, first half.** `voice_install.models_status` is tested unreplaced on real stand-in files. Its PDF half stays open as Phase 8, as the map already said.
+- **New findings, recorded, not fixed.**
+  - **ACT72-058 (Major, Phase 6, the owner's call):** a Qwen3 voice at 920x600 still stacks the TTS panel. Its required hardware and speed disclosure and the Install / repair button need 10 px (installed) to 63 px (absent) more than either column has at its floors. 1024x720 and larger are fine.
+  - **ACT72-059 (Minor, Phase 6):** the setup windows' progress logs in `shared/bootstrap.py` always jump to the newest line.
+- **Tests.** New modules: `test_log_follow.py` (14), `test_mp3_metadata_precedence.py` (8), `test_tts_voice_states_layout.py` (17), `test_button_text_fits.py` (2), `test_tts_edge_rate.py` (17), `test_tts_button_wording.py` (1), `test_voice_install_models_status.py` (12). Changed: `test_qwen3_gui.py` (the three tests now run in both machine states, plus a completed fresh install), `test_sentence_data.py` (wording), `test_verification_coverage.py` (the inventory phase). Every new test failed under at least one planted defect after a no-change control passed.
+- **Native.** New journey `mp3.typed-values-survive-first-import`: real keys before a real Add Files, the published tags read back, and the real wheel over the Summary pane across three runs. It passed on the candidate and failed on both defects with `fa9d3c3`'s two files swapped in (`journey-control/`, the candidate restored by hash). The gate gained a guarded `wheel` verb and Text view facts in its channel.
+- **Inventory.** 8 issues closed, 2 added: 59 in all, 42 open. Features updated with what now holds; two new static surfaces mapped; six source files reviewed and restamped by name; `INVENTORY_PHASE` is 5. `inventory.py check`: 0 problems.
+- **Targeted verification before commit.** each issue's own modules after its fix, then the inventory and meta-guards (188 passed, 1 skipped by policy). Changed-area focused run `2026-11-07_202536_focused_deb2` (72 affected features, 98 modules plus the gate's and the shared UI's own, and all 49 journeys, since the gate adapters changed): PASS, 49 of 49 journeys, 6,250 passed and 52 skipped with policy-named reasons, `coverage-inventory` PASS, tree unchanged. After it two code comments were corrected (no code changed) and both files restamped.
+- **Not verified, not claimed.** Display scaling other than 100%. Real optional engines and real Edge (all optional states here are asset health only). A Qwen3 voice at 920x600 (ACT72-058). macOS.
+- **Unchanged and carried.** The 73 visual candidates (none approved), the owner's 94 dialog-history values, `bfa7` in `%TEMP%\act-gate`, the owner's 14 deletions and 4 untracked entries.
+- **Next exact action.** The full gate on this commit, then a documents-only closeout. No merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 4 (closeout): the complete full gate PASSED on `7987503`; the commit that adds this block changes canonical documents only; READY FOR OWNER ACCEPTANCE REVIEW; NOT accepted; Phase 5 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
 
 Authority: the owner's Phase 4 prompt. This block supersedes the status line and the Scratch bullet of the block below; that block's account of what was built stands.

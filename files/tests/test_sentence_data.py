@@ -86,7 +86,7 @@ def test_missing_data_is_refused_with_what_to_do_and_nothing_is_downloaded(tmp_p
     finally:
         nltk.data.path[:] = saved
     message = str(refused.value)
-    assert "not installed" in message and "Press Create again" in message
+    assert "not installed" in message and "Press Start again" in message
     assert "files\\runtime-data\\nltk_data" in message and nltk_store.DOWNLOAD_SIZE_TEXT in message
     assert downloads == []
 
@@ -317,7 +317,7 @@ def test_a_failed_download_at_create_starts_nothing_and_says_what_to_do(make_pan
         "the sentence data could not be downloaded (OSError: offline); nothing was changed"))
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
     assert accept(panel) == {}
-    assert "offline" in dialogs.warnings[0] and "Create again" in dialogs.warnings[0]
+    assert "offline" in dialogs.warnings[0] and "Start again" in dialogs.warnings[0]
 
 
 @pytest.mark.parametrize("outcome", ["installed", "failed"])

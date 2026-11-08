@@ -174,7 +174,8 @@
         "On Start everything the run uses (queue, backend and voice id, voice label, bitrate, workers, rate, resume, overwrite, the voice's pauses, speech preparation) is frozen once; later changes to widgets, the queue or files on disk cannot reach the run.",
         "The numbered run folder is reserved only after validation; a reservation or naming refusal shows 'Output folder' and leaves no empty folder.",
         "One file that fails is a retryable item failure and the run goes on; a run that itself breaks is a non-retryable job failure, and the panel always returns to idle.",
-        "A run ends once, as Succeeded, Completed with failures, Cancelled or Failed."
+        "A run ends once, as Succeeded, Completed with failures, Cancelled or Failed.",
+        "An Edge rate the Edge voices would refuse, for a queue with folder-imported files, is refused at Start ('Edge speech rate') before anything is frozen or reserved (ACT.TTS.EDGE-RATE)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -1809,7 +1810,10 @@
           "path": "scripts/tts/epub2tts_gui.py",
           "symbols": [
             "TtsPanel._on_voice_selected",
-            "TtsPanel._freeze_run"
+            "TtsPanel._freeze_run",
+            "EDGE_RATE",
+            "edge_rate_problem",
+            "TtsPanel.run_job"
           ]
         },
         {
@@ -1828,12 +1832,14 @@
       "contracts": [
         "The Edge speech rate field is shown only for an Edge voice and takes its default from the voice preset (+0%).",
         "The typed rate is frozen per run and sent with every folder-route Edge request; directly added Edge files always use Edge's natural pace.",
-        "Worker planning reads the rate as a speed for the folder route and ignores it for the direct route."
+        "Worker planning reads the rate as a speed for the folder route and ignores it for the direct route.",
+        "Start refuses a rate the Edge voices would refuse (anything but a sign, a whole number and %), before anything is frozen or reserved, whenever folder-imported files would send it; a queue of directly added files never judges it."
       ],
       "selection": [
         "files/tests/test_tts_compact_ui.py",
         "files/tests/test_worker_limits.py",
-        "files/tests/test_tts_jobs.py"
+        "files/tests/test_tts_jobs.py",
+        "files/tests/test_tts_edge_rate.py"
       ],
       "journeys": [
         "tts.edge-replay-folder-mixed"
@@ -1861,10 +1867,24 @@
             "test": "files/tests/test_tts_jobs.py::test_a_retry_reads_no_live_widget_manager_or_configuration"
           },
           {
-            "kind": "planned",
-            "gap": "A rate the Edge service will refuse (anything not like +10% or -5%) is not refused at Start; the run reserves a folder and every folder-imported Edge file then fails (see findings).",
-            "phase": 5,
-            "issue": "ACT72-044"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_edge_rate.py::test_the_start_check_agrees_with_the_pinned_edge_library[10%]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_edge_rate.py::test_the_start_check_agrees_with_the_pinned_edge_library[+10%]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_edge_rate.py::test_a_rate_edge_refuses_stops_a_folder_queue_before_anything_is_reserved[fast]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_edge_rate.py::test_a_rate_edge_accepts_reaches_the_frozen_folder_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_edge_rate.py::test_a_queue_of_direct_files_never_uses_the_rate_so_it_is_not_judged"
           }
         ]
       },
@@ -1993,10 +2013,12 @@
         "Only an Edge run with a directly added file needs the sentence data; folder-only Edge runs and local engines never ask.",
         "When it is missing or damaged, Start asks first, naming the size, the source and the folder; nothing is downloaded silently.",
         "No, a failed download or Cancel starts nothing, reserves no folder and says so; Yes downloads it in a small modal window off the Tk thread and then starts that same run.",
-        "The worker only proves the data is present and never downloads; if it vanished meanwhile the run fails with a message saying what to do."
+        "The worker only proves the data is present and never downloads; if it vanished meanwhile the run fails with a message saying what to do.",
+        "Every message that asks the person to try again names the button they see: Start."
       ],
       "selection": [
-        "files/tests/test_sentence_data.py"
+        "files/tests/test_sentence_data.py",
+        "files/tests/test_tts_button_wording.py"
       ],
       "journeys": [],
       "verification": {
@@ -2026,10 +2048,8 @@
             "scenario": "fresh-windows"
           },
           {
-            "kind": "planned",
-            "gap": "The not-started messages tell the person to 'Press Create again' but the button is labelled Start (see findings).",
-            "phase": 5,
-            "issue": "ACT72-045"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_button_wording.py::test_every_press_again_message_names_the_run_button"
           }
         ]
       },
@@ -2062,10 +2082,13 @@
         "When the chosen voice is only missing installable files, Start freezes the run first and opens the review-and-install window; nothing is reserved before the voice is installed.",
         "After a successful install the voice is checked again and the same frozen run starts exactly once; later changes to the panel are not read.",
         "Skip, Cancel, a failure, closing the window or closing the panel abandons the run and creates nothing; a source changed or removed during the install stops the run with a message.",
-        "A second Start while the install window is open opens nothing and starts nothing."
+        "A second Start while the install window is open opens nothing and starts nothing.",
+        "Every message that asks the person to try again names the button they see: Start."
       ],
       "selection": [
-        "files/tests/test_release_installer.py"
+        "files/tests/test_release_installer.py",
+        "files/tests/test_qwen3_gui.py",
+        "files/tests/test_tts_button_wording.py"
       ],
       "journeys": [],
       "verification": {
@@ -2095,10 +2118,12 @@
             "scenario": "optional-engines"
           },
           {
-            "kind": "planned",
-            "gap": "The not-started messages tell the person to 'Press Create again' but the button is labelled Start (see findings).",
-            "phase": 5,
-            "issue": "ACT72-045"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_button_wording.py::test_every_press_again_message_names_the_run_button"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_gui.py::test_on_a_fresh_install_a_completed_install_starts_the_frozen_qwen3_run_once"
           }
         ]
       },
@@ -2311,7 +2336,8 @@
         "files/tests/test_tts_jobs.py",
         "files/tests/test_tts_worker_concurrency.py",
         "files/tests/test_tts_reporting_order.py",
-        "files/tests/test_tts_compact_ui.py"
+        "files/tests/test_tts_compact_ui.py",
+        "files/tests/test_log_follow.py"
       ],
       "journeys": [],
       "verification": {
@@ -2341,10 +2367,8 @@
             "test": "files/tests/test_tts_jobs.py::test_a_stale_or_earlier_attempts_timing_sample_is_inert"
           },
           {
-            "kind": "planned",
-            "gap": "The log panes reset their view on every render and never follow new lines (shared SummaryDetailsView).",
-            "phase": 5,
-            "issue": "ACT72-005"
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_every_tools_own_log_follows_holds_and_resumes_in_the_real_shell"
           }
         ]
       },
@@ -2382,11 +2406,13 @@
       "contracts": [
         "Wide windows put the workflow (Sources over Voice & Audio over Output & Run) left and Activity right; 920x600 and 1024x720 use the split arrangement with Activity still on the right; only a smaller panel stacks Activity beneath.",
         "Every required control stays wholly on screen at 920x600, 1024x720 and larger; only the queue list and the log scroll, each with a measured floor; no whole-panel scrollbar.",
-        "A voice notice appearing or disappearing re-measures the layout; switching Light/Dark recolours everything without moving any state or a running job."
+        "A voice notice appearing or disappearing re-measures the layout; switching Light/Dark recolours everything without moving any state or a running job.",
+        "Every Kokoro and Chatterbox voice state, installed or not, keeps Start and Cancel on screen at 920x600 and larger; Qwen3 states do at 1024x720 and larger (920x600 is ACT72-058)."
       ],
       "selection": [
         "files/tests/test_tts_compact_ui.py",
-        "files/tests/test_tts_appearance.py"
+        "files/tests/test_tts_appearance.py",
+        "files/tests/test_tts_voice_states_layout.py"
       ],
       "journeys": [
         "launcher.six-tools-at-three-sizes"
@@ -2428,10 +2454,34 @@
             "detail": "Check the TTS panel at Windows display scaling above 100% (for example 125% and 150%)."
           },
           {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[kokoro-absent-920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[kokoro-pronunciation-absent-920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[chatterbox-absent-920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[qwen3-absent-1024x720]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_changing_voice_while_idle_leaves_no_stale_message_and_start_reachable[920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_resizing_and_the_appearance_toggle_keep_an_absent_kokoro_usable"
+          },
+          {
             "kind": "planned",
-            "gap": "With a Kokoro voice selected and not installed at 920x600 the not-installed line stacks on an older notice, Start scrolls out of view, and the notice still promises a first-run download.",
-            "phase": 5,
-            "issue": "ACT72-007"
+            "phase": 6,
+            "issue": "ACT72-058",
+            "gap": "A Qwen3 voice at 920x600: its required hardware and speed disclosure and Install / repair button need 10 px (installed) to 63 px (absent) more height than either split column has left at its floors, so the panel stacks and Start, Cancel and the log leave the window. Fine at 1024x720 and larger."
           }
         ]
       },
@@ -3401,13 +3451,15 @@
         "Each local voice answers (ok, reason) cheaply and deterministically from files on disk: no model load, no download, no write, never an exception.",
         "Qwen3 checks in a fixed order (platform, engine, model, then reference and transcript for clones) and each reason names one next step.",
         "A voice whose models are simply not installed maps to its optional component and is offered Install & Continue; anything installing cannot fix (missing reference, unsupported platform, busy engine) is not offered.",
-        "One unavailable voice never makes another voice or engine unavailable, and is never swapped for another voice."
+        "One unavailable voice never makes another voice or engine unavailable, and is never swapped for another voice.",
+        "Tests state the machine's install state explicitly (installed, or a fresh install), never the machine they run on; simulated readiness is asset health only, never engine qualification."
       ],
       "selection": [
         "files/tests/test_release_installer.py",
         "files/tests/test_qwen3_runtime.py",
         "files/tests/test_chatterbox_integration.py",
-        "files/tests/test_qwen3_gui.py"
+        "files/tests/test_qwen3_gui.py",
+        "files/tests/test_voice_install_models_status.py"
       ],
       "journeys": [],
       "verification": {
@@ -3429,16 +3481,48 @@
             "test": "files/tests/test_chatterbox_integration.py::test_availability_never_loads_a_model_downloads_or_writes_anything"
           },
           {
-            "kind": "planned",
-            "gap": "voice_install.models_status (the panel's Kokoro/Chatterbox installed-vs-missing check, including the spaCy English model branch) has no direct test; panel tests stub it.",
-            "phase": 5,
-            "issue": "ACT72-057"
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_installed_voices_are_ready_and_asking_writes_nothing"
           },
           {
-            "kind": "planned",
-            "gap": "Three test_qwen3_gui.py tests assume an installed Qwen3 state; on a fresh install the panel rightly offers Install & Continue and the tests fail. They need explicit installed and missing states.",
-            "phase": 5,
-            "issue": "ACT72-008"
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_a_missing_or_damaged_model_file_is_not_installed_and_offers_install_and_continue[kokoro-wrong-content]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_a_missing_or_damaged_model_file_is_not_installed_and_offers_install_and_continue[chatterbox-missing]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_a_kokoro_voice_file_of_its_own_is_needed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_kokoro_without_its_english_pronunciation_model_says_so_and_offers_the_install"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_a_pronunciation_model_installing_cannot_fix_is_reported_and_not_offered[incompatible-spacy]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_voice_install_models_status.py::test_a_check_that_cannot_run_is_an_answer_not_a_crash"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_gui.py::test_starting_with_an_unavailable_voice_is_refused_before_a_run_is_reserved[engine-installed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_gui.py::test_starting_with_an_unavailable_voice_is_refused_before_a_run_is_reserved[fresh-install]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_gui.py::test_a_selection_that_goes_stale_after_picking_is_refused_at_start[fresh-install]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_gui.py::test_a_refused_run_substitutes_no_other_voice_engine_or_model[fresh-install]"
           }
         ]
       },
@@ -3573,19 +3657,28 @@
           "symbols": [
             "installable"
           ]
+        },
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel._on_voice_selected",
+            "TtsPanel._refresh_voice_status"
+          ]
         }
       ],
       "contracts": [
         "Installing Kokoro acquires exactly the pinned model, one .pt per roster voice and the approved spaCy English wheel, at the pinned commit, never a moving main.",
         "The spaCy wheel is size- and hash-checked before pip sees it, installed offline with --no-index --no-deps --require-hashes, and kept so a rebuilt environment can reinstall it without downloading.",
         "Success is claimed only after the files are hashed again, recorded and the Kokoro engine is proved to load.",
-        "From the TTS panel, Install & Continue starts the frozen run exactly once after a successful install; Skip, Cancel or a failure starts nothing and creates nothing."
+        "From the TTS panel, Install & Continue starts the frozen run exactly once after a successful install; Skip, Cancel or a failure starts nothing and creates nothing.",
+        "The panel shows one Kokoro message at a time: while the voice can run, that it runs locally from its installed model files (no download is promised); while it cannot, the setup line naming Install & Continue."
       ],
       "selection": [
         "files/tests/test_optional_setup_acquisition.py",
         "files/tests/test_optional_tts_setup.py",
         "files/tests/test_release_installer.py",
-        "files/tests/test_tts_appearance.py"
+        "files/tests/test_tts_appearance.py",
+        "files/tests/test_tts_voice_states_layout.py"
       ],
       "journeys": [],
       "verification": {
@@ -3615,10 +3708,16 @@
             "scenario": "optional-engines"
           },
           {
-            "kind": "planned",
-            "gap": "At 920x600 with a Kokoro voice selected and not installed, the 'not installed' line stacks on the older Kokoro notice, Start scrolls out of view, and the notice still says the first run 'may download' about 300 MB.",
-            "phase": 5,
-            "issue": "ACT72-007"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_an_absent_kokoro_shows_one_message_that_says_what_to_do[kokoro-absent]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_an_installed_kokoro_notice_promises_no_download"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_voice_states_layout.py::test_the_kokoro_notice_returns_when_the_voice_becomes_installed"
           }
         ]
       },
@@ -4683,7 +4782,8 @@
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
-        "files/tests/test_mp3_workflow.py"
+        "files/tests/test_mp3_workflow.py",
+        "files/tests/test_mp3_metadata_precedence.py"
       ],
       "journeys": [],
       "verification": {
@@ -4707,8 +4807,12 @@
           {
             "kind": "planned",
             "gap": "No MP3 Tool test presses Cancel Import during a folder scan, and none drives the MP3 wording of the broad-folder or large-result confirmations (the panel fixture stubs both); plan section 11.3 lists 'cancel an import' among the MP3 paths to reproduce",
-            "phase": 5,
+            "phase": 6,
             "issue": "ACT72-054"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_import_folder_asks_before_replacing_typed_values_and_a_refusal_keeps_them"
           }
         ]
       },
@@ -5034,14 +5138,17 @@
         "A Book's first files pre-fill Artist, Album Artist and Album with the normalised majority of their tags (first seen wins a tie); a blank majority writes nothing.",
         "Files added to a Book that already has tracks never change its stored values.",
         "A field whose sources disagree shows 'Mixed source metadata' ('Mixed' in the tight layout); the marker is never a value.",
-        "Values typed or cleared before a Book's first import must survive that import (currently broken, ACT72-006)."
+        "Only a field with no value at all is filled by a Book's first files: a value typed or cleared before that import, a duplicate's carried values and the values an emptied Book kept all survive it, in the panel and in the tags written."
       ],
       "selection": [
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_tool_ui.py",
-        "files/tests/test_mp3_hardening.py"
+        "files/tests/test_mp3_hardening.py",
+        "files/tests/test_mp3_metadata_precedence.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "mp3.typed-values-survive-first-import"
+      ],
       "verification": {
         "all_of": [
           {
@@ -5061,10 +5168,36 @@
             "test": "files/tests/test_mp3_workflow.py::test_the_majority_wins_and_the_minority_marks_it_mixed"
           },
           {
-            "kind": "planned",
-            "gap": "First population (Import Folder creating Books, or the first files into an empty Book, including a Book emptied and refilled) writes every nonblank source majority over Book values the user typed or deliberately cleared before that import (mp3_workflow._prepopulated)",
-            "phase": 5,
-            "issue": "ACT72-006"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_values_typed_or_cleared_before_the_first_files_survive_them_into_the_tags"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_later_conflicting_files_change_no_stored_value"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_an_emptied_book_refilled_keeps_every_value_it_held"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_new_and_duplicated_books_follow_the_same_precedence"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_a_shared_value_wins_the_tags_and_the_book_value_survives_beneath_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_first_population_fills_only_fields_the_book_has_no_value_for"
+          },
+          {
+            "kind": "native",
+            "scenario": "mp3.typed-values-survive-first-import"
+          },
+          {
+            "kind": "media",
+            "scenario": "mp3.typed-values-survive-first-import"
           }
         ]
       },
@@ -5102,15 +5235,18 @@
         "Clearing a field stores an empty value; the source value never comes back for it.",
         "A blank Artist, Album Artist or Album is absent from the written tag, never inherited from the source file.",
         "A blank Album leaves the combined file with no Title and no Album frame; nothing is invented.",
-        "A value cleared before a Book's first import must stay cleared (currently broken, ACT72-006)."
+        "A value cleared before a Book's first import stays cleared through it, in the panel and in the written tags."
       ],
       "selection": [
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_write_id3.py",
         "files/tests/test_mp3_combine.py",
-        "files/tests/test_mp3_hardening.py"
+        "files/tests/test_mp3_hardening.py",
+        "files/tests/test_mp3_metadata_precedence.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "mp3.typed-values-survive-first-import"
+      ],
       "verification": {
         "all_of": [
           {
@@ -5130,10 +5266,20 @@
             "test": "files/tests/test_mp3_combine.py::test_a_blank_album_leaves_no_title_and_invents_nothing"
           },
           {
-            "kind": "planned",
-            "gap": "A field cleared before a Book's first import is overwritten by the source majority on that import, so the intended blank is lost (mp3_workflow._prepopulated)",
-            "phase": 5,
-            "issue": "ACT72-006"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_values_typed_or_cleared_before_the_first_files_survive_them_into_the_tags"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_metadata_precedence.py::test_a_cancelled_import_dialog_changes_no_value"
+          },
+          {
+            "kind": "native",
+            "scenario": "mp3.typed-values-survive-first-import"
+          },
+          {
+            "kind": "media",
+            "scenario": "mp3.typed-values-survive-first-import"
           }
         ]
       },
@@ -5476,13 +5622,15 @@
         "A chosen file is decoded first; a refusal shows an error and keeps the previous choice.",
         "JPG/PNG are embedded as their own bytes; HEIC/HEIF become an in-memory PNG; the tag gets exactly one front-cover APIC, and no artwork means no APIC.",
         "Shared artwork overrides every Book without erasing a Book's own choice.",
-        "Artwork that no longer decodes at run time fails the Book (not retryable) and publishes nothing."
+        "Artwork that no longer decodes at run time fails the Book (not retryable) and publishes nothing.",
+        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size."
       ],
       "selection": [
         "files/tests/test_mp3_artwork.py",
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_write_id3.py",
-        "files/tests/test_mp3_hardening.py"
+        "files/tests/test_mp3_hardening.py",
+        "files/tests/test_button_text_fits.py"
       ],
       "journeys": [],
       "verification": {
@@ -5506,6 +5654,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_hardening.py::test_heic_artwork_follows_the_real_capability_probe"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[1024x720]"
           }
         ]
       },
@@ -6425,13 +6581,17 @@
       "contracts": [
         "Log history survives from run to run; a divider marks each run, each retry and each Clear All Imports, and import lines sit between.",
         "Clear Log clears only the visible text; the event history, the session log and the run result are untouched and cleared lines never return.",
-        "Import problems go to the log, not a dialog; technical detail goes to Detailed and the session log, never the Summary."
+        "Import problems go to the log, not a dialog; technical detail goes to Detailed and the session log, never the Summary.",
+        "Summary and Detailed follow new lines at the bottom and hold a reader who scrolled up (the shared view)."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
-        "files/tests/test_mp3_tool_ui.py"
+        "files/tests/test_mp3_tool_ui.py",
+        "files/tests/test_log_follow.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "mp3.typed-values-survive-first-import"
+      ],
       "verification": {
         "all_of": [
           {
@@ -6449,6 +6609,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_orchestration.py::test_detailed_events_reach_the_session_log_through_the_one_bridge"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_every_tools_own_log_follows_holds_and_resumes_in_the_real_shell"
+          },
+          {
+            "kind": "native",
+            "scenario": "mp3.typed-values-survive-first-import"
           }
         ]
       },
@@ -9416,13 +9584,15 @@
         "An undecodable or mislabelled image is refused with a message and the previous selection is kept.",
         "A Shared artwork overrides and disables the Book's artwork control; clearing Shared restores the Book's own.",
         "The preview is an in-memory thumbnail; the chosen file is never written.",
-        "The control is disabled while a run owns it, separately from the Shared override."
+        "The control is disabled while a run owns it, separately from the Shared override.",
+        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size."
       ],
       "selection": [
         "files/tests/test_m4b_maker_ui.py",
         "files/tests/test_m4b_artwork_ui.py",
         "files/tests/test_m4b_artwork.py",
-        "files/tests/test_m4b_combined_hardening.py"
+        "files/tests/test_m4b_combined_hardening.py",
+        "files/tests/test_button_text_fits.py"
       ],
       "journeys": [
         "maker.build-with-chapters-and-artwork"
@@ -9460,6 +9630,14 @@
           {
             "kind": "media",
             "scenario": "maker.build-with-chapters-and-artwork"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[1024x720]"
           }
         ]
       },
@@ -11486,19 +11664,27 @@
           "symbols": [
             "artwork_intent"
           ]
+        },
+        {
+          "path": "scripts/artwork/m4b_artwork_ui.py",
+          "symbols": [
+            "ArtworkControl"
+          ]
         }
       ],
       "contracts": [
         "Choose… decodes the chosen image first; an unusable or undecodable file shows an 'Artwork:' error and changes nothing",
         "A Shared artwork overrides and disables every Book's artwork control; clearing it restores the Book's own choice",
         "Save Tags keeps the source cover unless a replacement is chosen; Clear All Tags removes it unless one is chosen; Remove Series Numbering never changes it",
-        "The chosen image file is never written"
+        "The chosen image file is never written",
+        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size."
       ],
       "selection": [
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_m4b_combined_hardening.py",
         "files/tests/test_m4b_metadata_appearance.py",
-        "files/tests/test_m4b_artwork_ui.py"
+        "files/tests/test_m4b_artwork_ui.py",
+        "files/tests/test_button_text_fits.py"
       ],
       "journeys": [
         "metadata.save-tags-then-clear"
@@ -11530,10 +11716,12 @@
             "scenario": "metadata.save-tags-then-clear"
           },
           {
-            "kind": "planned",
-            "gap": "'Choose…' is clipped to 'Choose.' at 920x600 in this panel's artwork controls",
-            "phase": 5,
-            "issue": "ACT72-020"
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[920x600]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[1024x720]"
           }
         ]
       },
@@ -12581,7 +12769,8 @@
       "selection": [
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_clear_all_imports.py",
-        "files/tests/test_m4b_combined_hardening.py"
+        "files/tests/test_m4b_combined_hardening.py",
+        "files/tests/test_log_follow.py"
       ],
       "journeys": [],
       "verification": {
@@ -12601,14 +12790,12 @@
           {
             "kind": "planned",
             "gap": "No test presses Clear Log in this panel or checks that a second action's lines follow the first's under a divider",
-            "phase": 5,
+            "phase": 6,
             "issue": "ACT72-053"
           },
           {
-            "kind": "planned",
-            "gap": "The Summary and Detailed panes reset their view on every render and never follow new lines (shared log view)",
-            "phase": 5,
-            "issue": "ACT72-005"
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_every_tools_own_log_follows_holds_and_resumes_in_the_real_shell"
           }
         ]
       },
@@ -12653,7 +12840,8 @@
       "selection": [
         "files/tests/test_m4b_metadata_appearance.py",
         "files/tests/test_m4b_metadata_editor_ui.py",
-        "files/tests/test_cross_tool_consistency.py"
+        "files/tests/test_cross_tool_consistency.py",
+        "files/tests/test_button_text_fits.py"
       ],
       "journeys": [],
       "verification": {
@@ -12679,10 +12867,8 @@
             "test": "files/tests/test_m4b_metadata_appearance.py::test_text_editing_keys_are_never_hijacked"
           },
           {
-            "kind": "planned",
-            "gap": "'Choose…' is clipped to 'Choose.' at 920x600 in this panel's artwork controls; the on-screen tests pass because the button keeps its requested width",
-            "phase": 5,
-            "issue": "ACT72-020"
+            "kind": "behavior",
+            "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[920x600]"
           },
           {
             "kind": "owner",
@@ -15752,7 +15938,14 @@
             "SummaryDetailsView.minimum_height",
             "SummaryDetailsView._write",
             "SummaryDetailsView._select_all",
-            "SummaryDetailsView.apply_appearance"
+            "SummaryDetailsView.apply_appearance",
+            "_LogPane",
+            "_rows",
+            "_shared_prefix",
+            "SummaryDetailsView._page",
+            "SummaryDetailsView._newest_line_shown",
+            "SummaryDetailsView._edit",
+            "SummaryDetailsView._trim"
           ]
         },
         {
@@ -15770,13 +15963,18 @@
         "Earlier runs and the panel's own lines stay above the live run; a re-render replaces only the live section; clearing empties the visible text and the same run does not refill it.",
         "Ctrl+A selects all text in either pane, and copying works although the panes are read-only.",
         "Each pane keeps at least one readable line however small the window.",
-        "Each pane follows new lines while the reader is at the bottom and holds the reader's position when scrolled up, resuming when they return to the bottom."
+        "Each pane follows on its own: while its newest line is on screen (a tolerance under one line) new lines keep it at the bottom; scrolled up, the reader keeps the same top line to the pixel through new lines, trimmed history, a rewritten live section, resizes and tab or tool switches, and follows again on returning to the bottom.",
+        "A render changes only the lines that changed (an append, the lines trimmed off the front, or the rewritten tail), never the whole pane, and every render and view change runs on the thread that owns Tk.",
+        "An appearance change re-colours both panes in place and keeps a following pane at the bottom."
       ],
       "selection": [
         "files/tests/test_job_ui.py",
-        "files/tests/test_job_events_eta.py"
+        "files/tests/test_job_events_eta.py",
+        "files/tests/test_log_follow.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "mp3.typed-values-survive-first-import"
+      ],
       "verification": {
         "all_of": [
           {
@@ -15804,10 +16002,64 @@
             "test": "files/tests/test_job_ui.py::test_the_views_keep_one_readable_line_however_hard_they_are_squeezed"
           },
           {
-            "kind": "planned",
-            "gap": "Panes reset the viewport on every render and never follow: _write deletes and reinserts all text with no follow/hold state per pane; no test covers follow, hold or resume",
-            "phase": 5,
-            "issue": "ACT72-005"
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_pane_at_the_bottom_follows_every_new_line"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_reader_who_scrolled_up_keeps_their_line_to_the_pixel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_returning_to_the_bottom_resumes_following"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_each_pane_follows_or_holds_on_its_own_through_tab_switches"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_pane_never_opened_follows_when_it_is_first_shown"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_trimmed_history_keeps_the_held_line_until_it_is_itself_trimmed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_rewritten_tail_keeps_the_held_line_number"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_clear_while_holding_starts_following_what_comes_next"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_resize_keeps_a_follower_at_the_bottom_and_a_holder_on_their_line"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_tool_switch_unmaps_and_remaps_the_log_without_losing_either_state"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_the_rendered_text_is_always_exactly_the_model"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_busy_run_keeps_the_event_loop_responsive_and_the_reader_in_place"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_every_tools_own_log_follows_holds_and_resumes_in_the_real_shell"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_log_follow.py::test_a_worker_thread_cannot_render_into_a_pane"
+          },
+          {
+            "kind": "native",
+            "scenario": "mp3.typed-values-survive-first-import"
           },
           {
             "kind": "planned",
@@ -18754,10 +19006,12 @@
         "The data comes from one pinned commit; the archive and every installed file are checked against pinned SHA-256s and installed with one rename",
         "Anything that does not match (hash, unsafe member, not a zip) installs nothing",
         "NLTK reads only files/runtime-data/nltk_data, never the user's profile",
-        "First-run setup discloses the download before Begin Setup and a failed fetch is not fatal; when the data is missing an Edge conversion asks first, and No starts nothing and downloads nothing"
+        "First-run setup discloses the download before Begin Setup and a failed fetch is not fatal; when the data is missing an Edge conversion asks first, and No starts nothing and downloads nothing",
+        "The 'sentence data missing' message names the Start button."
       ],
       "selection": [
-        "files/tests/test_sentence_data.py"
+        "files/tests/test_sentence_data.py",
+        "files/tests/test_tts_button_wording.py"
       ],
       "journeys": [],
       "verification": {
@@ -18785,6 +19039,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_sentence_data.py::test_no_at_create_starts_nothing_downloads_nothing_and_says_so"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_sentence_data.py::test_missing_data_is_refused_with_what_to_do_and_nothing_is_downloaded"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_button_wording.py::test_every_press_again_message_names_the_run_button"
           }
         ]
       },
@@ -20575,6 +20837,7 @@
       "binding:scripts/shared/bootstrap.py::run_with_gui.optional_phase::protocol:WM_DELETE_WINDOW": "ACT.SETUP.FIRST-RUN.CANCEL",
       "binding:scripts/shared/bootstrap.py::run_with_gui::bind:<Configure>": "ACT.SETUP.FIRST-RUN",
       "binding:scripts/shared/job_ui.py::ImportedFileList.__init__::bind:<<ListboxSelect>>": "ACT.SHARED.FILE-LIST",
+      "binding:scripts/shared/job_ui.py::SummaryDetailsView._page::bind:<Configure>": "ACT.SHARED.LOG-VIEW",
       "binding:scripts/shared/job_ui.py::SummaryDetailsView._page::bind:<Control-A>": "ACT.SHARED.LOG-VIEW",
       "binding:scripts/shared/job_ui.py::SummaryDetailsView._page::bind:<Control-a>": "ACT.SHARED.LOG-VIEW",
       "binding:scripts/shared/job_ui.py::bind_list_shortcuts::bind:<Alt-Down>": "ACT.SHARED.FILE-LIST",
@@ -20674,6 +20937,7 @@
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._start_frozen::messagebox.showerror:Output folder#2": "ACT.TTS.OUTPUT-NAMES",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_output_folder::messagebox.showerror:Output folder": "ACT.TTS.OUTPUT-FOLDER",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_qwen3_setup::messagebox.showinfo:Conversion in progress": "ACT.TTS.SETUP.QWEN3",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Edge speech rate": "ACT.TTS.EDGE-RATE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Missing input": "ACT.TTS.RUN",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice not recognised": "ACT.TTS.VOICE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice unavailable": "ACT.TTS.VOICE",
@@ -21151,49 +21415,53 @@
       "id": "ACT72-005",
       "severity": "Major",
       "phase": 5,
-      "status": "open",
+      "status": "closed",
       "title": "Log panes reset the viewport on every render and never follow (shared/job_ui.py SummaryDetailsView._write); every tool",
       "features": [
         "ACT.METADATA.ACTIVITY-LOG",
         "ACT.SHARED.LOG-VIEW",
         "ACT.TTS.ACTIVITY-LOG"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in Phase 5: shared/job_ui.SummaryDetailsView renders by the smallest edit and keeps a follow state per pane: it follows at the bottom, holds a reader who scrolled up and resumes at the bottom (files/tests/test_log_follow.py; journey mp3.typed-values-survive-first-import)."
     },
     {
       "id": "ACT72-006",
       "severity": "Major",
       "phase": 5,
-      "status": "open",
+      "status": "closed",
       "title": "MP3 Tool first population overwrites metadata the user typed or deliberately cleared before the first import (mp3_workflow._prepopulated)",
       "features": [
         "ACT.MP3.BLANK-VALUES",
         "ACT.MP3.SOURCE-PREFILL"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in Phase 5: a Book's first population fills only absent keys (mp3_workflow._prepopulated); test_mp3_metadata_precedence.py and the journey mp3.typed-values-survive-first-import read the published tags."
     },
     {
       "id": "ACT72-007",
       "severity": "Major",
       "phase": 5,
-      "status": "open",
+      "status": "closed",
       "title": "Kokoro selected and not installed at 920x600: the not-installed line stacks on an older notice, Start scrolls out of view, the notice wording is stale",
       "features": [
         "ACT.TTS.LAYOUT",
         "ACT.TTS.SETUP.KOKORO"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in Phase 5: one Kokoro message at a time and the notice no longer promises a download; every Kokoro and Chatterbox state keeps Start and Cancel on screen at 920x600 (test_tts_voice_states_layout.py). Qwen3 at 920x600 is ACT72-058."
     },
     {
       "id": "ACT72-008",
       "severity": "Minor",
       "phase": 5,
-      "status": "open",
+      "status": "closed",
       "title": "Three test_qwen3_gui.py tests assume an installed Qwen3 state; on a fresh install the panel offers Install & Continue and they fail",
       "features": [
         "ACT.TTS.VOICE-STATE"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in Phase 5 (tests only): the three tests state the installed and fresh-install machine states explicitly and pass with this machine answering either way."
     },
     {
       "id": "ACT72-009",
@@ -21322,13 +21590,16 @@
       "id": "ACT72-020",
       "severity": "Minor",
       "phase": 5,
-      "status": "open",
-      "title": "'Choose…' is clipped to 'Choose.' at 920x600 in the Metadata panel's artwork controls",
+      "status": "closed",
+      "title": "'Choose…' is clipped to 'Choose.' in the artwork controls of the MP3 Tool, M4B Maker and M4B Metadata Editor (first seen in the Metadata Editor at 920x600)",
       "features": [
+        "ACT.MAKER.ARTWORK",
         "ACT.METADATA.ARTWORK",
-        "ACT.METADATA.LAYOUT"
+        "ACT.METADATA.LAYOUT",
+        "ACT.MP3.ARTWORK"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
+      "resolution": "Fixed in Phase 5: the artwork Choose…/Clear buttons take their label's natural width (all three tools that show artwork were clipped, at every size); the MP3 Tool's artwork gap is the fields' 6 px so its 920x600 row is not squeezed (test_button_text_fits.py)."
     },
     {
       "id": "ACT72-021",
@@ -21584,24 +21855,27 @@
       "id": "ACT72-044",
       "severity": "Minor",
       "phase": 5,
-      "status": "open",
+      "status": "closed",
       "title": "An Edge speech rate the service will refuse is not checked at Start: the run reserves a folder and every folder-imported Edge file then fails",
       "features": [
         "ACT.TTS.EDGE-RATE"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in Phase 5: Start refuses a rate the Edge library would refuse, before anything is frozen or reserved, when folder-imported files would send it (test_tts_edge_rate.py)."
     },
     {
       "id": "ACT72-045",
       "severity": "Minor",
       "phase": 5,
-      "status": "open",
+      "status": "closed",
       "title": "TTS messages tell the person to 'Press Create again', but the button is labelled Start",
       "features": [
+        "ACT.SETUP.SENTENCE-DATA",
         "ACT.TTS.INSTALL-AND-CONTINUE",
         "ACT.TTS.SENTENCE-DATA"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in Phase 5: every such message names Start (tts/epub2tts_gui.py, shared/nltk_store.py; test_tts_button_wording.py)."
     },
     {
       "id": "ACT72-046",
@@ -21748,21 +22022,45 @@
     {
       "id": "ACT72-057",
       "severity": "Minor",
-      "phase": 5,
+      "phase": 8,
       "status": "open",
-      "title": "TTS branches without an automated check: PDF line cleaning against expected text, voice_install.models_status (the installed-or-missing check the panel's tests replace)",
+      "title": "PDF line cleaning (hyphen joins, soft-wrap rejoin, page-number and running-head removal) has no check against expected text; the voice_install.models_status half was closed in Phase 5 (test_voice_install_models_status.py)",
       "features": [
-        "ACT.TTS.PDF-TEXT",
-        "ACT.TTS.VOICE-STATE"
+        "ACT.TTS.PDF-TEXT"
       ],
       "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+    },
+    {
+      "id": "ACT72-058",
+      "severity": "Major",
+      "phase": 6,
+      "status": "open",
+      "title": "A Qwen3 voice at 920x600: its owner-required hardware and speed disclosure (Q3/Q7) and the Install / repair button need 10 px (installed) to 63 px (absent) more height than either split column has at its floors, so the panel stacks and Start, Cancel and the log leave the window; what gives way at that size is the owner's call",
+      "features": [
+        "ACT.TTS.LAYOUT"
+      ],
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-07_phase5_work_d628/act72-007/budget-after.json"
+    },
+    {
+      "id": "ACT72-059",
+      "severity": "Minor",
+      "phase": 6,
+      "status": "open",
+      "title": "The setup windows' progress logs (shared/bootstrap.py run_with_gui and show_repair_dialog) scroll to the newest line on every message, so a person cannot scroll back to read while setup is writing",
+      "features": [
+        "ACT.SETUP.FIRST-RUN",
+        "ACT.SETUP.LAUNCH"
+      ],
+      "evidence": "v0.7.2 Phase 5 log-view audit (read from source, not measured)"
     }
   ],
   "source_review": {
+    "Setup_and_Run-audiobook-creation-tool.bat": "05d244791f517ec95068f2a3f3be065248bb983dfe1a74d8692051c688473ca3",
+    "Setup_and_Run-audiobook-creation-tool.command": "24f965d1c3a34aea754d8ad800a29320f21f0619a9fcbb2c1c82d7b2067d5090",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
     "scripts/artwork/cover_resizer.py": "88da4dff0d87d6e910c29682726b7c9a16dd3b868b0e03ec66b574c047bc35f1",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
-    "scripts/artwork/m4b_artwork_ui.py": "ad88f04b2338d61d8d62712724728c7f2e4201939acf8e34b486950e46c473ce",
+    "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
     "scripts/launcher.py": "bc0662efd48dbb638e074c6f25eec513d45b9cbe70c6af508f7f6044fd1d57be",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
@@ -21794,8 +22092,8 @@
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "3dc33d55e3231c22d0f11b4d112e3cf91029a0b63239e1106007ebfa0f84c720",
     "scripts/mp3/mp3_processing.py": "cda5ee985cabbaa22b7a81a525aaa7f5247eacc13233d06b3f0a3e6ce8d27b6c",
-    "scripts/mp3/mp3_tool.py": "c899352d3615742e4c8d70335b8ec9d1e17afb7314adc1248186f460b9205dce",
-    "scripts/mp3/mp3_workflow.py": "d4a8ab3669aebaffdd89ea3ccb268b1bc15b3f2c7350f61a88c7c48782f42534",
+    "scripts/mp3/mp3_tool.py": "f87559345bec435d46ccd2499f630fee970d1fefbe9f2df4b44b636eef651403",
+    "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
@@ -21819,11 +22117,11 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "78847a3bcd767c6619876ff187a59ae3dc65a89b4c37a9a5e5535da997fa2e20",
-    "scripts/shared/job_ui.py": "a7d7833ec6acbc9eabe4354a5f8953097e3de85624caa2571241d5f30781fb53",
+    "scripts/shared/job_ui.py": "3a8a58d0a936e8930f3fd4653db25755c7f2ac66c0e23c5a9ea37e1384e0a51b",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/maintenance.py": "b801ffa6d4d2fd04b218ad70da8353185df01f9c0d1c0557fe2ae1f38f64e0f1",
     "scripts/shared/metadata.py": "9bdc0864a39f9c6a2a88a102bee877546c9f8a8e8bc3295d2e3ca3269602531b",
-    "scripts/shared/nltk_store.py": "f6ba5ee07f7874d74f32b4357375ca2c01c3cf624d08957c26ab9f3b53b9a0d7",
+    "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
     "scripts/shared/optional_setup_client.py": "7749824d1c40ac595903d4ebac8339e9000a23daf280bc69fd3bbd8f7e2f898e",
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
@@ -21858,7 +22156,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "9486ce7e24d76ab357d0d07967e22fc21c4e79416c359352025e06b2720ab1a0",
     "scripts/tts/epub2tts_edge/runner.py": "0a5548b940c391226c06d2f1fda9e4012d07000398c2aef5e3623f1a97ef765c",
-    "scripts/tts/epub2tts_gui.py": "21bcd354275894903480cf7652c5810b2f1bf1ecee076e99ce830a65ed9b0e7f",
+    "scripts/tts/epub2tts_gui.py": "a9a318a6e021db6fccf8ffceb2bf7a9eb81559094b4e8ef67b8688cb6c1a410d",
     "scripts/tts/ffmpeg_watch.py": "88fb80064a3366decf79b346c36224f8db203ab2a794c4700b9d3da4bfbc886f",
     "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
     "scripts/tts/kokoro_synth.py": "45d140427faa7a85ecf54eed97dabd159617ba8154c06878c30da1a012a15844",
@@ -21900,8 +22198,6 @@
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "39168cf1f5e6437fd72f0ad35424cce0caa4c859faf5ee2bdf389f0a51c9b1f9",
     "scripts/tts/voice_registry.py": "4f62cf28794083d027bf37d14d0e219ee74c60c3faf8a797e675bdfbda9d9e38",
-    "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8",
-    "Setup_and_Run-audiobook-creation-tool.bat": "05d244791f517ec95068f2a3f3be065248bb983dfe1a74d8692051c688473ca3",
-    "Setup_and_Run-audiobook-creation-tool.command": "24f965d1c3a34aea754d8ad800a29320f21f0619a9fcbb2c1c82d7b2067d5090"
+    "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8"
   }
 }

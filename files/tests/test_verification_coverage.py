@@ -156,10 +156,10 @@ def test_v2_a_dangling_feature_id_anywhere_is_refused():
 
 
 def test_v2_a_planned_gap_needs_an_open_issue_and_a_later_phase():
-    good = {"kind": "planned", "gap": "follow the bottom", "phase": 5, "issue": "ACT72-901"}
+    good = {"kind": "planned", "gap": "follow the bottom", "phase": 6, "issue": "ACT72-901"}
     assert _v2_problems(_v2(_v2_feature("ACT.MP3.X", "mp3-tool", {"kind": "behavior", "test": TEST_ID}, good))) == [], "the control"
     for broken, needle in (({**good, "issue": None}, "must name an open issue"), ({**good, "issue": "ACT72-999"}, "must name an open issue"),
-                           ({**good, "phase": 4}, "later phase"), ({**good, "gap": ""}, "what is missing")):
+                           ({**good, "phase": 5}, "later phase"), ({**good, "gap": ""}, "what is missing")):
         assert any(needle in item for item in _v2_problems(_v2(_v2_feature("ACT.MP3.X", "mp3-tool", broken)))), broken
     closed = {**OPEN, "status": "closed"}
     assert any("must name an open issue" in item for item in _v2_problems(_v2(_v2_feature("ACT.MP3.X", "mp3-tool", good), issues=(closed,))))
@@ -189,7 +189,7 @@ def test_v2_an_owner_exception_must_cite_the_owners_approval():
 
 
 def test_v2_release_pending_evidence_is_counted_apart_and_never_satisfied_by_a_routine_run():
-    planned = {"kind": "planned", "gap": "g", "phase": 5, "issue": "ACT72-901"}
+    planned = {"kind": "planned", "gap": "g", "phase": 6, "issue": "ACT72-901"}
     owner = {"kind": "owner", "check": "listening", "detail": "the owner listens"}
     coverage = _v2(_v2_feature("ACT.MP3.PENDING", "mp3-tool", {"kind": "behavior", "test": TEST_ID}, owner),
                    _v2_feature("ACT.MP3.GAP", "mp3-tool", planned))

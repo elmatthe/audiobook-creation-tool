@@ -84,6 +84,72 @@ def write_then_combine(context: Context) -> None:
     expect_clean_close(context, session)
 
 
+TYPED_ALBUM = "Typed Before Import"
+
+
+def _summary(session) -> dict:
+    return session.widget(TOOL, "log.summary_text")
+
+
+@scenario("mp3.typed-values-survive-first-import", tool="mp3-tool", layers=("native", "media"), tier="journey",
+          summary="Album typed and Artist cleared with real keys before the first Add Files; the tracks' own tags overwrite neither, the "
+                  "published tags say so, and the Summary log follows, holds under the real wheel and resumes across three runs")
+def typed_values_survive_first_import(context: Context) -> None:
+    """ACT72-006 and ACT72-005 (v0.7.2 Phase 5) through a person's hands: the fixtures carry "Source Album" and "Source Artist"."""
+    report = context.report
+    session = context.app(last_tool=TOOL)
+    open_tool(session, TOOL)
+    session.type_into(TOOL, "surface._rows[album].book_entry", TYPED_ALBUM)
+    session.type_into(TOOL, "surface._rows[artist].book_entry", "deleted again")
+    session.type_into(TOOL, "surface._rows[artist].book_entry", "")
+    paths = _add_tracks(session, context, ["track-1", "track-2"])
+    before = context.source_hashes(paths)
+    report.equal("the typed Album survives the first files", session.widget(TOOL, "surface._rows[album].book_entry").get("value"), TYPED_ALBUM)
+    report.equal("the cleared Artist stays cleared", session.widget(TOOL, "surface._rows[artist].book_entry").get("value"), "")
+    session.screenshot("typed-then-added")
+
+    def write(number: int) -> None:
+        session.click(TOOL, "btn_write_id3")
+        wait_until(lambda: context.run_dir(TOOL, number).exists(), 30, f"run {number} to begin")
+        report.equal(f"Write ID3 run {number}: ended", wait_for_job(session, TOOL), "SUCCEEDED")
+        session.settle()
+
+    write(1)
+    written = _files_of(context.run_dir(TOOL, 1))
+    report.equal("one output per track", len(written), 2)
+    for index, output in enumerate(written):
+        oracle.inspect_audio(context.tools, output, report, label=f"track {index + 1}", codec="mp3", container="mp3",
+                             tags={"album": TYPED_ALBUM}, absent_tags=("artist",))
+    context.require_unchanged(before)
+
+    # -- the Summary pane, read as a person reads it --------------------------------------------- #
+    first = _summary(session)
+    report.check("after run 1 the Summary shows its newest line", first.get("newest_line_shown"), first.get("top_text"))
+    session.wheel(TOOL, "log.summary_text", 1)
+    session.settle()
+    held = _summary(session)
+    # Held below line 1: the view the old renderer reset to on every update would look the same as holding there.
+    report.check("one notch moved the reader off the newest line, not to the top",
+                 not held.get("newest_line_shown") and 1 < held["top_line"] < first["top_line"],
+                 {"before": first.get("top_line"), "after": held.get("top_line")})
+    write(2)
+    during = _summary(session)
+    report.equal("run 2's lines did not move a reader who had scrolled up", (during.get("top_line"), during.get("top_text")),
+                 (held.get("top_line"), held.get("top_text")))
+    report.check("run 2's lines arrived below the reader", len(during.get("content", "")) > len(held.get("content", "")), "")
+    for _ in range(12):
+        if _summary(session).get("newest_line_shown"):
+            break
+        session.wheel(TOOL, "log.summary_text", -1)
+        session.settle()
+    report.check("the wheel brought the reader back to the newest line", _summary(session).get("newest_line_shown"), "")
+    write(3)
+    after = _summary(session)
+    report.check("back at the bottom, run 3's lines are followed", after.get("newest_line_shown"), after.get("top_text"))
+    session.screenshot("log-followed")
+    expect_clean_close(context, session)
+
+
 @scenario("mp3.unreadable-track", tool="mp3-tool", layers=("native", "media"), tier="adverse",
           summary="Bytes that are not audio named .mp3, beside a real track: the failure is named, nothing false is published, sources are unchanged")
 def unreadable(context: Context) -> None:

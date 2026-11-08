@@ -82,6 +82,7 @@ import contextlib
 import io
 import os
 import queue
+import re
 import sys
 import tempfile
 import threading
@@ -436,6 +437,26 @@ def _source_signatures(snapshot) -> tuple:
 
 #: v0.7.0: the consent for the Edge voices' English sentence data (``shared.nltk_store``).
 SENTENCE_DATA_TITLE = "English sentence data"
+
+
+#: The only rate form the Edge service takes: a sign, a whole number and a percent sign (edge_tts 7.3.1 checks exactly
+#: ``^[+-]\d+%$`` and refuses anything else, for every request of a folder-imported Edge file).
+EDGE_RATE = re.compile(r"[+-]\d+%")
+
+
+def edge_rate_problem(rate: str, imported) -> str:
+    """Why the Edge speech rate cannot be used for this queue, or ``""``. v0.7.2 Phase 5, ACT72-044.
+
+    Only folder-imported files send a rate (directly added Edge files keep Edge's natural pace), so a queue of direct
+    files never needs one. Asked at Start, before anything is frozen or reserved: a malformed rate used to reserve a
+    run folder and then fail every folder-imported Edge file, one service refusal at a time.
+    """
+    if all(entry.mirroring_root is None for entry in imported.files):
+        return ""
+    if EDGE_RATE.fullmatch(rate):
+        return ""
+    return (f"The Edge speech rate {rate!r} is not one the Edge voices accept. Type a sign, a whole number and %, "
+            "for example +10% or -5% (+0% is normal speed). Nothing was started.")
 
 
 def needs_sentence_data(imported) -> bool:
@@ -1562,17 +1583,20 @@ class TtsPanel(ttk.Frame):
             )
             self.edge_rate_frm.grid_remove()
             self.kokoro_speed_frm.grid()
-            notice = (
-                "Kokoro voices run locally on this computer. The first Kokoro run "
-                "may download ~300 MB of voice model data, stored with the app. "
-            )
+            # v0.7.2 Phase 5 (ACT72-007). Since v0.7.0 the model files are
+            # installed only through Install & Continue's reviewed download and
+            # never fetched by a run, so the old "the first Kokoro run may
+            # download ~300 MB" was untrue. And when they are missing, the
+            # status line below already says what to do: the notice then
+            # steps aside, so the two never stack and push Start off a
+            # 920x600 window.
+            notice = "Kokoro voices run locally on this computer, from their installed model files. "
             if sys.version_info >= (3, 13):
                 notice += (
                     "WARNING: PyPI 'kokoro' currently requires Python 3.10–3.12. "
                     "Use a Python 3.12 virtual environment for Kokoro voices."
                 )
-            self.kokoro_notice_var.set(notice)
-            self.kokoro_notice_lbl.grid()
+            self.kokoro_notice_var.set(notice.strip())
             self._refresh_voice_status(entry)
         else:
             self.backend_label_var.set(
@@ -1651,6 +1675,13 @@ class TtsPanel(ttk.Frame):
         else:
             self.voice_status_var.set(reason)
             self.voice_status_lbl.grid()
+        if entry.backend == "kokoro":
+            # One Kokoro message at a time (ACT72-007): the notice while the voice
+            # can run, the setup line while it cannot. Every caller re-measures.
+            if self._voice_available:
+                self.kokoro_notice_lbl.grid()
+            else:
+                self.kokoro_notice_lbl.grid_remove()
         return self._voice_available, reason
 
     # ------- worker -> GUI queue drain (main thread, on the one pump) -------
@@ -2476,6 +2507,12 @@ class TtsPanel(ttk.Frame):
         backend = "edge" if current_voice_entry is None else current_voice_entry.backend
         voice_id = (speaker if current_voice_entry is None
                     else current_voice_entry.voice_id)
+        if backend == "edge":
+            # The same value _freeze_run will freeze, judged before anything is frozen or reserved (ACT72-044).
+            problem = edge_rate_problem(self.rate_var.get().strip() or "+0%", snapshot)
+            if problem:
+                messagebox.showwarning("Edge speech rate", problem)
+                return
 
         # A locally cloned voice needs its reference recording on *this* computer.
         # Asked here rather than trusted from selection time, and before anything is
@@ -2525,7 +2562,7 @@ class TtsPanel(ttk.Frame):
         if outcome.get("state") not in ("installed", "ready"):
             messagebox.showinfo("Conversion not started",
                                 "The voice was not installed, so this conversion was not started and nothing was "
-                                "created. Press Create again whenever you are ready.")
+                                "created. Press Start again whenever you are ready.")
             return
         ok, why = self._refresh_voice_status(entry)
         self._content_changed()
@@ -2536,7 +2573,7 @@ class TtsPanel(ttk.Frame):
             # The frozen run would narrate material that is no longer what was chosen: never silently.
             messagebox.showinfo("Conversion not started",
                                 "The voice is installed, but a source file changed or was removed while it was being "
-                                "installed, so this conversion was not started. Press Create again to narrate the "
+                                "installed, so this conversion was not started. Press Start again to narrate the "
                                 "files as they are now.")
             return
         if self._busy.is_set():
@@ -2557,7 +2594,7 @@ class TtsPanel(ttk.Frame):
         if not messagebox.askyesno(SENTENCE_DATA_TITLE, sentence_data_question(detail)):
             messagebox.showinfo("Conversion not started",
                                 "The English sentence data was not downloaded, so this conversion was not started and "
-                                "nothing was created. Press Create again whenever you are ready.")
+                                "nothing was created. Press Start again whenever you are ready.")
             return False
         self._pending_install = True
         try:
@@ -2569,7 +2606,7 @@ class TtsPanel(ttk.Frame):
         if error:
             messagebox.showwarning("Sentence data not installed",
                                    f"{error}\n\nThis conversion was not started. Check the internet connection and "
-                                   "press Create again.")
+                                   "press Start again.")
             return False
         return True
 

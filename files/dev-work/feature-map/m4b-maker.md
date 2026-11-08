@@ -208,7 +208,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 `ACT.MAKER.ACTIVITY-LOG`
 
 - The Activity section has Summary and Detailed tabs, the note "Summary: progress and results. Detailed: every step." and Clear Log. Earlier runs' lines are kept (up to 400 per pane), with a divider for each run, retry and Clear All Imports. Clear Log clears the visible text only and never interferes with a running build.
-- Known gaps: no Maker test presses Clear Log or checks the per-run divider (Phase 6). The panes do not follow new lines, the shared defect ACT72-005 (Phase 5).
+- Known gaps: no Maker test presses Clear Log or checks the per-run divider (Phase 6). The panes follow, hold and resume as the shared log view does.
 
 ### Panel layout, density and appearance
 `ACT.MAKER.LAYOUT`

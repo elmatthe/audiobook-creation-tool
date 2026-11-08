@@ -62,15 +62,39 @@ QWEN3_VOICES = (
 
 
 class Qwen3Stub:
-    """Stands in for ``tts.qwen3_synth`` and answers the availability seam from a dictionary the test controls."""
+    """Stands in for ``tts.qwen3_synth`` and answers the availability seam from a dictionary the test controls.
 
-    def __init__(self, *, available=None):
+    It also says whether this *machine* has the Qwen3 engine and models (v0.7.2 Phase 5, ACT72-008). Before, three
+    tests left that question to the real ``voice_install.installable``, so they passed where Qwen3 is installed and,
+    on a fresh install, reached the real Install & Continue dialog. ``installed`` answers it the way the real seam
+    does -- nothing to offer when the engine and models are present, the voice's component when they are not -- and
+    ``install_dialog`` records the offer instead of opening anything. Nothing is installed or downloaded either way,
+    and neither state is engine qualification.
+    """
+
+    def __init__(self, *, available=None, installed=True):
         self.calls: list[dict] = []
         self.status_requests: list[str] = []
         self.available: dict[str, tuple[bool, str]] = dict(available or {})
         self.chunks = ()  # (done, total) pairs the engine reports through progress_callback
         self.cancel_at_chunk = None
         self.failing = ""
+        self.installed = installed
+        self.install_offers: list[tuple[str, str]] = []
+        self.install_outcome: dict = {}  # what the review dialog returns: {} is closed or skipped
+        self.on_install = None  # runs as the dialog "installs", e.g. to make the voice available
+
+    def installable(self, backend: str, voice_id: str, reason: str):
+        if backend != "qwen3" or self.installed:
+            return None
+        from tts import voice_install
+        return voice_install.component_for(backend, voice_id)
+
+    def install_dialog(self, panel, component: str, reason: str) -> dict:
+        self.install_offers.append((component, reason))
+        if self.on_install is not None:
+            self.on_install()
+        return dict(self.install_outcome)
 
     def status(self, voice_id: str) -> tuple[bool, str]:
         self.status_requests.append(voice_id)
@@ -106,7 +130,8 @@ def qwen3(monkeypatch):
 
 
 def panel_kwargs(qwen3, chatterbox=None):
-    kwargs = {"qwen3_status": qwen3.status, "qwen3_hardware": lambda: HARDWARE}
+    kwargs = {"qwen3_status": qwen3.status, "qwen3_hardware": lambda: HARDWARE,
+              "installable": qwen3.installable, "install_dialog": qwen3.install_dialog}
     if chatterbox is not None:
         kwargs["chatterbox_status"] = chatterbox.status
     return kwargs
@@ -214,49 +239,103 @@ def test_an_unavailable_voice_is_shown_with_the_engines_own_sentence(make_panel,
     assert panel_module.QWEN3_ENGINE_LABEL in panel.backend_label_var.get()  # the engine line still tells the truth
 
 
-def test_starting_with_an_unavailable_voice_is_refused_before_a_run_is_reserved(
-        make_panel, output_base, tmp_path, stubs, monkeypatch):
+#: Both machine states for every Start that meets an unavailable voice: the engine and models present (installing
+#: cannot help, so the run is refused with the engine's sentence) and a fresh install (Install & Continue is offered,
+#: and closing it starts nothing).
+MACHINE_STATES = pytest.mark.parametrize("installed", (True, False), ids=("engine-installed", "fresh-install"))
+
+
+def _said(calls) -> str:
+    return " ".join(str(part) for call in calls for part in call)
+
+
+def _dialogs(monkeypatch) -> dict:
     from tkinter import messagebox
 
-    stub = unavailable("qwen3-aiden", "Setup required: the model is not installed.").install(monkeypatch)
-    warned: list = []
-    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: warned.append(a))
+    said = {"warning": [], "info": []}
+    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: said["warning"].append(a))
+    monkeypatch.setattr(messagebox, "showinfo", lambda *a, **k: said["info"].append(a))
+    return said
+
+
+def _refused_without_starting(panel, stub, said, reason: str) -> None:
+    """The one refusal each machine state gives, and on both: nothing offered or started that was not asked for."""
+    if stub.installed:
+        assert stub.install_offers == [], "installing cannot fix this, so nothing is offered"
+        assert reason in _said(said["warning"])
+    else:
+        component = stub.installable("qwen3", panel.voice_var.get(), reason)
+        assert component and stub.install_offers == [(component, reason)], "a fresh install offers Install & Continue"
+        assert said["warning"] == []
+        start = panel.go_btn.cget("text")
+        assert "not started" in _said(said["info"]) and f"Press {start} again" in _said(said["info"])
+    assert stub.calls == []
+
+
+@MACHINE_STATES
+def test_starting_with_an_unavailable_voice_is_refused_before_a_run_is_reserved(
+        make_panel, output_base, tmp_path, stubs, monkeypatch, installed):
+    reason = ("Setup required: the model is not installed." if not installed else
+              "Setup required for Qwen3 - Aiden: its reference recording is not present on this computer.")
+    stub = unavailable("qwen3-aiden", reason).install(monkeypatch)
+    stub.installed = installed
+    said = _dialogs(monkeypatch)
     monkeypatch.setattr(panel_module.output_paths, "reserve_run_directory",
                         lambda *a, **k: pytest.fail("a refused run reserved a directory"))
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", **panel_kwargs(stub))
     select(panel)
     assert accept(panel) == {}, "no worker was started"
-    assert warned and "model is not installed" in " ".join(str(part) for part in warned[0])
-    assert stub.calls == [] and stubs.conversion_jobs == [] and stubs.kokoro_calls == []
+    _refused_without_starting(panel, stub, said, reason)
+    assert stubs.conversion_jobs == [] and stubs.kokoro_calls == []
 
 
+@MACHINE_STATES
 def test_a_selection_that_goes_stale_after_picking_is_refused_at_start(
-        make_panel, output_base, tmp_path, stubs, monkeypatch):
-    from tkinter import messagebox
-
-    stub = Qwen3Stub().install(monkeypatch)
-    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: None)
+        make_panel, output_base, tmp_path, stubs, monkeypatch, installed):
+    stub = Qwen3Stub(installed=installed).install(monkeypatch)
+    said = _dialogs(monkeypatch)
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", **panel_kwargs(stub))
     select(panel)
     assert panel._voice_available is True
     stub.available["qwen3-aiden"] = (False, "the Qwen3 model was removed")
     assert accept(panel) == {} and stub.calls == []
     assert "removed" in panel.voice_status_var.get()
+    _refused_without_starting(panel, stub, said, "the Qwen3 model was removed")
 
 
+@MACHINE_STATES
 def test_a_refused_run_substitutes_no_other_voice_engine_or_model(
-        make_panel, output_base, tmp_path, stubs, monkeypatch):
-    from tkinter import messagebox
-
-    stub = unavailable("qwen3-male-1", "Setup required for Qwen3 - Male 1: no approved transcript.").install(monkeypatch)
+        make_panel, output_base, tmp_path, stubs, monkeypatch, installed):
+    reason = "Setup required for Qwen3 - Male 1: no approved transcript."
+    stub = unavailable("qwen3-male-1", reason).install(monkeypatch)
+    stub.installed = installed
     chatterbox = ChatterboxStub().install(monkeypatch)
-    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: None)
+    said = _dialogs(monkeypatch)
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", **panel_kwargs(stub, chatterbox))
     select(panel, MALE_1)
     accept(panel)
     assert panel.selected_voice_label.get() == MALE_1, "no silent swap"
     assert stub.calls == [] and chatterbox.calls == [], "no fallback to the Chatterbox twin that shares the recording"
     assert stubs.conversion_jobs == [] and stubs.kokoro_calls == [], "no fallback to Edge or Kokoro"
+    _refused_without_starting(panel, stub, said, reason)
+
+
+def test_on_a_fresh_install_a_completed_install_starts_the_frozen_qwen3_run_once(
+        make_panel, output_base, tmp_path, stubs, monkeypatch):
+    """The fresh-install route to the end: the voice becomes available as the (stand-in) review installs it, and the
+    run frozen before the install starts exactly once with the voice that was chosen. Nothing is downloaded."""
+    reason = ('The Qwen3 CustomVoice model (4.5 GB) is not installed. Choose "Install / repair Qwen3 voices" to install '
+              "it; nothing is downloaded until you ask.")
+    stub = Qwen3Stub(available={"qwen3-aiden": (False, reason)}, installed=False).install(monkeypatch)
+    stub.install_outcome = {"state": "installed"}
+    stub.on_install = lambda: stub.available.update({"qwen3-aiden": (True, "ok")})
+    _dialogs(monkeypatch)
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", **panel_kwargs(stub))
+    select(panel)
+    params = run_attempt(panel)
+    assert [offer[0] for offer in stub.install_offers] == ["qwen3-customvoice"]
+    assert params["voice_id"] == "qwen3-aiden" and [c["voice_id"] for c in stub.calls] == ["qwen3-aiden"]
+    assert panel._voice_available is True and not panel.voice_status_lbl.winfo_manager()
 
 
 def test_one_unavailable_qwen3_voice_leaves_the_others_and_every_other_engine_usable(

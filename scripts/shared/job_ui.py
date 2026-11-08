@@ -1956,6 +1956,44 @@ def _stage_text(stage: str | None, item_id: str | None) -> str:
     return stage or item_id or ""
 
 
+class _LogPane:
+    """What one log pane holds, and whether its reader follows it (v0.7.2, ACT72-005).
+
+    ``shown`` is exactly what the widget displays, as entries. ``dropped``
+    counts entries that have left the *front* of the content -- history
+    trimmed to the limit, or cleared -- and ``drawn_dropped`` how many of
+    those the widget has already deleted, so a render removes exactly the
+    lines that left instead of rewriting the pane. ``follow`` is the last
+    known answer to "is the newest line on screen?"; it is consulted only
+    where the pane's geometry cannot answer: before the pane has ever been
+    laid out, and in the instant of a resize.
+    """
+
+    __slots__ = ("shown", "dropped", "drawn_dropped", "follow")
+
+    def __init__(self) -> None:
+        self.shown: tuple[str, ...] = ()
+        self.dropped = 0
+        self.drawn_dropped = 0
+        self.follow = True
+
+
+def _rows(entries: Sequence[str]) -> int:
+    """Text rows these entries take once joined: an entry may hold newlines."""
+    return "\n".join(entries).count("\n") + 1 if entries else 0
+
+
+def _shared_prefix(old: tuple[str, ...], new: tuple[str, ...]) -> int:
+    """How many leading entries *old* and *new* have in common."""
+    count = min(len(old), len(new))
+    if old[:count] == new[:count]:
+        return count
+    for index in range(count):
+        if old[index] != new[index]:
+            return index
+    return count  # pragma: no cover - the slice comparison above already said so
+
+
 class SummaryDetailsView:
     """The Summary / Details pair, each fed by its own approved projection.
 
@@ -1978,11 +2016,19 @@ class SummaryDetailsView:
 
     A view built the Phase 8 way — no history calls — behaves exactly as before:
     ``set_summary`` replaces everything, and the second tab is ``Details``.
+
+    **Following (v0.7.2 Phase 5, ACT72-005).** Each pane follows on its own. A
+    reader at the bottom -- the newest line on screen, even partly -- stays at
+    the bottom as lines arrive, through a resize and a tab switch. A reader
+    who has scrolled up keeps the same line at the top while lines arrive,
+    history is trimmed or the live section re-renders, and follows again on
+    returning to the bottom. A render changes only the lines that changed, so
+    a long run's log costs one append per render rather than a rewrite.
     """
 
     __slots__ = ("_guard", "_theme", "_closed", "_summary", "_details",
                  "_summary_history", "_details_history", "_summary_seen",
-                 "_details_seen", "_limit",
+                 "_details_seen", "_limit", "_summary_pane", "_details_pane",
                  "frame", "summary_text", "details_text",
                  "summary_frame", "details_frame", "_height")
 
@@ -2010,6 +2056,8 @@ class SummaryDetailsView:
         self._summary_seen = 0
         self._details_seen = 0
         self._limit = None if limit is None else max(1, int(limit))
+        self._summary_pane = _LogPane()
+        self._details_pane = _LogPane()
 
         self._height = max(1, int(height))
 
@@ -2030,8 +2078,10 @@ class SummaryDetailsView:
         # those same themes 4 px worse.
         self.frame = ttk.Notebook(parent, style=style_name(theme, "notebook"),
                                   padding=0)
-        self.summary_frame, self.summary_text = self._page(theme, height, width)
-        self.details_frame, self.details_text = self._page(theme, height, width)
+        self.summary_frame, self.summary_text = self._page(
+            theme, height, width, self._summary_pane)
+        self.details_frame, self.details_text = self._page(
+            theme, height, width, self._details_pane)
         self.frame.add(self.summary_frame, text="Summary")
         self.frame.add(self.details_frame, text=str(details_label) or "Details")
 
@@ -2079,7 +2129,7 @@ class SummaryDetailsView:
             # cumulative stream never loses lines. Nothing of it was seen.
             self._summary_seen = 0
         shown = self.summary
-        self._write(self.summary_text, shown)
+        self._write(self.summary_text, self._summary_pane, shown)
         return shown
 
     def set_details(self, lines: Iterable[str]) -> tuple[str, ...]:
@@ -2089,7 +2139,7 @@ class SummaryDetailsView:
         if len(self._details) < self._details_seen:
             self._details_seen = 0
         shown = self.details
-        self._write(self.details_text, shown)
+        self._write(self.details_text, self._details_pane, shown)
         return shown
 
     # -- history ------------------------------------------------------------ #
@@ -2138,6 +2188,9 @@ class SummaryDetailsView:
         """
         self._guard.require("clear")
         self._freeze()
+        # After the freeze each pane shows exactly its history: all of it leaves.
+        self._summary_pane.dropped += len(self._summary_history)
+        self._details_pane.dropped += len(self._details_history)
         self._summary_history = []
         self._details_history = []
         self._redraw()
@@ -2151,12 +2204,16 @@ class SummaryDetailsView:
     def _trim(self) -> None:
         if self._limit is None:
             return
-        del self._summary_history[:-self._limit]
-        del self._details_history[:-self._limit]
+        for history, pane in ((self._summary_history, self._summary_pane),
+                              (self._details_history, self._details_pane)):
+            excess = len(history) - self._limit
+            if excess > 0:
+                del history[:excess]
+                pane.dropped += excess
 
     def _redraw(self) -> None:
-        self._write(self.summary_text, self.summary)
-        self._write(self.details_text, self.details)
+        self._write(self.summary_text, self._summary_pane, self.summary)
+        self._write(self.details_text, self._details_pane, self.details)
 
     @staticmethod
     def _visible(history: list[str], live: tuple[str, ...], seen: int) -> tuple[str, ...]:
@@ -2204,8 +2261,20 @@ class SummaryDetailsView:
         self._theme = theme
         if self._closed:
             return
-        style_tk_widget(self.summary_text, theme, "log")
-        style_tk_widget(self.details_text, theme, "log")
+        for widget, pane in ((self.summary_text, self._summary_pane),
+                             (self.details_text, self._details_pane)):
+            if not _alive(widget):
+                continue
+            try:
+                # A restyle can change the line height without resizing the
+                # widget, so a following reader is put back at the bottom.
+                follow = self._newest_line_shown(widget, pane)
+                style_tk_widget(widget, theme, "log")
+                if follow:
+                    widget.yview_moveto(1.0)
+                pane.follow = follow
+            except tk.TclError:
+                continue
 
     def close(self) -> None:
         self._guard.require("close")
@@ -2215,6 +2284,7 @@ class SummaryDetailsView:
 
     def _page(
         self, theme: Mapping[str, object] | None, height: int, width: int,
+        pane: _LogPane,
     ) -> tuple[ttk.Frame, tk.Text]:
         page = ttk.Frame(self.frame, style=style_name(theme, "surface"))
         text = tk.Text(page, height=max(1, int(height)), width=max(1, int(width)),
@@ -2229,22 +2299,107 @@ class SummaryDetailsView:
         bar = ttk.Scrollbar(page, orient="vertical", command=text.yview,
                             style=style_name(theme, "vscrollbar"))
         bar.grid(row=0, column=1, sticky="ns")
-        text.configure(yscrollcommand=bar.set)
+
+        def scrolled(first: str, last: str) -> None:
+            # Every view change ends here -- wheel, scrollbar, keys, a drag,
+            # a resize and this view's own renders -- so the remembered answer
+            # stays current between renders.
+            try:
+                bar.set(first, last)
+                if text.winfo_height() > 1:
+                    pane.follow = text.dlineinfo("end-1c") is not None
+            except tk.TclError:
+                pass
+
+        def resized(_event: object = None) -> None:
+            # Tk keeps the top line through a resize, so a shrinking pane
+            # would push the newest line off screen: a follower is re-pinned
+            # before the pane is redrawn at its new size.
+            if self._closed or not pane.follow:
+                return
+            try:
+                text.yview_moveto(1.0)
+            except tk.TclError:
+                pass
+
+        text.configure(yscrollcommand=scrolled)
+        text.bind("<Configure>", resized, add="+")
         page.rowconfigure(0, weight=1)
         page.columnconfigure(0, weight=1)
         return page, text
 
-    def _write(self, widget: tk.Text, lines: Sequence[str]) -> None:
+    @staticmethod
+    def _newest_line_shown(widget: tk.Text, pane: _LogPane) -> bool:
+        """Whether this pane's reader is at the bottom, from what is on screen.
+
+        At the bottom means the newest line is on screen, even partly: a
+        tolerance of under one line. Scrolling up by a line (the wheel moves
+        several) hides it and holds the view; a scrollbar thumb dragged to
+        within a line of the end still follows. A pane that has never been
+        laid out -- one pixel high, as an unopened tab is -- has no geometry
+        to ask, and nobody can have scrolled it, so its last answer stands.
+        """
+        if widget.winfo_height() <= 1:
+            return pane.follow
+        return widget.dlineinfo("end-1c") is not None
+
+    def _write(self, widget: tk.Text, pane: _LogPane, lines: Sequence[str]) -> None:
+        """Bring one pane to *lines* by the smallest edit, then follow or hold.
+
+        A cumulative projection only grows, so the usual render appends the
+        new lines and nothing else; a trimmed or cleared history deletes
+        exactly the lines that left the front; anything else replaces the
+        tail from the first line that differs. Tk keeps the top line through
+        an append below the view and a deletion above it (measured on 8.6),
+        so a reader who has scrolled up keeps their place, pixel for pixel.
+        Only when the tail replaced reaches the reader's top line is the view
+        put back on the same line number. A reader at the bottom before the
+        edit is put back at the bottom after it.
+        """
         if self._closed or not _alive(widget):
             return
+        lines = tuple(lines)
         try:
+            follow = self._newest_line_shown(widget, pane)
+            top = 0 if follow else int(widget.index("@0,0").split(".")[0])
             widget.configure(state="normal")
-            widget.delete("1.0", "end")
-            if lines:
-                widget.insert("1.0", "\n".join(lines))
-            widget.configure(state="disabled")
+            try:
+                front = self._edit(widget, pane, lines)
+            finally:
+                widget.configure(state="disabled")
+            if follow:
+                widget.yview_moveto(1.0)
+            else:
+                wanted = max(1, top - front)
+                if int(widget.index("@0,0").split(".")[0]) != wanted:
+                    widget.yview(f"{wanted}.0")
+            pane.follow = follow
         except tk.TclError:
             return
+
+    @staticmethod
+    def _edit(widget: tk.Text, pane: _LogPane, lines: tuple[str, ...]) -> int:
+        """Change only what differs; return how many rows left the front."""
+        old = pane.shown
+        drop = min(pane.dropped - pane.drawn_dropped, len(old))
+        pane.drawn_dropped = pane.dropped
+        front = 0
+        if drop:
+            front = _rows(old[:drop])
+            if drop == len(old):
+                widget.delete("1.0", "end")
+            else:
+                widget.delete("1.0", f"{front + 1}.0")
+            old = old[drop:]
+        keep = _shared_prefix(old, lines)
+        if keep < len(old):
+            # From the end of the last kept row, its newline included.
+            widget.delete(f"{_rows(old[:keep])}.end" if keep else "1.0", "end")
+        if len(lines) > keep:
+            added = "\n".join(lines[keep:])
+            widget.insert("end", "\n" + added if keep else added)
+        pane.shown = lines
+        return front
 
     def _select(self, index: int) -> None:
         if self._closed or not _alive(self.frame):

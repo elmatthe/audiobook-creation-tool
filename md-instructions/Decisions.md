@@ -4,6 +4,48 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-07 - Unset is an absent key; a log pane follows only while its newest line is on screen; a Qwen3 voice at 920x600 is the owner's call (v0.7.2 Phase 5)
+
+**Why.** Phase 5 corrects the known log, metadata and optional-state defects (plan §11.2 to §11.4, Phase 5) found by Phase 0 and the Phase 4 inventory: ACT72-005, 006, 007, 008, 020, 044, 045 and the `models_status` half of 057. Each was reproduced on `fa9d3c3` before it was fixed, and each new test was seen failing under a planted defect after a no-change control passed.
+
+**MP3 metadata: unset means an absent key, never an empty string.**
+
+- A Book's first files fill a field only when the Book has no value for it at all. A value typed before the import, a field cleared (stored as `""` by `set_book_field`), a duplicate's carried values and the values an emptied Book kept are the session's own.
+- No provenance or "dirty" framework was added: key presence already said what the contract needs (plan §11.3). Any edit is an explicit value, so typing into a field and deleting it again is a deliberate blank.
+- An emptied and refilled Book keeps the values it held, including ones its earlier files suggested. They are existing session values, which outrank an import's suggestion.
+- Import Folder still replaces every Book after its confirmation, by design. Shared values survive it and still win the output.
+- The M4B Maker (no prefill) and the M4B Metadata Editor (prefill is display only) already behaved this way; only the MP3 Tool wrote over the session.
+
+**Log panes: follow while the newest line shows, otherwise hold.**
+
+- "At the bottom" means the newest line is on screen, even partly: a tolerance under one line. One wheel notch hides it and holds the view; a scrollbar thumb dragged to within a line of the end follows.
+- Each pane keeps its own answer. It is read from the screen whenever the pane has been laid out, and kept for the two moments the screen cannot answer: an unopened tab (one pixel high) and a resize, where a following pane is put back at the bottom before it is redrawn.
+- A render changes only the lines that changed: an append, the lines trimmed off the front, or the tail from the first differing line. Tk then keeps a held reader's top line itself, to the pixel. The pane is only moved back explicitly when a rewritten tail reaches the reader's own line.
+- Clear Log leaves a pane following. Everything runs on the thread that owns Tk; the guard is unchanged.
+- The setup windows' progress logs in `shared/bootstrap.py` always jump to the newest line. They are not the tools' log view and were left alone: ACT72-059, Phase 6.
+
+**Optional voices at 920x600.**
+
+- The Kokoro notice steps aside while the setup line ("not installed ... Install & Continue") shows, so one message is shown at a time. Its wording no longer promises a first-run download, which stopped being true in v0.7.0.
+- Every Kokoro and Chatterbox state now keeps Start and Cancel on screen at 920x600.
+- **A Qwen3 voice at 920x600 is not fixed here (ACT72-058, Phase 6).** Measured: both columns of the split layout have 8 to 26 px to spare at their floors, and the Qwen3 messages need 10 px more installed and 63 px more absent. Making room means giving something up at that size: the owner-required hardware and speed disclosure (Q3/Q7), the Install / repair button's own row, or a floor that keeps the queue or the log usable. That choice is the owner's. The minimum size was not raised, and nothing else was squeezed to pass.
+
+**Tests state the machine they assume.** The Qwen3 panel tests now say whether the engine is installed or this is a fresh install, through the panel's own `installable` and `install_dialog` seams. They no longer read the real machine, so they pass the same way on a fresh checkout and here. `voice_install.models_status` is tested unreplaced against real stand-in files. Both are asset health only, never engine qualification.
+
+**Smaller fixes.**
+
+- **Artwork buttons:** they take their label's natural width (`width=0`) instead of a fixed 7 or 5 characters, which cut "Choose…" to "Choose." in the MP3 Tool, M4B Maker and Metadata Editor at every size. The MP3 Tool's artwork gap is now the fields' own 6 px, since its 920x600 row had no pixel to spare. Aqua keeps 8.
+- **Edge rate:** Start refuses an Edge rate the Edge library refuses (`^[+-]\d+%$`, the pinned `edge_tts` 7.3.1's own check), before anything is frozen or reserved, and only when folder-imported files would send it.
+- **Button wording:** every "try again" message names the button the person sees, Start, not "Create".
+
+**The inventory moves on.** `coverage_model.INVENTORY_PHASE` is now 5, so a planned gap must belong to Phase 6 or later. Two planned entries still marked Phase 5, ACT72-053 and 054, were set to 6, which their ledger already said. ACT72-057's PDF half stays open, as Phase 8, the phase the feature map already gave it.
+
+**Native evidence.** A new journey, `mp3.typed-values-survive-first-import`, types and clears with real keys before a real Add Files, then reads the published tags. It also turns the real wheel over the Summary pane across three runs. The gate gained a guarded `wheel` verb, and its channel reports a Text pane's top line and whether the newest line shows. Run against `fa9d3c3`'s two source files, the journey failed on both defects.
+
+— Decided and implemented by Claude Code under the owner's Phase 5 prompt; ACT72-058 awaits the owner.
+
+---
+
 ## 2026-11-07 - The coverage inventory is reviewed and the gate keeps it current; release-pending evidence is kept apart from routine evidence (v0.7.2 Phase 4)
 
 **Why.** Phase 4 completes the feature map (plan §7 and §14, Phase 4). The inventory had to become complete enough to trust and hard to let drift. The owner's Phase 4 prompt names the defects it must detect: an unmapped control or workflow, a deleted or renamed test, a missing scenario, a dangling feature id, required verification that did not run, an unapproved exception, and a source change without mapping review.

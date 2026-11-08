@@ -112,7 +112,8 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Earlier runs and the panel's own lines stay above the live run; clearing empties the visible text without the same run refilling it.
 - Ctrl+A selects all in either pane and copying works. Each pane keeps at least one readable line at the smallest window.
 - The panes are emptied when the app closes; the session log keeps the technical record.
-- Known issues: ACT72-005 (Phase 5) — the panes reset the scroll position on every update and never follow new lines; follow/hold/resume per pane is required and not implemented. ACT72-018 — Summary can print "All done." above "Running." and "Finished." twice (seen in Cover Image and Converter).
+- Following (v0.7.2 Phase 5, ACT72-005): each pane on its own follows new lines while its newest line is on screen, holds a reader who scrolled up on the same line through new lines, trimmed history, resizes and tab or tool switches, and follows again at the bottom. A render changes only the lines that changed.
+- Known issues: ACT72-018 — Summary can print "All done." above "Running." and "Finished." twice (seen in Cover Image and Converter).
 
 ### Session log files and crash diagnostics
 `ACT.SHARED.SESSION-LOG`
@@ -294,7 +295,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - What "Open log folder" actually opens in Explorer.
 - The hidden-console guard and the launcher's own model-cache redirect.
 - macOS and Linux shells (aqua and classic branches), including Cmd+, and the macOS native window appearance.
-- Log following (ACT72-005) is not implemented, so it cannot be verified until Phase 5.
+- Log following is checked on real widgets in every tool and natively in the MP3 Tool only; the other tools' panes are the same view.
 
 ## Shared M4B staging (Maker and Metadata Editor)
 

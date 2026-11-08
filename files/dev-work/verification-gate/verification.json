@@ -219,6 +219,7 @@
       "cover.corrupt-image",
       "mp3.write-id3-then-combine",
       "mp3.unreadable-track",
+      "mp3.typed-values-survive-first-import",
       "converter.split-by-chapter",
       "converter.whole-book-replace-metadata",
       "converter.corrupt-source",
@@ -252,6 +253,7 @@
     ],
     "journey_routes": {
       "scripts/mp3/": [
+        "mp3.typed-values-survive-first-import",
         "mp3.unreadable-track",
         "mp3.write-id3-then-combine",
         "shutdown.mp3-close-during-work",

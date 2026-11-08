@@ -13,6 +13,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 5 (2026-11-07)
+
+**Fixed**
+- The Summary and Detailed logs of every tool jumped back to the first line on every update, so new lines never came into view and a person reading earlier lines lost their place. Each pane now follows new lines while its newest line is on screen and stays where the reader is when they have scrolled up, through resizes and tab or tool switches. It follows again at the bottom.
+- MP3 Tool: an Album or Artist typed, or deliberately cleared, before a Book's first files were added was replaced by the files' own tags. A field is now filled from the files only when it has no value at all. A Book emptied and refilled also keeps its values. The written tags follow the panel.
+- TTS: with a Kokoro voice selected and not installed, the window at its 920x600 minimum lost Start and the log below the fold. Two messages were stacked, one of them still promising a download on first use, which has not been true since v0.7.0. One message now shows at a time and it says what is true.
+- TTS: an Edge speech rate the Edge voices refuse, such as "10%" without a sign, reserved a run folder and then failed every folder-imported file. Start now says how to type it, before anything is created.
+- TTS: messages said "Press Create again", but the button is labelled Start. They now say Start.
+- MP3 Tool, M4B Maker and M4B Metadata Editor: the artwork "Choose…" button read "Choose." at every size. Both artwork buttons now show their whole label.
+
+**Known issue**
+- TTS: a Qwen3 voice selected at the 920x600 minimum still pushes Start out of the window. Its hardware and speed disclosure and the Install / repair button need more height than that size has. 1024x720 and larger are fine. What gives way is the owner's decision (ACT72-058).
+
+**Added (development only; nothing here ships)**
+- Regression tests for each fix, on real widgets at real sizes and on the tags real runs publish, and a native journey that types and scrolls with real input. The tests that depended on whether Qwen3 was installed on the machine running them now state the state they assume.
+
 ## [Unreleased] — v0.7.2 Phase 4 (2026-11-07)
 
 **Added (development only; nothing here ships)**
