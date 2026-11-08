@@ -473,7 +473,10 @@ def _manifest_problem(data, token: str, folder: Path) -> Optional[str]:
 
 # --------------------------------------------------------------------------- this process's workspace
 
-class _Workspace:
+class _ProcessArea:
+    """This process's workspace in one temp folder. Temporary-file ownership only: not a Book Workspace, a job or an
+    output framework (``test_m4b_structural_authority`` keeps that one name to ``shared/book_workspace.py``)."""
+
     def __init__(self, temp: Path, token: str, owner: dict) -> None:
         self.temp = temp
         self.token = token
@@ -489,7 +492,7 @@ class _Workspace:
 
 
 _lock = threading.Lock()
-_workspaces: dict[str, _Workspace] = {}  # by the temp folder they live in: tests change it, so may a caller
+_workspaces: dict[str, _ProcessArea] = {}  # by the temp folder they live in: tests change it, so may a caller
 _current: contextvars.ContextVar[Optional[Path]] = contextvars.ContextVar("tts_work_area_current", default=None)
 
 
@@ -497,7 +500,7 @@ def _temp_key(temp: Path) -> str:
     return os.path.normcase(os.path.abspath(temp))
 
 
-def _new_workspace(temp: Path) -> _Workspace:
+def _new_workspace(temp: Path) -> _ProcessArea:
     """Called under ``_lock``. Makes ROOT if needed and a workspace no other process can have made."""
     root = temp / ROOT_NAME
     root.mkdir(parents=True, exist_ok=True)
@@ -507,7 +510,7 @@ def _new_workspace(temp: Path) -> _Workspace:
     owner = {"pid": os.getpid(), "created": _own_creation_time() or 0}
     for _ in range(16):
         token = secrets.token_hex(8)
-        workspace = _Workspace(temp, token, owner)
+        workspace = _ProcessArea(temp, token, owner)
         try:
             os.mkdir(workspace.path)  # exclusive: this process made it, which is what makes its contents this process's
         except FileExistsError:
@@ -522,7 +525,7 @@ def _new_workspace(temp: Path) -> _Workspace:
     raise WorkAreaError(f"No private working folder could be made in {root}.")
 
 
-def _retire(workspace: _Workspace) -> None:
+def _retire(workspace: _ProcessArea) -> None:
     """Called under ``_lock`` once the workspace has no entries: take the manifest and the workspace with it."""
     workspace.retired = True
     if _workspaces.get(_temp_key(workspace.temp)) is workspace:
@@ -595,7 +598,7 @@ class OwnedFolder:
         return _settle(self.workspace, self.name, _remove_entry(self.workspace.temp, self.workspace.token, self.name))
 
 
-def _add_entry(workspace: _Workspace, kind: str) -> str:
+def _add_entry(workspace: _ProcessArea, kind: str) -> str:
     """Called under ``_lock``. The entry is in the manifest, on the disk, before its folder exists, so a process killed at
     any instant leaves nothing of its own unlisted."""
     for _ in range(16):
@@ -618,7 +621,7 @@ def _add_entry(workspace: _Workspace, kind: str) -> str:
     raise WorkAreaError(f"No private working folder could be made in {workspace.path}.")
 
 
-def _settle(workspace: _Workspace, name: str, removal: _Removal) -> bool:
+def _settle(workspace: _ProcessArea, name: str, removal: _Removal) -> bool:
     removed = not removal.problems and not removal.stopped
     with _lock:
         if removed:

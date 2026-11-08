@@ -22392,7 +22392,7 @@
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "39168cf1f5e6437fd72f0ad35424cce0caa4c859faf5ee2bdf389f0a51c9b1f9",
     "scripts/tts/voice_registry.py": "4f62cf28794083d027bf37d14d0e219ee74c60c3faf8a797e675bdfbda9d9e38",
-    "scripts/tts/work_area.py": "2caa3f14a7dbf6a1dbcb1da0f3085874b0153354f3acb6298c23c7945bd8256a",
+    "scripts/tts/work_area.py": "d7f8d45676dbab0288734af4ef501589ee2fe01ffed9236402500c0df2bee7b8",
     "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8"
   }
 }
