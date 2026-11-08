@@ -22,7 +22,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Tests that kill and keep real child processes, damage the ownership record in fifteen ways, and plant links and swaps, each seen failing on a planted defect.
 
 **Verified**
-- The canonical changed-area gate result is recorded by the closeout commit. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+- The canonical changed-area gate PASSED on `dc74a3c`, its first run: every scenario (49 of 49) and 14,392 tests, 65 of them skipped with named reasons. The first candidate's run had failed two source-structure checks (a module missing from its package's list, and a class name reserved for the shared Book Workspace); both were repaired before this run. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
 
 ## [Unreleased] — v0.7.2 Phase 6A (2026-11-08)
 

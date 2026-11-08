@@ -36,7 +36,7 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 **Kept as it was.** The output-tree sweeps (exact name, process id and an hour's age; unchanged), Qwen3's job folders in `files/runtime-data`, and the other tools' staging (ACT72-019, 031, 034, 037). Legacy loose folders are never touched; they are the owner's to remove.
 
-**Verified.** The changed-area gate result is recorded by the closeout. This is not accepted until the checkpoint review and the owner say so.
+**Verified.** The canonical changed-area gate PASSED on `dc74a3c` (`2026-11-08_094047_changed_0e49`), its first run: 49 of 49 journeys passed, 13,795 + 457 + 75 tests passed and 65 were skipped with policy-named reasons, and the inventory is current. The README repair widened it to every test and journey (no selection rule covers that path). The first run, on `964e9a3`, failed two whole-source guards (`2026-11-08_085037_changed_6519`); see the Handoff. A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. This is not accepted until the checkpoint review and the owner say so.
 
 — Implemented by Claude Code under the owner's Phase 6B prompt.
 
