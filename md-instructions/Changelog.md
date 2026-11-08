@@ -22,6 +22,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 **Added (development only; nothing here ships)**
 - Regression tests at real sizes in the real launcher for every Qwen3 state, and tests that run the real setup windows with the real mouse wheel. Each failed on the old code.
 
+**Verified**
+- The canonical changed-area gate passed on `69514f9`, its first run. The setup fixes touch modules every tool shares, so the gate selected every test and scenario: 49 of 49 scenarios and 14,344 tests, 65 of them skipped with named reasons. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
 ## [Unreleased] — v0.7.2 Phase 5 (2026-11-07)
 
 **Fixed**

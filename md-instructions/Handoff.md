@@ -2,6 +2,26 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6A (closeout): the canonical changed-area gate PASSED on `69514f9`; the commit that adds this block changes canonical documents only; STOP for the ChatGPT checkpoint review; NOT accepted; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-08, Claude Code)
+
+Authority: the owner's Phase 6A prompt. This block supersedes the status line and the "Next exact action" bullet of the block below; that block's account of the slice stands.
+
+- **Starting, tested, final.** Started at `5170b8f`. The candidate `69514f9` (code, tests, inventory and documents, pushed) passed the canonical changed-area gate on its first run. This documents-only commit follows it. The gate ran on `69514f9`, not on this commit; under plan §13.3 its result carries forward. The docs, docnames and config checks and the test modules that read these documents were rerun on this commit.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-08_022917_changed_6d03/` (ignored), label `ACT072-P6A-69514f9-changed`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode changed --platform windows --base 5170b8f --label ACT072-P6A-69514f9-changed`.
+  - 89 min 25 s, exit 0, RESULT PASS, scope "changed selection only; NOT full acceptance". The tree was unchanged during the run.
+  - Selection: `bootstrap.py` and `optional_setup_panel.py` are shared by every tool, so the gate's own rule widened the changed selection to every test and journey (`changed-conservative-full`). It is still a changed run: it does not judge coverage satisfaction and it is not the full gate reserved for the end of Phase 6.
+  - Journeys: 49 of 49 PASS.
+  - Tests, recounted from the raw JUnit: the ordinary suite 13,747 passed and 65 skipped; guarded 457 and 75 passed; 0 failed and 0 errors, 14,344 in all. Every skip has a reason the policy names. The 3 warnings are Phase 4's (`audioop`, `pkg_resources`, one `record_property` notice).
+  - `coverage-inventory`: PASS. 273 features, 302 static and 247 live surfaces, every application source file reviewed as it is now.
+  - `coverage`: NOT APPLICABLE to a changed run. The run satisfied 262 of 262 required entries; only a full run judges satisfaction. `release_ready` stays false.
+  - `visual-baselines` NOT RUN: 0 approved; the 75 candidates still wait for the owner.
+  - Dialog history: the preflight child was born Low (`0x1000`), verdict contained. The values naming `act-gate` stood at 94 before and 94 after.
+  - Cleanup: no owned process remained after any stage. The run's own scratch in `%TEMP%\act-gate` is gone; `bfa7` was left alone.
+- **Unchanged.** The issue counts (59 issues, 40 open; Phase 6: 34, of them 1 Major, 28 Minor and 5 Suggestion; Phase 7: 1; Phase 8: 5), the "Not verified, not claimed" list and the recommended Phase 6 order in the block below. The owner's 14 deletions and 4 untracked entries are untouched. The version is still 0.7.1.
+- **Next exact action.** The ChatGPT checkpoint review of Phase 6A (`5170b8f` to this commit). No other Phase 6 slice before it. The one full Windows gate stays reserved for the completed Phase 6 milestone. No Codex review, merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 6A (first UI-consistency slice: ACT72-058 and ACT72-059): implemented and committed as the slice's candidate; its changed-area gate result is recorded by the closeout commit; STOP for the ChatGPT checkpoint review; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-08, Claude Code)
 
 Authority: the owner's Phase 6A prompt. This block supersedes the status lines and the "Next exact action" bullets of the two Phase 5 blocks below; their account of Phase 5 stands.

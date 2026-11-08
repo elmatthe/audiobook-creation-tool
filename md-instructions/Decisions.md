@@ -21,6 +21,13 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 - `bootstrap.py` runs before the app's environment exists and imports only standard-library-only modules, so it cannot import `shared/job_ui.py`. The rule is one helper there, `_append_following`, for its two windows, and the same three lines in `OptionalSetupPanel._append`; no shared module and no framework were added.
 - The optional-voices panel was not named in ACT72-059 but is the step the first-run window shows next and had the same defect. It was fixed under the same issue rather than left as a new one.
 
+**Verified.** The canonical changed-area gate passed on `69514f9` (`2026-11-08_022917_changed_6d03`), its first run. The shared setup modules widened its selection to every test and journey:
+- 49 of 49 journeys passed;
+- 13,747 + 457 + 75 tests passed and 65 were skipped;
+- the inventory is current (273 features, every source file reviewed as it is now).
+
+A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. This is not accepted until the checkpoint review and the owner say so.
+
 — The compact presentation approved by the owner; implemented by Claude Code under the owner's Phase 6A prompt.
 
 ---
