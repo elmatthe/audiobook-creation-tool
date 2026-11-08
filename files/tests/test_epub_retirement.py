@@ -71,6 +71,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/ffmpeg_watch.py",
     # Added by v0.7.2 Phase 1: how one Edge request answers to Cancel. Same reasoning as chatterbox_synth.py above.
     "tts/edge_requests.py",
+    # Added by v0.7.2 Phase 6B (ACT72-009): who owns the TTS routes' temporary files. Same reasoning as chatterbox_synth.py above.
+    "tts/work_area.py",
     "tts/speech/__init__.py",
     "tts/speech/document.py",
     "tts/speech/classes.py",

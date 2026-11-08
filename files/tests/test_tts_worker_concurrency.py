@@ -765,6 +765,50 @@ def test_a_run_clears_only_what_an_interrupted_run_of_its_own_left(make_panel, o
     assert f"Removed working files left by an interrupted run: {stale.name}" in log_text(panel)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="recovering another process's files is proved on Windows only")
+def test_a_run_removes_what_a_killed_run_left_in_the_temp_folder_and_nothing_else(make_panel, output_base, tmp_path,
+                                                                                 monkeypatch):
+    """ACT72-009 through the real panel: the run's start clears a workspace whose owner is provably gone, leaves a running
+    owner's and anything foreign, says what it did, and then converts (v0.7.2)."""
+    import json
+    import tempfile
+
+    from tts import work_area
+
+    FakeService().install(monkeypatch)
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+
+    def workspace(owner, token):
+        folder = temp / work_area.ROOT_NAME / token
+        (folder / "1").mkdir(parents=True)
+        (folder / "1" / "assembly.wav").write_bytes(b"W" * 64)
+        (folder / work_area.MANIFEST_NAME).write_text(json.dumps({
+            "schema": work_area.SCHEMA, "version": work_area.VERSION, "token": token, "workspace": str(folder),
+            "owner": owner, "entries": {"1": {"kind": "edge", "retention": "disposable", "state": "active"}}}),
+            encoding="utf-8")
+        return folder
+
+    killed = workspace({"pid": os.getpid(), "created": 1}, "00000000deadbeef")  # its id since reused by this process
+    running = workspace({"pid": os.getpid(), "created": work_area._own_creation_time()}, "00000000feedface")
+    foreign = temp / work_area.ROOT_NAME / "someone-elses"
+    foreign.mkdir()
+    legacy = temp / "epub2tts_k3x9q1ab"
+    legacy.mkdir()
+    root = tmp_path / "Library"
+    book(root, "c.txt", "FolderC")
+    panel = real_panel(make_panel, folders=(root,))
+    run_attempt(panel)
+    assert panel._result.succeeded_count == 1
+    assert not killed.exists()
+    assert (running / "1" / "assembly.wav").read_bytes() == b"W" * 64 and foreign.is_dir() and legacy.is_dir()
+    log = log_text(panel)
+    assert "Removed 1 temporary folder left by an interrupted run." in log
+    assert f"Left in the temporary folder, not a name this tool makes: {foreign}" in log
+    assert str(running) not in log and legacy.name not in log, "a running owner and anything outside are not reported"
+
+
 def test_running_out_of_memory_on_both_routes_falls_back_and_succeeds_through_the_panel(make_panel, output_base, tmp_path, monkeypatch):
     from pydub import AudioSegment
 
@@ -891,7 +935,8 @@ def _fail_publication_of(monkeypatch, word: str, failure: OSError) -> None:
         real = getattr(publication, name)
 
         def publish(staged, destination, _real=real):
-            if word in Path(destination).name and "tts_direct_" not in str(destination):
+            # Not the runner's publication into the panel's own private folder (since v0.7.2 inside the TTS work area).
+            if word in Path(destination).name and "act-tts" not in Path(destination).parts:
                 raise failure
             _real(staged, destination)
 

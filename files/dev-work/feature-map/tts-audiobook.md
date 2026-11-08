@@ -330,11 +330,18 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Working files and leftovers
 `ACT.TTS.CLEANUP`
 
-- **Behaviour:** each conversion's private working folder is removed when the file ends, however it ends; a failed
-  pydub export's temporary files are removed. At the start of each run, staging files and chunk folders under the output
-  tree left by a program that is gone and untouched for an hour are removed and named in Detailed.
-- **Known gap:** temporary folders in %TEMP% (`epub2tts_*`, `tts_direct_*`, pydub files) survive a killed program and are
-  never cleaned (ACT72-009, phase 6).
+- **Behaviour:** each conversion's temporary folders and files (the Edge engine's folder, the panel's direct and
+  local-engine folders, pydub's temporaries and the local engines' encode WAV) are entries of one process's workspace in
+  the TTS work area, `%TEMP%\act-tts\<token>\<n>`, listed in a manifest that names the owner by process id and creation
+  time before each folder exists. Each entry is removed when its file ends, however it ends; one another program still
+  holds is removed at a later start. The folder route's chunks stay in `.tmp_chunks` beside the run.
+- **Recovery after a killed program:** at the start of each run, a workspace whose manifest is intact and whose owner
+  is provably gone is removed and counted in Detailed. A running owner's work, an unverifiable owner, a damaged or
+  foreign manifest, a name the tool does not make, links and files in use are left as they are, and all but a running
+  owner are named. Nothing outside the work area is looked at, so loose `epub2tts_*` folders from before v0.7.2 stay
+  until the person removes them. Removal never follows a link. It stops at 5 s or at Cancel and finishes at a later
+  start. Staging files and chunk folders under the output tree left by a program that is gone and untouched for an hour
+  are removed as before.
 
 ### Closing the panel or window during work
 `ACT.TTS.CLOSE`

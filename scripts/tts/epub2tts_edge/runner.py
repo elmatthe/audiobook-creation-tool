@@ -11,7 +11,6 @@ import os
 import re
 import unicodedata
 import shutil
-import tempfile
 import traceback
 from pathlib import Path
 
@@ -110,10 +109,11 @@ def _ensure_pdf_txt_has_chapter_heading(work_txt: str) -> None:
             f.write(prepended)
 
 
-#: v0.7.1: every conversion gets its own private folder (``tempfile.mkdtemp``) and hands it to the engine as
-#: ``workdir``; nothing here changes the process-wide current folder. Until v0.7.1 this function ``os.chdir``'d into
-#: that folder (the engine wrote bare relative scratch names) and a process-wide lock had to serialize every direct
-#: Edge conversion, so several directly added files never truly converted at once.
+#: v0.7.1: every conversion gets its own private folder and hands it to the engine as ``workdir``; nothing here changes
+#: the process-wide current folder. Until v0.7.1 this function ``os.chdir``'d into that folder (the engine wrote bare
+#: relative scratch names) and a process-wide lock had to serialize every direct Edge conversion, so several directly
+#: added files never truly converted at once. v0.7.2: that folder is an entry of the TTS work area (``tts.work_area``),
+#: listed with its owner before it exists, so what a killed program left is recognised and removed by a later run.
 
 
 def run_conversion_job(
@@ -171,17 +171,14 @@ def run_conversion_job(
 def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cover, paragraphpause, sentencepause,
              title_trailing_pause, chapter_trailing_pause, end_of_book_pause, trim_tts_padding, trim_silence_db, overwrite,
              cancel_check, progress_callback, speech_prep) -> str:
-    from tts import publication, worker_limits
+    from tts import work_area
 
     sourcefile = os.path.abspath(sourcefile)
     if not os.path.isfile(sourcefile):
         raise FileNotFoundError(sourcefile)
-
-    stem = Path(sourcefile).stem
     suffix = Path(sourcefile).suffix.lower()
     if suffix not in (".pdf", ".txt"):
         raise ValueError(f"Unsupported input type: {suffix}")
-
     # A conversion cancelled before it started (queued behind other files) does no work at all.
     if cancel_check is not None and cancel_check():
         from shared.cancellation import ConversionCancelled
@@ -189,11 +186,27 @@ def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cove
         raise ConversionCancelled("Conversion cancelled by user.")
     # Read once, never changed: the default destination when no output_dir is given.
     caller_dir = Path.cwd()
-    tmp = tempfile.mkdtemp(prefix="epub2tts_")
+    # Removed when this ends, however it ends; a failed export's frames are cleared first, so nothing holds a file open.
+    with work_area.conversion_folder("edge") as folder:
+        return _convert_in(str(folder), sourcefile, caller_dir, output_dir=output_dir, speaker=speaker,
+                           audio_format=audio_format, mp3_bitrate=mp3_bitrate, cover=cover,
+                           paragraphpause=paragraphpause, sentencepause=sentencepause,
+                           title_trailing_pause=title_trailing_pause, chapter_trailing_pause=chapter_trailing_pause,
+                           end_of_book_pause=end_of_book_pause, trim_tts_padding=trim_tts_padding,
+                           trim_silence_db=trim_silence_db, overwrite=overwrite, cancel_check=cancel_check,
+                           progress_callback=progress_callback, speech_prep=speech_prep)
+
+
+def _convert_in(tmp, sourcefile, caller_dir, *, output_dir, speaker, audio_format, mp3_bitrate, cover, paragraphpause,
+                sentencepause, title_trailing_pause, chapter_trailing_pause, end_of_book_pause, trim_tts_padding,
+                trim_silence_db, overwrite, cancel_check, progress_callback, speech_prep) -> str:
+    from tts import publication, worker_limits
+
+    stem = Path(sourcefile).stem
     try:
         work_txt = os.path.join(tmp, f"{stem}.txt")
 
-        if suffix == ".pdf":
+        if Path(sourcefile).suffix.lower() == ".pdf":
             from tts.pdf_extractor import pdf_to_txt
 
             pdf_to_txt(sourcefile, work_txt)
@@ -259,8 +272,6 @@ def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cove
         return str(dest)
     except BaseException as exc:
         # A failed pydub export is still holding its output open in a frame of this traceback, and Windows will not delete an open
-        # file: without this the whole folder below stays. Those frames have finished, so their locals can go now.
+        # file: without this the whole folder stays. Those frames have finished, so their locals can go now.
         traceback.clear_frames(exc.__traceback__)
         raise
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)

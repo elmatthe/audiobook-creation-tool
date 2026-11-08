@@ -4,6 +4,44 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-08 - The TTS routes' temporary files live in an owned work area, and a run's start removes only what is provably a dead owner's (v0.7.2 Phase 6B, ACT72-009)
+
+**Why.** ACT72-009 (Major): a killed program's `epub2tts_*`, `tts_direct_*`, `tts_local_*` folders, pydub temporaries and encode WAVs lay loose in `%TEMP%` under names any program could have chosen, so nothing could ever safely remove them (31 such folders were found in HOME-PC's TEMP at entry). Plan §11.5 and §13.1.
+
+**Where: `%TEMP%\act-tts\<16-hex token>\<n>`, in the system temp folder.**
+
+- Not the app folder: a narration WAV can be gigabytes, and the app may sit on a synced Desktop or a small drive; the temp folder is where these files always went. The gate's and the tests' redirected TEMP contains it.
+- Short names on purpose: a book's own name is used inside an entry. 9 to 11 characters more than the old layout.
+
+**Ownership is a manifest, never a name, an age or a process id alone.**
+
+- `owner.json`: schema, token (the folder's name), the workspace's own path, the owner as process id **and** creation time, and every entry with kind, retention (`disposable`) and state (`active`, `finished`).
+- An entry is in the manifest, fsynced and replaced in one operation, before its folder exists; a process killed at any instant leaves nothing of its own unlisted.
+- An owner is gone only when no process has its id, the one that has it was created at another moment, or it exited. Anything unverifiable keeps its files. Nothing of TTS scratch is resumable; any other retention is kept.
+- A workspace lasts while it has entries. One process, one workspace: no cross-process sharing.
+
+**Recovery: at each run's start, bounded, quiet about the normal case.**
+
+- The panel's run start (worker thread) and `run_batch_convert`. 5 s and Cancel bound it; the rest waits for a later start. No launch-time sweep.
+- A running owner is counted, not reported. Everything else left is named in Detailed with its reason.
+- Another process's leftovers are recovered on Windows only (creation time is read only there); elsewhere they are left, and only a process's own entries are removed.
+
+**Removal is handle-based and never follows a link.**
+
+- The temp folder, `act-tts`, the workspace and every folder being emptied are held without delete sharing, so none can be renamed or replaced meanwhile. A pin needs `FILE_LIST_DIRECTORY`: a handle with attribute access only takes no part in sharing checks (found in review before any test ran; a planted defect proves the test sees it).
+- Each entry is opened without following a reparse point, judged by that handle and deleted through it. A link is left and reported; a hard link loses only this name. Measured on HOME-PC NTFS (`act72-009/probe-pinning.txt`).
+- Another look (at most three, under a second) only when everything in the way is momentarily held; never for a link or a refusal.
+
+**pydub's temporaries** are made in the `controlled` block's own entry, made at the first one, and that entry is removed after `remove_temporaries` has closed them; a failed export's open handles never block the removal.
+
+**Kept as it was.** The output-tree sweeps (exact name, process id and an hour's age; unchanged), Qwen3's job folders in `files/runtime-data`, and the other tools' staging (ACT72-019, 031, 034, 037). Legacy loose folders are never touched; they are the owner's to remove.
+
+**Verified.** The changed-area gate result is recorded by the closeout. This is not accepted until the checkpoint review and the owner say so.
+
+— Implemented by Claude Code under the owner's Phase 6B prompt.
+
+---
+
 ## 2026-11-08 - A Qwen3 voice at 920x600 shows its disclosure compactly; the setup logs follow like the tools' logs (v0.7.2 Phase 6A)
 
 **Why.** Phase 5 recorded ACT72-058 as the owner's call and ACT72-059 as a Phase 6 Minor. The owner accepted Phase 5 and authorized Phase 6, limited for this session to these two issues.

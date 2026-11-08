@@ -655,8 +655,11 @@ def test_a_failed_export_leaves_no_temporary_file_behind(tmp_path, monkeypatch):
     with ffmpeg_watch.controlled(None):
         with pytest.raises(CouldntEncodeError):
             segment.export(tmp_path / "o.flac", format="flac", parameters=["-no-such-option"])
-        assert len(list(tmp_path.glob("tmp*"))) == 2, "pydub really does leave them"
-    assert not list(tmp_path.glob("tmp*"))
+        # v0.7.2: in the block's own work-area entry, never loose in the temp folder (ACT72-009).
+        assert len(list(tmp_path.glob("act-tts/*/*/tmp*"))) == 2, "pydub really does leave them"
+        assert not list(tmp_path.glob("tmp*"))
+    assert not list(tmp_path.rglob("tmp*"))
+    assert not list(tmp_path.glob("act-tts/*")), "the entry and its workspace went with them"
 
 
 @needs_ffmpeg
@@ -666,9 +669,10 @@ def test_an_export_that_works_keeps_nothing_in_memory_or_on_disk(tmp_path, monke
     with ffmpeg_watch.controlled(None):
         for _ in range(5):
             AudioSegment.silent(200).export(tmp_path / "o.flac", format="flac")
-        assert not list(tmp_path.glob("tmp*"))
+        assert not list(tmp_path.rglob("tmp*"))
         remembered = ffmpeg_watch._control.get().temporaries
         assert len(remembered) <= 2, "those that have gone are forgotten as it goes"
+    assert not list(tmp_path.glob("act-tts/*"))
 
 
 @needs_ffmpeg
@@ -687,7 +691,7 @@ def test_falling_back_removes_what_the_failed_export_left_before_the_disk_route_
             raise MemoryError() from None
 
     with ffmpeg_watch.controlled(None):
-        wl.assemble(48_000 * 3600, failing_in_memory, lambda: seen.append(list(tmp_path.glob("tmp*"))))
+        wl.assemble(48_000 * 3600, failing_in_memory, lambda: seen.append(list(tmp_path.rglob("tmp*"))))
     assert seen == [[]]
 
 
@@ -706,7 +710,9 @@ def test_the_direct_route_leaves_no_work_folder_when_the_final_encode_fails(tmp_
     monkeypatch.setattr(AudioSegment, "export", export)
     with pytest.raises(CouldntEncodeError):
         runner.run_conversion_job(str(source), output_dir=str(tmp_path / "out"), speaker="v", audio_format="mp3")
-    assert not list(tmp_path.glob("epub2tts_*")) and not list(tmp_path.glob("tmp*"))
+    # v0.7.2: the work folder and pydub's temporaries are entries of the work area, and none is left (ACT72-009).
+    assert not list(tmp_path.glob("epub2tts_*")) and not list(tmp_path.rglob("tmp*"))
+    assert not list(tmp_path.glob("act-tts/*"))
 
 
 def test_nothing_else_on_these_routes_starts_a_process_with_threads_of_its_own():

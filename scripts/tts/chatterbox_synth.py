@@ -71,6 +71,7 @@ from pydub import AudioSegment
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts import model_assets
+from tts import work_area
 from tts.speech.document import read_source_text
 from tts.voice_registry import REFERENCE_DIRECTORY, label_for, reference_recording_filename
 from tts.speech.pipeline import prepare
@@ -1335,7 +1336,9 @@ def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
     tail = audio_tail.apply_final_tail_policy(arr, sample_rate)
     if log is not None:
         log(f"  {tail.summary()}")
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+    # The whole narration as a WAV: in the conversion's own work-area folder when there is one (the panel's), so a killed
+    # program's is recognised and removed by a later run (v0.7.2, ACT72-009).
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=work_area.current_folder()) as tmp_wav:
         tmp_wav_path = tmp_wav.name
     try:
         sf.write(tmp_wav_path, tail.pcm, sample_rate)

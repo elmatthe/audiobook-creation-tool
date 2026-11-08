@@ -2586,39 +2586,79 @@
           "symbols": [
             "sweep_stale_chunk_folders",
             "_is_stale_chunk_folder",
-            "_new_chunk_folder_name"
+            "_new_chunk_folder_name",
+            "run_batch_convert"
           ]
         },
         {
           "path": "scripts/tts/ffmpeg_watch.py",
           "symbols": [
-            "remove_temporaries"
+            "remove_temporaries",
+            "controlled",
+            "_named_temporary_file",
+            "_Scratch"
           ]
         },
         {
           "path": "scripts/tts/epub2tts_gui.py",
           "symbols": [
             "_RunContext.run_all_items",
-            "_convert_with_local_engine"
+            "_convert_with_local_engine",
+            "convert_with_edge_engine"
           ]
         },
         {
           "path": "scripts/tts/epub2tts_edge/runner.py",
           "symbols": [
-            "_convert"
+            "_convert",
+            "_convert_in"
+          ]
+        },
+        {
+          "path": "scripts/tts/work_area.py",
+          "symbols": [
+            "OwnedFolder",
+            "conversion_folder",
+            "current_folder",
+            "recover",
+            "owner_state",
+            "_add_entry",
+            "_remove_entry",
+            "_pin_chain",
+            "_recover_own",
+            "_recover_other",
+            "_retire",
+            "_write_manifest",
+            "_manifest_problem"
+          ]
+        },
+        {
+          "path": "scripts/tts/kokoro_synth.py",
+          "symbols": [
+            "_export_mp3"
+          ]
+        },
+        {
+          "path": "scripts/tts/chatterbox_synth.py",
+          "symbols": [
+            "_export_mp3"
           ]
         }
       ],
       "contracts": [
-        "Each conversion works in its own private folder (epub2tts_*, tts_direct_*, tts_local_* in the temp folder, or .tmp_chunks/<pid>-<token> beside the run) and removes it when the file ends, however it ends.",
-        "A failed pydub export's temporary files are removed when its conversion ends.",
+        "Each conversion's temporary folders and files are entries of one process's workspace in the TTS work area (%TEMP%\\act-tts\\<16-hex token>\\<n>): the Edge engine's folder, the panel's direct and local-engine folders, pydub's temporaries and the local engines' encode WAV. Nothing of a conversion lies loose in the temp folder. The folder route's chunks stay in .tmp_chunks/<pid>-<token> beside the run.",
+        "A workspace's manifest names its owner by process id and process creation time and lists every entry (kind, retention, state) before the entry's folder exists; it is replaced in one operation after its bytes reach the disk.",
+        "An entry is removed when its conversion ends, however it ends (finished, cancelled or failed), and a failed pydub export's temporaries with it. One another program still holds is left 'finished' and removed at a later start; the last entry to go takes the manifest and the workspace with it.",
+        "At the start of each run (the panel and the command line), only a workspace whose manifest is intact and whose owner is provably gone (no such process, its id reused by another process, or exited) loses its disposable entries, then its manifest and itself. A running or unverifiable owner, a missing, partial, damaged or foreign manifest, a name this tool does not make, a link, an entry not marked disposable and a file in use are left exactly as they are, and each except a running owner is named in Detailed. Nothing outside the work area is examined. Recovery stops at 5 s or at Cancel and finishes at a later start.",
+        "Removal never follows a link: the temp folder and every folder down to the one being emptied are held open without delete sharing, so none can be renamed or replaced meanwhile; every entry is opened without following a reparse point, judged by that handle and deleted through it. A link is left and reported; a hard link loses only the work area's name.",
         "At the start of each run, staging files and chunk folders left under the output tree by a process that is gone and untouched for an hour are removed; anything named otherwise, any link and a live run's work are left alone."
       ],
       "selection": [
         "files/tests/test_tts_worker_concurrency.py",
         "files/tests/test_edge_publication.py",
         "files/tests/test_low_memory.py",
-        "files/tests/test_batch_convert_folders.py"
+        "files/tests/test_batch_convert_folders.py",
+        "files/tests/test_tts_work_area.py"
       ],
       "journeys": [],
       "verification": {
@@ -2644,10 +2684,104 @@
             "test": "files/tests/test_tts_worker_concurrency.py::test_a_folder_run_leaves_no_empty_working_folder_in_its_output"
           },
           {
-            "kind": "planned",
-            "gap": "Temporaries in %TEMP% (epub2tts_*, tts_direct_*, pydub files) survive a killed program and nothing records who owns them, so no later run removes them.",
-            "phase": 6,
-            "issue": "ACT72-009"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_folder_is_listed_with_its_owner_before_it_exists"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_every_temporary_of_a_local_engine_conversion_lies_in_a_listed_entry"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_cancel_while_temporaries_are_open_stops_promptly_and_leaves_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_failure_during_synthesis_or_encoding_leaves_nothing[synthesis]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_failure_during_synthesis_or_encoding_leaves_nothing[encoding]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_folder_another_program_holds_is_left_finished_and_removed_later"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_killed_conversion_is_removed_at_the_next_start_and_nothing_else_is"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_running_owner_is_never_disturbed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_reused_process_id_is_not_the_owner"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_an_owner_that_cannot_be_checked_keeps_everything"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_damaged_or_foreign_manifest_leaves_the_workspace_exactly_as_it_is[truncated]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_damaged_or_foreign_manifest_leaves_the_workspace_exactly_as_it_is[traversal-entry]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_damaged_or_foreign_manifest_leaves_the_workspace_exactly_as_it_is[another-place]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_the_same_workspace_with_an_intact_manifest_is_removed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_names_this_tool_does_not_make_are_never_touched"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_junction_inside_an_entry_is_neither_followed_nor_removed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_hard_link_loses_only_this_folders_name"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_workspace_or_root_that_is_a_junction_is_refused"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_folder_swapped_for_a_junction_while_it_is_being_removed_is_left"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_folders_being_emptied_cannot_be_renamed_or_replaced"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_recovery_stops_at_its_time_limit_and_finishes_at_a_later_start"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_cancel_stops_recovery_at_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_a_dead_owners_file_another_program_still_holds_is_left_and_removed_once_free"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_work_area.py::test_no_tts_conversion_route_makes_a_temporary_outside_the_work_area"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_worker_concurrency.py::test_a_run_removes_what_a_killed_run_left_in_the_temp_folder_and_nothing_else"
           }
         ]
       },
@@ -21523,12 +21657,13 @@
       "id": "ACT72-009",
       "severity": "Major",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "%TEMP% epub2tts_* / tts_direct_* / pydub temporaries survive a killed program with no ownership record",
       "features": [
         "ACT.TTS.CLEANUP"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (6B): tts/work_area.py gives every TTS conversion's temporary folders and files (the Edge engine's folder, the panel's direct and local-engine folders, pydub's temporaries, the local engines' encode WAV) an owned place, %TEMP%\\act-tts\\<16-hex token>\\<n>, listed in a manifest that names the owner by process id and creation time before each folder exists. Each run's start removes only workspaces whose manifest is intact and whose owner is provably gone, through handles that never follow a link, bounded by 5 s and Cancel; everything else is left and named. Legacy loose epub2tts_* folders are not touched. Reproduced at c96a077 with killed and live child processes in files/dev-work/verification-gate/outputs/2026-11-08_phase6b_work_b52e/act72-009/ (test_tts_work_area.py; panel: test_tts_worker_concurrency.py)."
     },
     {
       "id": "ACT72-010",
@@ -22207,18 +22342,18 @@
     "scripts/shared/version.py": "8eda09bbe13116b2bdf669a482950d9581b0b720ae7e284aba773d0da2a716a9",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
     "scripts/tts/audio_tail.py": "d755c5e17d99a31a9b0ba2defd172d5ea3566a55a892ffe792c30a3b5478507a",
-    "scripts/tts/batch_convert.py": "489341e04c33f55cbcba2983731f56803972df10d93477949d226216d6a320ce",
-    "scripts/tts/chatterbox_synth.py": "ed11f24cca199b3ed70eefd74867013c69abf6ca9c5d262e8c86b5a66d4eb633",
+    "scripts/tts/batch_convert.py": "acf2b74ebb92d11686865c5a80d0f33e53e06cd27b634d0723153a73653813d1",
+    "scripts/tts/chatterbox_synth.py": "7569528c356c67d925c3d484aaca996563aca2d87767ccf00124119db366d9ed",
     "scripts/tts/disk_assembly.py": "282c7f689a877cd331a7c99c96cf83d002f09d1594558a66fe247b54cff3bcdd",
     "scripts/tts/edge_failures.py": "6935863a33eb1da68cd0521db5b2c0198b28aeae05b36832322303c281a6e2d5",
     "scripts/tts/edge_requests.py": "236de667f09942ef2cd178fad426e54925c7176a05a7256fc8dcc151d571ac55",
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "9486ce7e24d76ab357d0d07967e22fc21c4e79416c359352025e06b2720ab1a0",
-    "scripts/tts/epub2tts_edge/runner.py": "0a5548b940c391226c06d2f1fda9e4012d07000398c2aef5e3623f1a97ef765c",
-    "scripts/tts/epub2tts_gui.py": "00cbf6e2c0e0e3e5fec2e1203d8d05f388ee5c0da9f595f0720990a5e41ef428",
-    "scripts/tts/ffmpeg_watch.py": "88fb80064a3366decf79b346c36224f8db203ab2a794c4700b9d3da4bfbc886f",
+    "scripts/tts/epub2tts_edge/runner.py": "d96a33be96eddcb10698fab9bfe661327386504f08af73653649cdd12d86bb93",
+    "scripts/tts/epub2tts_gui.py": "9d8298cce82d97549a456f28797b79398e735aa7ecdca72ec26615855a9fcb02",
+    "scripts/tts/ffmpeg_watch.py": "164587651715e138581a8a6b88f1c8dd5cc9781dd99676fbb5678224ab72d7ec",
     "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
-    "scripts/tts/kokoro_synth.py": "45d140427faa7a85ecf54eed97dabd159617ba8154c06878c30da1a012a15844",
+    "scripts/tts/kokoro_synth.py": "dda3a56019046013113d7bf95b2d8ad4429b08c2fdc87494f9d27f7ef29e74c0",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/optional_setup.py": "5fb3f6d38acb5af66ae5eca3348c295de772f5bb710bcc9e02bfb572da0b0968",
     "scripts/tts/optional_setup_acquire.py": "4996e150359bf4966c76feed7a58492821e6afa91cbe094a6984d11faec5ce41",
@@ -22257,6 +22392,7 @@
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "39168cf1f5e6437fd72f0ad35424cce0caa4c859faf5ee2bdf389f0a51c9b1f9",
     "scripts/tts/voice_registry.py": "4f62cf28794083d027bf37d14d0e219ee74c60c3faf8a797e675bdfbda9d9e38",
+    "scripts/tts/work_area.py": "2caa3f14a7dbf6a1dbcb1da0f3085874b0153354f3acb6298c23c7945bd8256a",
     "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8"
   }
 }

@@ -16,7 +16,9 @@ unchanged, and no call site can be missed. pydub is pinned, and ``test_low_memor
 
 A failed ``export`` leaves pydub's two temporary files behind, the first holding the whole narration as a WAV, and nothing else knows
 their names. So its ``NamedTemporaryFile`` is replaced as well: inside a :func:`controlled` block they are remembered, and the block's
-end removes any still there (:func:`remove_temporaries`, which a fallback calls sooner, because it needs that disk space).
+end removes any still there (:func:`remove_temporaries`, which a fallback calls sooner, because it needs that disk space). They are
+made in the block's own folder of the TTS work area (v0.7.2, :mod:`tts.work_area`), made at the first one and removed after them,
+so a killed program's are recognised as its own and removed by a later run; before, they lay loose in the temp folder for good.
 
 **The deadlines.** Measured from the last progress: bytes read from FFmpeg, or growth of the file it is writing.
 
@@ -40,6 +42,7 @@ from typing import Callable, Iterator, Optional
 
 from shared import subprocess_utils
 from shared.cancellation import ConversionCancelled
+from tts import work_area
 
 WATCH_SECONDS = 0.25
 #: No progress at all, nobody has cancelled. A virus scanner opening a 4 GB WAV can hold FFmpeg for a minute or two; a whole
@@ -55,10 +58,32 @@ class ProcessingStalled(RuntimeError):
     """FFmpeg stopped making progress and was killed. Nothing unfinished reaches a destination."""
 
 
+class _Scratch:
+    """A ``controlled`` block's own folder for pydub's temporaries, made at the first one. Shared with the threads the block's
+    context is copied into, hence the lock."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._folder: Optional[work_area.OwnedFolder] = None
+
+    def path(self) -> str:
+        with self._lock:
+            if self._folder is None:
+                self._folder = work_area.new_folder("pydub")
+            return str(self._folder.path)
+
+    def close(self) -> None:
+        with self._lock:
+            folder, self._folder = self._folder, None
+        if folder is not None:
+            folder.close()
+
+
 @dataclass(frozen=True)
 class _Control:
     cancel_check: Optional[Callable[[], bool]] = None
     temporaries: Optional[list] = None  # pydub's temporary files, while in a ``controlled`` block
+    scratch: Optional[_Scratch] = None  # where they are made, while in a ``controlled`` block
 
 
 _control: contextvars.ContextVar[_Control] = contextvars.ContextVar("ffmpeg_watch_control", default=_Control())
@@ -69,12 +94,14 @@ def controlled(cancel_check: Optional[Callable[[], bool]]):
     """Every FFmpeg this thread starts inside the block answers to ``cancel_check``: once it says so, the process is killed
     within one look, whatever stage of the conversion it belongs to."""
     _ensure_watchdog()
-    token = _control.set(_Control(cancel_check, []))
+    scratch = _Scratch()
+    token = _control.set(_Control(cancel_check, [], scratch))
     try:
         yield
     finally:
         remove_temporaries()
         _control.reset(token)
+        scratch.close()  # after the files in it, whose handles remove_temporaries has closed
 
 
 def current_cancel_check() -> Optional[Callable[[], bool]]:
@@ -88,9 +115,13 @@ def current_cancel_check() -> Optional[Callable[[], bool]]:
 
 
 def _named_temporary_file(*args, **kwargs):
-    """pydub's ``NamedTemporaryFile``. A file it asked to keep (it removes those itself, if nothing fails) is remembered."""
+    """pydub's ``NamedTemporaryFile``. A file it asked to keep (it removes those itself, if nothing fails) is remembered. Inside a
+    ``controlled`` block it is made in the block's own work-area folder (pydub never names a folder; ``dir`` is the 7th argument)."""
+    control = _control.get()
+    if control.scratch is not None and len(args) < 7 and kwargs.get("dir") is None:
+        kwargs["dir"] = control.scratch.path()
     handle = tempfile.NamedTemporaryFile(*args, **kwargs)
-    remembered = _control.get().temporaries
+    remembered = control.temporaries
     if remembered is not None and not kwargs.get("delete", True):
         remembered[:] = [other for other in remembered if os.path.exists(other.name)]
         remembered.append(handle)

@@ -84,7 +84,6 @@ import os
 import queue
 import re
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -143,7 +142,7 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import ffmpeg_watch, publication, worker_limits
+from tts import ffmpeg_watch, publication, work_area, worker_limits
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -3200,6 +3199,10 @@ class _RunContext:
                 self.log(f"Removed an unfinished file left by an interrupted run: {leftover.name}")
             for leftover in batch_convert.sweep_stale_chunk_folders(Path(params["run_directory"]).parent):
                 self.log(f"Removed working files left by an interrupted run: {leftover.name}")
+        # The temp folder's share (v0.7.2, ACT72-009): only workspaces of this tool whose owner is provably gone, bounded in
+        # time and stopped by Cancel. Anything it cannot prove is this tool's and finished stays, and is named.
+        for line in work_area.recover(cancel_check=self.cancel_check).log_lines():
+            self.log(line)
         # v0.7.1: direct and folder items alike, sized by the queued files themselves, their frozen settings and this
         # machine. A worker thread, so this may take a moment; it stops looking if the run is cancelled meanwhile.
         plan = worker_limits.plan_for_sources(
@@ -3383,11 +3386,12 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
     skip = {"trim_tts_padding", "trim_silence_db"}
     destination = item["destination"]
     publication.refuse_existing(destination, params["overwrite"])  # before hours of synthesis it could never publish
-    # ignore_cleanup_errors: once the file is published, a scanner holding the scratch copy must not fail the item.
-    with tempfile.TemporaryDirectory(prefix="tts_direct_", ignore_cleanup_errors=True) as stage:
+    # A private folder of the TTS work area (v0.7.2): listed with its owner, so a killed program's is removed by a later run.
+    # Its removal never fails the item: once the file is published, a scanner holding the scratch copy only delays it.
+    with work_area.conversion_folder("direct") as stage:
         produced = runner.run_conversion_job(
             str(item["source"]),
-            output_dir=stage,
+            output_dir=str(stage),
             speaker=params["speaker"],
             audio_format="mp3",
             mp3_bitrate=params["bitrate"],
@@ -3420,7 +3424,8 @@ def _convert_with_local_engine(item, params, log, synthesize, cancel_check=None)
     destination = item["destination"]
     overwrite = params.get("overwrite", False)
     publication.refuse_existing(destination, overwrite)
-    with tempfile.TemporaryDirectory(prefix="tts_local_", ignore_cleanup_errors=True) as scratch:
+    # The engine's own encode WAV goes here too (work_area.current_folder), so nothing of this file lies loose in the temp folder.
+    with work_area.conversion_folder("local") as scratch:
         output = str(Path(scratch) / "output.mp3")
         if source.suffix.lower() == ".txt":
             synthesize(str(source), output)

@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6B (2026-11-08)
+
+**Fixed**
+- TTS: a conversion's temporary files (working folders, pydub's files and the local engines' encoding WAV, which can be as large as the whole narration) no longer stay in the system temp folder for good when the program is closed forcibly or crashes. They now live in the tool's own `act-tts` folder there, with a record of which running copy of the program owns them, and the next run removes what a program that has ended left. It never touches files it cannot prove are its own, another running copy's work, or anything else in the temp folder; it names what it left in Detailed. Folders left in the temp folder by earlier versions (`epub2tts_*`) are not removed automatically.
+
+**Added (development only; nothing here ships)**
+- Tests that kill and keep real child processes, damage the ownership record in fifteen ways, and plant links and swaps, each seen failing on a planted defect.
+
+**Verified**
+- The canonical changed-area gate result is recorded by the closeout commit. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
 ## [Unreleased] — v0.7.2 Phase 6A (2026-11-08)
 
 **Fixed**
