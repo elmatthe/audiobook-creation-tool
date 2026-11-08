@@ -27,6 +27,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 **Changed**
 - The project briefing no longer says the M4B Metadata Editor's Import Folder has a subfolders option. It has none and always includes subfolders.
 
+**Verified**
+- The first complete Windows gate, on `927df46`, failed one check. Two release-required features were proved only by tests that always skip on Windows, so nothing on Windows proved them. Each now has a test that runs on Windows. Neither requirement was dropped.
+- The complete Windows gate then passed on `7987503`: 48 of 48 scenarios and 14,252 tests, 65 of them skipped with named reasons. All 262 release-required features are mapped, and routine evidence in that run satisfied every one. 99 of them still wait on release evidence: owner checks, planned gaps or qualification. This is the routine gate, not a release.
+
 ## [Unreleased] — v0.7.2 Phase 3 acceptance closeout (2026-11-07)
 
 **Fixed**

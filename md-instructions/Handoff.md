@@ -2,6 +2,66 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 4 (closeout): the complete full gate PASSED on `7987503`; the commit that adds this block changes canonical documents only; READY FOR OWNER ACCEPTANCE REVIEW; NOT accepted; Phase 5 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
+
+Authority: the owner's Phase 4 prompt. This block supersedes the status line and the Scratch bullet of the block below; that block's account of what was built stands.
+
+- **Starting, tested, final.** Started at `eba4026`. The first candidate, `927df46`, failed its full gate. The repaired candidate, `7987503` (code, tests and mapping, pushed), passed. This documents-only commit follows it.
+- **The first full gate failed, on coverage only.**
+  - Run `2026-11-07_152200_full_9f54`, label `ACT072-P4-927df46-candidate`: 93 min 26 s, exit 1.
+  - Every test and journey passed: 14,182 tests passed and 65 skipped, and 48 of 48 journeys passed.
+  - `coverage` judged 260 of 262 required features satisfied. `ACT.MP3.LAYOUT` and `ACT.SHARED.OUTPUT-PATHS.REPLACE` each depended on a test that always skips on Windows. The first runs only under macOS's aqua; the second needs a file-symlink privilege this account does not hold. A skipped test never satisfies.
+  - Changed runs do not judge satisfaction, so only the full run could see this.
+- **The repair, `7987503`.** Neither requirement was dropped or downgraded. Each contract got a test that runs on Windows:
+  - `test_mp3_tool_appearance.py::test_primary_and_job_controls_never_overlap_in_the_real_shell`, at four window sizes in the real shell;
+  - `test_cover_source_side.py::test_replacement_refuses_a_junction_or_directory_link`, on a junction, which needs no privilege.
+  - The old tests stay in their modules and still run where they can.
+  - Each new test failed under a planted defect (`jobs-over-combine`, `no-link-check`) and passed under a no-change control.
+  - Re-judged offline against the failed run's own outcomes, 262 of 262 were satisfied before the second gate began.
+  - Targeted: the two modules, 56 passed and 1 skipped; the inventory modules and meta-guards, 222 passed and 1 skipped; `inventory.py check`, 0 problems.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-07_170231_full_b8a6/` (ignored), label `ACT072-P4-7987503-candidate`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode full --platform windows --label ACT072-P4-7987503-candidate`.
+  - 105 min 44 s, exit 0, RESULT PASS.
+  - Journeys: 48 of 48 PASS, including `inventory.live-surfaces` and its control `control.unmapped-live-control-is-caught`.
+  - Tests, recounted from the raw JUnit: the ordinary suite 13,655 passed and 65 skipped; guarded 457 and 75 passed; 0 failed and 0 errors, 14,252 in all. Selected, collected and executed are the same set.
+  - The 3 warnings are two third-party deprecations (`audioop`, `pkg_resources`) and one `record_property` notice.
+  - `coverage-inventory`: PASS.
+  - `coverage`: all 262 required features are mapped, and routine evidence in this run satisfied all 262. None is unmapped. There is no exception and none is proposed.
+  - Release-pending, kept visible: owner checks on 19 features, planned gaps on 70, qualification on 27. Only 163 of the 262 have nothing release-pending. Line coverage is not collected. `release_ready` is false.
+  - `visual-baselines` NOT RUN: 0 approved, and 73 candidates (Phase 3's 68 and 5 new) wait for the owner.
+  - Dialog history: the preflight child was born Low (`0x1000`). The values naming `act-gate` stood at 94 before and 94 after, so 0 were added.
+- **Inventory by tool** (features, then release-required):
+
+  | Tool | Features | Release-required |
+  |---|---|---|
+  | TTS | 59 | 54 |
+  | MP3 | 28 | 28 |
+  | M4B Converter | 25 | 25 |
+  | M4B Maker | 28 | 28 |
+  | M4B Metadata Editor | 30 | 30 |
+  | Cover Image | 28 | 28 |
+  | launcher | 7 | 7 |
+  | shared | 29 | 29 |
+  | setup | 28 | 22 |
+  | verification gate | 11 | 11 |
+
+  - 11 features are not release-required: the TTS command line, the voice QA samples, the Qwen3 clone setup, the macOS launch, and the disabled v3 optional-setup machinery (7).
+  - There are 298 static and 246 live surfaces, 144 source review stamps, and 57 issues, 47 of them open.
+- **State outside the run.** The owner's 14 deletions and 4 untracked entries are untouched. No Python or FFmpeg process remained; the cleanup checks this and refuses otherwise. The run's own `%TEMP%\act-gate\47b1` went with its PASS.
+- **Scratch.** This work's own `%TEMP%\act-gate` folders were removed under the owner's conditions. Each went only after its owner record named this work's run and showed the process had ended.
+  - Removed: `24c3`, `0561` and `23d9` (exploration runs), `135f` (the ACT72-024 repro) and `07d2` (the first full gate): 6.98 GB, with no problems.
+  - None of their runs had left a failing test's folder out of its evidence.
+  - Record: `outputs/2026-11-07_phase4_work_3a50/scratch-cleanup/cleanup-after-gate.json`.
+  - `bfa7`, of run `2026-11-07_105837_focused_848a`, was made at 10:58, before this work began. It is not this work's and was left exactly as it was; its digest is unchanged. It is now the only folder in `%TEMP%\act-gate`, and is the owner's to decide.
+- **Carried into Phase 5, unchanged.**
+  - The 47 open ledger issues.
+  - The Tk finalisation warning on a worker, and the slow TTS and Cover forced-shutdown arms (ACT72-017). This run's forced-landing journeys took 30.1 s and 22.7 s.
+  - Replayed Edge audio, which is not online engine qualification.
+  - The owner's 94 leftover dialog-history values.
+  - States still unverified: display scaling other than 100%, installed optional engines, the real local engines and real Edge, a fresh Windows, and macOS.
+- **Next exact action.** The owner's acceptance review of Phase 4, and the ChatGPT review. Phase 5 opens only on the owner's word. No merge, tag or release; the independent Codex review stays after Phase 8.
+
 ## CURRENT STATE — v0.7.2 Phase 4 (feature map and coverage inventory): implemented and committed as the candidate for its one planned full gate; the gate result is recorded by the closeout commit; NOT accepted; Phase 5 not opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-07, Claude Code)
 
 Authority: the owner's Phase 4 prompt (Phase 3 accepted for progression). This block supersedes the status line of the block below. Decisions: `Decisions.md`, the newest entry.

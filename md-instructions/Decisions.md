@@ -58,6 +58,21 @@ The check is required in full and changed runs and reported in focused ones. `te
 
 **How the slices were drafted.** Nine read-only agents drafted the slices from the source and the tests. Every test id, scenario layer, symbol, file and surface key was then checked mechanically against the collection at `118058c`, the journey registry and the source's AST, and the maintenance check runs on the result. Two of the drafts' claims were re-read in the source before they were used: the vacuous Maker test and the Metadata Editor's missing subfolders option.
 
+**Routine evidence must run where the gate judges it.**
+- The first full gate failed `coverage`: `927df46`, run `2026-11-07_152200_full_9f54`.
+- The cause: two required features were mapped to tests that the skip policy always skips on Windows (`native-macos-only`, `no-symlink-privilege`). A skipped test is not a passed one, so it never satisfies.
+- The fix was a Windows test of each contract, not a weaker requirement: an overlap check in the real shell for `ACT.MP3.LAYOUT`, and a junction source for `ACT.SHARED.OUTPUT-PATHS.REPLACE` (`7987503`).
+- Changed runs do not judge satisfaction. So a new mapping is re-judged against a full run's real outcomes before the next full gate.
+
+**Verified.** The full gate passed on `7987503` (`2026-11-07_170231_full_b8a6`):
+- 48 of 48 journeys passed;
+- 13,655 + 457 + 75 tests passed and 65 were skipped;
+- 262 of 262 required features are mapped and were satisfied by routine evidence;
+- release-pending: owner checks on 19 features, planned gaps on 70, qualification on 27;
+- `release_ready` is false.
+
+This is not accepted until the owner says so.
+
 ## 2026-11-07 - The journeys' application runs at Low integrity so its file dialogs cannot write the owner's history, and the launcher owns its Tk root (v0.7.2 Phase 3 acceptance closeout)
 
 **Why.** The checkpoint reviewer withheld Phase 3 acceptance for two issues: the native file-dialog journeys modified the owner's Windows recent-file history, and real ACT still crashed with `Tcl_AsyncDelete` once the two accidental holders of its closed Tk root were removed.
