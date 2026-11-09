@@ -29,7 +29,7 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 **`run_ff`'s text.** FFmpeg's bytes are decoded as UTF-8 with replacement, universal newlines kept. Before, `text=True` used the locale code page, where one undecodable byte would have turned a whole call into the 999 failure (read from code, not observed).
 
-**Verified.** Targeted only in this commit; the canonical changed-area gate result is recorded by the closeout. A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. This is not accepted until the checkpoint review and the owner say so.
+**Verified.** The canonical changed-area gate PASSED on `9c4a93e` (`2026-11-08_184018_changed_a931`): 49 of 49 journeys passed (the orphan control saw the FFmpeg left running with both stops disabled), 13,835 + 457 + 75 tests passed and 65 were skipped with policy-named reasons, and the inventory is current. The change to `scripts/shared/` widened it to every test and journey. The first run, on `765d4fd`, failed the `v3-planning` guarded group and the orphan control (`2026-11-08_164449_changed_42b3`); see the Handoff. A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. This is not accepted until the checkpoint review and the owner say so.
 
 — Implemented by Claude Code under the owner's Phase 6C prompt.
 

@@ -2,6 +2,26 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6C (closeout): the canonical changed-area gate PASSED on `9c4a93e`; the commit that adds this block changes canonical documents only; STOP for the ChatGPT checkpoint review; NOT accepted; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-08, Claude Code)
+
+Authority: the owner's Phase 6C prompt. This block supersedes the "Next exact action" bullet of the block below; that block's account of the slice stands.
+
+- **Starting, tested, final.** Started at `56c3b55`. The first candidate `765d4fd` FAILED its changed-area gate (recorded in the block below). The repaired candidate `9c4a93e` (code, tests, inventory and documents, pushed) is what this gate ran on. This documents-only commit follows it; under plan §13.3 the result carries forward. The inventory check and the test modules that read these documents were rerun on this commit.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-08_184018_changed_a931/` (ignored), label `ACT072-P6C-9c4a93e-changed`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode changed --platform windows --base 56c3b55 --label ACT072-P6C-9c4a93e-changed`.
+  - 90 min 2 s, exit 0, RESULT PASS, scope "changed selection only; NOT full acceptance". The tree was unchanged during the run.
+  - Selection: `scripts/shared/subprocess_utils.py` is shared by every tool, so the gate's own rule widened the changed selection to every test and journey (`changed-conservative-full`; 35 changed paths, 45 features touched), as it did for the first candidate. It is still a changed run: it does not judge coverage satisfaction and it is not the full gate reserved for the end of Phase 6.
+  - Journeys: 49 of 49 PASS. Among them `control.act-orphan-seen-without-the-stop` (the application exited cleanly and the FFmpeg it left running was seen, with both of its stops disabled), the Maker's and the MP3 Tool's close-during-work journeys (FFmpeg really active at Alt+F4, exit 0 after 0.094 s, no window and no owned process left) and forced-landing journeys, `maker.build-with-chapters-and-artwork` and `mp3.write-id3-then-combine`.
+  - Tests, recounted from the raw JUnit: the ordinary suite 13,835 passed and 65 skipped; guarded `v3-planning` 457 and `v3-supervisor` 75 passed (215 of the former had failed on the first candidate); 0 failed and 0 errors, 14,432 in all. Every skip has a reason the policy names. The 3 warnings are Phase 4's (`audioop`, `pkg_resources`, one `record_property` notice).
+  - `coverage-inventory`: PASS. 273 features, 302 static and 247 live surfaces, every application source file reviewed as it is now.
+  - `coverage`: NOT APPLICABLE to a changed run. The run satisfied 262 of 262 required entries; only a full run judges satisfaction. `release_ready` stays false.
+  - `visual-baselines` NOT RUN: 0 approved; the 75 candidates still wait for the owner.
+  - Dialog history: the preflight child was born Low (`0x1000`), verdict contained. The values naming `act-gate` stood at 94 before and 94 after.
+  - Cleanup: no owned process remained after any stage, and no FFmpeg or FFprobe process was left afterwards. The run's own scratch in `%TEMP%\act-gate` is gone. The first candidate's failed run (`2026-11-08_164449_changed_42b3`) had left its scratch `4c2d` (7.09 GB). It held no failure evidence: the gate keeps a failing test's folder for the ordinary stage only, and that run failed only in `guarded` and `acceptance`, both diagnosed from its logs and repaired. After `--audit-scratch` named that run and an ended process, it was removed with a manifest (`clean_scratch_p6c.py`, `scratch-cleanup-manifest.json`: 84,975 files, 87 test-made links listed, not followed). `bfa7` was left alone, byte-identical; the 31 legacy `epub2tts_*` folders are untouched.
+- **Unchanged.** The issue counts (59 issues, 38 open; Phase 6: 32, of them 27 Minor and 5 Suggestion; Phase 7: 1; Phase 8: 5), the limits and the deliberately unchanged areas in the block below. The owner's 14 deletions and 4 untracked entries, `bfa7`, and the 31 legacy `epub2tts_*` folders in `%TEMP%` are untouched. The version is still 0.7.1.
+- **Next exact action.** The ChatGPT checkpoint review of Phase 6C (`56c3b55` to this commit). No other Phase 6 slice before it. The one full Windows gate stays reserved for the completed Phase 6 milestone. No Codex review, merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 6C (ACT72-023, Cancel cannot interrupt a running FFmpeg step in the MP3 Tool and M4B Maker): implemented; the first candidate `765d4fd` FAILED its changed-area gate (one guarded group and one negative control) and the commit that adds this line is the repaired candidate; its changed-area gate result is recorded by the closeout commit; STOP for the ChatGPT checkpoint review; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-08, Claude Code)
 
 Authority: the owner's Phase 6C prompt. This block supersedes the status line and the "Next exact action" bullet of the Phase 6B closeout block below; the account of Phase 6B stands.

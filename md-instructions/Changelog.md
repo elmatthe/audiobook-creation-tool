@@ -22,7 +22,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Tests that press Cancel and Pause during real encodes and during every FFmpeg step of both tools, and prove an unrelated FFmpeg survives; each seen failing on a planted defect. A test that the subprocess module imports on its own, as the optional-setup planning worker and the pre-setup FFmpeg check load it. The gate's orphan control now switches off both ways the application stops FFmpeg when its window closes.
 
 **Verified**
-- Targeted tests and negative controls only in this commit; the changed-area gate result is recorded at closeout. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+- The canonical changed-area gate PASSED on `9c4a93e`: every scenario (49 of 49) and 14,432 tests, 65 of them skipped with named reasons. The first candidate's run had failed two checks (the optional-setup planning worker could not import the subprocess module without the cancellation module beside it, and the orphan control no longer saw the FFmpeg it exists to see, because Cancel now stopped it); both were repaired before this run. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
 
 ## [Unreleased] — v0.7.2 Phase 6B (2026-11-08)
 
