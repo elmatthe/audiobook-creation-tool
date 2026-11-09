@@ -19,12 +19,16 @@ in exactly these places, each named in the journey's evidence:
     error instead of a download, and the gate compares the real runtime data before and after.
   * when the live-discovery negative control asks, one extra, unplaced button is added to a tool's panel (``_inject_control``), so that the
     discovery journey can be shown to report a control nobody mapped.
+  * when the orphan negative control asks, both of the application's stops of a running FFmpeg are taken away: the launcher's stop of its
+    media children once the window has gone, and (v0.7.2 Phase 6C) the supervised step's own answer to the Cancel a panel sends as it
+    closes, so that the orphan they exist to prevent must be seen.
 
 Usage: python app_launcher.py <config.json>
 """
 
 from __future__ import annotations
 
+import contextlib
 import faulthandler
 import gc
 import hashlib
@@ -244,7 +248,11 @@ def main() -> int:
         return app
 
     if config.get("control_no_stop_children"):
-        launcher.sp.stop_media_children = lambda: []  # a negative control: the orphan this line exists to prevent must then be seen
+        # A negative control: the orphan these two stops exist to prevent must then be seen. Since v0.7.2 Phase 6C a panel's close-time
+        # Cancel also reaches its running FFmpeg step, which stops it before the interpreter ends unless it loses that race; outside a
+        # cancellable block a supervised step simply runs to its end, as every step did before.
+        launcher.sp.stop_media_children = lambda: []
+        launcher.sp.cancellable = lambda *args, **kwargs: contextlib.nullcontext()
     launcher.LauncherApp = app_with_channel
     exit_code = launcher.main()
     # main() has returned, so nothing on the main thread still holds the closed window.

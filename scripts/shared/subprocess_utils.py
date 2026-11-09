@@ -20,11 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-try:  # normal application import, as ``shared.subprocess_utils``
-    from .cancellation import ConversionCancelled
-except ImportError:  # pragma: no cover - imported directly off scripts/shared, as ffmpeg_health's fallback does
-    from cancellation import ConversionCancelled  # type: ignore[no-redef]
-
 
 def _hidden_kwargs() -> dict[str, Any]:
     """Return kwargs that hide the console window on Windows; empty elsewhere."""
@@ -126,6 +121,13 @@ def _tail(stream, limit: int) -> bytes:
 def _cancelled(supervision: _Supervision, child: Optional[subprocess.Popen], reaped: bool,
                grace_seconds: float) -> None:
     """Acknowledge a Cancel that stopped (or prevented) a child and raise it. Never a failure code."""
+    # Imported here, never at the top: this module must import alone. ffmpeg_health imports it bare off scripts/shared
+    # before the venv exists, and the optional-setup planning worker's reviewed source closure
+    # (optional_setup_planning_bridge_v3.SOURCES) carries it without shared/cancellation.py. Neither ever cancels.
+    try:
+        from .cancellation import ConversionCancelled
+    except ImportError:  # pragma: no cover - imported bare off scripts/shared
+        from cancellation import ConversionCancelled  # type: ignore[no-redef]
     try:
         if supervision.acknowledge is not None:
             supervision.acknowledge()

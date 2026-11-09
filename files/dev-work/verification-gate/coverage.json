@@ -20838,7 +20838,7 @@
       ],
       "contracts": [
         "with the application's own root holder taken away, the forced collection's crash is seen",
-        "without the media-child stop, the orphan FFmpeg is seen",
+        "without both of the application's stops (the launcher's media-child stop and the supervised step's answer to the panel's close-time Cancel), the orphan FFmpeg is seen",
         "a shutdown journey cannot pass on an unclean exit"
       ],
       "selection": [
@@ -22542,7 +22542,7 @@
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
     "scripts/shared/settings.py": "f65259720ef0d15f8c5e72f0fe241ab7bbf5528f8a8e5cc79279063f8594462b",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "c5dab84aa620faac8179f85b9c382347c8ccfbe32af48544de503f6db05465b5",
+    "scripts/shared/subprocess_utils.py": "c10525580592edfb775c1cbe1aced4dcc54a3580d10788db1e1021b02694a16b",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
     "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",

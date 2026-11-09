@@ -172,7 +172,8 @@ def forced_landing(context: Context) -> None:
 
 
 @scenario("control.act-orphan-seen-without-the-stop", tool="gate", layers=("native", "control", "shutdown"), tier="control",
-          summary="The real Maker closed mid-build with the application's stop disabled: the orphan FFmpeg must be seen, or the clean closes prove nothing")
+          summary="The real Maker closed mid-build with the application's stops disabled (the launcher's stop of its media children and the "
+                  "supervised step's answer to the panel's close-time Cancel): the orphan FFmpeg must be seen, or the clean closes prove nothing")
 def orphan_without_stop(context: Context) -> None:
     from journeys.common import open_tool, wait_for_listbox
     from journeys.shutdown import wait_for_long_encode
