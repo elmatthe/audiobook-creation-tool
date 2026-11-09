@@ -4,7 +4,7 @@ After the window closes, a closed panel's Tk variables, images and fonts can sti
 a worker that is finishing its run. If a collection then lands on a worker thread, each ``__del__`` calls into Tcl from
 that thread: Tkinter waits about a second for a main loop that has already ended, then raises "main thread is not in
 main loop", which Python reports and ignores. The gate's forced-landing arms measured 18 to 26 s of that at shutdown.
-``launcher.main`` now calls ``_release_tk_objects`` on the main thread once the main loop has ended.
+``launcher.main`` now calls ``_finish_tk_objects`` on the main thread once the main loop has ended.
 
 Each case runs a real ``tk.Tk()`` in a child process of its own (a second root in the suite's process is not safe), with
 the root held the way ``launcher._ROOT`` holds it, a panel-like object in a reference cycle that a "worker" still holds
@@ -58,7 +58,7 @@ root.update()
 root.destroy()                     # the window is gone; the main loop has ended
 
 if release:
-    launcher._release_tk_objects(root)
+    launcher._finish_tk_objects(root)
 
 record = {}
 unraisable = []

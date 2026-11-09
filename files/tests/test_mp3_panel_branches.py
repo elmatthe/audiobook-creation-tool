@@ -150,7 +150,8 @@ def test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why(make_p
     assert len(panel._thread_factory.bodies) == bodies and panel.last_plan is None and not panel.is_running
 
 
-@pytest.mark.parametrize("operation, label", [("write_id3_tags", "Write ID3 Tags"), ("combine_mp3s", "Combine MP3s → One MP3")])
+@pytest.mark.parametrize("operation, label", [("write_id3_tags", "Write ID3 Tags"), ("combine_mp3s", "Combine MP3s → One MP3")],
+                         ids=["write_id3_tags", "combine_mp3s"])  # ASCII ids: pytest writes "→" as \u2192
 def test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why(make_panel, tmp_path, monkeypatch,
                                                                              operation, label):
     made = reservations_under(tmp_path, monkeypatch)

@@ -2,6 +2,16 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6 (complete), the final candidate repaired after its full gate found four standing checks; the full Windows gate on this commit follows and is recorded by the closeout commit; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
+
+Authority as in the batch A block below; this block supersedes the batches D and E block for status and next action.
+
+- **The full gate on `c2244ae`** (`2026-11-09_150101_full_5f93`, label `ACT072-P6-FINAL-c2244ae-full`) FAILED: pytest 2 failed, 14,020 passed, 65 skipped; guarded 457 + 75 passed; acceptance 52 PASS; coverage-inventory and coverage named 2 dead test ids (`ACT.MP3.OUTPUT-RUN`, `ACT.MAKER.BUILD`). Every other stage passed, and the tree was unchanged during the run.
+- **Repairs (this commit; `Decisions.md` 2026-11-09, final candidate).** `launcher._release_tk_objects` is now `_finish_tk_objects` (the launcher may not contain "release"); the cleanup check names `work_area.py`, now in `shared/`, for `os.rmdir` and `rmtree` and holds it to the catalog assertions; the MP3 refused-plan test has ASCII ids, and `ACT.MAKER.BUILD` names the Maker test's three parametrized ids.
+- **Evidence** (in the ignored `outputs/2026-11-09_phase6_complete_9c47/closeout/`). Every test module that reads a changed file, run directly: 3,534 passed, 4 skipped (`targeted.txt`). Planted defects: 4 of 4 caught, control green, files restored byte-identical (`mutation-results.txt`). All 1,606 coverage behaviour ids are collected (`check-ids.txt`; the control names the dead ids against the committed coverage). `inventory.py check` 0 problems after restamping `scripts/launcher.py`.
+- **Why the direct runs missed them.** `test_cleanup_worker` and `test_release_packaging` scan source but were not in my source-guard set, and only the gate checks that coverage's ids are collected.
+- **Next exact action.** The full Windows gate on this commit; then the closeout commit records it.
+
 ## CURRENT STATE — v0.7.2 Phase 6 (complete), batches D and E committed: the final Phase 6 candidate; its ONE full Windows gate follows and is recorded by the closeout commit; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 Authority as in the batch A block below; this block supersedes the batch C block for status and next action.

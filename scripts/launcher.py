@@ -784,7 +784,7 @@ class LauncherApp:
 _ROOT: tk.Tk | None = None
 
 
-def _release_tk_objects(root: tk.Tk) -> int:
+def _finish_tk_objects(root: tk.Tk) -> int:
     """Finish the closed window's Tcl variables, images and fonts here, on the main thread (v0.7.2, ACT72-017).
 
     The window is gone, but closed panels' Tk objects can still sit in reference cycles, or be held by a worker that is
@@ -871,7 +871,7 @@ def main() -> int:
     LauncherApp(root)
     root.mainloop()
     # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
-    _release_tk_objects(root)
+    _finish_tk_objects(root)
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
     sp.stop_media_children()
     return 0

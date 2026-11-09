@@ -6528,11 +6528,11 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[write_id3_tags-Write ID3 Tags]"
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[write_id3_tags]"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[combine_mp3s-Combine MP3s → One MP3]"
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[combine_mp3s]"
           }
         ]
       },
@@ -10720,7 +10720,15 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving"
+            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving[abc]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving[-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving[nan]"
           },
           {
             "kind": "behavior",
@@ -16401,7 +16409,7 @@
           "symbols": [
             "main",
             "LauncherApp._on_close",
-            "_release_tk_objects"
+            "_finish_tk_objects"
           ]
         },
         {
@@ -22681,7 +22689,7 @@
         "ACT.TTS.CLOSE"
       ],
       "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
-      "resolution": "Fixed in v0.7.2 Phase 6 (batch B): once the main loop has ended, launcher.main calls _release_tk_objects on the main thread: a collection there frees what is already garbage, and every Tk variable, image and font of the closed root still alive is deleted from Tcl exactly as its __del__ would, then marked done, so a later __del__ on any thread has nothing to do. The root stays held by _ROOT (Tcl_AsyncDelete). Nothing is hidden: the forced-landing arms now record every unraisable exception on the worker and assert none came from Tk and the collection took under 5 s. Reproduced natively with the release removed (2026-11-09_122136_focused_224e): Cover 17.4 s and 16, TTS 22.9 s and 21 'main thread is not in main loop' errors; with it (2026-11-09_122302_focused_07b1): 0.016 to 0.032 s and none, and the crash control still sees the crash once the root is released. Unit: test_tk_teardown_on_main_thread.py (a real root in a child process; the control shows 5.45 s and four errors, the release 0.0 s and none)."
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch B): once the main loop has ended, launcher.main calls _finish_tk_objects (named _release_tk_objects until the final gate on c2244ae found the word release in the launcher, which test_release_packaging forbids) on the main thread: a collection there frees what is already garbage, and every Tk variable, image and font of the closed root still alive is deleted from Tcl exactly as its __del__ would, then marked done, so a later __del__ on any thread has nothing to do. The root stays held by _ROOT (Tcl_AsyncDelete). Nothing is hidden: the forced-landing arms now record every unraisable exception on the worker and assert none came from Tk and the collection took under 5 s. Reproduced natively with the release removed (2026-11-09_122136_focused_224e): Cover 17.4 s and 16, TTS 22.9 s and 21 'main thread is not in main loop' errors; with it (2026-11-09_122302_focused_07b1): 0.016 to 0.032 s and none, and the crash control still sees the crash once the root is released. Unit: test_tk_teardown_on_main_thread.py (a real root in a child process; the control shows 5.45 s and four errors, the release 0.0 s and none)."
     },
     {
       "id": "ACT72-018",
@@ -23240,7 +23248,7 @@
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "4d7cb12d022393f36f11d44d1feb73fff4e742be71b80ba557e206193c197d73",
+    "scripts/launcher.py": "de0c7e32025bb62c2240cba305c9caaaec66cfca9ad9ad6ba816dd86ff913b26",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "fd5e227b489b090b0948e8b806dcdf3f596e43d7191cb040510315d4df7a6336",

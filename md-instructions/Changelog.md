@@ -13,6 +13,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6, final candidate: four standing checks the full gate found (2026-11-09)
+
+**Fixed (development only; nothing a person sees changes)**
+- The launcher's main-thread Tk teardown (batch B, ACT72-017) is named `_finish_tk_objects`: a standing check forbids the word "release" in the launcher, where it may only ever mean building a release.
+- The check that keeps folder removal in the cleanup coordinator now names `work_area.py`, which batch D moved into `shared/`: it removes only its own private working folders, and it is held to the same rule that it never reaches a cleanup target.
+- Two coverage entries named test ids pytest does not collect (a parameter containing "→", and a test batch D parametrized); both now name the collected ids.
+
 ## [Unreleased] — v0.7.2 Phase 6, batch E: honest words for the TTS skip box, and the six tools side by side (2026-11-09)
 
 **Changed**

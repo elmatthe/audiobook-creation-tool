@@ -7745,3 +7745,32 @@ Open Output Folder is in three tools of six; the Converter and Cover Image have 
 Each is a change to what a person sees, so each is the owner's to approve.
 
 — Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.
+
+---
+
+## 2026-11-09 — What the final full gate on c2244ae found (v0.7.2 Phase 6, final candidate)
+
+The one full Windows gate on `c2244ae` (`2026-11-09_150101_full_5f93`) failed on four checks: 14,020 tests passed, 2 failed,
+and coverage named 2 test ids that pytest does not collect. None changes what a person sees; each is a standing check that
+my direct runs did not include.
+
+**Decision 1:** `launcher._release_tk_objects` (batch B, ACT72-017) is renamed `_finish_tk_objects`.
+`test_release_packaging::test_building_is_not_part_of_application_startup` forbids the word "release" anywhere in the
+launcher, so that building a release is never part of starting the app. The check is unchanged; the name now says what
+the helper does.
+
+**Decision 2:** `test_cleanup_worker::test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator` names
+`work_area.py` beside `cleanup_worker.py` for `os.rmdir`, and beside the four named files for `rmtree`. Batch D moved
+`work_area.py` from `tts/` (outside the check) into `shared/`. It removes only the private working folders this process
+made, its own empty workspace, and a workspace whose recorded owner has provably ended (Phase 6B). It is held to the same
+two assertions as the others (never `authorized_target`, never `compiled_target`), and the check now applies them to it
+even if it stops using `rmtree`. Any other shared module that calls `os.rmdir` still fails. This adds one named exception
+to a guard and removes no check; the file is checked more than it was before the move. Planted defects prove both halves:
+an `os.rmdir` in another shared module, and a catalog name in `work_area.py`, each fail the check.
+
+**Decision 3:** the MP3 Tool's refused-plan test has ASCII parameter ids (pytest writes the arrow in "Combine MP3s → One
+MP3" as an escape sequence, so coverage's id never matched), and `ACT.MAKER.BUILD` names the three parametrized ids of the
+Maker's refusal test instead of its bare name. All 1,606 behaviour ids in coverage are collected; the same check names the
+dead ids against the committed coverage.
+
+— Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.
