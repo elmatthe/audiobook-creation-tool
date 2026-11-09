@@ -84,6 +84,7 @@ sit differs.
 import gc
 import queue
 import sys
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -102,6 +103,7 @@ from shared import appearance
 from shared import config as shared_config
 from shared import job_control
 from shared import job_ui
+from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
@@ -403,6 +405,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.last_plan: mp.RunPlan | None = None
         self.run: batch.EditorRun | None = None
         self._attempt: batch.Attempt | None = None
+        #: Keeps the run's worker and this thread from releasing staging at once (ACT72-034). A plain mutex.
+        self._staging_lock = threading.Lock()
         self._label: str = ""
         self._rendering = False
 
@@ -1509,6 +1513,8 @@ class M4BMetadataEditorUI(ttk.Frame):
                 "modified, and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self.run is not None
+        # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
+        self._abandon_run()
         self.workspace = wf.new_workspace(id_factory=self._ids)
         self.store = wf.ObservationStore()
         self.book_numbers = {}
@@ -1664,13 +1670,31 @@ class M4BMetadataEditorUI(ttk.Frame):
                 APP_TITLE, "None of the imported files could be read, so there is "
                            "nothing to write.", parent=self)
             return False
+        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
+        self._abandon_run()
         self.last_plan = plan
         self._label = ACTION_LABELS[action]
         self.run = self._run_factory(plan, id_factory=self._ids, clock=self._clock,
-                                     publish=self._publish)
+                                     publish=self._publish, staging_lock=self._staging_lock)
         self.var_outdir.set(str(plan.run_directory))
         self._start_attempt(self.run.start, self._label)
         return True
+
+    def _abandon_run(self) -> None:
+        """No Retry Failed can reach the current run any more (ACT72-034): its kept staging goes. Main thread; never
+        raises. A worker still running keeps nothing when it ends."""
+        run = self.run
+        if run is None:
+            return
+        try:
+            problems = run.abandon()
+        except Exception as exc:  # noqa: BLE001 - closing and clearing must go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            if self._closed:
+                logging_setup.get_logger().warning("M4B Metadata Editor: private staging left in place: %s", line)
+            else:
+                self._say("Some private staging could not be removed.", line)
 
     def _start_attempt(self, begin, label: str) -> None:
         """Begin one attempt through the run and start its one worker thread."""
@@ -1860,6 +1884,8 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # Nothing can retry once the tool is closed (ACT72-034): kept staging goes now, or when the worker ends.
+        self._abandon_run()
         if self.run is not None:
             try:
                 self.run.cancel()

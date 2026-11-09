@@ -213,7 +213,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - The interrupted output and the rest of that book are removed; books already finished stay. No further book starts. Cancelling while sources are still being read reserves no folder.
 - The run shows Cancelled only after cleanup; books never reached are "not attempted", not failures.
 - **Same as:** the M4B Maker and MP3 Tool, which also stop a running FFmpeg step since v0.7.2 Phase 6C (ACT72-023); the Converter keeps its own runner.
-- **Known gap:** the log still says "Cancelling… will stop after the current file.", which no longer describes what happens (new finding, Phase 6). A cancelled split book may leave its empty book folder behind.
+- **Known gap:** the log still says "Cancelling… will stop after the current file.", which no longer describes what happens (new finding, Phase 6). (A cancelled or failed split book's empty folder is removed since v0.7.2 Phase 6, ACT72-029.)
 
 ### Retry Failed
 

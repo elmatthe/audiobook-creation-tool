@@ -1932,6 +1932,11 @@ class M4BConverterUI(ttk.Frame):
                             "log",
                             f"  {len(removed)} incomplete file(s) for "
                             f"{in_file.name} were removed.\n"))
+                    # ...and the folders made for this book, once empty (v0.7.2, ACT72-029): a split book's own
+                    # folder stayed behind empty. Never the run folder, never a folder that holds anything.
+                    m4b_execution.prune_empty_folders(
+                        [segment.destination for segment in item.segments],
+                        inside=plan.run_directory)
 
                 if failure is not None:
                     # Named by book *and* by output: a split run has many

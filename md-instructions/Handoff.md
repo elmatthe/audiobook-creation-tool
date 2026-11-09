@@ -2,6 +2,17 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6 (complete), batch A of A–E committed: staging cleanup (ACT72-019, 029, 031, 034, 037); branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
+
+Authority: the owner's "COMPLETE PHASE 6" prompt (2026-11-09): finish every remaining Phase 6 issue in internal batches A–E, then ONE full Windows gate, then stop for the owner's checkpoint review. Phases 0–5 and 6A–6E are owner-accepted (6E closeout `e20b960`). No Phase 7, Codex review, merge, tag or release.
+
+- **Entry.** HEAD `e20b960` = origin. Owner state recorded (`entry_state.json`, read-only snapshot script `protected_state.py`): the 14 tracked deletions and 4 untracked entries, `%TEMP%\act-gate\bfa7`, the 31 legacy `epub2tts_*` folders. None touched. Progress ledger and evidence: `files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/` (ignored; `LEDGER.md`).
+- **Batch A (this commit).** Staging lives exactly as long as a Retry Failed can reach it (`Decisions.md` 2026-11-09, batch A). MP3 Tool (`mp3_plan.release_staging`, panel `_release_staging` / `_abandon_staging`, junction-aware discard), M4B Maker (`MakerRun.abandon`, release before the terminal event, custom staging in a `tts/work_area` entry of kind `maker`, recovery at a custom build's start), Metadata Editor (`EditorRun.abandon`, same release), Converter (`m4b_execution.prune_empty_folders` after a failed or cancelled split book). Closed: ACT72-019, 029, 031, 034, 037.
+- **Tests.** `test_mp3_staging_release.py` (9), `test_maker_staging_release.py` (11), `test_metadata_staging_release.py` (7), two in `test_m4b_retry.py`, two in `test_m4b_execution.py`; two `test_mp3_hardening.py` assertions that pinned the old behaviour updated (the first run's folder is still kept and its number never reused). Before the fix (e20b960) 24 of these failed for the defect; 18 planted defects caught, one equivalent mutant shown equivalent (the run folder has two guards), control green (`batchA/mutation-results*.txt`). Native: `mp3.unreadable-track` now asserts no `.work` after the tool closes.
+- **Verification so far.** Direct pytest: every MP3-touching module (2,206 passed), Maker/Editor/Converter neighbours, the inventory readers, meta-guards and TTS work-area suites (666 passed, 3 skipped); `inventory.py check` 0 problems. The canonical focused run on this commit follows; its result is recorded with the next checkpoint.
+- **Issue count after batch A.** 59 issues, 31 open: Phase 6 25 (21 Minor, 4 Suggestion), Phase 7 1, Phase 8 5.
+- **Next exact action.** Batch B (ACT72-014, 017, 038, 039: control locking, shutdown, first-run setup Stop/close).
+
 ## CURRENT STATE — v0.7.2 Phase 6E (closeout): the canonical changed-area gate PASSED on `6ef00fe`; the commit that adds this block changes canonical documents only; STOP for the ChatGPT checkpoint review; NOT accepted; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 Authority: the owner's Phase 6E prompt. This block supersedes the "Next exact action" bullet of the block below; that block's account of the slice stands.

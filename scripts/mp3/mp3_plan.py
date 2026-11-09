@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -87,6 +87,7 @@ __all__ = [
     "is_published",
     "discard_staging",
     "discard_run_staging",
+    "release_staging",
 ]
 
 
@@ -455,34 +456,78 @@ def discard_staging(book: BookPlan) -> int:
     root = book.staging_dir
     if not root.exists() and not root.is_symlink():
         return 0
-    if root.is_symlink():
+    if _is_link(root):
         raise PlanError(f"staging {root} is a link and was not touched")
-    removed = 0
-    for current, directories, files in os.walk(root, topdown=False, followlinks=False):
-        current_path = Path(current)
-        if current_path != root:
-            output_paths.assert_contained(root, current_path)
-        # A link is removed as a link and never followed. Its own location is
-        # already proven inside the staging area (``current_path`` was), so it
-        # is not handed to ``assert_contained``, which resolves links: a link
-        # pointing outside would otherwise abort the discard as unsafe rather
-        # than being unlinked, and the staging area would be left behind.
-        for name in files:
-            target = current_path / name
-            if not target.is_symlink():
-                output_paths.assert_contained(root, target)
-            os.unlink(target)
-            removed += 1
-        for name in directories:
-            target = current_path / name
-            if target.is_symlink():
-                os.unlink(target)      # the link itself, never what it points at
-            else:
-                output_paths.assert_contained(root, target)
-                os.rmdir(target)
-            removed += 1
+    removed = _remove_entries(root, root)
     os.rmdir(root)
     return removed + 1
+
+
+def _is_link(path: Path) -> bool:
+    """A symlink **or** a Windows junction / reparse point, asked of ``output_paths`` as the M4B tools' staging does.
+
+    ``Path.is_symlink`` says no to a junction, and the ``os.walk`` this replaced (v0.7.2) walked into one and then
+    refused the whole Book's discard as unsafe, so a junction planted in staging kept every piece of that Book."""
+    if path.is_symlink():
+        return True
+    try:
+        output_paths.assert_no_link_in(path.parent, path)
+    except output_paths.OutputPathError:
+        return True
+    return False
+
+
+def _remove_entries(root: Path, directory: Path) -> int:
+    """Remove *directory*'s entries, bounded to *root*. A link is removed as a link, never entered or followed: its
+    own place is already inside *root*, so it is not handed to ``assert_contained``, which resolves links."""
+    removed = 0
+    with os.scandir(directory) as scan:
+        entries = list(scan)
+    for entry in entries:
+        target = Path(entry.path)
+        if _is_link(target):
+            try:
+                os.unlink(target)
+            except OSError:
+                os.rmdir(target)  # a directory link on a platform that insists: the link itself, never its target
+            removed += 1
+            continue
+        output_paths.assert_contained(root, target)
+        if entry.is_dir(follow_symlinks=False):
+            removed += _remove_entries(root, target)
+            os.rmdir(target)
+        else:
+            os.unlink(target)
+        removed += 1
+    return removed
+
+
+def release_staging(plan: RunPlan, *, keep: Collection[str] = ()) -> tuple[str, ...]:
+    """Remove the staging no Retry Failed can reach any more (v0.7.2, ACT72-019 and ACT72-037).
+
+    Every Book of *plan* whose id is not in *keep* loses its private staging
+    folder through :func:`discard_staging` (bounded to that folder; a link is
+    removed as a link or refused, never followed), then the work area goes if
+    nothing is left in it. Published files never lie under the work area, so
+    nothing published is reachable from here. *keep* is the Books a Retry
+    Failed may still re-run; the caller decides that, nothing here reads it.
+
+    Never raises: each problem is returned as one line, and what it names stays
+    where it is. Safe to repeat.
+    """
+    problems: list[str] = []
+    for book in plan.books:
+        if book.book_id in keep:
+            continue
+        try:
+            discard_staging(book)
+        except (PlanError, output_paths.OutputPathError, OSError) as exc:
+            problems.append(f"{book.staging_dir}: {exc}")
+    try:
+        discard_run_staging(plan)
+    except PlanError as exc:  # pragma: no cover - plan_run always builds the work area under the run
+        problems.append(str(exc))
+    return tuple(problems)
 
 
 def discard_run_staging(plan: RunPlan) -> bool:

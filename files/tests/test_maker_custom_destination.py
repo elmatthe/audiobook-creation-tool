@@ -319,7 +319,9 @@ def test_custom_mode_stages_outside_the_users_directory(tmp_path):
 
     v0.6.4 Phase 3 made this a planning contract: a custom destination carries
     an operation-owned work root that may not be, or lie inside, the chosen
-    folder; the panel makes that root in the system temp area.
+    folder. The panel makes that root in the system temp area: since v0.7.2
+    (ACT72-031) inside an owned work-area entry of kind ``maker`` rather than a
+    loose ``mkdtemp`` folder (behaviour in test_maker_staging_release.py).
     """
     chosen = tmp_path / "Chosen"
     chosen.mkdir()
@@ -330,8 +332,8 @@ def test_custom_mode_stages_outside_the_users_directory(tmp_path):
     elsewhere = mp.custom_destination(chosen, work_root=tmp_path / "op-work")
     assert elsewhere.work_root.parent == tmp_path
     source = Path(mk.__file__).read_text(encoding="utf-8")
-    assert "tempfile.mkdtemp(prefix=" in source
-    assert "WORK_ROOT_PREFIX" in source
+    assert 'work_area.new_folder("maker")' in source
+    assert "mkdtemp" not in source, "no loose, unowned staging root"
 
 
 def test_cancellation_never_removes_the_chosen_directory():

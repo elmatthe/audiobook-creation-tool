@@ -6506,7 +6506,10 @@
             "discard_staging",
             "discard_run_staging",
             "_require_owned",
-            "_work_root_of"
+            "_work_root_of",
+            "release_staging",
+            "_is_link",
+            "_remove_entries"
           ]
         },
         {
@@ -6515,6 +6518,13 @@
             "_discard_staged",
             "_settle"
           ]
+        },
+        {
+          "path": "scripts/mp3/mp3_tool.py",
+          "symbols": [
+            "MP3ToolUI._release_staging",
+            "MP3ToolUI._abandon_staging"
+          ]
         }
       ],
       "contracts": [
@@ -6522,12 +6532,13 @@
         "Publication moves files into the Book folder and rolls back on any failure, so a Book is published whole or not at all.",
         "A failed Book's good pieces stay in staging for Retry Failed; a published Book's intermediates are removed and an empty work area is deleted.",
         "Cleanup never follows a link out of the work area.",
-        "Staging left by a failed run must not outlive the program (currently it does, ACT72-019)."
+        "Staging lives exactly as long as a Retry Failed can reach it: when a run settles, every Book it cannot retry loses its staging, and Clear All Imports, a new run and closing the tool remove the rest; a link planted in staging is unlinked as a link, never followed (v0.7.2, ACT72-019)."
       ],
       "selection": [
         "files/tests/test_mp3_plan.py",
         "files/tests/test_mp3_combine.py",
-        "files/tests/test_mp3_write_id3.py"
+        "files/tests/test_mp3_write_id3.py",
+        "files/tests/test_mp3_staging_release.py"
       ],
       "journeys": [
         "mp3.unreadable-track"
@@ -6563,10 +6574,36 @@
             "scenario": "mp3.unreadable-track"
           },
           {
-            "kind": "planned",
-            "gap": "A failed run's .work staging folder stays in the run folder after the application exits, when no Retry Failed can reach it any more",
-            "phase": 6,
-            "issue": "ACT72-019"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_a_failed_run_keeps_only_the_retryable_book_and_closing_the_tool_removes_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_clear_all_imports_removes_the_staging_kept_for_retry"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_a_new_run_removes_the_previous_runs_retained_staging_and_keeps_its_own"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_retry_failed_still_reuses_the_kept_pieces_and_a_successful_retry_leaves_no_work_area"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_an_item_less_failure_cannot_be_retried_so_its_staging_goes_at_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_an_unexpected_worker_fault_leaves_no_work_area"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_a_junction_planted_in_the_kept_staging_never_exposes_what_it_points_at"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_the_release_is_bounded_to_the_plans_own_staging_and_safe_to_repeat"
           }
         ]
       },
@@ -6589,7 +6626,8 @@
             "MP3ToolUI.cancel",
             "MP3ToolUI.on_cancel",
             "MP3ToolUI._worker",
-            "MP3ToolUI._run_attempt"
+            "MP3ToolUI._run_attempt",
+            "MP3ToolUI._release_staging"
           ]
         },
         {
@@ -6619,14 +6657,16 @@
         "Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle, and otherwise stops the run at its next checkpoint (between tracks, stages or Books); no later FFmpeg step and no later Book starts.",
         "Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published.",
         "Retry Failed is not offered after a cancelled run.",
-        "A stopped step is never a failed or retryable track and never the 999 launch failure; its half-written staged track or combined file is removed. Only that step's own process is stopped: any other FFmpeg, even one this program started, is untouched. Pause never stops or suspends a running step."
+        "A stopped step is never a failed or retryable track and never the 999 launch failure; its half-written staged track or combined file is removed. Only that step's own process is stopped: any other FFmpeg, even one this program started, is untouched. Pause never stops or suspends a running step.",
+        "A cancelled run keeps no private staging: no Retry Failed is offered after a Cancel, so the run folder's .work goes before the run reports Cancelled (v0.7.2, ACT72-037)."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
         "files/tests/test_mp3_hardening.py",
         "files/tests/test_mp3_write_id3.py",
         "files/tests/test_mp3_combine.py",
-        "files/tests/test_ffmpeg_cancel.py"
+        "files/tests/test_ffmpeg_cancel.py",
+        "files/tests/test_mp3_staging_release.py"
       ],
       "journeys": [],
       "verification": {
@@ -6648,10 +6688,8 @@
             "test": "files/tests/test_mp3_combine.py::test_a_checkpoint_stops_between_stages"
           },
           {
-            "kind": "planned",
-            "gap": "A cancelled run leaves its .work staging folder: ConversionCancelled propagates out of write_id3_run/combine_run before discard_run_staging, and no retry can reuse it",
-            "phase": 6,
-            "issue": "ACT72-037"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_a_cancel_during_ffmpeg_leaves_no_work_area_and_publishes_nothing_partial"
           },
           {
             "kind": "behavior",
@@ -7670,7 +7708,8 @@
         {
           "path": "scripts/m4b/m4b_execution.py",
           "symbols": [
-            "_passes"
+            "_passes",
+            "prune_empty_folders"
           ]
         }
       ],
@@ -7678,13 +7717,15 @@
         "A chaptered book produces one MP3 per source chapter, in source order.",
         "The outputs tile the whole source: audio before the first chapter belongs to output 1, gaps belong to the preceding chapter, and the last output ends at the source duration.",
         "Each book's outputs go into their own folder named for the source file's stem, named 'NN - <chapter title>.mp3' with order restarting at 01 per book.",
-        "Each output's audio matches its exact source interval, first and last chapter included."
+        "Each output's audio matches its exact source interval, first and last chapter included.",
+        "A split book that failed or was cancelled leaves no folder behind: once its finished segments are taken back, the empty folders made for it are removed with rmdir alone, never the run folder, never a folder holding anything, never through a link (v0.7.2, ACT72-029)."
       ],
       "selection": [
         "files/tests/test_m4b_conversion_plan.py",
         "files/tests/test_m4b_timeline_partition.py",
         "files/tests/test_m4b_execution.py",
-        "files/tests/test_m4b_numbering.py"
+        "files/tests/test_m4b_numbering.py",
+        "files/tests/test_m4b_retry.py"
       ],
       "journeys": [
         "converter.split-by-chapter"
@@ -7718,6 +7759,22 @@
           {
             "kind": "media",
             "scenario": "converter.split-by-chapter"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_retry.py::test_a_failed_split_books_empty_folder_is_removed_and_the_retry_makes_it_again"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_retry.py::test_a_cancelled_split_book_leaves_no_empty_folder_and_the_finished_book_is_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_execution.py::test_prune_empty_folders_removes_only_empty_folders_strictly_inside_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_execution.py::test_prune_empty_folders_never_removes_or_follows_a_link"
           }
         ]
       },
@@ -10267,7 +10324,7 @@
             "M4BMakerUI.custom_destination",
             "M4BMakerUI._ask_destination",
             "M4BMakerUI._destination",
-            "M4BMakerUI._drop_empty"
+            "CUSTOM_STAGING_NAME"
           ]
         },
         {
@@ -10282,7 +10339,7 @@
         "'Choose custom destination' is off on every new panel, reveals the path entry and Browse… only while on, and is never saved.",
         "The folder is validated before anything starts; an invalid one shows a message and reserves nothing.",
         "Outputs go directly into the chosen folder with no M4B-Maker-N inside it, numbered around existing files, never overwriting.",
-        "Staging happens in an operation-owned temporary folder outside the chosen folder.",
+        "Staging happens outside the chosen folder, in an owned entry of the temporary work area that is removed once no retry can reach it (v0.7.2, ACT72-031).",
         "While the toggle is off, a path left in the hidden entry is ignored."
       ],
       "selection": [
@@ -10657,7 +10714,27 @@
         {
           "path": "scripts/m4b/maker/m4b_maker_batch.py",
           "symbols": [
-            "Attempt._run_book"
+            "Attempt._run_book",
+            "MakerRun.abandon",
+            "MakerRun._attempt_ended",
+            "MakerRun._release_staging",
+            "Attempt._release_staging",
+            "Attempt._recover_temporaries"
+          ]
+        },
+        {
+          "path": "scripts/m4b/maker/m4b_maker.py",
+          "symbols": [
+            "M4BMakerUI._abandon_run",
+            "_recover_owned_temporaries"
+          ]
+        },
+        {
+          "path": "scripts/tts/work_area.py",
+          "symbols": [
+            "new_folder",
+            "OwnedFolder",
+            "recover"
           ]
         }
       ],
@@ -10665,13 +10742,15 @@
         "FFmpeg writes only the Book's private staging file, never the final path.",
         "The staged M4B is validated (audio present, planned chapter titles, Title and cover) before it is published.",
         "Publication is an atomic move that refuses an existing destination; a work root on another drive goes through a temporary sibling.",
-        "A failed Book leaves no partial M4B under a final name and no staging, except a validated candidate kept for Retry Failed after a publication or numbering failure.",
-        "Source MP3s are never modified."
+        "A failed Book leaves no partial M4B under a final name and no staging, except a validated candidate kept for Retry Failed after a publication or numbering failure, and only while a Retry Failed can reach it: a cancelled, failed or abandoned run (Clear All Imports, a new Build, closing the tool) keeps nothing (v0.7.2, ACT72-031).",
+        "Source MP3s are never modified.",
+        "A custom-folder build stages in an entry of the owned temporary work area (kind 'maker'), listed with its owner before it exists; the entry is closed once no retry can reach it, and what a killed Maker left is recovered by a later custom build only once its owner is provably gone (never by name alone)."
       ],
       "selection": [
         "files/tests/test_m4b_maker_processing.py",
         "files/tests/test_m4b_staging.py",
-        "files/tests/test_m4b_maker_batch.py"
+        "files/tests/test_m4b_maker_batch.py",
+        "files/tests/test_maker_staging_release.py"
       ],
       "journeys": [
         "maker.unreadable-track"
@@ -10711,10 +10790,36 @@
             "scenario": "maker.unreadable-track"
           },
           {
-            "kind": "planned",
-            "gap": "Staging can outlive the run with no owner: a candidate retained after a publication or numbering failure stays if Retry Failed is never pressed (Clear All Imports and closing drop the run without discarding it), and a killed or closed build can leave .work/<Book> (standard) or %TEMP%\\act-m4b-build-* (custom); the shutdown journey explicitly tolerates leftovers under .work. Read from code, unmeasured.",
-            "phase": 6,
-            "issue": "ACT72-031"
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_publication_failure_keeps_the_candidate_until_the_run_is_abandoned"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_numbering_failure_keeps_the_candidate_until_the_run_is_abandoned"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_cancel_after_a_kept_candidate_leaves_no_staging"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_run_abandoned_while_its_attempt_runs_keeps_nothing_when_it_ends"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_retry_failed_reuses_the_kept_candidate_and_a_full_success_releases_the_work_area"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_custom_build_stages_in_an_owned_entry_and_leaves_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_custom_builds_kept_candidate_stays_in_its_entry_until_the_tool_closes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_killed_makers_work_area_is_recovered_by_the_next_custom_build_and_nothing_else_is"
           }
         ]
       },
@@ -11430,7 +11535,8 @@
           "path": "scripts/m4b/maker/m4b_maker.py",
           "symbols": [
             "M4BMakerUI.close",
-            "M4BMakerUI.destroy"
+            "M4BMakerUI.destroy",
+            "M4BMakerUI._abandon_run"
           ]
         }
       ],
@@ -11438,11 +11544,13 @@
         "Destroying the panel always reaches close(), which requests cancel of the run, closes the importer, stops the pump and closes every component; close() is idempotent.",
         "Closing the application while a Maker build encodes exits with status 0, with no window, no owned process and no Tcl crash.",
         "No partial M4B is left under a final name.",
-        "A closed panel stops listening for appearance changes."
+        "A closed panel stops listening for appearance changes.",
+        "Closing the tool lets the run go: a candidate kept for Retry Failed is removed at once, or by the worker as it ends if a build is still running (v0.7.2, ACT72-031)."
       ],
       "selection": [
         "files/tests/test_close_stops_media_children.py",
-        "files/tests/test_m4b_maker_appearance.py"
+        "files/tests/test_m4b_maker_appearance.py",
+        "files/tests/test_maker_staging_release.py"
       ],
       "journeys": [
         "shutdown.maker-close-during-work",
@@ -11467,10 +11575,16 @@
             "scenario": "shutdown.maker-close-forced-landing"
           },
           {
-            "kind": "planned",
-            "gap": "Closing mid-build relies on the launcher ending the FFmpeg child (the panel's cancel cannot interrupt it) and can leave the Book's .work staging behind; the shutdown journey accepts leftovers under .work. Read from code, unmeasured.",
-            "phase": 6,
-            "issue": "ACT72-031"
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_dropping_the_run_removes_the_kept_candidate[close]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_dropping_the_run_removes_the_kept_candidate[clear_all_imports]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_dropping_the_run_removes_the_kept_candidate[build_again]"
           }
         ]
       },
@@ -12851,17 +12965,34 @@
             "_staging",
             "_require_plan"
           ]
+        },
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_batch.py",
+          "symbols": [
+            "EditorRun.abandon",
+            "EditorRun._attempt_ended",
+            "EditorRun._release_staging",
+            "Attempt._release_staging"
+          ]
+        },
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
+          "symbols": [
+            "M4BMetadataEditorUI._abandon_run"
+          ]
         }
       ],
       "contracts": [
         "Each Book is copied into its own staging folder under the run's .work area, edited and validated there, then moved into the run",
         "A failure at any step (vanished source, unusable cover, copy, tags, cover, chapters, validation) publishes nothing for that Book and removes its staging folder",
         "Publication never overwrites a file already at the destination",
-        "The .work area is removed once it is empty"
+        "The .work area is removed once it is empty",
+        "A validated candidate kept for Retry Failed after a publication or Series Part failure stays only while a Retry Failed can reach it: a cancelled run keeps nothing, and Clear All Imports, a new action and closing the tool remove it (v0.7.2, ACT72-034)."
       ],
       "selection": [
         "files/tests/test_m4b_metadata_processing.py",
-        "files/tests/test_m4b_staging.py"
+        "files/tests/test_m4b_staging.py",
+        "files/tests/test_metadata_staging_release.py"
       ],
       "journeys": [],
       "verification": {
@@ -12887,10 +13018,32 @@
             "test": "files/tests/test_m4b_metadata_processing.py::test_an_unusable_cover_fails_before_the_copy_and_publishes_nothing"
           },
           {
-            "kind": "planned",
-            "gap": "A publication or Series Part write failure keeps the validated candidate in the run's .work folder for Retry Failed, and nothing removes it when the panel closes or Clear All Imports drops the run (read from code, unmeasured; same class as ACT72-019)",
-            "phase": 6,
-            "issue": "ACT72-034"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_a_publication_failure_keeps_the_candidate_until_the_run_is_abandoned"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_a_series_part_failure_keeps_the_candidate_until_the_run_is_abandoned"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_a_cancel_after_a_kept_candidate_leaves_no_staging"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_a_run_abandoned_while_its_attempt_runs_keeps_nothing_when_it_ends"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_dropping_the_run_removes_the_kept_candidate[close]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_dropping_the_run_removes_the_kept_candidate[clear_all_imports]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_dropping_the_run_removes_the_kept_candidate[save_again]"
           }
         ]
       },
@@ -21492,7 +21645,8 @@
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._ask_folder::filedialog.askdirectory:Select a folder of MP3 audiobooks": "ACT.MAKER.IMPORT-FOLDER",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE": "ACT.MAKER.CUSTOM-DESTINATION",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#2": "ACT.MAKER.CUSTOM-DESTINATION",
-      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#3": "ACT.MAKER.RUN-FOLDER",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#3": "ACT.MAKER.CUSTOM-DESTINATION",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#4": "ACT.MAKER.RUN-FOLDER",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE": "ACT.MAKER.SILENCE",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE#2": "ACT.MAKER.SERIES",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE#3": "ACT.MAKER.BUILD",
@@ -22183,12 +22337,13 @@
       "id": "ACT72-019",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A failed MP3 Tool run leaves its .work staging in the run folder after the application exits",
       "features": [
         "ACT.MP3.STAGING-PUBLISH"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch A): staging lives exactly as long as a Retry Failed can reach it. The worker removes, before the terminal event, the staging of every Book the attempt cannot retry (mp3_plan.release_staging, bounded to the plan's own Book folders, links unlinked and never followed, the work area removed once empty); the panel removes what was kept for Retry Failed when Clear All Imports, a new run or closing the tool drops the run, and a lock plus an 'abandoned' mark keep a close racing the end of a run from leaving anything. The MP3 discard now treats a junction as a link, as the M4B tools' staging does (it used to refuse the whole Book). Reproduced at e20b960: 7 of 9 regressions failed (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchA/mp3-before-e20b960.txt); 7 mutants caught. Run-folder .work after a killed process is the documented crash boundary (no partial publication; nothing in the output folder is ever swept). Tests: test_mp3_staging_release.py; native: mp3.unreadable-track now asserts no .work after the tool closes."
     },
     {
       "id": "ACT72-020",
@@ -22298,12 +22453,13 @@
       "id": "ACT72-029",
       "severity": "Suggestion",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A failed or cancelled Converter split book leaves its empty book folder in the run folder",
       "features": [
         "ACT.CONVERTER.SPLIT"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch A): after a split book's finished segments are taken back on a failure or Cancel, m4b_execution.prune_empty_folders removes the empty folders made for it, walking up from each planned segment's folder with rmdir alone; the reserved run folder is never removed (two independent guards), a folder holding anything stops the walk, and nothing outside the run or behind a link is touched. Retry Failed makes the folder again at its frozen name. Tests: test_m4b_retry.py (failure and Cancel through the panel), test_m4b_execution.py (bounds, junction); mutants caught, one equivalent (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchA/mutation-results*.txt)."
     },
     {
       "id": "ACT72-030",
@@ -22321,13 +22477,14 @@
       "id": "ACT72-031",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "M4B Maker staging can outlive its run: a candidate kept for Retry Failed is not removed by Clear All Imports or close, and custom mode's %TEMP%\\act-m4b-build-* work root is never cleaned",
       "features": [
         "ACT.MAKER.CLOSE-DURING-BUILD",
         "ACT.MAKER.STAGING"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch A): MakerRun keeps a validated candidate only while a Retry Failed can reach it. Each attempt removes, before its terminal event, every Book's staging its result cannot retry (so a cancelled or failed run keeps nothing), and MakerRun.abandon removes the rest when the panel drops the run (Clear All Imports, a new Build, closing the tool); an attempt still running keeps nothing when it ends (panel-supplied lock). Custom mode no longer stages in a loose %TEMP%\\act-m4b-build-* folder: it stages in an entry of the owned work area (tts.work_area, kind 'maker'), listed with its owner (process id and creation time) before it exists, closed once nothing is kept, and recovered by the next custom build only once its owner is provably gone; a loose act-m4b-build-* folder is never touched by name. Reproduced at e20b960: 10 of 11 regressions failed (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchA/maker-before-e20b960.txt); 8 mutants caught. Tests: test_maker_staging_release.py."
     },
     {
       "id": "ACT72-032",
@@ -22356,12 +22513,13 @@
       "id": "ACT72-034",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A Metadata Editor publication or Series Part failure keeps the validated candidate in the run's .work after close or Clear All Imports; same class as ACT72-019",
       "features": [
         "ACT.METADATA.FAILURE-SAFETY"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch A), the Maker's pattern: EditorRun keeps a validated candidate only while a Retry Failed can reach it; each attempt releases what its result cannot retry before its terminal event, and EditorRun.abandon removes the rest when the panel drops the run (Clear All Imports, a new action, closing the tool). Reproduced at e20b960: 7 of 7 regressions failed (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchA/editor-before-e20b960.txt); 2 mutants caught. Tests: test_metadata_staging_release.py."
     },
     {
       "id": "ACT72-035",
@@ -22388,12 +22546,13 @@
       "id": "ACT72-037",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A cancelled MP3 Tool run leaves its .work staging folder (the cancel escapes write_id3_run/combine_run before discard_run_staging)",
       "features": [
         "ACT.MP3.CANCEL"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch A) with ACT72-019: a Cancel (including one that stops a running FFmpeg) settles the attempt with nothing kept, because Plan 3 offers no Retry Failed after a Cancel; the run folder's .work is removed before the run reports Cancelled, published Books and sources untouched. Reproduced at e20b960 (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchA/mp3-before-e20b960.txt). Test: test_mp3_staging_release.py::test_a_cancel_during_ffmpeg_leaves_no_work_area_and_publishes_nothing_partial."
     },
     {
       "id": "ACT72-038",
@@ -22674,34 +22833,34 @@
     "scripts/launcher.py": "bc0662efd48dbb638e074c6f25eec513d45b9cbe70c6af508f7f6044fd1d57be",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "28ef4b8f7eb15a172266c90a4e013cdd1b6d01bd1f422cb80e65ea41d89bf72e",
+    "scripts/m4b/converter/m4b_converter.py": "4eda21af1fa873abde220943a7bf727cdd990053599bdc8f5436f76575e3f904",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "57352c44c776290811051f8113a3d50382a151c69b2bcad45a02021d4a39312a",
     "scripts/m4b/m4b_chapters.py": "7ee5624d7c0716b9687008a3a6b69effa5ffeaa562f18dc39eb6b9d94407842f",
     "scripts/m4b/m4b_commands.py": "722b4d576f44379dfcb0c6a04ed14d3d38a24dccdba084898458002adf55ea8b",
-    "scripts/m4b/m4b_execution.py": "a4b2e070a706c425321600ec3bfd9a22987699caf02885581f5bdb8d9b11d113",
+    "scripts/m4b/m4b_execution.py": "246007cb28897a91f9a6209ab0ae9a415284eb972ee99223f7b40a2694b47d8c",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
     "scripts/m4b/m4b_probe.py": "f747dcb89935df8a9ed82f9563751b9b1f1b35b82eb2e8eb057505e93caafb63",
     "scripts/m4b/m4b_staging.py": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
     "scripts/m4b/m4b_winaudio.py": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "7c334c33653043bfaca6899c72b6bcb28d74ec5cf9608c5861d510c8d1f30920",
-    "scripts/m4b/maker/m4b_maker_batch.py": "6ab12e7da931ed3a11fde3ec599c6e62ee8c298b236bbc80eff4e544604b2c08",
+    "scripts/m4b/maker/m4b_maker.py": "71d043e493214c0e0e8419508cc74a2e29d0ff05612c1f07fd55059204fee7bb",
+    "scripts/m4b/maker/m4b_maker_batch.py": "97671e493a2deea5c37cf915fa18c548330fbfe397715f647a297e2150ebe371",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
-    "scripts/m4b/metadata/m4b_metadata_batch.py": "c7efeaf4397c5d8e328280dcccd53d6e2300a6e72944a8574629314c5cebef3d",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "ce6e8e0ab21b275d2d3bdc4df649e0011f53bc0da22672cfe9497eb0f21ae2d2",
+    "scripts/m4b/metadata/m4b_metadata_batch.py": "f8401628a4e204a7b96776104c1511390b6201bbd90005d449921b6591f71011",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "aa8abf90ef22f047e7c5caf8a7f49d8124ac76539bba1127322bf71609c6af22",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
-    "scripts/mp3/mp3_plan.py": "3dc33d55e3231c22d0f11b4d112e3cf91029a0b63239e1106007ebfa0f84c720",
+    "scripts/mp3/mp3_plan.py": "ea2c7bace5ded16562c724ca1d94e8c9ea2edc33662b5361aa30d4967f5b0eb5",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "f181360095300d97b1bceb34af22d12db332925a9a30e034af5d42a22cb2c85b",
+    "scripts/mp3/mp3_tool.py": "3750615c23d370b9cccdf9e7d0eaca201cb74a690c64e5bfe0d22896f69e9fc1",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
@@ -22807,7 +22966,7 @@
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "39168cf1f5e6437fd72f0ad35424cce0caa4c859faf5ee2bdf389f0a51c9b1f9",
     "scripts/tts/voice_registry.py": "4f62cf28794083d027bf37d14d0e219ee74c60c3faf8a797e675bdfbda9d9e38",
-    "scripts/tts/work_area.py": "d7f8d45676dbab0288734af4ef501589ee2fe01ffed9236402500c0df2bee7b8",
+    "scripts/tts/work_area.py": "dfa1431c207f42acec29c16272269c31313a4243573085394e297533bb2cd9e1",
     "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8"
   }
 }

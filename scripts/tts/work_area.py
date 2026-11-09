@@ -27,6 +27,11 @@ can be resumed (interrupted narration is synthesised again). An entry is ``activ
 or a process id alone proves nothing here, and none is ever used alone. A workspace lasts while it has entries: the
 last one removed takes the manifest and the workspace with it.
 
+**The M4B Maker** (v0.7.2, ACT72-031) stages a custom-folder build in an entry of kind ``maker``, the same way. The
+entry stays ``active`` while the panel's run may still use it (a validated candidate kept for Retry Failed) and is
+closed once no retry can reach it. Nothing in it can be resumed by another process either: a killed Maker's Retry
+Failed died with it, so recovery treats the entry like any other. A custom build's start runs :func:`recover` too.
+
 **Recovery** (:func:`recover`, at the start of every TTS run, on the run's worker thread, bounded by
 :data:`RECOVERY_SECONDS` and by Cancel). Another process's workspace is cleared only when its manifest is intact and its
 owner is provably gone: its disposable entries go, then any half-written manifest of its own, then the manifest and the
@@ -69,7 +74,7 @@ SCHEMA = "act-tts-work"
 VERSION = 1
 DISPOSABLE = "disposable"
 ACTIVE, FINISHED = "active", "finished"
-KINDS = ("edge", "direct", "local", "pydub")
+KINDS = ("edge", "direct", "local", "pydub", "maker")
 MANIFEST_MAX_BYTES = 256 * 1024
 #: The longest a run's start waits for recovery; whatever is left is removed at a later start.
 RECOVERY_SECONDS = 5.0

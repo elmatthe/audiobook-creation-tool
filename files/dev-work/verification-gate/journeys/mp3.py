@@ -176,3 +176,6 @@ def unreadable(context: Context) -> None:
     expect_clean_close(context, session)
     staging = sorted(item.relative_to(run).as_posix() for item in (run / ".work").rglob("*") if item.is_file()) if (run / ".work").exists() else []
     context.notes["staging_left_after_exit"] = staging
+    # v0.7.2 Phase 6 (ACT72-019): closing the tool drops the run, and no Retry Failed can reach its staging any more.
+    report.equal("no private staging is left once the tool has closed", staging, [])
+    report.check("no .work folder is left in the run folder", not (run / ".work").exists(), str(run))

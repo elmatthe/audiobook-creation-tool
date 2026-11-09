@@ -691,6 +691,43 @@ def convert_segment(
                 output_paths.discard_temporary(leftover)
 
 
+def prune_empty_folders(paths: Iterable[Path], *, inside: Path) -> tuple[Path, ...]:
+    """Remove the folders an item's outputs were to live in, once they are empty (v0.7.2, ACT72-029).
+
+    For a book that failed or was cancelled, after :func:`remove_outputs`: a split book's own folder (and any mirrored
+    parent made for it) would otherwise stay behind empty. Walks up from each path's folder towards *inside*, the
+    reserved run folder, which is never removed, and removes each folder with ``rmdir`` alone, so a folder holding
+    anything (another book's work, a file someone put there) stops the walk. A path outside *inside*, or a folder
+    reached through a link, is never touched. Returns what was removed.
+    """
+    root = Path(inside)
+    removed: list[Path] = []
+    for path in paths:
+        current = Path(path).parent
+        while True:
+            try:
+                relative = current.relative_to(root)
+            except ValueError:
+                break
+            if not relative.parts:
+                break  # the run folder itself: the person was told about it, and a retry writes there
+            try:
+                output_paths.assert_no_link_in(root, current)
+                output_paths.assert_contained(root, current)
+            except output_paths.OutputPathError:
+                break
+            try:
+                current.rmdir()
+            except FileNotFoundError:
+                pass  # already gone; its parent may be empty now
+            except OSError:
+                break  # not empty, or held: it stays
+            else:
+                removed.append(current)
+            current = current.parent
+    return tuple(removed)
+
+
 def remove_outputs(paths: Iterable[Path], *, inside: Path) -> tuple[Path, ...]:
     """Delete finalised outputs of an item that did not complete.
 

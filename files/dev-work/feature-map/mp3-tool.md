@@ -232,8 +232,8 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Inputs and outputs:** '<run>/.work/<Book folder>/' holds staged tracks, WAVs and concat lists; published files are moved, not copied.
 - **Failure, cancel and retry:** Publication failure is an item-less Book failure; retained pieces are reused by Retry Failed.
 - **Persistence:** Staging is on disk until published or (in practice) until the user deletes it.
-- **What must hold:** Processing writes only to the run's private '.work' area; a Book becomes visible only when every planned output is staged. Publication moves files into the Book folder and rolls back on any failure, so a Book is published whole or not at all. A failed Book's good pieces stay in staging for Retry Failed; a published Book's intermediates are removed and an empty work area is deleted. Cleanup never follows a link out of the work area. Staging left by a failed run must not outlive the program (currently it does, ACT72-019).
-- **Known gap:** ACT72-019 (Phase 6): a failed run's .work folder stays in the run folder after the program exits, when no retry can use it any more.
+- **What must hold:** Processing writes only to the run's private '.work' area; a Book becomes visible only when every planned output is staged. Publication moves files into the Book folder and rolls back on any failure, so a Book is published whole or not at all. A failed Book's good pieces stay in staging for Retry Failed; a published Book's intermediates are removed and an empty work area is deleted. Cleanup never follows a link out of the work area: a link planted in staging, a junction included, is unlinked as a link. Staging lives exactly as long as a Retry Failed can reach it: when a run settles, every Book it cannot retry loses its staging, and Clear All Imports, a new run and closing the tool remove what was kept for a retry (ACT72-019, fixed in v0.7.2 Phase 6).
+- **Crash boundary:** if the program is killed, a run's `.work` stays in that run folder (private, never published); nothing sweeps the output folder for it.
 
 ### Unreadable or damaged tracks
 `ACT.MP3.UNREADABLE`
@@ -274,7 +274,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Purpose:** Stop a long batch safely.
 - **How to reach it:** Shared job bar: 'Cancel'.
 - **States:** Shown during a run; the state is Cancel requested until the worker acknowledges it: at once when an FFmpeg or ffprobe step is running (that step is stopped), otherwise at the next checkpoint.
-- **Inputs and outputs:** Already published Books stay; nothing is deleted from the output folder. A half-written staged track or combined file of the stopped step is removed; the rest of `.work` stays (ACT72-037).
+- **Inputs and outputs:** Already published Books stay; nothing is deleted from the output folder. A half-written staged track or combined file of the stopped step is removed, and so is the rest of `.work`: no Retry Failed is offered after a Cancel (ACT72-037, fixed in v0.7.2 Phase 6).
 - **Failure, cancel and retry:** A cancelled retry keeps the earlier attempt's results. A stopped step is never recorded as a failed or retryable track.
 - **Persistence:** None.
 - **Intentional differences:** Like the M4B Maker (and the M4B Converter's own runner), Cancel stops a running FFmpeg step; Pause never does.

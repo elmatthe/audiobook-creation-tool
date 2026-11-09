@@ -7629,3 +7629,29 @@ the tree, qualified and unused by production; it is not required for the consent
 refuses any plan whose terms differ from the confirmed ones.
 
 — Directed by the owner on 2026-10-30; implemented by Claude Code.
+
+---
+
+## 2026-11-09 — Private staging lives exactly as long as a Retry Failed can reach it (v0.7.2 Phase 6, batch A)
+
+**Decision:** The MP3 Tool, M4B Maker and M4B Metadata Editor keep a Book's private staging only while a Retry Failed
+can still re-run that Book. Each attempt, before its terminal event, removes the staging of every Book its settled result
+cannot retry (a Cancel, a non-retryable failure, an internal fault and a full success keep nothing). The rest goes when the
+panel lets the run go: Clear All Imports, a new run of the same tool, or closing the tool. An attempt still running at that
+moment keeps nothing when it ends; a lock (injected into the Tk-free runners by their panels) and an `abandoned` mark keep
+the two releases from overlapping. Removal is bounded to the plan's own Book folders, unlinks a link (a junction included)
+as a link and never follows it, and never touches published output. The Maker's custom-folder staging moved from a loose
+`tempfile.mkdtemp("act-m4b-build-")` folder into an entry of `tts/work_area.py` (new kind `maker`), so it has an owner
+(process id and creation time) and a later custom build recovers what a killed Maker left; a loose `act-m4b-build-*`
+folder is never touched by name. The Converter removes a failed or cancelled split book's empty folders (rmdir only,
+never the run folder, never through a link).
+
+**Why:** ACT72-019/031/034/037 and ACT72-029: staging outlived every chance of being used, and custom Maker staging had
+no owner at all. The rule follows the existing Plan 3 contract (Retry Failed is offered only after a run completed with a
+retryable failure) instead of inventing a second one.
+
+**Crash boundary (deliberate):** a killed process can leave a standard run's `.work` in that run folder (private, never
+published). Nothing sweeps the output folder for it: there is no ownership record there, and sweeping by name, age or
+process id is forbidden by the plan.
+
+— Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.

@@ -160,7 +160,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - Each Book is copied into its own private staging folder (`<run>/.work/<name>/`), edited and checked there, then moved into the run in one step.
 - A failure at any step (the source vanished, unusable cover, copy, tags, cover, chapters, validation) leaves nothing for that Book in the run and removes its staging folder. Publishing never overwrites a file that appeared at the destination.
 - A copy that passed validation but could not be published is kept in staging so Retry Failed can reuse it.
-- Known gap (new finding, read from code): if the panel is then closed or Clear All Imports is used, nothing removes that kept copy from `.work` (Phase 6; same kind of problem as ACT72-019 in the MP3 Tool).
+- That copy lives only while a Retry Failed can reach it: a cancelled run keeps nothing, and Clear All Imports, a new action or closing the tool removes it (ACT72-034, fixed in v0.7.2 Phase 6, as in the MP3 Tool and the Maker).
 
 ### Batch run and Book status
 `ACT.METADATA.BATCH-RUN`

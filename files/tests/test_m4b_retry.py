@@ -1069,6 +1069,58 @@ def test_a_failed_split_book_leaves_no_partial_and_is_fully_rebuilt(
     assert all(path.exists() for path in frozen)
 
 
+def test_a_failed_split_books_empty_folder_is_removed_and_the_retry_makes_it_again(
+        make_panel, tmp_path, run_env):
+    """v0.7.2 ACT72-029: once the partial book was taken back, its own folder stayed behind, empty."""
+    panel = make_panel()
+    whole(panel, *books(tmp_path / "src", "A.m4b"), split=True)
+    run_env["default_report"] = report(duration=600.0,
+                                       chapter_list=chapters(0.0, 200.0, 400.0))
+    seen: list = []
+
+    def outcome(joined):
+        seen.append(joined)
+        return ProcessResult(1, detail="ffmpeg said no") if len(seen) == 3 else None
+
+    run_env["outcome"] = outcome
+    work(panel, tmp_path, run_env)
+    plan = panel.run_plan
+    frozen = [segment.destination for segment in plan.items[0].segments]
+    folder = frozen[0].parent
+    assert folder != plan.run_directory and plan.run_directory in folder.parents
+    assert not folder.exists(), "the failed book's empty folder is gone"
+    assert plan.run_directory.is_dir(), "the run folder itself is never removed"
+    run_env["outcome"] = None
+    retry(panel)
+    assert all(path.exists() for path in frozen), "the retry makes the folder again, at its frozen name"
+
+
+def test_a_cancelled_split_book_leaves_no_empty_folder_and_the_finished_book_is_kept(
+        make_panel, tmp_path, run_env):
+    panel = make_panel()
+    whole(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"), split=True)
+    run_env["default_report"] = report(duration=600.0,
+                                       chapter_list=chapters(0.0, 200.0, 400.0))
+    seen: list = []
+
+    def outcome(joined):
+        seen.append(joined)
+        if len(seen) == 5:  # B's second segment: Cancel lands while it runs
+            panel.job_controller.request_cancel()
+            return ProcessResult(None, cancelled=True)
+        return None
+
+    run_env["outcome"] = outcome
+    work(panel, tmp_path, run_env)
+    plan = panel.run_plan
+    assert panel.run_result.state is jc.JobState.CANCELLED
+    a_paths = [segment.destination for segment in plan.items[0].segments]
+    b_paths = [segment.destination for segment in plan.items[1].segments]
+    assert all(path.exists() for path in a_paths), "the finished book is untouched"
+    assert not b_paths[0].parent.exists(), "the cancelled book's empty folder is gone"
+    assert plan.run_directory.is_dir()
+
+
 def test_split_retry_keeps_the_structural_tracks_and_names(
         make_panel, tmp_path, run_env):
     panel = make_panel()

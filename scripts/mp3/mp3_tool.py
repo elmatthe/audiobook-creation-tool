@@ -111,6 +111,7 @@ and callback is the same.
 import gc
 import queue
 import sys
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -129,6 +130,7 @@ from shared import appearance
 from shared import config as shared_config
 from shared import job_control
 from shared import job_ui
+from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
@@ -444,6 +446,10 @@ class _Attempt:
         self.projection = _RunProjection(reporter, plan, retry_items=self.retry_items)
         self.results: list[tuple[str, job_control.RunResult]] = []
         self.report = None
+        #: Read and written only under the panel's staging lock (v0.7.2, ACT72-019): ``running`` until the worker has
+        #: released what this attempt cannot retry; ``abandoned`` once no Retry Failed can reach the plan.
+        self.running = True
+        self.abandoned = False
 
     def record(self, report) -> None:
         """The engine's per-Book callback. Worker thread; append only."""
@@ -742,6 +748,10 @@ class MP3ToolUI(ttk.Frame):
         self._settled: WorkspaceRunResult | None = None
         self._busy = False
         self._attempts = 0
+        #: Private staging lives exactly as long as a Retry Failed can reach it (v0.7.2, ACT72-019 / ACT72-037). The
+        #: worker releases what its attempt cannot retry; the main thread releases the rest once nothing can retry the
+        #: plan. This lock keeps the two from overlapping. A plain mutex around a few filesystem calls, not a signal.
+        self._staging_lock = threading.Lock()
         self._rendering = False
 
         # --- the shared importing foundation ----------------------------- #
@@ -1898,6 +1908,8 @@ class MP3ToolUI(ttk.Frame):
                 "and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self._attempt is not None
+        # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
+        self._abandon_staging()
         self.workspace = wf.new_workspace(id_factory=self._ids)
         self.store = wf.ObservationStore()
         self.book_numbers = {}
@@ -2037,6 +2049,8 @@ class MP3ToolUI(ttk.Frame):
             output_paths.release_if_empty(reservation)
             messagebox.showerror(APP_TITLE, f"{label}: {exc}", parent=self)
             return False
+        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
+        self._abandon_staging()
         self.last_plan = plan
         self._settled = None
         self._start_attempt(label, plan)
@@ -2179,6 +2193,8 @@ class MP3ToolUI(ttk.Frame):
         try:
             self._run_attempt(attempt)
         except ConversionCancelled:
+            # Plan 3 offers no Retry Failed after a Cancel, so nothing staged is kept (ACT72-037).
+            self._release_staging(attempt, keep=())
             try:
                 reporter.cancelled(controller.finish_cancelled())
             except Exception:  # pragma: no cover - already stopping; do not mask it
@@ -2187,9 +2203,57 @@ class MP3ToolUI(ttk.Frame):
             detail = f"{type(exc).__name__}: {exc}"
             try:
                 reporter.technical(detail)
+            except Exception:  # pragma: no cover - already failing; do not mask it
+                pass
+            self._release_staging(attempt, keep=())
+            try:
                 reporter.completed(controller.fail(FAULT_MESSAGE, detail))
             except Exception:  # pragma: no cover - already failing; do not mask it
                 pass
+
+    def _release_staging(self, attempt: _Attempt, *, keep) -> None:
+        """The worker's half of the staging rule (v0.7.2, ACT72-019 / ACT72-037). Worker thread; touches no widget.
+
+        Called once per attempt, before its terminal event, with the Books this attempt can still retry: everything
+        else the plan staged goes now, so a run that cannot be retried leaves no ``.work``. A plan the main thread
+        already let go (:meth:`_abandon_staging`) keeps nothing. Never raises; what could not be removed is named in
+        the Detailed pane and stays where it is.
+        """
+        try:
+            with self._staging_lock:
+                attempt.running = False
+                problems = mp3_plan.release_staging(
+                    attempt.plan, keep=() if attempt.abandoned else frozenset(keep))
+        except Exception as exc:  # noqa: BLE001 - the terminal event must still be sent
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            try:
+                attempt.reporter.technical(f"Private staging left in place: {line}")
+            except Exception:  # pragma: no cover - reporting is best effort here
+                pass
+
+    def _abandon_staging(self) -> None:
+        """The main thread's half: no Retry Failed can reach the current plan any more. Main thread only.
+
+        Clear All Imports, a new run and closing the tool all drop the run. A worker still running keeps nothing
+        when it ends; otherwise the kept Books go now. Never raises.
+        """
+        attempt = self._attempt
+        if attempt is None:
+            return
+        try:
+            with self._staging_lock:
+                attempt.abandoned = True
+                if attempt.running:
+                    return
+                problems = mp3_plan.release_staging(attempt.plan)
+        except Exception as exc:  # noqa: BLE001 - closing must go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            if self._closed:
+                logging_setup.get_logger().warning("MP3 Tool: private staging left in place: %s", line)
+            else:
+                self._say("Some private staging could not be removed; it stays in the run's .work folder.", line)
 
     def _run_attempt(self, attempt: _Attempt) -> None:
         """The worker's body: the engine, then the controller's verdict."""
@@ -2206,6 +2270,11 @@ class MP3ToolUI(ttk.Frame):
         controller = attempt.controller
         final = (controller.complete_with_failures() if report.failed_book_ids
                  else controller.succeed())
+        # Retry Failed is offered only after a run completed with failures, and re-runs only Books with a retryable
+        # failure: their good pieces stay staged for it; every other Book's staging goes before the terminal event.
+        keep = ({book.book_id for book in report.books if not book.succeeded and book.result.has_retryable}
+                if final.state is JobState.COMPLETED_WITH_FAILURES else ())
+        self._release_staging(attempt, keep=keep)
         attempt.reporter.completed(final)
 
     # -- main-thread projections of the run --------------------------------- #
@@ -2412,6 +2481,8 @@ class MP3ToolUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # Nothing can retry once the tool is closed (ACT72-019): kept staging goes now, or when the worker ends.
+        self._abandon_staging()
         controller = self.job_controller
         if controller is not None and self._busy:
             try:

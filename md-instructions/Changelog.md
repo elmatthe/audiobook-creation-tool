@@ -13,6 +13,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6, batch A: private staging lives only as long as Retry Failed can use it (2026-11-09)
+
+**Fixed**
+- MP3 Tool: a run that was cancelled, that failed in a way Retry Failed cannot repair, or that stopped on an internal error no longer leaves its private `.work` folder in the run folder. The good pieces of a Book that failed in a way Retry Failed can repair are still kept for it, and only while Retry Failed can still use them: Clear All Imports, starting another run or closing the tool removes them. A link planted in that private folder (a Windows junction included) is removed as a link; what it points at is never touched.
+- M4B Maker and M4B Metadata Editor: the same rule for the checked copy kept after a publication or Series Part failure. A custom-folder Maker build now keeps its private work in the program's own temporary work area, which records which running program owns it; if the program is killed, the next custom build removes what it left once that program is provably gone, instead of `act-m4b-build-*` folders staying in the temporary folder for good.
+- M4B Converter: a split book that failed or was cancelled no longer leaves its empty book folder in the run folder. The run folder itself is never removed, and Retry Failed makes the book's folder again.
+
+**Added (development only; nothing here ships)**
+- Regression tests for each tool (failed publication and numbering, Cancel during a real FFmpeg step, a kept candidate then Clear All Imports, a new run or close, a run let go while its worker is still running, a killed Maker's leftovers, a planted junction), each seen failing on the old code and on a planted defect; the MP3 Tool's native unreadable-track journey now checks that nothing is left in `.work` after the tool closes.
+
 ## [Unreleased] — v0.7.2 Phase 6E (2026-11-09)
 
 **Fixed**

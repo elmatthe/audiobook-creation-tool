@@ -83,7 +83,7 @@ hints gets the compact composition. Only where things sit differs.
 import gc
 import queue
 import sys
-import tempfile
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -102,6 +102,7 @@ from shared import appearance
 from shared import config as shared_config
 from shared import job_control
 from shared import job_ui
+from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
@@ -145,6 +146,7 @@ from m4b.maker import m4b_maker_batch as batch
 from m4b.maker import m4b_maker_plan as mp
 from m4b.maker import m4b_maker_workflow as wf
 from artwork.m4b_artwork_ui import ArtworkControl
+from tts import work_area
 
 APP_TITLE = "M4B Maker"
 
@@ -192,8 +194,16 @@ IDLE_RUN_ID = "m4b-idle"
 #: Rules a line under the previous run's lines in both log panes.
 DIVIDER_MARK = "────"
 
-#: The prefix of the operation-owned staging root a custom build uses.
-WORK_ROOT_PREFIX = "act-m4b-build-"
+#: The staging root a custom build uses, inside its owned work-area entry (v0.7.2, ACT72-031).
+CUSTOM_STAGING_NAME = "staging"
+
+
+def _recover_owned_temporaries(cancel_check) -> list[str]:
+    """What killed runs left in the owned work area, removed only once their owner is provably gone (ACT72-031).
+
+    Called by the run on its worker thread at a custom build's start, bounded by Cancel and by the work area's own
+    limit; never touches a running owner's entries or anything the work area did not make."""
+    return work_area.recover(cancel_check=cancel_check).log_lines()
 
 #: The one label of the destructive workspace reset, shared by the three
 #: multi-Book tools (v0.6.4 Phase 12 maintainer amendment).
@@ -412,6 +422,8 @@ class M4BMakerUI(ttk.Frame):
         #: Failed reads only these; nothing here reads them back into widgets.
         self.last_plan: mp.RunPlan | None = None
         self.run: batch.MakerRun | None = None
+        #: Keeps the run's worker and this thread from releasing staging at once (ACT72-031). A plain mutex.
+        self._staging_lock = threading.Lock()
         self._attempt: batch.Attempt | None = None
         self._rendering = False
 
@@ -1646,6 +1658,8 @@ class M4BMakerUI(ttk.Frame):
                 "and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self.run is not None
+        # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
+        self._abandon_run()
         self.workspace = wf.new_workspace(id_factory=self._ids)
         self.book_numbers = {}
         self.last_plan = None
@@ -1716,8 +1730,9 @@ class M4BMakerUI(ttk.Frame):
                                   start_part_text=self.var_start_part.get(),
                                   fast_first=bool(self.var_fast_first.get()))
 
-    def _destination(self) -> mp.MakerDestination | None:
-        """One reserved standard run, or the validated custom folder. None = stop."""
+    def _destination(self):
+        """One reserved standard run, or the validated custom folder, with the owned work-area entry a custom build
+        stages in (``None`` for a standard run). None = stop."""
         custom = self.custom_destination()
         if custom is not None:
             try:
@@ -1725,14 +1740,20 @@ class M4BMakerUI(ttk.Frame):
             except output_paths.OutputPathError as exc:
                 messagebox.showerror(APP_TITLE, exc.message, parent=self)
                 return None
-            # Custom mode writes straight into the chosen folder: no standard
-            # run is reserved, and staging lives in an operation-owned root
-            # elsewhere, never among the user's files.
-            work_root = Path(tempfile.mkdtemp(prefix=WORK_ROOT_PREFIX))
+            # Custom mode writes straight into the chosen folder: no standard run is reserved, and staging lives
+            # elsewhere, never among the user's files. Since v0.7.2 (ACT72-031) that is an entry of the owned work
+            # area (tts.work_area, kind "maker"), listed with this process as owner before it exists, closed once no
+            # Retry Failed can reach it, and recovered by a later run if this one is killed. Never a loose, unowned
+            # temporary folder.
             try:
-                return mp.custom_destination(folder, work_root=work_root)
+                owned = work_area.new_folder("maker")
+            except OSError as exc:
+                messagebox.showerror(APP_TITLE, f"Build: {exc}", parent=self)
+                return None
+            try:
+                return mp.custom_destination(folder, work_root=owned.path / CUSTOM_STAGING_NAME), owned
             except mp.PlanError as exc:
-                self._drop_empty(work_root)
+                owned.close()
                 messagebox.showerror(APP_TITLE, str(exc), parent=self)
                 return None
         try:
@@ -1740,14 +1761,23 @@ class M4BMakerUI(ttk.Frame):
         except output_paths.OutputPathError as exc:
             messagebox.showerror(APP_TITLE, exc.message, parent=self)
             return None
-        return mp.standard_destination(reservation)
+        return mp.standard_destination(reservation), None
 
-    @staticmethod
-    def _drop_empty(directory: Path) -> None:
+    def _abandon_run(self) -> None:
+        """No Retry Failed can reach the current run any more (ACT72-031): its kept staging goes. Main thread; never
+        raises. A worker still running keeps nothing when it ends."""
+        run = self.run
+        if run is None:
+            return
         try:
-            directory.rmdir()
-        except OSError:
-            pass
+            problems = run.abandon()
+        except Exception as exc:  # noqa: BLE001 - closing and clearing must go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            if self._closed:
+                logging_setup.get_logger().warning("M4B Maker: private staging left in place: %s", line)
+            else:
+                self._say("Some private staging could not be removed.", line)
 
     def build(self) -> bool:
         """Validate, reserve one destination, freeze one plan, start one run."""
@@ -1775,9 +1805,10 @@ class M4BMakerUI(ttk.Frame):
             except wf.MakerValueError as exc:
                 messagebox.showerror(APP_TITLE, f"Start Part: {exc}", parent=self)
                 return False
-        destination = self._destination()
-        if destination is None:
+        chosen = self._destination()
+        if chosen is None:
             return False
+        destination, owned = chosen
         try:
             plan = mp.plan_run(
                 space, options=options, destination=destination,
@@ -1788,13 +1819,17 @@ class M4BMakerUI(ttk.Frame):
         except (wf.MakerValueError, mp.PlanError, output_paths.OutputPathError) as exc:
             if destination.reservation is not None:
                 output_paths.release_if_empty(destination.reservation)
-            else:
-                self._drop_empty(destination.work_root)
+            if owned is not None:
+                owned.close()
             messagebox.showerror(APP_TITLE, f"Build: {exc}", parent=self)
             return False
+        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
+        self._abandon_run()
         self.last_plan = plan
         self.run = self._run_factory(plan, id_factory=self._ids, clock=self._clock,
-                                     publish=self._publish)
+                                     publish=self._publish, staging_lock=self._staging_lock,
+                                     on_staging_released=None if owned is None else owned.close,
+                                     recover_temporaries=None if owned is None else _recover_owned_temporaries)
         self.var_outdir.set(str(plan.root))
         self._start_attempt(self.run.start, "Build M4B(s)")
         return True
@@ -1965,6 +2000,8 @@ class M4BMakerUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # Nothing can retry once the tool is closed (ACT72-031): kept staging goes now, or when the worker ends.
+        self._abandon_run()
         if self.run is not None:
             try:
                 self.run.cancel()

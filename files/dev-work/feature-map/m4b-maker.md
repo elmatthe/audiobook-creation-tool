@@ -108,7 +108,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 
 - Purpose: write the M4Bs straight into a chosen folder, for example beside the sources.
 - How to reach it: "Choose custom destination" on the options line, then type a path or press Browse… ("Choose the destination folder").
-- Behaviour: off on every new panel; the path row appears only while it is on. The folder must exist, be a real (not linked) writable directory given as an absolute path; otherwise a message explains and nothing is reserved. M4Bs go directly into the folder (no M4B-Maker-N inside it), numbered around files already there. Staging happens in a temporary folder `%TEMP%\act-m4b-build-*` outside the chosen folder. While the toggle is off, a path left in the hidden entry is ignored.
+- Behaviour: off on every new panel; the path row appears only while it is on. The folder must exist, be a real (not linked) writable directory given as an absolute path; otherwise a message explains and nothing is reserved. M4Bs go directly into the folder (no M4B-Maker-N inside it), numbered around files already there. Staging happens outside the chosen folder, in an owned entry of the program's temporary work area (`%TEMP%\act-tts\<token>\<n>`, kind `maker`) that is removed once no retry can reach it, and recovered by a later custom build if the program was killed (since v0.7.2 Phase 6; it used to be a loose `act-m4b-build-*` folder nothing owned). While the toggle is off, a path left in the hidden entry is ignored.
 - Persistence: neither the toggle nor the path is saved, deliberately.
 
 ### Try FAST first (auto-fallback to Safe)
@@ -153,7 +153,8 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 
 - FFmpeg writes only the Book's private staging file. The staged M4B is checked (audio present, planned chapter titles, Title, cover present exactly when planned) and then moved to its final name in one step; an existing file at that name is never replaced. A work folder on another drive goes through a temporary file beside the destination.
 - A failed or cancelled Book leaves no partial M4B under a final name and removes its staging, except that a checked candidate is kept for Retry Failed after a publication or numbering failure. Source MP3s are never changed.
-- Known gap (new, Phase 6): staging can outlive its run with nobody owning it. A kept candidate stays if Retry Failed is never pressed (Clear All Imports and closing drop the run without removing it), and a killed or closed build can leave `.work/<Book>` or `%TEMP%\act-m4b-build-*` behind; the shutdown journey accepts leftovers under `.work`. Read from code, not measured.
+- A kept candidate lives only while a Retry Failed can reach it: a cancelled or failed run keeps nothing, and Clear All Imports, a new Build or closing the tool removes it (ACT72-031, fixed in v0.7.2 Phase 6). If a build is still running when the tool closes, its worker keeps nothing when it ends.
+- Crash boundary: a killed program can leave a standard run's `.work/<Book>` in that run folder (private, never published; the output folder is never swept). A custom build's entry is recovered by the next custom build once its owner is provably gone.
 
 ### A Book that cannot be built fails alone
 `ACT.MAKER.UNREADABLE`
@@ -239,5 +240,5 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - Windows display scaling other than 100% (125%, 150%, 200%), and owner approval of the Maker screenshots captured at 920x600, 1024x720 and 1400x900.
 - The macOS (aqua) composition and behaviour: the panel has aqua layout hints, but Windows is the acceptance target.
 - Very large Books beyond the 264-chapter test, and very long real audiobooks (time and memory).
-- Whether `%TEMP%\act-m4b-build-*` and `.work` leftovers actually appear after forced closes on a real machine (read from code only).
+- Whether a forced close (the process ended before the worker finished) leaves a standard run's `.work` on a real machine; the shutdown journeys accept it, by design of the crash boundary.
 - Listening quality of the encoded audio at the fixed AAC 128k.
