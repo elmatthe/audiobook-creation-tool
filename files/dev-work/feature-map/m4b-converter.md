@@ -35,7 +35,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 
 - **Purpose:** show the FFmpeg state when the tool opens and refuse to start when FFmpeg is not verified.
 - **Behaviour:** the shared status line is written to both log panes on opening. Convert requires a *verified* FFmpeg (one this machine has actually run), not merely a found one; otherwise an "FFmpeg is not ready" error appears and no run starts.
-- **Known gap:** the only checks are structural; nothing yet drives Convert with an unverified FFmpeg and checks that no worker, folder or output appears (Phase 6).
+- Convert with an FFmpeg pair nobody proved shows "FFmpeg is not ready" and starts no worker, reserves no folder and runs no command (ACT72-051, v0.7.2 Phase 6).
 
 ### Whole book: one MP3 per audiobook
 
@@ -73,7 +73,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **Output:** every output of the run is encoded with libmp3lame at `-q:a <quality>`, on both decode routes. Never a constant bitrate.
 - **Invalid values:** a typed value outside 0–9 is clamped at Start and a non-number becomes 2.
 - **Persistence:** not saved; each session starts at 2.
-- **Known gap:** nothing tests the clamping of a typed out-of-range or non-numeric value (Phase 6).
+- A typed quality outside 0-9 is held to the nearest end and anything that is not a number becomes 2, as the encoder's own command line shows; it is corrected without a word, unlike the other tools, which refuse (see the consistency matrix; ACT72-051, v0.7.2 Phase 6).
 
 ### Metadata mode: Preserve, Replace, Write none
 
@@ -114,7 +114,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **States:** off by default, Start # 1. Applies only to Whole book; no effect in Split by chapter or under Write none.
 - **Behaviour:** each successfully written book takes the next number; a failed, refused or cancelled book consumes nothing, so there are no gaps. A retry continues from where the run got to. Filenames are never numbered.
 - **Persistence:** not saved.
-- **Known gap:** nothing tests that a Start # below 1 or a non-number becomes 1 (Phase 6).
+- A typed Start # below 1, or one that is not a number, becomes 1 in the frozen run, without a word (ACT72-051, v0.7.2 Phase 6).
 
 ### Run output folder and Open Output Folder
 
@@ -123,7 +123,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **How to reach it:** section 3, the read-only Output field and Open Output Folder. The base folder is set in Preferences & Data.
 - **Behaviour:** each run gets `<output base>/M4B-Converter-Outputs/M4B-Converter-N/`, reserved only after preflight finds something usable; a run where every book is refused creates no folder. A run keeps the base it started with even if Preferences change mid-run; the next run uses the new base. A finished or cancelled run reveals its folder in Explorer.
 - **Open Output Folder:** reveals the last run's folder, or the tool folder before any run; shows an "Output folder" error if it cannot be created. It never locks.
-- **Known gap:** no test or journey presses Open Output Folder or reaches its error dialog (Phase 6).
+- Before any run it reveals the tool's own folder, made so the person lands somewhere real; after a run, that run's folder; a folder that cannot be made shows "Output folder" and reveals nothing else (ACT72-051, v0.7.2 Phase 6).
 
 ### Output names, book folders and collisions
 

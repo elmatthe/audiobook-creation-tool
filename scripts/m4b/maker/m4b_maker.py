@@ -146,7 +146,7 @@ from m4b.maker import m4b_maker_batch as batch
 from m4b.maker import m4b_maker_plan as mp
 from m4b.maker import m4b_maker_workflow as wf
 from artwork.m4b_artwork_ui import ArtworkControl
-from tts import work_area
+from shared import work_area
 
 APP_TITLE = "M4B Maker"
 
@@ -1745,7 +1745,7 @@ class M4BMakerUI(ttk.Frame):
                 return None
             # Custom mode writes straight into the chosen folder: no standard run is reserved, and staging lives
             # elsewhere, never among the user's files. Since v0.7.2 (ACT72-031) that is an entry of the owned work
-            # area (tts.work_area, kind "maker"), listed with this process as owner before it exists, closed once no
+            # area (shared.work_area, kind "maker"), listed with this process as owner before it exists, closed once no
             # Retry Failed can reach it, and recovered by a later run if this one is killed. Never a loose, unowned
             # temporary folder.
             try:

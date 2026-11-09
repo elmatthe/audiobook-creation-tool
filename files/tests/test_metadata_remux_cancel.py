@@ -683,7 +683,8 @@ def test_the_editor_panel_cancel_stops_a_real_rebuild(make_panel, slow_book, tmp
     assert result.state is JobState.CANCELLED
     book = panel.last_plan.books[0]
     assert result.disposition_for(book.book_id) is BookDisposition.NOT_ATTEMPTED
-    assert panel.book_status_for(panel.workspace.books[0].book_id) == editor.STATUS_NOT_ATTEMPTED
+    # Stopped part-way by Cancel: it reads Cancelled while its result stays NOT_ATTEMPTED (v0.7.2 Phase 6, ACT72-004).
+    assert panel.book_status_for(panel.workspace.books[0].book_id) == editor.STATUS_CANCELLED
     assert not result.can_retry_failed
     assert not book.published.exists() and not book.staging_dir.exists()
     assert hashes(library) == before

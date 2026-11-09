@@ -557,3 +557,44 @@ def test_open_log_folder_creates_and_reveals_the_log_folder_and_nothing_else(fre
     assert app._log_button.cget("text") == "Open log folder" and revealed == []
     app._log_button.invoke()
     assert revealed == [target] and target.is_dir()
+
+
+# --------------------------------------------------------------------------- the launcher's own HF_HOME redirect (ACT72-056)
+
+
+def test_the_launcher_keeps_the_model_cache_inside_the_project_before_any_window_exists(monkeypatch, tmp_path):
+    """v0.7.2 Phase 6, ACT72-056: only bootstrap's copy of this redirect was exercised. Started directly (no bootstrap), the
+    launcher must still point HF_HOME into the project tree, overriding a user-wide value, and do it before Tk exists, so no
+    model import can reach ``~/.cache/huggingface``."""
+    import launcher
+
+    resources = tmp_path / "runtime-data"
+    monkeypatch.setattr(launcher.paths, "RESOURCES_DIR", resources)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "user-wide-cache"))
+    monkeypatch.delenv("HUGGINGFACE_HUB_CACHE", raising=False)
+    monkeypatch.setattr(launcher.sp, "install_no_window_guard", lambda: None)
+    seen: dict = {}
+
+    class Stop(Exception):
+        pass
+
+    def no_window():
+        import os
+
+        seen["HF_HOME"] = os.environ.get("HF_HOME")
+        seen["HUGGINGFACE_HUB_CACHE"] = os.environ.get("HUGGINGFACE_HUB_CACHE")
+        raise Stop
+
+    monkeypatch.setattr(launcher.tk, "Tk", no_window)
+    with pytest.raises(Stop):
+        launcher.main()
+    cache = resources / "models" / "huggingface"
+    assert seen == {"HF_HOME": str(cache), "HUGGINGFACE_HUB_CACHE": str(cache / "hub")}
+    assert cache.is_dir(), "the folder exists before anything could write to it"
+
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", str(tmp_path / "chosen-hub"))
+    launcher._configure_hf_cache()
+    import os
+
+    assert os.environ["HF_HOME"] == str(cache)
+    assert os.environ["HUGGINGFACE_HUB_CACHE"] == str(tmp_path / "chosen-hub"), "an explicit hub cache is left as it is"

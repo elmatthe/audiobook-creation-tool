@@ -6,7 +6,7 @@ attempt kept an earlier Book's candidate that nothing could retry, and custom mo
 ``%TEMP%\\act-m4b-build-*`` folder that no record owned, so a killed Maker left it for good.
 
 Now the run's end removes everything its attempt cannot retry, ``MakerRun.abandon`` removes the rest when the panel lets
-go, and a custom build stages in an entry of the owned TTS work area (``tts.work_area``, kind ``maker``): listed with
+go, and a custom build stages in an entry of the owned TTS work area (``shared.work_area``, kind ``maker``): listed with
 its owner before it exists, removed through handles that never follow a link, and recovered by the next run only once
 its owner is provably gone. Real tones through the real engine; published outputs and sources are checked every time.
 """
@@ -29,7 +29,7 @@ from shared.job_control import JobAction, JobState  # noqa: E402
 from m4b.maker import m4b_maker, m4b_maker_batch as batch  # noqa: E402
 from m4b.maker import m4b_maker_plan as mp  # noqa: E402
 from m4b.maker import m4b_maker_processing as proc  # noqa: E402
-from tts import work_area  # noqa: E402
+from shared import work_area  # noqa: E402
 
 from test_m4b_maker_batch import (  # noqa: E402,F401  (fixtures are collected by name)
     _ffmpeg,
@@ -329,7 +329,7 @@ import tempfile, time
 temp, barrier, scripts = sys.argv[1:4]
 tempfile.tempdir = temp
 sys.path.insert(0, scripts)
-from tts import work_area
+from shared import work_area
 folder = work_area.new_folder("maker")
 staging = folder.path / "staging" / "Book"
 staging.mkdir(parents=True)

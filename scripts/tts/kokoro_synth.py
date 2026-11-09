@@ -44,7 +44,7 @@ from shared import espeak_data
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts import model_assets
-from tts import work_area
+from shared import work_area
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import KOKORO as KOKORO_ROUTE

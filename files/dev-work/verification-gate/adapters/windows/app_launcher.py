@@ -19,6 +19,8 @@ in exactly these places, each named in the journey's evidence:
     error instead of a download, and the gate compares the real runtime data before and after.
   * when the live-discovery negative control asks, one extra, unplaced button is added to a tool's panel (``_inject_control``), so that the
     discovery journey can be shown to report a control nobody mapped.
+  * when a journey asks, every folder scan pauses at each entry it checks for Cancel (``slow_scan_seconds``), so a close can land
+    while the scan is still walking. Only the pace changes: the walk, its Cancel and everything after it are production's.
   * when the orphan negative control asks, both of the application's stops of a running FFmpeg are taken away: the launcher's stop of its
     media children once the window has gone, and (v0.7.2 Phase 6C) the supervised step's own answer to the Cancel a panel sends as it
     closes, so that the orphan they exist to prevent must be seen.
@@ -206,6 +208,23 @@ def _force_worker_collection(root_gone: threading.Event, done: threading.Event, 
     done.set()
 
 
+def _slow_scans(seconds: float) -> None:
+    """Each folder scan waits ``seconds`` at every Cancel checkpoint it reaches (v0.7.2 Phase 6, ACT72-056). Installed before the
+    launcher builds a panel, so every coordinator it makes takes this scanner as its default."""
+    from shared import import_coordination
+
+    real = import_coordination.scan_roots
+
+    def paced(request, *, cancel_check=None, **kwargs):
+        def check() -> bool:
+            time.sleep(seconds)
+            return bool(cancel_check()) if cancel_check is not None else False
+
+        return real(request, cancel_check=check, **kwargs)
+
+    import_coordination.scan_roots = paced
+
+
 def _inject_control(root, app, spec: dict) -> None:
     """A negative control for live discovery: one button nobody mapped, added to a tool's panel once the tool has built it. It is never
     placed on screen, because discovery reads the widget tree, not the screen, and placing it could disturb the panel's own layout."""
@@ -228,6 +247,8 @@ def main() -> int:
         _install_replay(config["replay"])
 
     _record_reveals(Path(config["runtime_dir"]) / "reveals.jsonl")
+    if config.get("slow_scan_seconds"):
+        _slow_scans(float(config["slow_scan_seconds"]))
 
     import launcher
     from channel import Channel

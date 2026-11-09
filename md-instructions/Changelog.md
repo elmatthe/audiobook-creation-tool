@@ -13,6 +13,29 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6, batch E: honest words for the TTS skip box, and the six tools side by side (2026-11-09)
+
+**Changed**
+- TTS: the box that was labelled "Resume (skip existing MP3s)" now reads "Skip MP3s already in this run". Every run starts in a new folder, so it never resumed an earlier run and never will; what it does is unchanged.
+
+**Added (development only; nothing here ships)**
+- A six-tool consistency matrix in the feature map: how the six tools behave where you would expect them to behave alike, and five places where they differ, each left for the owner to decide.
+
+**Not changed, for the owner to decide**
+- ACT72-030: eleven helper functions with no caller in the app (the Converter's `sanitize_filename` and `quote`, `m4b_probe.probe_sources`, `m4b_winaudio.unavailable_message`, and the MP3 Tool's `concat_mp3s_fast`, `normalize_to_wav`, `make_silence_wav`, `concat_wavs_to_mp3`, `add_silence_to_mp3`, `trim_from_end_mp3` with the `save_error_log` only they use) are kept: six MP3 test modules pin them as proven FFmpeg helpers, so removing them is not the small change a Phase 6 suggestion allows.
+
+## [Unreleased] — v0.7.2 Phase 6, batch D: the untested branches, and two defects they found (2026-11-09)
+
+**Fixed**
+- Cover Image: Enter now answers the "Confirm replacement of original images" question. Tk gives its buttons Space but not Enter, so Enter did nothing at all; it now presses the focused button, which is Cancel unless you moved to Replace. Escape and closing the window cancel, as before.
+- Cover Image: when a destination could not be planned after the run folder was made, the empty numbered folder was left behind; it is now given back, as every other tool does.
+- First-run setup: the two "setup was stopped" messages no longer tell you to run Setup_and_Run "again"; they say setup finishes the next time you start the app with it.
+
+**Changed (development only; nothing here ships)**
+- The owned temporary work area moved from `tts/` to `shared/`: the M4B Maker stages its custom builds in it too, and a tool may not import the TTS package. Its behaviour and its `act-tts` folder are unchanged.
+- New tests for branches that had none: import confirmations, Cancel Import, duplicate skips, remembered folders, reservation and plan failures, statuses and dividers, Clear Log, FFmpeg readiness and typed values in the M4B Maker, MP3 Tool, Metadata Editor, Converter and Cover Image; the launcher's own model-cache redirect; wheel scrolling. A real Cancel in a Maker custom build replaces a test that checked nothing.
+- Three new native journeys: the Cover replacement question answered with real Enter, Escape, Alt+F4 and a click; Alt+F4 while a folder scan is walking; the real mouse wheel over the Maker's Chapter Titles. The relaunch journey now also proves the window size is never carried over.
+
 ## [Unreleased] — v0.7.2 Phase 6, batch C: accurate messages and validated values (2026-11-09)
 
 **Fixed**
@@ -34,7 +57,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - TTS: Resume, the Edge speech rate and the Kokoro speed now lock while a conversion runs, like every other option the run has already taken; before, they looked editable and changing them did nothing. MP3 Tool: the Chapter Titles box locks during a run too, as it already did in the M4B Maker and Metadata Editor. What you had chosen is unchanged when the run ends.
 - Closing the app no longer risks a long silent wait at exit: the closed window's Tk objects are now cleaned up straight away instead of later from a background thread, where each one waited about a second and logged an error (measured: about 23 seconds for TTS and 17 for Cover Image in the worst case).
 - First-run setup: answering No to "Stop setup?" while the optional voices are being checked or installed now really keeps that work going; before, it stopped anyway and launched the app.
-- First-run setup: closing the window while the app's packages are installing now asks "Stop setup?". Yes stops the package installer and everything it started, starts nothing else and closes the window once setup has stopped; double-click Setup_and_Run again to finish. Before, the window closed at once and the installer kept running in the background.
+- First-run setup: closing the window while the app's packages are installing now asks "Stop setup?". Yes stops the package installer and everything it started, starts nothing else and closes the window once setup has stopped; setup finishes the next time the app is started with Setup_and_Run. Before, the window closed at once and the installer kept running in the background.
 
 **Added (development only; nothing here ships)**
 - Tests for each, seen failing on the old code and on planted defects: a real run held inside the engine for the locks, a real Tk root in its own process for the shutdown cleanup, and the real setup window with a stand-in installer that starts a process of its own. The forced-shutdown scenarios now check that no Tk call happens on a background thread and that nothing waits.

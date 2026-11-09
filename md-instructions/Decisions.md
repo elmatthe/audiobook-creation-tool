@@ -7701,3 +7701,47 @@ says what the files get.
 only by typing; no product path or journey used them, and the panel tests that did now use 256.
 
 — Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.
+
+---
+
+## 2026-11-09 — The owned work area is shared; Enter presses the focused button (v0.7.2 Phase 6, batch D)
+
+**Decision 1:** `work_area` moves from `scripts/tts/` to `scripts/shared/`. Batch A made the M4B Maker stage its custom builds in
+it, which broke the standing rule that `m4b`, `mp3` and `artwork` never import `tts`
+(`test_tts_output_names::test_no_other_tool_reaches_the_tts_naming_policy`, missed by batch A's targeted runs). The guard is kept
+as it is; the module, now used by two tools, lives where shared things live. Names, behaviour and the `%TEMP%\act-tts` folder are
+unchanged, so an interrupted run of an earlier build is still recovered.
+
+**Decision 2 (ACT72-060):** in Cover Image's replacement question, Return and keypad Enter press the button that holds the
+keyboard, as on any Windows dialog. Cancel holds it when the question opens, so Enter cancels; a person who moves to Replace
+and presses Enter replaces. Tk binds Space but not Return on a ttk button, so before this Enter did nothing, and the test that
+claimed otherwise called Cancel's handler directly.
+
+**Decision 3 (ACT72-056):** the native close-during-scan journey paces the scan through the launcher adapter's own hook
+(`slow_scan_seconds`: a sleep at each Cancel checkpoint) so that the close lands while the walk is under way. Only the pace
+changes; the scan, its Cancel and the shutdown are production's.
+
+— Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.
+
+---
+
+## 2026-11-09 — The TTS skip box says what it does; unreferenced helpers wait for the owner (v0.7.2 Phase 6, batch E)
+
+**Decision 1 (ACT72-046):** wording only, as the owner asked, and no cross-run resume. The box reads "Skip MP3s already in this
+run". A first attempt always starts in a newly reserved folder, so in the app it has nothing to skip; it never claimed less than
+that, but "Resume" suggested continuing an earlier run. Behaviour and default are unchanged, and so is the command line's
+`--resume`. Removing the box from the app would be a larger change to what a person sees, and was not asked for.
+
+**Decision 2 (ACT72-030, deferred):** the eleven helpers with no production caller stay for now. The four on the Converter side are
+each exercised by at most one test; the MP3 Tool's six are pinned by six test modules (`test_mp3_write_id3`,
+`test_mp3_tool_ui`, `test_mp3_duration_authority`, `test_mp3_concat_paths`, `test_mp3_hardening`, `test_tool_output_integration`)
+as the proven FFmpeg helpers the Phase 7 redesign re-exported. Proposal for the owner: one cleanup slice that removes all eleven and
+the tests that exercise only them, keeping `write_concat_listfile`, `ffmpeg_escape_listfile_path`, `run_ff`, `seconds_to_hms` and
+`ffprobe_duration_seconds`, which the app does call. ACT72-030 stays open at Phase 6 until then.
+
+**Decision 3:** the six-tool consistency matrix (`files/dev-work/feature-map/consistency-matrix.md`) records five differences
+and changes none of them: the Converter corrects typed values instead of refusing them; FFmpeg readiness is checked three ways;
+Open Output Folder is in three tools of six; the Converter and Cover Image have no per-attempt divider; TTS remembers no folder.
+Each is a change to what a person sees, so each is the owner's to approve.
+
+— Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.

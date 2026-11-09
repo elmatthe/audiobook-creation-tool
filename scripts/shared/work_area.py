@@ -1,6 +1,9 @@
 """Where the TTS routes keep their temporary files, who owns them, and how a later run removes what a killed one left
 (v0.7.2, ACT72-009).
 
+In ``shared/`` since v0.7.2 Phase 6: the M4B Maker's custom builds stage here too (kind ``maker``, ACT72-031), and a tool
+package may not import ``tts``. Nothing about the area changed with the move; its folder is still ``act-tts``.
+
 **Why.** A conversion works in temporary folders and files: the Edge engine's folder (every clip, the text, the
 assembly WAV), the panel's folders around a direct or local-engine conversion, pydub's temporaries (the first holds the
 whole narration as a WAV) and the local engines' encode WAV. Until v0.7.2 they lay loose in the system temp folder

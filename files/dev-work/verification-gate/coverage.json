@@ -1349,7 +1349,7 @@
     {
       "id": "ACT.TTS.RESUME",
       "tool": "tts-audiobook",
-      "title": "Resume (skip existing MP3s)",
+      "title": "Skip MP3s already in this run",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -1367,7 +1367,8 @@
       ],
       "contracts": [
         "With Resume ticked (the default), a folder-route item whose planned output already exists is skipped on a first attempt and logged 'Skipping (already exists)'.",
-        "Resume never applies to directly added files or to Retry Failed."
+        "Resume never applies to directly added files or to Retry Failed.",
+        "The box says only what it does, \"Skip MP3s already in this run\": a new run starts in a newly reserved folder and never continues an earlier one, so in the app it has nothing to skip; it was labelled \"Resume (skip existing MP3s)\" until v0.7.2 (ACT72-046). The command line's --resume is unchanged."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py"
@@ -1384,10 +1385,8 @@
             "test": "files/tests/test_tts_jobs.py::test_a_retry_is_never_skipped_by_its_own_partial_artifact"
           },
           {
-            "kind": "planned",
-            "gap": "In the app every first attempt writes into a freshly reserved numbered run folder, so Resume can never find an existing output there; the visible, ticked-by-default box has no effect a person can see (see findings).",
-            "phase": 6,
-            "issue": "ACT72-046"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_jobs.py::test_resume_is_not_redefined_for_the_user"
           }
         ]
       },
@@ -2658,7 +2657,7 @@
           ]
         },
         {
-          "path": "scripts/tts/work_area.py",
+          "path": "scripts/shared/work_area.py",
           "symbols": [
             "OwnedFolder",
             "conversion_folder",
@@ -5144,7 +5143,8 @@
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_workflow.py",
-        "files/tests/test_mp3_metadata_precedence.py"
+        "files/tests/test_mp3_metadata_precedence.py",
+        "files/tests/test_mp3_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -5166,10 +5166,12 @@
             "test": "files/tests/test_mp3_workflow.py::test_distinct_directories_with_the_same_basename_never_merge"
           },
           {
-            "kind": "planned",
-            "gap": "No MP3 Tool test presses Cancel Import during a folder scan, and none drives the MP3 wording of the broad-folder or large-result confirmations (the panel fixture stubs both); plan section 11.3 lists 'cancel an import' among the MP3 paths to reproduce",
-            "phase": 6,
-            "issue": "ACT72-054"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_cancel_import_ends_an_mp3_folder_scan_and_the_workspace_is_as_it_was"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_the_mp3_tool_asks_in_its_own_words_before_a_broad_folder_or_a_large_result"
           },
           {
             "kind": "behavior",
@@ -5214,7 +5216,8 @@
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
-        "files/tests/test_mp3_workflow.py"
+        "files/tests/test_mp3_workflow.py",
+        "files/tests/test_mp3_panel_branches.py"
       ],
       "journeys": [
         "mp3.write-id3-then-combine",
@@ -5251,10 +5254,8 @@
             "scenario": "mp3.unreadable-track"
           },
           {
-            "kind": "planned",
-            "gap": "No test adds a file that is already in the current Book through the panel to prove the identity filter in MP3ToolUI._project_import skips it and reports the skipped count",
-            "phase": 6,
-            "issue": "ACT72-054"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_file_already_in_the_book_is_skipped_and_the_log_says_how_many"
           }
         ]
       },
@@ -6491,7 +6492,8 @@
         "files/tests/test_mp3_plan.py",
         "files/tests/test_mp3_tool_appearance.py",
         "files/tests/test_mp3_hardening.py",
-        "files/tests/test_mp3_tool_ui.py"
+        "files/tests/test_mp3_tool_ui.py",
+        "files/tests/test_mp3_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -6517,10 +6519,20 @@
             "test": "files/tests/test_mp3_hardening.py::test_a_failed_run_keeps_its_directory_and_a_later_run_never_reuses_it"
           },
           {
-            "kind": "planned",
-            "gap": "No MP3 test makes the run reservation fail (OutputPathError dialog in MP3ToolUI._reserve_run) or makes plan_run refuse after reserving to prove output_paths.release_if_empty removes the empty run and the error dialog appears",
-            "phase": 6,
-            "issue": "ACT72-054"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why[write_id3_tags]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why[combine_mp3s]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[write_id3_tags-Write ID3 Tags]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[combine_mp3s-Combine MP3s → One MP3]"
           }
         ]
       },
@@ -7175,7 +7187,8 @@
         "A run without it fails each Book with an item-less, non-retryable failure and publishes nothing."
       ],
       "selection": [
-        "files/tests/test_ffmpeg_runtime_trust.py"
+        "files/tests/test_ffmpeg_runtime_trust.py",
+        "files/tests/test_mp3_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -7185,10 +7198,16 @@
             "test": "files/tests/test_ffmpeg_runtime_trust.py::test_the_mp3_tool_gate_requires_a_proved_pair"
           },
           {
-            "kind": "planned",
-            "gap": "No test opens the panel without a proved FFmpeg to check the warning, or runs Write ID3 / Combine without one to check every Book fails item-less and nothing is published",
-            "phase": 6,
-            "issue": "ACT72-054"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_the_panel_warns_when_ffmpeg_is_not_proved_and_ready_when_it_is"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_without_a_proved_ffmpeg_every_book_fails_and_nothing_is_published[write_id3_tags]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_without_a_proved_ffmpeg_every_book_fails_and_nothing_is_published[combine_mp3s]"
           }
         ]
       },
@@ -7531,7 +7550,8 @@
       ],
       "selection": [
         "files/tests/test_ffmpeg_runtime_trust.py",
-        "files/tests/test_ffmpeg_health.py"
+        "files/tests/test_ffmpeg_health.py",
+        "files/tests/test_converter_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -7545,10 +7565,8 @@
             "test": "files/tests/test_ffmpeg_health.py::test_nothing_says_ffmpeg_detected_any_more"
           },
           {
-            "kind": "planned",
-            "gap": "Both tests are structural. No test presses Convert with an unverified FFmpeg and checks that the 'FFmpeg is not ready' dialog appears and that no worker, run folder or output is created.",
-            "phase": 6,
-            "issue": "ACT72-051"
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_convert_with_an_ffmpeg_nobody_proved_says_so_and_starts_nothing"
           }
         ]
       },
@@ -8241,7 +8259,8 @@
       ],
       "selection": [
         "files/tests/test_m4b_commands.py",
-        "files/tests/test_m4b_winaudio.py"
+        "files/tests/test_m4b_winaudio.py",
+        "files/tests/test_converter_panel_branches.py"
       ],
       "journeys": [
         "converter.whole-book-replace-metadata"
@@ -8277,10 +8296,32 @@
             "scenario": "converter.whole-book-replace-metadata"
           },
           {
-            "kind": "planned",
-            "gap": "No test types an out-of-range or non-numeric value into the MP3 quality spinbox and checks that read_options clamps it (0-9) or falls back to 2.",
-            "phase": 6,
-            "issue": "ACT72-051"
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[15-9]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[9-9]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[-3-0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[0-0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[4.7-4]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[abc-2]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_quality_is_held_to_0_to_9_and_anything_else_is_the_default[-2]"
           }
         ]
       },
@@ -8626,7 +8667,8 @@
       "selection": [
         "files/tests/test_m4b_numbering.py",
         "files/tests/test_book_numbering.py",
-        "files/tests/test_m4b_retry.py"
+        "files/tests/test_m4b_retry.py",
+        "files/tests/test_converter_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -8656,10 +8698,28 @@
             "test": "files/tests/test_book_numbering.py::test_the_allocator_now_lives_in_shared_and_the_old_path_is_the_same_object"
           },
           {
-            "kind": "planned",
-            "gap": "No test types a Start # below 1 or a non-number and checks that read_options turns it into 1.",
-            "phase": 6,
-            "issue": "ACT72-051"
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_start_number_below_one_or_not_a_number_starts_at_one[0-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_start_number_below_one_or_not_a_number_starts_at_one[-5-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_start_number_below_one_or_not_a_number_starts_at_one[abc-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_start_number_below_one_or_not_a_number_starts_at_one[-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_start_number_below_one_or_not_a_number_starts_at_one[2.5-2]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_a_typed_start_number_below_one_or_not_a_number_starts_at_one[7-7]"
           }
         ]
       },
@@ -8696,7 +8756,8 @@
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
         "files/tests/test_m4b_conversion_plan.py",
-        "files/tests/test_tool_output_integration.py"
+        "files/tests/test_tool_output_integration.py",
+        "files/tests/test_converter_panel_branches.py"
       ],
       "journeys": [
         "converter.split-by-chapter"
@@ -8728,10 +8789,8 @@
             "scenario": "converter.split-by-chapter"
           },
           {
-            "kind": "planned",
-            "gap": "No test or journey presses Open Output Folder (before or after a run) or exercises its 'Output folder' error dialog; the journeys check only the automatic reveal at the end of a run.",
-            "phase": 6,
-            "issue": "ACT72-051"
+            "kind": "behavior",
+            "test": "files/tests/test_converter_panel_branches.py::test_open_output_folder_reveals_the_tool_folder_then_the_run_and_explains_a_refusal"
           }
         ]
       },
@@ -9581,7 +9640,8 @@
       ],
       "selection": [
         "files/tests/test_m4b_maker_ui.py",
-        "files/tests/test_m4b_maker_workflow.py"
+        "files/tests/test_m4b_maker_workflow.py",
+        "files/tests/test_maker_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -9607,10 +9667,20 @@
             "test": "files/tests/test_m4b_maker_workflow.py::test_folder_import_does_not_prefill_metadata_from_source_tags"
           },
           {
-            "kind": "planned",
-            "gap": "No test drives the Maker panel's 'Replace the current Books?' confirmation, Cancel Import during a folder scan, the broad-folder or large-result confirmations, or the remembered input folder; no native journey imports a folder in the Maker.",
-            "phase": 6,
-            "issue": "ACT72-052"
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_import_folder_asks_before_replacing_books_that_hold_work_and_no_keeps_them"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_cancel_import_ends_a_maker_folder_scan_and_the_workspace_is_as_it_was"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_the_maker_asks_in_its_own_words_before_a_broad_folder_or_a_large_result"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_the_input_folder_is_remembered_and_a_vanished_one_falls_back_to_home"
           }
         ]
       },
@@ -9650,7 +9720,8 @@
       ],
       "selection": [
         "files/tests/test_m4b_maker_ui.py",
-        "files/tests/test_m4b_maker_workflow.py"
+        "files/tests/test_m4b_maker_workflow.py",
+        "files/tests/test_maker_panel_branches.py"
       ],
       "journeys": [
         "maker.build-with-chapters-and-artwork"
@@ -9682,10 +9753,8 @@
             "scenario": "maker.build-with-chapters-and-artwork"
           },
           {
-            "kind": "planned",
-            "gap": "No test adds a file that is already in the Book through the panel, so the identity skip and its 'already in this Book were skipped' log line are unverified.",
-            "phase": 6,
-            "issue": "ACT72-052"
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_a_file_already_in_the_book_is_skipped_and_the_log_says_how_many"
           }
         ]
       },
@@ -9990,10 +10059,16 @@
             "test": "files/tests/test_m4b_chapter_boundaries.py::test_inserted_silence_belongs_to_the_end_of_the_chapter_before_it"
           },
           {
-            "kind": "planned",
-            "gap": "No test presses Build in the panel with a bad Silence: the 'Silence for Book N' message and that no run folder is reserved are unasserted (test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving checks only the empty workspace).",
-            "phase": 6,
-            "issue": "ACT72-052"
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving[abc]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving[-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_ui.py::test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving[nan]"
           },
           {
             "kind": "behavior",
@@ -10460,12 +10535,14 @@
         "The folder is validated before anything starts; an invalid one shows a message and reserves nothing.",
         "Outputs go directly into the chosen folder with no M4B-Maker-N inside it, numbered around existing files, never overwriting.",
         "Staging happens outside the chosen folder, in an owned entry of the temporary work area that is removed once no retry can reach it (v0.7.2, ACT72-031).",
-        "While the toggle is off, a path left in the hidden entry is ignored."
+        "While the toggle is off, a path left in the hidden entry is ignored.",
+        "A Cancel during a custom build leaves the chosen folder and every file it already held, including one named like a planned output; only Books finished before the Cancel are added (v0.7.2, ACT72-032)."
       ],
       "selection": [
         "files/tests/test_maker_custom_destination.py",
         "files/tests/test_m4b_maker_ui.py",
-        "files/tests/test_m4b_maker_plan.py"
+        "files/tests/test_m4b_maker_plan.py",
+        "files/tests/test_maker_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -10497,6 +10574,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_maker_plan.py::test_a_custom_work_root_must_be_absolute_and_outside_the_destination"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_a_cancelled_custom_build_leaves_the_chosen_folder_and_everything_already_in_it"
           }
         ]
       },
@@ -10850,7 +10931,7 @@
           ]
         },
         {
-          "path": "scripts/tts/work_area.py",
+          "path": "scripts/shared/work_area.py",
           "symbols": [
             "new_folder",
             "OwnedFolder",
@@ -11071,7 +11152,8 @@
       ],
       "selection": [
         "files/tests/test_m4b_maker_ui.py",
-        "files/tests/test_m4b_combined_hardening.py"
+        "files/tests/test_m4b_combined_hardening.py",
+        "files/tests/test_maker_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -11093,10 +11175,8 @@
             "test": "files/tests/test_m4b_combined_hardening.py::test_the_settled_result_exists_before_the_terminal_event[maker]"
           },
           {
-            "kind": "planned",
-            "gap": "No test asserts the Queued, Processing or Skipped statuses, the 'name.m4b (i of n)' status line, or the end-of-run Summary counts line.",
-            "phase": 6,
-            "issue": "ACT72-052"
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_statuses_and_the_status_line_follow_the_run_and_the_summary_counts_it"
           }
         ]
       },
@@ -11535,7 +11615,8 @@
       ],
       "selection": [
         "files/tests/test_m4b_maker_ui.py",
-        "files/tests/test_clear_all_imports.py"
+        "files/tests/test_clear_all_imports.py",
+        "files/tests/test_maker_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -11549,10 +11630,8 @@
             "test": "files/tests/test_clear_all_imports.py::test_maker_clear_all_imports_returns_the_pristine_startup_state"
           },
           {
-            "kind": "planned",
-            "gap": "No Maker test presses Clear Log or checks the per-attempt divider ('Build M4B(s) — <run folder>', 'Retry Failed — attempt N'). The panes' follow behaviour is the shared ACT72-005 (Phase 5), tracked on ACT.SHARED.LOG-VIEW.",
-            "phase": 6,
-            "issue": "ACT72-052"
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_each_attempt_starts_under_its_own_divider_and_clear_log_clears_only_the_view"
           }
         ]
       },
@@ -11829,7 +11908,8 @@
       ],
       "selection": [
         "files/tests/test_m4b_metadata_editor_ui.py",
-        "files/tests/test_m4b_metadata_workflow.py"
+        "files/tests/test_m4b_metadata_workflow.py",
+        "files/tests/test_metadata_panel_branches.py"
       ],
       "journeys": [
         "metadata.save-tags-then-clear"
@@ -11861,10 +11941,8 @@
             "scenario": "metadata.save-tags-then-clear"
           },
           {
-            "kind": "planned",
-            "gap": "No test answers Import Folder's 'Replace the current Books?' confirmation (Yes or No), and no journey drives the real folder dialog; only Add Files' file dialog runs natively",
-            "phase": 6,
-            "issue": "ACT72-053"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_panel_branches.py::test_import_folder_asks_before_replacing_books_and_no_keeps_them"
           }
         ]
       },
@@ -12563,7 +12641,8 @@
       "selection": [
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_m4b_metadata_plan.py",
-        "files/tests/test_tool_output_integration.py"
+        "files/tests/test_tool_output_integration.py",
+        "files/tests/test_metadata_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -12589,10 +12668,12 @@
             "test": "files/tests/test_m4b_metadata_editor_ui.py::test_the_worker_body_reaches_no_tk"
           },
           {
-            "kind": "planned",
-            "gap": "No test makes this panel's reservation fail (the OutputPathError dialog) or raises a plan error after reserving (release_if_empty plus the error dialog)",
-            "phase": 6,
-            "issue": "ACT72-053"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_panel_branches.py::test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why"
           }
         ]
       },
@@ -12831,7 +12912,8 @@
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_m4b_metadata_workflow.py",
         "files/tests/test_m4b_metadata_plan.py",
-        "files/tests/test_m4b_metadata_batch.py"
+        "files/tests/test_m4b_metadata_batch.py",
+        "files/tests/test_metadata_panel_branches.py"
       ],
       "journeys": [
         "metadata.unreadable-file"
@@ -12863,10 +12945,8 @@
             "scenario": "metadata.unreadable-file"
           },
           {
-            "kind": "planned",
-            "gap": "No test asserts that the all-unreadable refusal releases the run folder it reserved (the journey checks only that no .m4b was written; no pytest drives this refusal)",
-            "phase": 6,
-            "issue": "ACT72-053"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_panel_branches.py::test_when_no_imported_file_can_be_read_the_reserved_run_is_released"
           }
         ]
       },
@@ -13605,7 +13685,8 @@
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_clear_all_imports.py",
         "files/tests/test_m4b_combined_hardening.py",
-        "files/tests/test_log_follow.py"
+        "files/tests/test_log_follow.py",
+        "files/tests/test_metadata_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -13623,10 +13704,8 @@
             "test": "files/tests/test_m4b_combined_hardening.py::test_editor_chain_runs_in_order_from_panel_to_publication"
           },
           {
-            "kind": "planned",
-            "gap": "No test presses Clear Log in this panel or checks that a second action's lines follow the first's under a divider",
-            "phase": 6,
-            "issue": "ACT72-053"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_panel_branches.py::test_each_action_starts_under_its_own_divider_and_clear_log_clears_only_the_view"
           },
           {
             "kind": "behavior",
@@ -13851,7 +13930,8 @@
       ],
       "selection": [
         "files/tests/test_prototype_regression.py",
-        "files/tests/test_settings_allowlist.py"
+        "files/tests/test_settings_allowlist.py",
+        "files/tests/test_metadata_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -13865,10 +13945,8 @@
             "test": "files/tests/test_settings_allowlist.py::test_a_settings_file_of_only_app_written_state_produces_no_warning"
           },
           {
-            "kind": "planned",
-            "gap": "No test or journey checks that choosing a file, folder or image saves its folder and that the next dialog opens there (or falls back to home when the folder is gone); the existing test only inspects which keys the source writes",
-            "phase": 6,
-            "issue": "ACT72-053"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_panel_branches.py::test_file_folder_and_image_choices_are_remembered_and_a_vanished_folder_falls_back_to_home"
           }
         ]
       },
@@ -14741,12 +14819,14 @@
         "A validated standard run reserves exactly one <output base>/Cover-Image-Outputs/Cover-Image-N folder and writes only inside it.",
         "Individually added files land flat; one imported folder keeps its sub-folders; several imported folders each get their own collision-safe container.",
         "Name clashes inside the run get -1, -2 suffixes, planned before the worker starts; a retry reuses the same destinations.",
-        "The Output field shows the tool folder before a run and the reserved run folder once it starts."
+        "The Output field shows the tool folder before a run and the reserved run folder once it starts.",
+        "A destination plan refused after the run folder was reserved gives that empty folder back before the 'Output folder' message (v0.7.2, ACT72-061)."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
         "files/tests/test_tool_output_integration.py",
-        "files/tests/test_output_location_refresh.py"
+        "files/tests/test_output_location_refresh.py",
+        "files/tests/test_cover_panel_branches.py"
       ],
       "journeys": [
         "cover.letterbox-numbered-run"
@@ -14786,10 +14866,12 @@
             "scenario": "cover.letterbox-numbered-run"
           },
           {
-            "kind": "planned",
-            "gap": "No test drives a failed run-folder reservation (missing or unwritable output base) through the panel's 'Output folder' error, which must start nothing",
-            "phase": 6,
-            "issue": "ACT72-050"
+            "kind": "behavior",
+            "test": "files/tests/test_cover_panel_branches.py::test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_panel_branches.py::test_a_plan_refused_after_reserving_gives_the_empty_run_folder_back"
           }
         ]
       },
@@ -14947,7 +15029,9 @@
         "files/tests/test_cover_jobs.py",
         "files/tests/test_cover_source_side.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "cover.replace-confirmation"
+      ],
       "verification": {
         "all_of": [
           {
@@ -14973,6 +15057,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_cover_source_side.py::test_the_worker_never_opens_a_source_for_writing"
+          },
+          {
+            "kind": "native",
+            "scenario": "cover.replace-confirmation"
+          },
+          {
+            "kind": "media",
+            "scenario": "cover.replace-confirmation"
           }
         ]
       },
@@ -15003,7 +15095,7 @@
       ],
       "contracts": [
         "Titled 'Confirm replacement of original images', it states the exact count, that the change is permanent and cannot be undone, and that completed replacements remain after a failure or cancel.",
-        "The destructive button reads 'Replace N Original Files' ('Replace 1 Original File'); Cancel is the default and holds focus, so Enter cancels.",
+        "The destructive button reads 'Replace N Original Files' ('Replace 1 Original File'); Cancel is the default and holds focus, so Enter cancels; Enter presses whichever button holds the keyboard, so Replace only after the person has moved to it (v0.7.2, ACT72-060: Enter did nothing before).",
         "Escape and closing the window cancel; declining creates no run, no temporary file and no output.",
         "The dialog is built new for every run and every retry; there is no remembered answer."
       ],
@@ -15011,7 +15103,9 @@
         "files/tests/test_cover_source_side.py",
         "files/tests/test_cover_jobs.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "cover.replace-confirmation"
+      ],
       "verification": {
         "all_of": [
           {
@@ -15039,10 +15133,16 @@
             "test": "files/tests/test_cover_jobs.py::test_a_retried_replacement_revalidates_and_asks_again"
           },
           {
-            "kind": "planned",
-            "gap": "No native journey opens the real modal dialog in the running app: focus on Cancel is asserted only from source, and Enter, Escape, the window close and a real Replace click are never driven by real input",
-            "phase": 6,
-            "issue": "ACT72-050"
+            "kind": "native",
+            "scenario": "cover.replace-confirmation"
+          },
+          {
+            "kind": "media",
+            "scenario": "cover.replace-confirmation"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_source_side.py::test_enter_presses_replace_only_once_the_person_has_moved_to_it"
           }
         ]
       },
@@ -15528,7 +15628,8 @@
       ],
       "journeys": [
         "shutdown.cover-close-during-work",
-        "shutdown.cover-close-forced-landing"
+        "shutdown.cover-close-forced-landing",
+        "shutdown.close-during-folder-scan"
       ],
       "verification": {
         "all_of": [
@@ -15567,6 +15668,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_tk_teardown_on_main_thread.py::test_after_the_release_a_worker_collection_touches_no_tk_and_waits_for_nothing"
+          },
+          {
+            "kind": "native",
+            "scenario": "shutdown.close-during-folder-scan"
           }
         ]
       },
@@ -15727,7 +15832,8 @@
       "selection": [
         "files/tests/test_tool_output_integration.py",
         "files/tests/test_config.py",
-        "files/tests/test_settings_allowlist.py"
+        "files/tests/test_settings_allowlist.py",
+        "files/tests/test_cover_panel_branches.py"
       ],
       "journeys": [],
       "verification": {
@@ -15745,10 +15851,8 @@
             "test": "files/tests/test_config.py::test_known_user_state_keys_are_carried_without_being_configuration"
           },
           {
-            "kind": "planned",
-            "gap": "No test shows that Add Files/Add Folder save the chosen folder and open the next dialog there, or fall back to the home folder when the saved folder is gone",
-            "phase": 6,
-            "issue": "ACT72-050"
+            "kind": "behavior",
+            "test": "files/tests/test_cover_panel_branches.py::test_add_files_and_add_folder_remember_their_folder_and_a_vanished_one_falls_back_to_home"
           }
         ]
       },
@@ -15975,7 +16079,8 @@
         "files/tests/test_cross_tool_consistency.py"
       ],
       "journeys": [
-        "launcher.six-tools-at-three-sizes"
+        "launcher.six-tools-at-three-sizes",
+        "launcher.settings-survive-relaunch"
       ],
       "verification": {
         "all_of": [
@@ -16004,10 +16109,8 @@
             "scenario": "launcher.six-tools-at-three-sizes"
           },
           {
-            "kind": "planned",
-            "gap": "No test resizes the window, closes and relaunches, and checks that it reopens at 1024x720 (size deliberately not persisted)",
-            "phase": 6,
-            "issue": "ACT72-056"
+            "kind": "native",
+            "scenario": "launcher.settings-survive-relaunch"
           },
           {
             "kind": "owner",
@@ -16193,10 +16296,8 @@
             "test": "files/tests/test_tool_output_integration.py::test_launcher_startup_creates_no_output_directory"
           },
           {
-            "kind": "planned",
-            "gap": "The launcher's own HF_HOME redirect (_configure_hf_cache) has no test; only bootstrap's copy is exercised",
-            "phase": 6,
-            "issue": "ACT72-056"
+            "kind": "behavior",
+            "test": "files/tests/test_launcher_smoke.py::test_the_launcher_keeps_the_model_cache_inside_the_project_before_any_window_exists"
           }
         ]
       },
@@ -16351,7 +16452,8 @@
         "shutdown.metadata-close-during-work",
         "shutdown.metadata-close-forced-landing",
         "shutdown.cover-close-during-work",
-        "shutdown.cover-close-forced-landing"
+        "shutdown.cover-close-forced-landing",
+        "shutdown.close-during-folder-scan"
       ],
       "verification": {
         "all_of": [
@@ -16460,10 +16562,8 @@
             "test": "files/tests/test_tk_teardown_on_main_thread.py::test_after_the_release_a_worker_collection_touches_no_tk_and_waits_for_nothing"
           },
           {
-            "kind": "planned",
-            "gap": "No native journey closes the window while a folder import scan is running (only runs are closed natively)",
-            "phase": 6,
-            "issue": "ACT72-056"
+            "kind": "native",
+            "scenario": "shutdown.close-during-folder-scan"
           }
         ]
       },
@@ -18158,7 +18258,9 @@
       "selection": [
         "files/tests/test_ui_theme.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "maker.wheel-over-a-long-book"
+      ],
       "verification": {
         "all_of": [
           {
@@ -18182,10 +18284,12 @@
             "test": "files/tests/test_ui_theme.py::test_no_wheel_callback_survives_the_widget_it_scrolls"
           },
           {
-            "kind": "planned",
-            "gap": "Ownership of the wheel binding is tested, but no test sends a wheel event through enable_mousewheel and checks that the hovered region actually moved",
-            "phase": 6,
-            "issue": "ACT72-056"
+            "kind": "behavior",
+            "test": "files/tests/test_ui_theme.py::test_a_wheel_turned_over_the_region_or_its_controls_moves_it_and_stops_once_the_pointer_leaves"
+          },
+          {
+            "kind": "native",
+            "scenario": "maker.wheel-over-a-long-book"
           }
         ]
       },
@@ -22081,7 +22185,6 @@
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Button:Start": "ACT.TTS.RUN",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Button:text=QWEN3_DETAILS_LABEL": "ACT.TTS.LAYOUT",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Overwrite existing outputs without asking": "ACT.TTS.PUBLICATION",
-      "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Resume (skip existing MP3s)": "ACT.TTS.RESUME",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Combobox:var=self.bitrate_var": "ACT.TTS.BITRATE",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Combobox:var=self.selected_voice_label": "ACT.TTS.VOICE",
       "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Entry:var=self.rate_var": "ACT.TTS.EDGE-RATE",
@@ -22110,7 +22213,10 @@
       "widget:scripts/tts/qwen3_install_ui.py::build_dialog::Button:text=labels['base']": "ACT.TTS.SETUP.QWEN3",
       "widget:scripts/tts/qwen3_install_ui.py::build_dialog::Button:text=labels['both']": "ACT.TTS.SETUP.QWEN3",
       "widget:scripts/tts/qwen3_install_ui.py::build_dialog::Button:text=labels['customvoice']": "ACT.TTS.SETUP.QWEN3",
-      "widget:scripts/tts/qwen3_install_ui.py::build_dialog::Toplevel:@win": "ACT.TTS.SETUP.QWEN3"
+      "widget:scripts/tts/qwen3_install_ui.py::build_dialog::Toplevel:@win": "ACT.TTS.SETUP.QWEN3",
+      "binding:scripts/artwork/cover_resizer.py::build_replacement_dialog::bind:<Return>": "ACT.COVER.REPLACE.CONFIRM",
+      "binding:scripts/artwork/cover_resizer.py::build_replacement_dialog::bind:<KP_Enter>": "ACT.COVER.REPLACE.CONFIRM",
+      "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Skip MP3s already in this run": "ACT.TTS.RESUME"
     },
     "live": {
       "cover": {
@@ -22753,12 +22859,13 @@
       "id": "ACT72-032",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Weak Maker tests: test_cancellation_never_removes_the_chosen_directory passes vacuously and test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving checks only the empty workspace; neither is used as evidence. A third, test_source_mp3s_and_cover_are_never_written, asserted nothing and was corrected in Phase 4",
       "features": [
         "ACT.MAKER.SILENCE"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: the vacuous test_cancellation_never_removes_the_chosen_directory is replaced by test_maker_panel_branches::test_a_cancelled_custom_build_leaves_the_chosen_folder_and_everything_already_in_it (a real custom build cancelled in a folder that already holds the owner's files); the bad-Silence half was strengthened in batch C (abc, -1 and nan, Book and Shared, nothing reserved). Both seen failing on planted defects."
     },
     {
       "id": "ACT72-033",
@@ -22917,12 +23024,13 @@
       "id": "ACT72-046",
       "severity": "Suggestion",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "'Resume (skip existing MP3s)' cannot skip anything in the app: every first attempt writes into a freshly reserved run folder",
       "features": [
         "ACT.TTS.RESUME"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (wording only, as the owner asked; no cross-run resume): the box reads \"Skip MP3s already in this run\", which is all it can do in the app, since every first attempt starts in a newly reserved folder; its behaviour and default are unchanged, and the command line's --resume is untouched."
     },
     {
       "id": "ACT72-047",
@@ -22962,20 +23070,21 @@
       "id": "ACT72-050",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Cover Image branches without an automated check: a failed run-folder reservation, the real Replace confirmation dialog driven by real input, remembered folders",
       "features": [
         "ACT.COVER.PERSISTENCE",
         "ACT.COVER.REPLACE.CONFIRM",
         "ACT.COVER.STANDARD-OUTPUT"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: test_cover_panel_branches covers a reservation that fails and the remembered Add Files / Add Folder folder; the native journey cover.replace-confirmation opens the real confirmation by a real click and answers it with real Enter, Escape, Alt+F4 and a click on Replace. That journey found ACT72-060."
     },
     {
       "id": "ACT72-051",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "M4B Converter branches without an automated check: Convert with an unproved FFmpeg, typed out-of-range quality and Start #, Open Output Folder and its error",
       "features": [
         "ACT.CONVERTER.FFMPEG-READY",
@@ -22983,13 +23092,14 @@
         "ACT.CONVERTER.OUTPUT-FOLDER",
         "ACT.CONVERTER.QUALITY"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: test_converter_panel_branches covers Convert with an unproved FFmpeg (the dialog, no worker, no folder, no command), typed quality and Start # as the encoder's real command line receives them, and Open Output Folder before a run, after one and when the folder cannot be made."
     },
     {
       "id": "ACT72-052",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "M4B Maker branches without an automated check: folder-import confirmations and Cancel Import, the duplicate-file skip, a bad Silence at Build, progress statuses, Clear Log and the run divider",
       "features": [
         "ACT.MAKER.ACTIVITY-LOG",
@@ -22998,13 +23108,14 @@
         "ACT.MAKER.PROGRESS",
         "ACT.MAKER.SILENCE"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: test_maker_panel_branches covers the replace question, Cancel Import, the Maker's own broad-folder and large-result wording, the remembered folder, the duplicate skip, Queued/Processing/Skipped and the status line, the Summary counts, Clear Log and the per-attempt divider; the wheel over the Chapter Titles box is driven natively in maker.wheel-over-a-long-book."
     },
     {
       "id": "ACT72-053",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "M4B Metadata Editor branches without an automated check: Import Folder's replace confirmation, a failed reservation or plan, the all-unreadable release of its run folder, Clear Log, remembered folders (Cancel Import, the scan confirmations and Open Output Folder gained tests in Phase 4)",
       "features": [
         "ACT.METADATA.ACTIVITY-LOG",
@@ -23013,13 +23124,14 @@
         "ACT.METADATA.RUN-START",
         "ACT.METADATA.UNREADABLE"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: test_metadata_panel_branches covers Import Folder's replace question (Yes and No), a reservation that fails, a plan refused after reserving, the all-unreadable refusal releasing its run folder, Clear Log with the per-action divider, and the remembered file, folder and image folders (with the home fallback)."
     },
     {
       "id": "ACT72-054",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "MP3 Tool branches without an automated check: Cancel Import and folder-scan confirmations, the duplicate-file skip, a failed reservation or plan, running without a proved FFmpeg",
       "features": [
         "ACT.MP3.ADD-FILES",
@@ -23027,7 +23139,8 @@
         "ACT.MP3.IMPORT-FOLDER",
         "ACT.MP3.OUTPUT-RUN"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: test_mp3_panel_branches covers Cancel Import, the MP3 Tool's own scan questions, the duplicate skip, a reservation that fails, a plan refused after reserving (the empty run released) and Write ID3 / Combine with no proved FFmpeg (warning on opening, every Book failed, nothing published)."
     },
     {
       "id": "ACT72-055",
@@ -23046,7 +23159,7 @@
       "id": "ACT72-056",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Launcher and shared branches without an automated check: size not persisted across relaunch, the launcher's own HF_HOME redirect, closing during an import scan, real wheel scrolling (Open log folder and the hidden-console guard gained tests in Phase 4)",
       "features": [
         "ACT.LAUNCHER.STARTUP",
@@ -23054,7 +23167,8 @@
         "ACT.SHARED.CLOSE-DURING-WORK",
         "ACT.SHARED.SCROLLING"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6: launcher.settings-survive-relaunch now resizes the window before closing and requires the relaunch at 1024x720 with no size saved; test_launcher_smoke drives main() with HF_HOME set elsewhere and sees the project cache before Tk exists; shutdown.close-during-folder-scan presses Alt+F4 while a (journey-paced) folder scan walks; test_ui_theme moves a region with wheel events over a child control (a Canvas has no wheel binding of its own), and maker.wheel-over-a-long-book turns the real wheel."
     },
     {
       "id": "ACT72-057",
@@ -23092,13 +23206,37 @@
       ],
       "evidence": "v0.7.2 Phase 5 log-view audit (read from source, not measured)",
       "resolution": "Fixed in v0.7.2 Phase 6: bootstrap._append_following (both windows) and OptionalSetupPanel._append (the optional-voices step the first-run window shows next, the same defect, found while reproducing) follow only a reader at the bottom, the rule of the app's own log (ACT72-005); the real windows are driven in test_setup_log_follow.py; reproduced at 5170b8f in files/dev-work/verification-gate/outputs/2026-11-08_phase6a_work_32db/act72-059/."
+    },
+    {
+      "id": "ACT72-060",
+      "severity": "Minor",
+      "phase": 6,
+      "status": "closed",
+      "title": "Enter did nothing in Cover Image's replacement confirmation: Tk gives a ttk button no Return binding, so the documented 'Cancel holds focus, so Enter cancels' never happened in the running app, and the test that claimed it invoked Cancel's handler directly",
+      "features": [
+        "ACT.COVER.REPLACE.CONFIRM"
+      ],
+      "evidence": "v0.7.2 Phase 6 batch D, found while writing cover.replace-confirmation: Tk's ttk/button.tcl binds <space>, not <Return>; reproduced with real Return key events on a mapped dialog built by the committed 3ea5338 code (it stayed open with either button focused)",
+      "resolution": "Fixed in v0.7.2 Phase 6: build_replacement_dialog binds Return and keypad Enter to the button that holds the keyboard (Cancel by default); test_cover_source_side sends real key events, and cover.replace-confirmation presses Enter for real."
+    },
+    {
+      "id": "ACT72-061",
+      "severity": "Minor",
+      "phase": 6,
+      "status": "closed",
+      "title": "Cover Image left an empty numbered run folder when its destination plan was refused after the run was reserved; every other tool releases it",
+      "features": [
+        "ACT.COVER.STANDARD-OUTPUT"
+      ],
+      "evidence": "v0.7.2 Phase 6 batch E consistency review (read from source; reproduced by test_cover_panel_branches before the fix)",
+      "resolution": "Fixed in v0.7.2 Phase 6: start_resize releases the reservation (release_if_empty) before the 'Output folder' message."
     }
   ],
   "source_review": {
     "Setup_and_Run-audiobook-creation-tool.bat": "05d244791f517ec95068f2a3f3be065248bb983dfe1a74d8692051c688473ca3",
     "Setup_and_Run-audiobook-creation-tool.command": "24f965d1c3a34aea754d8ad800a29320f21f0619a9fcbb2c1c82d7b2067d5090",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "8cbe4283ebc738d3eb2750e910f503bb95780a25c5c2617aa87162d4e8e4b0c0",
+    "scripts/artwork/cover_resizer.py": "ea9866b202b5cf544fa683828cbe2ae908d38b6f1fcc8b99cd9639ee6dde9160",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
@@ -23118,7 +23256,7 @@
     "scripts/m4b/m4b_staging.py": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
     "scripts/m4b/m4b_winaudio.py": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "39a0bdc0decc03f1de702e99d7de8748e67e7ae6fe820e11e841d37cf19a095c",
+    "scripts/m4b/maker/m4b_maker.py": "3a0b92b99ed274f75a4fd885a276d5f684a6af05d70500b8b361d54de8899df9",
     "scripts/m4b/maker/m4b_maker_batch.py": "fbeaee438a052c3f58c9b4840e95db1249498240d537b9b66487870bf832e0e6",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
@@ -23141,7 +23279,7 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "a51e46400db4f0866042b1f04a571a277c627ce77e0174673348588f4d856329",
+    "scripts/shared/bootstrap.py": "bbecb40501aea04c0f347a3596e1bf797e7817f0dbdfebe4dcc96bcb1a68c1e4",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
@@ -23186,20 +23324,21 @@
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
     "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",
     "scripts/shared/version.py": "8eda09bbe13116b2bdf669a482950d9581b0b720ae7e284aba773d0da2a716a9",
+    "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
     "scripts/tts/audio_tail.py": "d755c5e17d99a31a9b0ba2defd172d5ea3566a55a892ffe792c30a3b5478507a",
-    "scripts/tts/batch_convert.py": "acf2b74ebb92d11686865c5a80d0f33e53e06cd27b634d0723153a73653813d1",
-    "scripts/tts/chatterbox_synth.py": "7569528c356c67d925c3d484aaca996563aca2d87767ccf00124119db366d9ed",
+    "scripts/tts/batch_convert.py": "40e75a1ed5e592078f5d1badd7ad811f686136bf1905c4d3670492e5d2f89a15",
+    "scripts/tts/chatterbox_synth.py": "71e65dc1d7dfb4570c8febc23af0e4d821872f422457fe104a526f592020f843",
     "scripts/tts/disk_assembly.py": "282c7f689a877cd331a7c99c96cf83d002f09d1594558a66fe247b54cff3bcdd",
     "scripts/tts/edge_failures.py": "6935863a33eb1da68cd0521db5b2c0198b28aeae05b36832322303c281a6e2d5",
     "scripts/tts/edge_requests.py": "236de667f09942ef2cd178fad426e54925c7176a05a7256fc8dcc151d571ac55",
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
-    "scripts/tts/epub2tts_edge/runner.py": "d96a33be96eddcb10698fab9bfe661327386504f08af73653649cdd12d86bb93",
-    "scripts/tts/epub2tts_gui.py": "b8e4daf8c45ebf9f3aa3e1940d7e7f4b0b2356a9ceb92791b0bdaddbd1bce6da",
-    "scripts/tts/ffmpeg_watch.py": "164587651715e138581a8a6b88f1c8dd5cc9781dd99676fbb5678224ab72d7ec",
+    "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
+    "scripts/tts/epub2tts_gui.py": "7359bc20afa9a7978561e0efd51f375ec2c38601e68c71b5f50de4e2301548f2",
+    "scripts/tts/ffmpeg_watch.py": "513279b8ed6999184fd8fac87e01985a15f1592032ecde7e5034243995166601",
     "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
-    "scripts/tts/kokoro_synth.py": "dda3a56019046013113d7bf95b2d8ad4429b08c2fdc87494f9d27f7ef29e74c0",
+    "scripts/tts/kokoro_synth.py": "07595a2dcfe343ebce7ae23d4ec3e5ed9d95fe9f08fd260336a7904869471314",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/optional_setup.py": "5fb3f6d38acb5af66ae5eca3348c295de772f5bb710bcc9e02bfb572da0b0968",
     "scripts/tts/optional_setup_acquire.py": "4996e150359bf4966c76feed7a58492821e6afa91cbe094a6984d11faec5ce41",
@@ -23238,7 +23377,6 @@
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "39168cf1f5e6437fd72f0ad35424cce0caa4c859faf5ee2bdf389f0a51c9b1f9",
     "scripts/tts/voice_registry.py": "4f62cf28794083d027bf37d14d0e219ee74c60c3faf8a797e675bdfbda9d9e38",
-    "scripts/tts/work_area.py": "dfa1431c207f42acec29c16272269c31313a4243573085394e297533bb2cd9e1",
     "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8"
   }
 }

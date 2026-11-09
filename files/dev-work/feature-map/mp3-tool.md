@@ -19,7 +19,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Persistence:** The chosen folder is remembered as the dialog's starting place (settings key mp3_tool.input_dir); Books and imports are not saved between sessions.
 - **Intentional differences:** Folder import replaces the workspace; Add Files appends to the current Book only.
 - **What must hold:** A folder scan makes one Book per directory that directly contains MP3s; same-named directories never merge. Import Folder replaces every Book; when any Book holds files or settings the user is asked first, and declining changes nothing. A scan that finds no MP3s is reported in the log, not in a dialog. Cancel Import stops a running scan and leaves the workspace as it was.
-- **Known gap:** No automated MP3 test presses Cancel Import during a folder scan, and none shows the MP3 wording of the broad-folder and large-result questions; the plan's metadata-preservation work (Phase 5) lists cancelling an import among the paths to reproduce.
+- Cancel Import ends a folder scan with the workspace as it was, and the broad-folder and large-result questions are asked in the MP3 Tool's own words; declining either changes nothing (ACT72-054, v0.7.2 Phase 6).
 
 ### Add Files to the current Book
 `ACT.MP3.ADD-FILES`
@@ -32,7 +32,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Persistence:** The folder of the first chosen file is remembered as the next dialog's starting place (mp3_tool.input_dir).
 - **Intentional differences:** Unlike Import Folder this never regroups by parent folder and never replaces Books.
 - **What must hold:** Chosen MP3s go into the current Book only, in the order the dialog returned them, whatever their folders. A file already in the current Book is skipped and the Summary says how many were skipped. Adding to a Book that already has tracks never changes its typed or cleared values.
-- **Known gap:** No automated test adds a file that is already in the current Book through the panel to show it is skipped and counted in the log (Phase 6 cross-tool import/duplicate audit).
+- A file already in the current Book is skipped and counted in the log (ACT72-054, v0.7.2 Phase 6).
 
 ### Clear All Imports
 `ACT.MP3.CLEAR-IMPORTS`
@@ -210,7 +210,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Failure, cancel and retry:** A reservation or plan failure shows an 'MP3 Tool' error dialog and starts nothing; a retry reuses the original run folder.
 - **Persistence:** The output base is a shared setting; the run number is never persisted.
 - **What must hold:** Each operation reserves exactly one numbered run folder under <output base>/MP3-Tool-Outputs (MP3-Tool-N); building the panel creates nothing. A failed run keeps its folder for Retry Failed, and a later run never reuses that number. A run folder inside a source folder is refused. The output hint shows where runs land, eliding from the left so the run folder stays visible. If the run cannot be reserved or the plan is refused, the user sees the error and no empty run folder is left.
-- **Known gap:** No automated MP3 test makes the run reservation fail, or makes planning fail after reserving, to show the error dialog and that no empty run folder is left (Phase 6).
+- A run folder that cannot be made shows the message and starts nothing; a plan refused after reserving releases the empty folder and says why (ACT72-054, v0.7.2 Phase 6).
 
 ### Output folder and file names, collisions
 `ACT.MP3.OUTPUT-NAMING`
@@ -280,7 +280,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Intentional differences:** Like the M4B Maker (and the M4B Converter's own runner), Cancel stops a running FFmpeg step; Pause never does.
 - **What must hold:** Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (an unrelated FFmpeg, even one this program started, is untouched), and otherwise stops the run at its next checkpoint (between tracks, stages or Books); no later FFmpeg step and no later Book starts. Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published. Retry Failed is not offered after a cancelled run. (ACT72-023, fixed in v0.7.2 Phase 6C.)
 - **Known gap:** No native (real-window) cancel journey for this tool; Cancel during a running encode is proved on real media through the panel's own worker with real threads.
-- **Known gap:** New (Phase 6): a cancelled run also leaves its .work folder behind, and a cancelled run never offers Retry Failed, so nothing can reuse it.
+- A cancelled run keeps no .work folder: nothing can retry it, so its staging goes when it ends (ACT72-037, fixed in v0.7.2 Phase 6).
 
 ### Retry Failed
 `ACT.MP3.RETRY`
@@ -315,7 +315,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Failure, cancel and retry:** The fix is to re-run the setup launcher; Retry Failed does not apply to this failure.
 - **Persistence:** None.
 - **What must hold:** Only a proved, pinned FFmpeg/ffprobe pair counts as available; a merely discovered one does not. Without it the panel shows 'WARNING: ffmpeg/ffprobe not found. Run the setup launcher to install it.' A run without it fails each Book with an item-less, non-retryable failure and publishes nothing.
-- **Known gap:** No automated test opens the panel without a proved FFmpeg to check the warning, or runs an operation without one to check every Book fails cleanly and nothing is published (Phase 6).
+- Without a proved FFmpeg the panel opens with the warning, and Write ID3 Tags or Combine fails every Book, offers no Retry Failed and publishes nothing (ACT72-054, v0.7.2 Phase 6).
 
 ### Panel layout, density and appearance
 `ACT.MP3.LAYOUT`

@@ -91,3 +91,38 @@ def unreadable(context: Context) -> None:
     report.check("Retry Failed is offered", not session.widget(TOOL, "jobs.controls.buttons[RETRY_FAILED]").get("disabled"))
     context.require_unchanged(before)
     expect_clean_close(context, session)
+
+
+@scenario("maker.wheel-over-a-long-book", tool="m4b-maker", layers=("native",), tier="journey",
+          summary="Twenty tracks added through the real dialog; the real mouse wheel turned over the Chapter Titles box scrolls it down "
+                  "and back, and nothing is built")
+def wheel(context: Context) -> None:
+    report = context.report
+    source = context.fixtures.path("track-1")
+    folder = context.work / "in" / "long-book"
+    folder.mkdir(parents=True)
+    paths = []
+    # Short names: the native file-name box takes about 260 characters of quoted names (thirty longer ones did not fit).
+    for index in range(20):
+        copy = folder / f"t{index + 1:02d}.mp3"
+        copy.write_bytes(source.read_bytes())
+        paths.append(copy)
+    session = context.app(last_tool=TOOL)
+    open_tool(session, TOOL)
+    session.click(TOOL, "btn_add_files")
+    session.file_dialog(paths, title="Select MP3 files")
+    wait_for_listbox(session, TOOL, "track_list", 20)
+    session.settle()
+    start = session.widget(TOOL, "chapter_text")
+    report.equal("the box starts at its first line", start.get("top_line"), 1)
+    report.check("more titles than the box shows", not start.get("newest_line_shown"), start.get("top_text"))
+    session.wheel(TOOL, "chapter_text", -3)
+    session.settle()
+    down = session.widget(TOOL, "chapter_text")
+    report.check("three notches down moved the box down", down.get("top_line", 1) > 1, {"top_line": down.get("top_line")})
+    session.screenshot("scrolled")
+    session.wheel(TOOL, "chapter_text", 3)
+    session.settle()
+    report.equal("three notches up brought it back", session.widget(TOOL, "chapter_text").get("top_line"), 1)
+    report.equal("turning the wheel built nothing", (context.output_base / "M4B-Maker-Outputs").exists(), False)
+    expect_clean_close(context, session)

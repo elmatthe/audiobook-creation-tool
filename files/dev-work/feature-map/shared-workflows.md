@@ -37,7 +37,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Every tool's core controls are meant to fit from 920x600 to maximized, Light and Dark, without core scrolling.
 - The process is not DPI-aware, so at 125%/150% Windows scales the same 96-DPI layout.
 - Persistence: none, on purpose.
-- Gaps: no test closes a resized window and checks it reopens at 1024x720. Display scaling above 100% and the screenshot baselines are owner checks.
+- A window resized by the window manager and closed reopens at 1024x720, and no size or position is saved (ACT72-056, v0.7.2 Phase 6). Display scaling above 100% and the screenshot baselines are owner checks.
 
 ### A tool that fails to load shows an error panel
 `ACT.LAUNCHER.LOAD-ERROR`
@@ -60,14 +60,14 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Before any panel exists: hidden-console guard installed, model cache pointed into `files/runtime-data/models/huggingface`, crash diagnostics armed, pydub pointed at the proven FFmpeg.
 - After the window exists, each once: configuration warnings, the result of the last downloaded-data cleanup, and a one-line start-up notice in the status bar (never a dialog). A failure in any of these is logged and the launch continues.
 - Starting the app creates no output folder. A Python without Tk prints install advice and exits.
-- Gap: the launcher's own copy of the model-cache redirect has no test.
+- Started directly, the launcher points HF_HOME into the project before any window exists, overriding a user-wide value; an explicit hub cache is left as it is (ACT72-056, v0.7.2 Phase 6).
 
 ### Close the app while a tool is working
 `ACT.SHARED.CLOSE-DURING-WORK`
 
 - Alt+F4 or the close button at any time: the process ends with status 0, no window remains, no child process the app started remains, and Tcl does not crash.
 - Each panel cancels its own run on close; after the main loop ends the launcher terminates only `ffmpeg.exe`/`ffprobe.exe` processes it started itself. Repair and cleanup helpers are deliberately left running.
-- Closing during a folder import cancels and joins the scan and adds nothing.
+- Closing during a folder import cancels and joins the scan and adds nothing; Alt+F4 pressed natively while a Cover Image folder scan is still walking ends the process with status 0 within seconds (ACT72-056, v0.7.2 Phase 6; the journey paces the scan so the close lands mid-walk).
 - The launcher holds its Tk root for the life of the process so it is never freed on a worker thread.
 - After the main loop ends the launcher finishes the closed window's Tk variables, images and fonts on the main thread, so a collection on a worker afterwards makes no Tk call and waits for nothing (ACT72-017, fixed in v0.7.2 Phase 6; the TTS and Cover forced-shutdown paths took about 23 s and 17 s before). The forced-landing scenarios check both. Closing during an import has no native journey yet.
 
@@ -226,7 +226,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 `ACT.SHARED.SCROLLING`
 
 - The wheel scrolls whichever region is under the pointer, including over its child controls. Leaving, switching tools or closing releases it; a stale region never steals it.
-- Gap: ownership is tested, but no test checks that a wheel event actually moves the hovered region.
+- A wheel turned over the region or a control inside it moves the region both ways, and once the pointer has left it moves nothing; the real wheel is turned over the Maker's Chapter Titles box natively (ACT72-056, v0.7.2 Phase 6).
 
 ### Preferences & Data window
 `ACT.SHARED.PREFERENCES`
@@ -328,7 +328,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Purpose:** declining setup is an ordinary outcome, not a reported failure.
 - **How to reach it:** Cancel on the intro screen, the window's close control, or "Stop setup?" when the window is closed during the base install or while the optional voices are being checked or installed.
 - **States and outputs:** not started exits with code 2, and the launcher prints "Setup cancelled. Nothing was installed." and closes without pausing. A run that failed or was closed part-way exits 1, and the launcher keeps its window open with the log location. Success exits 0. A cancelled run never writes the "packages installed" stamp. The base-install progress view has no Cancel button.
-- **Stop setup?** (v0.7.2 Phase 6): answering **No** keeps whatever is running going and launches nothing (ACT72-038). Closing during the base install asks the same question; **Yes** ends the running pip and everything it started, starts no later step, and closes the window once setup's worker has reported; the exit is 1 and the log says to run Setup_and_Run again to finish (ACT72-039).
+- **Stop setup?** (v0.7.2 Phase 6): answering **No** keeps whatever is running going and launches nothing (ACT72-038). Closing during the base install asks the same question; **Yes** ends the running pip and everything it started, starts no later step, and closes the window once setup's worker has reported; the exit is 1 and the log says setup finishes the next time the app is started with Setup_and_Run (ACT72-039).
 - **Differences:** the TTS tool's Install & Continue window cancels on close without asking.
 
 ### App-local Python (stage 0)

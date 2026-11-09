@@ -143,7 +143,8 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import ffmpeg_watch, publication, work_area, worker_limits
+from tts import ffmpeg_watch, publication, worker_limits
+from shared import work_area
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -1431,7 +1432,9 @@ class TtsPanel(ttk.Frame):
         self.run_options = ttk.Frame(run, style=st("surface"))
         self.run_options.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
         self.chk_resume = ttk.Checkbutton(
-            self.run_options, text="Resume (skip existing MP3s)",
+            # ACT72-046 (v0.7.2 Phase 6): "Resume" promised to continue an earlier run, which a new run never does: each
+            # first attempt starts in a newly reserved folder. The behaviour is unchanged; the words say what it is.
+            self.run_options, text="Skip MP3s already in this run",
             variable=self.resume_var, style=st("checkbutton"))
         self.chk_overwrite = ttk.Checkbutton(
             self.run_options, text="Overwrite existing outputs without asking",

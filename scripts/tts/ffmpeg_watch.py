@@ -17,7 +17,7 @@ unchanged, and no call site can be missed. pydub is pinned, and ``test_low_memor
 A failed ``export`` leaves pydub's two temporary files behind, the first holding the whole narration as a WAV, and nothing else knows
 their names. So its ``NamedTemporaryFile`` is replaced as well: inside a :func:`controlled` block they are remembered, and the block's
 end removes any still there (:func:`remove_temporaries`, which a fallback calls sooner, because it needs that disk space). They are
-made in the block's own folder of the TTS work area (v0.7.2, :mod:`tts.work_area`), made at the first one and removed after them,
+made in the block's own folder of the TTS work area (v0.7.2, :mod:`shared.work_area`), made at the first one and removed after them,
 so a killed program's are recognised as its own and removed by a later run; before, they lay loose in the temp folder for good.
 
 **The deadlines.** Measured from the last progress: bytes read from FFmpeg, or growth of the file it is writing.
@@ -42,7 +42,7 @@ from typing import Callable, Iterator, Optional
 
 from shared import subprocess_utils
 from shared.cancellation import ConversionCancelled
-from tts import work_area
+from shared import work_area
 
 WATCH_SECONDS = 0.25
 #: No progress at all, nobody has cancelled. A virus scanner opening a 4 GB WAV can hold FFmpeg for a minute or two; a whole

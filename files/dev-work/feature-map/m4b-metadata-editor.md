@@ -20,7 +20,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - **Add Files** (dialog "Select M4B file(s)") appends one Book per new file, skips files already in the workspace and makes the last added Book current.
 - Each file's tags, series information, cover presence and chapter titles are read once; nothing is written. The log says how many Books were made and how many were skipped.
 - Both buttons are ignored during a scan and disabled while an action runs.
-- Known gap: nothing tests the "Replace the current Books?" answer, and no journey drives the real folder dialog (only Add Files' dialog is driven natively).
+- "Replace the current Books?" is asked only over Books that hold work; No keeps them all and opens no folder dialog (ACT72-053, v0.7.2 Phase 6). No journey drives the real folder dialog (only Add Files' dialog is driven natively).
 
 ### Import progress, Cancel Import and scan confirmations
 `ACT.METADATA.IMPORT-SCAN`
@@ -34,7 +34,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 
 - The file and folder dialogs reopen in the last folder used (`m4b_metadata.input_dir`); the artwork dialog in the last image folder (`m4b_metadata.cover_dir`). If that folder no longer exists, the home folder is used.
 - Nothing else is saved: not the imported files, edits, Auto-number options or the output folder.
-- Known gap: no test checks that a choice is saved and reused by the next dialog; the existing check only reads which keys the code writes.
+- A file, folder or image choice saves its folder and the next dialog opens there, or in the home folder once it is gone (ACT72-053, v0.7.2 Phase 6).
 
 ### Clear All Imports
 `ACT.METADATA.CLEAR-IMPORTS`
@@ -106,7 +106,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - Otherwise one numbered run folder is reserved and the whole action is frozen: what each Book will get, plus the Auto-number settings. Edits made after this never reach the run, including its Retry Failed.
 - A second action is refused while one runs. The work runs on one background thread that never touches the window.
 - If reserving the folder or planning fails, an error dialog appears and no empty folder is left.
-- Known gap: no test makes the reservation or the plan fail in this panel.
+- A run folder that cannot be made, or a plan refused after reserving, shows the message and starts nothing; the refused plan's empty folder is released (ACT72-053, v0.7.2 Phase 6).
 
 ### Save Tags and Clear All Tags (keep chapters)
 `ACT.METADATA.SAVE-AND-CLEAR`
@@ -133,7 +133,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - A file whose tags cannot be read (damaged or not MP4) still becomes a Book. Its read-back says "the file's tags could not be read: <error>"; it prefills nothing.
 - Actions skip it ("Skipped (unreadable)") and the other Books carry on; the file is never written.
 - If no imported file is readable, the action stops with "None of the imported files could be read, so there is nothing to write."
-- Known gap: nothing checks that this refusal also removes the run folder it reserved.
+- The refusal releases the run folder it reserved (ACT72-053, v0.7.2 Phase 6).
 
 ### Output: copies in a numbered run folder
 `ACT.METADATA.OUTPUT`
@@ -200,7 +200,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - One Summary | Detailed log at the bottom. Each action (and each Retry Failed attempt) starts with a divider naming it and the run folder; history is kept across runs and across Clear All Imports (up to 400 lines per pane).
 - Detailed lists each Book's steps in order; Summary marks each published file with ✓.
 - Clear Log clears the visible text only and is never locked.
-- Known gaps: no test presses Clear Log in this panel or checks a second run's divider (ACT72-053, Phase 6); the panes follow, hold and resume as the shared log view does.
+- Each action starts under its own divider, after the previous action's lines; Clear Log clears the view only (ACT72-053, v0.7.2 Phase 6). The panes follow, hold and resume as the shared log view does.
 
 ### Layout and keyboard
 `ACT.METADATA.LAYOUT`

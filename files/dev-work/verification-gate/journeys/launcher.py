@@ -40,7 +40,8 @@ def six_tools(context: Context) -> None:
 
 
 @scenario("launcher.settings-survive-relaunch", tool="launcher", layers=("native",), tier="journey",
-          summary="Tool choice and appearance set by real clicks, the window closed, the app relaunched: both restored from the isolated settings file only")
+          summary="Tool choice and appearance set by real clicks, the window resized by the window manager and closed, the app relaunched: "
+                  "tool and appearance restored from the isolated settings file only, the size never carried over")
 def settings(context: Context) -> None:
     report = context.report
     first = context.app(name="first")
@@ -51,6 +52,9 @@ def settings(context: Context) -> None:
     after = first.widget(None, "appearance_button").get("text")
     report.check("the appearance button changed", before != after, f"{before!r} -> {after!r}")
     first.screenshot("changed")
+    # v0.7.2 Phase 6, ACT72-056: a size the person chose is deliberately not remembered.
+    native.resize_client(first.hwnd, 1400, 900)
+    wait_until(lambda: tuple(native.client_size(first.hwnd)) == (1400, 900), 8, "the first window to reach 1400x900")
     expect_clean_close(context, first, label="first close")
     saved = json.loads((first.work / "runtime" / "settings.json").read_text(encoding="utf-8"))
     report.equal("the tool was written to the isolated settings", saved.get("last_tool"), "cover")
@@ -60,6 +64,9 @@ def settings(context: Context) -> None:
     wait_until(lambda: second.widget(None, "appearance_button").get("text"), 10, "the appearance button")
     report.equal("the tool is restored", second.read(None, "current_key"), "cover")
     report.equal("the appearance is restored", second.widget(None, "appearance_button").get("text"), after)
+    report.equal("the window opens at the default size, not the size it was closed at", list(native.client_size(second.hwnd)), [1024, 720])
+    report.check("no window size or position was saved", not [key for key in saved if any(word in key.lower() for word in ("geometry", "size", "position", "window"))],
+                 sorted(saved))
     second.screenshot("relaunched")
     expect_clean_close(context, second, label="second close")
 

@@ -112,7 +112,7 @@ def _ensure_pdf_txt_has_chapter_heading(work_txt: str) -> None:
 #: v0.7.1: every conversion gets its own private folder and hands it to the engine as ``workdir``; nothing here changes
 #: the process-wide current folder. Until v0.7.1 this function ``os.chdir``'d into that folder (the engine wrote bare
 #: relative scratch names) and a process-wide lock had to serialize every direct Edge conversion, so several directly
-#: added files never truly converted at once. v0.7.2: that folder is an entry of the TTS work area (``tts.work_area``),
+#: added files never truly converted at once. v0.7.2: that folder is an entry of the TTS work area (``shared.work_area``),
 #: listed with its owner before it exists, so what a killed program left is recognised and removed by a later run.
 
 
@@ -171,7 +171,7 @@ def run_conversion_job(
 def _convert(sourcefile, *, output_dir, speaker, audio_format, mp3_bitrate, cover, paragraphpause, sentencepause,
              title_trailing_pause, chapter_trailing_pause, end_of_book_pause, trim_tts_padding, trim_silence_db, overwrite,
              cancel_check, progress_callback, speech_prep) -> str:
-    from tts import work_area
+    from shared import work_area
 
     sourcefile = os.path.abspath(sourcefile)
     if not os.path.isfile(sourcefile):

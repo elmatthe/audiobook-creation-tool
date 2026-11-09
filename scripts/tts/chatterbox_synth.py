@@ -71,7 +71,7 @@ from pydub import AudioSegment
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts import model_assets
-from tts import work_area
+from shared import work_area
 from tts.speech.document import read_source_text
 from tts.voice_registry import REFERENCE_DIRECTORY, label_for, reference_recording_filename
 from tts.speech.pipeline import prepare

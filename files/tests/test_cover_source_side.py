@@ -506,11 +506,41 @@ def test_focus_is_set_on_cancel_and_never_on_the_destructive_button():
     assert focused == {"btn_cancel"}, focused
 
 
+def _focus_and_press_return(root, win, button) -> None:
+    """A real Return key event delivered to the focused button of a mapped dialog (no handler is called directly).
+
+    Tk sends a key to the window that holds focus, and a dialog over the suite's withdrawn root is never viewable, so the
+    root is shown for the moment of the key press and withdrawn again, as test_ui_theme's mapped_root does."""
+    root.deiconify()
+    try:
+        root.update()
+        win.deiconify()
+        win.update()
+        button.focus_force()
+        win.update()
+        assert str(win.focus_get()) == str(button), "the key must reach the button that holds the keyboard"
+        button.event_generate("<Return>")
+        root.update()
+    finally:
+        root.withdraw()
+        root.update_idletasks()
+
+
 def test_enter_on_the_focused_default_cannot_start_a_replacement(fresh_root):
-    """Return activates whatever holds focus, and that is Cancel — not Replace."""
+    """Return presses what holds the keyboard, and that is Cancel: the dialog closes and nothing is replaced.
+
+    v0.7.2 Phase 6 (ACT72-060): this used to call Cancel's handler ("what Return would do"). Tk gives a ttk button no
+    Return binding, so in the running app Enter did nothing; a key event is what is sent now, and the window must go."""
     win = open_dialog(fresh_root, 2)
-    win.default_widget.invoke()           # what Return would do
+    _focus_and_press_return(fresh_root, win, win.btn_cancel)
     assert win.result["ok"] is False
+    assert not win.winfo_exists(), "Enter answered the dialog"
+
+
+def test_enter_presses_replace_only_once_the_person_has_moved_to_it(fresh_root):
+    win = open_dialog(fresh_root, 1)
+    _focus_and_press_return(fresh_root, win, win.btn_confirm)
+    assert win.result["ok"] is True and not win.winfo_exists()
 
 
 def test_the_message_states_the_irreversible_and_partial_batch_facts(fresh_root):

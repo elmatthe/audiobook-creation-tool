@@ -41,7 +41,8 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
 
 from shared import ffmpeg_utils, output_paths
 from shared.cancellation import ConversionCancelled
-from tts import audio_tail, edge_failures, ffmpeg_watch, output_names, publication, work_area, worker_limits
+from tts import audio_tail, edge_failures, ffmpeg_watch, output_names, publication, worker_limits
+from shared import work_area
 from tts.edge_requests import await_unless_cancelled, run_request, wait_unless_cancelled
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text

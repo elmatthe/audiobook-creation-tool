@@ -25,7 +25,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - Behaviour: the chosen folder is scanned for MP3s; every directory that directly contains MP3s becomes one Book, tracks in natural order (1, 2, 10). Separate folders are never merged. The new Books replace the whole workspace; if any Book already has tracks or settings, "Replace the current Books?" is asked first. Imported Books start with empty fields: the Maker reads no tags from the sources. An empty scan leaves one empty Book. The log reports how many MP3s in how many Books, plus any problems found.
 - Confirmations and cancel: scanning a whole drive or the home folder asks first; a very large result asks before importing. Cancel Import stops a running scan.
 - Persistence: the folder is remembered as `m4b_maker.input_dir` and the dialog opens there next time.
-- Known gaps: the replace confirmation, Cancel Import, the broad-folder and large-result questions and the remembered folder have no Maker test, and no native journey imports a folder in the Maker (Phase 6).
+- "Replace the current Books?" is asked only when a Book holds work, and No keeps every Book and opens no folder dialog; Cancel Import ends a scan with the workspace as it was; the broad-folder and large-result questions are in the Maker's own words; the folder is remembered, with the home fallback (ACT72-052, v0.7.2 Phase 6). No native journey imports a folder in the Maker.
 
 ### Add Files to the current Book
 `ACT.MAKER.ADD-FILES`
@@ -35,7 +35,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - Behaviour: the chosen files are sorted naturally by name and appended after the Book's existing tracks; they are never regrouped by folder and the Book's fields do not change. Files already in this Book are skipped, and the log says how many were added and skipped.
 - States: refused while a folder scan runs; disabled while a build runs.
 - Persistence: the folder of the first chosen file is remembered as `m4b_maker.input_dir`.
-- Known gap: the "already in this Book" skip has no test (Phase 6).
+- A file already in the Book is skipped, and the log says how many were (ACT72-052, v0.7.2 Phase 6).
 
 ### Track order and removal
 `ACT.MAKER.TRACKS`
@@ -67,7 +67,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - Input: seconds as text, in Shared or per Book. Blank means 0. Negative, NaN, infinite or non-numeric text is refused.
 - Behaviour: a positive value makes that Book use the Safe path and inserts one silent gap between adjacent tracks, never after the last. The gap belongs to the end of the chapter before it; the next chapter starts exactly at its own track.
 - Failure: Build stops with "Silence for Book N: …" before any run folder is reserved.
-- Known gap: no test presses Build with a bad Silence in the panel, so that message and the "nothing reserved" promise are unchecked (Phase 6).
+- A bad Book or Shared Silence (a word, a negative, nan) is refused with "Silence for Book N", before any run folder is reserved or any worker starts (ACT72-032, ACT72-052, v0.7.2 Phase 6).
 
 ### Series Name and Series Part numbering
 `ACT.MAKER.SERIES`
@@ -169,7 +169,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - "Status:" in the Book-only row reads Ready, Queued, Processing, Completed, Failed, Skipped or Not attempted for the current Book, always read from the run. During Retry Failed, Books not being retried show their earlier result.
 - The shared progress area shows progress, stage, ETA and a line naming the Book being built as "name.m4b (i of n)". At the end Summary gets one line with completed, failed, skipped and not-attempted counts and the destination.
 - The worker never touches the window; its events reach the panel through a queue, and events from another run are rejected.
-- Known gap: the Queued, Processing and Skipped statuses, the "(i of n)" line and the end-of-run counts line have no test (Phase 6).
+- While a run works each Book reads Queued, then Processing, then its result; an empty Book reads Skipped; the stage line names the Book being built as "name.m4b (i of n)"; the run ends with one counts line (ACT72-052, v0.7.2 Phase 6).
 
 ### Pause and Resume
 `ACT.MAKER.PAUSE`
@@ -209,7 +209,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 `ACT.MAKER.ACTIVITY-LOG`
 
 - The Activity section has Summary and Detailed tabs, the note "Summary: progress and results. Detailed: every step." and Clear Log. Earlier runs' lines are kept (up to 400 per pane), with a divider for each run, retry and Clear All Imports. Clear Log clears the visible text only and never interferes with a running build.
-- Known gaps: no Maker test presses Clear Log or checks the per-run divider (Phase 6). The panes follow, hold and resume as the shared log view does.
+- Each attempt starts under its own divider ("Build M4B(s) — run folder", "Retry Failed — attempt N"); Clear Log clears the view only, and the run and its outputs stay (ACT72-052, v0.7.2 Phase 6). The panes follow, hold and resume as the shared log view does.
 
 ### Panel layout, density and appearance
 `ACT.MAKER.LAYOUT`

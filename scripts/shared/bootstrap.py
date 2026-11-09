@@ -2386,8 +2386,8 @@ _PIP_LOCK = threading.Lock()
 _RUNNING_PIP: Optional[subprocess.Popen] = None
 #: What :func:`_pip` returns when setup was stopped (pip ended by the stop, or never started after it).
 PIP_STOPPED = -2
-SETUP_STOPPED_MESSAGE = ("Setup was stopped before it finished. Nothing already installed was removed; double-click "
-                         "Setup_and_Run again to finish it.")
+SETUP_STOPPED_MESSAGE = ("Setup was stopped before it finished. Nothing already installed was removed; setup finishes "
+                         "the next time you start the app with Setup_and_Run.")
 
 
 def request_setup_stop() -> bool:
@@ -3320,8 +3320,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
             return
         if not messagebox.askyesno(
                 "Stop setup?",
-                "Stop setting up the app? It cannot be used until setup has finished; double-click "
-                "Setup_and_Run again later to finish it. Anything already installed is kept."):
+                "Stop setting up the app? It cannot be used until setup has finished, which happens the next "
+                "time you start it with Setup_and_Run. Anything already installed is kept."):
             return
         state["stopping"] = True
         step_var.set("Stopping setup…")

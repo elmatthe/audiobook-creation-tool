@@ -1528,10 +1528,12 @@ def test_a_retry_is_never_skipped_by_its_own_partial_artifact(
 
 
 def test_resume_is_not_redefined_for_the_user(make_panel):
+    """The behaviour is unchanged and still on by default; since v0.7.2 (ACT72-046) its words no longer promise to resume
+    an earlier run, which a new run, in its own new folder, never does."""
     panel = make_panel()
     assert panel.resume_var.get() is True
-    source = PANEL_SOURCE.read_text(encoding="utf-8")
-    assert "Resume (skip existing MP3s)" in source
+    assert panel.chk_resume.cget("text") == "Skip MP3s already in this run"
+    assert "Resume (skip existing MP3s)" not in PANEL_SOURCE.read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #

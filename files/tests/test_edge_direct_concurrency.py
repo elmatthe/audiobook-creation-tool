@@ -25,7 +25,7 @@ from pydub.generators import Sine
 
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
-from tts import work_area
+from shared import work_area
 from tts.epub2tts_edge import epub2tts_edge as engine
 from tts.epub2tts_edge import runner
 

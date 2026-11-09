@@ -15,6 +15,7 @@ What the Audiobook Creation Tool does, tool by tool, written for the owner and f
 | `m4b-maker.md` | M4B Maker: Books, ordering, chapters, metadata, artwork, Build M4B(s), naming and destinations |
 | `m4b-metadata-editor.md` | M4B Metadata Editor: Save Tags, Clear All Tags (keep chapters), Remove Series Numbering, chapter titles, artwork |
 | `cover-image.md` | Cover Image: browsing, size, crop or letterbox, numbered copies or replacement, corrupt inputs |
+| `consistency-matrix.md` | The six tools side by side where a person expects them to behave alike, and the differences left for the owner (v0.7.2 Phase 6) |
 | `shared-workflows.md` | The launcher, the shared job, log, import, Book and output machinery, settings, appearance, Preferences, and installation, launch, repair and optional assets |
 
 ## How the inventory is kept honest

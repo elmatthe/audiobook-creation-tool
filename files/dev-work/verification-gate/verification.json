@@ -246,7 +246,10 @@
       "shutdown.metadata-close-during-work",
       "shutdown.metadata-close-forced-landing",
       "shutdown.cover-close-during-work",
-      "shutdown.cover-close-forced-landing"
+      "shutdown.cover-close-forced-landing",
+      "cover.replace-confirmation",
+      "shutdown.close-during-folder-scan",
+      "maker.wheel-over-a-long-book"
     ],
     "optional_scenarios": [
       "tts.kokoro-local"
@@ -270,6 +273,7 @@
       "scripts/m4b/maker/": [
         "maker.build-with-chapters-and-artwork",
         "maker.unreadable-track",
+        "maker.wheel-over-a-long-book",
         "shutdown.maker-close-during-work",
         "shutdown.maker-close-forced-landing"
       ],
@@ -284,6 +288,8 @@
         "cover.center-crop",
         "cover.corrupt-image",
         "cover.letterbox-numbered-run",
+        "cover.replace-confirmation",
+        "shutdown.close-during-folder-scan",
         "shutdown.cover-close-during-work",
         "shutdown.cover-close-forced-landing"
       ],

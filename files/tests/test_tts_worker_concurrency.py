@@ -776,7 +776,7 @@ def test_a_run_removes_what_a_killed_run_left_in_the_temp_folder_and_nothing_els
     import json
     import tempfile
 
-    from tts import work_area
+    from shared import work_area
 
     FakeService().install(monkeypatch)
     temp = tmp_path / "temp"

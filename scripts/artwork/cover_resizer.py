@@ -317,6 +317,16 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
 
     win.protocol("WM_DELETE_WINDOW", cancel)
     win.bind("<Escape>", cancel)
+
+    def press_focused(_event=None):
+        # Return presses the button that holds the keyboard, as on any Windows dialog: Cancel unless the person moved to
+        # Replace. Tk gives a ttk button Space but no Return, so before v0.7.2 (ACT72-060) Enter here did nothing at all.
+        focused = win.focus_get()
+        (btn_confirm if focused is not None and str(focused) == str(btn_confirm) else btn_cancel).invoke()
+        return "break"
+
+    win.bind("<Return>", press_focused)
+    win.bind("<KP_Enter>", press_focused)
     win.cancel = cancel
     # Cancel is the initial focus, so Return activates the safe answer. Recorded
     # explicitly as well: Tk defers focus on an unmapped window, so the intent
@@ -2499,12 +2509,16 @@ class CoverResizerUI(ttk.Frame):
         if mode == MODE_STANDARD:
             # Only the standard route reserves a run; an exception-mode
             # operation must not leave an unused numbered folder behind.
+            reservation = None
             try:
                 reservation = output_paths.reserve_run_directory(TOOL_KEY)
                 destinations = plan_destinations(
                     snapshot.files, reservation.run_directory,
                     planner=reservation.planner())
             except output_paths.OutputPathError as exc:
+                # A plan refused after reserving gives the empty run folder back, as every other tool does (v0.7.2, ACT72-061).
+                if reservation is not None:
+                    output_paths.release_if_empty(reservation)
                 messagebox.showerror("Output folder", exc.message)
                 return
             self.var_outdir.set(str(reservation.run_directory))

@@ -2,8 +2,8 @@
 
 Until v0.7.2 a conversion's ``epub2tts_*``, ``tts_direct_*`` and ``tts_local_*`` folders, pydub's temporaries and the local
 engines' encode WAV lay loose in the system temp folder. A killed program left them there, and nothing could tell whose they
-were. :mod:`tts.work_area` makes each conversion's folders entries of one process's workspace, listed in a manifest that names
-the owner by process id and creation time, and :func:`tts.work_area.recover` removes a workspace only when that manifest is
+were. :mod:`shared.work_area` makes each conversion's folders entries of one process's workspace, listed in a manifest that names
+the owner by process id and creation time, and :func:`shared.work_area.recover` removes a workspace only when that manifest is
 intact and its owner provably gone.
 
 Every fixture lives under ``tmp_path``, which each test makes the temp folder. Killed and live owners are real child processes
@@ -29,7 +29,8 @@ import pytest
 
 from shared.cancellation import ConversionCancelled
 from tts import epub2tts_gui as panel_module  # module top: test_epub_retirement leaves fresh copies in sys.modules
-from tts import ffmpeg_watch, work_area
+from tts import ffmpeg_watch
+from shared import work_area
 from tts.epub2tts_edge import runner
 
 WINDOWS = os.name == "nt"
@@ -45,7 +46,7 @@ import json, os, sys
 from pathlib import Path
 def identify(barrier, scripts):
     sys.path.insert(0, scripts)
-    from tts import work_area
+    from shared import work_area
     staged = Path(barrier + ".new")
     staged.write_text(json.dumps({"pid": os.getpid(), "created": work_area._own_creation_time()}), encoding="utf-8")
     os.replace(staged, barrier)
@@ -57,7 +58,8 @@ import tempfile, time
 temp, barrier, scripts = sys.argv[1:4]
 tempfile.tempdir = temp
 sys.path.insert(0, scripts)
-from tts import ffmpeg_watch, work_area
+from tts import ffmpeg_watch
+from shared import work_area
 with ffmpeg_watch.controlled(None):
     with work_area.conversion_folder("edge") as folder:
         (folder / "part0.flac").write_bytes(b"F" * 4096)

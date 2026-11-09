@@ -36,7 +36,7 @@ from tkinter import messagebox, ttk  # noqa: E402  (run_with_gui imports this mo
 from shared import bootstrap  # noqa: E402
 from shared import optional_setup_panel  # noqa: E402
 from shared import optional_setup_protocol as proto  # noqa: E402
-from tts import work_area  # noqa: E402
+from shared import work_area  # noqa: E402
 
 from test_setup_log_follow import (  # noqa: E402,F401  (fixtures are collected by name)
     WAIT,
@@ -58,8 +58,8 @@ import json, os, subprocess, sys, time
 from pathlib import Path
 barrier, scripts = sys.argv[1], sys.argv[2]
 sys.path.insert(0, scripts)
-from tts import work_area
-GRANDCHILD = ("import json, os, sys, time; sys.path.insert(0, sys.argv[2]); from tts import work_area; "
+from shared import work_area
+GRANDCHILD = ("import json, os, sys, time; sys.path.insert(0, sys.argv[2]); from shared import work_area; "
               "from pathlib import Path; p = Path(sys.argv[1]); "
               "p.with_suffix('.new').write_text(json.dumps({'pid': os.getpid(), 'created': work_area._own_creation_time()})); "
               "os.replace(p.with_suffix('.new'), p); time.sleep(300)")

@@ -195,3 +195,31 @@ _register("mp3", "mp3-tool", _mp3, "MP3 Tool combining long tracks")
 _register("maker", "m4b-maker", _maker, "Maker building from long tracks")
 _register("metadata", "m4b-metadata-editor", _metadata, "Metadata Editor saving a batch of Books")
 _register("cover", "cover-image", _cover, "Cover Image resizing a batch")
+
+
+#: Seconds the journey's own hook adds at each entry a folder scan checks for Cancel (``slow_scan_seconds``), so the close lands mid-walk.
+SCAN_PACE = 0.05
+
+
+# The launcher's: what is tested is the shared close during an import scan (ACT.SHARED.CLOSE-DURING-WORK); Cover Image is only where
+# the scan runs, and each tool keeps exactly its two shutdown arms.
+@scenario("shutdown.close-during-folder-scan", tool="launcher", layers=("native", "shutdown"), tier="shutdown",
+          summary="Add Folder through the real dialog, then Alt+F4 while the folder scan is still walking: exit status 0 within seconds, no "
+                  "window, no owned process, no Tcl crash, nothing imported or written")
+def close_during_scan(context: Context) -> None:
+    report = context.report
+    copies = _copies_of(context, "cover-landscape-jpeg", 300)
+    session = context.app(last_tool="cover", slow_scan_seconds=SCAN_PACE)
+    open_tool(session, "cover")
+    session.click("cover", "importer.list.buttons[add_folder]")
+    session.folder_dialog(copies[0].parent, title="Select a folder of cover images")
+    wait_until(lambda: session.read("cover", "_coordinator.is_active") is True, 15, "the folder scan to be walking")
+    wait_until(lambda: not session.widget("cover", "importer.status.button_cancel").get("disabled"), 15, "Cancel Import to be offered")
+    report.check("the scan is still walking at the moment of closing", session.read("cover", "_coordinator.is_active") is True)
+    report.equal("nothing has been imported yet", session.widget("cover", "browser.details").get("items", []), [])
+    session.screenshot("about-to-close")
+    facts = expect_clean_close(context, session)
+    report.check("the close did not wait for the scan to finish", facts["seconds"] < 300 * SCAN_PACE / 2, f"{facts['seconds']} s")
+    outputs = context.output_base / "Cover-Image-Outputs"
+    report.check("nothing was written", not outputs.exists() or not any(outputs.rglob("*.*")))
+    report.equal("the scanned folder is as it was", len(list(copies[0].parent.iterdir())), 300)

@@ -90,14 +90,15 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Failure:** a folder that cannot be made is reported in an "Output folder" message.
 - **Persistence:** only the shared output base.
 
-### Resume (skip existing MP3s)
+### Skip MP3s already in this run
 `ACT.TTS.RESUME`
 
-- **How to reach it:** Resume (skip existing MP3s) in Output & Run, ticked by default.
+- **How to reach it:** Skip MP3s already in this run, in Output & Run, ticked by default (labelled "Resume (skip existing MP3s)" until v0.7.2 Phase 6, ACT72-046).
 - **Behaviour:** on a first attempt a folder-imported file whose planned MP3 already exists is skipped. It never applies
   to directly added files or to Retry Failed.
-- **Known gap (new finding, phase 6):** each first attempt writes into a freshly reserved numbered folder, so in the app
-  Resume can never find an existing output; the box has no effect a person can see. It locks during a run (ACT72-014, fixed in v0.7.2 Phase 6).
+- Each first attempt writes into a newly reserved numbered folder, so in the app there is never an earlier output to skip,
+  and a new run never continues an earlier one (no cross-run resume, by the owner's decision). The words now say only that
+  (ACT72-046, v0.7.2 Phase 6); the command line's --resume is where skipping existing files matters. It locks during a run (ACT72-014, fixed in v0.7.2 Phase 6).
 
 ### Start a conversion run
 `ACT.TTS.RUN`

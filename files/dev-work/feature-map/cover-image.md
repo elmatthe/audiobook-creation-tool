@@ -78,7 +78,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **Behaviour:** every output is exactly size x size for the size in effect when Resize Covers was pressed; changing it during a run has no effect on that run.
 - **Failure:** the size as typed must be a whole number of pixels from 256 to 4096; anything else (0, negative, a fraction, an exponent, nan, inf, a word) shows "Bad size" naming that range. Nothing starts, nothing is resized and no run folder is reserved (ACT72-025, fixed in v0.7.2 Phase 6: a typed 0 became 1024 and any larger size reached the resizer).
 - **Persistence:** not saved; each panel starts at 1024.
-- **Known gap:** 0 silently becomes 1024, and typed values outside 256-4096 (very small or very large) are accepted with no upper bound. Only the negative case has a test. New finding, Phase 6.
+- The size is judged as typed when Resize Covers is pressed: 0 is refused rather than turned into 1024, and nothing outside 256-4096 reaches the resizer (ACT72-025, fixed in v0.7.2 Phase 6).
 
 ### Keep full image (letterbox)
 `ACT.COVER.LETTERBOX`
@@ -123,7 +123,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **How to reach it:** Resize Covers with Save beside source images off. The read-only Output field in 3. Output & Run shows where results go; the base folder is changed in Preferences & Data.
 - **Behaviour:** after validation, one new folder `<output base>/Cover-Image-Outputs/Cover-Image-N` is reserved and everything is written inside it. Individually added files land flat; one imported folder keeps its sub-folders; several imported folders each get their own container. Name clashes are resolved before the run starts (cover.jpg, cover-1.jpg). Once the run starts the Output field shows the run folder.
 - **Failure/retry:** if the run folder cannot be reserved, an "Output folder" error is shown and nothing starts. Retried images go to the paths planned for them originally and never overwrite an earlier success.
-- **Known gap:** no test drives the "Output folder" error path (Phase 6).
+- A run folder that cannot be made, and a destination plan refused after the folder was reserved, each show the "Output folder" message and start nothing; the refused plan also gives the empty folder back (ACT72-050, ACT72-061, fixed in v0.7.2 Phase 6).
 
 ### Create numbered copies beside the source
 `ACT.COVER.NUMBERED-COPIES`
@@ -147,9 +147,9 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 `ACT.COVER.REPLACE.CONFIRM`
 
 - **Purpose:** the last explicit check before originals are overwritten.
-- **Behaviour:** titled "Confirm replacement of original images", it states the exact count, that the change is permanent and cannot be undone, that each replacement goes through a temporary file, and that images already replaced stay replaced after a failure or cancel. The destructive button reads "Replace N Original Files" ("Replace 1 Original File"). Cancel is the default and has focus, so Enter cancels; Escape and closing the window also cancel. It is built new for every run and every retry, and no answer is remembered.
+- **Behaviour:** titled "Confirm replacement of original images", it states the exact count, that the change is permanent and cannot be undone, that each replacement goes through a temporary file, and that images already replaced stay replaced after a failure or cancel. The destructive button reads "Replace N Original Files" ("Replace 1 Original File"). Cancel is the default and has focus, so Enter cancels; Enter presses whichever button holds the keyboard, so it replaces only after the person has moved to Replace. Escape and closing the window also cancel. (Until v0.7.2 Phase 6 Enter did nothing at all: Tk gives a ttk button no Return key, ACT72-060.) It is built new for every run and every retry, and no answer is remembered.
 - **Declining:** creates no run, no temporary file and no output; the Detailed log says "Replacement cancelled. Nothing was changed."
-- **Known gap:** no native journey opens this modal dialog in the running app and answers it with real input; focus on Cancel is checked only from the source (Phase 6).
+- A native journey opens it in the running app with a real click and answers it with real Enter, Escape and Alt+F4, then a click on Replace; the originals change only after that click (ACT72-050, v0.7.2 Phase 6).
 
 ### Sources are never changed in the copy modes
 `ACT.COVER.SOURCE-PROTECTION`
@@ -227,7 +227,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 
 - **Saved:** the folder last used by Add Files (the first chosen file's folder) or Add Folder, under `cover_resizer.input_dir`; the next dialog opens there, or at the home folder if it no longer exists.
 - **Not saved:** target size, letterbox, Save beside source images, Replace original files, browser view, the imported list, run results. A rebuilt panel is always in standard mode.
-- **Known gap:** no test shows the folder being saved, reused, or falling back to home (Phase 6).
+- Add Files and Add Folder save the folder chosen; the next dialog opens there, or in the home folder once it is gone; a cancelled dialog saves nothing (ACT72-050, v0.7.2 Phase 6).
 
 ### Intentional differences from other tools
 
