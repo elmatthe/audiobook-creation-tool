@@ -18,7 +18,7 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 **Not changed.** The Editor's validation probes and `shared/metadata.py`'s chapter readers (short ffprobes; a Cancel during one is honoured at the next checkpoint), the command line's M4B step (ACT72-010), staging retention (ACT72-019, 031, 034, 037).
 
-**Verified.** Targeted only in this commit; the canonical changed-area gate result is recorded by the closeout (`scripts/shared/` is a `full_on` prefix, so it runs every test and journey). A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. Not accepted until the checkpoint review and the owner say so.
+**Verified.** The canonical changed-area gate PASSED on `0e35ee5` (`2026-11-08_213207_changed_b535`): 49 of 49 journeys passed, 13,849 + 457 + 75 tests passed and 65 were skipped with policy-named reasons, and the inventory is current. `scripts/shared/metadata.py` (a `full_on` path) widened it to every test and journey. A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. Not accepted until the checkpoint review and the owner say so.
 
 — Implemented by Claude Code under the owner's Phase 6D prompt.
 

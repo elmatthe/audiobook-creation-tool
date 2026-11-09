@@ -22,7 +22,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Tests that press Cancel and Pause during real chapter renames, at each of the rename's two FFmpeg steps and through the panel, and prove an unrelated FFmpeg survives and FFmpeg's real refusals stay retryable failures; each seen failing on a planted defect.
 
 **Verified**
-- Targeted tests and negative controls only in this commit; the changed-area gate result is recorded at closeout. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+- The canonical changed-area gate PASSED on `0e35ee5`: every scenario (49 of 49) and 14,446 tests, 65 of them skipped with named reasons. It ran every test because the change touches a module every tool shares. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
 
 ## [Unreleased] — v0.7.2 Phase 6C (2026-11-08)
 

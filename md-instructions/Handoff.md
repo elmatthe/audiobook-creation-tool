@@ -2,6 +2,27 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6D (closeout): the canonical changed-area gate PASSED on `0e35ee5`; the commit that adds this block changes canonical documents only; STOP for the ChatGPT checkpoint review; NOT accepted; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-08, Claude Code)
+
+Authority: the owner's Phase 6D prompt. This block supersedes the "Next exact action" bullet of the block below; that block's account of the slice stands.
+
+- **Starting, tested, final.** Started at `88451ec`. The candidate `0e35ee5` (code, tests, inventory and documents, pushed) is what this gate ran on. This documents-only commit follows it; under plan §13.3 the result carries forward. The inventory check and the test modules that read these documents were rerun on this commit.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-08_213207_changed_b535/` (ignored), label `ACT072-P6D-0e35ee5-changed`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode changed --platform windows --base 88451ec --label ACT072-P6D-0e35ee5-changed`.
+  - 91 min 32 s, exit 0, RESULT PASS, scope "changed selection only; NOT full acceptance". The tree was unchanged during the run.
+  - Selection: the gate's own rule widened the changed selection to every test and journey (`changed-conservative-full`) for one reason, "`scripts/shared/metadata.py`: shared by every tool, so every test is selected" (`scripts/shared/` is a `full_on` prefix of the policy); 27 changed paths (the owner's 14 deletions and the untracked `scripts/project-status.py` among them), 8 features touched. The remux step lives in that module, so the widening could not be avoided; no other broad run was made. It is still a changed run: it does not judge coverage satisfaction and it is not the full gate reserved for the end of Phase 6.
+  - Journeys: 49 of 49 PASS. Among them `metadata.save-tags-then-clear` (the native and media scenario of `ACT.METADATA.CHAPTER-TITLES`), `shutdown.metadata-close-during-work` and `shutdown.metadata-close-forced-landing`, and the gate's controls, `control.act-orphan-seen-without-the-stop` included.
+  - Tests, recounted from the raw JUnit: the ordinary suite 13,849 passed and 65 skipped (13,914; 6C's 13,835 plus the 14 new tests); guarded `v3-planning` 457 and `v3-supervisor` 75 passed; 0 failed and 0 errors, 14,446 in all. Every skip has a reason the policy names. The 3 warnings are Phase 4's (`audioop`, `pkg_resources`, one `record_property` notice).
+  - `coverage-inventory`: PASS. 273 features, 302 static and 247 live surfaces, every application source file reviewed as it is now.
+  - `coverage`: NOT APPLICABLE to a changed run. The run satisfied 262 of 262 required entries; only a full run judges satisfaction. `release_ready` stays false.
+  - `visual-baselines` NOT RUN: 0 approved; the 75 candidates still wait for the owner.
+  - Dialog history: the preflight child was born Low (`0x1000`), verdict contained. The values naming `act-gate` stood at 94 before and 94 after.
+  - Cleanup: no owned process remained after any stage. The run's own scratch `%TEMP%\act-gate\f627` is gone; `bfa7` was left alone; the 31 legacy `epub2tts_*` folders are untouched.
+- **Unchanged.** The issue counts (59 issues, 37 open; Phase 6: 31, of them 26 Minor and 5 Suggestion; Phase 7: 1; Phase 8: 5), the limits and the deliberately unchanged areas in the block below. The owner's 14 deletions and 4 untracked entries, `bfa7`, and the 31 legacy `epub2tts_*` folders in `%TEMP%` are untouched. The version is still 0.7.1.
+- **Recommended next bounded slice (the owner's to choose):** ACT72-010, the command line's M4B step (`tts/epub2tts_edge/epub2tts_edge.py`: `make_m4b` → `_run_ffmpeg`, a blocking FFmpeg run with no deadline or Cancel), the last step of this family; it can reuse `run_supervised`, but a command line has no `JobController`, so its interruption contract (Ctrl+C, an exit code, what is left on disk) needs deciding first. After it, the cancel-message Minors (ACT72-004, ACT72-027) or the staging-retention group (ACT72-019, 031, 034, 037).
+- **Next exact action.** The ChatGPT checkpoint review of Phase 6D (`88451ec` to this commit). No other Phase 6 slice before it. The one full Windows gate stays reserved for the completed Phase 6 milestone. No Codex review, merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 6D (ACT72-033, Cancel cannot interrupt a running chapter-title remux in the M4B Metadata Editor): implemented; the commit that adds this block is the candidate; its changed-area gate result is recorded by the closeout commit; STOP for the ChatGPT checkpoint review; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-08, Claude Code)
 
 Authority: the owner's Phase 6D prompt. This block supersedes the status line and the "Next exact action" bullet of the Phase 6C closeout block below; the account of Phase 6C stands.
