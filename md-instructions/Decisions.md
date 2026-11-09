@@ -4,6 +4,26 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-09 - The Edge command line's M4B steps run through Phase 6C's supervisor with a deadline from the book's playing time; Ctrl+C stops the running step and the command line exits 130 (v0.7.2 Phase 6E, ACT72-010)
+
+**Why.** ACT72-010: `epub2tts_edge.make_m4b`, reached only from the `epub2tts-edge --format m4b` command line, ran its two FFmpeg steps (the concat into FLAC-in-MP4, the AAC encode with the chapters) as blocking `subprocess_utils.run(check=True)` calls with no deadline. FFmpeg has its own hidden console, so Ctrl+C reached only Python, whose main thread waited uninterruptibly. Measured at `5a87ec3` with the real command line in a console of its own: Ctrl+C waited 28.6 s for a step slowed to a 30-second book's playing time, then ended with a traceback and `0xC000013A`; a suspended FFmpeg hung it for good.
+
+**Reuse, and one opt-in addition.** `_run_ffmpeg` calls `subprocess_utils.run_supervised` and keeps its own rule (a non-zero exit raises `CalledProcessError`). The supervisor gains `deadline_seconds`, keyword-only, default `None`; no other caller passes it (a test holds that), so the MP3 Tool, the Maker and the Metadata Editor are exactly as Phases 6C and 6D left them. At the deadline the child is stopped and reaped by the same terminate-then-kill ladder and `subprocess.TimeoutExpired` is raised, the standard library's own contract for a timed-out child, distinct from a failure (`CalledProcessError`) and a Cancel (`ConversionCancelled`); a Cancel seen at the same look wins.
+
+**How Ctrl+C reaches the step: recorded, not raised, while a step runs.** Raising `KeyboardInterrupt` in the supervisor's wait loop would also stop the child (its `finally`), but a second press during the stop could land between terminate and kill and leave a child that ignored terminate running; a negative control shows it. So `make_m4b` runs both steps inside `_ctrl_c_stops_the_step()`: on the main thread, with Python's own handler in place, SIGINT sets a flag; the steps run in a `cancellable` scope on that flag; the supervisor stops that very child within one look and starts no further step; on the way out the press is raised as the `KeyboardInterrupt` it was (also for a press after the last step, so nothing is published), and the handler is restored. A worker thread, or a program with its own SIGINT handling, is left alone. The rest of the command line still receives Ctrl+C as Python delivers it.
+
+**The command line's endings.** `main()` prints one line and exits 130 for an interruption (128 + SIGINT, what shells report; Python's own uncaught ending on Windows was a traceback and `0xC000013A`) and 124 for a step past its deadline (GNU `timeout`'s status); a failed step still raises with exit 1, as before; `--help` lists them. Unpublished work is removed by the established owner, the conversion's work folder; publication is untouched, so nothing unfinished can reach the output folder.
+
+**The deadline: the book's playing time plus ten minutes.** Measured on HOME-PC with the production arguments, the concat runs at about 2,600 times and the AAC encode at about 380 times the playing rate, linearly from 1 to 6 hours and the same on one CPU, so a working step would need a computer several hundred times slower to reach it, and a longer book gets a longer deadline. The playing time is read from the parts' headers (nothing decoded); an unreadable part counts from its size at 8 kbit/s, only ever longer. A progress-based limit, as `tts.ffmpeg_watch` uses for pydub, would end a stalled step sooner, but it needs a progress signal that these unchanged arguments do not promise (the output's growth or FFmpeg's statistics); the playing-time deadline needs only the headers. Ctrl+C remains the prompt way out.
+
+**Not changed.** The M4B arguments, chapters, text track, audio, cover (`add_cover` after assembly), FFMETADATA escaping, publication, overwrite and refusal rules, output names; the narration part of the command line; Ctrl+Break and closing the console window; `batch_convert`.
+
+**Verified.** Targeted only in this commit; the canonical changed-area gate result is recorded by the closeout (`scripts/shared/` is a `full_on` prefix, so it runs every test and journey). A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. Not accepted until the checkpoint review and the owner say so.
+
+— Implemented by Claude Code under the owner's Phase 6E prompt.
+
+---
+
 ## 2026-11-08 - The Metadata Editor's chapter-title remux runs through Phase 6C's supervisor; Cancel stops it, Pause still lets it finish (v0.7.2 Phase 6D, ACT72-033)
 
 **Why.** ACT72-033: both FFmpeg steps of the Editor's chapter-title remux (`shared/metadata._run_chapter_remux_step`) were a blocking `subprocess_utils.run`, so Cancel was seen only after the remux, its validation and the read-backs. Measured at `88451ec` with the Editor's own rebuild slowed to a 60-second Book's playing time: Cancel waited 58.6 s for FFmpeg to finish, and a Cancel latched between the two steps still started the 59.5 s rebuild.

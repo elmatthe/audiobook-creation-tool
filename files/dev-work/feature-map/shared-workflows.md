@@ -77,7 +77,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - The checkpoint every worker uses: nothing happens unless cancellation was requested, then `ConversionCancelled` unwinds the worker through its own cleanup.
 - Old workers written against `raise_if_cancelled` work unchanged with the run controller.
 - Import cancellation is a separate flag and never reaches a processing job.
-- Cancel is a request honoured at the next checkpoint; the checkpoint itself stops no operating-system process. A tool that runs FFmpeg stops a running step itself: the MP3 Tool and M4B Maker through `subprocess_utils.run_supervised` inside the worker's `cancellable` block, which watches the controller's non-blocking `cancel_check` (ACT72-023, v0.7.2 Phase 6C), the Metadata Editor's chapter-title remux through the same supervisor and block (ACT72-033, v0.7.2 Phase 6D), the M4B Converter through its own runner and TTS through its FFmpeg watchdog. The command line's M4B step (ACT72-010) cannot yet.
+- Cancel is a request honoured at the next checkpoint; the checkpoint itself stops no operating-system process. A tool that runs FFmpeg stops a running step itself: the MP3 Tool and M4B Maker through `subprocess_utils.run_supervised` inside the worker's `cancellable` block, which watches the controller's non-blocking `cancel_check` (ACT72-023, v0.7.2 Phase 6C), the Metadata Editor's chapter-title remux through the same supervisor and block (ACT72-033, v0.7.2 Phase 6D), the M4B Converter through its own runner and TTS through its FFmpeg watchdog. The Edge command line's M4B step has no controller: Ctrl+C stops its running FFmpeg step through the same supervisor, and each step has a deadline from the book's playing time (ACT72-010, v0.7.2 Phase 6E).
 
 ### Pause, Resume, Cancel and Retry Failed controls and the run state machine
 `ACT.SHARED.JOB-CONTROL`
@@ -284,7 +284,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - TTS does not remember its last import folder; the other five tools do.
 - Cover Image can write beside the sources and asks its own replace-the-originals question with Cancel as the default.
 - M4B Maker can deliver to a custom destination folder instead of the numbered run folder.
-- Each tool chooses which of its options lock during a run (see ACT72-014) and what Pause and Cancel can interrupt (see the tool sections; ACT72-010 remains open, ACT72-033 was fixed in v0.7.2 Phase 6D).
+- Each tool chooses which of its options lock during a run (see ACT72-014) and what Pause and Cancel can interrupt (see the tool sections; ACT72-033 was fixed in v0.7.2 Phase 6D, ACT72-010 in 6E).
 - The Windows shell is a dark rail with real buttons; macOS uses a Finder-style list and Linux the classic layout; on both of those, Open log folder is a text link rather than a button.
 
 ### Not verified here

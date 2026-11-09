@@ -2885,23 +2885,38 @@
             "add_cover",
             "_run_ffmpeg",
             "append_silence",
-            "trim_tts_chunk_file"
+            "trim_tts_chunk_file",
+            "m4b_step_deadline",
+            "_deadline_rule",
+            "_ctrl_c_stops_the_step"
           ]
         },
         {
           "path": "scripts/tts/epub2tts_edge/__init__.py",
           "symbols": []
+        },
+        {
+          "path": "scripts/shared/subprocess_utils.py",
+          "symbols": [
+            "run_supervised",
+            "_stop",
+            "_tail"
+          ]
         }
       ],
       "contracts": [
         "batch_convert --input <folder> converts every PDF/TXT below it to <stem>-<label>.mp3, mirroring subfolders, never overwriting an earlier output (it is numbered instead) unless --resume skips it.",
         "An unregistered --speaker needs --label and nothing is synthesised without one; workers are held to the same limits as the app.",
-        "epub2tts-edge <file> publishes through the same contract as the app and can also make an M4B with chapters and a cover; a failed FFmpeg step raises."
+        "epub2tts-edge <file> publishes through the same contract as the app and can also make an M4B with chapters and a cover; a failed FFmpeg step raises (exit status 1).",
+        "Ctrl+C during either FFmpeg step of --format m4b (the concat into FLAC-in-MP4, the AAC encode with the chapters) stops that step's own FFmpeg within a fraction of a second, through its own process handle (terminate, then kill after a 2 s grace; any other FFmpeg, even one this process started, is untouched), starts no further step and publishes nothing; a Ctrl+C between or after the steps publishes nothing either; further presses while the step is being stopped cannot cut the stopping short; the command line prints one line and exits 130",
+        "Each of those two steps has a deadline: the book's playing time, read from its parts' headers, plus ten minutes. A step still running then is stopped and reaped the same way, nothing is published and the command line exits 124; a longer book's steps get a longer deadline, so a working step is never cut short",
+        "However a run ends early (Ctrl+C, the deadline, a failed step), what the output folder already held, a file under the run's own name with --overwrite included, and the sources are unchanged, and the run's work folder (the .m4a and any half-written .m4b) is removed"
       ],
       "selection": [
         "files/tests/test_batch_convert_folders.py",
         "files/tests/test_edge_publication.py",
-        "files/tests/test_edge_make_m4b_chapters.py"
+        "files/tests/test_edge_make_m4b_chapters.py",
+        "files/tests/test_edge_cli_m4b_interrupt.py"
       ],
       "journeys": [],
       "verification": {
@@ -2927,10 +2942,84 @@
             "test": "files/tests/test_edge_make_m4b_chapters.py::test_a_failed_ffmpeg_step_raises_instead_of_being_ignored"
           },
           {
-            "kind": "planned",
-            "gap": "The command line's M4B path runs FFmpeg as a blocking step with no deadline and no cancel.",
-            "phase": 6,
-            "issue": "ACT72-010"
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_deadline_stops_a_child_that_never_ends_through_its_own_handle"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_child_that_ignores_terminate_is_killed_at_its_deadline[killed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_child_that_ignores_terminate_is_killed_at_its_deadline[never-exits]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_cancel_seen_at_the_same_look_as_the_deadline_is_a_cancel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_within_its_deadline_a_child_runs_to_its_end_and_no_deadline_is_the_default"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_no_caller_but_the_command_lines_m4b_step_opts_into_a_deadline"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_the_deadline_is_the_playing_time_read_from_each_parts_header_plus_ten_minutes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_make_m4b_runs_both_steps_supervised_and_keeps_every_chapter"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_step_running_at_the_playing_rate_is_not_cut_short"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_step_that_never_ends_is_stopped_at_its_deadline_and_the_next_never_starts"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_an_ordinary_ffmpeg_failure_still_raises_and_starts_no_later_step"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_ctrl_c_during_a_step_stops_it_at_once_and_the_command_line_exits_130[during-the-concat]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_ctrl_c_during_a_step_stops_it_at_once_and_the_command_line_exits_130[during-the-encode]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_ctrl_c_between_or_after_the_steps_starts_nothing_more_and_publishes_nothing[between-the-steps]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_ctrl_c_between_or_after_the_steps_starts_nothing_more_and_publishes_nothing[after-the-last-step]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_repeated_ctrl_c_while_a_step_that_ignores_terminate_is_stopped_leaves_nothing_running"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_a_genuinely_stalled_step_is_stopped_at_its_deadline_and_the_command_line_exits_124"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_an_ordinary_ffmpeg_failure_exits_1_with_its_error_and_changes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_the_command_line_saves_a_whole_m4b_and_exits_0"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_each_m4b_step_runs_supervised_with_its_deadline_inside_the_ctrl_c_scope"
           }
         ]
       },
@@ -18152,6 +18241,12 @@
           "symbols": [
             "_run_chapter_remux_step"
           ]
+        },
+        {
+          "path": "scripts/tts/epub2tts_edge/epub2tts_edge.py",
+          "symbols": [
+            "_run_ffmpeg"
+          ]
         }
       ],
       "contracts": [
@@ -18162,7 +18257,8 @@
         "files/tests/test_ffmpeg_runtime_trust.py",
         "files/tests/test_no_window_guard.py",
         "files/tests/test_ffmpeg_cancel.py",
-        "files/tests/test_metadata_remux_cancel.py"
+        "files/tests/test_metadata_remux_cancel.py",
+        "files/tests/test_edge_cli_m4b_interrupt.py"
       ],
       "journeys": [],
       "verification": {
@@ -18182,6 +18278,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_metadata_remux_cancel.py::test_outside_a_cancel_block_the_remux_runs_to_its_end_through_the_supervisor"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_edge_cli_m4b_interrupt.py::test_ctrl_c_during_a_step_stops_it_at_once_and_the_command_line_exits_130[during-the-concat]"
           }
         ]
       },
@@ -21981,12 +22081,13 @@
       "id": "ACT72-010",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The command line's M4B path (make_m4b _run_ffmpeg) is a blocking FFmpeg run with no deadline or cancel",
       "features": [
         "ACT.TTS.CLI"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (6E): epub2tts_edge._run_ffmpeg runs both M4B steps through Phase 6C's subprocess_utils.run_supervised (hidden window, stdin the null device, output to temporary files) and still raises CalledProcessError on a non-zero exit. Each step has a deadline, m4b_step_deadline: the parts' playing time read from their headers plus ten minutes (run_supervised's new deadline_seconds, opt-in, None for every other caller; at the deadline the child is stopped and reaped and subprocess.TimeoutExpired is raised). Measured on HOME-PC with the production arguments, the concat runs at about 2,600 times and the AAC encode at about 380 times the playing rate. make_m4b runs both steps inside _ctrl_c_stops_the_step: on the main thread a Ctrl+C is recorded, the supervisor stops that very child through its own handle (terminate, then kill), no further step starts, and the press is raised as KeyboardInterrupt on the way out; main() prints one line and exits 130 for Ctrl+C, 124 for a deadline. Reproduced at 5a87ec3 with the real command line in a console of its own and a step slowed to the playing rate: Ctrl+C waited 28.6 s for FFmpeg to finish (traceback, STATUS_CONTROL_C_EXIT); a suspended FFmpeg hung it for good. After: exit 130 0.16-0.17 s after the press, the step's FFmpeg gone by process id and creation time, no later step, nothing published, the output folder (a same-named file with --overwrite included) and the sources byte-identical, the work folder removed, nothing of the run left in its job, an FFmpeg sentinel of the same process alive; a step ignoring terminate with repeated presses killed after the 2 s grace; a suspended FFmpeg stopped at its deadline, exit 124. Evidence files/dev-work/verification-gate/outputs/2026-11-09_phase6e_work_1fbd/act72-010/ (test_edge_cli_m4b_interrupt.py)."
     },
     {
       "id": "ACT72-011",
@@ -22649,7 +22750,7 @@
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
     "scripts/shared/settings.py": "f65259720ef0d15f8c5e72f0fe241ab7bbf5528f8a8e5cc79279063f8594462b",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "c10525580592edfb775c1cbe1aced4dcc54a3580d10788db1e1021b02694a16b",
+    "scripts/shared/subprocess_utils.py": "b0df6289828bab5e4b0963584d4abd014246ec1c8eb17d5c21ec68cab6813a32",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
     "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",
@@ -22662,7 +22763,7 @@
     "scripts/tts/edge_failures.py": "6935863a33eb1da68cd0521db5b2c0198b28aeae05b36832322303c281a6e2d5",
     "scripts/tts/edge_requests.py": "236de667f09942ef2cd178fad426e54925c7176a05a7256fc8dcc151d571ac55",
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
-    "scripts/tts/epub2tts_edge/epub2tts_edge.py": "9486ce7e24d76ab357d0d07967e22fc21c4e79416c359352025e06b2720ab1a0",
+    "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "d96a33be96eddcb10698fab9bfe661327386504f08af73653649cdd12d86bb93",
     "scripts/tts/epub2tts_gui.py": "9d8298cce82d97549a456f28797b79398e735aa7ecdca72ec26615855a9fcb02",
     "scripts/tts/ffmpeg_watch.py": "164587651715e138581a8a6b88f1c8dd5cc9781dd99676fbb5678224ab72d7ec",

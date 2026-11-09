@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -140,8 +141,9 @@ def _cancelled(supervision: _Supervision, child: Optional[subprocess.Popen], rea
 
 def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
                    grace_seconds: float = SUPERVISED_GRACE_SECONDS,
-                   tail_bytes: int = SUPERVISED_TAIL_BYTES) -> subprocess.CompletedProcess:
-    """Run one FFmpeg or ffprobe to its end, or stop it on Cancel, and always reap it.
+                   tail_bytes: int = SUPERVISED_TAIL_BYTES,
+                   deadline_seconds: Optional[float] = None) -> subprocess.CompletedProcess:
+    """Run one FFmpeg or ffprobe to its end, or stop it on Cancel or at its deadline, and always reap it.
 
     Returns ``CompletedProcess(args, returncode, stdout, stderr)`` with bytes, each at most its last ``tail_bytes``; a
     non-zero exit is the caller's to judge, exactly as with ``run``. Inside a :func:`cancellable` block:
@@ -154,6 +156,11 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
     Either way :class:`ConversionCancelled` is raised after the block's ``acknowledge``, never a return code, so no
     caller can mistake a Cancel for a failed or retryable step. Outside a block it simply runs to the end.
 
+    ``deadline_seconds`` (v0.7.2 Phase 6E, ACT72-010; ``None``, the default, is no deadline, as for every caller before):
+    a child still running that long after it started is stopped and reaped the same way, and
+    :class:`subprocess.TimeoutExpired` is raised (``timeout`` the deadline, ``output``/``stderr`` the tails), as
+    ``subprocess.run(timeout=...)`` does: never a return code, and never a Cancel. A Cancel seen at the same look wins.
+
     The child's output goes to two temporary files rather than pipes, so it can never block on a full pipe and there is no
     reader thread to wait on (v0.7.1's ``tts.ffmpeg_watch`` lesson); they are deleted when closed, which on Windows
     also happens if this program is killed. Its stdin is the null device and it gets no console window.
@@ -164,7 +171,8 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
         _cancelled(supervision, None, True, grace_seconds)
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         child = popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
-        stopped = False
+        started = time.monotonic()
+        stopped = timed_out = False
         reaped = True
         try:
             while True:
@@ -176,12 +184,20 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
                 if _asked_to_cancel(supervision):
                     stopped = True
                     break
+                if deadline_seconds is not None and time.monotonic() - started >= deadline_seconds:
+                    timed_out = True
+                    break
         finally:
             # Every route out, an exception in the loop included: a child started here is stopped and collected here.
             if child.returncode is None:
                 reaped = _stop(child, grace_seconds)
         if stopped:
             _cancelled(supervision, child, reaped, grace_seconds)
+        if timed_out:
+            expired = subprocess.TimeoutExpired(argv, deadline_seconds, _tail(out, tail_bytes), _tail(err, tail_bytes))
+            if not reaped:
+                expired.add_note(f"process {child.pid} did not exit within {2 * grace_seconds:g} s of being stopped")
+            raise expired
         return subprocess.CompletedProcess(argv, child.returncode, _tail(out, tail_bytes), _tail(err, tail_bytes))
 
 

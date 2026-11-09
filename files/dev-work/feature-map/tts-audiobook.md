@@ -373,7 +373,15 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Behaviour:** `batch_convert` mirrors subfolders, never overwrites an earlier output (it numbers instead) unless
   `--resume` skips it, needs `--label` for an unregistered speaker, and writes failures to `batch_errors.log`.
   `epub2tts-edge` can also make an M4B with chapters and a cover.
-- **Known gap:** the command line's M4B step runs FFmpeg with no deadline or cancel (ACT72-010, phase 6).
+- **Interrupting the M4B step (v0.7.2 Phase 6E, ACT72-010, fixed):** both FFmpeg steps of `--format m4b` (the concat
+  into FLAC-in-MP4, then the AAC encode with the chapters) run through the shared supervisor
+  (`subprocess_utils.run_supervised`). Ctrl+C stops the running step's own FFmpeg at once (any other FFmpeg is
+  untouched; further presses cannot cut the stopping short), starts no further step, publishes nothing and ends with
+  one line and exit status 130. Each step also has a deadline, the book's playing time (read from the parts' headers)
+  plus ten minutes, past which it is stopped the same way and the command line exits 124; both steps measured at
+  hundreds of times the playing rate. A failed step still raises (exit 1). However a run ends early, what the output
+  folder held and the sources are unchanged and the run's work folder is removed. A Ctrl+C anywhere else in the
+  command line ends it the same way (130, one line); how soon it lands during narration is unchanged and not measured.
 
 ### Intentional differences from other tools
 

@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6E (2026-11-09)
+
+**Fixed**
+- Edge TTS command line (`epub2tts-edge --format m4b`, developer only): Ctrl+C now stops the M4B assembly at once. Before, it waited for FFmpeg to finish the running step by itself (measured: about 29 seconds on a step slowed to a 30-second book's playing time, so the wait grows with the book) and ended with a traceback, and a stalled FFmpeg hung the command line for good. Now the running FFmpeg is stopped, no further step starts, nothing is saved, and the command line prints one line and exits with status 130. Each step also has a time limit, the book's playing time plus ten minutes; a step still running then is stopped the same way and the command line exits with status 124. A failed step still exits with status 1. A run that is interrupted, stopped or fails never touches the files already in the output folder (with `--overwrite` too) or the sources.
+
+**Added (development only; nothing here ships)**
+- Tests that press a real Ctrl+C in the command line's own console during each FFmpeg step, between and after them, and while a step ignores the first stop, and that a stalled FFmpeg is stopped at its time limit and an unrelated FFmpeg survives; each seen failing on a planted defect.
+
+**Verified**
+- Targeted tests and negative controls only in this commit; the changed-area gate result is recorded at closeout. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
 ## [Unreleased] — v0.7.2 Phase 6D (2026-11-08)
 
 **Fixed**
