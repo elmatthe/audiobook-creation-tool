@@ -16,9 +16,9 @@
 # became the only authority on run state and the only reporting pipeline --
 # one JobController, one JobReporter, one JobEventStream, one JobAdapter and
 # one EtaEstimator per run, all drained on the panel's single MainThreadPump.
-# Pause and cancel settle between books, because the ffmpeg call converting
-# one is indivisible; the process lifecycle that makes cancel act mid-file is
-# Phase 11's, and nothing here claims to have it.
+# Since Phase 11 Cancel stops the running FFmpeg mid-file (terminated, killed
+# if it refuses, reaped) and takes the interrupted book back whole; Pause still
+# settles between outputs. (This header said otherwise until v0.7.2, ACT72-027.)
 #
 # v0.6.6 Phase 4: presentation only. The panel is the Family-A guided layout
 # (1. Sources / 2. Conversion & Metadata / 3. Output & Run, Activity on the
@@ -636,8 +636,10 @@ class M4BConverterUI(ttk.Frame):
 
         # The four fields. Always visible; disabled only where they cannot
         # apply -- Write none, which writes nothing -- so the form never jumps.
+        # "Title", like its three neighbours (v0.7.2, ACT72-028): it said "blank → filename", which nothing does --
+        # blank keeps the source's title under Preserve and writes no title under Replace, as the modes describe.
         fields = (
-            ("title_entry", "Title (blank → filename)", 5, 0),
+            ("title_entry", "Title", 5, 0),
             ("artist_entry", "Artist", 5, 2),
             ("album_artist_entry", "Album Artist", 6, 0),
             ("album_entry", "Album", 6, 2),
@@ -1254,17 +1256,16 @@ class M4BConverterUI(ttk.Frame):
         t.start()
 
     def cancel(self):
-        """Ask the run to stop. Cooperative: nothing is suspended or killed.
+        """Ask the run to stop now.
 
-        At this phase the request settles at the **next boundary between
-        books**, because the ffmpeg call converting the current one is
-        indivisible and this phase does not own its process lifecycle. Phase 11
-        owns real mid-file termination and reaping; until then the status line
-        says ``Cancelling…`` and means exactly that.
-
-        What it does guarantee now: no later book starts, and a worker already
-        waiting at a paused checkpoint is woken, because cancel outranks pause
-        in the shared model.
+        The FFmpeg converting the current output is stopped through its own
+        process (terminated, killed if it refuses, always reaped), its temporary
+        output and the book's already finished outputs are taken back, so the
+        interrupted book is rolled back whole; books already finished stay and
+        no later book starts. A worker waiting at a paused checkpoint is woken,
+        because cancel outranks pause in the shared model. (Until v0.7.2 this
+        docstring and the log line described the retired between-books Cancel,
+        ACT72-027.)
         """
         if not self._busy.is_set() or self._cancel_event.is_set():
             return
@@ -1272,7 +1273,8 @@ class M4BConverterUI(ttk.Frame):
         controller = self._controller
         if controller is not None:
             controller.request_cancel()
-        self._log_q.put(("log", "Cancelling… will stop after the current file.\n"))
+        self._log_q.put(("log", "Cancelling… stopping the file being converted now; its book is taken back, and books "
+                                "already finished are kept.\n"))
 
     def disable_inputs(self, state: bool):
         """Lock or unlock this panel's inputs and processing options.
@@ -1339,6 +1341,15 @@ class M4BConverterUI(ttk.Frame):
             except tk.TclError:  # pragma: no cover - torn down
                 pass
 
+    def _render_job_events(self) -> None:
+        """Render every job event already published, now (main thread). Bounded; each drain renders what it took."""
+        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            return
+        for _ in range(1000):
+            if not jobs.drain():
+                return
+
     def log_write(self, text: str, *, summary: bool = False) -> None:
         """Add the worker's own transcript text to the Activity log.
 
@@ -1391,6 +1402,9 @@ class M4BConverterUI(ttk.Frame):
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
+                    # The run's own lines first, then this closing line under them (v0.7.2, ACT72-018): the ending event
+                    # was published before this line was queued, but the job drain had not rendered it yet.
+                    self._render_job_events()
                     self.log_write(payload[0], summary=True)
                     self._finish_idle()
                     if payload[1] is not None:

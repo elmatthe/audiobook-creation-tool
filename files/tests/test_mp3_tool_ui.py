@@ -945,6 +945,36 @@ def test_the_process_buttons_validate_before_reserving_anything(make_panel, tmp_
     assert made == [], "validation failed, so no run was reserved"
 
 
+@pytest.mark.parametrize("field", ["start", "time"])
+def test_a_refusal_names_the_book_by_its_stable_number_after_a_removal(make_panel, tmp_path, monkeypatch, field):
+    """v0.7.2 Phase 6, ACT72-036: Start # and Time refusals named a Book by its position, while the navigator and the
+    run log use its stable number, so after a removal 'Book 1' meant the Book the navigator calls Book 2."""
+    made = reservations_under(tmp_path, monkeypatch)
+    dialogs = make_panel.dialogs
+    root = tmp_path / "Library"
+    tracks(root / "A", "01.mp3")
+    tracks(root / "B", "01.mp3")
+    tracks(root / "C", "01.mp3")
+    panel = make_panel()
+    import_folder(panel, root)
+    assert panel.workspace.count == 3
+    first, second, _third = panel.workspace.books
+    assert panel.book_numbers[second.book_id] == 2
+    panel.on_select(first.book_id)
+    panel.on_remove(False)                      # Book 1 goes; the former Book 2 is now first in the list
+    assert panel.workspace.books[0].book_id == second.book_id
+    panel.on_select(second.book_id)
+    if field == "start":
+        panel.type_start_number("zero")
+    else:
+        panel.set_book_field("time_delta", "abc")
+    panel.write_id3_tags()
+    kind, text = dialogs[-1]
+    assert kind == "error" and "for Book 2:" in text, text
+    assert "for Book 1:" not in text
+    assert made == [], "refused before anything was reserved"
+
+
 def settle(panel, limit: int = 200) -> None:
     """Tick the one pump until the run has settled (inline workers only)."""
     for _ in range(limit):

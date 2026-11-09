@@ -79,6 +79,24 @@ def _settings_writes() -> list[tuple[str, str, int]]:
 # --------------------------------------------------------------------------- #
 # A. The regression guard
 # --------------------------------------------------------------------------- #
+def test_the_settings_module_describes_what_is_really_saved():
+    """v0.7.2 Phase 6, ACT72-043: the docstring said window size and voice / bitrate / timing presets were remembered;
+    nothing writes them. Every key production writes is one of the kinds the docstring names, and none is one of the
+    kinds it says are not saved."""
+    from shared import settings
+
+    doc = settings.__doc__ or ""
+    for named in ("last close", "input folder", "cover", "output location", "Light/Dark"):
+        assert named in doc, named
+    assert "default size" in doc and "start from their defaults" in doc
+    written = {key for _module, key, _line in _settings_writes()}
+    assert written, "the AST walk found the writers"
+    for key in written:
+        assert key in {"last_tool", "appearance", "output_base_directory"} or key.endswith((".input_dir", ".cover_dir")), key
+        parts = set(key.replace(".", "_").split("_"))
+        assert not parts & {"window", "geometry", "size", "voice", "bitrate", "preset"}, key
+
+
 def test_production_actually_writes_settings():
     assert _settings_writes(), "the AST walk found nothing — the guard is not working"
 

@@ -364,3 +364,32 @@ def test_a_killed_makers_work_area_is_recovered_by_the_next_custom_build_and_not
     assert tree(live_workspace) == live_before, "a running owner is never disturbed"
     assert (loose / "old.m4b").is_file(), "nothing is ever removed by its name alone"
     assert any("interrupted run" in line for line in panel.log.details), "the recovery is told in Detailed"
+
+
+# --------------------------------------------------------------------------- a Book stopped part-way (ACT72-004)
+
+
+def test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted(
+        make_panel, tmp_path, monkeypatch, output_base):
+    """v0.7.2 Phase 6, ACT72-004: the Book under way when Cancel landed read 'Not attempted', like one never reached.
+    Its result stays NOT_ATTEMPTED (no new disposition); the status and the summary tell the two apart."""
+    root = tmp_path / "Library"
+    for folder in ("A", "B", "C"):
+        tone(root / folder / "01.mp3")
+    panel = make_panel()
+    import_folder(panel, root)
+    real = proc.stage_book
+
+    def stage(book, **kwargs):
+        if book.filename == "B.m4b":
+            panel.run.cancel()                  # pressed as B's staging begins: B stops at its first checkpoint
+        return real(book, **kwargs)
+
+    monkeypatch.setattr(proc, "stage_book", stage)
+    assert panel.build() is True
+    panel._pump.tick()
+    a, b, c = panel.workspace.books
+    assert [panel.book_status_for(book.book_id) for book in (a, b, c)] == [
+        m4b_maker.STATUS_COMPLETED, m4b_maker.STATUS_CANCELLED, m4b_maker.STATUS_NOT_ATTEMPTED]
+    summary = "\n".join(panel.log.summary)
+    assert "1 Book(s) completed, 0 failed, 0 skipped, 1 stopped by Cancel, 1 not attempted" in summary, summary

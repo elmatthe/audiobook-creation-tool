@@ -1371,7 +1371,8 @@ def test_the_worker_stops_at_the_existing_cancellation_checkpoint(
     _run_to_completion(panel, before_worker=lambda: panel._controller.request_cancel())
 
     assert stubs.conversion_jobs == [], "a cancelled run converts nothing"
-    assert "Cancelled." in panel.log.details
+    # Since v0.7.2 (ACT72-004) the closing line says what became of each file, not only that the run was cancelled.
+    assert "Cancelled: 0 finished, 0 stopped (nothing unfinished was saved), 3 not started." in panel.log.details
     assert panel._controller.state.value == "cancelled"
 
 

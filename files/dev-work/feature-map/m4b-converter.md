@@ -86,7 +86,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **Always:** no other source tag reaches an MP3 (no Audible IDs, MP4 brands, genre, comment, narrator). Split outputs never carry the book's title, only their own chapter title and track. Every tagged output is ID3v2.3, which Windows Explorer reads.
 - **Fields:** disabled (never hidden) under Write none and during a run; typed text is kept.
 - **Persistence:** not saved; each session starts on Preserve with empty fields.
-- **Known gap:** the Title label says "blank → filename", but the Converter never substitutes the filename: Preserve keeps the source title and Replace writes none (new finding, Phase 6).
+- The Title field is labelled "Title", like its neighbours: blank keeps the source title under Preserve and writes none under Replace; no filename is substituted (the label promised one until v0.7.2 Phase 6, ACT72-028).
 
 ### Chapter markers and titles in whole-book MP3s
 
@@ -167,7 +167,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 
 - Chapter starts must be finite, not negative, before the end of the audio and strictly increasing. Otherwise the book is refused at preflight, in either output structure, before any folder exists. Nothing is sorted, clamped or dropped to make a list pass.
 - The Summary gives one sentence; Details names the offending chapter. Not retryable in place; a corrected file needs a new run.
-- **Known gap:** the refusal message says "Converting it as a whole book instead will still work", but Whole book refuses the same file (new finding, Phase 6).
+- The refusal says only that the chapter list is not usable: Whole book refuses the same file, so no mode is offered (ACT72-026, fixed in v0.7.2 Phase 6).
 
 ### Unreadable or corrupt sources
 
@@ -195,7 +195,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - A failure is named by book and output in Summary (for example "A.m4b: A.mp3 could not be written."), with the exit code and FFmpeg's last lines in Detailed.
 - The FFmpeg status line on opening and the run's closing line appear in both panes.
 - Clear Log clears the visible text only and never locks. History is capped at 400 lines per pane.
-- **Known issue:** after a run, Summary prints "All done." above "Running." and "Finished." twice (ACT72-018, Phase 6). Log following is the shared view's (ACT.SHARED.LOG-VIEW).
+- After a run, Summary shows the run's lines, its end once, then "All done." (ACT72-018, fixed in v0.7.2 Phase 6). Log following is the shared view's (ACT.SHARED.LOG-VIEW).
 
 ### Pause and Resume
 
@@ -213,7 +213,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - The interrupted output and the rest of that book are removed; books already finished stay. No further book starts. Cancelling while sources are still being read reserves no folder.
 - The run shows Cancelled only after cleanup; books never reached are "not attempted", not failures.
 - **Same as:** the M4B Maker and MP3 Tool, which also stop a running FFmpeg step since v0.7.2 Phase 6C (ACT72-023); the Converter keeps its own runner.
-- **Known gap:** the log still says "Cancelling… will stop after the current file.", which no longer describes what happens (new finding, Phase 6). (A cancelled or failed split book's empty folder is removed since v0.7.2 Phase 6, ACT72-029.)
+- The log says "Cancelling… stopping the file being converted now; its book is taken back, and books already finished are kept." (ACT72-027, fixed in v0.7.2 Phase 6; it used to promise to stop after the current file). (A cancelled or failed split book's empty folder is removed since v0.7.2 Phase 6, ACT72-029.)
 
 ### Retry Failed
 

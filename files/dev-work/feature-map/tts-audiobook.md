@@ -51,9 +51,9 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **How to reach it:** MP3 bitrate dropdown: 128k, 192k (default), 320k.
 - **Behaviour:** frozen per run and passed to every route (Edge direct, Edge folder, Kokoro, Chatterbox, Qwen3).
 - **Persistence:** not saved; each panel build starts at 192k.
-- **Known gap:** 24 kHz speech asked for 192k or 320k is held to 160 kbps by the MP3 format with no word to the
-  person (ACT72-021, phase 6). From the code, Edge audio is also 24 kHz mono, so Edge runs very likely share this
-  (new finding, unmeasured).
+- Every voice makes 24 kHz speech (measured on real output of each engine), where an MP3 can be at most 160 kbit/s:
+  192k and 320k are written at 160k, and the run's Summary says so at Start; nothing is resampled (ACT72-021,
+  fixed in v0.7.2 Phase 6).
 
 ### File workers: requested versus effective
 `ACT.TTS.WORKERS`
@@ -283,7 +283,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **How to reach it:** Cancel beside Start.
 - **Behaviour:** a request to stop. The panel writes "Cancelling..." and wakes everything that is waiting; the run shows
   Cancelled only after the work has really stopped and cleaned up. Files already published stay; nothing unfinished is
-  saved. A started file is logged as stopped, a not-started one as skipped; Retry Failed offers neither.
+  saved. A started file is logged as stopped, a not-started one as skipped; Retry Failed offers neither. The run's
+  closing line counts the files finished, stopped and not started (ACT72-004, v0.7.2 Phase 6).
 
 ### Cancel clicked for real with requests in flight
 `ACT.TTS.CANCEL.NATIVE`
@@ -421,7 +422,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Failure, cancel, retry:** a missing or wrong model file is refused and named. A stack that will not load gives a message pointing to Setup_and_Run or Preferences & Data > Repair App Environment. The first load in a process is retried once after 2 seconds because Windows Application Control may still be checking new DLLs. Cancel is honoured between chunks and just before the encode, and nothing is written.
 - **Persistence:** the loaded pipeline is cached per language for the life of the process.
 - **Differences:** the only engine with a speed control.
-- **Known gaps:** a 24 kHz voice asked for 192k gets MPEG-2 Layer III's 160k ceiling with no word to the user (ACT72-021, Phase 6). A speed typed outside 0.5 to 2.0 reaches the engine unchecked (new finding, Phase 6).
+- A speed typed outside 0.5 to 2.0, or not a finite number, is refused at Start with "Kokoro speed" before anything is frozen or reserved (ACT72-047, fixed in v0.7.2 Phase 6). The bitrate ceiling is described under the bitrate (ACT72-021).
 
 ### Chatterbox Turbo cloned-voice narration
 `ACT.TTS.ENGINE.CHATTERBOX`

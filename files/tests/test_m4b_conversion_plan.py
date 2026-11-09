@@ -507,6 +507,19 @@ def test_a_malformed_chapter_map_fails_the_item(tmp_path, starts, reason):
     assert plan.unusable[0].reason == reason
 
 
+@pytest.mark.parametrize("mode", [ConversionMode.SPLIT, ConversionMode.WHOLE])
+def test_a_malformed_chapter_map_is_refused_in_both_modes_and_the_message_promises_neither(tmp_path, mode):
+    """v0.7.2 Phase 6, ACT72-026: the refusal said converting the book whole 'will still work', but Whole book refuses
+    a malformed chapter list too, so the advice was false in every mode."""
+    entries = direct(book(tmp_path / "src", "A.m4b"))
+    plan = plan_for(entries, {entries[0].occurrence_id: report(
+        duration=600.0, chapter_list=chapters(0.0, 300.0, 100.0))}, tmp_path / "run", mode=mode)
+    assert plan.items == ()
+    message = plan.unusable[0].message
+    assert "not usable" in message and "not converted" in message, message
+    assert "whole book" not in message.lower() and "will still work" not in message, message
+
+
 def test_a_malformed_chapter_map_is_never_routed_to_the_fallback(tmp_path):
     """Structural invalidity is a failure, not a chapterless book (§11.2)."""
     entries = direct(book(tmp_path / "src", "A.m4b"))

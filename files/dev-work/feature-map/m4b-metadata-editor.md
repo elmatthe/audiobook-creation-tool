@@ -167,7 +167,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 
 - Books run one at a time in workspace order. A failed Book does not stop the next; the run then ends "completed with failures".
 - A Book that cannot even start (for example its chosen artwork became unusable) fails without a retry; other failures can be retried.
-- Each Book's Status shows Ready, Queued, Processing, Completed, Failed, Skipped (unreadable) or Not attempted. The job area shows progress, the current file as "<file> (N of M)" and an ETA.
+- Each Book's Status shows Ready, Queued, Processing, Completed, Failed, Skipped (unreadable), Cancelled (stopped part-way by Cancel; ACT72-004, v0.7.2 Phase 6) or Not attempted. The job area shows progress, the current file as "<file> (N of M)" and an ETA.
 - The Summary ends with a line counting completed, failed, skipped and not-attempted Books and the run folder.
 
 ### Pause and Resume

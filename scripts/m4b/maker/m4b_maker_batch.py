@@ -157,6 +157,10 @@ class Attempt:
         self._ran = False
         #: Set, under the run's staging lock, once this attempt has removed what it cannot retry.
         self.released = False
+        #: The Book under way, from its start until its record is in; and the one a Cancel stopped part-way, if any.
+        #: Its result stays NOT_ATTEMPTED (Plan 3, Decisions 2026-11-05); the panel says "Cancelled" (ACT72-004).
+        self.current_book_id: str | None = None
+        self.stopped_book_id: str | None = None
 
     @property
     def is_retry(self) -> bool:
@@ -199,6 +203,7 @@ class Attempt:
             self._release_staging()
             reporter.completed(final)
         except ConversionCancelled:
+            self.stopped_book_id = self.current_book_id
             final = controller.finish_cancelled()
             settle(final)
             self._release_staging()
@@ -242,11 +247,13 @@ class Attempt:
         total = len(self.books)
         for done, book in enumerate(self.books):
             self.checkpoint()
+            self.current_book_id = book.book_id
             self.reporter.stage_changed(f"book-{book.number}",
                                         f"Book {book.number}: {book.filename}")
             self.reporter.progress(done, total, item_id=book.occurrence_ids[0],
                                    stage=f"book-{book.number}")
             records.append(self._run_book(book))
+            self.current_book_id = None
             # Visible as each Book settles, so a live status can be read from
             # the attempt without a second state model beside it.
             self.records = tuple(records)

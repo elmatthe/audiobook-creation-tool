@@ -161,8 +161,8 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Inputs and outputs:** Error dialog titled 'MP3 Tool': '<operation>: Start # for Book N: …' or '<operation>: Time for Book N: …'.
 - **Failure, cancel and retry:** Nothing is reserved, planned or run; the user fixes the value and presses again.
 - **Persistence:** Not applicable.
-- **What must hold:** Start # must be a whole number of 1 or more (blank means 1); Time must be a finite decimal (blank means 0); NaN, infinity, units, commas and hex are refused. Every Book is checked before anything is reserved; the first bad value shows an error naming the field and the Book, and no run folder is made. The Book named in the error should match the number shown in the navigator (currently its position; see findings).
-- **Known gap:** New (Phase 6): the error names the Book by its position in the list, while the navigator and the log use the stable Book number, so after a removal the message can point at the wrong Book.
+- **What must hold:** Start # must be a whole number of 1 or more (blank means 1); Time must be a finite decimal (blank means 0); NaN, infinity, units, commas and hex are refused. Every Book is checked before anything is reserved; the first bad value shows an error naming the field and the Book, and no run folder is made. The Book named in the error is its stable number, as the navigator shows it, also after a removal.
+- **Same as:** the M4B Maker's Silence refusal (both named the Book by its position until v0.7.2 Phase 6, ACT72-036).
 
 ### Run Write ID3 Tags or Combine for every Book
 `ACT.MP3.WRITE-AND-COMBINE`
@@ -253,7 +253,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **How to reach it:** Section 2 Current Book 'Status:' label; the shared progress bar, stage and ETA beside the run buttons.
 - **States:** Empty Books show Skipped during a run; a Book added after a run shows Ready.
 - **Inputs and outputs:** Display only.
-- **Failure, cancel and retry:** After a cancel, unreached Books read Not attempted.
+- **Failure, cancel and retry:** After a cancel, unreached Books read Not attempted and the Book stopped part-way reads Cancelled; the closing line counts them apart (ACT72-004, v0.7.2 Phase 6).
 - **Persistence:** None.
 - **What must hold:** The current Book shows Ready, Queued, Processing, Completed, Failed, Skipped or Not attempted, derived from the run, never stored. One progress bar counts every track plus one finalisation step per Book; the status line reads 'Book X of Y — Track M of N'. A batch with one failed Book among successes ends 'Completed with failures'.
 

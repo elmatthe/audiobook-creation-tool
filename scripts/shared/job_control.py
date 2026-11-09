@@ -2299,10 +2299,19 @@ def _summary_line(entry: "JobEvent") -> str:
 
 
 def summary_lines(source: "Iterable[JobEvent]") -> tuple[str, ...]:
-    """The milestones of a run, in order, with nothing technical in them."""
+    """The milestones of a run, in order, with nothing technical in them.
+
+    A run that ended says so once (v0.7.2, ACT72-018): the controller's state change into a terminal state and the run's
+    own ending event both carried the same words ("Finished." twice). When the stream holds the ending event, which is
+    the authority on how the run ended and may carry its own message, the terminal state change adds no line.
+    """
+    entries = _require_events(source)
+    ended = any(entry.is_terminal for entry in entries)
     lines = []
-    for entry in _require_events(source):
+    for entry in entries:
         if entry.kind not in SUMMARY_KINDS:
+            continue
+        if ended and entry.kind is JobEventKind.STATE_CHANGED and entry.state in TERMINAL_STATES:
             continue
         line = _summary_line(entry)
         if line:

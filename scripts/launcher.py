@@ -202,6 +202,9 @@ class LauncherApp:
         ffmpeg_utils.configure_pydub()
 
         self.containers: dict[str, ttk.Frame] = {}
+        #: Tools whose module failed to load: their container shows the error, and the status line says so every time
+        #: the tool is selected (v0.7.2, ACT72-041; it used to say "ready").
+        self.load_failed: set[str] = set()
         self.current_key: str | None = None
         self.buttons: dict[str, ttk.Button] = {}
         # The one live Preferences window. Held here so repeated activation
@@ -678,7 +681,8 @@ class LauncherApp:
 
         spec = next((t for t in TOOLS if t.key == key), None)
         if spec:
-            self._set_status(f"{spec.title} — ready.")
+            self._set_status(f"{spec.title} failed to load." if key in self.load_failed
+                             else f"{spec.title} — ready.")
         app_settings.set("last_tool", key)
 
     def _load_tool_into(self, key: str, container: ttk.Frame) -> bool:
@@ -692,6 +696,7 @@ class LauncherApp:
             return True
         except Exception as exc:  # missing deps, import error, etc.
             self.logger.exception("Failed to load tool %s", key)
+            self.load_failed.add(key)
             self._show_load_error(container, spec, exc)
             return True  # keep the container so the error message stays visible
 

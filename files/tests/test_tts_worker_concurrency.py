@@ -404,6 +404,9 @@ def test_the_file_that_won_the_commit_is_a_success_and_the_one_that_lost_is_stop
     assert "first.txt — completed" in text
     assert "second.txt — stopped (cancelled); nothing unfinished was saved" in text
     assert "first.txt — stopped" not in text and "second.txt — completed" not in text
+    # v0.7.2 Phase 6, ACT72-004: the closing line counts what became of each file, not only that the run was cancelled.
+    closing = "Cancelled: 1 finished, 1 stopped (nothing unfinished was saved), 0 not started."
+    wait_for(lambda: closing in panel.log.details, "the closing line never came", panel=panel)
 
 
 def test_a_cancel_that_loses_to_the_last_files_commit_still_ends_as_a_cancelled_run(make_panel, output_base, tmp_path, gated_stubs,

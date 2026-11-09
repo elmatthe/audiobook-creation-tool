@@ -379,11 +379,47 @@ def test_the_custom_destination_toggle_is_off_hidden_and_never_persisted(make_pa
 # --------------------------------------------------------------------------- #
 
 
-def test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving(make_panel,
-                                                                              output_base):
+@pytest.mark.parametrize("silence", ["abc", "-1", "nan"])
+def test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving(make_panel, tmp_path,
+                                                                              output_base, silence):
+    """It used to check only the empty workspace (v0.7.2 Phase 6, ACT72-032): a bad Book Silence and a bad Shared
+    Silence are each refused with the Book named, before any run folder is reserved or any worker starts."""
     panel = make_panel()
     assert panel.build() is False
     assert make_panel.dialogs[-1][0] == "warning"
+    assert not output_base.exists()
+    tracks(tmp_path / "Library" / "A", "01.mp3")
+    import_folder(panel, tmp_path / "Library")
+    panel.set_book_field("silence", silence)
+    assert panel.build() is False
+    kind, text = make_panel.dialogs[-1]
+    assert kind == "error" and text.startswith("Silence for Book 1:"), text
+    assert not output_base.exists() and panel.run is None
+    panel.set_book_field("silence", "")
+    panel.surface.set_shared_text("silence", silence)
+    assert panel.build() is False
+    kind, text = make_panel.dialogs[-1]
+    assert kind == "error" and text.startswith("Silence for Book 1:"), "a Shared Silence is judged for each Book"
+    assert not output_base.exists() and panel.run is None
+    assert not [t for t in panel._thread_factory.made if str(getattr(t, "name", "")).startswith("m4b-")], "no build worker"
+
+
+def test_a_silence_refusal_names_the_book_by_its_stable_number_after_a_removal(make_panel, tmp_path, output_base):
+    """v0.7.2 Phase 6, ACT72-036 (as in the MP3 Tool): the refusal named a Book by its position."""
+    root = tmp_path / "Library"
+    for folder in ("A", "B", "C"):
+        tracks(root / folder, "01.mp3")
+    panel = make_panel()
+    import_folder(panel, root)
+    first, second, _third = panel.workspace.books
+    assert panel.book_numbers[second.book_id] == 2
+    panel.on_select(first.book_id)
+    panel.on_remove(False)
+    panel.on_select(second.book_id)
+    panel.set_book_field("silence", "abc")
+    assert panel.build() is False
+    kind, text = make_panel.dialogs[-1]
+    assert kind == "error" and text.startswith("Silence for Book 2:"), text
     assert not output_base.exists()
 
 

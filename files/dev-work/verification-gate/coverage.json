@@ -538,7 +538,8 @@
       "contracts": [
         "Cancel only requests a stop; the run shows Cancelled after a worker acknowledges it at a checkpoint and has cleaned up, never because the button was pressed.",
         "Cancel wakes the FFmpeg watchdog and the memory gate at once, wakes a paused run and outranks the pause.",
-        "Files published before the Cancel stay; nothing unfinished is saved; a file that had started is logged as stopped and one that never started as skipped, and Retry Failed offers neither."
+        "Files published before the Cancel stay; nothing unfinished is saved; a file that had started is logged as stopped and one that never started as skipped, and Retry Failed offers neither.",
+        "The run's closing line counts the files finished, stopped (nothing unfinished saved) and not started; each file's own line already tells stopped from skipped (v0.7.2, ACT72-004)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -571,6 +572,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_tts_worker_concurrency.py::test_cancelling_a_real_concurrent_run_leaves_no_output"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_worker_concurrency.py::test_the_file_that_won_the_commit_is_a_success_and_the_one_that_lost_is_stopped"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_importing.py::test_the_worker_stops_at_the_existing_cancellation_checkpoint"
           }
         ]
       },
@@ -1738,7 +1747,10 @@
             "convert_with_edge_engine",
             "convert_with_kokoro",
             "convert_with_chatterbox",
-            "convert_with_qwen3"
+            "convert_with_qwen3",
+            "mp3_bitrate_note",
+            "mp3_bitrate_ceiling_kbps",
+            "SPEECH_SAMPLE_RATE"
           ]
         },
         {
@@ -1757,12 +1769,14 @@
       "contracts": [
         "The MP3 bitrate dropdown offers 128k, 192k (default) and 320k and is frozen per run.",
         "The frozen bitrate reaches every route: Edge direct, Edge folder and the three local engines.",
-        "Each offered bitrate produces an internally consistent MP3 whose header and frames agree."
+        "Each offered bitrate produces an internally consistent MP3 whose header and frames agree.",
+        "Every voice makes 24 kHz speech, where an MP3 can be at most 160 kbit/s: 192k and 320k are written at 160k, and the run's Summary says so at Start. The request itself is frozen unchanged and nothing is resampled (v0.7.2, ACT72-021; measured on the app's real output of every engine)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
         "files/tests/test_mp3_finalization.py",
-        "files/tests/test_tts_importing.py"
+        "files/tests/test_tts_importing.py",
+        "files/tests/test_tts_start_values.py"
       ],
       "journeys": [
         "tts.edge-replay-direct-file"
@@ -1786,10 +1800,32 @@
             "scenario": "tts.edge-replay-direct-file"
           },
           {
-            "kind": "planned",
-            "gap": "24 kHz speech asked for 192k or 320k is encoded as MPEG-2 Layer III, whose ceiling is 160k, and the person is not told; Edge audio is also 24 kHz mono per worker_limits' measurements, so Edge runs very likely share this (see findings).",
-            "phase": 6,
-            "issue": "ACT72-021"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_24_khz_mp3_is_written_at_most_at_160_kbit[128k-128000]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_24_khz_mp3_is_written_at_most_at_160_kbit[192k-160000]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_24_khz_mp3_is_written_at_most_at_160_kbit[320k-160000]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_only_a_bitrate_above_the_ceiling_is_explained"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_the_runs_summary_says_what_bitrate_the_files_get[192k-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_the_runs_summary_says_what_bitrate_the_files_get[320k-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_the_runs_summary_says_what_bitrate_the_files_get[128k-False]"
           }
         ]
       },
@@ -3128,6 +3164,14 @@
             "_export_mp3",
             "_lang_code_for_voice"
           ]
+        },
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "kokoro_speed_problem",
+            "TtsPanel.run_job",
+            "TtsPanel._freeze_run"
+          ]
         }
       ],
       "contracts": [
@@ -3135,7 +3179,7 @@
         "The chunk pause (default 50 ms) separates rendered chunks only; no closing pause is added whatever end_silence_ms says.",
         "Cancel is honoured between chunks and again just before the single encode; a cancelled file writes nothing.",
         "The first pipeline load in a process is retried once after 2 s (Windows Application Control); any later load failure is reported with a repair hint, never retried.",
-        "The Kokoro speed value from the panel is passed to the model unchanged."
+        "The Kokoro speed from the panel is passed to the model unchanged once Start has accepted it: a finite number from 0.5 to 2.0; anything else is refused before anything is frozen or reserved (v0.7.2, ACT72-047)."
       ],
       "selection": [
         "files/tests/test_kokoro_timing_wiring.py",
@@ -3143,7 +3187,8 @@
         "files/tests/test_cancel_semantics.py",
         "files/tests/test_mp3_finalization.py",
         "files/tests/test_tts_final_tail.py",
-        "files/tests/test_chatterbox_longform.py"
+        "files/tests/test_chatterbox_longform.py",
+        "files/tests/test_tts_start_values.py"
       ],
       "journeys": [
         "tts.kokoro-local"
@@ -3180,16 +3225,68 @@
             "detail": "Listen to real Kokoro narration from an installed copy: pacing, pronunciation, no clipped ending."
           },
           {
-            "kind": "planned",
-            "gap": "A 24 kHz Kokoro run asked for 192k is encoded at MPEG-2 Layer III's 160k ceiling and the user is not told.",
-            "phase": 6,
-            "issue": "ACT72-021"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_24_khz_mp3_is_written_at_most_at_160_kbit[192k-160000]"
           },
           {
-            "kind": "planned",
-            "gap": "A Kokoro speed typed outside 0.5-2.0 (0, negative, nan, inf) is not refused at Start; the spinbox limits only its arrows and the engine does no range check",
-            "phase": 6,
-            "issue": "ACT72-047"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[0.49]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[2.01]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[nan]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[inf]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[-inf]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[abc]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_outside_half_to_double_or_not_a_number_starts_nothing[1,5]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_in_range_is_accepted[0.5]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_in_range_is_accepted[2.0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_in_range_is_accepted[1.25]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_a_kokoro_speed_in_range_is_accepted[ 1 ]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_start_values.py::test_the_speed_check_is_kokoros_alone"
           }
         ]
       },
@@ -5966,7 +6063,7 @@
       "contracts": [
         "Start # must be a whole number of 1 or more (blank means 1); Time must be a finite decimal (blank means 0); NaN, infinity, units, commas and hex are refused.",
         "Every Book is checked before anything is reserved; the first bad value shows an error naming the field and the Book, and no run folder is made.",
-        "The Book named in the error should match the number shown in the navigator (currently its position; see findings)."
+        "The Book named in the error is its stable number, as the navigator and the run log show it, also after a removal (v0.7.2, ACT72-036; the Maker's Silence refusal likewise)."
       ],
       "selection": [
         "files/tests/test_mp3_workflow.py",
@@ -5993,10 +6090,12 @@
             "test": "files/tests/test_mp3_plan.py::test_an_invalid_start_number_or_time_is_a_clear_plan_error"
           },
           {
-            "kind": "planned",
-            "gap": "The refusal names the Book by its position ('Start # for Book 1') while the navigator and the run log use the stable Book number, so after a removal the message can name the wrong Book (MP3ToolUI._request_operation enumerates space.books)",
-            "phase": 6,
-            "issue": "ACT72-036"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_tool_ui.py::test_a_refusal_names_the_book_by_its_stable_number_after_a_removal[start]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_tool_ui.py::test_a_refusal_names_the_book_by_its_stable_number_after_a_removal[time]"
           }
         ]
       },
@@ -6637,7 +6736,8 @@
             "MP3ToolUI.on_cancel",
             "MP3ToolUI._worker",
             "MP3ToolUI._run_attempt",
-            "MP3ToolUI._release_staging"
+            "MP3ToolUI._release_staging",
+            "MP3ToolUI._stopped_book_ids"
           ]
         },
         {
@@ -6668,7 +6768,8 @@
         "Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published.",
         "Retry Failed is not offered after a cancelled run.",
         "A stopped step is never a failed or retryable track and never the 999 launch failure; its half-written staged track or combined file is removed. Only that step's own process is stopped: any other FFmpeg, even one this program started, is untouched. Pause never stops or suspends a running step.",
-        "A cancelled run keeps no private staging: no Retry Failed is offered after a Cancel, so the run folder's .work goes before the run reports Cancelled (v0.7.2, ACT72-037)."
+        "A cancelled run keeps no private staging: no Retry Failed is offered after a Cancel, so the run folder's .work goes before the run reports Cancelled (v0.7.2, ACT72-037).",
+        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004)."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
@@ -6788,6 +6889,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_ffmpeg_cancel.py::test_every_ffmpeg_call_of_the_engines_goes_through_the_supervisor[mp3/mp3_processing.py]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_staging_release.py::test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted"
           }
         ]
       },
@@ -7904,7 +8009,8 @@
       "contracts": [
         "Chapter starts must be finite, not negative, before the source's end and strictly increasing; anything else makes the book unusable.",
         "The check applies in both output structures and runs before any run folder is reserved; nothing is sorted, clamped, deduplicated or dropped to make a map pass.",
-        "A refused book is reported with its own reason and is not a Retry Failed candidate; the other books still convert."
+        "A refused book is reported with its own reason and is not a Retry Failed candidate; the other books still convert.",
+        "The refusal says the chapter list is not usable and offers no other mode: both modes refuse it (v0.7.2, ACT72-026)."
       ],
       "selection": [
         "files/tests/test_m4b_chapter_validation.py",
@@ -7936,10 +8042,12 @@
             "test": "files/tests/test_m4b_retry.py::test_every_preflight_unusable_reason_is_typed_and_not_retryable[non_monotonic]"
           },
           {
-            "kind": "planned",
-            "gap": "The user-facing refusal says 'Converting it as a whole book instead will still work', but assemble_plan refuses a malformed chapter list in Whole book mode too, so the advice is false in every mode.",
-            "phase": 6,
-            "issue": "ACT72-026"
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_conversion_plan.py::test_a_malformed_chapter_map_is_refused_in_both_modes_and_the_message_promises_neither[ConversionMode.SPLIT]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_conversion_plan.py::test_a_malformed_chapter_map_is_refused_in_both_modes_and_the_message_promises_neither[ConversionMode.WHOLE]"
           }
         ]
       },
@@ -8234,7 +8342,8 @@
         "Replace writes only the fields typed in; a blank field stays absent. Write none writes no tags, no chapter map and no cover (only FFmpeg's own encoder tag).",
         "Every mode passes -map_metadata -1, so no other source tag (Audible IDs, MP4 brands, genre, comment) reaches an MP3.",
         "Split outputs never carry the book's title: each gets its own chapter title and track. Every tagged output is ID3v2.3.",
-        "The four fields are disabled (never hidden) under Write none and while a run is going; typed text is kept."
+        "The four fields are disabled (never hidden) under Write none and while a run is going; typed text is kept.",
+        "The Title field is labelled 'Title', like its neighbours: blank keeps the source's title under Preserve and writes none under Replace; no filename is ever substituted (v0.7.2, ACT72-028)."
       ],
       "selection": [
         "files/tests/test_m4b_metadata.py",
@@ -8288,10 +8397,8 @@
             "scenario": "converter.split-by-chapter"
           },
           {
-            "kind": "planned",
-            "gap": "The Title field is labelled 'Title (blank → filename)', but no Converter code substitutes the filename: Preserve keeps the source's title and Replace writes no title tag.",
-            "phase": 6,
-            "issue": "ACT72-028"
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_jobs.py::test_the_title_field_promises_no_filename"
           }
         ]
       },
@@ -8957,7 +9064,8 @@
         "Cancel latches at once; a running FFmpeg is terminated (killed after a 5 s grace) and always reaped.",
         "The interrupted output and that book's earlier chapters are removed; books already finished keep their outputs.",
         "No further book is probed or converted; a cancel during preflight reserves no run folder.",
-        "The run reports CANCELLED only after cleanup; books never reached are 'not attempted', not failures."
+        "The run reports CANCELLED only after cleanup; books never reached are 'not attempted', not failures.",
+        "The log says what Cancel does: the file being converted is stopped now and its book is taken back; books already finished are kept (v0.7.2, ACT72-027)."
       ],
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
@@ -9003,10 +9111,8 @@
             "scenario": "converter.cancel-during-encode"
           },
           {
-            "kind": "planned",
-            "gap": "M4BConverterUI.cancel logs 'Cancelling… will stop after the current file.', but the running FFmpeg is stopped mid-encode and the interrupted book is rolled back; the cancel() docstring and the module header still describe the retired between-books behaviour.",
-            "phase": 6,
-            "issue": "ACT72-027"
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_jobs.py::test_the_cancel_line_says_what_cancel_does"
           }
         ]
       },
@@ -9230,7 +9336,8 @@
           "symbols": [
             "M4BConverterUI.log_write",
             "M4BConverterUI.clear_log",
-            "M4BConverterUI._pump_queue"
+            "M4BConverterUI._pump_queue",
+            "M4BConverterUI._render_job_events"
           ]
         }
       ],
@@ -9238,7 +9345,8 @@
         "The worker's per-file transcript and every FFmpeg command line go to Detailed only; Summary is the shared projection of the run's events.",
         "A failure is named by book and output in Summary, with the exit code and a bounded FFmpeg tail in Detailed.",
         "The FFmpeg status line on opening and the run's closing line appear in both panes.",
-        "Clear Log empties the visible Summary and Detailed text only; the run, its result and the session log are untouched, and the button never locks."
+        "Clear Log empties the visible Summary and Detailed text only; the run, its result and the session log are untouched, and the button never locks.",
+        "The run's closing line comes after the run's own Summary lines, and the run's end is said once (v0.7.2, ACT72-018: 'All done.' sat above 'Running.' and 'Finished.' came twice)."
       ],
       "selection": [
         "files/tests/test_m4b_converter_appearance.py",
@@ -9274,10 +9382,8 @@
             "scenario": "converter.corrupt-source"
           },
           {
-            "kind": "planned",
-            "gap": "The Summary pane prints 'All done.' above 'Running.' and 'Finished.' twice after a Converter run.",
-            "phase": 6,
-            "issue": "ACT72-018"
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_jobs.py::test_the_closing_line_follows_the_runs_own_lines_and_the_run_ends_once"
           }
         ]
       },
@@ -9888,6 +9994,10 @@
             "gap": "No test presses Build in the panel with a bad Silence: the 'Silence for Book N' message and that no run folder is reserved are unasserted (test_build_refuses_an_empty_workspace_and_a_bad_silence_before_reserving checks only the empty workspace).",
             "phase": 6,
             "issue": "ACT72-052"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_ui.py::test_a_silence_refusal_names_the_book_by_its_stable_number_after_a_removal"
           }
         ]
       },
@@ -11006,7 +11116,9 @@
         {
           "path": "scripts/m4b/maker/m4b_maker.py",
           "symbols": [
-            "M4BMakerUI.cancel"
+            "M4BMakerUI.cancel",
+            "M4BMakerUI._stopped_book_id",
+            "M4BMakerUI._counts_text"
           ]
         },
         {
@@ -11045,7 +11157,8 @@
         "The Book being built publishes nothing and its staging is removed; Books not reached are Not attempted; Books already published are kept.",
         "A cancel arriving while a Book is publishing keeps that Book and stops at the next boundary.",
         "Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (any other FFmpeg is untouched), and no later step starts. A stopped step is never a failed encode: no FAST-to-Safe fallback and no retryable failure.",
-        "Cancel while a candidate kept from an earlier attempt is being checked or numbered discards it; no Series Part is committed and nothing is published."
+        "Cancel while a candidate kept from an earlier attempt is being checked or numbered discards it; no Series Part is committed and nothing is published.",
+        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004)."
       ],
       "selection": [
         "files/tests/test_m4b_maker_batch.py",
@@ -11144,6 +11257,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_ffmpeg_cancel.py::test_every_ffmpeg_call_of_the_engines_goes_through_the_supervisor[m4b/maker/m4b_maker_processing.py]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_staging_release.py::test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted"
           }
         ]
       },
@@ -13161,7 +13278,9 @@
         {
           "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
           "symbols": [
-            "M4BMetadataEditorUI.cancel"
+            "M4BMetadataEditorUI.cancel",
+            "M4BMetadataEditorUI._stopped_book_id",
+            "M4BMetadataEditorUI._counts_text"
           ]
         },
         {
@@ -13200,7 +13319,8 @@
         "A cancelled Book publishes nothing and leaves no staging; Books already published stay; the rest are Not attempted",
         "A Cancel arriving while a Book is being published keeps that Book and stops at the next boundary",
         "Originals are never touched",
-        "A stopped remux is never a failed or retryable Book: no failure is reported and Retry Failed is not offered; its half-written .retitle.tmp output and its ffmetadata folder are removed"
+        "A stopped remux is never a failed or retryable Book: no failure is reported and Retry Failed is not offered; its half-written .retitle.tmp output and its ffmetadata folder are removed",
+        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004)."
       ],
       "selection": [
         "files/tests/test_m4b_metadata_batch.py",
@@ -13267,6 +13387,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_metadata_remux_cancel.py::test_the_editor_worker_body_hands_the_remux_the_non_blocking_cancel_check"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_staging_release.py::test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted"
           }
         ]
       },
@@ -14252,13 +14376,16 @@
             "CoverResizerUI.__init__",
             "CoverResizerUI.start_resize",
             "freeze_cover_options",
-            "resize_for_audiobook"
+            "resize_for_audiobook",
+            "target_size_problem",
+            "MIN_SIZE",
+            "MAX_SIZE"
           ]
         }
       ],
       "contracts": [
         "Every output is exactly size x size pixels for the size frozen when Resize Covers was pressed.",
-        "A non-numeric or negative size shows 'Bad size' and reserves no run folder.",
+        "The size as typed must be a whole number of pixels from 256 to 4096 (the size box's own range); anything else (0, negative, a fraction, an exponent, nan, inf, a word) shows 'Bad size' and reserves and allocates nothing (v0.7.2, ACT72-025: a typed 0 became 1024 and 100000 reached Pillow).",
         "Changing the size during a run does not affect that run."
       ],
       "selection": [
@@ -14295,10 +14422,64 @@
             "scenario": "cover.center-crop"
           },
           {
-            "kind": "planned",
-            "gap": "Only a negative size is tested. A non-numeric entry has no test, 0 silently becomes 1024, and sizes outside the spinbox's 256-4096 range (e.g. 5 or 100000) are accepted with no upper bound",
-            "phase": 6,
-            "issue": "ACT72-025"
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[-5]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[255]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[4097]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[100000]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[nan]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[inf]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[1e3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[512.5]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[abc]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing[ 1024x]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_the_range_ends_are_accepted_as_typed[256-256]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_the_range_ends_are_accepted_as_typed[4096-4096]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_the_range_ends_are_accepted_as_typed[ 1024 -1024]"
           }
         ]
       },
@@ -15250,7 +15431,8 @@
             "CoverResizerUI._record_timing",
             "TimingSample",
             "CoverResizerUI.log_write",
-            "CoverResizerUI.clear_log"
+            "CoverResizerUI.clear_log",
+            "CoverResizerUI._render_job_events"
           ]
         }
       ],
@@ -15258,7 +15440,8 @@
         "Progress counts only images actually finished, also after Cancel.",
         "Summary names each failed file without tracebacks or commands; Detailed keeps the technical error and the per-image transcript.",
         "The estimate says calculating until three images have finished, and only successful images count.",
-        "Clear Log clears the visible Summary and Detailed text only."
+        "Clear Log clears the visible Summary and Detailed text only.",
+        "The run's closing line comes after the run's own Summary lines, and the run's end is said once (v0.7.2, ACT72-018: 'All done.' sat above 'Running.' and 'Finished.' came twice)."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
@@ -15299,10 +15482,12 @@
             "scenario": "cover.corrupt-image"
           },
           {
-            "kind": "planned",
-            "gap": "The Summary pane prints 'All done.' above 'Running.' and 'Finished.' twice",
-            "phase": 6,
-            "issue": "ACT72-018"
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_the_closing_line_follows_the_runs_own_lines_and_the_run_ends_once[finished]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_jobs.py::test_the_closing_line_follows_the_runs_own_lines_and_the_run_ends_once[cancelled]"
           }
         ]
       },
@@ -15864,7 +16049,7 @@
         "A tool whose module raises while loading shows a read-only error text inside its own panel; the launcher keeps running and the other tools load normally.",
         "An invalid voice registry is reported as entries to correct in scripts/tts/voice_registry.py, never as a missing dependency.",
         "Any other load failure advises running the setup launcher again and includes the technical details.",
-        "The status line must not call a tool that failed to load 'ready'."
+        "The status line never calls a tool that failed to load 'ready': it says '<Tool> failed to load.' each time that tool is selected (v0.7.2, ACT72-041)."
       ],
       "selection": [
         "files/tests/test_tts_output_names.py",
@@ -15886,10 +16071,8 @@
             "test": "files/tests/test_tts_output_names.py::test_the_launcher_shows_the_registry_error_and_builds_the_other_five_tools"
           },
           {
-            "kind": "planned",
-            "gap": "select_tool overwrites the '<Tool> failed to load.' status set by _show_load_error with '<Tool> — ready.'; no test checks the failed tool's status line",
-            "phase": 6,
-            "issue": "ACT72-041"
+            "kind": "behavior",
+            "test": "files/tests/test_launcher_smoke.py::test_a_tool_that_failed_to_load_is_never_called_ready"
           }
         ]
       },
@@ -16689,7 +16872,8 @@
         "Each pane keeps at least one readable line however small the window.",
         "Each pane follows on its own: while its newest line is on screen (a tolerance under one line) new lines keep it at the bottom; scrolled up, the reader keeps the same top line to the pixel through new lines, trimmed history, a rewritten live section, resizes and tab or tool switches, and follows again on returning to the bottom.",
         "A render changes only the lines that changed (an append, the lines trimmed off the front, or the rewritten tail), never the whole pane, and every render and view change runs on the thread that owns Tk.",
-        "An appearance change re-colours both panes in place and keeps a following pane at the bottom."
+        "An appearance change re-colours both panes in place and keeps a following pane at the bottom.",
+        "A run that ended says so once: when the stream holds the run's own ending event, the controller's change into that terminal state adds no Summary line (v0.7.2, ACT72-018)."
       ],
       "selection": [
         "files/tests/test_job_ui.py",
@@ -16786,10 +16970,24 @@
             "scenario": "mp3.typed-values-survive-first-import"
           },
           {
-            "kind": "planned",
-            "gap": "Summary can print 'All done.' above 'Running.' and 'Finished.' twice (seen in Cover Image and Converter); no test pins the Summary order of a real tool run",
-            "phase": 6,
-            "issue": "ACT72-018"
+            "kind": "behavior",
+            "test": "files/tests/test_job_events_eta.py::test_a_run_that_ended_says_so_once[JobState.SUCCEEDED-completed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_events_eta.py::test_a_run_that_ended_says_so_once[JobState.COMPLETED_WITH_FAILURES-completed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_events_eta.py::test_a_run_that_ended_says_so_once[JobState.CANCELLED-cancelled]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_events_eta.py::test_a_terminal_state_with_no_ending_event_still_shows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_events_eta.py::test_the_ending_events_own_message_is_the_one_shown"
           }
         ]
       },
@@ -17688,7 +17886,8 @@
         "User state is stored only in files/runtime-data/settings.json; config.toml is never written.",
         "Writes are atomic (temporary file, then replace) and report success; a failed write leaves the previous file intact and rolls the in-memory value back.",
         "A missing file means defaults; malformed JSON or a non-object falls back to defaults with a recorded reason, and the file is not rewritten on load.",
-        "Only keys the app itself writes are recognised; an unknown key is reported and can never override configuration."
+        "Only keys the app itself writes are recognised; an unknown key is reported and can never override configuration.",
+        "The module's own description names exactly what is saved (the last tool, input and cover folders, the custom output location, Light/Dark) and that window size and run options are not (v0.7.2, ACT72-043)."
       ],
       "selection": [
         "files/tests/test_settings.py",
@@ -17722,6 +17921,10 @@
           {
             "kind": "native",
             "scenario": "launcher.settings-survive-relaunch"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_settings_allowlist.py::test_the_settings_module_describes_what_is_really_saved"
           }
         ]
       },
@@ -18218,10 +18421,8 @@
             "test": "files/tests/test_preferences_ui.py::test_reset_keeps_live_appearance_and_next_toggle_consistent[success]"
           },
           {
-            "kind": "planned",
-            "gap": "Reset also returns Light/Dark to Light, but the confirmation text and card caption list only last tool, remembered folders and custom output location",
-            "phase": 6,
-            "issue": "ACT72-042"
+            "kind": "behavior",
+            "test": "files/tests/test_preferences_ui.py::test_reset_names_the_appearance_it_returns_to_light"
           }
         ]
       },
@@ -21676,7 +21877,6 @@
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._choose_folder::filedialog.askdirectory:Select a folder of cover images": "ACT.COVER.IMPORT",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._gate_replacement::messagebox.showerror:Cannot replace originals": "ACT.COVER.REPLACE",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showerror:Bad size": "ACT.COVER.SIZE",
-      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showerror:Bad size#2": "ACT.COVER.SIZE",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showerror:Output folder": "ACT.COVER.STANDARD-OUTPUT",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showwarning:No files": "ACT.COVER.RUN",
       "dialog:scripts/artwork/m4b_artwork_ui.py::ask_artwork::filedialog.askopenfilename:title": "ACT.MAKER.ARTWORK",
@@ -21739,6 +21939,7 @@
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_output_folder::messagebox.showerror:Output folder": "ACT.TTS.OUTPUT-FOLDER",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_qwen3_setup::messagebox.showinfo:Conversion in progress": "ACT.TTS.SETUP.QWEN3",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Edge speech rate": "ACT.TTS.EDGE-RATE",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Kokoro speed": "ACT.TTS.ENGINE.KOKORO",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Missing input": "ACT.TTS.RUN",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice not recognised": "ACT.TTS.VOICE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice unavailable": "ACT.TTS.VOICE",
@@ -22210,10 +22411,16 @@
       "id": "ACT72-004",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Cancel status strings and item status misdescribe the outcome: a file stopped by Cancel stays NOT_ATTEMPTED at the item level (a limit stated in Phase 1)",
-      "features": [],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "features": [
+        "ACT.MP3.CANCEL",
+        "ACT.MAKER.CANCEL",
+        "ACT.METADATA.CANCEL",
+        "ACT.TTS.CANCEL"
+      ],
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the shared result model is unchanged (no per-item CANCELLED; Decisions 2026-11-05): a file or Book stopped by Cancel stays NOT_ATTEMPTED and Retry Failed never offers it. What misdescribed it is corrected: the MP3 Tool, Maker and Metadata Editor show the Book a Cancel stopped part-way as 'Cancelled' (others never reached stay 'Not attempted') and count it as 'stopped by Cancel' in the run's closing line; the TTS closing line, which said only 'Cancelled.', counts the files finished, stopped and not started (each file's own line already told stopped from skipped since Phase 1). Tests in test_mp3_staging_release.py, test_maker_staging_release.py, test_metadata_staging_release.py and test_tts_worker_concurrency.py; mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-005",
@@ -22374,14 +22581,15 @@
       "id": "ACT72-018",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The Summary pane prints 'All done.' above 'Running.' and 'Finished.' twice (seen in Cover Image and Converter)",
       "features": [
         "ACT.CONVERTER.ACTIVITY",
         "ACT.COVER.RUN-REPORT",
         "ACT.SHARED.LOG-VIEW"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): reproduced with a real Cover run (Summary: 'All done.', 'Running.', the output, 'Finished.', 'Finished.'). Two causes: the shared projection showed both the controller's terminal state change and the run's ending event, now only the ending event when it is present (job_control.summary_lines); and Cover and Converter appended their closing line before the adapter had rendered the run's events, now they render first (_render_job_events). After: 'Running.', the output, 'Finished.', 'All done.'. Tests: test_job_events_eta.py, test_cover_jobs.py, test_m4b_converter_jobs.py; mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-019",
@@ -22414,13 +22622,14 @@
       "id": "ACT72-021",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "24 kHz speech asked for 192k or 320k is encoded as MPEG-2 Layer III at its 160k ceiling with no word to the user; measured for Kokoro, very likely Edge too (24 kHz mono)",
       "features": [
         "ACT.TTS.BITRATE",
         "ACT.TTS.ENGINE.KOKORO"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): measured: every engine's real output in this repository (Edge, Kokoro, Chatterbox, Qwen3 Aiden and Ryan) is 24 kHz mono at 160 kbit/s although asked for 192k, and the app's FFmpeg/LAME writes 128k, 160k, 160k for 128k, 192k, 320k at 24 kHz (192k and 320k honoured at 44.1 kHz) (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/bitrate/). The options, encoding and sample rate are unchanged; at Start the run's Summary says what the files get when the request is above the ceiling (mp3_bitrate_note). Tests: test_tts_start_values.py (a real encode, the MPEG ceiling table, the Summary line); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-022",
@@ -22459,45 +22668,49 @@
       "id": "ACT72-025",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Cover Image size is checked only for being a number above 0: a typed 0 becomes 1024 and sizes outside the spinbox's 256-4096 range reach the resizer (100000 would ask Pillow for a huge canvas)",
       "features": [
         "ACT.COVER.SIZE"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the size as typed must be a whole number from 256 to 4096 (the spinbox's own range, now MIN_SIZE / MAX_SIZE); anything else shows 'Bad size' before anything is reserved or resized (target_size_problem). The panel tests that ran at 64 px now run at 256. Tests: test_cover_jobs.py (12 refused, 3 accepted at the range ends); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-026",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The Converter's malformed-chapter refusal says converting as a whole book will still work, but whole-book mode refuses that book too",
       "features": [
         "ACT.CONVERTER.CHAPTER-VALIDATION"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the malformed-chapter refusal now says only that the chapter list is not usable; shown that Whole book refuses the same list. Test: test_m4b_conversion_plan.py (both modes); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-027",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The Converter's Cancel message says it will stop after the current file; FFmpeg is stopped mid-encode and the book is rolled back (docstring and module header also stale)",
       "features": [
         "ACT.CONVERTER.CANCEL"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the Cancel line now says the file being converted is stopped now and its book taken back, books already finished kept; the cancel() docstring and module header no longer describe the retired between-books Cancel. Test: test_m4b_converter_jobs.py (a real Cancel mid-book: the line, the finished book kept, the interrupted one taken back); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-028",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The Converter's Title label promises 'blank → filename', which no Converter code does",
       "features": [
         "ACT.CONVERTER.METADATA"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the Title field is labelled 'Title', like Artist, Album Artist and Album; the semantics are unchanged and described by the modes. Test: test_m4b_converter_jobs.py; mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-029",
@@ -22585,12 +22798,13 @@
       "id": "ACT72-036",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "MP3 Tool's Start # and Time refusals name a Book by its position, while the navigator and run log use its stable number, so after a removal the message can name the wrong Book",
       "features": [
         "ACT.MP3.INVALID-VALUES"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the MP3 Tool's Start # and Time refusals, and the Maker's Silence refusal (same defect), name the Book by its stable number. Tests: test_mp3_tool_ui.py, test_m4b_maker_ui.py (remove Book 1, refuse the former Book 2); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-037",
@@ -22641,32 +22855,37 @@
       "id": "ACT72-041",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "The launcher's status line says a tool that failed to load is 'ready' (select_tool overwrites the load-error status)",
       "features": [
         "ACT.LAUNCHER.LOAD-ERROR"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the launcher remembers which tools failed to load and says '<Tool> failed to load.' every time one is selected. Test: test_launcher_smoke.py (a build_ui that raises); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-042",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Reset Preferences also returns Light/Dark to Light but its confirmation does not say so",
       "features": [
         "ACT.SHARED.PREFERENCES.RESET"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): the Reset Preferences card and question now name the Light/Dark appearance and that it goes back to Light. Test: test_preferences_ui.py (both texts, and that a reset really returns Dark to Light); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-043",
       "severity": "Suggestion",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "shared/settings.py's docstring says window size and voice/bitrate presets are remembered; they are not",
-      "features": [],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "features": [
+        "ACT.SHARED.SETTINGS"
+      ],
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C, a Suggestion done as a small documentation correction): shared/settings.py now describes what is really saved and says window size and run options are not; no persistence was added. Test: test_settings_allowlist.py checks the description against every key production writes (AST); mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-044",
@@ -22709,12 +22928,13 @@
       "id": "ACT72-047",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A Kokoro speed typed outside 0.5-2.0 (0, negative, nan, inf) reaches the engine unchecked; the spinbox limits only its arrows",
       "features": [
         "ACT.TTS.ENGINE.KOKORO"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch C): Start refuses a Kokoro speed that is not a finite number from 0.5 to 2.0 (kokoro_speed_problem), before anything is frozen or reserved, as for the Edge rate. The new test also found that a leftover non-finite speed stopped an Edge run with an OptionFreezeError; for any voice but Kokoro the unused value now freezes as 1.0. Tests: test_tts_start_values.py; mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchC/mutation-results*.txt)."
     },
     {
       "id": "ACT72-048",
@@ -22878,18 +23098,18 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "05d244791f517ec95068f2a3f3be065248bb983dfe1a74d8692051c688473ca3",
     "Setup_and_Run-audiobook-creation-tool.command": "24f965d1c3a34aea754d8ad800a29320f21f0619a9fcbb2c1c82d7b2067d5090",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "88da4dff0d87d6e910c29682726b7c9a16dd3b868b0e03ec66b574c047bc35f1",
+    "scripts/artwork/cover_resizer.py": "8cbe4283ebc738d3eb2750e910f503bb95780a25c5c2617aa87162d4e8e4b0c0",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "3e682e27a27b72100410f541dd3ed64c306ae2baa96682c14cb0bac5de56f70b",
+    "scripts/launcher.py": "4d7cb12d022393f36f11d44d1feb73fff4e742be71b80ba557e206193c197d73",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "4eda21af1fa873abde220943a7bf727cdd990053599bdc8f5436f76575e3f904",
+    "scripts/m4b/converter/m4b_converter.py": "fd5e227b489b090b0948e8b806dcdf3f596e43d7191cb040510315d4df7a6336",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "57352c44c776290811051f8113a3d50382a151c69b2bcad45a02021d4a39312a",
-    "scripts/m4b/m4b_chapters.py": "7ee5624d7c0716b9687008a3a6b69effa5ffeaa562f18dc39eb6b9d94407842f",
+    "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "722b4d576f44379dfcb0c6a04ed14d3d38a24dccdba084898458002adf55ea8b",
     "scripts/m4b/m4b_execution.py": "246007cb28897a91f9a6209ab0ae9a415284eb972ee99223f7b40a2694b47d8c",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
@@ -22898,21 +23118,21 @@
     "scripts/m4b/m4b_staging.py": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
     "scripts/m4b/m4b_winaudio.py": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "71d043e493214c0e0e8419508cc74a2e29d0ff05612c1f07fd55059204fee7bb",
-    "scripts/m4b/maker/m4b_maker_batch.py": "97671e493a2deea5c37cf915fa18c548330fbfe397715f647a297e2150ebe371",
+    "scripts/m4b/maker/m4b_maker.py": "39a0bdc0decc03f1de702e99d7de8748e67e7ae6fe820e11e841d37cf19a095c",
+    "scripts/m4b/maker/m4b_maker_batch.py": "fbeaee438a052c3f58c9b4840e95db1249498240d537b9b66487870bf832e0e6",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
-    "scripts/m4b/metadata/m4b_metadata_batch.py": "f8401628a4e204a7b96776104c1511390b6201bbd90005d449921b6591f71011",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "aa8abf90ef22f047e7c5caf8a7f49d8124ac76539bba1127322bf71609c6af22",
+    "scripts/m4b/metadata/m4b_metadata_batch.py": "bca58c374997bc3d1ce3ce52b691c876a2a8d6c23f67ae426e9deda02b10806c",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "0eceeda5b254ef59355f2ce3f83b453db475a2c5c0f6a901fd6b1762f11c9bee",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "ea2c7bace5ded16562c724ca1d94e8c9ea2edc33662b5361aa30d4967f5b0eb5",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "0b3026a550b4efa08ca1f75cdeb577316eb40a68952f7c302ad3d6a69f632261",
+    "scripts/mp3/mp3_tool.py": "dde6601a0d5b663c751620f2ae06e7cfbadef0ee9b8d445b1aad854f0579ec71",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
@@ -22936,7 +23156,7 @@
     "scripts/shared/image_capabilities.py": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
-    "scripts/shared/job_control.py": "78847a3bcd767c6619876ff187a59ae3dc65a89b4c37a9a5e5535da997fa2e20",
+    "scripts/shared/job_control.py": "8588b897891596224272f95bd474f048b4b2cbdece4890c8673d653878e55387",
     "scripts/shared/job_ui.py": "3a8a58d0a936e8930f3fd4653db25755c7f2ac66c0e23c5a9ea37e1384e0a51b",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/maintenance.py": "b801ffa6d4d2fd04b218ad70da8353185df01f9c0d1c0557fe2ae1f38f64e0f1",
@@ -22957,9 +23177,9 @@
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
     "scripts/shared/output_paths.py": "30c2443ece82baabc5ab051297f9a372df9950e698c8928355b82a29466bea8e",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
-    "scripts/shared/preferences_ui.py": "e7fc46ece6217e2a8f3c5ee2355ece398ca771a4c24a7d654a297e89e7c08b2f",
+    "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
-    "scripts/shared/settings.py": "f65259720ef0d15f8c5e72f0fe241ab7bbf5528f8a8e5cc79279063f8594462b",
+    "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "b0df6289828bab5e4b0963584d4abd014246ec1c8eb17d5c21ec68cab6813a32",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
@@ -22976,7 +23196,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "d96a33be96eddcb10698fab9bfe661327386504f08af73653649cdd12d86bb93",
-    "scripts/tts/epub2tts_gui.py": "25aece605a20615dc400bd53f0da657a054b397412b26b83d428d145f2ef1f09",
+    "scripts/tts/epub2tts_gui.py": "b8e4daf8c45ebf9f3aa3e1940d7e7f4b0b2356a9ceb92791b0bdaddbd1bce6da",
     "scripts/tts/ffmpeg_watch.py": "164587651715e138581a8a6b88f1c8dd5cc9781dd99676fbb5678224ab72d7ec",
     "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
     "scripts/tts/kokoro_synth.py": "dda3a56019046013113d7bf95b2d8ad4429b08c2fdc87494f9d27f7ef29e74c0",

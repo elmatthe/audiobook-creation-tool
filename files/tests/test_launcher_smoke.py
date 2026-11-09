@@ -279,6 +279,41 @@ def test_invalid_saved_tool_falls_back_to_the_first_available(
     assert error_recorder == []
 
 
+def test_a_tool_that_failed_to_load_is_never_called_ready(fresh_root, fake_settings, error_recorder, monkeypatch):
+    """v0.7.2 Phase 6, ACT72-041: select_tool overwrote '<Tool> failed to load.' with '<Tool> — ready.', and said
+    'ready' again each time the broken tool was selected."""
+    import importlib
+
+    import launcher
+
+    real_import = importlib.import_module
+
+    def import_module(name, *args, **kwargs):
+        module = real_import(name, *args, **kwargs)
+        if name == next(t.module for t in launcher.TOOLS if t.key == "cover"):
+            class Broken:
+                def __getattr__(self, attr):
+                    if attr == "build_ui":
+                        def build_ui(container):
+                            raise RuntimeError("a dependency is missing")
+                        return build_ui
+                    return getattr(module, attr)
+            return Broken()
+        return module
+
+    monkeypatch.setattr(launcher.importlib, "import_module", import_module)
+    app = launcher.LauncherApp(fresh_root)
+    spec = next(t for t in launcher.TOOLS if t.key == "cover")
+    app.select_tool("cover")
+    fresh_root.update_idletasks()
+    assert [line.split(":")[0] for line in error_recorder] == ["cover"], "the error panel is shown"
+    assert app.status_var.get() == f"{spec.title} failed to load."
+    app.select_tool("tts")
+    assert app.status_var.get().endswith("— ready."), "a tool that loaded is still ready"
+    app.select_tool("cover")
+    assert app.status_var.get() == f"{spec.title} failed to load.", "and the broken one says so every time"
+
+
 def test_unavailable_saved_tool_falls_back_safely(
     fresh_root, fake_settings, error_recorder, monkeypatch
 ):

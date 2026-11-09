@@ -165,6 +165,9 @@ STATUS_COMPLETED = "Completed"
 STATUS_FAILED = "Failed"
 STATUS_SKIPPED = "Skipped (unreadable)"
 STATUS_NOT_ATTEMPTED = "Not attempted"
+#: The Book a Cancel stopped part-way (v0.7.2, ACT72-004). Its result stays NOT_ATTEMPTED (no new disposition); this
+#: only tells it apart from the Books the run never reached.
+STATUS_CANCELLED = "Cancelled"
 
 #: Characters of the page Title / filename shown after ``Book N`` before eliding.
 HINT_LIMIT = 40
@@ -1767,7 +1770,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         if result is not None:
             self._say(f"{self._label}: {result.succeeded_count} Book(s) completed, "
                       f"{result.failed_count} failed, {result.skipped_invalid_count} "
-                      f"skipped (unreadable), {result.not_attempted_count} not attempted "
+                      f"skipped (unreadable), {self._counts_text(result)} "
                       f"→ {self.last_plan.run_directory}")
         self.render()
 
@@ -1810,7 +1813,25 @@ class M4BMetadataEditorUI(ttk.Frame):
         result = self.last_result
         if result is None:
             return STATUS_READY
+        if book_id == self._stopped_book_id(result):
+            return STATUS_CANCELLED
         return self._status_of_disposition(result.disposition_for(book_id))
+
+    def _stopped_book_id(self, result) -> str | None:
+        """The Book a Cancel stopped part-way in the latest attempt, if the frozen result still calls it NOT_ATTEMPTED."""
+        attempt = self._attempt
+        stopped = getattr(attempt, "stopped_book_id", None)
+        if (stopped is None or result is None or result.state is not JobState.CANCELLED
+                or result.disposition_for(stopped) is not BookDisposition.NOT_ATTEMPTED):
+            return None
+        return stopped
+
+    def _counts_text(self, result) -> str:
+        """"N not attempted", or with the stopped Book told apart: "1 stopped by Cancel, N not attempted"."""
+        stopped = 1 if self._stopped_book_id(result) is not None else 0
+        never = result.not_attempted_count - stopped
+        return (f"{stopped} stopped by Cancel, {never} not attempted" if stopped
+                else f"{result.not_attempted_count} not attempted")
 
     def _current_stage(self) -> str | None:
         for entry in reversed(self.jobs.stream.events):

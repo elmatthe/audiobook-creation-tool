@@ -13,6 +13,21 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6, batch C: accurate messages and validated values (2026-11-09)
+
+**Fixed**
+- MP3 Tool, M4B Maker and Metadata Editor: after a Cancel, the Book that was being processed now reads "Cancelled" and the closing line counts it as "stopped by Cancel"; Books the run never reached still read "Not attempted". TTS: the closing line of a cancelled run says how many files finished, were stopped and were not started.
+- Cover Image and M4B Converter: the Summary no longer shows "All done." above "Running." or "Finished." twice; the run's lines come first, its end once, then the closing line.
+- TTS: the MP3 bitrate you choose is now explained when it cannot be reached. Every voice makes 24 kHz speech, where an MP3 can be at most 160 kbit/s, so 192k and 320k give 160k files (measured on real output of every voice); the Summary now says so when a run starts. Nothing about the audio changed.
+- TTS: a Kokoro speed outside 0.5 to 2.0, or not a number, is refused when you press Start. A leftover bad Kokoro speed no longer stops an Edge conversion with an error.
+- Cover Image: a typed target size must be a whole number from 256 to 4096, the size box's own range; 0 no longer turns into 1024 and huge sizes no longer reach the resizer.
+- M4B Converter: the unusable-chapter message no longer suggests converting as a whole book (which refuses the same file); the Cancel message says the file being converted is stopped now and its book taken back; the Title field no longer promises the filename when left blank.
+- MP3 Tool and M4B Maker: a refused Start #, Time or Silence names the Book by the number the navigator shows, also after a Book was removed.
+- The launcher no longer calls a tool that failed to load "ready". Reset Preferences now says it also returns Light/Dark to Light.
+
+**Added (development only; nothing here ships)**
+- Tests for each, every one seen failing on a planted defect; a real-media check of the 24 kHz bitrate ceiling.
+
 ## [Unreleased] — v0.7.2 Phase 6, batch B: run locks, shutdown and first-run setup (2026-11-09)
 
 **Fixed**

@@ -181,7 +181,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 `ACT.MAKER.CANCEL`
 
 - The shared Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (an unrelated FFmpeg is untouched), and is otherwise honoured at the next checkpoint, between Books and between steps of a Book. No later step starts. The Book being built publishes nothing and its staging is removed (a candidate kept from an earlier attempt too, if Cancel arrives while it is checked or numbered); Books not reached are Not attempted; Books already published stay. A stopped step is never a failed encode: it does not fall back from FAST to Safe and is not offered to Retry Failed. A cancel that arrives while a Book is being published keeps that Book. In custom mode the chosen folder is never removed. (ACT72-023, fixed in v0.7.2 Phase 6C.)
-- Not attempted Books are not offered to Retry Failed; press Build again for a new run.
+- Not attempted Books are not offered to Retry Failed; press Build again for a new run. The Book a Cancel stopped part-way reads Cancelled and is counted as stopped by Cancel; Books never reached read Not attempted (both stay NOT_ATTEMPTED; ACT72-004, v0.7.2 Phase 6).
 - There is no native Maker cancel journey; Cancel during a running encode is proved on real media through the batch worker.
 
 ### Retry Failed

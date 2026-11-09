@@ -7683,3 +7683,21 @@ reused while this process holds the child's unreaped handle. Limitation: if the 
 pip is not ended with it, as before.
 
 — Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.
+
+---
+
+## 2026-11-09 — Messages say what happened; values are judged as typed (v0.7.2 Phase 6, batch C)
+
+**Decision 1 (ACT72-004):** the 2026-11-05 decision stands: no per-item CANCELLED status; a file or Book stopped by Cancel stays
+`NOT_ATTEMPTED`, and Retry Failed never offers it. Only the words change: the multi-Book panels show the Book a Cancel stopped
+part-way as "Cancelled" (each runner records `stopped_book_id`; the MP3 panel reads the Books its projection saw begin) and count
+it as "stopped by Cancel"; TTS counts finished, stopped and not-started files in its closing line.
+
+**Decision 2 (ACT72-021):** the 160 kbit/s ceiling of a 24 kHz MP3 is told, not worked around. Resampling to 44.1 or 48 kHz to
+honour 192k/320k would change every engine's output for no audible gain on speech; the options stay as they are and the Summary
+says what the files get.
+
+**Decision 3 (ACT72-025):** a typed Cover size must lie in the size box's own range, 256 to 4096. Smaller sizes were reachable
+only by typing; no product path or journey used them, and the panel tests that did now use 256.
+
+— Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.

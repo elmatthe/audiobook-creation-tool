@@ -45,7 +45,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - If a tool's module raises while loading, its panel shows "Could not load ‹Tool›." with read-only details; the rest of the app is unaffected.
 - An invalid voice list names the entries to fix in `scripts/tts/voice_registry.py` and never blames a missing dependency; any other failure advises running setup again and includes the traceback.
 - The tool stays unavailable until the app is restarted after the cause is fixed. Because `last_tool` is still saved, the next launch shows the error panel again.
-- Known gap (new finding): the status line is overwritten with "‹Tool› — ready." right after the error panel sets "‹Tool› failed to load."
+- The status line says "‹Tool› failed to load." each time a tool that failed to load is selected (ACT72-041, fixed in v0.7.2 Phase 6; it used to be overwritten with "— ready.").
 
 ### Open log folder
 `ACT.LAUNCHER.OPEN-LOG-FOLDER`
@@ -113,7 +113,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Ctrl+A selects all in either pane and copying works. Each pane keeps at least one readable line at the smallest window.
 - The panes are emptied when the app closes; the session log keeps the technical record.
 - Following (v0.7.2 Phase 5, ACT72-005): each pane on its own follows new lines while its newest line is on screen, holds a reader who scrolled up on the same line through new lines, trimmed history, resizes and tab or tool switches, and follows again at the bottom. A render changes only the lines that changed.
-- Known issues: ACT72-018 — Summary can print "All done." above "Running." and "Finished." twice (seen in Cover Image and Converter).
+- A run that ended says so once: when the stream holds the run's own ending event, the controller's terminal state change adds no line; a panel's own closing line comes after the run's lines (ACT72-018, fixed in v0.7.2 Phase 6).
 
 ### Session log files and crash diagnostics
 `ACT.SHARED.SESSION-LOG`
@@ -248,7 +248,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 
 - "Reset Preferences…" asks first. No: "Reset cancelled. Nothing was changed." Yes: `settings.json` is emptied; nothing else is touched (no models, logs, outputs, media or `config.toml`). A failed reset says so and leaves the file intact.
 - After a reset the fields, open tools' output lines and Light/Dark refresh immediately.
-- Known gap (new finding): Reset also returns Light/Dark to Light, but the question and caption list only the last tool, remembered folders and custom output location.
+- The question and the card's caption name everything a reset clears: the last tool, remembered folders, the custom output location and Light/Dark, which goes back to Light (ACT72-042, fixed in v0.7.2 Phase 6).
 - Kept separate from Clear Downloaded Data.
 
 ### Shared M4B tag reading and writing

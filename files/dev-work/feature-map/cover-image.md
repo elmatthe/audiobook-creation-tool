@@ -76,7 +76,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **Purpose:** the side length of the square cover.
 - **How to reach it:** 2. Resize Options, "Target size (square, px)" (spin range 256 to 4096 in steps of 64, default 1024; the value can be typed).
 - **Behaviour:** every output is exactly size x size for the size in effect when Resize Covers was pressed; changing it during a run has no effect on that run.
-- **Failure:** a non-numeric value shows "Bad size: Target size must be a number."; a negative value shows "Bad size: Target size must be positive." Nothing starts and no run folder is reserved.
+- **Failure:** the size as typed must be a whole number of pixels from 256 to 4096; anything else (0, negative, a fraction, an exponent, nan, inf, a word) shows "Bad size" naming that range. Nothing starts, nothing is resized and no run folder is reserved (ACT72-025, fixed in v0.7.2 Phase 6: a typed 0 became 1024 and any larger size reached the resizer).
 - **Persistence:** not saved; each panel starts at 1024.
 - **Known gap:** 0 silently becomes 1024, and typed values outside 256-4096 (very small or very large) are accepted with no upper bound. Only the negative case has a test. New finding, Phase 6.
 
@@ -171,7 +171,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **Purpose:** show how far the batch is and what happened to each image.
 - **How to reach it:** the progress, stage and estimate under Resize Covers; the Activity area's Summary and Detailed tabs; Clear Log.
 - **Behaviour:** progress counts only images actually finished, also after Cancel. The estimate says calculating until three images have succeeded, and again while paused or finished. Summary names each failed file ("<name> could not be resized.") without tracebacks or commands; Detailed has the per-image transcript and error text. The closing "All done." or "Cancelled." appears in both panes. Clear Log empties the visible text only.
-- **Known gap:** the Summary shows "All done." above "Running." and "Finished." twice (ACT72-018, Phase 6). Log following in the panes is shared (ACT.SHARED.LOG-VIEW).
+- The Summary shows the run's lines first, its end once ("Finished." or "Cancelled."), then the closing line (ACT72-018, fixed in v0.7.2 Phase 6; "All done." used to sit above "Running."). Log following in the panes is shared (ACT.SHARED.LOG-VIEW).
 
 ### Pause and Resume
 `ACT.COVER.PAUSE`

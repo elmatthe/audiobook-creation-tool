@@ -185,6 +185,35 @@ def test_a_cancel_during_ffmpeg_leaves_no_work_area_and_publishes_nothing_partia
     assert_untouched(planted)
 
 
+def test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted(
+        make_panel, tmp_path, monkeypatch):
+    """v0.7.2 Phase 6, ACT72-004: a Book stopped part-way by Cancel read 'Not attempted', like one the run never
+    reached. Its result stays NOT_ATTEMPTED (no new disposition, Decisions 2026-11-05); only the words tell them apart."""
+    panel = make_panel(thread_factory=RealThreads())
+    made, root = three_books(panel, tmp_path, monkeypatch, broken=None)
+    real_args = proc._clean_copy_args
+
+    def slow_second_track_of_b(source, staged):
+        args = real_args(source, staged)
+        if source.parent.name == "B" and source.name.startswith("02"):
+            args = [args[0], "-re", *args[1:]]
+            threading.Timer(0.3, panel.job_controller.request_cancel).start()
+        return args
+
+    monkeypatch.setattr(proc, "_clean_copy_args", slow_second_track_of_b)
+    panel.write_id3_tags()
+    wait_for(panel, lambda: not panel.is_running, timeout=30.0)
+    for thread in panel._thread_factory.made:
+        thread.join(10.0)
+    a, b, c = panel.workspace.books
+    assert [panel.book_status_for(book.book_id) for book in (a, b, c)] == [
+        mp3_tool.STATUS_COMPLETED, mp3_tool.STATUS_CANCELLED, mp3_tool.STATUS_NOT_ATTEMPTED]
+    result = panel.last_result
+    assert result.disposition_for(b.book_id) is result.disposition_for(c.book_id), "the same disposition underneath"
+    summary = "\n".join(panel.log.summary)
+    assert "1 Book(s) completed, 0 failed, 0 skipped, 1 stopped by Cancel, 1 not attempted" in summary, summary
+
+
 def test_an_item_less_failure_cannot_be_retried_so_its_staging_goes_at_once(make_panel, tmp_path, monkeypatch):
     panel = make_panel()
     made, root = three_books(panel, tmp_path, monkeypatch, broken=None)

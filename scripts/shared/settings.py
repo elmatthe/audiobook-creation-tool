@@ -1,10 +1,15 @@
 """Persistent application settings stored as JSON under ``files/runtime-data/settings.json``.
 
-Tools and the launcher use this to remember things across runs: last-used input
-and output folders, the selected voice / bitrate / timing preset, the launcher
-window size, and which sidebar tool was open at last close. This file holds
-**mutable user state only** — the committed root ``config.toml`` holds the
-project's documented defaults, and nothing here ever writes to it.
+Tools and the launcher use this to remember a few things across runs: which
+sidebar tool was open at last close, the last input folder of Cover Image, the MP3
+Tool and the three M4B tools (and the Maker's and Metadata Editor's last cover
+folder; the TTS tool keeps none), the custom output location
+chosen in Preferences, and the Light/Dark appearance. Nothing else is saved: the
+window always opens at its default size, and the voice, bitrate and other run
+options start from their defaults each session (v0.7.2, ACT72-043: this said
+otherwise). This file holds **mutable user state only** — the committed root
+``config.toml`` holds the project's documented defaults, and nothing here ever
+writes to it.
 
 The read API is intentionally tiny and forgiving: a missing or corrupt settings
 file never raises and is never rewritten during a load, so a user who

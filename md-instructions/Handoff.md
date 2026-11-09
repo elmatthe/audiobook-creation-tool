@@ -2,6 +2,16 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6 (complete), batch C of A–E committed: accurate messages and validated values (ACT72-004, 018, 021, 025, 026, 027, 028, 036, 041, 042, 043, 047); branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
+
+Authority as in the batch A block below; this block supersedes the batch B block for status and next action.
+
+- **Batch B pushed.** `e6bc79e`.
+- **Batch C (this commit).** ACT72-004: the Book a Cancel stopped part-way reads "Cancelled" in the MP3 Tool, Maker and Metadata Editor (runners record `stopped_book_id`; the MP3 projection records the Books it saw begin) and is counted as "stopped by Cancel"; it stays `NOT_ATTEMPTED`, so Retry Failed never offers it; TTS's cancelled closing line counts finished, stopped and not-started files. ACT72-018: `job_control.summary_lines` adds no line for the controller's terminal state change once the stream holds the run's own end; Cover and Converter drain the run's events before their closing line. ACT72-021: the Summary explains the 160 kbit/s ceiling of 24 kHz MP3 at Start (`epub2tts_gui.mp3_bitrate_note`); nothing is resampled. ACT72-025: Cover size as typed must be a whole number from 256 to 4096 (`cover_resizer.target_size_problem`). ACT72-026/027/028: Converter malformed-chapter, Cancel and Title wording. ACT72-036: MP3 and Maker refusals name the stable Book number. ACT72-041: the launcher keeps "failed to load." for a tool that failed. ACT72-042: Reset names Light/Dark. ACT72-043: the `settings.py` docstring lists what is saved. ACT72-047: Kokoro speed refused at Start outside 0.5–2.0 or non-finite; a leftover bad Kokoro speed no longer stops an Edge run (found by the new test). `Decisions.md` 2026-11-09 (batch C).
+- **Evidence.** Real encodes (`batchC/bitrate/`): every engine's output is 24 kHz mono; FFmpeg at 24 kHz gives 128/160/160 kbit/s for 128k/192k/320k and honours 192k at 44.1 kHz. Tests: `test_tts_start_values.py` (new) and additions to the job-events, Cover, Converter, conversion-plan, MP3, Maker, launcher, Preferences, settings, TTS and the three staging-release modules. 20 of 20 planted defects caught, control green (`batchC/mutation-results*.txt`). `inventory.py check` 0 problems (273 features).
+- **Issue count after batch C.** 59 issues, 15 open: Phase 6 9 (7 Minor: ACT72-032, 050, 051, 052, 053, 054, 056; 2 Suggestion: ACT72-030, 046), Phase 7 1, Phase 8 5.
+- **Next exact action.** The canonical changed-area gate on this commit with base `e20b960` (widens to every test: `scripts/shared/` is touched); then batch D (test and journey gaps), then batch E.
+
 ## CURRENT STATE — v0.7.2 Phase 6 (complete), batch B of A–E committed: run locks, shutdown, first-run setup (ACT72-014, 017, 038, 039); branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 Authority as in the batch A block below, which this block supersedes for status and next action.

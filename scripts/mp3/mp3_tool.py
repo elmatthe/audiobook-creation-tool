@@ -214,6 +214,9 @@ STATUS_COMPLETED = "Completed"
 STATUS_FAILED = "Failed"
 STATUS_SKIPPED = "Skipped"
 STATUS_NOT_ATTEMPTED = "Not attempted"
+#: The Book a Cancel stopped part-way (v0.7.2, ACT72-004). Its result stays NOT_ATTEMPTED (no new disposition); this
+#: only tells it apart from the Books the run never reached.
+STATUS_CANCELLED = "Cancelled"
 
 MIXED_MARK = "Mixed source metadata"
 #: The same marker in the tight density (v0.6.6 Phase 6). At the real
@@ -370,6 +373,9 @@ class _RunProjection:
             total += units
         self.total = total
         self._started: dict[str, int] = {}
+        #: The Books whose processing began (their "started" line), for telling a Book a Cancel stopped part-way
+        #: from one never reached (ACT72-004). Written on the worker, read on the main thread after the terminal event.
+        self.began: set[str] = set()
 
     def stage_of(self, book_id: str) -> str:
         return f"book-{self._position.get(book_id, 0)}"
@@ -381,6 +387,7 @@ class _RunProjection:
         message = _one_line(event.message)
         kind = event.kind
         if kind == "book":
+            self.began.add(book_id)
             reporter.stage_changed(stage, message)
             reporter.progress(self._offset.get(book_id, 0), self.total, stage=stage)
         elif kind == "track":
@@ -2032,17 +2039,20 @@ class MP3ToolUI(ttk.Frame):
         space = self.workspace
         eligible = []
         for position, book in enumerate(space.books, start=1):
+            # The Book's stable number, as the navigator and the run log show it, never its position, which changes
+            # when a Book is removed (v0.7.2, ACT72-036).
+            number = self.book_numbers.get(book.book_id, position)
             try:
                 wf.parse_start_number(wf.start_number_text(book))
             except wf.MP3ValueError as exc:
-                messagebox.showerror(APP_TITLE, f"{label}: Start # for Book {position}: {exc}",
+                messagebox.showerror(APP_TITLE, f"{label}: Start # for Book {number}: {exc}",
                                      parent=self)
                 return False
             try:
                 wf.parse_time_delta(
                     str(wf.effective_scalars(space.shared, book).get("time_delta", "")))
             except wf.MP3ValueError as exc:
-                messagebox.showerror(APP_TITLE, f"{label}: Time for Book {position}: {exc}",
+                messagebox.showerror(APP_TITLE, f"{label}: Time for Book {number}: {exc}",
                                      parent=self)
                 return False
             if not book.files.is_empty:
@@ -2335,9 +2345,11 @@ class MP3ToolUI(ttk.Frame):
         self.jobs.set_result(result)
         if result is not None:
             skipped = result.skipped_empty_count + result.skipped_invalid_count
+            stopped = len(self._stopped_book_ids(result))
+            never = (f"{stopped} stopped by Cancel, {result.not_attempted_count - stopped} not attempted"
+                     if stopped else f"{result.not_attempted_count} not attempted")
             self._say(f"{attempt.label}: {result.succeeded_count} Book(s) completed, "
-                      f"{result.failed_count} failed, {skipped} skipped, "
-                      f"{result.not_attempted_count} not attempted "
+                      f"{result.failed_count} failed, {skipped} skipped, {never} "
                       f"→ {attempt.plan.run_directory}")
         self.render()
 
@@ -2373,7 +2385,18 @@ class MP3ToolUI(ttk.Frame):
         result = self._settled
         if result is None:
             return STATUS_READY
+        if book_id in self._stopped_book_ids(result):
+            return STATUS_CANCELLED
         return self._status_of_disposition(result.disposition_for(book_id))
+
+    def _stopped_book_ids(self, result) -> set[str]:
+        """The Books a Cancel stopped part-way in the latest attempt: begun, never settled, NOT_ATTEMPTED (ACT72-004)."""
+        attempt = self._attempt
+        if attempt is None or result is None or result.state is not JobState.CANCELLED:
+            return set()
+        return {book_id for book_id in attempt.projection.began
+                if attempt.settled(book_id) is None
+                and result.disposition_for(book_id) is BookDisposition.NOT_ATTEMPTED}
 
     def _current_stage(self) -> str | None:
         """The stage the run's accepted events last announced, if any.

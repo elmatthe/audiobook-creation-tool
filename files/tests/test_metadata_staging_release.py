@@ -180,3 +180,31 @@ def test_dropping_the_run_removes_the_kept_candidate(action, make_panel, contain
     assert {path: sha(path) for path in published} == published
     assert stray.read_bytes() == b"someone else's"
     assert tree(root) == before
+
+
+# --------------------------------------------------------------------------- a Book stopped part-way (ACT72-004)
+
+
+def test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted(
+        make_panel, container, tmp_path, monkeypatch, output_base):
+    """v0.7.2 Phase 6, ACT72-004, as in the Maker and the MP3 Tool."""
+    from m4b.metadata import m4b_metadata_editor as editor
+
+    root = library(container, tmp_path / "Library")
+    panel = make_panel()
+    import_folder(panel, root)
+    real = proc.stage_book
+
+    def stage(book, **kwargs):
+        if book.filename == "Beta.m4b":
+            panel.run.cancel()
+        return real(book, **kwargs)
+
+    monkeypatch.setattr(proc, "stage_book", stage)
+    assert panel.save() is True
+    panel._pump.tick()
+    statuses = {book.filename: panel.book_status_for(book.book_id) for book in panel.last_plan.books}
+    assert statuses == {"Alpha.m4b": editor.STATUS_COMPLETED, "Beta.m4b": editor.STATUS_CANCELLED,
+                        "Gamma.m4a": editor.STATUS_NOT_ATTEMPTED}, statuses
+    summary = "\n".join(panel.log.summary)
+    assert "1 stopped by Cancel, 1 not attempted" in summary, summary

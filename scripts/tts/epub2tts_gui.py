@@ -80,6 +80,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import math
 import os
 import queue
 import re
@@ -462,6 +463,60 @@ def edge_rate_problem(rate: str, imported) -> str:
         return ""
     return (f"The Edge speech rate {rate!r} is not one the Edge voices accept. Type a sign, a whole number and %, "
             "for example +10% or -5% (+0% is normal speed). Nothing was started.")
+
+
+#: Every voice family makes 24 kHz speech: Edge's service format, Kokoro's and Chatterbox's model rate, Qwen3's model
+#: output (each measured on the app's real output, v0.7.2 Phase 6). Nothing here resamples it.
+SPEECH_SAMPLE_RATE = 24000
+
+
+def mp3_bitrate_ceiling_kbps(sample_rate: int) -> int:
+    """The highest bit rate an MP3 at *sample_rate* can have: MPEG-1 Layer III (32, 44.1 and 48 kHz) 320 kbit/s,
+    MPEG-2 (16, 22.05 and 24 kHz) 160, MPEG-2.5 (8, 11.025 and 12 kHz) 64."""
+    if sample_rate >= 32000:
+        return 320
+    if sample_rate >= 16000:
+        return 160
+    return 64
+
+
+def mp3_bitrate_note(requested: str, sample_rate: int = SPEECH_SAMPLE_RATE) -> str:
+    """What to tell the person when *requested* is above what MP3 allows at the speech's sample rate, or ``""``.
+
+    v0.7.2 Phase 6, ACT72-021: a 24 kHz voice asked for 192k or 320k was encoded at MPEG-2 Layer III's 160 kbit/s
+    ceiling with no word to the user. The encoding is unchanged (no resampling); the person is told what the files get.
+    """
+    try:
+        kbps = int(str(requested).strip().lower().removesuffix("k"))
+    except ValueError:
+        return ""
+    ceiling = mp3_bitrate_ceiling_kbps(sample_rate)
+    if kbps <= ceiling:
+        return ""
+    return (f"MP3 bitrate {requested}: the voices make {sample_rate / 1000:g} kHz speech, and an MP3 at that rate can "
+            f"be at most {ceiling} kbit/s, so the files are written at {ceiling}k.")
+
+
+#: The Kokoro speeds the panel offers (its spinbox's range; 1.0 is normal speed).
+KOKORO_SPEED_MIN = 0.5
+KOKORO_SPEED_MAX = 2.0
+
+
+def kokoro_speed_problem(text: str) -> str:
+    """Why a typed Kokoro speed cannot be used, or ``""``. v0.7.2 Phase 6, ACT72-047.
+
+    The spinbox limits only its arrows: a typed 0, a negative number, ``nan`` or ``inf`` reached the engine unchecked,
+    and a word silently became 1.0. Asked at Start, before anything is frozen or reserved, like the Edge speech rate.
+    """
+    raw = str(text).strip()
+    try:
+        speed = float(raw)
+    except ValueError:
+        speed = None
+    if speed is not None and math.isfinite(speed) and KOKORO_SPEED_MIN <= speed <= KOKORO_SPEED_MAX:
+        return ""
+    return (f"The Kokoro speed {raw!r} cannot be used. Type a number from {KOKORO_SPEED_MIN} to {KOKORO_SPEED_MAX} "
+            "(1.0 is normal speed). Nothing was started.")
 
 
 def needs_sentence_data(imported) -> bool:
@@ -2602,6 +2657,12 @@ class TtsPanel(ttk.Frame):
             if problem:
                 messagebox.showwarning("Edge speech rate", problem)
                 return
+        elif backend == "kokoro":
+            # The same value _freeze_run will freeze, judged before anything is frozen or reserved (ACT72-047).
+            problem = kokoro_speed_problem(self.kokoro_speed_var.get())
+            if problem:
+                messagebox.showwarning("Kokoro speed", problem)
+                return
 
         # A locally cloned voice needs its reference recording on *this* computer.
         # Asked here rather than trusted from selection time, and before anything is
@@ -2783,6 +2844,10 @@ class TtsPanel(ttk.Frame):
             kokoro_speed = float(self.kokoro_speed_var.get())
         except ValueError:
             kokoro_speed = 1.0
+        if not math.isfinite(kokoro_speed):
+            # Only a Kokoro run uses the speed, and run_job refused a bad one before this (ACT72-047). For any other voice
+            # the value is unused: a leftover "nan" or "inf" used to stop an Edge run with an OptionFreezeError.
+            kokoro_speed = 1.0
         end_pause = int(preset["end_pause"])
         paragraph_pause = int(preset["paragraphpause"])
         # Speech preparation (Plan 01B 4.7): the glossary and mode files are read and validated once, here, and the run
@@ -2893,6 +2958,10 @@ class TtsPanel(ttk.Frame):
                   if run_directory is None
                   else f"Run {self._run_count} — {run_directory.name}")
         self.log.divider(f"{DIVIDER_MARK} {heading}")
+        # The bitrate the files will really have, when the one asked for is above what MP3 allows (v0.7.2, ACT72-021).
+        note = mp3_bitrate_note(options["bitrate"])
+        if note:
+            self.log.append(note)
         for line in speech_prep_run_lines(options.get("speech_prep")):
             self.log.append_detail(line)
         self._controller = job_control.JobController(
@@ -3078,6 +3147,10 @@ class _RunContext:
         self.completed: list[str] = []
         self.failures: list = []
         self.cancelled = False
+        #: Files a Cancel stopped part-way, and files it kept from starting (v0.7.2, ACT72-004): both stay
+        #: NOT_ATTEMPTED in the result (Decisions 2026-11-05); the closing line counts them apart.
+        self.stopped = 0
+        self.not_started = 0
         self._done = 0
         self._total = len(self.items)
         self._counter = threading.Lock()
@@ -3286,6 +3359,10 @@ class _RunContext:
                     # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
                     what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
                             else "skipped (cancelled)")
+                    if message == "stopped":
+                        self.stopped += 1
+                    else:
+                        self.not_started += 1
                     self.log(f"[{stamp}] {item['source'].name} — {what}")
                 else:
                     self.record_failure(item, message or "the conversion failed")
@@ -3330,9 +3407,15 @@ class _RunContext:
                 final = self.controller.succeed()
             self.publisher.completed(final)
         self.log_q.put((RESULT_MESSAGE, settled))
-        self.log_q.put(("done", "Cancelled." if cancelled else (
-            f"Conversion finished: {len(self.completed)} ok, "
-            f"{len(self.failures)} failed.")))
+        if cancelled:
+            # What happened to each file, not just that the run was cancelled (ACT72-004). A file that finished before
+            # the Cancel is kept; a stopped one left nothing unfinished behind.
+            failed = f", {len(self.failures)} failed" if self.failures else ""
+            done = (f"Cancelled: {len(self.completed)} finished{failed}, {self.stopped} stopped (nothing unfinished was "
+                    f"saved), {self.not_started} not started.")
+        else:
+            done = f"Conversion finished: {len(self.completed)} ok, {len(self.failures)} failed."
+        self.log_q.put(("done", done))
 
     def settle_fatal(self, exc: BaseException) -> None:
         """The run itself broke. A job failure, and never retryable."""
