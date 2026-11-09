@@ -523,7 +523,7 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
             modules |= {f"{node.module}.{alias.name}" for alias in node.names}
     for banned in ("tkinter", "threading", "queue", "shutil", "subprocess", "mutagen",
                    "shared.job_ui", "shared.ui_theme", "shared.import_coordination",
-                   "shared.ffmpeg_utils", "shared.subprocess_utils",
+                   "shared.ffmpeg_utils",
                    "m4b.metadata.m4b_metadata_editor", "m4b.maker.m4b_maker",
                    "m4b.maker.m4b_maker_batch", "m4b.maker.m4b_maker_processing",
                    "mp3.mp3_tool", "mp3.mp3_processing", "mp3.mp3_plan",
@@ -533,6 +533,11 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
                      "shared.metadata", "m4b.metadata.m4b_metadata_plan",
                      "m4b.metadata.m4b_metadata_processing"):
         assert required in modules, required
+    # Since v0.7.2 Phase 6D (ACT72-033) the runner opens the attempt's Cancel scope for the remux's FFmpeg steps,
+    # and that is all it may use subprocess_utils for: it starts no process itself.
+    via_sp = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+              and isinstance(node.value, ast.Name) and node.value.id == "sp"}
+    assert via_sp <= {"cancellable"}, sorted(via_sp)
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
     for owned_elsewhere in ("JobController", "JobReporter", "JobEventStream", "RunResult",

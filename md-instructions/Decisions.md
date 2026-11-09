@@ -4,6 +4,26 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-08 - The Metadata Editor's chapter-title remux runs through Phase 6C's supervisor; Cancel stops it, Pause still lets it finish (v0.7.2 Phase 6D, ACT72-033)
+
+**Why.** ACT72-033: both FFmpeg steps of the Editor's chapter-title remux (`shared/metadata._run_chapter_remux_step`) were a blocking `subprocess_utils.run`, so Cancel was seen only after the remux, its validation and the read-backs. Measured at `88451ec` with the Editor's own rebuild slowed to a 60-second Book's playing time: Cancel waited 58.6 s for FFmpeg to finish, and a Cancel latched between the two steps still started the 59.5 s rebuild.
+
+**Reuse, not a second supervisor.** `_run_chapter_remux_step` calls `subprocess_utils.run_supervised` (v0.7.2 Phase 6C) for both steps and keeps every historical guard of its own: a non-zero exit raises `CalledProcessError` (the supervisor returns the code; `check=True` used to raise it), any output at `-loglevel error` raises `ChapterRemuxError` even with exit 0 (the 2026-09-20 truncated-chapter-track defect), and the argument vectors, `CHAPTER_REMUX_MOVIE_TIMESCALE = "1000"`, the stream copy and the freeform-atom restore are untouched. Outside a `cancellable` block a step runs to its end, so a caller without one keeps the established behaviour; the differences there are that stdin is the null device and each stream keeps its last 1 MiB (the remux writes nothing to stdout and, at `-loglevel error`, at most a few lines to stderr).
+
+**The scope is the attempt; the predicate never blocks.** `m4b_metadata_batch.Attempt.run` enters `subprocess_utils.cancellable(controller.cancel_check, controller.checkpoint)` around the attempt's Books, exactly as the Maker's `Attempt.run`. `stage_book`'s own `cancel_check` closure is not used: it calls the checkpoint, which waits while paused, so it would claim PAUSED in the middle of a rebuild and hold FFmpeg's step open (a planted defect shows the tests see that). The runner's structural guard (`test_m4b_metadata_batch`) now admits `shared.subprocess_utils` for `cancellable` alone: the runner still starts no process.
+
+**A Cancel is never a failure.** `ConversionCancelled` passes `_step` (as it already did), `stage_book` returns a cancelled outcome and discards the Book's staging, and the batch settles CANCELLED with the Book Not attempted and nothing offered to Retry Failed. `apply_chapter_titles`' existing `except Exception` removes the half-written `.retitle.tmp` sibling (the stopped child has been waited for, so the file is closed) and its `finally` removes the `chaptitles_` folder, so the remux leaves nothing even without the Editor's staging around it. Genuine FFmpeg failures stay ordinary retryable `chapters` failures.
+
+**Pause** is never consulted while a step runs: the rename finishes, the copy is validated, and the run pauses at `stage_book`'s checkpoint before publication.
+
+**Not changed.** The Editor's validation probes and `shared/metadata.py`'s chapter readers (short ffprobes; a Cancel during one is honoured at the next checkpoint), the command line's M4B step (ACT72-010), staging retention (ACT72-019, 031, 034, 037).
+
+**Verified.** Targeted only in this commit; the canonical changed-area gate result is recorded by the closeout (`scripts/shared/` is a `full_on` prefix, so it runs every test and journey). A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. Not accepted until the checkpoint review and the owner say so.
+
+— Implemented by Claude Code under the owner's Phase 6D prompt.
+
+---
+
 ## 2026-11-08 - Cancel stops a running FFmpeg step in the MP3 Tool and the M4B Maker through one small supervisor; Pause still lets the step finish (v0.7.2 Phase 6C, ACT72-023)
 
 **Why.** ACT72-023: both tools ran every FFmpeg and ffprobe step through a blocking `subprocess.run`, so Cancel was seen only at the next checkpoint. Measured at `56c3b55` on a one-hour source: Cancel waited 9.1 s (MP3 Write ID3), 9.0 s (MP3 Combine) and 27.0 s (Maker) for FFmpeg to finish on its own, and a Write ID3 run whose only Book was encoding when Cancel was pressed published that Book and settled SUCCEEDED.

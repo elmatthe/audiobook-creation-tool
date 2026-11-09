@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6D (2026-11-08)
+
+**Fixed**
+- M4B Metadata Editor: Cancel now stops a chapter rename at once. Before, it waited for FFmpeg to finish rebuilding the chapter track (measured: about 59 seconds on a rename slowed to a one-minute book's playing time, so the wait grows with the book), and a Cancel pressed between the rename's two steps still started the second one. Nothing of the cancelled Book is published, Books already finished and the original files are untouched, and a stopped rename is never reported as a failure to retry. Pause is unchanged: the running rename finishes, then the run pauses.
+
+**Added (development only; nothing here ships)**
+- Tests that press Cancel and Pause during real chapter renames, at each of the rename's two FFmpeg steps and through the panel, and prove an unrelated FFmpeg survives and FFmpeg's real refusals stay retryable failures; each seen failing on a planted defect.
+
+**Verified**
+- Targeted tests and negative controls only in this commit; the changed-area gate result is recorded at closeout. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
 ## [Unreleased] — v0.7.2 Phase 6C (2026-11-08)
 
 **Fixed**

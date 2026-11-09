@@ -262,10 +262,11 @@ def test_an_ffmpeg_error_with_exit_status_zero_refuses_the_remux(long_book, tmp_
     copy = tmp_path / "guarded.m4b"
     shutil.copy2(long_book, copy)
     before = sha(copy)
-    real_run = subprocess_utils.run
+    real_run = subprocess_utils.run_supervised
     calls: list[list[str]] = []
 
-    def run(cmd, **kwargs):
+    def run_supervised(cmd, **kwargs):
+        # Every remux step runs supervised since v0.7.2 Phase 6D (ACT72-033); the guard is unchanged.
         calls.append(list(cmd))
         if "-map_chapters" not in cmd:
             return real_run(cmd, **kwargs)
@@ -274,7 +275,7 @@ def test_an_ffmpeg_error_with_exit_status_zero_refuses_the_remux(long_book, tmp_
         return CompletedProcess(cmd, 0, stdout=b"", stderr=(
             b"[ipod @ 0x1] Application provided duration: 2646000000 in stream 2 is invalid\n"))
 
-    monkeypatch.setattr(subprocess_utils, "run", run)
+    monkeypatch.setattr(subprocess_utils, "run_supervised", run_supervised)
     with pytest.raises(metadata.ChapterRemuxError) as caught:
         metadata.apply_chapter_titles(copy, ["Opening", "", ""])
     assert "Application provided duration" in str(caught.value)
@@ -288,14 +289,19 @@ def test_a_non_zero_exit_still_raises_the_called_process_error(long_book, tmp_pa
                                                               monkeypatch):
     copy = tmp_path / "exit.m4b"
     shutil.copy2(long_book, copy)
-    real_run = subprocess_utils.run
+    real_run = subprocess_utils.run_supervised
 
-    def run(cmd, **kwargs):
+    def run_supervised(cmd, **kwargs):
+        # The supervisor returns the exit status; the remux step turns a non-zero one into the error, as check=True did.
         if "-map_chapters" in cmd:
-            raise subprocess.CalledProcessError(1, cmd, stderr=b"boom")
+            Path(cmd[-1]).write_bytes(b"partial")
+            return CompletedProcess(cmd, 1, stdout=b"", stderr=b"boom")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_utils, "run", run)
-    with pytest.raises(subprocess.CalledProcessError):
+    monkeypatch.setattr(subprocess_utils, "run_supervised", run_supervised)
+    with pytest.raises(subprocess.CalledProcessError) as caught:
         metadata.apply_chapter_titles(copy, ["Opening", "", ""])
+    assert caught.value.returncode == 1 and caught.value.stderr == b"boom"
+    assert "-map_chapters" in caught.value.cmd
     assert sha(copy) == sha(long_book)
+    assert not list(tmp_path.glob("*.retitle.tmp*")), "no half-written sibling survives"

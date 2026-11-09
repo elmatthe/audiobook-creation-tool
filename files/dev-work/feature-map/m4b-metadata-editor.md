@@ -174,19 +174,20 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 `ACT.METADATA.PAUSE`
 
 - Pause takes effect at the next checkpoint (between Books, or between steps inside a Book); nothing runs while paused. Resume carries on and the run finishes normally.
+- A chapter rename already running is never stopped or suspended by Pause: it finishes, the copy is checked, and the run pauses before that Book is published (measured on a real remux in v0.7.2 Phase 6D).
 
 ### Cancel
 `ACT.METADATA.CANCEL`
 
-- Cancel takes effect at the next checkpoint. Books already published stay; the Book in progress publishes nothing; the rest are "Not attempted" (and are not offered by Retry Failed).
+- Cancel stops a running chapter rename (either of its two FFmpeg steps: reading the chapter list or rebuilding the chapter track) within a fraction of a second, through that step's own process handle; any other FFmpeg, even one this program started, is untouched. No later step starts. Otherwise Cancel takes effect at the next checkpoint. Books already published stay; the Book in progress publishes nothing, and its half-written rename output and temporary chapter list are removed; the rest are "Not attempted" (and are not offered by Retry Failed). A stopped rename is never reported as a failure. (ACT72-033, fixed in v0.7.2 Phase 6D; before, Cancel waited for FFmpeg to finish the step.)
 - A Cancel that arrives while a Book is being published lets that Book finish and stops before the next.
-- Known gap (new finding, read from code): Cancel and Pause cannot interrupt a running chapter-rename step; they wait for FFmpeg to finish it (Phase 6).
 
 ### Retry Failed
 `ACT.METADATA.RETRY`
 
 - Re-runs only the Books that failed in a retryable way, in the same run folder with the same frozen plan; anything edited since is ignored and Books already done are not touched.
 - A kept, validated copy is reused, even if the original file has since gone. Refused while a run is active or when there is nothing to retry.
+- A chapter rename FFmpeg refuses (a non-zero exit, or an error logged with exit 0, as when chapters would be lost) fails only that Book, retryably; Retry Failed rebuilds it. A cancelled rename never counts as such a failure.
 
 ### Controls lock while an action runs
 `ACT.METADATA.RUN-LOCKING`
@@ -218,6 +219,7 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 `ACT.METADATA.CLOSE`
 
 - Closing the window cancels a running action and any scan, stops the panel's event handling and stops listening for appearance changes. Closing while a save runs is expected to exit cleanly with no window or process left.
+- The cancel that closing asks for now also reaches a running chapter rename (ACT72-033, v0.7.2 Phase 6D); whether the worker stops it before the interpreter ends is not measured, so the launcher's end-of-process sweep of the FFmpeg it started remains the guarantee.
 - Whether the Book in progress leaves anything in `.work` when the process exits before the next checkpoint is not checked.
 
 ### Intentional differences from other tools
@@ -235,4 +237,4 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - Windows display scaling other than 100%, and the final Light/Dark look, need the owner.
 - macOS behaviour (the aqua layout hints exist in code) is not qualified here.
 - Very large libraries (many Books, very long books with many chapters) are not measured for speed.
-- How long a Cancel waits during a chapter rename on a long real audiobook is unmeasured.
+- Cancel and Pause during a chapter rename are measured in-process on the Editor's own remux, slowed to the Book's playing time with FFmpeg's `-re` on a coverless Book (FFmpeg 9 ignores `-re` while a cover picture is mapped), and through the panel with real threads; not through a native window. How long an unslowed rename of a long real audiobook takes is not measured.

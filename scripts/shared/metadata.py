@@ -760,12 +760,23 @@ def _run_chapter_remux_step(argv, *, what: str) -> None:
     not do what it was told; treating it as success was how a truncated chapter
     track reached validation (2026-09-20). A non-zero exit still raises
     ``CalledProcessError`` exactly as before.
+
+    The step runs through ``subprocess_utils.run_supervised`` (v0.7.2 Phase 6D,
+    ACT72-033). Inside a worker's ``cancellable`` block (the Metadata Editor's
+    attempt) a Cancel stops this very FFmpeg at once, and a Cancel already
+    requested starts no further step; either way ``ConversionCancelled`` is
+    raised, never ``CalledProcessError`` or ``ChapterRemuxError``, so a Cancel
+    can never read as a failed remux. Outside such a block it runs to its end.
     """
-    from subprocess import PIPE
+    from subprocess import CalledProcessError
 
     from . import subprocess_utils as sp
 
-    result = sp.run(list(argv), check=True, stdout=PIPE, stderr=PIPE)
+    argv = list(argv)
+    result = sp.run_supervised(argv)
+    if result.returncode != 0:
+        raise CalledProcessError(result.returncode, argv, output=result.stdout,
+                                 stderr=result.stderr)
     reported = (result.stderr or b"")
     if isinstance(reported, bytes):
         reported = reported.decode("utf-8", "replace")
@@ -879,7 +890,9 @@ def apply_chapter_titles(path, new_titles) -> None:
                 what="rebuilding the chapter track")
         except Exception:
             # The copy under ``path`` is untouched until os.replace below; a
-            # refused remux leaves no half-written sibling behind either.
+            # refused remux leaves no half-written sibling behind either, nor
+            # does a cancelled one (``ConversionCancelled`` is an Exception, and
+            # the stopped FFmpeg has been waited for, so its file is closed).
             try:
                 tmp_out.unlink()
             except OSError:

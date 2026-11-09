@@ -11955,18 +11955,28 @@
             "chapter_titles_retitled",
             "expected_chapter_titles"
           ]
+        },
+        {
+          "path": "scripts/shared/metadata.py",
+          "symbols": [
+            "_run_chapter_remux_step",
+            "apply_chapter_titles"
+          ]
         }
       ],
       "contracts": [
         "The box shows the source's chapter titles until the user edits it; showing them is not an edit",
         "Line N renames chapter N; a blank or unchanged line keeps that title; blank lines are never collapsed; lines past the chapter count are ignored",
         "Each Book has its own box",
-        "Renaming rebuilds only the chapter track with a stream copy; chapter count, boundaries, audio and cover are kept, and unchanged lines run no remux at all"
+        "Renaming rebuilds only the chapter track with a stream copy; chapter count, boundaries, audio and cover are kept, and unchanged lines run no remux at all",
+        "FFmpeg exiting 0 after logging an error, or exiting non-zero, refuses the remux and leaves the copy untouched; the movie timescale stays pinned at 1000; freeform iTunes atoms the remux drops are restored"
       ],
       "selection": [
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_m4b_metadata_workflow.py",
-        "files/tests/test_m4b_metadata_processing.py"
+        "files/tests/test_m4b_metadata_processing.py",
+        "files/tests/test_metadata_remux_cancel.py",
+        "files/tests/test_m4b_chapter_remux_timescale.py"
       ],
       "journeys": [
         "metadata.save-tags-then-clear"
@@ -11996,6 +12006,22 @@
           {
             "kind": "media",
             "scenario": "metadata.save-tags-then-clear"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_outside_a_cancel_block_the_remux_runs_to_its_end_through_the_supervisor"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_chapter_remux_timescale.py::test_an_ffmpeg_error_with_exit_status_zero_refuses_the_remux"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_chapter_remux_timescale.py::test_a_non_zero_exit_still_raises_the_called_process_error"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_chapter_remux_timescale.py::test_the_remux_pins_the_movie_timescale_and_stays_stream_copy"
           }
         ]
       },
@@ -12898,19 +12924,38 @@
           "symbols": [
             "stage_book"
           ]
+        },
+        {
+          "path": "scripts/shared/metadata.py",
+          "symbols": [
+            "_run_chapter_remux_step",
+            "apply_chapter_titles"
+          ]
+        },
+        {
+          "path": "scripts/shared/subprocess_utils.py",
+          "symbols": [
+            "run_supervised",
+            "cancellable",
+            "_stop",
+            "_cancelled",
+            "_tail"
+          ]
         }
       ],
       "contracts": [
-        "Cancel is honoured at the next checkpoint, between Books and between steps inside a Book",
+        "Cancel stops a running chapter-title remux step (the ffmetadata dump or the chapter-track rebuild) within a fraction of a second, through that step's own process handle (any other FFmpeg, even one this program started, is untouched), and is otherwise honoured at the next checkpoint, between Books and between steps inside a Book; no later remux step starts",
         "A cancelled Book publishes nothing and leaves no staging; Books already published stay; the rest are Not attempted",
         "A Cancel arriving while a Book is being published keeps that Book and stops at the next boundary",
-        "Originals are never touched"
+        "Originals are never touched",
+        "A stopped remux is never a failed or retryable Book: no failure is reported and Retry Failed is not offered; its half-written .retitle.tmp output and its ffmetadata folder are removed"
       ],
       "selection": [
         "files/tests/test_m4b_metadata_batch.py",
         "files/tests/test_prototype_regression.py",
         "files/tests/test_m4b_combined_hardening.py",
-        "files/tests/test_m4b_metadata_editor_ui.py"
+        "files/tests/test_m4b_metadata_editor_ui.py",
+        "files/tests/test_metadata_remux_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -12932,10 +12977,44 @@
             "test": "files/tests/test_m4b_combined_hardening.py::test_cancel_arriving_during_publication_keeps_that_book_and_stops_at_the_boundary[editor]"
           },
           {
-            "kind": "planned",
-            "gap": "Cancel (and Pause) cannot interrupt a running chapter-title remux: shared/metadata.py _run_chapter_remux_step is a blocking sp.run with no cancel or deadline, so the request waits for FFmpeg to finish (read from code, unmeasured)",
-            "phase": 6,
-            "issue": "ACT72-033"
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_cancel_at_each_remux_step_of_a_later_book_stops_it_and_starts_nothing_more[during-the-dump]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_cancel_at_each_remux_step_of_a_later_book_stops_it_and_starts_nothing_more[during-the-rebuild]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_cancel_at_each_remux_step_of_a_later_book_stops_it_and_starts_nothing_more[latched-before-the-dump]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_cancel_at_each_remux_step_of_a_later_book_stops_it_and_starts_nothing_more[latched-between-the-dump-and-the-rebuild]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_cancel_during_the_rebuild_stops_ffmpeg_and_leaves_the_copy_and_no_temporary"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_a_cancel_latched_after_the_dump_starts_no_rebuild"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_cancel_during_a_real_rebuild_cancels_the_run_and_keeps_the_earlier_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_the_editor_panel_cancel_stops_a_real_rebuild"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_each_remux_step_goes_through_the_supervisor_and_nothing_else"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_the_editor_worker_body_hands_the_remux_the_non_blocking_cancel_check"
           }
         ]
       },
@@ -12963,18 +13042,21 @@
           "path": "scripts/m4b/metadata/m4b_metadata_batch.py",
           "symbols": [
             "EditorRun.pause",
-            "EditorRun.resume"
+            "EditorRun.resume",
+            "Attempt.run"
           ]
         }
       ],
       "contracts": [
         "Pause is acknowledged at the next checkpoint (a Book boundary or between steps); nothing runs while paused",
-        "Resume continues with the next Book and the run finishes normally"
+        "Resume continues with the next Book and the run finishes normally",
+        "A chapter-title remux already running finishes; Pause never stops or suspends it, and the run pauses at the checkpoint after it"
       ],
       "selection": [
         "files/tests/test_m4b_metadata_batch.py",
         "files/tests/test_m4b_combined_hardening.py",
-        "files/tests/test_m4b_metadata_editor_ui.py"
+        "files/tests/test_m4b_metadata_editor_ui.py",
+        "files/tests/test_metadata_remux_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -12990,6 +13072,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_metadata_editor_ui.py::test_pause_resume_and_cancel_reach_the_shared_controller"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_pause_during_a_real_rebuild_lets_it_finish_and_waits_at_the_checkpoint_after_it"
           }
         ]
       },
@@ -13032,7 +13118,8 @@
       "selection": [
         "files/tests/test_m4b_metadata_batch.py",
         "files/tests/test_m4b_metadata_editor_ui.py",
-        "files/tests/test_m4b_combined_hardening.py"
+        "files/tests/test_m4b_combined_hardening.py",
+        "files/tests/test_metadata_remux_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -13052,6 +13139,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_combined_hardening.py::test_a_retry_starts_only_after_the_prior_attempt_is_terminal_and_gets_its_own_adapter"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_a_genuine_remux_failure_stays_retryable_and_retry_failed_rebuilds_it[a-non-zero-exit]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_a_genuine_remux_failure_stays_retryable_and_retry_failed_rebuilds_it[exit-zero-with-an-error-logged]"
           }
         ]
       },
@@ -18051,6 +18146,12 @@
           "symbols": [
             "main"
           ]
+        },
+        {
+          "path": "scripts/shared/metadata.py",
+          "symbols": [
+            "_run_chapter_remux_step"
+          ]
         }
       ],
       "contracts": [
@@ -18060,7 +18161,8 @@
       "selection": [
         "files/tests/test_ffmpeg_runtime_trust.py",
         "files/tests/test_no_window_guard.py",
-        "files/tests/test_ffmpeg_cancel.py"
+        "files/tests/test_ffmpeg_cancel.py",
+        "files/tests/test_metadata_remux_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -18076,6 +18178,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_ffmpeg_cancel.py::test_a_supervised_child_gets_no_console_window"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_metadata_remux_cancel.py::test_outside_a_cancel_block_the_remux_runs_to_its_end_through_the_supervisor"
           }
         ]
       },
@@ -22137,12 +22243,13 @@
       "id": "ACT72-033",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Cancel and Pause in the Metadata Editor cannot interrupt a running chapter-title remux (shared/metadata.py _run_chapter_remux_step, a blocking run); same mechanism as ACT72-023",
       "features": [
         "ACT.METADATA.CANCEL"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (6D): shared/metadata._run_chapter_remux_step runs both FFmpeg steps of the chapter-title remux (the ffmetadata dump and the chapter-track rebuild) through Phase 6C's subprocess_utils.run_supervised and raises CalledProcessError on a non-zero exit and ChapterRemuxError on any error-level output, as before; the Editor's worker body (m4b_metadata_batch.Attempt.run) enters subprocess_utils.cancellable with the controller's non-blocking cancel_check and its checkpoint as the acknowledgement, as the Maker's does. Cancel stops the running step through its own Popen handle and raises ConversionCancelled, never a failure; a latched Cancel starts no further step; Pause lets the step finish and pauses at stage_book's checkpoint after validation; outside a cancel block the remux runs to its end as before. Reproduced at 88451ec with the Editor's own rebuild slowed by -re on a 60-second Book: Cancel waited 58.6 s for FFmpeg to finish; a Cancel latched between the two steps still started the 59.5 s rebuild. After: the run settled CANCELLED 0.032 s after the press, the rebuild's FFmpeg (by process id and creation time) gone at 0.032 s, its .retitle.tmp output removed, nothing of the Book published, the earlier Book and the originals byte-identical, an FFmpeg sentinel of the same process alive; a latched Cancel started no rebuild (settled 0.22 s after the start instead of 59.84 s); Pause unchanged. Evidence files/dev-work/verification-gate/outputs/2026-11-08_phase6d_work_3b71/act72-033/ (test_metadata_remux_cancel.py)."
     },
     {
       "id": "ACT72-034",
@@ -22485,7 +22592,7 @@
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
-    "scripts/m4b/metadata/m4b_metadata_batch.py": "4387c5f12b60959d466d3ba102477a462f91653837449d1ea991078c48be843d",
+    "scripts/m4b/metadata/m4b_metadata_batch.py": "c7efeaf4397c5d8e328280dcccd53d6e2300a6e72944a8574629314c5cebef3d",
     "scripts/m4b/metadata/m4b_metadata_editor.py": "ce6e8e0ab21b275d2d3bdc4df649e0011f53bc0da22672cfe9497eb0f21ae2d2",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
@@ -22521,7 +22628,7 @@
     "scripts/shared/job_ui.py": "3a8a58d0a936e8930f3fd4653db25755c7f2ac66c0e23c5a9ea37e1384e0a51b",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/maintenance.py": "b801ffa6d4d2fd04b218ad70da8353185df01f9c0d1c0557fe2ae1f38f64e0f1",
-    "scripts/shared/metadata.py": "9bdc0864a39f9c6a2a88a102bee877546c9f8a8e8bc3295d2e3ca3269602531b",
+    "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
     "scripts/shared/optional_setup_client.py": "7749824d1c40ac595903d4ebac8339e9000a23daf280bc69fd3bbd8f7e2f898e",
