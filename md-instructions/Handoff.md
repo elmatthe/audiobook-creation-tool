@@ -2,6 +2,27 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6E (closeout): the canonical changed-area gate PASSED on `6ef00fe`; the commit that adds this block changes canonical documents only; STOP for the ChatGPT checkpoint review; NOT accepted; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
+
+Authority: the owner's Phase 6E prompt. This block supersedes the "Next exact action" bullet of the block below; that block's account of the slice stands.
+
+- **Starting, tested, final.** Started at `5a87ec3`. The candidate `6ef00fe` (code, tests, inventory and documents, pushed) is what this gate ran on. This documents-only commit follows it; under plan §13.3 the result carries forward. The inventory check and the test modules that read these documents were rerun on this commit.
+- **Result.**
+  - Run `files/dev-work/verification-gate/outputs/2026-11-09_081707_changed_17f9/` (ignored), label `ACT072-P6E-6ef00fe-changed`.
+  - Command `.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode changed --platform windows --base 5a87ec3 --label ACT072-P6E-6ef00fe-changed`.
+  - 92 min 36 s, exit 0, RESULT PASS, scope "changed selection only; NOT full acceptance". The tree was unchanged during the run.
+  - Selection: the gate's own rule widened the changed selection to every test and journey (`changed-conservative-full`) for two reasons, "`scripts/shared/subprocess_utils.py`: shared by every tool, so every test is selected" (`scripts/shared/` is a `full_on` prefix of the policy) and "`files/tests/edge_cli_m4b_child.py`: no selection rule covers this path, so every test is selected" (the new child helper, which is not a test module); either alone widens it. 27 changed paths (the candidate's 12, the owner's 14 deletions and the untracked `scripts/project-status.py`), 15 features touched. The deadline lives in the shared supervisor, so the widening could not be avoided; no other broad run was made. It is still a changed run: it does not judge coverage satisfaction and it is not the full gate reserved for the end of Phase 6.
+  - Journeys: 49 of 49 PASS. Among them `tts.edge-replay-direct-file` and `tts.edge-replay-folder-mixed` (Edge narration through the app, which writes MP3 and never reaches `make_m4b`), the twelve close-during-work and forced-landing scenarios, and the gate's controls, `control.act-orphan-seen-without-the-stop` included.
+  - Tests, recounted from the raw JUnit: the ordinary suite 13,869 passed and 65 skipped (13,934; 6D's 13,914 plus the 20 new tests); guarded `v3-planning` 457 and `v3-supervisor` 75 passed; 0 failed and 0 errors, 14,466 in all. Every skip has a reason the policy names. The 3 warnings are Phase 4's (`audioop`, `pkg_resources`, one `record_property` notice).
+  - `coverage-inventory`: PASS. 273 features, 302 static and 247 live surfaces, every application source file reviewed as it is now.
+  - `coverage`: NOT APPLICABLE to a changed run. The run satisfied 262 of 262 required entries; only a full run judges satisfaction. `release_ready` stays false.
+  - `visual-baselines` NOT RUN: 0 approved; the 75 candidates still wait for the owner.
+  - Dialog history: the preflight child was born Low (`0x1000`), verdict contained. The values naming `act-gate` stood at 94 before and 94 after.
+  - Cleanup: no owned process remained after any stage. The run's own scratch `%TEMP%\act-gate\d40c` is gone; `bfa7` was left alone; the 31 legacy `epub2tts_*` folders are untouched.
+- **Unchanged.** The issue counts (59 issues, 36 open; Phase 6: 30, of them 25 Minor and 5 Suggestion; Phase 7: 1; Phase 8: 5), the limits and the deliberately unchanged areas in the block below. The owner's 14 deletions and 4 untracked entries, `bfa7`, and the 31 legacy `epub2tts_*` folders in `%TEMP%` are untouched. The version is still 0.7.1.
+- **Recommended next bounded slice (the owner's to choose):** with ACT72-010 closed, the FFmpeg-interruption family is done. Next, the cancel-message Minors (ACT72-004: a file stopped by Cancel stays `NOT_ATTEMPTED` and the status strings misdescribe the outcome; ACT72-027: the Converter's Cancel message promises to stop after the current file, while FFmpeg is stopped mid-encode and the book rolled back), small and wording-led; or the staging-retention group (ACT72-019, 031, 034, 037: MP3 Tool, M4B Maker and Metadata Editor `.work` staging that outlives a failed or cancelled run), larger and one class across three tools.
+- **Next exact action.** The ChatGPT checkpoint review of Phase 6E (`5a87ec3` to this commit). No other Phase 6 slice before it. The one full Windows gate stays reserved for the completed Phase 6 milestone. No Codex review, merge, tag or release.
+
 ## CURRENT STATE — v0.7.2 Phase 6E (ACT72-010, the Edge command line's M4B step: no Ctrl+C contract and no deadline for its two FFmpeg steps): implemented; the commit that adds this block is the candidate; its changed-area gate result is recorded by the closeout commit; STOP for the ChatGPT checkpoint review; no other Phase 6 slice opened; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 Authority: the owner's Phase 6E prompt. This block supersedes the status line and the "Next exact action" bullet of the Phase 6D closeout block below; the account of Phase 6D stands.

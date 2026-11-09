@@ -18,7 +18,7 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 **Not changed.** The M4B arguments, chapters, text track, audio, cover (`add_cover` after assembly), FFMETADATA escaping, publication, overwrite and refusal rules, output names; the narration part of the command line; Ctrl+Break and closing the console window; `batch_convert`.
 
-**Verified.** Targeted only in this commit; the canonical changed-area gate result is recorded by the closeout (`scripts/shared/` is a `full_on` prefix, so it runs every test and journey). A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. Not accepted until the checkpoint review and the owner say so.
+**Verified.** The canonical changed-area gate PASSED on `6ef00fe` (`2026-11-09_081707_changed_17f9`): 49 of 49 journeys passed, 13,869 + 457 + 75 tests passed and 65 were skipped with policy-named reasons, and the inventory is current. `scripts/shared/subprocess_utils.py` (a `full_on` path) widened it to every test and journey. A changed run does not judge coverage satisfaction; the one full gate is reserved for the end of Phase 6. Not accepted until the checkpoint review and the owner say so.
 
 — Implemented by Claude Code under the owner's Phase 6E prompt.
 
