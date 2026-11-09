@@ -297,6 +297,12 @@ class OptionalSetupPanel(ttk.Frame):
             except tk.TclError:  # the window was closed
                 self._cancel.set()
 
+    @property
+    def busy(self) -> bool:
+        """A check or an install is running now. A caller that must ask before stopping it asks this first (v0.7.2,
+        ACT72-038): :meth:`close_requested` cancels as it answers."""
+        return self._busy
+
     def close_requested(self) -> bool:
         """The window is closing: cancel anything running. Returns True if it may close now."""
         self._cancel.set()

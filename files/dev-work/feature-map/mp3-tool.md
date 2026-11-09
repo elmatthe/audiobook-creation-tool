@@ -113,8 +113,8 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Inputs and outputs:** Plain text, one title per line. Output: TIT2 per track, the track filename stem, and the labels in combined_time-stamps.txt.
 - **Failure, cancel and retry:** Edits after a run starts never reach that run or its retry.
 - **Persistence:** Session only.
-- **What must hold:** Until edited, the box shows each track's default Title: a usable source TIT2, else the cleaned filename. Usable line n names track n; blank lines are ignored; a short list leaves the remaining defaults; extra lines are ignored. The final Titles become TIT2, the filenames and the Combine timestamp labels. The box must be locked while a run is in progress like the other Book options (not yet, ACT72-014).
-- **Known gap:** ACT72-014 (Phase 6): the Chapter Titles box is not locked during a run, unlike every other Book option. Edits cannot reach the running plan, but the lock is inconsistent.
+- **What must hold:** Until edited, the box shows each track's default Title: a usable source TIT2, else the cleaned filename. Usable line n names track n; blank lines are ignored; a short list leaves the remaining defaults; extra lines are ignored. The final Titles become TIT2, the filenames and the Combine timestamp labels. The box locks while a run is in progress like the other Book options (ACT72-014, fixed in v0.7.2 Phase 6); the panel still shows a Book's titles in a locked box.
+- **Same as:** the M4B Maker's and Metadata Editor's Chapter Titles boxes, which lock the same way.
 
 ### Auto-number tracks and Start #
 `ACT.MP3.AUTO-NUMBER`

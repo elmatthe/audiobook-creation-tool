@@ -2538,12 +2538,13 @@
         }
       ],
       "contracts": [
-        "While a run is active Start, File workers, Overwrite, Install / repair Qwen3 voices, the bitrate and voice dropdowns and the queue editing are locked through the shared lock matrix, and unlock when it ends.",
+        "While a run is active Start, File workers, Overwrite, Resume, the Edge speech rate, the Kokoro speed, Install / repair Qwen3 voices, the bitrate and voice dropdowns and the queue editing are locked through the shared lock matrix, and unlock when it ends with every value as it was (v0.7.2, ACT72-014).",
         "Open Output Folder, Clear Log and Cancel Import are never locked by a run."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
-        "files/tests/test_tts_compact_ui.py"
+        "files/tests/test_tts_compact_ui.py",
+        "files/tests/test_tts_run_lock_options.py"
       ],
       "journeys": [],
       "verification": {
@@ -2553,10 +2554,16 @@
             "test": "files/tests/test_tts_jobs.py::test_the_imported_input_and_processing_options_lock_through_the_matrix"
           },
           {
-            "kind": "planned",
-            "gap": "set_locked leaves Resume, Edge speech rate and Kokoro speed editable during a run (they cannot change the frozen run, but look live).",
-            "phase": 6,
-            "issue": "ACT72-014"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_run_lock_options.py::test_resume_edge_rate_and_kokoro_speed_lock_with_a_run_and_keep_what_was_chosen"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_run_lock_options.py::test_set_locked_reaches_every_frozen_option[True-disabled]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_run_lock_options.py::test_set_locked_reaches_every_frozen_option[False-normal]"
           }
         ]
       },
@@ -2812,13 +2819,15 @@
       "contracts": [
         "Closing retires the run's reporting first, asks the run to cancel (which also wakes a paused run), waits up to 5 s for the worker, then closes the importer, the job adapter and the pump; nothing stays scheduled.",
         "Closing is idempotent and quiet with a report in flight.",
-        "Alt+F4 during narration exits with status 0, no window, no owned process and no Tcl crash."
+        "Alt+F4 during narration exits with status 0, no window, no owned process and no Tcl crash.",
+        "A forced collection on a worker after close makes no Tk call and takes well under a second (about 23 s for TTS and 17 s for Cover before v0.7.2 Phase 6, ACT72-017)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
         "files/tests/test_tts_reporting_order.py",
         "files/tests/test_tts_importing.py",
-        "files/tests/test_close_stops_media_children.py"
+        "files/tests/test_close_stops_media_children.py",
+        "files/tests/test_tk_teardown_on_main_thread.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -2847,10 +2856,12 @@
             "scenario": "shutdown.tts-close-forced-landing"
           },
           {
-            "kind": "planned",
-            "gap": "A garbage collection on a worker after the window closed can touch leftover Tk Variables, and the TTS forced-shutdown arm takes about 23 s to exit.",
-            "phase": 6,
-            "issue": "ACT72-017"
+            "kind": "behavior",
+            "test": "files/tests/test_tk_teardown_on_main_thread.py::test_without_the_release_a_worker_collection_waits_and_raises_inside_tk"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tk_teardown_on_main_thread.py::test_after_the_release_a_worker_collection_touches_no_tk_and_waits_for_nothing"
           }
         ]
       },
@@ -5708,7 +5719,8 @@
             "MP3ToolUI._render_chapters",
             "MP3ToolUI.on_chapter_edit",
             "MP3ToolUI.type_chapter_titles",
-            "MP3ToolUI.chapter_titles_text"
+            "MP3ToolUI.chapter_titles_text",
+            "MP3ToolUI._TextLock"
           ]
         }
       ],
@@ -5716,7 +5728,7 @@
         "Until edited, the box shows each track's default Title: a usable source TIT2, else the cleaned filename.",
         "Usable line n names track n; blank lines are ignored; a short list leaves the remaining defaults; extra lines are ignored.",
         "The final Titles become TIT2, the filenames and the Combine timestamp labels.",
-        "The box must be locked while a run is in progress like the other Book options (not yet, ACT72-014)."
+        "The box locks while a run is in progress, like the other Book options and the Maker's and Editor's boxes; the panel still fills a locked box (v0.7.2, ACT72-014)."
       ],
       "selection": [
         "files/tests/test_mp3_workflow.py",
@@ -5744,10 +5756,8 @@
             "test": "files/tests/test_mp3_combine.py::test_timestamps_use_the_final_titles_and_adjusted_offsets"
           },
           {
-            "kind": "planned",
-            "gap": "The Chapter Titles box is not registered with the run lock group (MP3ToolUI._install_jobs registers _book_options_lock without chapter_text), so it stays editable during a run",
-            "phase": 6,
-            "issue": "ACT72-014"
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_tool_ui.py::test_the_chapter_titles_box_locks_with_the_run_and_is_still_filled_by_the_panel"
           }
         ]
       },
@@ -15322,12 +15332,14 @@
       "contracts": [
         "Closing asks a running or paused resize to stop, then waits a bounded time (5 s) for the worker.",
         "After close nothing is scheduled on Tk, the import scan, browser decoders and run controls are shut down, and late events are ignored.",
-        "Closing the launcher window while Cover Image works exits cleanly with no crash."
+        "Closing the launcher window while Cover Image works exits cleanly with no crash.",
+        "A forced collection on a worker after close makes no Tk call and takes well under a second (about 23 s for TTS and 17 s for Cover before v0.7.2 Phase 6, ACT72-017)."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
         "files/tests/test_plan4_lifecycle_races.py",
-        "files/tests/test_close_stops_media_children.py"
+        "files/tests/test_close_stops_media_children.py",
+        "files/tests/test_tk_teardown_on_main_thread.py"
       ],
       "journeys": [
         "shutdown.cover-close-during-work",
@@ -15364,10 +15376,12 @@
             "scenario": "shutdown.cover-close-forced-landing"
           },
           {
-            "kind": "planned",
-            "gap": "A garbage collection landing on a worker after the window closed collects leftover Tk variables; the Cover forced-shutdown arm takes about 18 s to exit",
-            "phase": 6,
-            "issue": "ACT72-017"
+            "kind": "behavior",
+            "test": "files/tests/test_tk_teardown_on_main_thread.py::test_without_the_release_a_worker_collection_waits_and_raises_inside_tk"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tk_teardown_on_main_thread.py::test_after_the_release_a_worker_collection_touches_no_tk_and_waits_for_nothing"
           }
         ]
       },
@@ -16102,7 +16116,8 @@
           "path": "scripts/launcher.py",
           "symbols": [
             "main",
-            "LauncherApp._on_close"
+            "LauncherApp._on_close",
+            "_release_tk_objects"
           ]
         },
         {
@@ -16131,13 +16146,15 @@
         "After the main loop ends the launcher ends only the ffmpeg.exe/ffprobe.exe processes it started itself; others are left alone.",
         "Every tool panel reaches its own close when its window is destroyed.",
         "Closing during a folder import cancels and joins the scan and adds nothing.",
-        "The launcher holds its Tk root for the life of the process, so a closed root is never freed on a worker thread."
+        "The launcher holds its Tk root for the life of the process, so a closed root is never freed on a worker thread.",
+        "Once the main loop has ended the launcher finishes the closed window's Tk variables, images and fonts on the main thread, so a collection that lands on a worker afterwards makes no Tk call and waits for nothing (v0.7.2, ACT72-017; the forced-landing arms check both)."
       ],
       "selection": [
         "files/tests/test_close_stops_media_children.py",
         "files/tests/test_root_lifetime.py",
         "files/tests/test_import_coordination.py",
-        "files/tests/test_job_ui.py"
+        "files/tests/test_job_ui.py",
+        "files/tests/test_tk_teardown_on_main_thread.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -16252,10 +16269,12 @@
             "scenario": "shutdown.cover-close-forced-landing"
           },
           {
-            "kind": "planned",
-            "gap": "A collection landing on a worker after the window closed collects leftover Tk Variables ('main thread is not in main loop'); TTS and Cover forced-shutdown arms take about 23 s and 18 s to exit",
-            "phase": 6,
-            "issue": "ACT72-017"
+            "kind": "behavior",
+            "test": "files/tests/test_tk_teardown_on_main_thread.py::test_without_the_release_a_worker_collection_waits_and_raises_inside_tk"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tk_teardown_on_main_thread.py::test_after_the_release_a_worker_collection_touches_no_tk_and_waits_for_nothing"
           },
           {
             "kind": "planned",
@@ -16498,12 +16517,14 @@
         "While a run is Running, Pause requested, Paused or Cancel requested, the imported list, its buttons and shortcuts and every registered processing option are disabled; they re-enable when the run ends.",
         "Job controls, log tabs, progress/status and Open Output are never locked by a run.",
         "A locked list ignores Add, Move, Remove, Clear and every keyboard shortcut.",
-        "Tab reaches every visible core control of every tool, in workflow order, at 920x600 and 1024x720, and never stops on a hidden one."
+        "Tab reaches every visible core control of every tool, in workflow order, at 920x600 and 1024x720, and never stops on a hidden one.",
+        "Audited across the six tools in v0.7.2 Phase 6 (ACT72-014): every option a run freezes is registered; the TTS Resume, Edge rate and Kokoro speed and the MP3 Chapter Titles box were not, and now are."
       ],
       "selection": [
         "files/tests/test_job_ui.py",
         "files/tests/test_job_control.py",
-        "files/tests/test_cross_tool_consistency.py"
+        "files/tests/test_cross_tool_consistency.py",
+        "files/tests/test_tts_run_lock_options.py"
       ],
       "journeys": [],
       "verification": {
@@ -16525,10 +16546,12 @@
             "test": "files/tests/test_cross_tool_consistency.py::test_tab_reaches_every_visible_control_and_only_visible_ones[light]"
           },
           {
-            "kind": "planned",
-            "gap": "Some tool controls are not registered for locking (TTS chk_resume, entry_rate, spin_kokoro_speed; MP3 chapter_text) and similar gaps may exist elsewhere; to be confirmed per tool",
-            "phase": 6,
-            "issue": "ACT72-014"
+            "kind": "behavior",
+            "test": "files/tests/test_tts_run_lock_options.py::test_resume_edge_rate_and_kokoro_speed_lock_with_a_run_and_keep_what_was_chosen"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_tool_ui.py::test_the_chapter_titles_box_locks_with_the_run_and_is_still_filled_by_the_panel"
           }
         ]
       },
@@ -18725,13 +18748,22 @@
             "setup_exit_code",
             "run_with_gui",
             "run_with_gui.optional_phase",
-            "run_with_gui.optional_phase.on_close"
+            "run_with_gui.optional_phase.on_close",
+            "run_with_gui.on_close_during_base",
+            "request_setup_stop",
+            "setup_stop_requested",
+            "clear_setup_stop",
+            "_end_owned_pip",
+            "_pip",
+            "_stopped",
+            "run_setup"
           ]
         },
         {
           "path": "scripts/shared/optional_setup_panel.py",
           "symbols": [
-            "OptionalSetupPanel.close_requested"
+            "OptionalSetupPanel.close_requested",
+            "OptionalSetupPanel.busy"
           ]
         }
       ],
@@ -18739,10 +18771,12 @@
         "Cancel or closing the window before Begin Setup exits with code 2 and the launcher says setup was cancelled and nothing was installed, without holding the window open",
         "A setup that ran and failed, or was closed part-way, exits 1 and the launcher keeps its window open with the log location",
         "Success exits 0; cancelling never writes a requirements stamp",
-        "Closing the window during the optional-voices phase asks 'Stop setup?' and keeps anything already working"
+        "Closing the window during the optional-voices phase asks 'Stop setup?' and keeps anything already working; No leaves the running check or install alone and launches nothing (v0.7.2, ACT72-038)",
+        "Closing the window during the base install asks 'Stop setup?'. No changes nothing. Yes ends the running pip and everything it started (by its own process id), starts no later step and closes the window once the setup's worker has reported; the exit is 1 (incomplete) and the log says how to finish (v0.7.2, ACT72-039)"
       ],
       "selection": [
-        "files/tests/test_bootstrap_setup_cancel.py"
+        "files/tests/test_bootstrap_setup_cancel.py",
+        "files/tests/test_first_run_setup_close.py"
       ],
       "journeys": [],
       "verification": {
@@ -18768,16 +18802,28 @@
             "test": "files/tests/test_bootstrap_setup_cancel.py::test_the_bat_says_setup_was_cancelled"
           },
           {
-            "kind": "planned",
-            "gap": "Answering No to 'Stop setup?' does not keep the voice check or install running: close_requested() sets the panel's cancel flag before the question is asked, the client's poll stops the worker, and the cancelled outcome then launches the app and closes the wizard. No test covers the prompt.",
-            "phase": 6,
-            "issue": "ACT72-038"
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_close.py::test_stop_setup_during_the_optional_voices_check_honours_the_answer[no]"
           },
           {
-            "kind": "planned",
-            "gap": "Closing the first-run window during the base install ends the process (exit 1) with no close handler and no Cancel; a running pip child started by _pip (Popen, no Job Object) is not stopped or owned. Read from code, unmeasured.",
-            "phase": 6,
-            "issue": "ACT72-039"
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_close.py::test_stop_setup_during_the_optional_voices_check_honours_the_answer[yes]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_close.py::test_a_stop_request_ends_the_running_pip_and_everything_it_started_and_nothing_else"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_close.py::test_after_a_stop_no_pip_is_started"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_close.py::test_a_stop_during_the_packages_step_starts_no_later_step"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_close.py::test_closing_during_the_base_install_asks_and_no_keeps_pip_running_then_yes_stops_it"
           }
         ]
       },
@@ -21586,6 +21632,7 @@
       "binding:scripts/mp3/mp3_tool.py::MP3ToolUI._build::bind:<KeyRelease>": "ACT.MP3.CHAPTER-TITLES",
       "binding:scripts/shared/appearance.py::apply_native_appearance::bind:<Map>": "ACT.SHARED.APPEARANCE",
       "binding:scripts/shared/book_workspace_ui.py::BookNavigator.__init__::bind:<<ComboboxSelected>>": "ACT.SHARED.BOOK-WORKSPACE",
+      "binding:scripts/shared/bootstrap.py::run_with_gui.begin::protocol:WM_DELETE_WINDOW": "ACT.SETUP.FIRST-RUN.CANCEL",
       "binding:scripts/shared/bootstrap.py::run_with_gui.optional_phase::protocol:WM_DELETE_WINDOW": "ACT.SETUP.FIRST-RUN.CANCEL",
       "binding:scripts/shared/bootstrap.py::run_with_gui::bind:<Configure>": "ACT.SETUP.FIRST-RUN",
       "binding:scripts/shared/job_ui.py::ImportedFileList.__init__::bind:<<ListboxSelect>>": "ACT.SHARED.FILE-LIST",
@@ -21670,6 +21717,7 @@
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._reserve_run::messagebox.showerror:APP_TITLE": "ACT.MP3.OUTPUT-RUN",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._validated_artwork::messagebox.showerror:APP_TITLE": "ACT.MP3.ARTWORK",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.retry_failed::messagebox.showerror:APP_TITLE": "ACT.MP3.RETRY",
+      "dialog:scripts/shared/bootstrap.py::run_with_gui.on_close_during_base::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.optional_phase.on_close::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.poll::messagebox.showerror:Setup did not complete": "ACT.SETUP.FIRST-RUN",
       "dialog:scripts/shared/bootstrap.py::show_warning_dialog::messagebox.showwarning:title": "ACT.SETUP.LAUNCH",
@@ -22278,14 +22326,15 @@
       "id": "ACT72-014",
       "severity": "Suggestion",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "Controls not registered for locking during a run: TTS chk_resume, entry_rate, spin_kokoro_speed; MP3 chapter_text; similar gaps may exist elsewhere",
       "features": [
         "ACT.MP3.CHAPTER-TITLES",
         "ACT.SHARED.INPUT-LOCKING",
         "ACT.TTS.LOCK-DURING-RUN"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch B) after an audit of the six tools' lock registrations against their input widgets: the Converter, Cover Image, M4B Maker and Metadata Editor already lock every option a run freezes; the TTS panel's set_locked now also locks Resume, the Edge speech rate and the Kokoro speed, and the MP3 Tool registers its Chapter Titles box (the Maker's _TextLock, with a render that still fills a locked box). Open Output Folder, Clear Log and the Hardware and speed button are not options and stay available. Tests: test_tts_run_lock_options.py (a real run held in the engine; values unchanged afterwards) and test_mp3_tool_ui.py; mutants caught (files/dev-work/verification-gate/outputs/2026-11-09_phase6_complete_9c47/batchB/mutation-results*.txt)."
     },
     {
       "id": "ACT72-015",
@@ -22311,14 +22360,15 @@
       "id": "ACT72-017",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "A collection landing on a worker after the window closed collects leftover Tk Variables ('main thread is not in main loop', ignored RuntimeError); the TTS and Cover forced-shutdown arms take about 23 s and 18 s to exit",
       "features": [
         "ACT.COVER.CLOSE",
         "ACT.SHARED.CLOSE-DURING-WORK",
         "ACT.TTS.CLOSE"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-06_phase3_work_a7c1/phase3-issues.json",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch B): once the main loop has ended, launcher.main calls _release_tk_objects on the main thread: a collection there frees what is already garbage, and every Tk variable, image and font of the closed root still alive is deleted from Tcl exactly as its __del__ would, then marked done, so a later __del__ on any thread has nothing to do. The root stays held by _ROOT (Tcl_AsyncDelete). Nothing is hidden: the forced-landing arms now record every unraisable exception on the worker and assert none came from Tk and the collection took under 5 s. Reproduced natively with the release removed (2026-11-09_122136_focused_224e): Cover 17.4 s and 16, TTS 22.9 s and 21 'main thread is not in main loop' errors; with it (2026-11-09_122302_focused_07b1): 0.016 to 0.032 s and none, and the crash control still sees the crash once the root is released. Unit: test_tk_teardown_on_main_thread.py (a real root in a child process; the control shows 5.45 s and four errors, the release 0.0 s and none)."
     },
     {
       "id": "ACT72-018",
@@ -22558,23 +22608,25 @@
       "id": "ACT72-038",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "First-run setup: answering No to 'Stop setup?' still cancels the optional-voice check or install and then launches the app",
       "features": [
         "ACT.SETUP.FIRST-RUN.CANCEL"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch B): the first-run window's optional-voices close handler asks 'Stop setup?' only while the panel is busy (new OptionalSetupPanel.busy) and cancels only on Yes; it used to call close_requested() first, which set the cancel flag before the question, so No still stopped the check or install and the cancelled outcome launched the app. The TTS panel's Install & Continue dialog, where closing is Cancel, is unchanged. Test: test_first_run_setup_close.py (the real window, both answers; the question's answer is supplied, no OS dialog driven)."
     },
     {
       "id": "ACT72-039",
       "severity": "Minor",
       "phase": 6,
-      "status": "open",
+      "status": "closed",
       "title": "First-run setup: closing the window during the base install ends the process with no close handler, leaving a running pip child unowned",
       "features": [
         "ACT.SETUP.FIRST-RUN.CANCEL"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 6 (batch B): closing the first-run window during the base install now asks 'Stop setup?'; Yes sets the setup's stop request, which ends the registered pip and everything it started (taskkill /T from its own process id, which cannot be reused while its handle is held; never a process found by name), makes run_setup start no later step, and the window closes only once the worker has reported (exit 1, incomplete; the log says to run Setup_and_Run again). bootstrap still imports nothing from tts (the existing repair guard). Tests: test_first_run_setup_close.py with a pip stand-in that starts a grandchild: both identities gone (process id and creation time), an unrelated Python process alive; mutants caught."
     },
     {
       "id": "ACT72-040",
@@ -22830,7 +22882,7 @@
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "bc0662efd48dbb638e074c6f25eec513d45b9cbe70c6af508f7f6044fd1d57be",
+    "scripts/launcher.py": "3e682e27a27b72100410f541dd3ed64c306ae2baa96682c14cb0bac5de56f70b",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "4eda21af1fa873abde220943a7bf727cdd990053599bdc8f5436f76575e3f904",
@@ -22860,7 +22912,7 @@
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "ea2c7bace5ded16562c724ca1d94e8c9ea2edc33662b5361aa30d4967f5b0eb5",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "3750615c23d370b9cccdf9e7d0eaca201cb74a690c64e5bfe0d22896f69e9fc1",
+    "scripts/mp3/mp3_tool.py": "0b3026a550b4efa08ca1f75cdeb577316eb40a68952f7c302ad3d6a69f632261",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
@@ -22869,7 +22921,7 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "885c785a704f4a08fa8c26fb1cca337958836dfdda524bf17db4d5dcf7b6d05e",
+    "scripts/shared/bootstrap.py": "a51e46400db4f0866042b1f04a571a277c627ce77e0174673348588f4d856329",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
@@ -22894,7 +22946,7 @@
     "scripts/shared/optional_setup_client.py": "7749824d1c40ac595903d4ebac8339e9000a23daf280bc69fd3bbd8f7e2f898e",
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
-    "scripts/shared/optional_setup_panel.py": "03f84e54aa466ed7d1dcf5ab1f2512c420ba2c089c996c10767c298bf61365d9",
+    "scripts/shared/optional_setup_panel.py": "a8fdabd34e90600528f5f9a1df9a23666d649a6987e868b53a9072714b516ee5",
     "scripts/shared/optional_setup_planning_bridge_v3.py": "99b22eea9f7df653de65ad1a1ab89b5ca114820626f0763ebc6d227cd85f771d",
     "scripts/shared/optional_setup_protocol.py": "0d7383dc419eefc25997a051a9269f1b9015ccdde3ff9b48c7a7edd699d3fda4",
     "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
@@ -22924,7 +22976,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "d96a33be96eddcb10698fab9bfe661327386504f08af73653649cdd12d86bb93",
-    "scripts/tts/epub2tts_gui.py": "9d8298cce82d97549a456f28797b79398e735aa7ecdca72ec26615855a9fcb02",
+    "scripts/tts/epub2tts_gui.py": "25aece605a20615dc400bd53f0da657a054b397412b26b83d428d145f2ef1f09",
     "scripts/tts/ffmpeg_watch.py": "164587651715e138581a8a6b88f1c8dd5cc9781dd99676fbb5678224ab72d7ec",
     "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
     "scripts/tts/kokoro_synth.py": "dda3a56019046013113d7bf95b2d8ad4429b08c2fdc87494f9d27f7ef29e74c0",

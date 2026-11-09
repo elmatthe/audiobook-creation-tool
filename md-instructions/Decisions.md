@@ -7655,3 +7655,31 @@ published). Nothing sweeps the output folder for it: there is no ownership recor
 process id is forbidden by the plan.
 
 — Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.
+
+---
+
+## 2026-11-09 — A closed window's Tk objects are finished on the main thread; a setup stop ends pip's tree by its own id (v0.7.2 Phase 6, batch B)
+
+**Decision 1 (ACT72-017):** once the main loop has ended, `launcher.main` calls `_release_tk_objects(root)` on the main
+thread: a collection there frees what is already garbage, then every Tk variable, image and font of that root still alive
+is deleted from Tcl exactly as its `__del__` would and marked done, so a later `__del__` on any thread does nothing. The root
+stays held by `_ROOT`.
+
+**Why not simply clear `Variable._tk`:** the Phase 2 note (`tk_closed_root` in memory, Phase 2 closeout) found that disarming
+variables made the forced arm crash sooner, because the traceback of the ignored exception had been what kept the root alive.
+Since Phase 3 the root is held deliberately (`_ROOT`), so that accident no longer matters; and this does not merely disarm:
+it completes the deletion on the right thread and leaves nothing for a worker. Measured natively: Cover 17.4 s and TTS 22.9 s
+of ignored `main thread is not in main loop` errors before, 0.016–0.032 s and none after; the crash control still crashes
+when the root is released.
+
+**Decision 2 (ACT72-039):** the first-run window asks "Stop setup?" when closed during the base install. Yes sets a stop request
+that ends the registered pip and everything it started with `taskkill /PID <pip> /T /F` (other platforms: its own process
+group), starts no later step, and closes the window only after the worker has reported (exit 1, incomplete).
+
+**Why not the Job Object of `tts.qwen3_process`:** `test_the_app_environment_repair_can_never_reach_the_qwen3_installer` holds
+`bootstrap.py` to importing nothing from `tts`, so that an environment repair can never reach an engine installer. That
+guard stays as it is. `taskkill /T` from our own child's process id is `qwen3_process`'s own fallback route; the id cannot be
+reused while this process holds the child's unreaped handle. Limitation: if the setup process itself is killed (not closed),
+pip is not ended with it, as before.
+
+— Implemented by Claude Code under the owner's "Complete Phase 6" authority, 2026-11-09.

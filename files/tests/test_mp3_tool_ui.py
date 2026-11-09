@@ -1076,6 +1076,30 @@ def test_the_lock_group_owns_the_workspace_controls(make_panel, tmp_path):
     assert panel.book_artwork.enabled is True
 
 
+def test_the_chapter_titles_box_locks_with_the_run_and_is_still_filled_by_the_panel(make_panel, tmp_path):
+    """v0.7.2 Phase 6, ACT72-014: the box was not in the run's lock group, so it looked editable during a run that
+    had frozen its titles. Locked, a person's typing reaches nothing; the panel can still show a Book's titles."""
+    a, b = tracks(tmp_path, "a.mp3", "b.mp3")
+    panel = make_panel()
+    add_files(panel, a, b)
+    panel.type_chapter_titles("One\nTwo")
+    assert panel.chapter_titles_text() == "One\nTwo"
+    panel.lock_group.apply(JobState.RUNNING)
+    assert str(panel.chapter_text.cget("state")) == "disabled"
+    panel.type_chapter_titles("Typed during the run")
+    assert panel.chapter_titles_text() == "One\nTwo", "a locked box takes no typing"
+    assert panel.chapter_text.get("1.0", "end-1c") == "One\nTwo"
+    mutation = wf.set_book_field(panel.workspace, "chapter_titles", "Three\nFour")
+    panel.workspace = mutation.workspace
+    panel.render()
+    assert panel.chapter_text.get("1.0", "end-1c") == "Three\nFour", "the panel still fills a locked box"
+    assert str(panel.chapter_text.cget("state")) == "disabled", "and leaves it locked"
+    panel.lock_group.apply(JobState.IDLE)
+    assert str(panel.chapter_text.cget("state")) == "normal"
+    panel.type_chapter_titles("Five")
+    assert panel.chapter_titles_text() == "Five"
+
+
 def test_a_worker_thread_is_refused_before_a_widget_is_touched(make_panel):
     """The guard raises before any widget is reached, so it is safe to ask from
     a real worker thread — which is exactly the call it exists to refuse."""

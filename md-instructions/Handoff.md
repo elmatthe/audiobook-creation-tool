@@ -2,6 +2,16 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6 (complete), batch B of A–E committed: run locks, shutdown, first-run setup (ACT72-014, 017, 038, 039); branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
+
+Authority as in the batch A block below, which this block supersedes for status and next action.
+
+- **Batch A verified and pushed.** `405a384`; canonical focused run `2026-11-09_120359_focused_a992` PASS (7 of 7 journeys, 1,394 passed, 4 policy-named skips, tree unchanged). Focused mode does not require the inventory check (only changed and full do); the inventory was checked separately (0 problems).
+- **Batch B (this commit).** ACT72-014: TTS `set_locked` also locks Resume, Edge speech rate and Kokoro speed; the MP3 Chapter Titles box joins the run's lock group (the Maker's `_TextLock`), and its render still fills a locked box; the other four tools already locked every option they freeze (audited). ACT72-017: `launcher._release_tk_objects` after the main loop. ACT72-038: the wizard asks before cancelling the optional-voice step (`OptionalSetupPanel.busy`). ACT72-039: a close during the base install asks; Yes runs `bootstrap.request_setup_stop` (registered pip ended with its tree via `taskkill /T` by its own id; no later step; the window closes after the worker reports). `Decisions.md` 2026-11-09 (batch B).
+- **Evidence.** Native before/after for ACT72-017 with the forced-landing arms (now recording unraisable errors on the worker): before `2026-11-09_122136_focused_224e` (Cover 17.4 s / 16 Tk errors, TTS 22.9 s / 21), after `2026-11-09_122302_focused_07b1` (0.016–0.032 s, none; crash control still crashes). Tests: `test_tts_run_lock_options.py` (3), `test_mp3_tool_ui.py` (+1), `test_tk_teardown_on_main_thread.py` (2, real root in a child process, with a control), `test_first_run_setup_close.py` (6, the real window, a pip stand-in with a grandchild, an unrelated sentinel). 11 of 11 planted defects caught, control green (`batchB/mutation-results*.txt`). One planted defect first hung its test (a pipe left open); the test now fails within 20 s and ends only its own stand-ins by process id and creation time. Two stand-in grandchildren orphaned by that earlier run were ended by process id (their command lines were this test's).
+- **Issue count after batch B.** 59 issues, 27 open: Phase 6 21 (18 Minor, 3 Suggestion), Phase 7 1, Phase 8 5.
+- **Next exact action.** Batch C (ACT72-004, 018, 021, 025, 026, 027, 028, 036, 041, 042, 047), then one changed-area gate on the A–C candidate (it widens to every test: `scripts/shared/` is touched).
+
 ## CURRENT STATE — v0.7.2 Phase 6 (complete), batch A of A–E committed: staging cleanup (ACT72-019, 029, 031, 034, 037); branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 Authority: the owner's "COMPLETE PHASE 6" prompt (2026-11-09): finish every remaining Phase 6 issue in internal batches A–E, then ONE full Windows gate, then stop for the owner's checkpoint review. Phases 0–5 and 6A–6E are owner-accepted (6E closeout `e20b960`). No Phase 7, Codex review, merge, tag or release.

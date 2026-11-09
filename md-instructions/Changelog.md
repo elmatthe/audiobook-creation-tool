@@ -13,6 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 6, batch B: run locks, shutdown and first-run setup (2026-11-09)
+
+**Fixed**
+- TTS: Resume, the Edge speech rate and the Kokoro speed now lock while a conversion runs, like every other option the run has already taken; before, they looked editable and changing them did nothing. MP3 Tool: the Chapter Titles box locks during a run too, as it already did in the M4B Maker and Metadata Editor. What you had chosen is unchanged when the run ends.
+- Closing the app no longer risks a long silent wait at exit: the closed window's Tk objects are now cleaned up straight away instead of later from a background thread, where each one waited about a second and logged an error (measured: about 23 seconds for TTS and 17 for Cover Image in the worst case).
+- First-run setup: answering No to "Stop setup?" while the optional voices are being checked or installed now really keeps that work going; before, it stopped anyway and launched the app.
+- First-run setup: closing the window while the app's packages are installing now asks "Stop setup?". Yes stops the package installer and everything it started, starts nothing else and closes the window once setup has stopped; double-click Setup_and_Run again to finish. Before, the window closed at once and the installer kept running in the background.
+
+**Added (development only; nothing here ships)**
+- Tests for each, seen failing on the old code and on planted defects: a real run held inside the engine for the locks, a real Tk root in its own process for the shutdown cleanup, and the real setup window with a stand-in installer that starts a process of its own. The forced-shutdown scenarios now check that no Tk call happens on a background thread and that nothing waits.
+
 ## [Unreleased] — v0.7.2 Phase 6, batch A: private staging lives only as long as Retry Failed can use it (2026-11-09)
 
 **Fixed**

@@ -1848,7 +1848,11 @@ class TtsPanel(ttk.Frame):
         already running when a conversion started can still be stopped, and that stop
         reaches the coordinator only, never this run's controller.
         """
-        for widget in (self.go_btn, self.spin_workers, self.chk_overwrite, self.qwen3_setup_btn):
+        # Resume, the Edge speech rate and the Kokoro speed are frozen into the run at Start like every other option
+        # here (v0.7.2, ACT72-014): left editable they looked live and changed nothing. The Hardware and speed button
+        # only shows text, and Open Output Folder and Clear Log are not options, so none of them locks.
+        for widget in (self.go_btn, self.spin_workers, self.chk_overwrite, self.qwen3_setup_btn,
+                       self.chk_resume, self.entry_rate, self.spin_kokoro_speed):
             widget.configure(state=tk.DISABLED if locked else tk.NORMAL)
         # The two dropdowns are pick-one lists, never typeable: unlocking them
         # returns them to "readonly", not to "normal".

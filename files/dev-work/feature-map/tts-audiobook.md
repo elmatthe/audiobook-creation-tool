@@ -77,7 +77,7 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Checked at Start (v0.7.2 Phase 5, ACT72-044):** a rate the Edge voices refuse (anything but a sign, a whole number
   and %, for example "10%") is refused with "Edge speech rate" before anything is frozen or reserved, whenever
   folder-imported files would send it; a queue of directly added files never uses it, so it is not judged there.
-- **Known gap:** the field is not locked during a run (ACT72-014).
+- Locked during a run, like every other option the run freezes (ACT72-014, fixed in v0.7.2 Phase 6).
 
 ### Numbered run folder and Open Output Folder
 `ACT.TTS.OUTPUT-FOLDER`
@@ -97,8 +97,7 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Behaviour:** on a first attempt a folder-imported file whose planned MP3 already exists is skipped. It never applies
   to directly added files or to Retry Failed.
 - **Known gap (new finding, phase 6):** each first attempt writes into a freshly reserved numbered folder, so in the app
-  Resume can never find an existing output; the box has no effect a person can see. It is also not locked during a run
-  (ACT72-014).
+  Resume can never find an existing output; the box has no effect a person can see. It locks during a run (ACT72-014, fixed in v0.7.2 Phase 6).
 
 ### Start a conversion run
 `ACT.TTS.RUN`
@@ -261,10 +260,9 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Controls lock while a run is active
 `ACT.TTS.LOCK-DURING-RUN`
 
-- **Behaviour:** Start, File workers, Overwrite, Install / repair Qwen3 voices, the bitrate and voice dropdowns and the
-  queue editing lock during a run; Open Output Folder, Clear Log and Cancel Import do not.
-- **Known gap:** Resume, Edge speech rate and Kokoro speed stay editable during a run (ACT72-014, phase 6). They cannot
-  change the frozen run.
+- **Behaviour:** Start, File workers, Overwrite, Resume, Edge speech rate, Kokoro speed, Install / repair Qwen3 voices,
+  the bitrate and voice dropdowns and the queue editing lock during a run, and keep their values; Open Output Folder,
+  Clear Log and Cancel Import do not (Resume, rate and speed were added in v0.7.2 Phase 6, ACT72-014).
 
 ### Pause and resume between source files
 `ACT.TTS.PAUSE`
@@ -348,8 +346,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 
 - **Behaviour:** closing stops reporting, cancels the run (waking a paused one), waits up to 5 s for it, and closes the
   importer and the scheduler. Alt+F4 during narration should exit cleanly with no leftover process.
-- **Known gap:** a late garbage collection on a worker can touch leftover Tk objects, and the forced-shutdown case takes
-  about 23 s to exit (ACT72-017, phase 6).
+- A late garbage collection on a worker no longer touches Tk objects: the launcher finishes them on the main thread once
+  the window has gone, and the forced-shutdown case exits at once (about 23 s before; ACT72-017, fixed in v0.7.2 Phase 6).
 
 ### Responsive layout and appearance
 `ACT.TTS.LAYOUT`

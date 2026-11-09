@@ -2379,21 +2379,105 @@ def pip_install_requirements(log: SetupLog) -> bool:
     return True
 
 
+#: v0.7.2 Phase 6 (ACT72-039): the first-run window's "Stop setup?" answered Yes. Set once, for this process: no later
+#: setup step starts, and the pip that is running is ended with everything it started.
+_SETUP_STOP = threading.Event()
+_PIP_LOCK = threading.Lock()
+_RUNNING_PIP: Optional[subprocess.Popen] = None
+#: What :func:`_pip` returns when setup was stopped (pip ended by the stop, or never started after it).
+PIP_STOPPED = -2
+SETUP_STOPPED_MESSAGE = ("Setup was stopped before it finished. Nothing already installed was removed; double-click "
+                         "Setup_and_Run again to finish it.")
+
+
+def request_setup_stop() -> bool:
+    """Stop the first-run setup: no further step starts, and a running pip is ended now, with everything it started.
+
+    Only the pip this module started is touched, by its own process id, which Windows cannot give to another process
+    while this one still holds the child's unreaped handle (:func:`_end_owned_pip`); never a process found by name.
+    Returns once the tree is told to end (the setup's worker reaps the child and reports); True if a running pip was
+    told to stop.
+    """
+    _SETUP_STOP.set()
+    with _PIP_LOCK:
+        proc = _RUNNING_PIP
+    if proc is None or proc.poll() is not None:
+        return False
+    _end_owned_pip(proc)
+    return True
+
+
+def setup_stop_requested() -> bool:
+    return _SETUP_STOP.is_set()
+
+
+def clear_setup_stop() -> None:
+    """Forget a stop request (for a test; the setup process itself ends after one)."""
+    _SETUP_STOP.clear()
+
+
+def _end_owned_pip(proc: subprocess.Popen) -> None:
+    """End this module's pip and every process it started (v0.7.2, ACT72-039).
+
+    On Windows the tree is ended by ``taskkill /T`` from pip's own process id (the venv's ``python.exe`` is a launcher
+    whose child is the real interpreter, and pip may start more), the route ``tts.qwen3_process`` also falls back to;
+    the id cannot have been reused while this process holds the child's handle, unreaped. Elsewhere pip leads its own
+    process group. bootstrap imports nothing from ``tts``, so a repair can never reach an engine installer."""
+    if proc.poll() is not None:
+        return
+    try:
+        if IS_WINDOWS:
+            _run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], timeout=30)
+        else:
+            import signal
+
+            os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except OSError:
+        pass
+
+
 def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
     """Run one pip command with its output streamed line by line to ``log``, so the progress log stays alive during a
-    long download rather than blocking silently on a single capture. Returns pip's exit code (-1 if it cannot run)."""
+    long download rather than blocking silently on a single capture. Returns pip's exit code (-1 if it cannot run,
+    :data:`PIP_STOPPED` if setup was stopped).
+
+    The running pip is registered so a stop of the first-run setup can end it with everything it started
+    (:func:`request_setup_stop`, v0.7.2, ACT72-039). Before, closing the window during the install left pip running,
+    owned by nobody."""
+    if _SETUP_STOP.is_set():
+        log("  pip was not started: setup is being stopped.")
+        return PIP_STOPPED
+    global _RUNNING_PIP
+    group = {} if IS_WINDOWS else {"start_new_session": True}
     try:
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                encoding="utf-8", errors="replace", env=env, **_hidden())
+                                encoding="utf-8", errors="replace", env=env, **_hidden(), **group)
     except OSError as exc:
         log(f"  ERROR: pip could not be started: {exc}")
         return -1
-    assert proc.stdout is not None
-    for raw in proc.stdout:
-        line = raw.rstrip()
-        if line:
-            log("  " + line)
-    return proc.wait()
+    with _PIP_LOCK:
+        _RUNNING_PIP = proc
+    if _SETUP_STOP.is_set():
+        _end_owned_pip(proc)  # a stop that came between the check above and the registration
+    try:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if line:
+                log("  " + line)
+        code = proc.wait()
+    finally:
+        with _PIP_LOCK:
+            _RUNNING_PIP = None
+    if _SETUP_STOP.is_set():
+        log("  pip was stopped because setup is being stopped.")
+        return PIP_STOPPED
+    return code
 
 
 def _pip_environment() -> dict:
@@ -2968,13 +3052,20 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
         # Surface the chosen interpreter's capabilities up front (audit preflight).
         preflight_report(py_argv, log)
 
+        if _SETUP_STOP.is_set():
+            return False, _stopped(log)
         progress(1, "Creating the virtual environment…")
         if not _create_validated_venv(py_argv, log, headless):
+            if _SETUP_STOP.is_set():
+                return False, _stopped(log)
             return False, "Failed to create a working virtual environment (see the log)."
     finally:
         if lease is not None:
             lease.release()
 
+    # A stop is honoured between steps (v0.7.2, ACT72-039); the packages step's pip is also ended at once.
+    if _SETUP_STOP.is_set():
+        return False, _stopped(log)
     progress(2, "Installing packages (largest step — please wait)…")
     # One owner for pip → real import proof → stamp, shared with the drift path.
     # The environment is bound to the pins it was just built from only once those
@@ -2982,6 +3073,8 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
     # is detected instead of ignored, and a broken install is never remembered as
     # a success.
     ok_req, reason = reconcile_requirements(log)
+    if _SETUP_STOP.is_set():
+        return False, _stopped(log)
     if not ok_req:
         if reason == RECONCILE_IMPORT_FAILED:
             return False, ("Python packages installed but could not be imported "
@@ -2996,6 +3089,8 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
                        "Install it (https://ffmpeg.org/download.html) and re-run, "
                        "or see the log for the manual steps.")
 
+    if _SETUP_STOP.is_set():
+        return False, _stopped(log)
     progress(4, "Downloading the English sentence data…")
     fetch_sentence_data(log)
 
@@ -3012,6 +3107,11 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
                       "voices are unavailable. Edge TTS and the audio tools "
                       "work normally.")
     return True, "Setup complete."
+
+
+def _stopped(log: SetupLog) -> str:
+    log.line(SETUP_STOPPED_MESSAGE)
+    return SETUP_STOPPED_MESSAGE
 
 
 #: The base setup's steps: Python, environment, packages, FFmpeg, the English sentence data.
@@ -3133,7 +3233,7 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     # several GB each). Choosing is not consent: nothing optional is downloaded until the review screen's Install.
     choices = {component: tk.BooleanVar(value=(default and not (component == "kokoro" and skip_kokoro_default)))
                for component, _label, default, _note in OPTIONAL_CHOICES}
-    state = {"started": False, "done": False, "ok": False}
+    state = {"started": False, "done": False, "ok": False, "stopping": False}
     sizes = optional_estimates()
 
     # ---- Intro view -------------------------------------------------------
@@ -3210,6 +3310,23 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     def append_log(msg: str) -> None:
         _append_following(log_box, msg)
 
+    def on_close_during_base() -> None:
+        """Closing while the base installs (v0.7.2, ACT72-039). It used to end the process at once and leave a running
+        pip owned by nobody. Now it asks; Yes stops setup (the running pip is ended with everything it started, no later
+        step begins) and the window closes once the worker has reported, so nothing of this setup outlives it."""
+        if state["done"] or state["stopping"]:
+            if state["done"]:
+                root.destroy()
+            return
+        if not messagebox.askyesno(
+                "Stop setup?",
+                "Stop setting up the app? It cannot be used until setup has finished; double-click "
+                "Setup_and_Run again later to finish it. Anything already installed is kept."):
+            return
+        state["stopping"] = True
+        step_var.set("Stopping setup…")
+        request_setup_stop()
+
     def begin() -> None:
         if state["started"]:
             return
@@ -3217,6 +3334,7 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         selection[:] = [c for c, *_rest in OPTIONAL_CHOICES if choices[c].get()]
         intro.pack_forget()
         progress_frame.pack(fill="both", expand=True)
+        root.protocol("WM_DELETE_WINDOW", on_close_during_base)
         threading.Thread(target=worker, daemon=True).start()
 
     begin_btn.configure(command=begin)
@@ -3241,9 +3359,13 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         panel.pack(fill="both", expand=True)
 
         def on_close() -> None:
-            if panel.close_requested() or messagebox.askyesno(
+            # Ask first, cancel only on Yes (v0.7.2, ACT72-038): asking close_requested() first cancelled the running
+            # check or install before the question was even shown, so No still stopped it and launched the app.
+            if panel.busy and not messagebox.askyesno(
                     "Stop setup?", "Stop installing the voices? Anything already working is kept."):
-                root.destroy()
+                return
+            panel.close_requested()
+            root.destroy()
 
         root.protocol("WM_DELETE_WINDOW", on_close)
         panel.start()
@@ -3261,6 +3383,12 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
                     bar.configure(value=step)
                 elif kind == "done":
                     _, ok, final = item
+                    if state["stopping"]:
+                        # The person stopped setup and the worker has now reported: nothing of it is still running.
+                        state["done"], state["ok"] = True, False
+                        LOG.line(SETUP_STOPPED_MESSAGE)
+                        root.destroy()
+                        return
                     bar.configure(value=bar["maximum"])
                     step_var.set(final.splitlines()[0])
                     if ok:

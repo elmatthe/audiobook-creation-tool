@@ -69,7 +69,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Each panel cancels its own run on close; after the main loop ends the launcher terminates only `ffmpeg.exe`/`ffprobe.exe` processes it started itself. Repair and cleanup helpers are deliberately left running.
 - Closing during a folder import cancels and joins the scan and adds nothing.
 - The launcher holds its Tk root for the life of the process so it is never freed on a worker thread.
-- Known issues: ACT72-017 (leftover Tk Variables collected on a worker after close; TTS and Cover forced-shutdown paths take about 23 s and 18 s). Closing during an import has no native journey yet.
+- After the main loop ends the launcher finishes the closed window's Tk variables, images and fonts on the main thread, so a collection on a worker afterwards makes no Tk call and waits for nothing (ACT72-017, fixed in v0.7.2 Phase 6; the TTS and Cover forced-shutdown paths took about 23 s and 17 s before). The forced-landing scenarios check both. Closing during an import has no native journey yet.
 
 ### Cooperative cancellation primitive
 `ACT.SHARED.CANCELLATION`
@@ -96,7 +96,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - While a run is Running, Pause requested, Paused or Cancel requested, the imported list (buttons and shortcuts included) and every option the tool registered are disabled; they come back when the run ends in any way.
 - Run buttons, log tabs, progress/status and Open Output are never locked.
 - Tab is meant to reach every visible core control in workflow order at 920x600 and 1024x720 and never stop on a hidden one.
-- Known issue: ACT72-014 — some tool options are not registered for locking (for example TTS resume/rate/Kokoro speed, MP3 chapter text).
+- Every option a run freezes is registered for locking in all six tools (audited in v0.7.2 Phase 6, ACT72-014: the TTS Resume, Edge rate and Kokoro speed and the MP3 Chapter Titles box were added).
 
 ### Progress bar, stage line and time remaining
 `ACT.SHARED.PROGRESS`
@@ -284,7 +284,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - TTS does not remember its last import folder; the other five tools do.
 - Cover Image can write beside the sources and asks its own replace-the-originals question with Cancel as the default.
 - M4B Maker can deliver to a custom destination folder instead of the numbered run folder.
-- Each tool chooses which of its options lock during a run (see ACT72-014) and what Pause and Cancel can interrupt (see the tool sections; ACT72-033 was fixed in v0.7.2 Phase 6D, ACT72-010 in 6E).
+- Each tool registers the options it freezes for locking during a run (all six audited in v0.7.2 Phase 6, ACT72-014) and what Pause and Cancel can interrupt (see the tool sections; ACT72-033 was fixed in v0.7.2 Phase 6D, ACT72-010 in 6E).
 - The Windows shell is a dark rail with real buttons; macOS uses a Finder-style list and Linux the classic layout; on both of those, Open log folder is a text link rather than a button.
 
 ### Not verified here
@@ -326,11 +326,9 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 `ACT.SETUP.FIRST-RUN.CANCEL`
 
 - **Purpose:** declining setup is an ordinary outcome, not a reported failure.
-- **How to reach it:** Cancel on the intro screen, the window's close control, or "Stop setup?" while the optional voices are being checked or installed.
+- **How to reach it:** Cancel on the intro screen, the window's close control, or "Stop setup?" when the window is closed during the base install or while the optional voices are being checked or installed.
 - **States and outputs:** not started exits with code 2, and the launcher prints "Setup cancelled. Nothing was installed." and closes without pausing. A run that failed or was closed part-way exits 1, and the launcher keeps its window open with the log location. Success exits 0. A cancelled run never writes the "packages installed" stamp. The base-install progress view has no Cancel button.
-- **Known gaps (new findings, no issue id yet):**
-  - Answering **No** to "Stop setup?" does not keep the work going. The panel's cancel flag is set before the question is asked, so the check or install stops anyway, and the cancelled result then launches the app and closes the wizard.
-  - Closing the window during the base install ends setup (exit 1), but a pip download or install already started keeps running unowned (no process containment).
+- **Stop setup?** (v0.7.2 Phase 6): answering **No** keeps whatever is running going and launches nothing (ACT72-038). Closing during the base install asks the same question; **Yes** ends the running pip and everything it started, starts no later step, and closes the window once setup's worker has reported; the exit is 1 and the log says to run Setup_and_Run again to finish (ACT72-039).
 - **Differences:** the TTS tool's Install & Continue window cancels on close without asking.
 
 ### App-local Python (stage 0)

@@ -797,6 +797,9 @@ class MP3ToolUI(ttk.Frame):
         self._book_options_lock = self._ButtonLock(
             self.btn_write_id3, self.btn_combine, self.check_auto_number,
             self.entry_start_number)
+        # The Chapter Titles box locks with the run, as the Maker's and the Editor's do (v0.7.2, ACT72-014): the run
+        # froze the titles at its start, so an edit made during it looked live and reached nothing.
+        self._chapters_lock = self._TextLock(self.chapter_text)
         self._install_jobs(IDLE_RUN_ID, ())
 
         self.render()
@@ -1189,7 +1192,7 @@ class MP3ToolUI(ttk.Frame):
         self._arrange_status()
         self.jobs.register_inputs(self.navigator, self._tracks_lock, self._import_lock)
         self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
-                                   self._book_options_lock)
+                                   self._book_options_lock, self._chapters_lock)
         self.jobs.render()
 
     def _fit_output_hint(self, _event=None) -> None:
@@ -1423,6 +1426,18 @@ class MP3ToolUI(ttk.Frame):
                 except tk.TclError:
                     pass
 
+    class _TextLock:
+        """The Chapter Titles box's run lock, as the Maker's and the Editor's (v0.7.2, ACT72-014)."""
+
+        def __init__(self, text: tk.Text) -> None:
+            self.text = text
+
+        def set_locked(self, locked: bool) -> None:
+            try:
+                self.text.configure(state="disabled" if locked else "normal")
+            except tk.TclError:
+                pass
+
     # ------------------------------------------------------------------ #
     # Dialog and confirmation seams (main thread, before any worker)
     # ------------------------------------------------------------------ #
@@ -1591,9 +1606,13 @@ class MP3ToolUI(ttk.Frame):
             return
         self._suspend_chapters = True
         try:
+            # A locked box is still filled by the panel itself (a disabled Text ignores edits); its state is put back.
+            state = str(self.chapter_text.cget("state"))
+            self.chapter_text.configure(state="normal")
             self.chapter_text.delete("1.0", "end")
             if raw:
                 self.chapter_text.insert("1.0", raw)
+            self.chapter_text.configure(state=state)
         finally:
             self._suspend_chapters = False
 

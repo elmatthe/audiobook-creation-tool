@@ -207,7 +207,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 
 - **Purpose:** leaving mid-batch must not hang, crash or leave threads running.
 - **Behaviour:** closing asks a running or paused resize to stop, waits up to 5 seconds for it, then shuts down the import scan, browser decoders, run controls and the panel's scheduler; late events are ignored. The panel finishes its own cleanup on the main thread.
-- **Known gap:** after the window closes, a garbage collection on a worker can collect leftover Tk variables, and the Cover forced-shutdown case takes about 18 seconds to exit (ACT72-017, Phase 6).
+- After the window closes, its Tk variables, images and fonts are finished on the main thread, so a collection that lands on a worker makes no Tk call; the forced-shutdown case exits at once (it took about 17 to 18 seconds before; ACT72-017, fixed in v0.7.2 Phase 6).
 
 ### Panel layout
 `ACT.COVER.LAYOUT`

@@ -172,6 +172,18 @@ def _force_worker_collection(root_gone: threading.Event, done: threading.Event, 
             passes.append(info["collected"])
 
     gc.callbacks.append(watch)
+    # v0.7.2 Phase 6 (ACT72-017): what a collection here makes Python report and ignore -- a Tk object's __del__ calling
+    # into Tcl from this thread raises "main thread is not in main loop" after waiting about a second. Recorded, never
+    # hidden: the original hook still runs.
+    unraisable: list[str] = []
+    previous_hook = sys.unraisablehook
+
+    def hook(info) -> None:
+        if threading.current_thread() is me:
+            unraisable.append(f"{type(info.exc_value).__name__}: {info.exc_value} (in {info.object!r})"[:300])
+        previous_hook(info)
+
+    sys.unraisablehook = hook
     # gc.collect returns 0 at once while another collection is running, so one call is no proof a pass happened here. Count real passes.
     collected = 0
     with open(record.with_suffix(".stacks.txt"), "w", encoding="utf-8") as stacks:
@@ -181,6 +193,7 @@ def _force_worker_collection(root_gone: threading.Event, done: threading.Event, 
             if not passes:
                 time.sleep(0.02)
         faulthandler.cancel_dump_traceback_later()
+    sys.unraisablehook = previous_hook
     gc.callbacks.remove(watch)
     alive = [ref() for ref in roots]
     still = [item for item in alive if item is not None]
@@ -189,7 +202,7 @@ def _force_worker_collection(root_gone: threading.Event, done: threading.Event, 
     del alive, still
     record.write_text(json.dumps({"collected_on_worker": collected, "full_passes_on_worker": len(passes), "seconds": round(time.monotonic() - began, 3),
                                   "root_still_reachable": any(ref() is not None for ref in roots), "held_by_application": held,
-                                  "root_holder_chain": chain}), encoding="utf-8")
+                                  "root_holder_chain": chain, "unraisable_on_worker": unraisable}), encoding="utf-8")
     done.set()
 
 

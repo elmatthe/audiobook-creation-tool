@@ -59,6 +59,12 @@ def _finish(context: Context, session, *, tool: str, active: str, forced_record=
             forced = context.notes["forced_collection"] = json.loads(forced_record.read_text(encoding="utf-8"))
             report.check("the closed root was held by the application itself, with the accidental holders emptied",
                          forced.get("held_by_application") is True, forced.get("root_holder_chain"))
+            # v0.7.2 Phase 6 (ACT72-017): the closed panels' Tk objects are finished on the main thread before this, so a
+            # collection on a worker calls no Tk (each such call waited about 1 s, then raised and was ignored).
+            from_tk = [line for line in forced.get("unraisable_on_worker", []) if "main thread is not in main loop" in line]
+            report.equal("the forced collection made no Tk call from the worker", from_tk, [])
+            report.check("the forced collection waited for nothing (18 to 26 s before v0.7.2 Phase 6)",
+                         forced.get("seconds", 99.0) < 5.0, forced.get("seconds"))
     return facts
 
 

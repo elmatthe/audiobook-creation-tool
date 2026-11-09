@@ -40,6 +40,7 @@ hides their console windows too.
 
 from __future__ import annotations
 
+import gc
 import importlib
 import importlib.util
 import os
@@ -50,6 +51,7 @@ from pathlib import Path
 
 try:
     import tkinter as tk
+    import tkinter.font as tkfont
     from tkinter import ttk
 except (ImportError, ModuleNotFoundError) as _tk_err:  # Tk-less / headless Python
     import sys as _sys
@@ -777,6 +779,61 @@ class LauncherApp:
 _ROOT: tk.Tk | None = None
 
 
+def _release_tk_objects(root: tk.Tk) -> int:
+    """Finish the closed window's Tcl variables, images and fonts here, on the main thread (v0.7.2, ACT72-017).
+
+    The window is gone, but closed panels' Tk objects can still sit in reference cycles, or be held by a worker that is
+    finishing its run. Freed later by a collection on a worker thread, each one's ``__del__`` would call into Tcl from
+    that thread: Tkinter then waits about a second for a main loop that has ended and raises "main thread is not in main
+    loop", which Python reports and ignores. A forced landing measured 18 to 26 s of that at shutdown.
+
+    So the teardown order is fixed here instead: a collection on this thread frees what is already garbage, and every
+    variable, image and font of *root* still alive is deleted from Tcl exactly as its ``__del__`` would, then marked
+    done, so that ``__del__`` has nothing left to do on whatever thread it eventually runs. Workers never use Tk objects
+    (only plain copies cross to them), so nothing still alive needs these. The root itself is not touched: ``_ROOT``
+    holds it until Python shuts down. Returns how many objects were finished here.
+    """
+    gc.collect()
+    interp = root.tk
+    finished = 0
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, tk.Variable):
+                if obj._tk is not interp:
+                    continue
+                try:
+                    if interp.getboolean(interp.call("info", "exists", obj._name)):
+                        interp.globalunsetvar(obj._name)
+                    for name in obj._tclCommands or ():
+                        interp.deletecommand(name)
+                except tk.TclError:
+                    pass
+                obj._tclCommands = None
+                obj._tk = None
+            elif isinstance(obj, tk.Image):
+                if obj.tk is not interp or not obj.name:
+                    continue
+                try:
+                    interp.call("image", "delete", obj.name)
+                except tk.TclError:
+                    pass
+                obj.name = None
+            elif isinstance(obj, tkfont.Font):
+                if obj._tk is not interp or not obj.delete_font:
+                    continue
+                try:
+                    interp.call("font", "delete", obj.name)
+                except tk.TclError:
+                    pass
+                obj.delete_font = False
+            else:
+                continue
+        except Exception:  # noqa: BLE001 - an object that cannot even be inspected is left as it is
+            continue
+        finished += 1
+    return finished
+
+
 def _configure_hf_cache() -> None:
     """Keep the HuggingFace model cache inside the project tree.
 
@@ -808,6 +865,8 @@ def main() -> int:
     root = _ROOT = tk.Tk()
     LauncherApp(root)
     root.mainloop()
+    # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
+    _release_tk_objects(root)
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
     sp.stop_media_children()
     return 0
