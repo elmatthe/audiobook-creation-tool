@@ -18,9 +18,10 @@ What a mode means (plan §6):
                  config, the collection partition, the coverage inventory and the gate's own self-tests. The routine gate. Requirements
                  owned by later phases are listed as NOT RUN in every result: this is not full acceptance and not release readiness
                  until they exist and pass.
-  qualification  one named expensive scenario, run on its own and never by a routine mode. m4b-scaling is implemented (v0.7.2
-                 Phase 7B: scaling/qualify.py, about three hours); each other scenario reports NOT RUN and names the phase
-                 that owns it.
+  qualification  one named expensive scenario, run on its own and never by a routine mode: m4b-scaling (v0.7.2 Phase 7B,
+                 scaling/qualify.py, about three hours) and, since Phase 8, edge-low-memory, optional-engines and fresh-windows
+                 (qualification/). A scenario that needs the network runs only with the --network policy it declares and is
+                 BLOCKED without it. A scenario the policy lists with no runner reports NOT RUN and names its phase.
 
 The gates of a full run, always in this order and all of them even after a failure:
 
@@ -935,8 +936,11 @@ class GateRun:
         scratch = self.scratch("q")
         log = self.directory / "logs" / f"qualification-{name}.log"
         self.enter("running")
+        # A network policy the invocation was given is handed on by name and by nothing else (v0.7.2 Phase 8): a scenario that needs
+        # the network refuses, BLOCKED, without its grant, and one that needs none keeps its own children offline.
+        granted = ["--network", self.args.network] if self.args.network else []
         try:
-            result = self.supervise("qualification", [sys.executable, "-u", str(script), "--out", str(folder)],
+            result = self.supervise("qualification", [sys.executable, "-u", str(script), "--out", str(folder), *granted],
                                     log=log, env=self.stage_env(scratch / "t"), progress=(folder / "progress.log",))
         except winproc.JobUnavailable as exc:
             self.check("process-ownership", "BLOCKED", f"no owned process tree can be established: {exc}")
@@ -1860,7 +1864,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 # Named here as well as in the policy so a bad --network is refused before anything exists; a test keeps the two equal.
-_SCENARIO_NETWORK = {"edge-low-memory": ("online-edge",)}
+_SCENARIO_NETWORK = {"edge-low-memory": ("online-edge",), "fresh-windows": ("online-setup",)}
 
 
 def main(argv: list[str] | None = None) -> int:

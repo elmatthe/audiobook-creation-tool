@@ -182,11 +182,19 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Extract and clean PDF text
 `ACT.TTS.PDF-TEXT`
 
-- **Behaviour:** PyMuPDF text with words broken by hyphens rejoined, wrapped lines joined, page-number and short
-  all-caps lines dropped, and paragraphs merged across page breaks. Only one PDF is read at a time in the process. Every
+- **Behaviour:** PyMuPDF text with page numbers at a page's edge removed, words broken by hyphens rejoined (across lines
+  and across pages), wrapped lines joined, remaining number-only and short all-caps lines dropped, and paragraphs merged
+  across page breaks. Only one PDF is read at a time in the process. Every
   route uses this one extractor.
-- **Known gap (phase 8):** nothing checks the line cleaning rules against expected text; only a smoke extraction and a
-  regression of the page join exist.
+- **Page numbers (v0.7.2 Phase 8, ACT72-063):** a number printed as the first or last line of a page is removed before the
+  page's lines are joined, so it is no longer read out in the middle of a sentence that runs on to the next page, and a
+  word hyphenated at the foot of a page is joined to its other half.
+- **Checked against expected narration (ACT72-057):** real PDFs built line by line, each checked before the cleaner sees
+  it, are held to text written out by hand: hyphen joins, wrapped lines, page numbers, short running heads, paragraphs,
+  and what must not be joined or deleted.
+- **Known limits (ACT72-064, open):** a running head longer than four capitals (a title on every page) is narrated at
+  each page; a line that is only a one-to-four-letter all-caps word is dropped; a compound word broken at its own hyphen
+  loses the hyphen; a bare number that ends a page is taken for its page number.
 
 ### A source with nothing to read fails cleanly
 `ACT.TTS.NO-TEXT`

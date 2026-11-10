@@ -42,17 +42,22 @@
       "network": [
         "online-edge"
       ],
-      "detail": "real Edge overlap under low memory; defined with the Phase 8 readiness package"
+      "runner": "qualification/edge_low_memory.py",
+      "detail": "real Microsoft Edge speech through the real TTS panel: eight files in flight at once, a mixed folder with PDFs, Cancel during synthesis and during finalization, Pause then Cancel, and the queue under a real per-process memory limit (qualification/edge_low_memory.py); sends a few hundred short requests, so it runs only with --network online-edge and is BLOCKED without it"
     },
     "optional-engines": {
       "phase": 8,
       "network": [],
-      "detail": "bounded real synthesis on Kokoro, Chatterbox Turbo and Qwen3-TTS; defined with the Phase 8 readiness package"
+      "runner": "qualification/optional_engines.py",
+      "detail": "bounded real synthesis, offline, on the Kokoro, Chatterbox Turbo and Qwen3-TTS already installed on this computer: two voices each, multi-chunk text, eight workers asked for and one used, the published MP3 decoded and measured (qualification/optional_engines.py); never downloads, a missing engine or model is BLOCKED"
     },
     "fresh-windows": {
       "phase": 8,
-      "network": [],
-      "detail": "fresh Windows extraction, launch and repair; defined with the Phase 8 readiness package"
+      "network": [
+        "online-setup"
+      ],
+      "runner": "qualification/fresh_windows.py",
+      "detail": "the committed application packaged by the real packager and audited, extracted fresh, set up by the real first-run base setup, launched, repaired offline after controlled damage, stopped during setup and completed offline from kept files, and failed cleanly offline with nothing to reuse (qualification/fresh_windows.py); downloads about 2.9 GB into the gate's scratch, so it runs only with --network online-setup and is BLOCKED without it; a fresh extraction on this Windows 11 account, not a new Windows installation"
     }
   },
   "later_phase_requirements": [],
@@ -254,7 +259,10 @@
       "shutdown.cover-close-forced-landing",
       "cover.replace-confirmation",
       "shutdown.close-during-folder-scan",
-      "maker.wheel-over-a-long-book"
+      "maker.wheel-over-a-long-book",
+      "setup.first-run-refuses-a-folder-too-deep",
+      "setup.first-run-choices-and-cancel",
+      "setup.clear-downloaded-data"
     ],
     "optional_scenarios": [
       "tts.kokoro-local"
@@ -312,7 +320,25 @@
       "scripts/launcher.py": [
         "launcher.settings-survive-relaunch",
         "launcher.six-tools-at-three-sizes",
-        "launcher.switch-tools-during-work"
+        "launcher.switch-tools-during-work",
+        "setup.clear-downloaded-data"
+      ],
+      "scripts/shared/bootstrap.py": [
+        "setup.first-run-choices-and-cancel",
+        "setup.first-run-refuses-a-folder-too-deep"
+      ],
+      "scripts/shared/preferences_ui.py": [
+        "setup.clear-downloaded-data"
+      ],
+      "scripts/shared/maintenance.py": [
+        "setup.clear-downloaded-data"
+      ],
+      "scripts/shared/cleanup_": [
+        "setup.clear-downloaded-data"
+      ],
+      "Setup_and_Run": [
+        "setup.first-run-choices-and-cancel",
+        "setup.first-run-refuses-a-folder-too-deep"
       ],
       "scripts/": [
         "inventory.live-surfaces"

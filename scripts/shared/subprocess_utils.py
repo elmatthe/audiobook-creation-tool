@@ -10,12 +10,14 @@ On non-Windows platforms these are thin pass-throughs to ``subprocess``.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import contextvars
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -300,20 +302,185 @@ def install_no_window_guard() -> None:
     _POPEN_PATCHED = True
 
 
-def reveal_in_file_manager(path) -> None:
-    """Open ``path`` in the OS file manager without flashing a console window.
+# --------------------------------------------------------------------------- #
+# Showing a folder in the file manager without waiting for it (v0.7.2 Phase 8, ACT72-062)
+# --------------------------------------------------------------------------- #
 
-    Uses ``os.startfile`` on Windows (no console), ``open`` on macOS, and
-    ``xdg-open`` on Linux. Never raises — opening a folder is a convenience, not
-    a critical operation.
+#: The most folders that may be waiting for the file manager at once. A person asks for one or two; more than this
+#: means the file manager has stopped answering, so a further request is refused at once instead of piling up.
+REVEAL_LIMIT = 4
+#: How long the macOS or Linux opener is waited for before it is left to finish by itself.
+REVEAL_OPENER_SECONDS = 10.0
+
+
+class RevealRequest:
+    """One request to show a folder in the file manager, and how it ended.
+
+    ``reason`` is ``None`` while the request is waiting and after it was handed over; otherwise it says why the file
+    manager could not be asked. :meth:`on_failure` is told that reason exactly once, on whichever thread learns it, so
+    the callable must be safe on any thread and must hold no Tk object: put a line on a queue, never touch a widget
+    (a Tk object released on a thread that is not Tk's own ends the program).
     """
-    target = str(Path(path))
-    try:
-        if sys.platform == "win32":
-            os.startfile(target)  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            popen(["open", target])
+
+    __slots__ = ("target", "_lock", "_done", "_reason", "_callbacks")
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        self._lock = threading.Lock()
+        self._done = threading.Event()
+        self._reason: Optional[str] = None
+        self._callbacks: list[Callable[[str], None]] = []
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    @property
+    def reason(self) -> Optional[str]:
+        return self._reason
+
+    def wait(self, timeout: Optional[float] = None) -> bool:
+        """True once the request has ended either way. Nothing in the application waits; a test may."""
+        return self._done.wait(timeout)
+
+    def on_failure(self, callback: Callable[[str], None]) -> None:
+        with self._lock:
+            if not self._done.is_set():
+                self._callbacks.append(callback)
+                return
+            reason = self._reason
+        if reason is not None:
+            _tell(callback, reason)
+
+    def _finish(self, reason: Optional[str]) -> None:
+        with self._lock:
+            self._reason = reason
+            self._done.set()
+            callbacks, self._callbacks = self._callbacks, []
+        if reason is not None:
+            for callback in callbacks:
+                _tell(callback, reason)
+
+
+def _tell(callback: Callable[[str], None], reason: str) -> None:
+    """A listener that raises must not stop the requests waiting behind this one."""
+    with contextlib.suppress(Exception):
+        callback(reason)
+
+
+_reveal_lock = threading.Lock()
+#: Requests not yet ended, oldest first; the first is the one the file manager is being asked for now.
+_reveal_queue: collections.deque = collections.deque()
+_reveal_thread: Optional[threading.Thread] = None
+#: The thread class as it was when this module loaded, so replacing ``threading.Thread`` elsewhere changes nothing here.
+_Thread = threading.Thread
+
+
+def reveal_in_file_manager(path) -> RevealRequest:
+    """Ask the OS file manager to show ``path``, and return at once. Never raises.
+
+    The operating system's own call can take many seconds while Explorer is busy or restarting (36.9 s measured in
+    v0.7.2 Phase 7B), and it used to be made by the caller: a window's own thread, which froze for that long when the
+    M4B Converter showed its output folder at the end of a run (ACT72-062). It is now made on one background thread,
+    one request at a time, so no window waits for it. That thread is a daemon and nothing joins it, so closing the
+    application never waits for the file manager either; it starts no process of its own on Windows.
+
+    A folder that is already waiting is not asked for twice (the same request comes back), and at most
+    :data:`REVEAL_LIMIT` different folders wait: past that the file manager has stopped answering, and the new request
+    ends at once with that reason. Opening a folder stays a convenience, so a failure is never raised; the returned
+    :class:`RevealRequest` tells a caller that wants to say so.
+    """
+    global _reveal_thread
+    request = RevealRequest(str(Path(path)))
+    with _reveal_lock:
+        for waiting in _reveal_queue:
+            if waiting.target == request.target:
+                return waiting
+        if len(_reveal_queue) < REVEAL_LIMIT:
+            _reveal_queue.append(request)
+            # A thread seen here has not yet decided to end (it decides under this lock), so it will take this request.
+            if _reveal_thread is not None and _reveal_thread.is_alive():
+                return request
+            try:
+                _reveal_thread = _Thread(target=_reveal_waiting, name="reveal-in-file-manager", daemon=True)
+                _reveal_thread.start()
+                return request
+            except Exception as exc:  # noqa: BLE001 - no thread to be had; say so instead of asking on the caller's
+                _reveal_thread = None
+                _reveal_queue.remove(request)
+                reason = f"{type(exc).__name__}: {exc}"
         else:
-            popen(["xdg-open", target])
-    except Exception:
-        pass
+            reason = f"the file manager has not answered {REVEAL_LIMIT} earlier requests yet"
+    request._finish(reason)
+    return request
+
+
+def _reveal_waiting() -> None:
+    """The background thread: ask for each waiting folder in turn, then end. Holds no lock while the system works."""
+    global _reveal_thread
+    while True:
+        with _reveal_lock:
+            if not _reveal_queue:
+                _reveal_thread = None
+                return
+            request = _reveal_queue[0]
+        reason = _ask_file_manager(request.target)
+        with _reveal_lock:
+            _reveal_queue.popleft()
+        request._finish(reason)
+
+
+def _ask_file_manager(target: str, platform: Optional[str] = None) -> Optional[str]:
+    """Make the operating system's own call and wait for it: the one place a folder is really opened.
+
+    ``None`` when the request was handed over, otherwise why it could not be. Never raises. ``os.startfile`` on Windows
+    (no console window, no process of ours), ``open`` on macOS and ``xdg-open`` on Linux; the two openers are waited for
+    briefly so they are reaped, and one still running after :data:`REVEAL_OPENER_SECONDS` is the system's to finish.
+    """
+    platform = sys.platform if platform is None else platform
+    try:
+        if platform == "win32":
+            with _shell_apartment():
+                os.startfile(target)  # type: ignore[attr-defined]
+            return None
+        opener = "open" if platform == "darwin" else "xdg-open"
+        child = popen([opener, target], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL)
+        try:
+            code = child.wait(timeout=REVEAL_OPENER_SECONDS)
+        except subprocess.TimeoutExpired:
+            return None
+        return None if code == 0 else f"{opener} ended with code {code}"
+    except Exception as exc:  # noqa: BLE001 - reported to whoever asked, never raised into a window
+        return f"{type(exc).__name__}: {exc}"
+
+
+@contextlib.contextmanager
+def _shell_apartment():
+    """Give the calling thread the COM apartment Windows asks of a thread that calls the shell.
+
+    ``os.startfile`` is ``ShellExecute``, whose documentation asks its caller to initialise COM single-threaded with
+    OLE1 DDE disabled, because the shell may hand the request to a COM extension. A window's thread usually had that
+    already; the background thread above has nothing until this gives it. A failure to initialise is not an error: the
+    call is then made exactly as it always was.
+    """
+    release = None
+    try:
+        import ctypes
+
+        ole32 = ctypes.WinDLL("ole32")
+        ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        ole32.CoInitializeEx.restype = ctypes.c_long
+        ole32.CoUninitialize.argtypes = []
+        ole32.CoUninitialize.restype = None
+        # COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE. S_OK (0) and S_FALSE (1) must both be balanced.
+        if ole32.CoInitializeEx(None, 0x2 | 0x4) in (0, 1):
+            release = ole32.CoUninitialize
+    except Exception:  # noqa: BLE001 - no COM to be had; the shell call still works for a plain folder
+        release = None
+    try:
+        yield
+    finally:
+        if release is not None:
+            with contextlib.suppress(Exception):
+                release()

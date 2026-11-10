@@ -53,6 +53,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - "Open log folder" at the right of the status bar creates `files/runtime-data/logs` if needed and opens it in Explorer without a console window. Errors are swallowed.
 - On Windows it is a real, Tab-reachable button; macOS and Linux use a text link that is not keyboard-reachable.
 - Checked since v0.7.2 Phase 4, by a widget-level press rather than a native one: pressing it creates the log folder and reveals exactly that folder, and nothing else.
+- The request never waits for Explorer (v0.7.2 Phase 8, ACT72-062): the shared helper asks on a background thread, one folder at a time, never twice for a folder already waiting.
 
 ### Start-up sequence and one-time start-up reports
 `ACT.LAUNCHER.STARTUP`
@@ -320,7 +321,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Failure, cancel, retry:** a failed step ends setup with a plain message and the log location; running the launcher again picks up from what is already in place. Cancel and close are described next.
 - **Persistence:** the choices are read once, when Begin Setup is pressed, and are not saved.
 - **Live log (v0.7.2 Phase 6, ACT72-059):** the progress log follows new lines while its reader is at the bottom. A reader who scrolls up keeps their place, to the pixel, while setup keeps writing, and following resumes once they are back at the bottom. Every line is kept, and only the window's own thread writes the log.
-- **Known gaps:** the "Setup did not complete" dialog and Open log folder are checked only from source text, and no native journey drives the window. Begin Setup and the live log are driven in the real window by an automated test (since v0.7.2 Phase 6).
+- **Native journeys (v0.7.2 Phase 8, ACT72-055):** `setup.first-run-refuses-a-folder-too-deep` drives the real window and the real `run_setup` on a disposable copy whose folder path is too long for Windows, so the failure is the product's own: Begin Setup, the native "Setup did not complete" box, Open log folder (recorded, not opened), Close, exit status 1, nothing installed. `setup.first-run-choices-and-cancel` reads the four choices and their defaults, changes one by a real click, checks every control at the smallest window size and cancels (exit status 2, nothing created). A real base installation is the `fresh-windows` qualification.
 
 ### Cancelling or closing first-run setup
 `ACT.SETUP.FIRST-RUN.CANCEL`
@@ -379,7 +380,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Purpose:** the everyday start.
 - **How to reach it:** double-click `Setup_and_Run-audiobook-creation-tool.bat`.
 - **Behaviour:** with a `.venv` present, the launcher asks `bootstrap.py --venv-check`. Exit 0 starts `pythonw bootstrap.py --launch-only` detached, with no console. Any other exit takes the repair route. The launch then runs a bounded self-heal (environment, packages, FFmpeg, Kokoro), never the full first-run install. Repairs run behind a small progress window whose live log follows new lines at the bottom and keeps a reader who scrolled up in place (v0.7.2 Phase 6, ACT72-059). The launcher window then starts with its output captured in `files/runtime-data/logs/launch_<date>.log`, and if it exits with an error within 1.5 s the launch is reported as failed. Problems that could not be fixed are collected into exactly one "Some features are unavailable" warning, shown only after the app window exists. An environment too broken to carry the app still reports before any window. A leftover pre-v0.6.7 `scripts/Universal` folder is reported once in the launcher's status bar and never deleted. The model cache (`HF_HOME`) points inside `files/runtime-data/models/huggingface`.
-- **Known gaps:** the early-crash detection (non-zero exit inside the grace window, with the tail of the launch log) has no automated test.
+- **Early crash (v0.7.2 Phase 8, ACT72-055):** checked with real child processes started by `launch_gui`'s own call: a window that dies inside the 1.5 s grace is a failed launch that quotes the last 25 lines it wrote; one still running, or one that closed cleanly, is not.
 - **Differences:** Windows asks `--venv-check` first because it cannot wait for the detached launch; macOS runs `--launch-only` in the foreground and reads the same exit codes.
 
 ### Environment health assessment
@@ -469,7 +470,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **States:** four rows: Private Python environment (`.venv`), Portable binaries (`files/bin`), Downloaded voice models (`files/runtime-data/models`) and Application logs (`files/runtime-data/logs`). Each is present (selectable), missing (disabled) or unavailable (disabled, with the reason). Sizes start as "calculating". Nothing is preselected, and Review stays disabled until a deliberate tick. The confirmation lists only the selected items, with Cancel as the default button.
 - **Behaviour:** the request carries item ids only. A helper must acknowledge it (within 20 s) before the app closes. The helper runs on a Python that is not a virtual environment and lies outside everything the cleanup can remove; inside the app folder, only the app's own Python in `files/runtime-data/python` qualifies. If the helper cannot start or does not answer, the request is withdrawn, the app stays open and nothing changes. After the app exits, the helper removes exactly the selected items (`.venv` itself; the other three are emptied) and writes one result. The next launch shows that result once. A request older than 6 hours is never run. Settings, outputs, sources and config are never offered.
 - **Persistence:** selections are never saved; the result record is retired once shown.
-- **Known gaps:** no registered native journey drives the whole flow (real dialog clicks, app exit, the helper's deletion, the result on the next launch).
+- **Native journey (v0.7.2 Phase 8, ACT72-055):** `setup.clear-downloaded-data` runs a disposable copy of the application: Preferences, the dialog and its confirmation by real clicks, the application closing itself, the real helper deleting exactly the three items ticked (the fourth, the code and a second installation beside it untouched), and the result shown once at the next launch.
 - **Differences:** Reset Preferences is a separate control and never touches downloaded data.
 
 ### Clear Downloaded Data target safety
@@ -489,7 +490,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 `ACT.SETUP.VERSION`
 
 - `scripts/shared/version.py` holds the single version string. The release archive name uses it. A disagreeing `project.version` in `config.toml` is warned about and the code version wins.
-- **Known gaps:** the version is still 0.7.1 on the v0.7.2 branch. Per the plan, the v0.7.2 version, config and test identity is set together at a named Phase 8 checkpoint.
+- **Identity (v0.7.2 Phase 8, ACT72-049):** `version.py`, `config.toml` and the tests that pin the identity say 0.7.2, set together at the release-candidate checkpoint. No v0.7.2 tag, archive or release exists; the README still describes the published v0.7.0 download.
 
 ### Release packaging
 `ACT.SETUP.PACKAGING`
@@ -529,7 +530,7 @@ These modules are groundwork for a future version of the optional-setup protocol
 
 ### Not verified here
 
-- A genuinely fresh Windows install and repair: first run with no assets, deliberate optional choices, offline reuse, and recovery after controlled damage to a disposable copy. This is the `fresh-windows` qualification, which the routine gate does not run. Windows 11 evidence does not cover Windows 10.
+- A genuinely fresh Windows install and repair: first run with no assets, offline reuse, and recovery after controlled damage to a disposable copy. This is the `fresh-windows` qualification (`qualification/fresh_windows.py` since v0.7.2 Phase 8), which the routine gate does not run. It is a fresh extraction under this Windows 11 account, not a new Windows installation, and Windows 11 evidence does not cover Windows 10.
 - Real local-engine health and installs (Kokoro, Chatterbox Turbo, both Qwen3 choices) through the optional-voices panel: the `optional-engines` qualification.
 - The real first-run window and the launch progress and warning windows, driven by real input: no native journey covers them.
 - Display scaling other than 100% for the first-run window and the review panel: an owner check.

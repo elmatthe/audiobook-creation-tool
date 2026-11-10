@@ -4,6 +4,30 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-10 - Phase 8: a folder is shown without waiting for Explorer; a number at a page's edge is its page number; the Windows decoder answers for the bytes it delivers; identity 0.7.2; the qualification scenarios exist and the network is granted by name (v0.7.2 Phase 8, ACT72-040, 048, 049, 055, 057, 062-065)
+
+**Authority.** The owner's Phase 8 prompt: resolve the five remaining issues, address the Converter's Explorer freeze as a bounded readiness defect, freeze the v0.7.2 identity, complete the real-engine and fresh-Windows qualification, run one final full gate, prepare the Codex handoff, stop.
+
+**Decision 1 (the reveal is fixed in the shared helper, by a thread, with one request at a time).** The freeze was `os.startfile` called by a window's own thread. The fix is in `shared/subprocess_utils.reveal_in_file_manager`, not in the Converter, because every caller had the same wait and the harnesses already replace that one function. It returns at once and makes the call on one background daemon thread that nothing joins, so neither a window nor closing the application waits for Explorer. A folder already waiting is not asked for twice and at most four wait: a refused request says so instead of piling up. `explorer.exe <path>` in place of `os.startfile` was rejected (it misreads a path with a comma and leaves a process to own). The function returns the request so the Converter can say in its log when a folder could not be opened; the listener holds a queue and a string and never the panel, because a Tk object released on that thread ends the program. Nothing kills, restarts or closes Explorer. The first-run window's own "Open log folder" (`bootstrap._open_folder`) is unchanged: it must work before the environment exists and is pressed on a failure screen.
+
+**Decision 2 (a digit-only first or last line of a page is its page number).** PyMuPDF hands a page number over as one more line, and lines were joined before number-only lines were removed, so a number under a sentence that ran on was read aloud. Removing every digit-only line first was rejected: a number that wraps onto a line of its own inside a page is text. The edge rule costs one case, stated as a limit: a sentence whose last line on a page without a printed number is a bare number loses it. Three other limits are stated, not fixed, as ACT72-064 for the owner: recognising a long running head or telling an acronym from a numeral is new cleaning behaviour, not a repair.
+
+**Decision 3 (the Windows decoder's reader answers for the bytes it delivers).** What the reader negotiates before decoding is the decoder's promise; Media Foundation corrected it after the first buffer for a mono 22.05 kHz book. The reader now decodes its first buffer before it reports a format, and refuses a format changed after that, since everything downstream was told the first one. The routine tests use AAC-LC because no tool available here can make an xHE-AAC file, and they say so. The owner's real xHE-AAC book is a recorded qualification: read only, never copied into evidence, its converted audio deleted after measuring.
+
+**Decision 4 (a first-run journey fails for the product's own reason).** The journey gets a failed setup by putting the disposable copy in a folder whose path is too long for Windows, which the real `run_setup` refuses before installing anything. No outcome is scripted. Opening the log folder and starting the application afterwards are recorded instead of performed. A real base installation downloads gigabytes and belongs to the `fresh-windows` qualification.
+
+**Decision 5 (Clear Downloaded Data is driven on a copy of the application).** The application takes its folders from where its code is, and the helper is the file beside that code, so the journey runs the committed `scripts/` tree from its scratch (`app_launcher.py`, `app_root`). The copy is then the only installation it can reach; a second copy beside it and the real runtime data must be unchanged.
+
+**Decision 6 (qualification scenarios, and the network by name).** The three Phase 8 scenarios are runners under `verification-gate/qualification/` on the contract `scaling/qualify.py` set. `verify.py` hands a granted `--network` policy to the runner and nothing else; `edge-low-memory` needs `online-edge`, `fresh-windows` needs the new `online-setup`, and each is BLOCKED without it. A scenario that needs no network keeps its panel processes offline with an audit hook that refuses and records any non-loopback connection. A missing engine, model or application is BLOCKED, never a download and never a pass. `fresh-windows` works only in the gate's own scratch and never writes an archive to `dist/`. Because `m4b-scaling` identifies its code by every tracked byte of `scripts/`, Phase 8's source changes mean the Phase 7B PASS does not describe this candidate, so the scenario is run again on it; no budget or threshold is touched.
+
+**Decision 7 (identity).** `version.py`, `config.toml` and the nine identity tests move to 0.7.2 together in the candidate commit. The README keeps describing the published v0.7.0. No tag, archive or release is made.
+
+**For the owner.** ACT72-064 (decide or defer). The visual baseline candidates are not approved by any green run. Listening to the engine samples, the real xHE-AAC book and the Edge narrations is the owner's. Windows 10, another computer, a new Windows installation and macOS are not qualified by anything here.
+
+— Recorded by Claude Code under the owner's Phase 8 authority, 2026-11-10.
+
+---
+
 ## 2026-11-10 - Phase 7B qualified: m4b-scaling PASSED on its second attempt after a harness-only correction; ACT72-012 closed; budgets, threshold and envelope unchanged (v0.7.2 Phase 7B, ACT72-012)
 
 **Authority.** The Phase 7B prompt: implement, test, document, commit and push C1; close ACT72-012 only after the

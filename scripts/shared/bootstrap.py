@@ -2261,13 +2261,18 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
 
     This is the bounded recovery route an ordinary launcher run may reach when
     :func:`assess_venv_health` says the venv is repairable. It is deliberately
-    *not* ``run_setup``: that owns general first-run installation and reaches
-    ``ensure_ffmpeg`` and, through it, FFmpeg provisioning. Making a normal
-    launch fall into that would put the portable-FFmpeg acquisition on the
-    launch path a whole phase before it has been made safe to run — so this
+    *not* ``run_setup``, which owns general first-run installation: this
     function locates a base interpreter, replaces the venv, reconciles the
-    Python packages, and stops. FFmpeg detection on the launch path is unchanged
-    and still never installs.
+    Python packages, and stops. It never looks at FFmpeg.
+
+    FFmpeg is not left unrepaired by a repair run, though. ``--repair-venv``
+    (:func:`_repair_and_launch`) goes on to the normal launch path,
+    :func:`_launch_with_kokoro_healthcheck`, and that path checks the audio
+    tools on every launch and installs or repairs them when they are missing or
+    cannot run (:func:`ensure_ffmpeg_ready_for_launch`, since PRE-PLAN-6). This
+    docstring and the ``--repair-venv`` help went on saying the launch path
+    "never installs" long after that changed (v0.7.2, ACT72-040);
+    ``files/tests/test_setup_help_text.py`` now holds both to the code.
 
     Must be called from an interpreter that is **not** the one inside the venv;
     see :data:`EXIT_VENV_REPAIR_REQUIRED`.
@@ -3933,8 +3938,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--repair-venv", action="store_true",
                         help="Rebuild the Python environment and its packages, "
                              "then launch. Must be run from a base interpreter, "
-                             "never from inside the venv being replaced. Repairs "
-                             "the environment only — it never installs ffmpeg.")
+                             "never from inside the venv being replaced. The "
+                             "rebuild touches only the Python environment; the "
+                             "launch that follows checks FFmpeg, as every launch "
+                             "does, and repairs it if it is missing or cannot run.")
     args = parser.parse_args(argv)
 
     if not _platform_sane():

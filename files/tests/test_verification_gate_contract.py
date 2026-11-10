@@ -359,11 +359,46 @@ def test_preflight_and_collect_only_leave_evidence_and_never_establish_acceptanc
 
 
 @pytest.mark.parametrize("scenario", ["edge-low-memory", "optional-engines", "fresh-windows"])
-def test_a_scenario_not_implemented_yet_says_so_and_who_owns_it(tree, scenario):
+def test_a_scenario_the_policy_lists_with_no_runner_says_so_and_who_owns_it(tree, scenario):
+    """Every scenario has a runner since v0.7.2 Phase 8. The rule itself stays: a policy entry without one is NOT RUN, never a pass."""
+    policy = tree.policy()
+    del policy["scenarios"][scenario]["runner"]
+    tree.write_policy(policy)
+    tree.commit("a scenario with no runner")
     outcome = tree.run("--mode", "qualification", "--scenario", scenario)
     assert outcome.code == 3, outcome
     gate = outcome.check(f"scenario:{scenario}")
     assert gate["status"] == "NOT RUN" and "Phase" in gate["detail"]
+
+
+@pytest.mark.parametrize("scenario, grant, why", [
+    ("edge-low-memory", None, "was not given --network online-edge"),
+    ("edge-low-memory", "online-edge", "TTS code is not here"),
+    ("optional-engines", None, "TTS code is not here"),
+    ("fresh-windows", None, "was not given --network online-setup"),
+    ("fresh-windows", "online-setup", "not complete here"),
+], ids=["edge-without-its-grant", "edge-without-the-application", "engines-without-the-application",
+        "fresh-windows-without-its-grant", "fresh-windows-without-the-application"])
+def test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_application(tree, scenario, grant, why):
+    """v0.7.2 Phase 8 implements the three scenarios (qualification/). This small tree has the gate and its runners but not the
+    application, and a run without ``--network`` has no grant: each must say BLOCKED, with the reason, quickly, in a verdict in
+    the run's own folder, having sent and downloaded nothing. The grant reaches the runner only as the policy's own name."""
+    extra = ("--network", grant) if grant else ()
+    outcome = tree.run("--mode", "qualification", "--scenario", scenario, *extra)
+    assert outcome.code == 2, outcome
+    gate = outcome.check(f"scenario:{scenario}")
+    assert gate["status"] == "BLOCKED" and why in gate["detail"], gate
+    verdict = json.loads((outcome.directory / "qualification" / "verdict.json").read_text(encoding="utf-8"))
+    assert verdict["status"] == "BLOCKED" and verdict["scenario"] == scenario and verdict["checks"] == []
+    assert outcome.check("cleanup")["status"] == "PASS"
+    assert outcome.results["qualification"]["satisfied"] == [] and scenario in outcome.results["qualification"]["pending"]
+    assert sorted(path.name for path in (outcome.directory / "qualification").iterdir()) == ["runs.json", "verdict.json"]
+
+
+def test_a_network_policy_another_scenario_declares_is_refused_before_anything_exists(tree):
+    for scenario, policy in (("optional-engines", "online-edge"), ("edge-low-memory", "online-setup"), ("fresh-windows", "online-edge")):
+        outcome = tree.run("--mode", "qualification", "--scenario", scenario, "--network", policy)
+        assert outcome.code == 64 and outcome.directory is None, (scenario, policy, outcome)
 
 
 def test_the_m4b_scaling_scenario_runs_its_runner_and_is_blocked_without_the_application(tree):

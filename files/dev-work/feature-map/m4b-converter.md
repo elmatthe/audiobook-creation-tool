@@ -121,7 +121,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 `ACT.CONVERTER.OUTPUT-FOLDER`
 
 - **How to reach it:** section 3, the read-only Output field and Open Output Folder. The base folder is set in Preferences & Data.
-- **Behaviour:** each run gets `<output base>/M4B-Converter-Outputs/M4B-Converter-N/`, reserved only after preflight finds something usable; a run where every book is refused creates no folder. A run keeps the base it started with even if Preferences change mid-run; the next run uses the new base. A finished or cancelled run reveals its folder in Explorer.
+- **Behaviour:** each run gets `<output base>/M4B-Converter-Outputs/M4B-Converter-N/`, reserved only after preflight finds something usable; a run where every book is refused creates no folder. A run keeps the base it started with even if Preferences change mid-run; the next run uses the new base. A finished or cancelled run asks Explorer to show its folder without waiting for it: the closing line is written and the controls are released first, and a folder that cannot be opened is said in the Activity log (v0.7.2 Phase 8, ACT72-062).
 - **Open Output Folder:** reveals the last run's folder, or the tool folder before any run; shows an "Output folder" error if it cannot be created. It never locks.
 - Before any run it reveals the tool's own folder, made so the person lands somewhere real; after a run, that run's folder; a folder that cannot be made shows "Output folder" and reveals nothing else (ACT72-051, v0.7.2 Phase 6).
 
@@ -160,7 +160,8 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - xHE-AAC books that this FFmpeg cannot decode completely (it silently lost about 24% of a measured book) are decoded by Windows Media Foundation when the machine can: once per book, with split chapters cut from the decoded audio and piped into the same encoder, quality, metadata, chapters and cover. The log notes that Windows decoded it.
 - With no capable decoder (for example a Windows N edition without media components) the book is refused at preflight, nothing is created, and it is not retryable.
 - A decoder failure fails the output even if FFmpeg exits 0. A wrong-length output names xHE-AAC as the cause only when the plan established it.
-- **Known gap:** every automated check of this route uses a simulated decoder; the real Windows decode of an xHE-AAC book is covered by no automated test or journey (Phase 8), so the owner's real-book check is needed.
+- **The real decoder (v0.7.2 Phase 8, ACT72-048):** the production reader decodes real books in the suite, held to the container's own frame count and to FFmpeg's decode of the same file, and the whole Windows route runs on a real book through the real panel. Those books are AAC-LC, the one codec both decoders read, because no xHE-AAC file can be generated here. The reader now reports the format of the bytes it delivers and refuses a later change (ACT72-065).
+- **Still the owner's:** an xHE-AAC book cannot be made by any tool available here, so a real xHE-AAC conversion is a recorded qualification on the owner's own file and a listening check, never a routine test.
 
 ### Malformed chapter lists are refused
 
@@ -244,7 +245,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **Never a quiet shortfall.** End of stream counts only if the decoder exited 0 with exactly the declared samples. A short feed, a stream ending part-way through a sample, a failed or killed decoder fail the chapter, and the book is taken back as for any failed chapter; Retry Failed starts a fresh decoder. A book whose audio frames are damaged (FFmpeg skips them and still exits 0) therefore fails on this route, where the seeking route had no such check.
 - **Cancel** stops the encoder and the decoder and reaps both; Pause waits between outputs as before (the decoder simply waits on its pipe).
 - **Measured and qualified:** the m4b-scaling qualification (`files/dev-work/verification-gate/scaling/`) with the frozen budgets T1–T8 and T1b passed on HOME-PC on 2026-11-10 (79 of 79 checks, 207 runs; 6 h/48 chapters 2.16× faster, 1,000 chapters 2.88×, every output identical to the pinned reference); baseline, design and results: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md` section 13.
-- **Ending a run** that has an output folder reveals it through `os.startfile` on the Tk thread (`_pump_queue`, "done"), on both routes; a slow or restarting Explorer holds the window until it answers (36.9 s measured under an Explorer flood in Phase 7B). Pre-existing, left for the owner.
+- **Ending a run** that has an output folder asks for it to be shown (`_pump_queue`, "done", `_reveal`) on both routes. Until v0.7.2 Phase 8 that call was `os.startfile` on the Tk thread, and a slow or restarting Explorer held the window until it answered (36.9 s measured under an Explorer flood in Phase 7B; ACT72-062). The shared helper now makes the call on a background thread, one folder at a time.
 
 ### Intentional differences from other tools
 

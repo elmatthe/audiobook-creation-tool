@@ -299,8 +299,9 @@ class Channel:
         if op == "tree":
             return {"ok": True, "widgets": self._tree(self.root)}
         if op == "toplevels":
-            return {"ok": True, "toplevels": [describe_widget(w) for w in self._all(self.root) if w.winfo_class() in ("Toplevel", "Tk")
-                                              and w.winfo_viewable()]}
+            # Each with its title, the one name a person and the window manager both know it by (v0.7.2 Phase 8): a read of Tk's own.
+            return {"ok": True, "toplevels": [{**describe_widget(w), "title": str(w.wm_title())} for w in self._all(self.root)
+                                              if w.winfo_class() in ("Toplevel", "Tk") and w.winfo_viewable()]}
         if op == "surfaces":
             return {"ok": True, "widgets": self._surfaces(request.get("scope"), request.get("exclude"))}
         return {"error": f"unknown op {op!r}"}

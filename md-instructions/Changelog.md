@@ -13,6 +13,40 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 8: the release candidate (version 0.7.2): a window freeze and two narration defects fixed (2026-11-10)
+
+**Fixed**
+- **M4B Converter: the window no longer freezes when a run ends.** The Converter shows its output folder when a run
+  finishes. It asked Windows to do that from the window itself, so while Explorer was busy or restarting the whole
+  window stopped responding (up to 37 seconds was measured). The folder is now asked for in the background: the run's
+  result is shown and the buttons work at once, and if the folder cannot be opened the Activity log says so and where the
+  files are. The same applies to every "Open Output Folder" and "Open log folder" button.
+- **TTS, PDF sources: page numbers are no longer read aloud in the middle of a sentence.** When a page ended partway
+  through a sentence, the page number printed under it was narrated as part of the sentence, and a word hyphenated at the
+  bottom of a page was joined to the number instead of to its other half. A number printed as the first or last line of
+  a page is now removed first, and a hyphenated word is joined across the page.
+- **M4B Converter, xHE-AAC books on Windows:** the Windows decoder's audio format is now read after it has decoded its
+  first audio, because Windows can correct its first answer; a format that changes later stops the book with a clear
+  message instead of risking wrong audio.
+- **Setup help:** `--repair-venv` no longer claims FFmpeg is never installed. The repair rebuilds only the Python
+  environment; the launch that follows checks FFmpeg and repairs it, as every launch does.
+
+**Changed**
+- The application's version is **0.7.2** (`version.py`, `config.toml`). There is no v0.7.2 release, tag or download yet;
+  the README still describes the published v0.7.0.
+
+**Known limits (not changed)**
+- PDF sources: a title printed at the top of every page is still read out at each page; a short all-capitals word alone
+  on a line is dropped; a compound word broken at its hyphen loses the hyphen (ACT72-064, awaiting a decision).
+
+**Added (development only)**
+- Tests on real media and real processes: the Windows decoder on real books, PDF cleaning against hand-written narration,
+  a window that crashes as it starts, the setup help text, and a busy file manager.
+- Three journeys on disposable copies of the application: the first-run window refusing a folder that is too deep, the
+  first-run choices and Cancel, and Clear Downloaded Data from the click to the next launch.
+- Three qualification scenarios (`verify.py --mode qualification`): `optional-engines`, `edge-low-memory` and
+  `fresh-windows`. A scenario that needs the network runs only when it is given its `--network` policy.
+
 ## [Unreleased] — v0.7.2 Phase 7B: long split books convert much faster, with identical files (2026-11-10)
 
 **Changed**

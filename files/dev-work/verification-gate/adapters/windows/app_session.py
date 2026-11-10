@@ -221,6 +221,32 @@ class AppSession:
         Takes the interpreter's own exit status through a handle opened beforehand, so the venv launcher in between can't hide a crash.
         A job that still lists a process afterwards means an orphan: the kill-on-close would have removed it, so it is read first.
         """
+        handle = self._watch_handle()
+        before = self.job.pids()
+        self._guard("close the window")
+        began = time.monotonic()
+        native.key_chord("alt", "f4")
+        self._action("alt+f4", target="the main window")
+        self.input_count += 1
+        return self._observe_exit(handle, before, began, timeout, "closed by the user")
+
+    def exit_watch(self) -> tuple:
+        """Taken BEFORE the input that will make the application end by its own doing, and handed to ``wait_for_exit`` after it: a
+        process that has already gone can no longer be opened, and then its exit status could not be read at all."""
+        return self._watch_handle(), self.job.pids(), time.monotonic()
+
+    def wait_for_exit(self, watch: tuple, *, timeout: float = 60) -> dict:
+        """The application ending by its own doing (a button of its own closed it, or it closed itself), observed from outside exactly as
+        ``close_by_user`` observes a close. Nothing is sent here, and nothing more can be read from the application afterwards: the
+        channel is closed, because the window it answers for is going away.
+
+        A process this session still owns afterwards is reported under ``orphans`` and never judged here: a journey that expects a
+        detached helper to outlive the window says so itself."""
+        handle, before, began = watch
+        return self._observe_exit(handle, before, began, timeout, "ended by itself")
+
+    def _watch_handle(self):
+        """A handle on the interpreter itself, opened before it can go, so its real exit status is read whatever the launcher in between does."""
         import ctypes
 
         kernel32 = native.kernel32
@@ -232,14 +258,15 @@ class AppSession:
         handle = kernel32.OpenProcess(0x1000 | 0x00100000, False, self.pid)  # query limited, synchronize
         if not handle:
             raise RuntimeError(f"cannot watch interpreter {self.pid}: {ctypes.get_last_error()}")
-        before = self.job.pids()
-        self._guard("close the window")
-        began = time.monotonic()
-        native.key_chord("alt", "f4")
-        self._action("alt+f4", target="the main window")
-        self.input_count += 1
+        return handle
+
+    def _observe_exit(self, handle, before: list, began: float, timeout: float, how: str) -> dict:
+        import ctypes
+
+        kernel32 = native.kernel32
         client, self.client = self.client, None
-        client.close()
+        if client is not None:
+            client.close()
         wait_result = kernel32.WaitForSingleObject(handle, int(timeout * 1000))
         seconds = time.monotonic() - began
         code = native.w.DWORD()
@@ -265,7 +292,7 @@ class AppSession:
         facts["orphan_wait_seconds"] = round(time.monotonic() - began - seconds, 3)
         facts["stderr_tail"] = self.stderr_tail()
         self.exit_code = facts["exit_status"]
-        self._log("closed by the user", **{key: value for key, value in facts.items() if key != "stderr_tail"})
+        self._log(how, **{key: value for key, value in facts.items() if key != "stderr_tail"})
         return facts
 
     # -- reading ---------------------------------------------------------------------------------- #

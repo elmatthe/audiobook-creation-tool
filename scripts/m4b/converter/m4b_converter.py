@@ -130,6 +130,23 @@ TIMING_MESSAGE = "timing"
 #: value, not a handle.
 PLAN_MESSAGE = "plan"
 
+#: The queue message that says the file manager could not be asked to show a folder (v0.7.2 Phase 8, ACT72-062). It
+#: comes from the shared helper's own thread, which is why it travels on the queue like everything else a thread tells
+#: this panel. It is a line for the Activity log and nothing more: the run's result is settled before any folder is shown.
+REVEAL_FAILED_MESSAGE = "reveal-failed"
+
+
+def _reveal_failure_reporter(log_q, folder: str):
+    """What the shared helper calls, on its own thread, when ``folder`` could not be shown.
+
+    It holds the queue and a string and never the panel: a Tk object let go of on a thread that is not Tk's own ends
+    the program, and the helper's thread is the last holder of whatever this closes over.
+    """
+    def report(reason: str) -> None:
+        log_q.put((REVEAL_FAILED_MESSAGE,
+                   f"The folder could not be opened in the file manager ({reason}). It is: {folder}\n"))
+    return report
+
 
 @dataclass(frozen=True)
 class TimingSample:
@@ -856,7 +873,18 @@ class M4BConverterUI(ttk.Frame):
         except output_paths.OutputPathError as exc:
             messagebox.showerror("Output folder", exc.message)
             return
-        sp.reveal_in_file_manager(target)
+        self._reveal(target)
+
+    def _reveal(self, folder) -> None:
+        """Ask the file manager to show ``folder`` without waiting for it (v0.7.2 Phase 8, ACT72-062).
+
+        The shared helper makes the operating system's call on a thread of its own, so a busy or restarting Explorer
+        no longer holds this window when a run ends. If the folder cannot be shown, the Activity log says so and where
+        it is; a conversion that succeeded has still succeeded.
+        """
+        request = sp.reveal_in_file_manager(folder)
+        if request is not None:  # a harness that records the request instead of making it hands nothing back
+            request.on_failure(_reveal_failure_reporter(self._log_q, str(folder)))
 
     # ------- the run: what it is, and who is driving it -------
 
@@ -1402,6 +1430,8 @@ class M4BConverterUI(ttk.Frame):
                     self._record_timing(payload)
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
+                elif kind == REVEAL_FAILED_MESSAGE:
+                    self.log_write(payload, summary=True)
                 elif kind == "done":
                     # The run's own lines first, then this closing line under them (v0.7.2, ACT72-018): the ending event
                     # was published before this line was queued, but the job drain had not rendered it yet.
@@ -1409,7 +1439,8 @@ class M4BConverterUI(ttk.Frame):
                     self.log_write(payload[0], summary=True)
                     self._finish_idle()
                     if payload[1] is not None:
-                        sp.reveal_in_file_manager(payload[1])
+                        # Asked for, never waited for: the window is already settled and stays its own (ACT72-062).
+                        self._reveal(payload[1])
         except queue.Empty:
             pass
 

@@ -1141,7 +1141,9 @@
             "_looks_like_heading_line",
             "_merge_blocks_across_page_gaps",
             "_join_pages",
-            "pdf_text_sample"
+            "pdf_text_sample",
+            "_drop_page_number_at_the_edges",
+            "_join_words_split_across_pages"
           ]
         },
         {
@@ -1153,17 +1155,19 @@
         }
       ],
       "contracts": [
-        "PDF text comes from PyMuPDF with words hyphenated across lines joined, soft-wrapped lines rejoined, page-number and short all-caps lines removed and paragraphs merged across page breaks.",
+        "PDF text comes from PyMuPDF with a page number printed as the first or last line of a page removed before lines are joined, words hyphenated across lines and across pages joined, soft-wrapped lines rejoined, the remaining digit-only and short all-caps lines removed and paragraphs merged across page breaks.",
         "Only one PyMuPDF call runs at a time in the process, so files converting side by side each get their own text.",
         "A directly added PDF with no '#' heading gets its first text line as the spoken chapter title (never the file name), removed once from the body.",
-        "Every route that reads a PDF (Edge direct, Edge folder, Kokoro, Chatterbox, Qwen3) uses this one extractor."
+        "Every route that reads a PDF (Edge direct, Edge folder, Kokoro, Chatterbox, Qwen3) uses this one extractor.",
+        "Known limits of the cleaning (ACT72-064): a running head longer than four capitals is narrated as a heading; a line that is only a one-to-four-letter all-caps word is dropped wherever it is; a compound word broken at its own hyphen loses the hyphen; a bare number that is a page's last line is taken for its page number."
       ],
       "selection": [
         "files/tests/test_tts_smoke.py",
         "files/tests/test_epub_retirement.py",
         "files/tests/test_edge_direct_concurrency.py",
         "files/tests/test_assembly_on_disk.py",
-        "files/tests/test_tts_importing.py"
+        "files/tests/test_tts_importing.py",
+        "files/tests/test_pdf_text_cleaning.py"
       ],
       "journeys": [
         "tts.edge-replay-folder-mixed"
@@ -1191,10 +1195,64 @@
             "scenario": "tts.edge-replay-folder-mixed"
           },
           {
-            "kind": "planned",
-            "gap": "No test checks the line cleaning itself (hyphen joins, soft-wrap rejoin, page-number and running-head removal) against expected text; only a smoke extraction and a regression of the page join exist.",
-            "phase": 8,
-            "issue": "ACT72-057"
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_word_hyphenated_at_a_line_end_is_read_as_one_word"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_sentence_wrapped_over_several_lines_is_read_as_one_sentence"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_paragraphs_stay_apart_and_a_chapter_heading_keeps_its_own_line"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_page_number_under_a_sentence_that_runs_on_overleaf_is_not_read_out"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_page_number_above_the_text_is_not_read_out"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_page_number_after_a_finished_sentence_is_not_read_out_and_the_next_page_starts_a_new_paragraph"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_sentence_carried_across_three_numbered_pages_is_read_straight_through"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_word_hyphenated_at_the_foot_of_a_page_is_read_as_one_word"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_short_running_head_in_capitals_is_not_read_out"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_line_after_a_colon_or_a_closing_quote_starts_on_its_own"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_numbers_and_short_words_that_belong_to_the_text_are_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_only_a_bare_number_on_the_first_or_last_line_of_a_page_is_taken_for_its_page_number"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_only_a_page_that_ends_in_a_hyphen_is_joined_to_the_next_page_without_a_space"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_limit_a_running_head_longer_than_four_capitals_is_still_read_out"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_limit_a_line_that_is_only_a_short_word_in_capitals_is_dropped_wherever_it_is"
           }
         ]
       },
@@ -8794,21 +8852,25 @@
             "M4BConverterUI.open_outdir",
             "M4BConverterUI._adopt_plan",
             "M4BConverterUI._pump_queue",
-            "M4BConverterUI._run_conversion"
+            "M4BConverterUI._run_conversion",
+            "M4BConverterUI._reveal",
+            "_reveal_failure_reporter"
           ]
         }
       ],
       "contracts": [
         "Each run writes into its own numbered folder under the output base's M4B-Converter-Outputs, reserved only after preflight finds at least one usable book.",
         "An accepted run keeps the output base it started with even if Preferences change mid-run; the next run uses the new base.",
-        "The read-only Output field shows the destination hint before a run and the run folder after preflight; a finished or cancelled run reveals its folder in Explorer.",
-        "Open Output Folder reveals the last run folder, or the tool folder before any run, and shows an 'Output folder' error if that folder cannot be made."
+        "The read-only Output field shows the destination hint before a run and the run folder after preflight; a finished or cancelled run asks the file manager to show its folder without waiting for it, after the run's closing line is written and the controls are released, so a busy or restarting Explorer never holds the window.",
+        "Open Output Folder reveals the last run folder, or the tool folder before any run, and shows an 'Output folder' error if that folder cannot be made.",
+        "A folder the file manager could not be asked to open is said in the Activity log with the reason and the folder's path; the run's result is not changed by it."
       ],
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
         "files/tests/test_m4b_conversion_plan.py",
         "files/tests/test_tool_output_integration.py",
-        "files/tests/test_converter_panel_branches.py"
+        "files/tests/test_converter_panel_branches.py",
+        "files/tests/test_reveal_in_file_manager.py"
       ],
       "journeys": [
         "converter.split-by-chapter"
@@ -8842,6 +8904,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_converter_panel_branches.py::test_open_output_folder_reveals_the_tool_folder_then_the_run_and_explains_a_refusal"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_a_busy_file_manager_does_not_hold_the_converter_window"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_the_measurement_sees_a_request_made_by_the_windows_own_thread"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_a_folder_that_cannot_be_opened_is_said_in_the_log_and_the_run_still_succeeded"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_open_output_folder_does_not_wait_for_the_file_manager_either"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_the_failure_reporter_holds_the_queue_and_never_the_panel"
           }
         ]
       },
@@ -8964,7 +9046,10 @@
             "available",
             "_Reader",
             "decode_pcm",
-            "PcmTimeline"
+            "PcmTimeline",
+            "_Reader.read",
+            "_Reader._negotiated_format",
+            "_Reader._decode_next"
           ]
         },
         {
@@ -9004,14 +9089,16 @@
         "Ordinary AAC books are decoded by FFmpeg; any decoder selection from the shared helper goes before -i. An ordinary book never takes the Windows route; a split AAC-LC book may be decoded by FFmpeg once (ACT.CONVERTER.SCALING), which leaves the Windows route and other codecs untouched.",
         "An xHE-AAC book FFmpeg cannot decode completely is decoded by Windows Media Foundation when this machine can, once per book, with split chapters cut from the PCM at frozen boundaries and piped to the same encoder.",
         "If no capable decoder exists the book is refused at preflight with no folder or output, and it is not retryable.",
-        "A decoder failure fails the output even when FFmpeg exits 0; a length mismatch names xHE-AAC as the cause only when the plan established it."
+        "A decoder failure fails the output even when FFmpeg exits 0; a length mismatch names xHE-AAC as the cause only when the plan established it.",
+        "The PCM format the encoder is told is the format of the bytes the Windows decoder delivers: the reader decodes its first buffer before it answers, and a format the decoder changes after that is refused, never followed."
       ],
       "selection": [
         "files/tests/test_m4b_winaudio.py",
         "files/tests/test_m4b_commands.py",
         "files/tests/test_m4b_execution.py",
         "files/tests/test_m4b_probe_encoding.py",
-        "files/tests/test_m4b_continuous.py"
+        "files/tests/test_m4b_continuous.py",
+        "files/tests/test_m4b_winaudio_real.py"
       ],
       "journeys": [],
       "verification": {
@@ -9050,10 +9137,48 @@
             "detail": "Convert the owner's real xHE-AAC audiobook on Windows 11 in both output structures and confirm full length, chapters and cover."
           },
           {
-            "kind": "planned",
-            "gap": "Every m4b_winaudio test drives a fake reader; the real Media Foundation (IMFSourceReader) decode of an xHE-AAC book is exercised by no automated test or journey.",
-            "phase": 8,
-            "issue": "ACT72-048"
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_the_real_reader_reports_the_streams_own_format_and_delivers_every_coded_frame[stereo-44k]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_the_real_reader_reports_the_streams_own_format_and_delivers_every_coded_frame[mono-22k]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_the_real_reader_reports_the_streams_own_format_and_delivers_every_coded_frame[stereo-48k]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_a_real_decode_is_the_same_audio_ffmpeg_decodes_from_the_same_book[stereo-44k]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_two_real_decodes_of_one_book_are_the_same_bytes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_the_real_timeline_serves_one_sequential_decode_in_exact_pieces"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_cancel_ends_a_real_decode_early_and_the_book_can_be_read_again"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_a_file_that_is_not_media_and_a_missing_file_are_refused_loudly"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_a_format_the_decoder_changes_after_the_first_buffer_is_refused_not_followed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_a_whole_book_through_the_real_windows_route_is_the_whole_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_winaudio_real.py::test_a_split_book_through_the_real_windows_route_gives_every_chapter_its_own_audio"
           }
         ]
       },
@@ -16449,17 +16574,24 @@
         {
           "path": "scripts/shared/subprocess_utils.py",
           "symbols": [
-            "reveal_in_file_manager"
+            "reveal_in_file_manager",
+            "RevealRequest",
+            "RevealRequest.on_failure",
+            "_reveal_waiting",
+            "_ask_file_manager",
+            "_shell_apartment"
           ]
         }
       ],
       "contracts": [
         "'Open log folder' creates files/runtime-data/logs if it is missing and opens it in Explorer without a console window.",
         "A failure to open the folder never raises into the window.",
-        "On Windows the action is a real button reachable by Tab, Enter and Space."
+        "On Windows the action is a real button reachable by Tab, Enter and Space.",
+        "Showing a folder never waits for the file manager, in any tool: the shared request is made on one background thread, one folder at a time; a folder already waiting is not asked for twice, at most four wait, and the thread is never joined, so closing the application does not wait for Explorer either."
       ],
       "selection": [
-        "files/tests/test_launcher_smoke.py"
+        "files/tests/test_launcher_smoke.py",
+        "files/tests/test_reveal_in_file_manager.py"
       ],
       "journeys": [],
       "verification": {
@@ -16467,6 +16599,34 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_launcher_smoke.py::test_open_log_folder_creates_and_reveals_the_log_folder_and_nothing_else"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_the_request_returns_while_the_file_manager_is_still_busy"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_a_folder_that_cannot_be_shown_says_why_exactly_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_a_folder_already_waiting_is_not_asked_for_twice"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_a_file_manager_that_stopped_answering_is_not_asked_without_limit"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_the_thread_is_a_daemon_and_ends_when_nothing_is_waiting"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_windows_asks_through_startfile_and_reports_its_refusal"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_reveal_in_file_manager.py::test_the_application_reaches_the_operating_system_call_in_one_place"
           }
         ]
       },
@@ -19120,7 +19280,8 @@
         "files/tests/test_launch_self_heal.py",
         "files/tests/test_venv_recovery.py",
         "files/tests/test_layout_canary.py",
-        "files/tests/test_setup_log_follow.py"
+        "files/tests/test_setup_log_follow.py",
+        "files/tests/test_launch_crash_detection.py"
       ],
       "journeys": [],
       "verification": {
@@ -19154,14 +19315,40 @@
             "scenario": "fresh-windows"
           },
           {
-            "kind": "planned",
-            "gap": "launch_gui's early-crash detection (child exits non-zero inside the grace window, launch reported as failed with the tail of launch_<date>.log) has no automated test; every test stubs Popen with a process that never exits",
-            "phase": 8,
-            "issue": "ACT72-055"
+            "kind": "behavior",
+            "test": "files/tests/test_setup_log_follow.py::test_the_repair_window_log_follows_holds_a_reader_and_resumes"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_setup_log_follow.py::test_the_repair_window_log_follows_holds_a_reader_and_resumes"
+            "test": "files/tests/test_launch_crash_detection.py::test_the_grace_window_is_the_documented_one_and_a_half_seconds"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_window_that_dies_at_once_is_a_failed_launch_that_says_what_the_window_said[an-ordinary-error]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_window_that_dies_at_once_is_a_failed_launch_that_says_what_the_window_said[another-exit-code]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_only_the_end_of_a_long_crash_is_quoted_and_the_log_file_keeps_all_of_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_window_still_running_after_the_grace_is_a_started_launch"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_window_that_closes_cleanly_inside_the_grace_is_not_called_a_crash"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_crash_after_the_grace_is_outside_what_the_launch_can_report"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_missing_window_script_or_interpreter_is_a_failed_launch_before_anything_starts"
           }
         ]
       },
@@ -19222,7 +19409,10 @@
         "files/tests/test_sentence_data.py",
         "files/tests/test_setup_log_follow.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "setup.first-run-refuses-a-folder-too-deep",
+        "setup.first-run-choices-and-cancel"
+      ],
       "verification": {
         "all_of": [
           {
@@ -19259,14 +19449,16 @@
             "detail": "Read the first-run window and the optional-voices review at Windows display scaling other than 100%: nothing clipped, Begin Setup and Cancel reachable."
           },
           {
-            "kind": "planned",
-            "gap": "The 'Setup did not complete' dialog and Open log folder are checked only from source text, and no registered native journey drives the first-run window (Begin Setup and the live progress log are driven in the real window since v0.7.2 Phase 6)",
-            "phase": 8,
-            "issue": "ACT72-055"
-          },
-          {
             "kind": "behavior",
             "test": "files/tests/test_setup_log_follow.py::test_the_first_run_window_log_follows_holds_a_reader_and_resumes"
+          },
+          {
+            "kind": "native",
+            "scenario": "setup.first-run-refuses-a-folder-too-deep"
+          },
+          {
+            "kind": "native",
+            "scenario": "setup.first-run-choices-and-cancel"
           }
         ]
       },
@@ -19323,7 +19515,9 @@
         "files/tests/test_bootstrap_setup_cancel.py",
         "files/tests/test_first_run_setup_close.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "setup.first-run-choices-and-cancel"
+      ],
       "verification": {
         "all_of": [
           {
@@ -19369,6 +19563,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_first_run_setup_close.py::test_closing_during_the_base_install_asks_and_no_keeps_pip_running_then_yes_stops_it"
+          },
+          {
+            "kind": "native",
+            "scenario": "setup.first-run-choices-and-cancel"
           }
         ]
       },
@@ -19588,12 +19786,14 @@
         "The old .venv is renamed aside and put back if the new one fails to build, install, import or launch",
         "A voice engine held under .venv/engines is carried to the new environment at the same path and never deleted",
         "An interrupted repair is finished first on the next start before anything else touches the environment",
-        "After a repair the launch never asks for a second repair; a still-running environment whose repair failed opens with a notice"
+        "After a repair the launch never asks for a second repair; a still-running environment whose repair failed opens with a notice",
+        "What setup says about FFmpeg is what it does: the environment rebuild never touches FFmpeg, and the launch that follows a repair run checks it and repairs it like every launch; the --repair-venv help and repair_venv's docstring say exactly that."
       ],
       "selection": [
         "files/tests/test_venv_recovery.py",
         "files/tests/test_venv_integrity.py",
-        "files/tests/test_qwen3_lifecycle_locks.py"
+        "files/tests/test_qwen3_lifecycle_locks.py",
+        "files/tests/test_setup_help_text.py"
       ],
       "journeys": [],
       "verification": {
@@ -19625,6 +19825,22 @@
           {
             "kind": "qualification",
             "scenario": "fresh-windows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_help_text.py::test_the_rebuild_itself_never_touches_ffmpeg_and_the_launch_after_it_repairs_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_help_text.py::test_the_repair_venv_help_says_the_launch_that_follows_repairs_ffmpeg"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_help_text.py::test_no_setup_option_claims_that_ffmpeg_is_never_installed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_setup_help_text.py::test_the_repair_venv_docstring_no_longer_says_a_launch_never_installs_ffmpeg"
           }
         ]
       },
@@ -20678,7 +20894,9 @@
         "files/tests/test_cleanup_handoff_ui.py",
         "files/tests/test_preferences_maintenance_ui.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "setup.clear-downloaded-data"
+      ],
       "verification": {
         "all_of": [
           {
@@ -20710,10 +20928,8 @@
             "test": "files/tests/test_cleanup_handoff_ui.py::test_a_result_is_presented_exactly_once"
           },
           {
-            "kind": "planned",
-            "gap": "No registered native journey drives Clear Downloaded Data end to end (real dialog clicks, application exit, the helper's deletion and the result window on the next launch); evidence is per-layer only",
-            "phase": 6,
-            "issue": "ACT72-055"
+            "kind": "native",
+            "scenario": "setup.clear-downloaded-data"
           }
         ]
       },
@@ -20781,7 +20997,9 @@
         "files/tests/test_cleanup_state.py",
         "files/tests/test_cleanup_engine_lease.py"
       ],
-      "journeys": [],
+      "journeys": [
+        "setup.clear-downloaded-data"
+      ],
       "verification": {
         "all_of": [
           {
@@ -20811,6 +21029,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_cleanup_engine_lease.py::test_a_busy_engine_of_this_copy_leaves_the_item_whole_and_says_why[conversion-virtual_environment]"
+          },
+          {
+            "kind": "native",
+            "scenario": "setup.clear-downloaded-data"
           }
         ]
       },
@@ -20929,10 +21151,8 @@
             "test": "files/tests/test_config.py::test_project_version_drift_uses_the_code_version_and_warns"
           },
           {
-            "kind": "planned",
-            "gap": "VERSION is still \"0.7.1\" on the v0.7.2 branch; the plan establishes the v0.7.2 version/config/test identity together at a named Phase 8 checkpoint (tests pin 0.7.1 today)",
-            "phase": 8,
-            "issue": "ACT72-049"
+            "kind": "behavior",
+            "test": "files/tests/test_repository_contract.py::test_the_application_version_is_unchanged"
           }
         ]
       },
@@ -21444,7 +21664,8 @@
       "contracts": [
         "one canonical entry point with focused, changed, full and qualification modes",
         "a run without agreeing records, or that ran nothing, is never PASS",
-        "each run owns a new directory and a later status read rejects copied, changed or stale evidence"
+        "each run owns a new directory and a later status read rejects copied, changed or stale evidence",
+        "Every qualification scenario has a runner (m4b-scaling since Phase 7B; edge-low-memory, optional-engines and fresh-windows since Phase 8, under qualification/). A scenario that needs the network runs only with the --network policy it declares, handed on by name, and is BLOCKED without it; a missing application, engine or model is BLOCKED, never a pass."
       ],
       "selection": [
         "files/tests/test_verification_gate_contract.py",
@@ -21472,6 +21693,22 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_verification_gate_contract.py::test_an_old_pass_does_not_stand_in_for_changed_source"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_application[edge-without-its-grant]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_application[engines-without-the-application]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_application[fresh-windows-without-its-grant]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_network_policy_another_scenario_declares_is_refused_before_anything_exists"
           }
         ]
       },
@@ -23195,10 +23432,13 @@
       "id": "ACT72-040",
       "severity": "Suggestion",
       "phase": 8,
-      "status": "open",
+      "status": "closed",
       "title": "repair_venv's docstring and --repair-venv help say the launch path never installs FFmpeg; it now does",
-      "features": [],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "features": [
+        "ACT.SETUP.VENV-REPAIR"
+      ],
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Fixed in v0.7.2 Phase 8: the docstring and the --repair-venv help now say that the rebuild touches only the Python environment and that the launch that follows checks and repairs FFmpeg. files/tests/test_setup_help_text.py reads the real --help output and the docstring and ties both to the call graph, so the words and the behaviour move together."
     },
     {
       "id": "ACT72-041",
@@ -23290,23 +23530,25 @@
       "id": "ACT72-048",
       "severity": "Minor",
       "phase": 8,
-      "status": "open",
+      "status": "closed",
       "title": "The Converter's real Media Foundation decode (xHE-AAC and other codecs FFmpeg cannot decode) is exercised by no automated test; every m4b_winaudio test drives a fake reader",
       "features": [
         "ACT.CONVERTER.DECODE-COMPAT"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Closed in v0.7.2 Phase 8. Routine: files/tests/test_m4b_winaudio_real.py runs the production reader (IMFSourceReader, no stand-in) on real generated books in three stream shapes, held to the container's coded-frame count and to FFmpeg's own decode of the same file, and runs the Converter's whole Windows route (plan, reader, pipe, encoder, publication) on a real book in both structures. Those books are AAC-LC: no xHE-AAC file can be generated with any tool available here, so the routine tests say nothing about the USAC decoder itself. Recorded qualification on HOME-PC (Windows 11, 2026-11-10, ignored evidence): the owner's real xHE-AAC book (sha256 b9a24a88...f8d4, 35,199.625 s, 15 chapters), read only, decoded whole by the production reader at 44.1 kHz stereo to 35,199.7794 s (100.0004 %), and converted by the real panel, routed by its own plan, as a whole book (35,199.779 s) and by chapter (15 files, 35,199.627 s in all, worst chapter 0.0007 s from its span), every file decoding clean. Not qualified: any other xHE-AAC book, Windows 10, a Windows without the media feature pack. Listening remains the owner's check (xhe-aac-real-book)."
     },
     {
       "id": "ACT72-049",
       "severity": "Suggestion",
       "phase": 8,
-      "status": "open",
+      "status": "closed",
       "title": "VERSION is still 0.7.1 on the v0.7.2 branch; the plan sets the v0.7.2 version, config and test identity together at a named Phase 8 checkpoint",
       "features": [
         "ACT.SETUP.VERSION"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Closed in v0.7.2 Phase 8: scripts/shared/version.py, config.toml and the nine tests that pin the identity moved to 0.7.2 together at the release-candidate checkpoint. The README still describes the published v0.7.0 download; no v0.7.2 tag, archive or release exists."
     },
     {
       "id": "ACT72-050",
@@ -23388,14 +23630,15 @@
       "id": "ACT72-055",
       "severity": "Minor",
       "phase": 8,
-      "status": "open",
+      "status": "closed",
       "title": "Setup and launch paths without an automated end-to-end check: early-crash detection at launch, the real first-run window, Clear Downloaded Data driven natively through its helper",
       "features": [
         "ACT.SETUP.CLEAR-DOWNLOADED-DATA",
         "ACT.SETUP.FIRST-RUN",
         "ACT.SETUP.LAUNCH"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Closed in v0.7.2 Phase 8. Early crash: files/tests/test_launch_crash_detection.py starts real child processes through launch_gui's own Popen call and watches the real grace window. First-run window: two registered journeys drive the real bootstrap.run_with_gui on a disposable copy with real input (setup.first-run-refuses-a-folder-too-deep, where the real run_setup refuses a folder path that is too long and the native failure box, Open log folder and Close are used; setup.first-run-choices-and-cancel). Clear Downloaded Data: setup.clear-downloaded-data goes from Preferences through the real dialog, confirmation, the application closing itself and the real helper's deletion in a disposable copy to the result at the next launch. A real base installation is the fresh-windows qualification, not a routine journey."
     },
     {
       "id": "ACT72-056",
@@ -23416,12 +23659,13 @@
       "id": "ACT72-057",
       "severity": "Minor",
       "phase": 8,
-      "status": "open",
+      "status": "closed",
       "title": "PDF line cleaning (hyphen joins, soft-wrap rejoin, page-number and running-head removal) has no check against expected text; the voice_install.models_status half was closed in Phase 5 (test_voice_install_models_status.py)",
       "features": [
         "ACT.TTS.PDF-TEXT"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "resolution": "Closed in v0.7.2 Phase 8: files/tests/test_pdf_text_cleaning.py builds real PDFs line by line, checks each fixture's raw text before the cleaner sees it, and holds the production extractor to narration written out by hand (hyphen joins, wrapped lines, page numbers, running heads, paragraphs, what must not be joined or deleted). Writing them found ACT72-063, fixed with it; the limits that remain are ACT72-064."
     },
     {
       "id": "ACT72-058",
@@ -23472,6 +23716,55 @@
       ],
       "evidence": "v0.7.2 Phase 6 batch E consistency review (read from source; reproduced by test_cover_panel_branches before the fix)",
       "resolution": "Fixed in v0.7.2 Phase 6: start_resize releases the reservation (release_if_empty) before the 'Output folder' message."
+    },
+    {
+      "id": "ACT72-062",
+      "severity": "Major",
+      "phase": 8,
+      "status": "closed",
+      "title": "When a run ended the M4B Converter asked Explorer to show its output folder from the window's own thread, so a busy or restarting Explorer froze the window (36.9 s measured in Phase 7B); a failure to open the folder was silent",
+      "features": [
+        "ACT.CONVERTER.OUTPUT-FOLDER",
+        "ACT.LAUNCHER.OPEN-LOG-FOLDER"
+      ],
+      "evidence": "v0.7.2 Phase 7B qualification attempt 1; reproduced in Phase 8 with a controlled 3 s stand-in at os.startfile on the real panel in the real Tk loop: the call ran on the Tk thread and the loop stopped for 3.019 s",
+      "resolution": "Fixed in v0.7.2 Phase 8: shared/subprocess_utils.reveal_in_file_manager returns at once and makes the operating system's call on one background daemon thread (RevealRequest); the Converter adds a line to its Activity log when the folder could not be opened. The same reproduction then measured a longest loop gap of 0.061 s with the window already settled; one real folder was opened through the new path and closed again. files/tests/test_reveal_in_file_manager.py."
+    },
+    {
+      "id": "ACT72-063",
+      "severity": "Major",
+      "phase": 8,
+      "status": "closed",
+      "title": "A PDF page number was read aloud in the middle of any sentence that ran on to the next page ('the door stood 12 open to the night'), a number printed above the text was read out on nearly every page, and a word hyphenated at the foot of a page fused with the number ('morn3 ing')",
+      "features": [
+        "ACT.TTS.PDF-TEXT"
+      ],
+      "evidence": "v0.7.2 Phase 8, found by the ACT72-057 fixtures on real PDFs: PyMuPDF hands a page number over as one more line of the page, and the lines were joined before number-only lines were removed",
+      "resolution": "Fixed in v0.7.2 Phase 8: pdf_extractor removes a digit-only first or last line of each page before joining (_drop_page_number_at_the_edges) and joins a word hyphenated across a page break (_join_words_split_across_pages). Seven of the new tests fail on the earlier code. The existing speech goldens are unchanged."
+    },
+    {
+      "id": "ACT72-064",
+      "severity": "Minor",
+      "phase": 8,
+      "status": "open",
+      "title": "PDF cleaning limits that need a decision: a running head longer than four capitals (a title printed on every page) is narrated at each page; a line that is only a one-to-four-letter all-caps word (an acronym that wraps alone) is dropped; a compound word broken at its hyphen loses the hyphen; a bare number ending a page is taken for its page number",
+      "features": [
+        "ACT.TTS.PDF-TEXT"
+      ],
+      "evidence": "v0.7.2 Phase 8 fixtures (the four test_limit_* tests in files/tests/test_pdf_text_cleaning.py state each exactly)",
+      "deferred": "Not decided. Proposed for the owner at the Phase 8 checkpoint: a later release, because a general answer (recognising a running head by its repetition across pages, telling an acronym from a numeral) is new cleaning behaviour rather than a repair. Open until the owner rules."
+    },
+    {
+      "id": "ACT72-065",
+      "severity": "Minor",
+      "phase": 8,
+      "status": "closed",
+      "title": "The Windows decoder's reader reported the format it negotiated before decoding anything; for a mono 22.05 kHz AAC book Media Foundation announced 44.1 kHz stereo and delivered 22.05 kHz mono, so the PCM would have been described wrongly to the encoder",
+      "features": [
+        "ACT.CONVERTER.DECODE-COMPAT"
+      ],
+      "evidence": "v0.7.2 Phase 8, found by the first real Media Foundation test (ACT72-048) on a generated book; not reproduced on an xHE-AAC book, which is the only codec the application sends to this decoder, and the duration guard would have refused the result",
+      "resolution": "Fixed in v0.7.2 Phase 8: m4b_winaudio._Reader decodes its first buffer before reporting its format, re-reads the format when Media Foundation says it changed, and raises DecodeError for a change after that. files/tests/test_m4b_winaudio_real.py; without the fix its mono cases fail."
     }
   ],
   "source_review": {
@@ -23485,7 +23778,7 @@
     "scripts/launcher.py": "de0c7e32025bb62c2240cba305c9caaaec66cfca9ad9ad6ba816dd86ff913b26",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "260e26f3bfc6d796cbcdef096ff0a9c3a08e01f1a179ee187a6fdc6de8e7d301",
+    "scripts/m4b/converter/m4b_converter.py": "f4336b431c5cd1c833ca7187078065c65dae7e4e1d49f8dfbd6f90f1208d717d",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "6d2dfa4b399172f0bda4f26ad9853561f52414be5d0eeba7e2bfb645f970ac45",
@@ -23497,7 +23790,7 @@
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
     "scripts/m4b/m4b_probe.py": "4b87188ab0b04066c8f65f5d516de3054f7cc5a50a4367d1ecba587b71e7075f",
     "scripts/m4b/m4b_staging.py": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
-    "scripts/m4b/m4b_winaudio.py": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
+    "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
     "scripts/m4b/maker/m4b_maker.py": "3a0b92b99ed274f75a4fd885a276d5f684a6af05d70500b8b361d54de8899df9",
     "scripts/m4b/maker/m4b_maker_batch.py": "fbeaee438a052c3f58c9b4840e95db1249498240d537b9b66487870bf832e0e6",
@@ -23522,7 +23815,7 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "bbecb40501aea04c0f347a3596e1bf797e7817f0dbdfebe4dcc96bcb1a68c1e4",
+    "scripts/shared/bootstrap.py": "d26a82ccb9e84ca21c25dea6b6ce1a17b4c18f5867b4ac8d14f0af5988f931b2",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
@@ -23562,11 +23855,11 @@
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "b0df6289828bab5e4b0963584d4abd014246ec1c8eb17d5c21ec68cab6813a32",
+    "scripts/shared/subprocess_utils.py": "16ee5c00e861705ab98612afdfa98fb236f4356eb8c98a47b96d78ed010494bb",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
     "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",
-    "scripts/shared/version.py": "8eda09bbe13116b2bdf669a482950d9581b0b720ae7e284aba773d0da2a716a9",
+    "scripts/shared/version.py": "43a29b400a25eb3a98ea236808697404c8d44a3382ed602c4244b602739f2597",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
     "scripts/tts/audio_tail.py": "d755c5e17d99a31a9b0ba2defd172d5ea3566a55a892ffe792c30a3b5478507a",
@@ -23592,7 +23885,7 @@
     "scripts/tts/optional_setup_readonly_worker_v3.py": "6fa9c0cf53ce267eb70c0a4cf12a17185b07d96b757173e8017ef1a57ffb862a",
     "scripts/tts/optional_setup_worker.py": "35cdccd7246389b3cbf1f9d07368777aa618c1c713078eb5913ec7e85f47916f",
     "scripts/tts/output_names.py": "daa986300100f9fca00c58a344768dde3d1c3712512a75c42f4c0ddb03cedf5c",
-    "scripts/tts/pdf_extractor.py": "f594b5a4411943e9e93ae0e2efa715544ca14afbf92d6b2b0cabfde57906b573",
+    "scripts/tts/pdf_extractor.py": "a8b9ab7cfada51cb35d381c8846bc9cc180fb28938f9a48d55537d3c9d098b21",
     "scripts/tts/publication.py": "2006abe24f6ab7e1432f4d8b8a659e59db47c348ad719d72cd364e1755c48dbc",
     "scripts/tts/quality_corpus.py": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
     "scripts/tts/qwen3_clone_setup.py": "58d4109a90738a13cafb5c4ab14a4fb7deebf04d07baa905ab78df2d90049471",

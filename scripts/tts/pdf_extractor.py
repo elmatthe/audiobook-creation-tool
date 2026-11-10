@@ -103,7 +103,40 @@ def _merge_blocks_across_page_gaps(text: str) -> str:
     return "\n\n".join(" ".join(pieces) for pieces in out)
 
 
+_ONLY_DIGITS = re.compile(r"\s*\d+\s*")
+
+
+def _drop_page_number_at_the_edges(text: str) -> str:
+    """Blank a page's first and last line of text when it is only digits: that is where a page number is printed.
+
+    It has to go before the lines are joined (v0.7.2 Phase 8, ACT72-063). PyMuPDF hands a page number over as one more
+    line of the page, and most pages end in the middle of a sentence, so the joining below used to take it for the
+    sentence's next word and it was read aloud ("the door stood 12 open to the night"); under a word hyphenated at the
+    page's end it fused with the word ("morn3"). A bare number anywhere else on the page is left for the joining to
+    keep as text, as before.
+    """
+    lines = text.split("\n")
+    with_text = [index for index, line in enumerate(lines) if line.strip()]
+    for index in {*with_text[:1], *with_text[-1:]}:
+        if _ONLY_DIGITS.fullmatch(lines[index]):
+            lines[index] = ""
+    return "\n".join(lines)
+
+
+def _join_words_split_across_pages(parts: list[str]) -> list[str]:
+    """A page that ends in a hyphen continues its last word on the next page: the same rule :func:`_dehyphenate`
+    applies between two lines, applied between two pages (v0.7.2 Phase 8, ACT72-063). Each part is one cleaned page."""
+    joined: list[str] = []
+    for part in parts:
+        if joined and joined[-1].endswith("-") and part[:1].strip():
+            joined[-1] = joined[-1][:-1] + part
+        else:
+            joined.append(part)
+    return joined
+
+
 def _clean_page_text(text: str) -> str:
+    text = _drop_page_number_at_the_edges(text)
     text = _dehyphenate(text)
     text = _rejoin_soft_wrapped_lines(text)
     text = _strip_noise_lines(text)
@@ -142,7 +175,7 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def _join_pages(parts: list[str]) -> str:
     """Cleaned pages as the one text a conversion speaks. Sizing reads pages through this too, so the two cannot disagree
     about where a paragraph ends: prose that continues across a page is one paragraph, in memory as one."""
-    full = "\n\n".join(parts)
+    full = "\n\n".join(_join_words_split_across_pages(parts))
     full = full.replace("\x0c", "\n")
     full = _merge_blocks_across_page_gaps(full)
     full = re.sub(r"\n{3,}", "\n\n", full)

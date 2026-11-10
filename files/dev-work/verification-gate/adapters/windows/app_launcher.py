@@ -45,7 +45,23 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[4]
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+
+def _app_root() -> Path:
+    """Where the application's code is run from: this checkout, or the disposable copy a journey names (``app_root``, v0.7.2 Phase 8).
+
+    The application takes every folder it owns from where its own code is, and its cleanup helper is the file beside that code. So a
+    journey that lets the application delete its downloaded data runs a copy of it, and the copy is then the only installation it can
+    reach."""
+    try:
+        named = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("app_root")
+    except (IndexError, OSError, ValueError):
+        named = None
+    return Path(named) if named else REPO_ROOT
+
+
+APP_ROOT = _app_root()
+sys.path.insert(0, str(APP_ROOT / "scripts"))
 sys.path.insert(0, str(HERE))
 
 
@@ -53,8 +69,26 @@ def _load_config() -> dict:
     return json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 
 
+def _use_the_copy(config: dict) -> None:
+    """A disposable copy is its own installation: its settings, logs and data stay where the application itself keeps them, inside it.
+    Refuses unless the application really is the copy's, so nothing can be aimed at this checkout by a wrong path."""
+    from shared import ffmpeg_health, paths
+
+    if Path(paths.REPO_ROOT).resolve() != APP_ROOT.resolve() or APP_ROOT.resolve() == REPO_ROOT.resolve():
+        raise SystemExit(f"refused: the application under test is {paths.REPO_ROOT}, not the disposable copy {APP_ROOT}")
+    runtime = Path(paths.RESOURCES_DIR)
+    (runtime / "logs").mkdir(parents=True, exist_ok=True)
+    Path(config["runtime_dir"]).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(REPO_ROOT / "files" / "runtime-data" / ffmpeg_health.HEALTH_STATE_NAME, runtime / ffmpeg_health.HEALTH_STATE_NAME)
+    settings = {"output_base_directory": config["output_base"], "last_tool": config.get("last_tool", "tts"), **config.get("settings", {})}
+    Path(paths.SETTINGS_FILE).write_text(json.dumps(settings, indent=1), encoding="utf-8")
+
+
 def _isolate(config: dict) -> None:
     """Point the application at this run's folders before anything reads them."""
+    if config.get("app_root"):
+        _use_the_copy(config)
+        return
     from shared import ffmpeg_health, paths
 
     runtime = Path(config["runtime_dir"])
