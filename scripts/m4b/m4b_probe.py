@@ -84,6 +84,28 @@ class ArtworkProblem:
 
 
 @dataclass(frozen=True, slots=True)
+class AudioStreamFacts:
+    """What the same ``-show_streams`` answer says about the audio stream, kept as read (v0.7.2 Phase 7B).
+
+    The continuous route (``m4b_continuous``) may only be chosen when these prove the book is an ordinary AAC-LC stream
+    whose samples are numbered from zero, so they are recorded rather than re-asked. Nothing here is a judgement: a field
+    ffprobe did not report is ``None`` or empty, and deciding what that means is the route's job.
+    """
+
+    audio_streams: int
+    codec_name: str = ""
+    profile: str = ""
+    sample_fmt: str = ""
+    sample_rate: int | None = None
+    channels: int | None = None
+    channel_layout: str = ""
+    time_base: str = ""
+    start_pts: int | None = None
+    duration_ts: int | None = None
+    initial_padding: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SourceReport:
     """Everything one preflight read of one source produced.
 
@@ -102,6 +124,8 @@ class SourceReport:
     #: existing conversion warning is raised from this rather than by asking
     #: ffmpeg_utils a second time during execution.
     undecodable_xhe: bool = False
+    #: The audio stream's own facts from the same read, for the continuous route's eligibility (v0.7.2 Phase 7B).
+    stream: AudioStreamFacts | None = None
 
     @property
     def ok(self) -> bool:
@@ -183,6 +207,35 @@ def _audio_stream(streams: list) -> dict | None:
         if stream.get("codec_type") == "audio":
             return stream
     return None
+
+
+def _integer(value: Any) -> int | None:
+    """An integer ffprobe reported, or ``None``: never a float rounded into one."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = _text(value)
+    digits = text.removeprefix("-")
+    if not (digits.isascii() and digits.isdigit()):
+        return None
+    return int(text)
+
+
+def _stream_facts(streams: list, audio: dict) -> AudioStreamFacts:
+    return AudioStreamFacts(
+        audio_streams=sum(1 for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "audio"),
+        codec_name=_text(audio.get("codec_name")),
+        profile=_text(audio.get("profile")),
+        sample_fmt=_text(audio.get("sample_fmt")),
+        sample_rate=_integer(audio.get("sample_rate")),
+        channels=_integer(audio.get("channels")),
+        channel_layout=_text(audio.get("channel_layout")),
+        time_base=_text(audio.get("time_base")),
+        start_pts=_integer(audio.get("start_pts")),
+        duration_ts=_integer(audio.get("duration_ts")),
+        initial_padding=_integer(audio.get("initial_padding")),
+    )
 
 
 def _failed(detail: str) -> SourceReport:
@@ -295,6 +348,7 @@ def probe_source(path, *, runner: Callable[[list[str]], str | bytes] | None = No
         decoder_args=decoder_args,
         codec_name=_text(audio.get("codec_name")),
         undecodable_xhe=undecodable,
+        stream=_stream_facts(streams, audio),
     )
 
 

@@ -312,5 +312,7 @@ def test_the_launcher_registry_and_tool_families_are_exactly_as_expected():
                      "m4b/m4b_probe.py", "m4b/m4b_commands.py",
                      "m4b/converter/m4b_metadata.py", "m4b/m4b_chapters.py",
                      "m4b/converter/m4b_destinations.py", "m4b/converter/m4b_plan.py",
-                     "m4b/m4b_naming.py", "m4b/m4b_winaudio.py"}
+                     "m4b/m4b_naming.py", "m4b/m4b_winaudio.py",
+                     # v0.7.2 Phase 7B: the Converter's one-decode split route (ACT72-012).
+                     "m4b/m4b_continuous.py"}
     assert set(generic) <= converter_own, sorted(set(generic) - converter_own)

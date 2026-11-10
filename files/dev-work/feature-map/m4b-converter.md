@@ -6,7 +6,7 @@ Part of the ACT feature map (`README.md`). Written in v0.7.2 Phase 4 from the so
 
 The M4B Converter turns M4B audiobooks into MP3s, either one MP3 per book (Whole book) or one MP3 per chapter (Split by chapter). The user imports `.m4b` files or folders, picks the output structure, MP3 quality and metadata mode, optionally turns on track numbering, and presses **Convert M4Bs → MP3s**. The run first reads every source (preflight), freezes one immutable plan for the whole run, then encodes each output with FFmpeg (or, for xHE-AAC books FFmpeg cannot decode, with Windows' own decoder feeding FFmpeg) into a numbered run folder. Pause, Resume, Cancel and Retry Failed come from the shared job controls.
 
-Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`); planning lives in `m4b/converter/m4b_plan.py`, `m4b_destinations.py` and `m4b_metadata.py`; the shared M4B modules are `m4b/m4b_probe.py` (one FFprobe read per source), `m4b_chapters.py` (chapter model, validation, timeline), `m4b_naming.py`, `m4b_commands.py` (FFmpeg argument lists), `m4b_execution.py` (running, stopping and publishing one output), `m4b_winaudio.py` (Windows Media Foundation decoding) and `m4b_numbering.py` (re-export of the shared success-only numbering). `m4b_staging.py` sits in the same package but is used only by the Maker and the Metadata Editor.
+Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`); planning lives in `m4b/converter/m4b_plan.py`, `m4b_destinations.py` and `m4b_metadata.py`; the shared M4B modules are `m4b/m4b_probe.py` (one FFprobe read per source), `m4b_chapters.py` (chapter model, validation, timeline), `m4b_naming.py`, `m4b_commands.py` (FFmpeg argument lists), `m4b_execution.py` (running, stopping and publishing one output), `m4b_continuous.py` (the one-decode split route, v0.7.2 Phase 7B), `m4b_winaudio.py` (Windows Media Foundation decoding) and `m4b_numbering.py` (re-export of the shared success-only numbering). `m4b_staging.py` sits in the same package but is used only by the Maker and the Metadata Editor.
 
 ### Converter panel, layout and appearance
 
@@ -143,19 +143,20 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **States:** inputs and options lock while running and unlock when the run settles (Succeeded, Completed with failures, Failed or Cancelled), even after an unexpected internal error, which is logged as "The run did not complete."
 - **Failure:** one book failing never stops the others.
 
-### Exact chapter boundaries (output-side seek)
+### Exact chapter boundaries (output-side seek, or the same samples from one decode)
 
 `ACT.CONVERTER.PRIMING`
 
-- Every split chapter is cut with `-ss` placed after `-i` and the length given as `-t`. Seeking before `-i` is about a hundred times faster but was measured to drop or fade audio at chapter starts (AAC decoder priming) while still reporting correct durations.
+- **Seeking route** (every book the continuous route does not take): each split chapter is cut with `-ss` placed after `-i` and the length given as `-t`. Seeking before `-i` is about a hundred times faster but was measured to drop or fade audio at chapter starts (AAC decoder priming) while still reporting correct durations.
 - Boundaries are the chapter starts copied exactly, written to the microsecond; adjacent chapters neither lose nor repeat audio, and chapter 1 starts at the very beginning.
-- **Intentional cost:** about 1.55 s of extra decoding per hour of audio before each chapter. Phase 7 (ACT72-012) may speed this up only if every output stays identical.
+- **Continuous route** (v0.7.2 Phase 7B, eligible books only; see `ACT.CONVERTER.SCALING`): there is no seek. Chapter *k* is exactly the decoded samples the output-side seek selects, from the same `-ss`/`-t` strings: first sample `half_up(S × rate)`, count `half_up(D × rate)`, cut at absolute positions, never by adding up rounded durations. Neighbours whose rounding overlaps or gaps by a sample are reproduced as the seek does (FFmpeg's own seek was checked at exact half-sample ties). Every output is byte-identical to the seeking route's.
+- **Cost of the seeking route:** about 1.3–1.6 s of extra decoding per hour of audio before each chapter (Phase 7A); the continuous route removes it where it applies.
 
 ### Codec compatibility: FFmpeg AAC and the Windows xHE-AAC decoder
 
 `ACT.CONVERTER.DECODE-COMPAT`
 
-- Ordinary AAC books are decoded by FFmpeg and never take the Windows route.
+- Ordinary AAC books are decoded by FFmpeg and never take the Windows route. A split AAC-LC book may be decoded by FFmpeg once rather than per chapter (`ACT.CONVERTER.SCALING`); the Windows route and every other codec are not touched by that.
 - xHE-AAC books that this FFmpeg cannot decode completely (it silently lost about 24% of a measured book) are decoded by Windows Media Foundation when the machine can: once per book, with split chapters cut from the decoded audio and piped into the same encoder, quality, metadata, chapters and cover. The log notes that Windows decoded it.
 - With no capable decoder (for example a Windows N edition without media components) the book is refused at preflight, nothing is created, and it is not retryable.
 - A decoder failure fails the output even if FFmpeg exits 0. A wrong-length output names xHE-AAC as the cause only when the plan established it.
@@ -237,8 +238,12 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 `ACT.CONVERTER.SCALING`
 
 - Long split runs must produce every chapter with exact boundaries; the Windows decoder route streams in small chunks and never writes the decoded audio to disk; the ETA is based on measured time per output.
-- **Known issue:** split cost grows with chapters × book length because each chapter decodes the book from its start (ACT72-012, Phase 7). Any optimisation must keep outputs identical. 1000+ chapter and multi-hour behaviour belongs to the m4b-scaling qualification.
-- **Measured (Phase 7A, 2026-11-10):** 1.3–1.6 s of discarded decoding per hour of book before each chapter; output byte-identical between v0.7.1 and now and run to run. Baseline, compatibility manifest and proposed design: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`.
+- **The continuous route (v0.7.2 Phase 7B, ACT72-012).** The seeking route decodes everything before each chapter again (1.3–1.6 s per hour of prefix, per chapter: chapters × book length). An eligible split book is instead decoded once by FFmpeg, to its own float samples, and each chapter's samples are cut from that stream and piped into the same per-chapter encoder (`pcm_argv` through `run_argv_streaming`, the Windows route's seams). The cover pass, the measurement and drift guard, staging, refusal and publication are the seeking route's, unchanged; every output is byte-identical.
+- **Which books.** Decided once at preflight and frozen into the plan (a retry keeps it): split mode; a chaptered book; FFmpeg's own decoder (not the Windows route, no other decoder); one AAC-LC audio stream in float planar samples; a sample rate LAME takes as it is (8–48 kHz); mono or stereo with that standard layout; time base 1/rate, start 0, priming of one AAC frame by edit list or none; a packet scan (one ffprobe, cancellable, between sources) proving every timestamp is the running sample count and the total is the declared one; an FFmpeg build the route is qualified on (by SHA-256: today gyan.dev 9.0.1 full_build, the portable pin); and enough to gain: the prefix (every chapter's start added up) less twice the book's length, because moving the whole book through a pipe costs about 1.4 decodes per second of book (measured), must reach the calibrated threshold, so a short book, or a long book of a few long chapters, keeps the seeking route. Anything else, or anything that cannot be proven, takes the seeking route, byte for byte.
+- **Bounded.** At most a 256 KiB block and one second of already-read audio are held (under 1 MiB); nothing is written to disk; the pipes are the back-pressure.
+- **Never a quiet shortfall.** End of stream counts only if the decoder exited 0 with exactly the declared samples. A short feed, a stream ending part-way through a sample, a failed or killed decoder fail the chapter, and the book is taken back as for any failed chapter; Retry Failed starts a fresh decoder. A book whose audio frames are damaged (FFmpeg skips them and still exits 0) therefore fails on this route, where the seeking route had no such check.
+- **Cancel** stops the encoder and the decoder and reaps both; Pause waits between outputs as before (the decoder simply waits on its pipe).
+- **Measured and qualified:** the m4b-scaling qualification (`files/dev-work/verification-gate/scaling/`) with the frozen budgets T1–T8 and T1b; baseline, design and results: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`.
 
 ### Intentional differences from other tools
 
@@ -254,7 +259,8 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 ### Not verified here
 
 - Real Windows Media Foundation decoding of a real xHE-AAC book (owner's real-book check; no automated coverage).
-- 1000+ chapter and multi-hour split runs, and the Phase 7 speed-up's output identity (m4b-scaling qualification).
+- 1000+ chapter and multi-hour split runs, and the continuous route's speed and output identity at scale (the m4b-scaling qualification, run on its own, not by the routine gate).
+- The continuous route on any FFmpeg build other than the qualified one (it keeps the seeking route there), on macOS, and on HE-AAC/xHE-AAC books (they keep their existing routes).
 - Visual approval of the captured screenshots and display scales other than 100% (owner).
 - macOS behaviour, including the aac_at xHE-AAC route (not a qualified platform).
 - No native journey yet presses Pause/Resume, Retry Failed, Auto-number tracks or Open Output Folder in the Converter, or converts a chapterless or malformed-chapter book; those rely on automated tests only.

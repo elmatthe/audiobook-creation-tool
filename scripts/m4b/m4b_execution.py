@@ -140,10 +140,21 @@ class SegmentWork:
     #: back explicitly because ``-map_metadata -1`` strips the titles off the map
     #: ``-map_chapters`` copied; execution never re-reads the source to get them.
     chapter_titles: tuple[str, ...] = ()
+    #: Frozen at preflight (v0.7.2 Phase 7B): this fragment's audio is cut from
+    #: the book's one continuous FFmpeg decode and arrives on stdin as
+    #: ``pcm_args`` describes, instead of being sought per chapter. Only the
+    #: audio pass changes; the cover pass and everything after it are the
+    #: seeking route's.
+    continuous_decode: bool = False
 
     @property
     def fragment(self) -> bool:
         return self.span is not None
+
+    @property
+    def streams_audio(self) -> bool:
+        """Whether the first pass is fed on stdin rather than reading the book itself."""
+        return self.windows_decode or (self.continuous_decode and self.fragment)
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +298,7 @@ def run_argv_streaming(
     monotonic=time.monotonic,
     wait=time.sleep,
     spawn_thread=None,
+    on_stop: Callable[[], None] | None = None,
 ) -> ProcessResult:
     """Run one child that is *fed* on stdin, and always reap it.
 
@@ -294,6 +306,15 @@ def run_argv_streaming(
     pipe, cancellation polled between polls, the child collected on every route
     out -- with one addition: a producer thread pushes bytes into stdin while
     the main thread watches the process.
+
+    *on_stop* is called once when Cancel stops the child, before the producer
+    is joined (v0.7.2 Phase 7B). A producer that is itself fed by a process --
+    the continuous decoder -- can be blocked reading *that* process rather than
+    writing this one, and stopping this child alone would not unblock it; the
+    hook stops the feeding process too, so Cancel settles within its bound.
+
+    A producer still running after its join is a failure of the feed, never a
+    success: a write cannot have finished, so the encoded file cannot be whole.
 
     **Backpressure is the pipe itself.** *feed* is handed a ``write`` callable
     and blocks inside it whenever the encoder is behind, so a ten-hour decode
@@ -356,12 +377,16 @@ def run_argv_streaming(
                                    poll_seconds=poll_seconds,
                                    monotonic=monotonic, wait=wait)
                     stopped = True
+                    if on_stop is not None:
+                        on_stop()
                     break
                 wait(poll_seconds)
         finally:
             reaped = _reap(proc, timeout=grace_seconds)
             if producer is not None and hasattr(producer, "join"):
                 producer.join(timeout=grace_seconds)
+                if getattr(producer, "is_alive", lambda: False)():
+                    failure.append("the audio feed did not finish after the encoder ended")
 
         detail = tail_of(diagnostics)
         if failure:
@@ -472,16 +497,34 @@ def _passes(work: SegmentWork, *, ffmpeg: str, staged_final: Path,
 
     start, end = work.span  # type: ignore[misc]
     first = staged_final if keep is None else staged_audio
-    audio = tuple(m4b_commands.segment_argv(
-        ffmpeg=ffmpeg,
-        source=work.source,
-        destination=str(first),
-        quality=work.quality,
-        start=start,
-        end=end,
-        decoder_args=work.decoder_args,
-        output_args=output_args,
-    ))
+    if work.continuous_decode:
+        # v0.7.2 Phase 7B: the samples the seek below would keep arrive on stdin,
+        # cut from the book's one decode, so there is no seek and no book input
+        # here. The tags and the absent chapter map are the seek's own: the same
+        # allowlist arguments, the chapter pair owned by ``pcm_argv``. The cover
+        # still follows in its own pass, unchanged, because putting it in this
+        # encode changes the Xing frame (Phase 7A, candidate C2, not approved).
+        audio = tuple(m4b_commands.pcm_argv(
+            ffmpeg=ffmpeg,
+            pcm_args=work.pcm_args,
+            destination=str(first),
+            quality=work.quality,
+            output_args=_output_args(work, chapters=False),
+            metadata_source=work.source,
+            attached_picture=None,
+            keep_chapters=False,
+        ))
+    else:
+        audio = tuple(m4b_commands.segment_argv(
+            ffmpeg=ffmpeg,
+            source=work.source,
+            destination=str(first),
+            quality=work.quality,
+            start=start,
+            end=end,
+            decoder_args=work.decoder_args,
+            output_args=output_args,
+        ))
     if keep is None:
         return (audio,)
 
@@ -574,6 +617,7 @@ def convert_segment(
     wait=time.sleep,
     on_command: Callable[[Sequence[str]], None] | None = None,
     feed: Callable[[Callable[[bytes], None]], None] | None = None,
+    stop_feed: Callable[[], None] | None = None,
 ) -> SegmentOutcome:
     """Produce one planned output, or explain truthfully why it does not exist.
 
@@ -584,7 +628,13 @@ def convert_segment(
 
     *measure* reads a produced file's duration; it is injected so the drift
     guard can be exercised without media. *on_command* is a transcript hook —
-    it renders nothing and decides nothing.
+    it renders nothing and decides nothing. *feed* supplies the audio of a pass
+    that streams it (the Windows decoder, or the continuous decode of v0.7.2
+    Phase 7B, which only the first pass of a fragment uses); *stop_feed* is
+    handed to that pass so Cancel stops whatever feeds it as well.
+
+    A Cancel that stopped a pass is reported as cancelled even when the feed
+    failed at the same time: stopping the feed is how a Cancel ends it.
     """
     destination = Path(work.destination)
     commands_run: list[tuple[str, ...]] = []
@@ -618,22 +668,27 @@ def convert_segment(
         passes = _passes(work, ffmpeg=ffmpeg, staged_final=staged_final,
                          staged_audio=staged_audio)
 
-        for argv in passes:
+        for position, argv in enumerate(passes):
             commands_run.append(tuple(argv))
             if on_command is not None:
                 on_command(argv)
+            # The Windows route streams its one pass; the continuous route
+            # streams only the audio pass, and the cover pass reads files.
+            streamed = work.windows_decode or (position == 0 and work.streams_audio)
             try:
-                if work.windows_decode:
+                if streamed:
                     if feed is None:
                         return refuse(
                             f"{destination.name} could not be started.",
-                            "the plan asked for the Windows decoder but no "
-                            "decoded audio was supplied")
+                            "the plan asked for the "
+                            f"{'Windows decoder' if work.windows_decode else 'continuous decode'}"
+                            " but no decoded audio was supplied")
                     result = run_argv_streaming(
                         argv, feed=feed, cancelled=cancelled,
                         workspace=destination.parent,
                         poll_seconds=poll_seconds, grace_seconds=grace_seconds,
-                        popen=popen, monotonic=monotonic, wait=wait)
+                        popen=popen, monotonic=monotonic, wait=wait,
+                        on_stop=stop_feed)
                 else:
                     result = run_argv(
                         argv, cancelled=cancelled, workspace=destination.parent,
@@ -642,16 +697,16 @@ def convert_segment(
             except ProcessLaunchError as exc:
                 return refuse(f"{destination.name} could not be started.", str(exc))
 
+            if result.cancelled:
+                return SegmentOutcome(destination=destination, cancelled=True,
+                                      detail=result.detail,
+                                      commands=tuple(commands_run))
+
             if result.producer_failed:
                 # ffmpeg can exit 0 on the audio it did receive, so a decoder
                 # that stopped early would otherwise look like success.
                 return refuse(f"{destination.name} could not be decoded.",
                               result.detail)
-
-            if result.cancelled:
-                return SegmentOutcome(destination=destination, cancelled=True,
-                                      detail=result.detail,
-                                      commands=tuple(commands_run))
             if result.unreaped:  # pragma: no cover - a child that would not die
                 return refuse(
                     f"{destination.name} could not be stopped cleanly.",

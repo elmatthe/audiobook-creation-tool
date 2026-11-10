@@ -13,6 +13,21 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 7B: long split books convert much faster, with identical files (2026-11-10)
+
+**Changed**
+- **M4B Converter, Split by chapter.** A book of ordinary AAC audio with many chapters is now decoded once and each
+  chapter cut from that decode, instead of decoding everything before every chapter again. Every MP3 is byte-identical
+  to what the Converter wrote before. Small books, books of a few long chapters, other codecs, the Windows xHE-AAC
+  route and FFmpeg builds the route was not qualified on keep the previous route unchanged. The route is chosen when the
+  books are examined and kept for the whole run and for Retry Failed.
+- A book whose audio frames are damaged in a way FFmpeg skips silently now fails on the new route instead of producing
+  shifted chapters (its sample count no longer matches the book).
+
+**Added (development only)**
+- The `m4b-scaling` qualification (`verify.py --mode qualification --scenario m4b-scaling`) with a deterministic book
+  recipe, a pinned per-FFmpeg-build reference and the frozen performance budgets.
+
 ## [Unreleased] — v0.7.2 Phase 7A: the M4B Converter's split slowdown measured (2026-11-10)
 
 **Added (development only; nothing a person sees changes)**

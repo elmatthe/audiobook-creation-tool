@@ -1,7 +1,9 @@
 # ACT v0.7.2 Phase 7A — M4B Converter split: baseline, compatibility manifest and optimization design
 
-Status: **Phase 7A checkpoint (profiling and design only). No production code changed.** Stops for the ChatGPT/owner
-architecture review before Phase 7B. The budgets in §8 are proposals, not approved acceptance thresholds.
+Status: **Phase 7A accepted; Phase 7B implemented the approved design (section 13).** Sections 1-12 are the Phase 7A
+checkpoint as reviewed (profiling and design; no production code changed then). The owner/ChatGPT review approved C1, the
+`ACT.CONVERTER.PRIMING` amendment for the new route only, byte identity as the oracle and the budgets of section 8, and
+did not approve C2. Section 13 records what Phase 7B built, how its threshold was calibrated, and its qualification.
 
 Authority: the owner's acceptance of Phase 6 at `721c323` and authorization of Phase 7A (2026-11-09; `Decisions.md`), and the
 Phase 7A prompt (plan §12.1–12.3, §14 Phase 7, sub-checkpoint 7A). Issue: ACT72-012 (Major).
@@ -366,3 +368,84 @@ evidence folder (their hashes remain in each `results.json`; `cleanup-manifest.j
 the validated fixtures kept for 7B. No staged temporary, FFmpeg or ffprobe process was left. The owner's protected state
 (14 tracked deletions, 4 untracked entries, `bfa7`, the 31 legacy `epub2tts_*` folders, settings, crimson-audiobooks,
 Audiobooks-(LIVE)) matches entry exactly (`protected-compare.txt`).
+
+## 13. Phase 7B: the accepted design, implemented and qualified
+
+### 13.1 What the review accepted (2026-11-10)
+
+C1 is approved: one continuous FFmpeg decode per eligible split book, sample-exact chapter cuts, the existing per-chapter
+MP3 encoding, cover pass and publication. `ACT.CONVERTER.PRIMING`'s output-side `-ss` contract changes only for the new
+route; the seeking route keeps it unchanged. Byte identity is the oracle for eligible books, with the independent audio,
+chapter, metadata, artwork and output-integrity oracles kept. C2 is not approved. The budgets T1-T8 and T1b of section 8
+are approved (the 12-hour ratio is reported, not promised). The reserved `m4b-scaling` scenario is implemented from a
+tracked harness and recipe, with large media only in ignored storage. HE-AAC, xHE-AAC, Media Foundation and other
+ineligible routes keep their behaviour. ACT72-012 stays open until C1 is implemented and qualified.
+
+### 13.2 What was built
+
+| Where | What |
+|---|---|
+| `scripts/m4b/m4b_continuous.py` (new) | `static_refusal` (the probe-only eligibility), `check_packet_lines` and `scan_packets` (the timestamp proof), `build_refusal` and `executable_fingerprint` (the qualified FFmpeg build), `saved_seconds` and the two calibrated constants, `qualify` (one frozen `RouteDecision` per book), `micros`, `half_up` and `chapter_frames` (the cut), `ContinuousDecoder` (start, `feed` by absolute position with a one-second tail for overlaps, end-of-stream checks, `close`), `owned_decoders` (a backstop that closes any decoder a worker left open). |
+| `m4b_commands.segment_times` | The `-ss` and `-t` strings, now one function used by `segment_argv` and by the cut, so the two can never read different strings. `segment_argv`'s command line is unchanged. |
+| `m4b_probe.AudioStreamFacts` | The audio stream's facts from the same one probe (stream count, codec, profile, sample format, rate, channels, layout, time base, start, declared samples, priming). No new process. |
+| `m4b_plan.ItemPlan.continuous`, `assemble_plan(continuous=)` | The route, frozen into the plan at preflight, only for a chaptered split book that FFmpeg decodes. A retry reads it from the plan. |
+| `m4b_execution` | `SegmentWork.continuous_decode`; `_passes` gives a continuous fragment `pcm_argv` (no seek, no book input) followed by the unchanged cover pass; `convert_segment` streams only that first pass and reports a Cancel as cancelled even if the stopped feed failed; `run_argv_streaming(on_stop=)` stops the feeding decoder when Cancel stops the encoder, and a producer still running after its join is a failure. |
+| `m4b_converter._run_conversion`, `convert_worker` | Preflight asks `qualify` for each split book after its probe (a child process, so between checkpoints, and Cancel stops it); the plan freezes the answer; each book attempt starts one decoder, feeds each chapter by `chapter_frames`, and closes it on every route out; the worker runs inside `owned_decoders`. |
+
+### 13.3 Eligibility, exactly
+
+A book takes the continuous route only when all of these hold, decided at preflight and frozen: split mode; a chaptered
+book; not xHE-AAC, no decoder other than FFmpeg's own (no Windows route, no `aac_at`); exactly one audio stream, `aac`
+profile `LC`, sample format `fltp`; a sample rate LAME takes as it is (8, 11.025, 12, 16, 22.05, 24, 32, 44.1, 48 kHz);
+1 channel `mono` or 2 channels `stereo`; time base `1/rate`; `start_pts` 0; a declared sample count (`duration_ts`);
+initial padding 0 or 1,024; a packet scan (ffprobe `pts,duration,flags`) proving at most one leading discarded packet of
+exactly one AAC frame, present exactly when the padding says so, then packets from 0 whose timestamps are the running
+sample count, each 1,024 samples but the last, none marked corrupt, adding up to the declared count; a qualified FFmpeg
+build (by fingerprint: the SHA-256 of each executable's size and first and last MiB; today gyan.dev 9.0.1 full_build,
+the application's portable pin and the winget package, the same archive); and an estimated saving
+`S = P - 2.0 x D` of at least 600 s, where P is every chapter's start added up and D the book's duration. Anything else,
+or anything that cannot be proven (an unreadable scan, a cancelled scan, an unexpected error), keeps the seeking route.
+
+### 13.4 The threshold: calibrated before qualification
+
+The route saves the seeking route's repeated prefix decoding and costs a pipe for the whole book. Measured on this
+machine (`k-measurement.json` in the evidence): moving a book's float samples through the decoder, Python and the
+encoder's input costs 1.9-2.4 times an AAC decode per second of book, so the route saves work only where P exceeds about
+1.4 x D. `PREFIX_PER_BOOK_SECOND = 2.0` rounds that up. Two earlier calibration attempts were stopped before any
+threshold was taken from them: the first because the per-build check had to exist before its cost was measured (it was
+then made a fingerprint: hashing the two 222 MB executables in full cost 0.32 s per process); the second because its
+metric, P alone, was shown wrong by its own partial data (a 3-chapter 10-minute book with 601 s of prefix was 24 % slower
+on the new route, and a 2-chapter 20-minute book used 20 % more CPU).
+
+The rule of `files/dev-work/verification-gate/scaling/calibrate.py`, fixed before its data: three arms per repetition in
+rotating order (seeking route, continuous route, seeking route again as a same-session control), every output equal to
+its pinned reference; `break_even` is the smallest S at and above which every calibration book's continuous median wall
+time and median process-tree CPU are no greater than the seeking route's; threshold = max(600, 2 x break_even rounded up
+to a minute). Fourteen books, 8 repetitions per arm, 336 runs, every output identical to its pinned reference (machine
+load before a run: median 8.5 %, range 1.5-91.8 %):
+
+| Book | Chapters | Duration s | P s | S s | Wall: seek / continuous (ratio) | CPU: seek / continuous (ratio) | Seek-vs-seek noise |
+|---|---|---|---|---|---|---|---|
+| small2_600000 | 2 | 1,200.9 | 600 | -1,802 | 7.79 / 7.66 (0.98) | 8.58 / 9.76 (1.14) | 1.1 % |
+| small3_200000 | 3 | 601.8 | 601 | -603 | 4.74 / 4.47 (0.94) | 4.91 / 5.27 (1.07) | 6.7 % |
+| small5_120000 | 5 | 603.4 | 1,205 | -1 | 5.02 / 5.18 (1.03) | 5.38 / 5.66 (1.05) | 4.5 % |
+| scale10 | 10 | 15.0 | 68 | 38 | 1.78 / 1.69 (0.95) | 1.45 / 1.45 (1.00) | 3.3 % |
+| small10_3000 | 10 | 36.4 | 164 | 91 | 2.17 / 2.21 (1.02) | 1.55 / 1.65 (1.06) | 2.2 % |
+| small10_4500 | 10 | 51.4 | 232 | 129 | 2.19 / 2.17 (0.99) | 1.73 / 1.69 (0.98) | 1.3 % |
+| route10 | 10 | 66.4 | 299 | 166 | 2.27 / 3.09 (1.36) | 1.88 / 1.89 (1.00) | 4.0 % |
+| small10_9000 | 10 | 96.4 | 434 | 241 | 2.51 / 2.20 (0.88) | 2.11 / 1.98 (0.94) | 2.3 % |
+| small10_13500 | 10 | 141.4 | 637 | 354 | 3.44 / 2.73 (0.80) | 2.77 / 2.34 (0.84) | 13.9 % |
+| small10_20000 | 10 | 206.4 | 929 | 516 | 3.27 / 2.89 (0.88) | 3.27 / 2.98 (0.91) | 13.1 % |
+| small7_86000 | 7 | 606.8 | 1,819 | 605 | 5.52 / 5.21 (0.94) | 5.91 / 5.91 (1.00) | 1.3 % |
+| small15_9000 | 15 | 143.0 | 1,010 | 724 | 4.05 / 3.82 (0.94) | 3.52 / 3.17 (0.90) | 2.3 % |
+| small20_9000 | 20 | 190.1 | 1,817 | 1,436 | 5.88 / 4.57 (0.78) | 4.48 / 3.79 (0.85) | 13.5 % |
+| small12_50000 | 12 | 607.2 | 3,342 | 2,128 | 6.65 / 5.71 (0.86) | 7.45 / 6.37 (0.86) | 0.1 % |
+
+`break_even` = 241 s (small10_9000), so the threshold is max(600, 540) = **600 s**: `MIN_SAVED_PREFIX_SECONDS = 600.0`,
+frozen with its test before qualification. CPU follows the model: every book with a negative S uses more CPU on the new
+route, every book from S = 241 uses less. The new calibration books were made by the recipe and pinned against the
+seeking route of `204c33b` itself.
+
+### 13.5 Qualification
+
+(Recorded by the closeout of this phase from the `m4b-scaling` run on the committed candidate.)

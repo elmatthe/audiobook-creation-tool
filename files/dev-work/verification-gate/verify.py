@@ -18,7 +18,9 @@ What a mode means (plan §6):
                  config, the collection partition, the coverage inventory and the gate's own self-tests. The routine gate. Requirements
                  owned by later phases are listed as NOT RUN in every result: this is not full acceptance and not release readiness
                  until they exist and pass.
-  qualification  one named expensive scenario. None is implemented yet, so each reports NOT RUN and says which phase owns it.
+  qualification  one named expensive scenario, run on its own and never by a routine mode. m4b-scaling is implemented (v0.7.2
+                 Phase 7B: scaling/qualify.py, about three hours); each other scenario reports NOT RUN and names the phase
+                 that owns it.
 
 The gates of a full run, always in this order and all of them even after a failure:
 
@@ -729,6 +731,8 @@ class GateRun:
         self.scope = {"platform": sys.platform, "profile": args.mode, "full_acceptance": False}
         self.acceptance: acceptance_report.Judgement | None = None
         self.coverage_result: coverage_model.CoverageResult | None = None
+        #: Qualification scenarios this run executed, and their verdicts.
+        self.qualified: dict[str, str] = {}
 
     # ------------------------------------------------------------------ bookkeeping
     def enter(self, lifecycle: str) -> None:
@@ -916,9 +920,48 @@ class GateRun:
         return True
 
     def check_scenario(self) -> None:
-        scenario = self.policy["scenarios"][self.args.scenario]
-        self.check(f"scenario:{self.args.scenario}", "NOT RUN",
-                   f"not implemented yet; Phase {scenario['phase']} owns it: {scenario['detail']}")
+        name = self.args.scenario
+        scenario = self.policy["scenarios"][name]
+        runner = scenario.get("runner")
+        if not runner:
+            self.check(f"scenario:{name}", "NOT RUN", f"not implemented yet; Phase {scenario['phase']} owns it: {scenario['detail']}")
+            return
+        script = GATE_DIR / runner
+        if not script.is_file():
+            self.check(f"scenario:{name}", "BLOCKED", f"its runner {runner} is not here")
+            return
+        # The scenario owns one folder of this run; its own runs, fixtures checks and verdict are evidence like any other.
+        folder = self.directory / "qualification"
+        scratch = self.scratch("q")
+        log = self.directory / "logs" / f"qualification-{name}.log"
+        self.enter("running")
+        try:
+            result = self.supervise("qualification", [sys.executable, "-u", str(script), "--out", str(folder)],
+                                    log=log, env=self.stage_env(scratch / "t"), progress=(folder / "progress.log",))
+        except winproc.JobUnavailable as exc:
+            self.check("process-ownership", "BLOCKED", f"no owned process tree can be established: {exc}")
+            return
+        self.stages.append({"name": f"qualification:{name}", "ended": result.ended, "returncode": result.returncode,
+                            "seconds": round(result.seconds, 1), "log": self.relative(log)})
+        self.judge_cleanup(f"qualification:{name}", result)
+        self.check("cleanup", "FAIL" if self.cleanup_violations else "PASS",
+                   f"owned processes left behind: {self.cleanup_violations}" if self.cleanup_violations
+                   else "no owned process remained after the scenario")
+        verdict_file = folder / "verdict.json"
+        try:
+            verdict = json.loads(verdict_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            self.check(f"scenario:{name}", "FAIL", f"the scenario ended {result.ended} (exit {result.returncode}) without a "
+                                                   f"readable verdict: {type(exc).__name__}: {exc}")
+            return
+        status = verdict.get("status") if verdict.get("status") in ("PASS", "FAIL", "BLOCKED") else "FAIL"
+        if result.ended != "exited" or result.returncode != {"PASS": 0, "FAIL": 1, "BLOCKED": 2}[status]:
+            status = "FAIL" if status == "PASS" else status
+        failing = [item["name"] for item in verdict.get("checks", []) if item.get("status") != "PASS"]
+        self.qualified[name] = status
+        self.check(f"scenario:{name}", status, f"{verdict.get('reason', '')}; {len(verdict.get('checks', []))} checks, "
+                                               f"{verdict.get('runs', 0)} runs; failing {failing[:8]}; verdict "
+                                               f"{self.relative(verdict_file)}")
 
     def select(self) -> Selection:
         mode = self.args.mode
@@ -1311,7 +1354,9 @@ class GateRun:
             "environment": self.environment, "counts": counts, "checks": self.checks, "stages": self.stages,
             "coverage": {**(self.coverage_result.record() if self.coverage_result else {"inventory_reviewed": False}),
                          "exceptions": [item for feature in (self.coverage or {}).get("features", []) for item in feature.get("exceptions", [])]},
-            "qualification": {"required": [], "satisfied": [], "pending": list(SCENARIO_NAMES)},
+            "qualification": {"required": [], "satisfied": sorted(n for n, s in self.qualified.items() if s == "PASS"),
+                              "pending": [n for n in SCENARIO_NAMES if self.qualified.get(n) != "PASS"],
+                              "ran": dict(self.qualified)},
             "pending_requirements": self.policy.get("later_phase_requirements", []),
             "release_ready": False,
             "cleanup": {"owned_children_remaining": sum(len(c["remaining"]) + len(c["survivors"]) for c in cleanup),

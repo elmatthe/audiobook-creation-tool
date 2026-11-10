@@ -70,6 +70,7 @@ from shared.job_control import (
     capture_run,
 )
 
+from m4b import m4b_continuous
 from m4b import m4b_execution
 from m4b.converter import m4b_metadata
 from m4b import m4b_numbering
@@ -1494,7 +1495,12 @@ class M4BConverterUI(ttk.Frame):
         the window.
         """
         try:
-            self._run_conversion(params)
+            # Every continuous decoder this thread starts is closed when the run
+            # ends, however it ends (v0.7.2 Phase 7B): the body closes each one on
+            # every route out of its book, and this is the backstop for a route
+            # the body never reached.
+            with m4b_continuous.owned_decoders():
+                self._run_conversion(params)
         except ConversionCancelled:
             # The body handles its own cancellation and sends ``done``. Reaching
             # here means one escaped a path that does not, so settle it as a
@@ -1620,6 +1626,18 @@ class M4BConverterUI(ttk.Frame):
         # already exists and arrived with the call, and running it again would
         # re-open every question that plan has already answered.
         reports: dict = {}
+        # **The audio route of each split book, decided here and frozen into the
+        # plan** (v0.7.2 Phase 7B, ACT72-012): decoded once and cut, when the
+        # probe and a packet scan prove it gives the same samples, else sought
+        # per chapter as before. A scan is a child process like the probe, so it
+        # also runs between checkpoints; Cancel stops it at once.
+        routes: dict = {}
+
+        def asked_to_stop() -> bool:
+            if self._cancel_event.is_set():
+                return True
+            return controller is not None and controller.cancel_check()
+
         try:
             for entry in (() if retrying else imported):
                 checkpoint()
@@ -1628,6 +1646,17 @@ class M4BConverterUI(ttk.Frame):
                         entry.occurrence_id, f"Examining {entry.path.name}")
                 self._log_q.put(("log", f"  Examining {entry.path.name}…\n"))
                 reports[entry.occurrence_id] = m4b_probe.probe_source(entry.path)
+                if options.split:
+                    decision = m4b_continuous.qualify(
+                        entry.path, reports[entry.occurrence_id], split=True,
+                        cancelled=asked_to_stop)
+                    if decision.continuous:
+                        routes[entry.occurrence_id] = decision.route
+                    if reporter is not None:
+                        reporter.technical(
+                            f"{entry.path.name}: audio route "
+                            f"{'decoded once' if decision.continuous else 'seek per chapter'}"
+                            f" ({decision.reason})")
         except ConversionCancelled:
             cancelled = True
 
@@ -1652,6 +1681,7 @@ class M4BConverterUI(ttk.Frame):
                     reports=reports,
                     options=options,
                     reserve=_reserve_run,
+                    continuous=routes,
                 )
             except Exception as exc:
                 # Nothing was written, so a directory reserved a moment ago is
@@ -1831,6 +1861,28 @@ class M4BConverterUI(ttk.Frame):
                              STAGE_CONVERT, retryable=True)
                         continue
 
+                # **One decode for the whole book** when preflight proved it
+                # (v0.7.2 Phase 7B): each chapter is cut from it at absolute
+                # sample positions. Started fresh for every attempt, a retry
+                # included, and closed on every route out of this book.
+                decoder = None
+                if item.continuous is not None:
+                    decoder = m4b_continuous.ContinuousDecoder(
+                        item.continuous, ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
+                        source=in_file, workspace=plan.run_directory)
+                    try:
+                        announce(decoder.start())
+                    except Exception as exc:  # noqa: BLE001
+                        decoder.close()
+                        note(item_id,
+                             f"{in_file.name}: its audio could not be decoded.",
+                             f"{type(exc).__name__}: {exc}",
+                             STAGE_CONVERT, retryable=True)
+                        continue
+                    self._log_q.put((
+                        "log", f"  {in_file.name} is decoded once for all its "
+                               f"chapters.\n"))
+
                 for segment in item.segments:
                     # **The safe checkpoint, and it now sits between segments.**
                     # An ffmpeg encode is indivisible, so a pause asked for
@@ -1879,8 +1931,10 @@ class M4BConverterUI(ttk.Frame):
                         # duration mismatch to name a cause.
                         undecodable_xhe=item.undecodable_xhe,
                         windows_decode=item.windows_decode,
-                        pcm_args=(() if timeline is None
+                        pcm_args=(tuple(item.continuous.pcm_args()) if decoder is not None
+                                  else () if timeline is None
                                   else tuple(timeline.format.ffmpeg_input_args())),
+                        continuous_decode=decoder is not None and item.fragment,
                         # Frozen at preflight with everything else, so the worker
                         # never re-opens the book to recover what its chapters
                         # were called.
@@ -1897,6 +1951,15 @@ class M4BConverterUI(ttk.Frame):
 
                         def feed(write, _wanted=wanted):
                             timeline.feed(write, _wanted)
+                    elif decoder is not None:
+                        # Absolute positions, never a running sum of rounded
+                        # durations: the samples the seek would have kept.
+                        first, count = m4b_continuous.chapter_frames(
+                            segment.start, segment.end, item.continuous.sample_rate)
+
+                        def feed(write, _first=first, _count=count,
+                                 _last=segment is item.segments[-1]):
+                            decoder.feed(write, _first, _count, last=_last)
 
                     outcome = m4b_execution.convert_segment(
                         work,
@@ -1906,6 +1969,7 @@ class M4BConverterUI(ttk.Frame):
                         sources=tuple(entry.path for entry in imported),
                         on_command=announce,
                         feed=feed,
+                        stop_feed=None if decoder is None else decoder.close,
                     )
                     ended = clock() if timed else None
 
@@ -1975,6 +2039,12 @@ class M4BConverterUI(ttk.Frame):
                     # Released on every route out of this item, including a
                     # failure or a cancel: a live decoder is a held file handle.
                     timeline.close()
+                if decoder is not None:
+                    # The same for the continuous decoder, a process: stopped if
+                    # it still runs (a failed or cancelled book) and reaped.
+                    if not decoder.close():
+                        self._log_q.put((
+                            "log", "  \u26a0 The decoder did not exit when asked.\n"))
 
                 if cancelled:
                     # Settled only now: the child is reaped, its temporary file

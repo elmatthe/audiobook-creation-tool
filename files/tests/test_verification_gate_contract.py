@@ -358,12 +358,45 @@ def test_preflight_and_collect_only_leave_evidence_and_never_establish_acceptanc
     assert (outcome.directory / "collection" / "pytest.txt").exists() == (flag == "--collect-only")
 
 
-@pytest.mark.parametrize("scenario", ["m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows"])
+@pytest.mark.parametrize("scenario", ["edge-low-memory", "optional-engines", "fresh-windows"])
 def test_a_scenario_not_implemented_yet_says_so_and_who_owns_it(tree, scenario):
     outcome = tree.run("--mode", "qualification", "--scenario", scenario)
     assert outcome.code == 3, outcome
     gate = outcome.check(f"scenario:{scenario}")
     assert gate["status"] == "NOT RUN" and "Phase" in gate["detail"]
+
+
+def test_the_m4b_scaling_scenario_runs_its_runner_and_is_blocked_without_the_application(tree):
+    """v0.7.2 Phase 7B implements m4b-scaling. This small tree has the gate and its scaling/ runner but not the
+    application's M4B code, so the runner must say BLOCKED, quickly, with a verdict in the run's own folder; the gate must
+    report that verdict rather than a PASS, and must have owned and reaped the runner."""
+    outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
+    assert outcome.code == 2, outcome
+    gate = outcome.check("scenario:m4b-scaling")
+    assert gate["status"] == "BLOCKED" and "application" in gate["detail"], gate
+    verdict = json.loads((outcome.directory / "qualification" / "verdict.json").read_text(encoding="utf-8"))
+    assert verdict["status"] == "BLOCKED" and verdict["scenario"] == "m4b-scaling"
+    assert outcome.check("cleanup")["status"] == "PASS"
+    assert outcome.results["qualification"]["satisfied"] == [] and "m4b-scaling" in outcome.results["qualification"]["pending"]
+
+
+def test_a_scenario_runner_that_reports_pass_without_exiting_zero_is_not_a_pass(tree):
+    """The verdict file alone cannot make a PASS: the runner's own exit status must agree with it."""
+    runner = tree.gate / "scaling" / "qualify.py"
+    runner.write_text(textwrap.dedent('''
+        import json, sys
+        from pathlib import Path
+        out = Path(sys.argv[sys.argv.index("--out") + 1])
+        out.mkdir(parents=True)
+        (out / "progress.log").write_text("started\\n")
+        (out / "verdict.json").write_text(json.dumps({"scenario": "m4b-scaling", "status": "PASS", "reason": "lies",
+                                                      "checks": [], "runs": 0}))
+        sys.exit(1)
+    '''), encoding="utf-8")
+    tree.commit("a runner that lies")
+    outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
+    assert outcome.code == 1, outcome
+    assert outcome.check("scenario:m4b-scaling")["status"] == "FAIL"
 
 
 def test_scenario_names_are_the_same_in_the_gate_its_policy_and_its_help():

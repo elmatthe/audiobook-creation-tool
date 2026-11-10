@@ -4,6 +4,51 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-10 - Phase 7B: the Converter decodes an eligible split book once; every output stays byte-identical; the route is chosen at preflight, per qualified FFmpeg build, only where it saves work (v0.7.2 Phase 7B, ACT72-012)
+
+**Authority.** The owner/ChatGPT review accepted Phase 7A and authorized 7B: implement C1; amend
+`ACT.CONVERTER.PRIMING` only for the new route; byte identity is the oracle; C2 is not approved; budgets T1-T8 and T1b
+are approved; implement the reserved `m4b-scaling` scenario; HE-AAC, xHE-AAC and Media Foundation keep their routes.
+
+**Decision 1 (the route).** `scripts/m4b/m4b_continuous.py`. One FFmpeg decodes the book to `pcm_f32le`; chapter k is
+decoded samples `[half_up(S*rate), +half_up(D*rate))` from the same `-ss`/`-t` strings the seeking route writes (one
+renderer, `m4b_commands.segment_times`), at absolute positions; it is encoded by `pcm_argv` through `run_argv_streaming`;
+the cover pass, measurement, drift guard and publication are the seeking route's. FFmpeg's own output-side seek was
+checked at exact half-sample ties (neighbours overlap or gap by one sample) and follows the rule.
+
+**Decision 2 (eligibility, frozen at preflight).** Split; chaptered; FFmpeg's own decoder; one AAC-LC `fltp` stream; a
+LAME rate; mono or stereo with that layout; time base 1/rate; `start_pts` 0; priming 0 or one AAC frame; a packet scan
+proving every timestamp is the running sample count with the declared total; a qualified FFmpeg build; and enough to
+gain. Anything unproven keeps the seeking route. The choice never changes mid-book or on a retry.
+
+**Decision 3 (per-build identity).** Byte identity between the routes is established per FFmpeg build, so the route runs
+only on a build in `QUALIFIED_BUILDS`, named by a fingerprint (SHA-256 of each executable's size and first and last MiB;
+2.8 ms, where hashing both 222 MB files cost 0.32 s per process). Today that is gyan.dev 9.0.1 full_build, the portable
+pin and the winget package (one archive). Another build keeps every book on the seeking route until it is qualified:
+regenerate the books, pin `204c33b`'s outputs on it, run `m4b-scaling`.
+
+**Decision 4 (enough to gain, and the threshold).** The route saves the repeated prefix (P, every chapter's start added
+up) and costs a pipe for the whole book, measured at 1.9-2.4 decodes per second of book. So a book takes it only when
+`S = P - 2.0 x D >= MIN_SAVED_PREFIX_SECONDS`. Calibrated by the rule fixed in `scaling/calibrate.py` before its data:
+break-even 241 s, threshold max(600, 540) = 600 s, frozen with its test before qualification (record section 13.4). The
+prefix-only metric of the first design was dropped because its own calibration showed a 3-chapter 10-minute book 24 %
+slower above it.
+
+**Decision 5 (strictness).** End of stream counts only if the decoder exited 0 with exactly the declared samples. So a
+book whose damaged frames FFmpeg skips with exit 0 (measured: 16,384 of 784,980 samples) fails on the continuous route,
+where the seeking route had no such check and published shifted audio. A failed book stays failed; nothing falls back
+part-way. A Cancel that stops the feed is reported as a Cancel, not as a decode failure.
+
+**Decision 6 (the scenario).** `verify.py --mode qualification --scenario m4b-scaling` supervises
+`files/dev-work/verification-gate/scaling/qualify.py` under the gate's job and budgets and reports its verdict; the
+runner's exit status must agree with the verdict. Fixtures come only from the recipe into the ignored
+`files/dev-work/m4b-scaling-cache/`, accepted by pinned hash; every benchmark run proves its output base is inside its own
+folder before converting; the owner's Downloads output tree is compared before and after.
+
+— Implemented by Claude Code under the owner's Phase 7B authority, 2026-11-10.
+
+---
+
 ## 2026-11-10 - Phase 7A: the Converter's split slowdown is measured; one decode per book is proposed, byte identity is the oracle; nothing in the app changed (v0.7.2 Phase 7A, ACT72-012)
 
 **Measured, not assumed** (`files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`). Through the real Converter panel, headless, on validated synthetic books, against

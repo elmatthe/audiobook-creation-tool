@@ -20,6 +20,10 @@
     "acceptance": {
       "timeout_seconds": 2400,
       "stall_seconds": 420
+    },
+    "qualification": {
+      "timeout_seconds": 28800,
+      "stall_seconds": 3600
     }
   },
   "process": {
@@ -30,7 +34,8 @@
     "m4b-scaling": {
       "phase": 7,
       "network": [],
-      "detail": "M4B chapter-splitting scale and output comparison; defined with the Phase 7 profiling work"
+      "runner": "scaling/qualify.py",
+      "detail": "M4B Converter split at scale against the frozen Phase 7A/7B budgets T1-T8 and T1b and the pinned per-build reference outputs (scaling/README.md); about three hours, never part of a routine mode"
     },
     "edge-low-memory": {
       "phase": 8,

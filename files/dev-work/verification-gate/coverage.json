@@ -7844,6 +7844,12 @@
             "_passes",
             "prune_empty_folders"
           ]
+        },
+        {
+          "path": "scripts/m4b/m4b_continuous.py",
+          "symbols": [
+            "chapter_frames"
+          ]
         }
       ],
       "contracts": [
@@ -7858,7 +7864,8 @@
         "files/tests/test_m4b_timeline_partition.py",
         "files/tests/test_m4b_execution.py",
         "files/tests/test_m4b_numbering.py",
-        "files/tests/test_m4b_retry.py"
+        "files/tests/test_m4b_retry.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [
         "converter.split-by-chapter"
@@ -8117,7 +8124,8 @@
         "files/tests/test_m4b_conversion_plan.py",
         "files/tests/test_tool_output_integration.py",
         "files/tests/test_m4b_retry.py",
-        "files/tests/test_m4b_probe_encoding.py"
+        "files/tests/test_m4b_probe_encoding.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [
         "converter.corrupt-source"
@@ -8141,6 +8149,10 @@
             "test": "files/tests/test_m4b_retry.py::test_every_preflight_unusable_reason_is_typed_and_not_retryable[probe_failed]"
           },
           {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_book_whose_audio_is_damaged_fails_on_the_continuous_route_without_publishing"
+          },
+          {
             "kind": "native",
             "scenario": "converter.corrupt-source"
           },
@@ -8155,7 +8167,7 @@
     {
       "id": "ACT.CONVERTER.PRIMING",
       "tool": "m4b-converter",
-      "title": "Exact chapter boundaries (output-side seek)",
+      "title": "Exact chapter boundaries (output-side seek, or the same samples from one decode)",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -8168,7 +8180,8 @@
           "symbols": [
             "_seconds",
             "_core",
-            "segment_argv"
+            "segment_argv",
+            "segment_times"
           ]
         },
         {
@@ -8176,17 +8189,27 @@
           "symbols": [
             "plan_timeline"
           ]
+        },
+        {
+          "path": "scripts/m4b/m4b_continuous.py",
+          "symbols": [
+            "micros",
+            "half_up",
+            "chapter_frames"
+          ]
         }
       ],
       "contracts": [
-        "A chapter's command places -ss after -i (output-side seek) and gives the span as -t (end - start), never -to.",
+        "On the seeking route a chapter's command places -ss after -i (output-side seek) and gives the span as -t (end - start), never -to.",
         "Boundaries are chapter starts copied verbatim and written fixed-point to the microsecond; nothing is rounded.",
-        "Adjacent chapter outputs neither lose nor repeat audio at the boundary, and the first output starts at source second 0."
+        "Adjacent chapter outputs neither lose nor repeat audio, and the first output starts at source second 0.",
+        "On the continuous route (v0.7.2 Phase 7B, eligible books only) there is no seek: chapter k is exactly the decoded samples the output-side seek selects from the same -ss and -t strings, first half_up(S x rate) and count half_up(D x rate), cut at absolute positions and never by summing rounded durations, so every output is byte-identical to the seeking route's."
       ],
       "selection": [
         "files/tests/test_m4b_commands.py",
         "files/tests/test_m4b_execution.py",
-        "files/tests/test_m4b_timeline_partition.py"
+        "files/tests/test_m4b_timeline_partition.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [
         "converter.split-by-chapter"
@@ -8212,6 +8235,34 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_execution.py::test_the_first_executed_segment_contains_the_very_beginning"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_cut_rounds_a_half_sample_up_and_less_than_half_down"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_cut_reads_the_strings_the_seeking_route_writes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_every_chapter_is_cut_at_its_absolute_position_not_a_running_sum"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_ffmpeg_selects_by_the_half_up_rule_at_ties_and_neighbours_overlap_or_gap[overlap]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_ffmpeg_selects_by_the_half_up_rule_at_ties_and_neighbours_overlap_or_gap[gap]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_chapters_are_cut_at_absolute_positions_with_overlaps_and_gaps"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_in_every_metadata_mode[preserve]"
           },
           {
             "kind": "native",
@@ -8919,7 +8970,8 @@
         {
           "path": "scripts/m4b/m4b_probe.py",
           "symbols": [
-            "probe_source"
+            "probe_source",
+            "AudioStreamFacts"
           ]
         },
         {
@@ -8949,7 +9001,7 @@
         }
       ],
       "contracts": [
-        "Ordinary AAC books are decoded by FFmpeg; any decoder selection from the shared helper goes before -i. An ordinary book never takes the Windows route.",
+        "Ordinary AAC books are decoded by FFmpeg; any decoder selection from the shared helper goes before -i. An ordinary book never takes the Windows route; a split AAC-LC book may be decoded by FFmpeg once (ACT.CONVERTER.SCALING), which leaves the Windows route and other codecs untouched.",
         "An xHE-AAC book FFmpeg cannot decode completely is decoded by Windows Media Foundation when this machine can, once per book, with split chapters cut from the PCM at frozen boundaries and piped to the same encoder.",
         "If no capable decoder exists the book is refused at preflight with no folder or output, and it is not retryable.",
         "A decoder failure fails the output even when FFmpeg exits 0; a length mismatch names xHE-AAC as the cause only when the plan established it."
@@ -8958,7 +9010,8 @@
         "files/tests/test_m4b_winaudio.py",
         "files/tests/test_m4b_commands.py",
         "files/tests/test_m4b_execution.py",
-        "files/tests/test_m4b_probe_encoding.py"
+        "files/tests/test_m4b_probe_encoding.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [],
       "verification": {
@@ -9047,7 +9100,8 @@
         "FFmpeg's diagnostics go to a temporary file, never an undrained pipe; only a bounded tail reaches Details. Sources are never modified."
       ],
       "selection": [
-        "files/tests/test_m4b_execution.py"
+        "files/tests/test_m4b_execution.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [],
       "verification": {
@@ -9079,6 +9133,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_execution.py::test_a_source_is_never_modified"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_an_occupied_destination_fails_the_book_and_foreign_files_are_left_alone"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_feed_that_outlives_its_encoder_is_a_failure_not_a_success"
           }
         ]
       },
@@ -9117,6 +9179,12 @@
           "symbols": [
             "decode_pcm"
           ]
+        },
+        {
+          "path": "scripts/m4b/m4b_continuous.py",
+          "symbols": [
+            "ContinuousDecoder"
+          ]
         }
       ],
       "contracts": [
@@ -9124,13 +9192,15 @@
         "The interrupted output and that book's earlier chapters are removed; books already finished keep their outputs.",
         "No further book is probed or converted; a cancel during preflight reserves no run folder.",
         "The run reports CANCELLED only after cleanup; books never reached are 'not attempted', not failures.",
-        "The log says what Cancel does: the file being converted is stopped now and its book is taken back; books already finished are kept (v0.7.2, ACT72-027)."
+        "The log says what Cancel does: the file being converted is stopped now and its book is taken back; books already finished are kept (v0.7.2, ACT72-027).",
+        "On the continuous route Cancel stops the encoder and the book's decoder and reaps both before the run settles (v0.7.2 Phase 7B)."
       ],
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
         "files/tests/test_m4b_execution.py",
         "files/tests/test_m4b_conversion_plan.py",
-        "files/tests/test_m4b_retry.py"
+        "files/tests/test_m4b_retry.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [
         "converter.cancel-during-encode"
@@ -9160,6 +9230,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_conversion_plan.py::test_cancelling_during_preflight_reserves_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_cancel_during_a_late_chapter_reaps_both_processes_and_keeps_the_finished_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_cancel_stops_the_feed_too_and_is_reported_as_cancelled"
           },
           {
             "kind": "native",
@@ -9206,7 +9284,8 @@
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
         "files/tests/test_m4b_conversion_plan.py",
-        "files/tests/test_m4b_retry.py"
+        "files/tests/test_m4b_retry.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [],
       "verification": {
@@ -9230,6 +9309,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_converter_jobs.py::test_the_pause_button_is_offered_only_while_running"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_pause_between_chapters_then_resume_gives_the_same_bytes"
           }
         ]
       },
@@ -9260,18 +9343,26 @@
             "ItemFailure",
             "ConversionPlan"
           ]
+        },
+        {
+          "path": "scripts/m4b/m4b_continuous.py",
+          "symbols": [
+            "ContinuousDecoder"
+          ]
         }
       ],
       "contracts": [
         "Retry Failed is offered only after a run completed with failures that happened during conversion; preflight refusals are never retryable.",
         "A retry re-runs only the failed books from the original frozen plan, at the original destinations in the original run folder, ignoring any later change to the list, options or Preferences.",
         "The result is cumulative across attempts: earlier successes stay, a repeated failure replaces its record, an untouched failure keeps its own.",
-        "A retryable book with no plan entry is refused with a 'Retry Failed' error asking for a new run; nothing is re-probed or re-planned."
+        "A retryable book with no plan entry is refused with a 'Retry Failed' error asking for a new run; nothing is re-probed or re-planned.",
+        "A retry of a book on the continuous route starts a fresh decoder and reproduces the clean run byte for byte (v0.7.2 Phase 7B)."
       ],
       "selection": [
         "files/tests/test_m4b_retry.py",
         "files/tests/test_m4b_hardening.py",
-        "files/tests/test_m4b_converter_jobs.py"
+        "files/tests/test_m4b_converter_jobs.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [],
       "verification": {
@@ -9303,6 +9394,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_retry.py::test_real_split_retry_rebuilds_every_segment_with_its_cover"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_killed_process_fails_its_book_and_retry_repeats_it_exactly[decoder]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_killed_process_fails_its_book_and_retry_repeats_it_exactly[encoder]"
           }
         ]
       },
@@ -9475,7 +9574,9 @@
         {
           "path": "scripts/m4b/m4b_execution.py",
           "symbols": [
-            "convert_segment"
+            "convert_segment",
+            "_passes",
+            "run_argv_streaming"
           ]
         },
         {
@@ -9483,7 +9584,40 @@
           "symbols": [
             "TimingSample",
             "M4BConverterUI._record_timing",
-            "M4BConverterUI._run_conversion"
+            "M4BConverterUI._run_conversion",
+            "M4BConverterUI.convert_worker"
+          ]
+        },
+        {
+          "path": "scripts/m4b/m4b_continuous.py",
+          "symbols": [
+            "ContinuousRoute",
+            "RouteDecision",
+            "static_refusal",
+            "build_refusal",
+            "check_packet_lines",
+            "scan_packets",
+            "qualify",
+            "prefix_seconds",
+            "ContinuousDecoder",
+            "owned_decoders",
+            "decoder_argv",
+            "saved_seconds",
+            "executable_fingerprint"
+          ]
+        },
+        {
+          "path": "scripts/m4b/m4b_probe.py",
+          "symbols": [
+            "AudioStreamFacts",
+            "_stream_facts"
+          ]
+        },
+        {
+          "path": "scripts/m4b/converter/m4b_plan.py",
+          "symbols": [
+            "ItemPlan",
+            "assemble_plan"
           ]
         }
       ],
@@ -9491,12 +9625,16 @@
         "A long split run produces every planned chapter, with spans that tile the whole book exactly however many chapters there are.",
         "The Windows decoder route streams in bounded chunks and never stages the decoded audio to disk.",
         "Progress counts outputs and the ETA comes from measured per-output times of the current attempt.",
-        "Any speed-up must leave every output identical in format and content (plan §12)."
+        "An eligible split book is decoded once by FFmpeg and its chapters are cut from that decode (v0.7.2 Phase 7B, ACT72-012): split mode, a chaptered book, FFmpeg's own decoder, one AAC-LC stream in fltp, a sample rate LAME takes as it is, mono or stereo with that layout, time base 1/rate, start 0, one AAC frame of priming or none, a packet timeline proven to be the running sample count with the declared total, a qualified FFmpeg build (by fingerprint), and an estimated saving, the prefix less PREFIX_PER_BOOK_SECOND times the duration, of at least the calibrated MIN_SAVED_PREFIX_SECONDS. The route is decided once at preflight and frozen into the plan; a retry keeps it with a fresh decoder.",
+        "Every other book, every whole-book output and every chapterless book keeps the seeking route, unchanged; anything that cannot be proven keeps it too.",
+        "The continuous route holds at most 1 MiB of audio, writes no decoded audio to disk, and changes only the audio pass: the encoder settings, the cover pass, the measurement and drift guard, staging and publication are the seeking route's, and every output is byte-identical to it.",
+        "A short feed, a stream ending part-way through a sample, a decoder that failed, was killed or produced other than the declared sample count fails the chapter, which takes its book back; nothing falls back to the seeking route part-way through a book."
       ],
       "selection": [
         "files/tests/test_m4b_timeline_partition.py",
         "files/tests/test_m4b_winaudio.py",
-        "files/tests/test_m4b_converter_jobs.py"
+        "files/tests/test_m4b_converter_jobs.py",
+        "files/tests/test_m4b_continuous.py"
       ],
       "journeys": [],
       "verification": {
@@ -9512,6 +9650,106 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_converter_jobs.py::test_three_samples_produce_an_estimate"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_an_ordinary_aac_lc_split_book_is_statically_eligible"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_book_with_too_little_to_gain_keeps_the_seeking_route_without_a_scan"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_threshold_is_the_frozen_calibrated_value"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_book_of_a_few_long_chapters_keeps_the_seeking_route_whatever_its_prefix"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_build_fingerprint_reads_the_size_and_both_ends"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_proven_book_takes_the_route_with_its_frozen_facts"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_an_unproven_timeline_or_a_failing_scan_keeps_the_seeking_route"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_an_ffmpeg_build_the_route_was_not_qualified_on_keeps_the_seeking_route"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_qualified_builds_are_exactly_the_builds_the_reference_pins"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_contiguous_timeline_with_one_frame_of_priming_is_proven"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_timeline_without_an_edit_list_is_proven"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_declared_total_and_padding_must_agree_with_the_packets"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_packet_scan_proves_a_real_book_and_its_total"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_cancelled_packet_scan_stops_its_child_at_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_buffering_is_bounded_whatever_the_length"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_killed_decoder_fails_the_next_chapter_never_ends_the_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_the_plan_freezes_the_route_only_for_a_split_chaptered_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_in_every_metadata_mode[replace]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_in_every_metadata_mode[strip]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_for_each_qualified_stream_shape[noelst]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_for_each_qualified_stream_shape[mono22k]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_for_each_qualified_stream_shape[s48k]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_rate_lame_does_not_take_keeps_the_seeking_route"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_a_book_whose_audio_is_damaged_fails_on_the_continuous_route_without_publishing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_continuous.py::test_owned_decoders_closes_whatever_the_body_left_running"
           },
           {
             "kind": "qualification",
@@ -22632,7 +22870,7 @@
         "ACT.CONVERTER.SCALING"
       ],
       "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
-      "progress": "Phase 7A (2026-11-10): reproduced and attributed on validated fixtures; a byte-identical one-decode design is proposed with calibrated budgets in files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md; open until Phase 7B implements and qualifies it."
+      "progress": "Phase 7A (2026-11-10): reproduced and attributed; byte-identical one-decode design. Phase 7B (2026-11-10): the continuous route implemented (scripts/m4b/m4b_continuous.py), mapped and tested; open until the m4b-scaling qualification passes against the frozen budgets."
     },
     {
       "id": "ACT72-013",
@@ -23253,16 +23491,17 @@
     "scripts/launcher.py": "de0c7e32025bb62c2240cba305c9caaaec66cfca9ad9ad6ba816dd86ff913b26",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "fd5e227b489b090b0948e8b806dcdf3f596e43d7191cb040510315d4df7a6336",
+    "scripts/m4b/converter/m4b_converter.py": "260e26f3bfc6d796cbcdef096ff0a9c3a08e01f1a179ee187a6fdc6de8e7d301",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
-    "scripts/m4b/converter/m4b_plan.py": "57352c44c776290811051f8113a3d50382a151c69b2bcad45a02021d4a39312a",
+    "scripts/m4b/converter/m4b_plan.py": "6d2dfa4b399172f0bda4f26ad9853561f52414be5d0eeba7e2bfb645f970ac45",
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
-    "scripts/m4b/m4b_commands.py": "722b4d576f44379dfcb0c6a04ed14d3d38a24dccdba084898458002adf55ea8b",
-    "scripts/m4b/m4b_execution.py": "246007cb28897a91f9a6209ab0ae9a415284eb972ee99223f7b40a2694b47d8c",
+    "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
+    "scripts/m4b/m4b_continuous.py": "1be6e837c4e408dea7566131686b5d19111bf4f57640e54ac0f0d9b03c78f94b",
+    "scripts/m4b/m4b_execution.py": "992c6d18e0f26b98bb91f194fadb51323d49060563fe31e9e6937b1090cee801",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
-    "scripts/m4b/m4b_probe.py": "f747dcb89935df8a9ed82f9563751b9b1f1b35b82eb2e8eb057505e93caafb63",
+    "scripts/m4b/m4b_probe.py": "4b87188ab0b04066c8f65f5d516de3054f7cc5a50a4367d1ecba587b71e7075f",
     "scripts/m4b/m4b_staging.py": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
     "scripts/m4b/m4b_winaudio.py": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",

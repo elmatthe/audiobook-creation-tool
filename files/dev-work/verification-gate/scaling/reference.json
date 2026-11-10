@@ -1,0 +1,404 @@
+{
+ "about": "The m4b-scaling qualification's pinned reference (v0.7.2 Phase 7B). Byte identity is pinned per FFmpeg build: for each exact ffmpeg/ffprobe pair (full SHA-256, and the size-and-ends fingerprint the application checks at preflight), the SHA-256 of every recipe book and, per book and settings, one digest over the production seeking route's outputs (relative path NUL sha256, sorted). Pinned from Phase 7A's runs of the v0.7.1 reference 204c33b and of the v0.7.2 tree at 7ff1439, whose seeking route is unchanged from 204c33b; the two agreed wherever both ran. A build not listed here is not qualified: the qualification reports BLOCKED rather than compare across builds.",
+ "builds": [
+  {
+   "ffmpeg_sha256": "57c56e369d5b4873b4d93fc1a1d833cb7cd8bc9325c14b05c34ce60b22842d8a",
+   "ffprobe_sha256": "afe05347caaabe479b3c4eae71992b6ec1e11c57266a1d665deb0f9fe9847208",
+   "ffmpeg_fingerprint": "5e36fdd9b6cf697710a7781db3e84f26c4bb141a08ef53b5d3373eb326aa9f24",
+   "ffprobe_fingerprint": "d5b42dc3f9cc71cec401c6ce5346b8ab556ac55fe79643804ebbdb98b05b7353",
+   "version": "ffmpeg version 9.0.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+   "fixtures": {
+    "route10": {
+     "sha256": "437932615fdc45d7b194a5be36d5360f39566fce1f68370c4e897d362d707c4d",
+     "chapters": 10,
+     "probed_duration": 66.408005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "scale10": {
+     "sha256": "67540e57bf3a319f0a723fa5ca39089ecf6c329d49c87cf93ec37f1281eaba98",
+     "chapters": 10,
+     "probed_duration": 15.048005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "scale100": {
+     "sha256": "8852b81c6f3e5c41768274c30c5bb621430689585c341b57051e21cf2a664eb8",
+     "chapters": 100,
+     "probed_duration": 150.495011,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "mono22k": {
+     "sha256": "86195bf33f91f2bd1ce8cc969183adf5055964795fc72f6f8219dce4c7c91216",
+     "chapters": 10,
+     "probed_duration": 66.407982,
+     "sample_rate": 22050,
+     "channels": 1
+    },
+    "s48k": {
+     "sha256": "a07ee04d3e602b410b41cca1bbb0bab3b9de27b330167901309733ecaa5e1cf0",
+     "chapters": 10,
+     "probed_duration": 66.408,
+     "sample_rate": 48000,
+     "channels": 2
+    },
+    "r96k": {
+     "sha256": "3b5b10e6a70b55e43f0a59724ab17a1bcd9cd69af73ad070724d731f4928ebc5",
+     "chapters": 10,
+     "probed_duration": 66.408,
+     "sample_rate": 96000,
+     "channels": 2
+    },
+    "noelst": {
+     "sha256": "c36127203a9004a19840548eeb0d7dedbd97b7c72f7c2e25a0656114bc28e7b6",
+     "chapters": 10,
+     "probed_duration": 66.431224,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "scale500": {
+     "sha256": "a1b7c2bb5f6149877c2b415e6ea213b7ed9ff15fb0f466665be5d4787de0b0de",
+     "chapters": 500,
+     "probed_duration": 752.492993,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "scale1000": {
+     "sha256": "c1e4b07db89e9a507729588cdff602bd858f2db2968fabc0373f126f5bbb0c2e",
+     "chapters": 1000,
+     "probed_duration": 1504.998005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "scale2000": {
+     "sha256": "49c6f8c0dcef030c32b7102d9a958ecbc1e03421a26db0b6a4f88b444d6acfc9",
+     "chapters": 2000,
+     "probed_duration": 3010.0,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "long6_48": {
+     "sha256": "4429a5ece71b0a8e541028d1e890766d79a3cadaabc92a56ad3e4b2191bac7b8",
+     "chapters": 48,
+     "probed_duration": 21601.433991,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "long12_24": {
+     "sha256": "6e19fd49794eb15a1dcb2738b08da63e9ab68cf4956c291917d447565cf470cb",
+     "chapters": 24,
+     "probed_duration": 43201.180998,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small10_3000": {
+     "sha256": "f1d9920008090a556efd67512bb4aa32a531cc35e598d34d9568512b1b3fe43d",
+     "chapters": 10,
+     "probed_duration": 36.408005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small10_4500": {
+     "sha256": "317b5041378e4c0a5b5923f14118222aeb63ba2fb5e5f61e431febb03932e7a3",
+     "chapters": 10,
+     "probed_duration": 51.408005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small10_9000": {
+     "sha256": "06242779612e4348cdaa584fd7cefc20f9165d0425c6dff9ef4c83caac98c988",
+     "chapters": 10,
+     "probed_duration": 96.408005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small10_13500": {
+     "sha256": "e39768dc83bbd795660ffadc8bbddbdde52314d78d1703b9f80e0dd7cf6e6f79",
+     "chapters": 10,
+     "probed_duration": 141.408005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small10_20000": {
+     "sha256": "08f0d29f289124d104857b58a01df7db9419acfe4c247eb45643cdebed9e2346",
+     "chapters": 10,
+     "probed_duration": 206.408005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small3_200000": {
+     "sha256": "eda6dbd6b2d799deea2b350603feca846cc47f83b403a81155a4e3a8b50ac79f",
+     "chapters": 3,
+     "probed_duration": 601.822993,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small2_600000": {
+     "sha256": "3f52aa329ddaf3a8f487e002d4cb65538030671bab80543a82e729239ed40304",
+     "chapters": 2,
+     "probed_duration": 1200.94,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small5_120000": {
+     "sha256": "50c963cc308d7ad7858d3845d0d76899b51ea478d523af8fa299b1e26ef01f98",
+     "chapters": 5,
+     "probed_duration": 603.418005,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small7_86000": {
+     "sha256": "d5e1c69ec99a1b334350f96d79cfb3600fd2ef23436cb32dcacbf12431b3e660",
+     "chapters": 7,
+     "probed_duration": 606.785011,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small12_50000": {
+     "sha256": "4d9c57b215b6e9813aed88b49c6b3de7c5365af56c30490156a78e743bffa712",
+     "chapters": 12,
+     "probed_duration": 607.205011,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small15_9000": {
+     "sha256": "07b7e26bb89fb40d8f6f9b4d84f0de41ee4a0362d78197702e6b8d62e310a06c",
+     "chapters": 15,
+     "probed_duration": 142.972993,
+     "sample_rate": 44100,
+     "channels": 2
+    },
+    "small20_9000": {
+     "sha256": "adcc3331aa51d42fbb377bba628651d4bb0be409cb4f58015ab8ca8db48f414f",
+     "chapters": 20,
+     "probed_duration": 190.107007,
+     "sample_rate": 44100,
+     "channels": 2
+    }
+   },
+   "outputs": {
+    "long12_24/split/preserve/q2": {
+     "digest": "41288044dc6c0456206bc7237def4d0d35d0cb23615ffd5255d2c4d2750b48d5",
+     "files": 24,
+     "bytes": 833108164,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "long6_48/split/preserve/q2": {
+     "digest": "be766825ea4d77e4fd7e96e91b247955c0a1a26bb8379feeb5fc9941ae054db1",
+     "files": 48,
+     "bytes": 417662665,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "mono22k/split/preserve/q2": {
+     "digest": "8c00e4b4aeb4f459b6db0a040cfc0d6f946ee58ad0b4d270896e7165e7205aa6",
+     "files": 10,
+     "bytes": 725468,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "noelst/split/preserve/q2": {
+     "digest": "fc684d401c981d7ab5b205470ce84140813c0bf087ab905c6de3e09a233dcc46",
+     "files": 10,
+     "bytes": 1602727,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "r96k/split/preserve/q2": {
+     "digest": "0efed01f142394019866cd4c8757de9596004acdbb86f197dfd68dfa28aadd44",
+     "files": 10,
+     "bytes": 1822217,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "route10/split/preserve/q2": {
+     "digest": "8a1ff13842cc948e66eb2e8fb16979362f22a317988c84d51cc230cba7e1b6fd",
+     "files": 10,
+     "bytes": 1602284,
+     "pinned_from": [
+      "204c33b",
+      "7ff1439-tree"
+     ]
+    },
+    "route10/split/replace/q2": {
+     "digest": "ac14584f1c640533c9ef10e5b66b7489a4a74ee8f894af4e7c5ed04b0f3d8b14",
+     "files": 10,
+     "bytes": 1601454,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "route10/split/strip/q2": {
+     "digest": "a50bf89880bcc1911068f61f493857dfe87bbc2e70687a50a59843c6c2fabee0",
+     "files": 10,
+     "bytes": 1295607,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "route10/whole/preserve/q2": {
+     "digest": "2429e219449fe7761b4d562eadf7e461ed784d1ccd1161b645503003a39a7038",
+     "files": 1,
+     "bytes": 1314749,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "s48k/split/preserve/q2": {
+     "digest": "7ed256ec65ea00c9b7111613620dd43409bb251fda3d331ec9228076c500fff4",
+     "files": 10,
+     "bytes": 1834265,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "scale10/split/preserve/q2": {
+     "digest": "27747168afb3b1bc5f64c748534b390cab6ca860488744649c580af1cea0cfed",
+     "files": 10,
+     "bytes": 613568,
+     "pinned_from": [
+      "204c33b",
+      "7ff1439-tree"
+     ]
+    },
+    "scale100/split/preserve/q2": {
+     "digest": "a752ff102ccd5564e7438b2c5c8a71dd97bcbed8bbc099e9d57676d0f6de84e3",
+     "files": 100,
+     "bytes": 6130843,
+     "pinned_from": [
+      "204c33b",
+      "7ff1439-tree"
+     ]
+    },
+    "scale1000/split/preserve/q2": {
+     "digest": "a5b28a3a5fcc5ef299ca24b77f6edcd090299207982428f93f30651b61287667",
+     "files": 1000,
+     "bytes": 61332599,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "scale1000/split/strip/q2": {
+     "digest": "08feb5b321e674d44a0b0ce8a28b0d61f8531806d914b62257c5dd9b0cd1174f",
+     "files": 1000,
+     "bytes": 30662823,
+     "pinned_from": [
+      "7ff1439-tree"
+     ]
+    },
+    "scale500/split/preserve/q2": {
+     "digest": "2ecf4a24bd7fbb2ceccb5ebfd5c128fce416f80c3048e199a7adbb7acd82c3ac",
+     "files": 500,
+     "bytes": 30665557,
+     "pinned_from": [
+      "204c33b",
+      "7ff1439-tree"
+     ]
+    },
+    "small10_13500/split/preserve/q2": {
+     "digest": "378d665317f58c6602d2d845a924e1bf965046545a8f0ba11ff3372936caf30c",
+     "files": 10,
+     "bytes": 3049074,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small10_20000/split/preserve/q2": {
+     "digest": "24649af2685479593354bd259f3f93f13f79e27d717da29833c8096543b648e9",
+     "files": 10,
+     "bytes": 4300662,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small10_3000/split/preserve/q2": {
+     "digest": "d83693cbe70994212d475dddca8d5bf16c78e00073422d810c5830d53e42812e",
+     "files": 10,
+     "bytes": 1024864,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small10_4500/split/preserve/q2": {
+     "digest": "ae955115eb8d44ee79f33c05045268e7718053af493df8a700245c10d16db00a",
+     "files": 10,
+     "bytes": 1313574,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small10_9000/split/preserve/q2": {
+     "digest": "571e1d23ae43502973a6968a18f2789fc926362f671fcc32feab7232f931649a",
+     "files": 10,
+     "bytes": 2181684,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small12_50000/split/preserve/q2": {
+     "digest": "8061b5af62ec533bd04e72b122418345048633aba04b2460ee58fc0c268b3f74",
+     "files": 12,
+     "bytes": 12085917,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small15_9000/split/preserve/q2": {
+     "digest": "36b1fc3a0dd870e47c5fcde448ec6426c5aaba357b096d610475764913efa52a",
+     "files": 15,
+     "bytes": 3240280,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small20_9000/split/preserve/q2": {
+     "digest": "5b6d1ae23d6fd3a3d7ae861aa6b04aafcf323edd55845244c3109212eaae7b74",
+     "files": 20,
+     "bytes": 4310600,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small2_600000/split/preserve/q2": {
+     "digest": "9373a732a85d37ce1ec1a6acc14dc3db8057847c19f888ba9d96ba8a376fbab0",
+     "files": 2,
+     "bytes": 23224847,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small3_200000/split/preserve/q2": {
+     "digest": "8b8511e2f1ce1f7ce1b3aa05b0d4fc8d73303e2cc5387aeabe1e02765d651681",
+     "files": 3,
+     "bytes": 11702247,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small5_120000/split/preserve/q2": {
+     "digest": "b392e845c79249550e2f0475d4afa0ed09f8a94dee11628ac8009a39bb33c4f3",
+     "files": 5,
+     "bytes": 11788867,
+     "pinned_from": [
+      "204c33b"
+     ]
+    },
+    "small7_86000/split/preserve/q2": {
+     "digest": "a4fa747077da026a91390f3fee5aad4f326c51a0b5062a261e95e03ef7fa95ae",
+     "files": 7,
+     "bytes": 11918755,
+     "pinned_from": [
+      "204c33b"
+     ]
+    }
+   }
+  }
+ ]
+}
