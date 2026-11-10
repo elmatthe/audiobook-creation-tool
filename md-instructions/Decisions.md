@@ -4,6 +4,33 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-09 - The owner accepts v0.7.2 Phase 6 at 721c323; ACT72-030 waits for a later maintenance release; Phase 7A opens
+
+**Accepted.** The owner accepted Phase 6 at `721c323`, in their words: "I accept ACT v0.7.2 Phase 6 at 721c323, including the
+narrow work_area.py cleanup-guard exception. I approve deferring ACT72-030 until a later maintenance release while keeping it
+open and tracked. The five documented cross-tool differences remain unchanged. Phase 7A is authorized."
+
+- **Evidence carried forward (roadmap §13.3).** The full Windows gate ran on the final candidate `35de76a`
+  (`2026-11-09_170309_full_7178`, PASS). `721c323` changed only `Briefing.md` and `Handoff.md`, so it carries that evidence;
+  no gate ran on `721c323`, and none was rerun for this acceptance record, which is documentation only as well.
+- **The cleanup-guard exception is accepted:** `test_cleanup_worker` names `work_area.py` for `os.rmdir` and `rmtree` and holds
+  it to the catalog assertions (the final-candidate entry, Decision 2, near the end of this file).
+- **ACT72-030 is deferred to a later maintenance release.** It stays open in the ledger with its removal proposal (the batch E
+  entry, Decision 2); it is no longer Phase 6 work and blocks nothing in v0.7.2.
+- **The five cross-tool differences stay as they are** (`files/dev-work/feature-map/consistency-matrix.md`).
+- **crimson-audiobooks.** The owner confirmed that the `.gitignore` line it gained during Phase 6 is intentional. ACT never
+  cleans or modifies that repository.
+- **Next.** Phase 7A only: profile the M4B Converter's chapter split (ACT72-012), freeze a compatibility manifest and a
+  performance baseline against `204c33b`, compare candidate designs and propose budgets. No production change to the split;
+  stop for the architecture review before Phase 7B.
+
+The Phase 6 batch A-E and final-candidate entries were appended at the end of this file instead of on top; being
+append-only, they stay where they are.
+
+— Recorded by Claude Code from the owner's message, 2026-11-09.
+
+---
+
 ## 2026-11-09 - The Edge command line's M4B steps run through Phase 6C's supervisor with a deadline from the book's playing time; Ctrl+C stops the running step and the command line exits 130 (v0.7.2 Phase 6E, ACT72-010)
 
 **Why.** ACT72-010: `epub2tts_edge.make_m4b`, reached only from the `epub2tts-edge --format m4b` command line, ran its two FFmpeg steps (the concat into FLAC-in-MP4, the AAC encode with the chapters) as blocking `subprocess_utils.run(check=True)` calls with no deadline. FFmpeg has its own hidden console, so Ctrl+C reached only Python, whose main thread waited uninterruptibly. Measured at `5a87ec3` with the real command line in a console of its own: Ctrl+C waited 28.6 s for a step slowed to a 30-second book's playing time, then ended with a traceback and `0xC000013A`; a suspended FFmpeg hung it for good.

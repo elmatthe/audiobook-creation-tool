@@ -2,6 +2,15 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 6 ACCEPTED by the owner at `721c323`; Phase 7A (M4B Converter baseline and optimization design) open; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
+
+This block supersedes every Phase 6 block below for status and next action.
+
+- **Phase 6 accepted** at `721c323` (`Decisions.md`, 2026-11-09, the owner accepts Phase 6). Execution evidence: the full Windows gate PASS on `35de76a` (`2026-11-09_170309_full_7178`), carried forward under §13.3; no gate ran on `721c323` or on this record.
+- **Owner decisions.** The `work_area.py` cleanup-guard exception is accepted. ACT72-030 is deferred to a later maintenance release and stays open and tracked. The five cross-tool differences stay unchanged. The crimson-audiobooks `.gitignore` line is the owner's own; never touch that repository.
+- **Open issues.** 61 issues, 7 open: ACT72-030 (later maintenance release); Phase 7 ACT72-012 (Major); Phase 8 ACT72-040, 048, 049, 055, 057.
+- **Next exact action.** Phase 7A only: trace and profile the Converter's chapter split, build the `204c33b` reference in a contained checkout, freeze the compatibility manifest, compare candidate designs, propose budgets, then STOP for the architecture review before Phase 7B.
+
 ## CURRENT STATE — v0.7.2 Phase 6 (complete): implemented; full Windows gate PASS on the final candidate `35de76a`; STOP for the owner's checkpoint review; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 Authority as in the batch A block below; this block supersedes every earlier Phase 6 block for status and next action. Phase 6 is NOT accepted until the owner says so.
