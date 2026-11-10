@@ -29,7 +29,17 @@ Each run's produced MP3s are hashed and then deleted; every run keeps its `resul
 **Containment.** Every benchmark run proves, before anything is converted, that the application's configured output base
 (set through its own preference in a redirected settings file, read back from the live configuration and resolved by the
 application's resolver) lies inside that run's own folder, and refuses otherwise; every reservation is checked again. The
-owner's Downloads output tree is compared before and after the whole scenario.
+owner's Downloads output tree is compared before and after the whole scenario. A run also proves, before it starts, that
+nothing in it can open the file manager (`bench_run.neutralize_shell`): the Converter reveals its output folder when a
+run ends, and attempt 1 of the qualification let every run do it (about 200 Explorer windows; the owner's shell crashed
+twice; `os.startfile` held the Tk loop for up to 36.9 s). The requests are recorded, never performed, and the open
+file-manager windows are counted before and after the scenario.
+
+**Measurement notes.** Windows counts a pipe write as a write, so T4 takes the pipe bytes the harness counted exactly
+(the decoder's stream, the encoders' feed) off the job's write bytes before comparing with the seeking route. The
+encoder fault kills the K-th encoder from the feed after its first block of audio, because a short chapter's encoder
+exits long before any fixed delay. Each run's log line gives the machine's load before and during it and this run's own
+share, so contention is visible rather than guessed; the qualification should run while nobody uses the machine.
 
 **Budgets** (Phase 7A record section 8, approved for 7B): T1 6 h/48 chapters at least 2.0x median wall and process-tree
 CPU; T1b 1,000 chapters at least 1.8x wall and 2.0x CPU; T2 below the threshold the seeking route, above it at most 10 %

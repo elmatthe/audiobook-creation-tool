@@ -399,6 +399,42 @@ def test_a_scenario_runner_that_reports_pass_without_exiting_zero_is_not_a_pass(
     assert outcome.check("scenario:m4b-scaling")["status"] == "FAIL"
 
 
+def test_a_benchmark_run_can_open_no_file_manager_window():
+    """The Converter reveals its output folder when a run ends. Attempt 1 of the m4b-scaling qualification let every
+    benchmark run do it: about 200 Explorer windows, the owner's shell crashed twice under them, and os.startfile held
+    the Tk loop for up to 36.9 s, which the heartbeat and Cancel budgets then measured. A benchmark run replaces both
+    ways of opening the file manager with recorders, and refuses to start if the Converter could still reach another."""
+    if sys.platform != "win32":
+        pytest.skip("the benchmark harness accounts through Windows Job Objects")
+    import importlib.util  # noqa: PLC0415
+    import types  # noqa: PLC0415
+
+    saved_path, had_winjob = list(sys.path), "winjob" in sys.modules
+    try:
+        spec = importlib.util.spec_from_file_location("act_bench_run_contract", GATE_DIR / "scaling" / "bench_run.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+    finally:  # the harness puts its own folder first on the path and imports winjob from it
+        sys.path[:] = saved_path
+        if not had_winjob:
+            sys.modules.pop("winjob", None)
+
+    opened = []
+    sp = types.SimpleNamespace(reveal_in_file_manager=lambda path: opened.append(("reveal", path)))
+    converter = types.SimpleNamespace(sp=sp)
+    os_module = types.SimpleNamespace(startfile=lambda *args: opened.append(("startfile", args)))
+    reveals = []
+    bench.neutralize_shell(sp, converter, os_module, reveals)
+    converter.sp.reveal_in_file_manager("run/output-base/M4B-Converter-Outputs")
+    os_module.startfile("run/output-base")
+    assert opened == [], "a benchmark run opened the file manager"
+    assert [next(iter(record)) for record in reveals] == ["reveal", "startfile"]
+
+    elsewhere = types.SimpleNamespace(reveal_in_file_manager=lambda path: opened.append(("reveal", path)))
+    with pytest.raises(bench.Refused):
+        bench.neutralize_shell(sp, types.SimpleNamespace(sp=elsewhere), os_module, [])
+
+
 def test_scenario_names_are_the_same_in_the_gate_its_policy_and_its_help():
     gate = load_gate("act_verify_contract_scenarios")
     policy = gate.load_policy()

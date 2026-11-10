@@ -135,6 +135,28 @@ def remove_outputs(run_record: dict) -> int:
     return removed
 
 
+def shell_windows() -> int:
+    """How many File Explorer windows are open on this desktop (top-level ``CabinetWClass``), counted only, never touched.
+
+    Recorded before and after a qualification as evidence that its runs opened none (attempt 1's runs opened one each).
+    """
+    import ctypes  # noqa: PLC0415
+    import ctypes.wintypes as w  # noqa: PLC0415
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    found = [0]
+    callback_type = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+
+    def visit(hwnd, _lparam):
+        name = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, name, 64)
+        if name.value == "CabinetWClass" and user32.IsWindowVisible(hwnd):
+            found[0] += 1
+        return True
+
+    user32.EnumWindows(callback_type(visit), 0)
+    return found[0]
+
+
 def protected_snapshot() -> dict:
     """The owner's Downloads output tree and the user profile's ACT settings, by name, size and time: never read in full.
     Compared before and after a qualification, so an escape of any output is a failed containment, not a guess."""

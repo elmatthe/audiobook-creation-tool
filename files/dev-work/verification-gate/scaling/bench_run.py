@@ -8,6 +8,11 @@ Promoted from Phase 7A's evidence harness. One process per measurement:
   and resolved by the application's own resolver. Any answer outside the run folder stops the run with exit 3 before
   anything is converted, and every reservation is checked again as it happens. (A Phase 7A smoke run once wrote into the
   owner's Downloads because the panel reads the base from settings, not from the environment.)
+* **No window on the owner's desktop**, proved before anything starts (``neutralize_shell``). The Converter opens its
+  output folder in the file manager when a run ends (``reveal_in_file_manager`` -> ``os.startfile``); here both only
+  record the request. (The first Phase 7B qualification did not stop it: every run opened an Explorer window, about 200
+  of them, the owner's shell crashed twice under them, and ``os.startfile`` held the Tk loop for up to 36.9 s, which
+  the heartbeat and Cancel timings then measured.)
 * A new Windows Job Object (KILL_ON_JOB_CLOSE) holds this process, so every child is counted and none can outlive it.
 * The real ``M4BConverterUI`` on a withdrawn Tk root: sources added through its importer, options set on its variables,
   Start pressed, so the production worker, plan, routes, commands, validation and publication all run unchanged.
@@ -20,7 +25,11 @@ Promoted from Phase 7A's evidence harness. One process per measurement:
   stall, every thread's stack, this process's CPU time, the machine's load and the live children, so a pause can be
   attributed (decoder pipe, encoder, supervision, thread synchronisation, scheduling, or the machine) instead of guessed.
 * Fault injection: Cancel after N finished outputs or N seconds into the K-th audio pass; kill the K-th encoder or the
-  continuous decoder at the K-th chapter, then Retry Failed; Pause after N outputs and Resume after S seconds.
+  continuous decoder at the K-th chapter, then Retry Failed; Pause after N outputs and Resume after S seconds. On the
+  continuous route the K-th encoder is killed by the feed right after its first block of audio, so the kill always lands
+  mid-chapter (a fixed delay missed it: a 1.5 s chapter's encoder lives about 40 ms).
+* Pipe bytes are counted exactly (read from the decoder, written to the encoders), because Windows counts a pipe write
+  as a write: the qualification takes them off the job's write bytes before asking whether anything was spooled.
 
 Writes ``results.json`` into ``--out``. Exit 0 when the run completed as asked (whatever the run's own state), 3 when
 containment refused it, 4 when the harness itself failed.
@@ -93,6 +102,27 @@ def inside(child: Path, parent: Path) -> bool:
         return False
 
 
+def neutralize_shell(sp_module, converter_module, os_module, reveals: list) -> None:
+    """Make every way the panel opens the file manager only record the request, and prove it, before anything starts.
+
+    ``sp_module`` is ``shared.subprocess_utils`` (whose ``reveal_in_file_manager`` the Converter calls when a run ends),
+    ``converter_module`` the Converter, which must reach that same module, and ``os_module`` the ``os`` whose
+    ``startfile`` would open a shell window. Raises ``Refused`` (exit 3) if any of them could still open one.
+    """
+    def record_reveal(path) -> None:
+        reveals.append({"reveal": str(path), "at": time.perf_counter()})
+
+    def record_startfile(*args, **_kwargs) -> None:
+        reveals.append({"startfile": [str(part) for part in args], "at": time.perf_counter()})
+
+    sp_module.reveal_in_file_manager = record_reveal
+    os_module.startfile = record_startfile
+    if (getattr(converter_module, "sp", None) is not sp_module
+            or converter_module.sp.reveal_in_file_manager is not record_reveal
+            or os_module.startfile is not record_startfile):
+        raise Refused("the file manager could still be opened from this run")
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--code", required=True, type=Path, help="the scripts folder of the code under test")
@@ -118,8 +148,9 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed) -> None:
-    """Timers and records around the continuous route; the decoder kill when asked. Behaviour is unchanged."""
+def instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed, pipe, kill_target) -> None:
+    """Timers, pipe byte counts and records around the continuous route; the decoder kill, and the armed encoder kill,
+    when asked. Behaviour is otherwise unchanged."""
     real_qualify = m4b_continuous.qualify
 
     def qualify(source, report, **k):
@@ -137,10 +168,13 @@ def instrument_continuous(m4b_continuous, decisions, decoders, current, args, ki
 
     def timed_read(self, size):
         t0 = time.perf_counter()
+        data = b""
         try:
-            return real_read(self, size)
+            data = real_read(self, size)
+            return data
         finally:
             spent = time.perf_counter() - t0
+            pipe["from_decoder_bytes"] += len(data)
             seg = current["seg"]
             if seg is not None:
                 seg["decoder_wait_s"] = seg.get("decoder_wait_s", 0.0) + spent
@@ -160,6 +194,14 @@ def instrument_continuous(m4b_continuous, decisions, decoders, current, args, ki
                 seg = current["seg"]
                 if seg is not None:
                     seg["encoder_wait_s"] = seg.get("encoder_wait_s", 0.0) + time.perf_counter() - t0
+            pipe["to_encoders_bytes"] += len(data)
+            target = kill_target.pop("proc", None)
+            if target is not None and target.poll() is None:
+                # The armed (K-th) encoder dies mid-chapter, having taken its first block of audio.
+                target.kill()
+                target.wait(30)
+                killed.append({"pid": target.pid, "what": "encoder", "at": time.perf_counter(),
+                               "after_bytes": len(data)})
 
         return real_feed(self, timed_write, first, count, last=last)
 
@@ -234,6 +276,9 @@ def main(argv=None) -> int:
         raise Refused(f"the application would write to {resolved}, not this run's {output_base}")
     containment = {"settings_file": str(paths.SETTINGS_FILE), "output_base": str(resolved), "temp": str(temp),
                    "checked_before_start": True}
+    reveals: list[dict] = []
+    neutralize_shell(sp, m4b_converter, os, reveals)
+    containment["shell_reveal_neutralized"] = True
     real_reserve = output_paths.reserve_run_directory
     refused: list[str] = []
 
@@ -261,6 +306,8 @@ def main(argv=None) -> int:
     children: list = []           # (kind, proc, started) of every child this run started
     audio_passes = {"n": 0}
     killed: list[dict] = []
+    pipe = {"from_decoder_bytes": 0, "to_encoders_bytes": 0}
+    kill_target: dict = {}
     wants: dict = {"cancel_at": None}
     lock = threading.Lock()
     real_popen = sp.popen
@@ -272,7 +319,11 @@ def main(argv=None) -> int:
             children.append((kind, proc, time.perf_counter()))
         if kind in ("segment", "pcm", "whole"):
             audio_passes["n"] += 1
-            if args.kill == "encoder" and audio_passes["n"] == args.kill_at:
+            # Passes run one after another: an armed encoder that never took a block is over, never the next one's.
+            kill_target.pop("proc", None)
+            if args.kill == "encoder" and audio_passes["n"] == args.kill_at and kind == "pcm":
+                kill_target["proc"] = proc  # killed by the feed after its first block (instrument_continuous)
+            elif args.kill == "encoder" and audio_passes["n"] == args.kill_at:
                 def kill_later(target=proc):
                     time.sleep(args.kill_delay)
                     if target.poll() is None:
@@ -296,7 +347,7 @@ def main(argv=None) -> int:
 
     m4b_probe.probe_source = probe_source
     if m4b_continuous is not None:
-        instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed)
+        instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed, pipe, kill_target)
     real_run_argv, real_streaming = m4b_execution.run_argv, m4b_execution.run_argv_streaming
 
 
@@ -587,6 +638,8 @@ def main(argv=None) -> int:
         "stalls": stalls,
         "stall_diagnostics": stall_dumps,
         "decoders": decoders,
+        "pipe": pipe,
+        "reveals": [{**r, "at": round(r["at"] - state["t_start"], 3)} for r in reveals],
         "disk": {"peak_staged_bytes": disk["peak_staged"], "samples": disk["samples"],
                  "output_bytes": sum(f["bytes"] for f in files)},
         "probes": probes,

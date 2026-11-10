@@ -20,6 +20,7 @@ _k.QueryInformationJobObject.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p
 _k.SetInformationJobObject.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD]
 _k.GetProcessTimes.argtypes = [w.HANDLE] + [ctypes.POINTER(w.FILETIME)] * 4
 _ps.GetProcessMemoryInfo.argtypes = [w.HANDLE, ctypes.c_void_p, w.DWORD]
+_k.GetProcessIoCounters.argtypes = [w.HANDLE, ctypes.c_void_p]
 
 
 class _IO(ctypes.Structure):
@@ -92,7 +93,11 @@ def _ft(value: w.FILETIME) -> float:
 
 
 def process_facts(handle: int) -> dict:
-    """CPU and memory peaks of one (possibly exited, still referenced) process."""
+    """CPU, memory peaks and I/O bytes of one (possibly exited, still referenced) process.
+
+    The I/O bytes count every read and write the process issued, pipes included (Windows counts a pipe write like a file
+    write), so they are not disk traffic on their own (v0.7.2 Phase 7B, qualification attempt 2).
+    """
     created, exited, kernel, user = (w.FILETIME() for _ in range(4))
     facts: dict = {}
     if _k.GetProcessTimes(w.HANDLE(handle), ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel),
@@ -102,6 +107,9 @@ def process_facts(handle: int) -> dict:
     counters.cb = ctypes.sizeof(counters)
     if _ps.GetProcessMemoryInfo(w.HANDLE(handle), ctypes.byref(counters), counters.cb):
         facts.update(peak_ws=counters.PeakWorkingSetSize, peak_commit=counters.PeakPagefileUsage)
+    io = _IO()
+    if _k.GetProcessIoCounters(w.HANDLE(handle), ctypes.byref(io)):
+        facts.update(read_bytes=io.ReadTransferCount, write_bytes=io.WriteTransferCount)
     return facts
 
 

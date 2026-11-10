@@ -14,8 +14,11 @@ Every fixture is checked against its pinned SHA-256 before use and every run che
 
 **Containment.** ``--out`` must be a new folder inside the repository's ignored gate outputs. Each run is a separate
 ``bench_run.py`` process that proves, before anything is converted, that the application's configured output base
-resolves inside its own run folder, and refuses otherwise. The owner's Downloads output tree is compared before and after
-the whole qualification. Produced MP3s are hashed, then deleted; ``results.json`` of every run is kept.
+resolves inside its own run folder, and refuses otherwise; it also proves that nothing in it can open the file manager
+(the Converter reveals its output folder when a run ends; attempt 1 of this qualification let it, and about 200 Explorer
+windows crashed the owner's shell twice). The owner's Downloads output tree is compared before and after the whole
+qualification, and the open file-manager windows are counted before and after. Produced MP3s are hashed, then deleted;
+``results.json`` of every run is kept.
 
 **Budgets** (Phase 7A record section 8, approved for Phase 7B, frozen here; never moved after a failed run):
 
@@ -27,7 +30,9 @@ the whole qualification. Produced MP3s are hashed, then deleted; ``results.json`
 * T3  6 h and 12 h books: per-chapter wall time slope at most 0.1 s per hour of prefix; last-quarter / first-quarter median
       at most 1.15.
 * T4  audio held by the route at most 1 MiB at any moment; no PCM on disk; peak job commit within the seeking route's
-      peak plus the decoder process's own peak plus that 1 MiB.
+      peak plus the decoder process's own peak plus that 1 MiB. "No PCM on disk": the job's write bytes, less the pipe
+      bytes the harness counted exactly (the decoder's stream into the application and the application's feed into
+      each encoder; Windows counts a pipe write as a write), at most 1.05 x the seeking route's write bytes.
 * T5  peak staged bytes no higher than the seeking route's.
 * T6  UI heartbeat p99 at most 0.25 s in every continuous run, and no stall over 2 s in one.
 * T7  Cancel during a late chapter settles within 2 s with every owned process stopped and reaped.
@@ -122,7 +127,8 @@ class Qualification:
             "active_after": job["active_after"], "peak_job_commit": job["after_run"]["peak_job_commit"],
             "peak_staged_bytes": results["disk"]["peak_staged_bytes"], "write_bytes": job["run_write_bytes"],
             "heartbeat": results["heartbeat"], "stalls_over_1s": len(results["stall_diagnostics"]),
-            "decoders": decoder_peaks, "alive_at_settle": results["outcome"]["alive_at_settle"],
+            "decoders": decoder_peaks, "pipe": results.get("pipe") or {}, "reveals": results.get("reveals", []),
+            "alive_at_settle": results["outcome"]["alive_at_settle"],
             "alive_at_settle_retry": results["outcome"]["alive_at_settle_retry"],
             "killed": results["outcome"]["killed"], "outputs_while_paused": results["timing"]["outputs_while_paused"],
             "failures": results["outcome"]["failures"], "load_during_pct": results["timing"]["machine_load_pct_during"],
@@ -148,6 +154,8 @@ class Qualification:
         contained = results["containment"]
         if contained["reservations_refused"] or contained["unexpected_entries"]:
             problems.append(f"containment {contained['reservations_refused']} {contained['unexpected_entries']}")
+        if contained.get("shell_reveal_neutralized") is not True:
+            problems.append("the run did not prove the file manager could not be opened")
         if summary["alive_at_settle"] or summary["alive_at_settle_retry"]:
             problems.append(f"children alive at settle {summary['alive_at_settle']} {summary['alive_at_settle_retry']}")
         if summary["active_after"] != 1:
@@ -155,9 +163,13 @@ class Qualification:
         if problems:
             self.check(f"run:{label}", False, f"{case} {name} {route}: " + "; ".join(problems))
         common.remove_outputs(record)
+        cores = results["environment"].get("cpu_count") or 1
+        own = 100.0 * summary["cpu_s"] / summary["wall_s"] / cores if summary["wall_s"] else 0.0
         self.log(f"{label} {case} {name} {route}: {summary['states']} {summary['wall_s']} s wall, "
                  f"{summary['cpu_s']:.1f} s CPU, route {summary['continuous']}, digest {str(digest)[:12]}, "
-                 f"hb max {summary['heartbeat']['max_s']}, load {summary['load_before_pct']} %")
+                 f"hb max {summary['heartbeat']['max_s']}, machine load {summary['load_before_pct']} % before, "
+                 f"{summary['load_during_pct']} % during (this run {own:.1f} %), reveals recorded "
+                 f"{len(summary['reveals'])}")
         return summary
 
     def identical(self, summary: dict | None, name: str, *, mode="split", metadata="preserve") -> bool:
@@ -302,14 +314,25 @@ class Qualification:
                 buffered = decoder.get("peak_buffered", 0)
                 decoder_peak = decoder.get("peak_commit") or 0
                 envelope = legacy_peak + decoder_peak + MIB
+                # Windows counts a pipe write as a write, so the job's write bytes include the decoder's PCM stream into
+                # the application and the application's feed into the encoders (attempt 1 compared them raw and read
+                # 16 GB of pipe traffic as disk). Both are counted exactly by the harness and taken off.
+                pipe = summary.get("pipe") or {}
+                from_decoder = pipe.get("from_decoder_bytes", 0)
+                to_encoders = pipe.get("to_encoders_bytes", 0)
+                disk_writes = summary["write_bytes"] - from_decoder - to_encoders
+                decoder_other = (decoder.get("write_bytes") or 0) - from_decoder
                 self.check(f"T4:{tput['book']}:{summary['label']}",
                            0 < buffered <= MIB and summary["peak_job_commit"] <= envelope
-                           and summary["write_bytes"] <= legacy_writes * 1.05,
+                           and from_decoder > 0 and disk_writes <= legacy_writes * 1.05,
                            f"audio held {buffered} bytes (limit {MIB}); job peak {summary['peak_job_commit'] / 1e6:.1f} MB vs "
                            f"seeking {legacy_peak / 1e6:.1f} MB + decoder {decoder_peak / 1e6:.1f} MB + 1 MiB = "
-                           f"{envelope / 1e6:.1f} MB; disk writes {summary['write_bytes'] / 1e6:.0f} MB vs seeking "
-                           f"{legacy_writes / 1e6:.0f} MB (no PCM spool)",
-                           buffered=buffered, peak=summary["peak_job_commit"], envelope=envelope)
+                           f"{envelope / 1e6:.1f} MB; writes {summary['write_bytes'] / 1e6:.0f} MB less pipes "
+                           f"{from_decoder / 1e6:.0f} MB from the decoder and {to_encoders / 1e6:.0f} MB to the encoders = "
+                           f"{disk_writes / 1e6:.0f} MB vs seeking {legacy_writes / 1e6:.0f} MB x 1.05 (no PCM spool); "
+                           f"the decoder's own writes beyond its stream {decoder_other} bytes",
+                           buffered=buffered, peak=summary["peak_job_commit"], envelope=envelope,
+                           disk_writes=disk_writes, decoder_other=decoder_other)
                 self.check(f"T5:{tput['book']}:{summary['label']}", summary["peak_staged_bytes"] <= legacy_staged,
                            f"peak staged {summary['peak_staged_bytes']} bytes vs seeking route {legacy_staged}")
 
@@ -367,6 +390,11 @@ class Qualification:
         summary = self.run("smoke", "scale100", "auto", extra=("--kill", "decoder", "--kill-at", "30"),
                            expect_continuous=True, expect_states=("COMPLETED_WITH_FAILURES", "SUCCEEDED"))
         self.check("smoke:fault", self.identical(summary, "scale100"), "decoder killed, retried, identical")
+        summary = self.run("smoke", "scale100", "auto", extra=("--kill", "encoder", "--kill-at", "50"),
+                           expect_continuous=True, expect_states=("COMPLETED_WITH_FAILURES", "SUCCEEDED"))
+        self.check("smoke:encoder-fault", summary is not None and bool(summary["killed"])
+                   and self.identical(summary, "scale100"),
+                   f"encoder killed {None if summary is None else summary['killed']}, retried, identical")
         summary = self.run("smoke", "scale100", "auto", extra=("--cancel-in-pass", "60", "--cancel-delay", "0.05"),
                            expect_continuous=True, expect_states=("CANCELLED",))
         self.check("smoke:cancel", summary is not None and summary["cancel_to_settled_s"] is not None
@@ -457,12 +485,16 @@ def main(argv=None) -> int:
         qualification.log(f"identity: HEAD {identity['head']}, code {identity['code_digest'][:12]}, "
                           f"{pair['version']}, threshold {threshold} s")
         before = common.protected_snapshot()
+        windows_before = common.shell_windows()
+        qualification.log(f"file manager windows open at the start: {windows_before} (runs must open none)")
         for name in NEEDED:
             qualification.books[name] = common.ensure_fixture(name, build, pair, qualification.log)
             qualification.hashes[name] = build["fixtures"][name]["sha256"]
         if args.smoke:
             qualification.smoke()
             after = common.protected_snapshot()
+            qualification.log(f"file manager windows open at the end: {common.shell_windows()} (at the start "
+                              f"{windows_before})")
             qualification.check("containment", before == after, "the owner's Downloads output tree is unchanged"
                                 if before == after else "the owner's Downloads output tree CHANGED")
             failing = [c["name"] for c in qualification.checks if c["status"] != "PASS"]
@@ -482,6 +514,9 @@ def main(argv=None) -> int:
         qualification.stall_study(args.stall_reps)
         qualification.heartbeat()
         after = common.protected_snapshot()
+        qualification.log(f"file manager windows open at the end: {common.shell_windows()} (at the start "
+                          f"{windows_before}); reveals recorded and not performed: "
+                          f"{sum(len(s.get('reveals', [])) for s in qualification.runs)}")
         qualification.check("containment", before == after,
                             "the owner's Downloads output tree is unchanged" if before == after else
                             "the owner's Downloads output tree CHANGED during the qualification")
