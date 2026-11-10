@@ -243,7 +243,8 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - **Bounded.** At most a 256 KiB block and one second of already-read audio are held (under 1 MiB); nothing is written to disk; the pipes are the back-pressure.
 - **Never a quiet shortfall.** End of stream counts only if the decoder exited 0 with exactly the declared samples. A short feed, a stream ending part-way through a sample, a failed or killed decoder fail the chapter, and the book is taken back as for any failed chapter; Retry Failed starts a fresh decoder. A book whose audio frames are damaged (FFmpeg skips them and still exits 0) therefore fails on this route, where the seeking route had no such check.
 - **Cancel** stops the encoder and the decoder and reaps both; Pause waits between outputs as before (the decoder simply waits on its pipe).
-- **Measured and qualified:** the m4b-scaling qualification (`files/dev-work/verification-gate/scaling/`) with the frozen budgets T1–T8 and T1b; baseline, design and results: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`.
+- **Measured and qualified:** the m4b-scaling qualification (`files/dev-work/verification-gate/scaling/`) with the frozen budgets T1–T8 and T1b passed on HOME-PC on 2026-11-10 (79 of 79 checks, 207 runs; 6 h/48 chapters 2.16× faster, 1,000 chapters 2.88×, every output identical to the pinned reference); baseline, design and results: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md` section 13.
+- **Ending a run** that has an output folder reveals it through `os.startfile` on the Tk thread (`_pump_queue`, "done"), on both routes; a slow or restarting Explorer holds the window until it answers (36.9 s measured under an Explorer flood in Phase 7B). Pre-existing, left for the owner.
 
 ### Intentional differences from other tools
 
@@ -259,7 +260,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 ### Not verified here
 
 - Real Windows Media Foundation decoding of a real xHE-AAC book (owner's real-book check; no automated coverage).
-- 1000+ chapter and multi-hour split runs, and the continuous route's speed and output identity at scale (the m4b-scaling qualification, run on its own, not by the routine gate).
+- 1000+ chapter and multi-hour split runs, and the continuous route's speed and output identity at scale (the m4b-scaling qualification, run on its own, not by the routine gate; it passed on HOME-PC on 2026-11-10 and must run again for another machine, FFmpeg build or route change).
 - The continuous route on any FFmpeg build other than the qualified one (it keeps the seeking route there), on macOS, and on HE-AAC/xHE-AAC books (they keep their existing routes).
 - Visual approval of the captured screenshots and display scales other than 100% (owner).
 - macOS behaviour, including the aac_at xHE-AAC route (not a qualified platform).

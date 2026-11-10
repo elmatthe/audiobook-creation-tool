@@ -9754,12 +9754,6 @@
           {
             "kind": "qualification",
             "scenario": "m4b-scaling"
-          },
-          {
-            "kind": "planned",
-            "gap": "Split cost is O(chapters x duration): every chapter decodes the source from its start because of the output-side -ss; profile and optimise without changing outputs.",
-            "phase": 7,
-            "issue": "ACT72-012"
           }
         ]
       },
@@ -22864,13 +22858,13 @@
       "id": "ACT72-012",
       "severity": "Major",
       "phase": 7,
-      "status": "open",
+      "status": "closed",
       "title": "M4B Converter split cost is O(chapters x duration): every chapter decodes the source prefix (output-side -ss, deliberate)",
       "features": [
         "ACT.CONVERTER.SCALING"
       ],
       "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
-      "progress": "Phase 7A (2026-11-10): reproduced and attributed; byte-identical one-decode design. Phase 7B (2026-11-10): the continuous route implemented (scripts/m4b/m4b_continuous.py), mapped and tested; open until the m4b-scaling qualification passes against the frozen budgets."
+      "resolution": "Fixed in v0.7.2 Phase 7 (7A measured and designed it; 7B implemented and qualified it). Reproduced at c4a9b6a: each chapter decoded all audio before it again, 1.3-1.6 s per hour of prefix. scripts/m4b/m4b_continuous.py decodes an eligible split book once with FFmpeg to pcm_f32le and cuts each chapter at absolute sample positions from the same -ss/-t strings the seeking route writes (m4b_commands.segment_times), encoded through pcm_argv/run_argv_streaming with the cover pass, measurement, drift guard and publication unchanged; every output is byte-identical. The route is decided at preflight and frozen in the plan: AAC-LC fltp, a LAME rate, mono or stereo, time base 1/rate, start 0, priming 0 or one frame, a packet scan proving the timestamps, a qualified FFmpeg build (fingerprint), and an estimated saving P - 2.0 x D of at least 600 s (calibrated before qualification); anything unproven keeps the seeking route. Qualified on HOME-PC at 90fcb3d (application code identical to the candidate 6a92e03), gyan.dev FFmpeg 9.0.1 full_build, Python 3.12.10: verify.py --mode qualification --scenario m4b-scaling PASS, 79 of 79 checks over 207 runs (2026-11-10_124457_qualification_c208). T1 6 h/48 chapters 2.16x wall, 2.28x CPU; T1b 1,000 chapters 2.88x wall, 3.76x CPU; the 12 h book 1.58x (reported); T2 unchanged below the threshold and 0.79-0.93 of the seeking time above it; T3 slope at most 0.002 s per hour of prefix; T4 at most 610,968 bytes of audio held, no PCM on disk; T5 staged bytes no higher; T6 heartbeat p99 0.015 s, no stall over 2 s; T7 Cancel settled in 0.25-0.75 s with every process reaped; T8 every output of every run equal to the pinned reference; encoder and decoder kills taken back and retried identically with a fresh decoder. Attempt 1 at 6a92e03 failed on three harness defects (the Converter's end-of-run Explorer reveal left live, a mistimed encoder kill, pipe bytes counted as disk writes), corrected in 90fcb3d with budgets and threshold unchanged. Record: files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md section 13."
     },
     {
       "id": "ACT72-013",

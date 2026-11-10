@@ -23,10 +23,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   books are examined and kept for the whole run and for Retry Failed.
 - A book whose audio frames are damaged in a way FFmpeg skips silently now fails on the new route instead of producing
   shifted chapters (its sample count no longer matches the book).
+- Measured on the Windows development machine: a 6-hour book of 48 chapters converts in 133 s instead of 287 s, a
+  1,000-chapter book in 154 s instead of 444 s, and a 12-hour book of 24 chapters in 254 s instead of 401 s.
 
 **Added (development only)**
 - The `m4b-scaling` qualification (`verify.py --mode qualification --scenario m4b-scaling`) with a deterministic book
-  recipe, a pinned per-FFmpeg-build reference and the frozen performance budgets.
+  recipe, a pinned per-FFmpeg-build reference and the frozen performance budgets. It passed (79 of 79 checks, 207 runs);
+  ACT72-012 is closed.
+
+**Fixed (development only)**
+- The qualification's benchmark runs opened an Explorer window each (the Converter reveals its output folder when a run
+  ends), which crashed Explorer six times on the development machine; a run now records that request instead and refuses
+  to start unless it can. The encoder fault now fires mid-chapter, and the disk-write budget no longer counts audio passed
+  between processes.
 
 ## [Unreleased] — v0.7.2 Phase 7A: the M4B Converter's split slowdown measured (2026-11-10)
 

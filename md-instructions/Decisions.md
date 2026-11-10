@@ -4,6 +4,41 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-10 - Phase 7B qualified: m4b-scaling PASSED on its second attempt after a harness-only correction; ACT72-012 closed; budgets, threshold and envelope unchanged (v0.7.2 Phase 7B, ACT72-012)
+
+**Authority.** The Phase 7B prompt: implement, test, document, commit and push C1; close ACT72-012 only after the
+qualification passes; never move a budget or the threshold after a failing run.
+
+**Decision 1 (attempt 1 is a harness failure, and the fix is harness-only).** Attempt 1 on `6a92e03` failed 25 of 90
+checks with every output identical to its reference. All 25 trace to the benchmark: it left the Converter's end-of-run
+reveal live (Explorer windows, six Explorer crashes, the Tk loop held up to 36.9 s in `os.startfile`), its encoder kill
+fired after the encoder had finished, and T4 counted pipe writes as disk writes. `90fcb3d` corrects those three and
+nothing in `scripts/`; the qualification was then run again in full on it.
+
+**Decision 2 (a benchmark run may not reach the owner's shell).** Every benchmark run replaces the reveal and
+`os.startfile` with recorders and refuses to start unless the panel can reach only them (`bench_run.neutralize_shell`,
+pinned by a test), alongside the output-base containment; the scenario counts file-manager windows before and after.
+
+**Decision 3 (T4 measures disk, not pipes).** Windows counts pipe writes as writes, so T4 subtracts the pipe bytes the
+harness counts exactly before the unchanged 1.05x comparison. The memory envelope (seeking peak + decoder peak + 1 MiB),
+the harness's own and stricter than the approved T4, stays as frozen.
+
+**Decision 4 (the threshold stands).** Calibration-3 ran under the same Explorer load, which in attempt 1 slowed the
+continuous route about 3.0x and the seeking route about 1.6x, so any skew is against the continuous route; the threshold
+is the 600 s floor, unchanged by any break-even up to 300 s. Not recalibrated; a quiet recalibration is the owner's
+option.
+
+**Decision 5 (closure).** Attempt 2 (`2026-11-10_124457_qualification_c208`, `90fcb3d`, application code identical to
+`6a92e03`) PASSED 79 of 79 checks over 207 runs on a quiet machine. ACT72-012 is closed in the coverage ledger; the
+`m4b-scaling` qualification entry stays on `ACT.CONVERTER.SCALING` for any future build, machine or route change.
+
+**Left for the owner.** The Converter's `os.startfile` reveal on the Tk thread (pre-existing, both routes) can freeze the
+window while Explorer is slow; it explains Phase 7A's 25.7 s stall. Not changed here.
+
+— Recorded by Claude Code under the owner's Phase 7B authority, 2026-11-10.
+
+---
+
 ## 2026-11-10 - Phase 7B: the Converter decodes an eligible split book once; every output stays byte-identical; the route is chosen at preflight, per qualified FFmpeg build, only where it saves work (v0.7.2 Phase 7B, ACT72-012)
 
 **Authority.** The owner/ChatGPT review accepted Phase 7A and authorized 7B: implement C1; amend

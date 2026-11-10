@@ -446,6 +446,136 @@ frozen with its test before qualification. CPU follows the model: every book wit
 route, every book from S = 241 uses less. The new calibration books were made by the recipe and pinned against the
 seeking route of `204c33b` itself.
 
-### 13.5 Qualification
+### 13.5 Qualification: PASS on attempt 2
 
-(Recorded by the closeout of this phase from the `m4b-scaling` run on the committed candidate.)
+`verify.py --mode qualification --scenario m4b-scaling` on HOME-PC, evidence
+`files/dev-work/verification-gate/outputs/2026-11-10_124457_qualification_c208/` (ignored): gate **PASS**, scenario
+**PASS, 79 of 79 checks, 207 runs**, 12:44-14:50 (7,502 s), tree unchanged during the run, no owned process left.
+
+| Identity | |
+|---|---|
+| Commit | `90fcb3d` (tree `bf3e6632...`); its application code (`scripts/`) is byte-identical to the candidate `6a92e03`, `90fcb3d` changed only the harness (section 13.6) |
+| Code digest | `cab1d95c37bd...` (the tracked `scripts/` and `scaling/` bytes the run used) |
+| Python | 3.12.10 (the project's `.venv`) |
+| FFmpeg / ffprobe | gyan.dev 9.0.1 full_build (winget package; the same archive as the portable pin), SHA-256 `57c56e369d5b...` / `afe05347caaa...` |
+| Rule | `S = P - 2.0 x D >= 600 s`, the constants frozen before qualification (section 13.4) |
+| Machine | load before a run median 5.4 % (max 35.7 %), during median 12.7 % (max 37.0 %), each run's own share logged; no file-manager window open at the start or the end; 220 reveal requests recorded and not performed; no application crash event (1000/1002) during the run |
+
+| Budget | Result | |
+|---|---|---|
+| T1 (6 h, 48 chapters) | median wall 287.2 -> 132.9 s, **2.16x**; process-tree CPU 387.2 -> 170.2 s, **2.28x** (need 2.0x) | PASS |
+| T1b (1,000 chapters) | wall 444.1 -> 154.3 s, **2.88x** (need 1.8x); CPU 529.1 -> 140.7 s, **3.76x** (need 2.0x) | PASS |
+| T2 below the threshold | ten books, S from -1,802 to 516 s: seeking route, outputs unchanged | PASS |
+| T2 above the threshold | five books, S 605-7,148 s: continuous/seeking median wall 0.926, 0.896, 0.869, 0.886, 0.787 (limit 1.10 plus same-session noise, which measured at most 0.003) | PASS |
+| T3 | per-chapter slope -0.007 to 0.002 s per hour of prefix (limit 0.1); last/first quarter 0.993-1.002 (limit 1.15), three runs each of the 6 h and 12 h books | PASS |
+| T4 | audio held 610,968 / 532,728 / 605,656 bytes (6 h / 1,000 chapters / 12 h; limit 1 MiB); disk writes less the counted pipe bytes 853 / 220 / 1,704 MB against the seeking route's 835 / 339 / 1,666 MB x 1.05, no PCM spool, the decoder wrote nothing but its stream; job peak commit 225-226 / 266.0 / 373-374 MB against the harness's envelope (seeking peak + decoder peak + 1 MiB) 276.4 / 266.7 / 479 MB | PASS |
+| T5 | peak staged bytes no higher than the seeking route's on every run (sampled every 0.5 s; compared with the larger of the seeking route's sampled peak and two copies of its largest chapter, since both routes stage the same files in the same passes) | PASS |
+| T6 | 83 continuous runs: worst heartbeat p99 0.015 s (limit 0.25); no stall over 2 s. Across all 207 runs, both routes, the longest gap was 0.021 s | PASS |
+| T7 | Cancel settled in 0.249 s (6 h, continuous), 0.747 s (500 chapters, continuous), 0.252 s (6 h, seeking control); nothing alive at settle, no file left, state CANCELLED | PASS |
+| T8 | every output of every run equals its pinned reference (0 of 207 differ); every case took the expected route | PASS |
+| 12 h (reported) | long12_24 (24 chapters of 30 min): wall 401.4 -> 254.4 s, **1.58x**; CPU 521.3 -> 327.7 s, **1.59x** (attempt 1: 1.57x / 1.56x). The MP3 encode, the same on both routes, is most of what remains. | — |
+
+**The compatibility matrix** (T8; production settings unless named; digest = one SHA-256 over the run's outputs, first 16
+hex, equal to the pinned reference from `204c33b`):
+
+| Case | Route expected and taken | Outputs |
+|---|---|---|
+| route10 split preserve, auto | seeking (S 166 s, below) | `8a1ff13842cc948e` |
+| scale10 split preserve, auto | seeking (S 38 s) | `27747168afb3b1bc` |
+| route10 split preserve, continuous forced | continuous | `8a1ff13842cc948e` (= seeking) |
+| route10 split replace, continuous forced | continuous | `ac14584f1c640533` |
+| route10 split strip, continuous forced | continuous | `a50bf89880bcc191` |
+| route10 whole preserve, auto | whole book (no split) | `2429e219449fe776` |
+| noelst (no edit list, no priming) | continuous | `fc684d401c981d7a` |
+| mono22k (mono, 22.05 kHz) | continuous | `8c00e4b4aeb4f459` |
+| s48k (48 kHz) | continuous | `7ed256ec65ea00c9` |
+| r96k (96 kHz, a rate LAME does not take as it is) | seeking (refused at preflight) | `0efed01f14239401` |
+| scale100 split preserve, auto | continuous | `a752ff102ccd5564` |
+| scale500 split preserve, auto | continuous | `2ecf4a24bd7fbb2c` |
+
+**Faults, Cancel, Pause, Retry and reaping.** The encoder was killed from the feed after its first 262,144 bytes
+(scale100), and the decoder was killed on scale100 and on the 6 h book: each attempt ended COMPLETED_WITH_FAILURES with the
+book taken back, Retry Failed started a fresh decoder and SUCCEEDED, and the outputs equal the reference. Ten stall-study
+runs repeated the encoder kill: all ten fired, retried identically, longest heartbeat gap 0.021 s. Pause after 30 outputs
+held for 3 s with only the output in flight finishing (Pause waits at an output boundary), and the run's outputs were
+identical. After each of the 207 runs the job held only the harness itself, nothing was alive at a Cancel's settle, and
+the gate found no owned process after the scenario.
+
+**Memory, disk and processes.** No audio reaches disk: the decoder's 7.6 GB (6 h) or 15.2 GB (12 h) of float samples go
+through pipes and are counted exactly. The continuous route adds two child processes per book (the preflight packet scan
+and the decoder; the job counts four, each child with its console host: 294 against 290 on the 6 h book, 6,006 against
+6,002 on 1,000 chapters). Peak job commit grows by the decoder's own (118 MB on the 6 h book, 221 MB on the 12 h, 29 MB
+on 1,000 chapters). On 1,000 chapters the commit stays within the harness's envelope by only 0.7 MB (in attempt 1 one
+run exceeded it by 0.1 MB, section 13.6): that envelope is the harness's own, stricter than the approved T4, which asks
+for the memory to be reported, and it was left as frozen.
+
+### 13.6 Attempt 1: FAIL, from three harness defects
+
+The first run (`2026-11-10_090346_qualification_5021`, candidate `6a92e03`, 09:03-11:57) failed 25 of 90 checks. Every
+output equalled its pinned reference and T1 (2.06x wall, 2.24x CPU), T2, T3, T5, the decoder faults and Pause passed.
+The failures trace to the harness, not to the route:
+
+- **The end-of-run reveal was never neutralized.** The Converter opens its output folder when a run ends
+  (`sp.reveal_in_file_manager` -> `os.startfile`, on the Tk thread). The benchmark did not replace it, so every run opened
+  an Explorer window. Explorer crashed at 09:18 and 11:49 (and four times during calibration-3, 07:43-08:16); the open
+  windows loaded the machine to 46-83 % until each crash. `os.startfile` held the Tk loop for up to 36.9 s after the last
+  chapter, with no child alive: that is every heartbeat stall T6 flagged, both Cancel overruns (T7: 3.10 s = the stop in
+  about 0.1 s plus 2.87 s in `os.startfile`; 2.12 s on 500 chapters under 89 % load) and the contended 1,000-chapter timing
+  (T1b 1.54x).
+- **The encoder kill came too late.** It fired 0.3 s after the encoder started; a 1.5 s chapter's encoder lives about
+  40 ms, so the encoder fault and all ten stall-study runs killed nothing.
+- **T4 counted pipes as disk.** Windows counts a pipe write as a write, so the job's 16 GB on the 6 h book included twice
+  the book's float samples; with them taken off, every run wrote 0.65-1.02x the seeking route's bytes.
+
+`90fcb3d` corrects the harness: `bench_run.neutralize_shell` records both ways of opening the file manager and refuses to
+start a run (exit 3) unless the Converter can reach only the recorders (a test pins it; a planted defect fails it); the
+encoder fault kills the chosen encoder from the feed after its first block; the harness counts the pipe bytes exactly and
+T4 takes them off before the unchanged 1.05x comparison; each run logs the machine's load and its own share; the scenario
+counts file-manager windows before and after. Budgets, the threshold and the envelope did not move. A smoke run
+(`qual-smoke-4/`) and the changed-area gate on `90fcb3d` (`2026-11-10_123220_changed_422d`: 10 of 10 journeys,
+3,110 passed and 2 skipped) passed before attempt 2 started.
+
+Calibration-3 ran under the same Explorer load. In attempt 1 that load slowed the continuous route on 1,000 chapters about
+3.0x (457-471 s against 152-155 s in attempt 2) and the seeking route about 1.6x (675-725 s against 443-444 s): what the
+continuous route still pays per chapter is process starts and file operations, which contention hits hardest. So if
+calibration-3 was skewed, it was skewed against the continuous route and its break-even is if anything high. The threshold
+is in any case the 600 s floor, not twice the break-even (540 s): any break-even up to 300 s gives the same threshold. It
+was not recalibrated; a quiet recalibration is the owner's choice.
+
+### 13.7 The 25.7 s stall of Phase 7A
+
+Explained. The 7A outlier (section 4: a 100-chapter run idle for 25.9 s outside chapter work) has the signature attempt 1
+captured: of its 32 runs with a heartbeat gap over 1 s (both routes), 29 have stack samples showing the Tk main thread
+inside `os.startfile` after the last chapter with no child process alive, and the other 3 (gaps of 1.03-1.17 s, no stack
+sample) stalled at the same point, after the last chapter. The 7A harness did not neutralize the reveal either. With the reveal recorded instead of
+performed, no run of 207 on either route had a gap over 0.021 s. It is not the continuous route; it is a pre-existing
+behaviour of the Converter on both routes: **the end-of-run reveal calls `os.startfile` on the Tk thread, so a slow or
+restarting Explorer freezes the window** (36.9 s measured). It is outside Phase 7B's authority and is left for the owner
+(Handoff).
+
+### 13.8 Not qualified
+
+macOS; FFmpeg builds other than the qualified fingerprint (they keep the seeking route); HE-AAC, xHE-AAC and the Media
+Foundation route (they keep their routes); Windows 10 and other machines than HOME-PC; real narration (the books are
+deterministic noise and tones from the recipe); books larger than the matrix (the 2,000-chapter case was not run); Pause
+and Cancel at every chapter position (one position each).
+
+### 13.9 Owner impact and cleanup
+
+The reveal defect opened an Explorer window on the owner's desktop for every benchmark run before the fix (about 650: the
+three calibrations, the first smoke, the pinning runs and attempt 1), and Explorer crashed six times (Application log,
+07:43-11:49; none since). The 13 windows still open afterwards were closed one by one after proving each one's folder
+lay inside a qualification run's own folder (`explorer-windows-closed.txt`); no other window was touched. One full
+qualification was also started by mistake on the uncommitted tree (`qual-smoke-2/`, the `--smoke` flag left out) and
+stopped at about run 95; it is not a verdict. The two gate scratch folders this phase left in `%TEMP%\act-gate` (`8c61`,
+`bb2a`, each named by its own owner record, owner process ended, the blocked run's diagnostics already kept in the
+repository) were removed after a manifest of every file, size, hash and junction (`scratch-removal-manifest.json`; the
+20 junctions, test fixtures, all pointed inside `bb2a` and were removed as links first); `bfa7` was not touched. Every
+run's MP3s were hashed and deleted by the harness; the fixtures stay in the ignored `files/dev-work/m4b-scaling-cache/`
+(0.6 GB) for the next qualification; the evidence of both attempts stays.
+
+### 13.10 Outcome
+
+ACT72-012 is closed on this PASS (coverage ledger resolution). The `qualification` entry for `m4b-scaling` stays on
+`ACT.CONVERTER.SCALING` as release-pending evidence: a routine gate never satisfies it, and a future FFmpeg build, machine
+or route change is qualified by running it again.
