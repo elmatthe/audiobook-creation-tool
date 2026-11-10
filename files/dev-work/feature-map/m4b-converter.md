@@ -238,6 +238,7 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 
 - Long split runs must produce every chapter with exact boundaries; the Windows decoder route streams in small chunks and never writes the decoded audio to disk; the ETA is based on measured time per output.
 - **Known issue:** split cost grows with chapters × book length because each chapter decodes the book from its start (ACT72-012, Phase 7). Any optimisation must keep outputs identical. 1000+ chapter and multi-hour behaviour belongs to the m4b-scaling qualification.
+- **Measured (Phase 7A, 2026-11-10):** 1.3–1.6 s of discarded decoding per hour of book before each chapter; output byte-identical between v0.7.1 and now and run to run. Baseline, compatibility manifest and proposed design: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`.
 
 ### Intentional differences from other tools
 

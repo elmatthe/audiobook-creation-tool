@@ -2,6 +2,18 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 Phase 7A checkpoint: the Converter's split slowdown measured and a byte-identical design proposed; STOP for the ChatGPT/owner architecture review before Phase 7B; branch `feature/0.7.2-windows-hardening-verification` (2026-11-10, Claude Code)
+
+This block supersedes the blocks below for status and next action. Record: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`.
+
+- **Done.** ACT72-012 reproduced and attributed: each chapter decodes all audio before it again (1.3-1.6 s per hour of prefix; per-chapter time 4.1 s -> 10.3 s across a 6-hour book). Compatibility manifest frozen from production output (byte-identical run to run on every book, and between `204c33b` and now on the four books compared). Candidates A-E compared; C1 (one continuous decode per eligible book, exact sample cut, existing encoders and cover pass) proposed: byte-identical in its prototype, 2.2x on a 6-hour 48-chapter book, 2.0x on 1,000 chapters, 1.7x on a 12-hour 24-chapter book, 2.6x under Write none.
+- **Not done, deliberately.** No application, test, fixture or gate-tool change; no gate run (as instructed); the harness and fixtures stay in the ignored evidence folder `outputs/2026-11-09_phase7a_375a/`.
+- **For the owner (record section 10).** Approve C1 and its eligibility; amend `ACT.CONVERTER.PRIMING` for the new route; byte identity as the oracle; decide C2 (Xing frame differs); approve or adjust budgets T1-T8; the `m4b-scaling` scenario in 7B; optional xHE-AAC/HE-AAC samples.
+- **Open questions carried to 7B.** One unexplained 25.7 s stall of the whole harness process in one prototype run (not reproduced in five reruns); runs were measured beside a busy desktop, so 7B's qualification should run in a quiet session.
+- **Containment slip, corrected.** The first smoke run wrote 10 MP3s into the owner's Downloads output folder; exactly those files and the three folders it created were removed; the harness now refuses any other destination (record section 12).
+- **Open issues.** 61, 7 open: ACT72-030 (later maintenance release); ACT72-012 (Phase 7, Major); Phase 8 ACT72-040, 048, 049, 055, 057.
+- **Next exact action.** STOP. ChatGPT/owner architecture review of the Phase 7A record. Phase 7B only after approval.
+
 ## CURRENT STATE — v0.7.2 Phase 6 ACCEPTED by the owner at `721c323`; Phase 7A (M4B Converter baseline and optimization design) open; branch `feature/0.7.2-windows-hardening-verification` (2026-11-09, Claude Code)
 
 This block supersedes every Phase 6 block below for status and next action.

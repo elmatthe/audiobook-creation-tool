@@ -447,6 +447,8 @@ Track every discovery with stable issue ID, severity, source/reproduction, expec
 
 ## 12. M4B Converter performance work with strict compatibility
 
+**Phase 7A record (2026-11-10):** `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md` holds the measured baseline, the frozen compatibility manifest, the candidate comparison and the proposed budgets. The budgets there are proposals awaiting the owner's approval; this section's requirements are unchanged.
+
 ### 12.1 Investigate before optimizing
 
 Trace `m4b/converter/m4b_converter.py` planning/dispatch into `m4b_plan.py`, `m4b_commands.py`, `m4b_execution.py`, probing and Windows decoding. Measure actual invocation counts, per-chapter times, cumulative seek/decode time, encoding, probing, metadata/artwork passes, filesystem work, UI updates and memory. Distinguish FFmpeg-decodable AAC from Windows fallback codecs, whole-book from split, and artwork/no-artwork modes.

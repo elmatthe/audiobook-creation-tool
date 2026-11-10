@@ -22631,7 +22631,8 @@
       "features": [
         "ACT.CONVERTER.SCALING"
       ],
-      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json"
+      "evidence": "files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/issues.json",
+      "progress": "Phase 7A (2026-11-10): reproduced and attributed on validated fixtures; a byte-identical one-decode design is proposed with calibrated budgets in files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md; open until Phase 7B implements and qualifies it."
     },
     {
       "id": "ACT72-013",
@@ -22848,7 +22849,8 @@
         "ACT.CONVERTER.SPLIT",
         "ACT.MP3.COMBINE"
       ],
-      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)"
+      "evidence": "v0.7.2 Phase 4 inventory review (read from source, not measured)",
+      "deferred": "The owner deferred this to a later maintenance release on 2026-11-09 (md-instructions/Decisions.md, the owner accepts Phase 6): it stays open and tracked and is no longer Phase 6 work. The removal proposal is the batch E entry, Decision 2."
     },
     {
       "id": "ACT72-031",

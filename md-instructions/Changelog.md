@@ -13,6 +13,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 7A: the M4B Converter's split slowdown measured (2026-11-10)
+
+**Added (development only; nothing a person sees changes)**
+- A measured baseline of the M4B Converter's Split by chapter against v0.7.1, a frozen compatibility manifest, a comparison of
+  five optimisation designs and proposed performance budgets (`files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`). No application code changed; the proposed faster
+  route awaits review.
+
 ## [Unreleased] — v0.7.2 Phase 6, final candidate: four standing checks the full gate found (2026-11-09)
 
 **Fixed (development only; nothing a person sees changes)**

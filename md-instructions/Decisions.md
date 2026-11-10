@@ -4,6 +4,38 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-10 - Phase 7A: the Converter's split slowdown is measured; one decode per book is proposed, byte identity is the oracle; nothing in the app changed (v0.7.2 Phase 7A, ACT72-012)
+
+**Measured, not assumed** (`files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`). Through the real Converter panel, headless, on validated synthetic books, against
+`204c33b` and the working tree with the same FFmpeg 9.0.1: every production chapter costs about 1.3-1.6 s per hour of book
+before it, spent decoding audio that the output-side seek throws away. That is most of a long split run (about 200 s of a
+337 s run on a 6-hour 48-chapter book) and grows with every chapter (per-chapter time 4.1 s in the first quarter, 10.3 s in the
+last). Per-chapter process starts and the cover pass are the rest; one preflight probe per book is not repeated.
+
+**Decision 1 (the oracle):** production output is byte-stable: repeated runs give byte-identical MP3s on every book
+measured, and `204c33b` matches the working tree byte for byte on the four books compared (10 to 500 chapters). So the compatibility classification for any faster route is byte identity
+wherever the route applies, and today's route, unchanged, everywhere else (plan section 9.2).
+
+**Decision 2 (what a chapter is):** the output-side `-ss S -t D` selects exactly decoded samples
+`[half_up(S*rate), +half_up(D*rate))`, with S and D the microseconds FFmpeg parses from the "{:.6f}" strings (226 of 226
+chapters on six books, exact sample equality). A one-decode route must reproduce that, at absolute positions, not "fix" it.
+
+**Proposed for review, not decided:** candidate C1, one continuous FFmpeg decode per eligible book cut into those samples and
+encoded through the existing `pcm_argv` / `run_argv_streaming` seams, with the cover pass, measurement and publication
+unchanged. Its benchmark prototype was byte-identical to production on every eligible book and 1.7-2.6x faster on long or
+many-chapter books (no growth with position, no extra disk, about 0.6 MB of audio buffered). C2 (cover in the same encode) is
+faster still on short chapters but changes the leading Xing frame, so it is the owner's call. Eligibility, budgets and the
+owner decisions are in the record (sections 7, 8, 10). The `-ss`-after-`-i` contract (`ACT.CONVERTER.PRIMING`) stays for
+today's route; the new route would need the owner to approve its own contract.
+
+**Method kept for 7B:** the fixture recipe, the headless panel harness with Job Object accounting, the selection probe and
+the analysis stay in the ignored evidence folder for this checkpoint (several standing tests police files under the gate
+folder, and no gate ran); 7B should promote them, with tests, into the reserved `m4b-scaling` qualification scenario.
+
+— Implemented by Claude Code under the owner's Phase 7A authority, 2026-11-10.
+
+---
+
 ## 2026-11-09 - The owner accepts v0.7.2 Phase 6 at 721c323; ACT72-030 waits for a later maintenance release; Phase 7A opens
 
 **Accepted.** The owner accepted Phase 6 at `721c323`, in their words: "I accept ACT v0.7.2 Phase 6 at 721c323, including the
