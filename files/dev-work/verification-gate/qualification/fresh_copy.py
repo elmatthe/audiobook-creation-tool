@@ -63,7 +63,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--copy", required=True, type=Path)
-    parser.add_argument("--mode", required=True, choices=("install", "repair", "status", "tools"))
+    parser.add_argument("--mode", required=True, choices=("install", "repair", "status", "tools", "next-start"))
     parser.add_argument("--stop-after-pip", type=float, default=None)
     args = parser.parse_args()
     copy = args.copy.resolve()
@@ -79,32 +79,47 @@ def main() -> int:
         if args.mode in ("install", "repair"):
             steps: list = []
             stop: dict = {}
+            returned_event = threading.Event()
+            watcher = None
             if args.stop_after_pip is not None:
                 def watch() -> None:
                     seen = None
-                    while not stop.get("asked"):
+                    while not returned_event.is_set():
                         proc = bootstrap._RUNNING_PIP
                         if proc is not None and proc.poll() is None:
                             seen = seen or time.monotonic()
                             if time.monotonic() - seen >= args.stop_after_pip:
-                                stop.update(asked=True, pip_pid=proc.pid, at=round(time.monotonic() - began, 2),
-                                            told_a_running_pip=bootstrap.request_setup_stop())
+                                # Written before the request is made: setup returns as soon as pip dies, which can be before
+                                # the request itself comes back, and the record must not depend on which is first.
+                                stop.update(asked=True, pip_pid=proc.pid, at=round(time.monotonic() - began, 2))
+                                stop["told_a_running_pip"] = bootstrap.request_setup_stop()
+                                stop["request_returned_at"] = round(time.monotonic() - began, 2)
                                 return
                         time.sleep(0.1)
 
-                threading.Thread(target=watch, daemon=True).start()
+                watcher = threading.Thread(target=watch, daemon=True)
+                watcher.start()
+            # What was below this process before setup began (the console host Windows gives a windowless console program) is not
+            # something setup started, so it is taken as the baseline.
+            before_setup = children_of_this_process()
+            record["children_before_setup"] = before_setup
             if args.mode == "install":
                 ok, final = bootstrap.run_setup(lambda step, message: steps.append([step, message, round(time.monotonic() - began, 1)]),
                                                 bootstrap.LOG)
             else:
                 ok, final = bootstrap.repair_venv(bootstrap.LOG, headless=True)
             returned = time.monotonic()
+            returned_event.set()
+            if watcher is not None:
+                watcher.join(30)
+                stop["watcher_finished"] = not watcher.is_alive()
             record.update(ok=bool(ok), final=str(final), steps=steps, stop=stop, seconds=round(returned - began, 1))
             if stop.get("asked"):
                 # Nothing of the stopped setup may outlive it: looked for at once and again after a short grace.
-                record["children_when_setup_returned"] = children_of_this_process()
+                record["started_by_setup_and_running_when_it_returned"] = [item for item in children_of_this_process() if item not in before_setup]
                 time.sleep(3)
-                record["children_three_seconds_later"] = children_of_this_process()
+                record["started_by_setup_and_running_three_seconds_later"] = [item for item in children_of_this_process()
+                                                                              if item not in before_setup]
                 record["stopped_message"] = bootstrap.SETUP_STOPPED_MESSAGE
             bootstrap.LOG.close()
         elif args.mode == "status":
@@ -157,8 +172,35 @@ def main() -> int:
             record["voices"] = voices
             record["voice_counts"] = {backend: sum(1 for key in voices if key.startswith(backend + ":")) for backend in voice_registry.BACKENDS}
             record["network_attempts"] = attempts
+            record["optional_files"] = {name: sum(1 for item in (copy / name).rglob("*") if item.is_file()) if (copy / name).exists() else 0
+                                        for name in (".venv/engines", "files/runtime-data/models", "files/runtime-data/chatterbox", ".venv-qwen3")}
             record["optional_folders"] = {name: (copy / name).exists() for name in
                                           (".venv/engines", "files/runtime-data/models", "files/runtime-data/chatterbox", ".venv-qwen3")}
+        elif args.mode == "next-start":
+            # What the next start of the app does before it opens its window, with the functions the launch path itself calls in
+            # that order (bootstrap._launch_with_kokoro_healthcheck). The two progress dialogs that path wraps them in are not
+            # shown here and no window is started: this is the decision and the repair, not the dialogs.
+            py = bootstrap.venv_python()
+            record["runs_on_the_copys_environment"] = Path(sys.executable).resolve().is_relative_to(copy / ".venv")
+
+            def reading() -> dict:
+                health = bootstrap.assess_venv_health(require_tk=True)
+                present, detail = bootstrap.required_modules_present(py)
+                return {"health": [health.state, health.reason], "requirements_current": bool(bootstrap.requirements_are_current()),
+                        "modules_present": bool(present), "modules_detail": str(detail)[:200]}
+
+            record["before"] = reading()
+            reconciled, message = bootstrap.ensure_requirements_current(bootstrap.LOG)
+            record.update(reconciled=bool(reconciled), message=str(message)[:400], after=reading())
+            if record["after"]["modules_present"]:
+                proved, proof_detail, version = bootstrap.prove_required_imports(py)
+                record["imports_proved"] = [proved, str(proof_detail)[:200], str(version)]
+            else:
+                record["imports_proved"] = [False, "not attempted: required packages are missing", ""]
+            ffmpeg = bootstrap.ensure_ffmpeg_ready_for_launch()
+            record.update(ffmpeg_ready=bool(ffmpeg.ready), ffmpeg_notice="" if ffmpeg.ready else str(ffmpeg.notice())[:300],
+                          seconds=round(time.monotonic() - began, 1))
+            bootstrap.LOG.close()
         elif args.mode == "tools":
             import tkinter as tk
             from tkinter import messagebox

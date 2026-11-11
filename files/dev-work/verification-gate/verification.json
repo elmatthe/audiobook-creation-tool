@@ -57,7 +57,7 @@
         "online-setup"
       ],
       "runner": "qualification/fresh_windows.py",
-      "detail": "the committed application packaged by the real packager and audited, extracted fresh, set up by the real first-run base setup, launched, repaired offline after controlled damage, stopped during setup and completed offline from kept files, and failed cleanly offline with nothing to reuse (qualification/fresh_windows.py); downloads about 2.9 GB into the gate's scratch, so it runs only with --network online-setup and is BLOCKED without it; a fresh extraction on this Windows 11 account, not a new Windows installation"
+      "detail": "the committed application packaged by the real packager and audited, extracted fresh, set up by the real first-run base setup, launched, repaired offline after controlled damage, stopped during setup and completed offline from kept files, failed cleanly offline with nothing to reuse and then finished by the next start once the network was back (qualification/fresh_windows.py); downloads about 1.6 GB into the gate's scratch, so it runs only with --network online-setup and is BLOCKED without it; a fresh extraction on this Windows 11 account, not a new Windows installation"
     }
   },
   "later_phase_requirements": [],

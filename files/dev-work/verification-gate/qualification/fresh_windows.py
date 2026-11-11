@@ -16,13 +16,18 @@ What it does, all of it in disposable folders in the gate's own scratch:
   extract B  seeded only with what A downloaded (its Python, its package files, its FFmpeg, its sentence data), network blocked:
              setup is stopped while pip runs (everything it started must be gone), then run again to completion. That is reuse of
              valid assets, offline, and recovery after a stop.
-  extract C  nothing seeded but Python, network blocked: setup must fail cleanly, say so, and leave no usable-looking environment.
+  extract C  nothing seeded but Python, network blocked: setup must fail and say so. Then the next start, still offline, with the
+             launch path's own functions: it must not take the failed setup for a finished installation, must say what it could
+             not do, and the application must still open. Then the same next start with the network back: it must finish the
+             installation by itself.
 
 **What this is and is not.** It is a fresh *extraction* on this Windows 11 computer under this user account, with PATH reduced to
 Windows' own folders and an empty LOCALAPPDATA, so no Python, FFmpeg or pip cache already on the machine can be found. It is not a
 new Windows installation, not Windows 10, and not another computer; this account's Windows settings still apply. No optional voice
-is downloaded: their absent state is what is checked. It needs the network for extract A (about 2.9 GB: Python 46 MB, packages
-2.5 GB, FFmpeg 251 MB, sentence data 4 MB), so it runs only with ``--network online-setup``; without it, it is BLOCKED.
+is downloaded: their absent state is what is checked. The launch path's repair dialogs and its one warning box are not driven
+here: the functions behind them are called directly, and the native journeys cover the setup window itself. It needs the network
+for extract A and for C's recovery (about 1.6 GB in all, measured: Python 46 MB once, package files 0.5 GB twice, FFmpeg 0.25 GB
+twice, sentence data 4 MB), so it runs only with ``--network online-setup``; without it, it is BLOCKED.
 """
 
 from __future__ import annotations
@@ -243,8 +248,9 @@ class Fresh:
         run.check("A: the environment check now says it can launch", self.venv_check(copy, name) == 0, self.venv_check(copy, name))
         store = tree_size(copy / "files" / "runtime-data" / "python-packages")
         run.check("A: the package files were kept for an offline repair", store[0] > 20, f"{store[0]} files, {store[1] // 2**20} MB")
-        run.check("A: FFmpeg is the app's own, inside its folder", (copy / "files" / "bin" / "ffmpeg.exe").is_file()
-                  and (copy / "files" / "bin" / "ffprobe.exe").is_file(), sorted(p.name for p in (copy / "files" / "bin").glob("*.exe")))
+        programs = sorted(str(item.relative_to(copy)) for item in (copy / "files" / "bin").rglob("ff*.exe"))
+        run.check("A: FFmpeg is the app's own, inside its folder", any(Path(item).name == "ffmpeg.exe" for item in programs)
+                  and any(Path(item).name == "ffprobe.exe" for item in programs), programs)
         venv = str(copy / ".venv" / "Scripts" / "python.exe")
         status = self.act("A-status", copy, venv, "status", offline=True, name=name, timeout=600)
         if status is not None:
@@ -259,9 +265,9 @@ class Fresh:
                                                                                          voices.items() if key.startswith("edge:")), counts)
             wrong = {key: value for key, value in optional.items() if value["usable"] is not False or not value["reason"].strip()}
             run.check("A: every optional voice says it is not installed, with a reason, and asking made no connection",
-                      bool(optional) and not wrong and not status["network_attempts"] and not any(status["optional_folders"].values()),
-                      wrong or {"voices": len(optional), "attempts": status["network_attempts"], "folders": status["optional_folders"],
-                                "reasons": sorted({value["reason"] for value in optional.values()})})
+                      bool(optional) and not wrong and not status["network_attempts"] and not any(status["optional_files"].values()),
+                      wrong or {"voices": len(optional), "attempts": status["network_attempts"], "model and engine files": status["optional_files"],
+                                "folders": status["optional_folders"], "reasons": sorted({value["reason"] for value in optional.values()})})
             unoffered = sorted(key for key, value in optional.items() if not value["offered"])
             run.check("A: the app would offer Install & Continue for each of them, and installs none by itself", not unoffered,
                       unoffered or sorted({str(value["offered"]) for value in optional.values()}))
@@ -307,11 +313,15 @@ class Fresh:
         stopped = self.act("B-stop", copy, python, "install", offline=True, name=name, timeout=1800, extra=["--stop-after-pip", "4"])
         if stopped is not None:
             stop = stopped["stop"]
-            run.check("B: setup was stopped while pip was running", bool(stop.get("asked")) and stop.get("told_a_running_pip") is True, stop)
+            run.check("B: setup was stopped while pip was running", bool(stop.get("asked")) and stop.get("told_a_running_pip") is True
+                      and stop.get("watcher_finished") is True, stop)
             run.check("B: it then ended as stopped, promptly, and said so", stopped["ok"] is False and stopped["final"] == stopped.get("stopped_message")
-                      and stopped["seconds"] - stop.get("at", 0) <= 20, f"{stopped['final'][:80]} {stopped['seconds'] - stop.get('at', 0):.1f} s after the stop")
-            run.check("B: nothing the stopped setup started was left running", not stopped.get("children_three_seconds_later"),
-                      {"at once": stopped.get("children_when_setup_returned"), "after 3 s": stopped.get("children_three_seconds_later")})
+                      and "at" in stop and stopped["seconds"] - stop["at"] <= 20,
+                      f"{stopped['final'][:80]} {stopped['seconds'] - stop.get('at', 0):.1f} s after the stop was asked for")
+            # The list has to be there and empty: a record with no list was never looked at, and is not a pass.
+            run.check("B: nothing the stopped setup started was left running", stopped.get("started_by_setup_and_running_three_seconds_later") == [],
+                      {"before setup": stopped.get("children_before_setup"), "at once": stopped.get("started_by_setup_and_running_when_it_returned"),
+                       "after 3 s": stopped.get("started_by_setup_and_running_three_seconds_later")})
         again = self.act("B-install", copy, python, "install", offline=True, name=name, timeout=3600)
         if again is not None:
             run.check("B: run again, setup completed with the network blocked, from the files already here", again["ok"],
@@ -328,14 +338,46 @@ class Fresh:
             return
         run.check("C: with no network and nothing to reuse, setup fails and says so", failed["ok"] is False and bool(failed["final"].strip()),
                   f"{failed['final'][:160]} after {failed['seconds']} s")
-        check = self.venv_check(copy, name)
-        run.check("C: what it left behind is not taken for a working environment", check != 0, f"--venv-check answered {check}")
         run.check("C: the setup log is there to read", any((copy / "files" / "runtime-data" / "logs").glob("setup_*.log")), "")
+        # ``--venv-check`` answers only whether the environment's Python can run; whether the installation is finished is decided by
+        # the launch that follows it. So the next start is what is asked, with the launch path's own functions (fresh_copy.py).
+        venv = str(copy / ".venv" / "Scripts" / "python.exe")
+        if not run.check("C: the failed setup left an environment whose Python runs", self.venv_check(copy, name) == 0, self.venv_check(copy, name)):
+            return
+        offline = self.act("C-next-start-offline", copy, venv, "next-start", offline=True, name=name, timeout=1800)
+        if offline is not None:
+            before, after = offline["before"], offline["after"]
+            run.check("C: the next start does not take the failed setup for a finished installation",
+                      before["requirements_current"] is False and before["modules_present"] is False, before)
+            run.check("C: still offline it cannot finish, says so, and records nothing as installed", offline["reconciled"] is False
+                      and bool(offline["message"].strip()) and after["requirements_current"] is False and after["modules_present"] is False,
+                      {"message": offline["message"], "after": after})
+            run.check("C: FFmpeg is said to be unavailable, with the reason", offline["ffmpeg_ready"] is False and bool(offline["ffmpeg_notice"].strip()),
+                      offline["ffmpeg_notice"][:200])
+        tools = self.act("C-tools", copy, venv, "tools", offline=True, name=name, timeout=600)
+        if tools is not None:
+            run.check("C: as its message says, the application still opens: the launcher builds all six tools with no error",
+                      Path(tools["output_base"]).is_relative_to(run.root) and len(tools["offered"]) == 6 and all(shown for _key, shown in tools["visited"])
+                      and not tools["errors"] and not tools["output_created"], {"offered": tools["offered"], "errors": tools["errors"][:2]})
+        online = self.act("C-next-start-online", copy, venv, "next-start", offline=False, name=name, timeout=5400)
+        if online is None:
+            return
+        after = online["after"]
+        run.check("C: with the network back, the next start finishes the installation by itself", online["reconciled"] is True
+                  and after["requirements_current"] is True and after["modules_present"] is True and online["imports_proved"][0] is True,
+                  {"message": online["message"], "after": after, "imports": online["imports_proved"], "seconds": online["seconds"]})
+        run.check("C: and FFmpeg is the app's own again, proved", online["ffmpeg_ready"] is True, online["ffmpeg_notice"] or "ready")
+        status = self.act("C-status", copy, venv, "status", offline=True, name=name, timeout=600)
+        if status is not None:
+            run.check("C: the recovered environment imports what the app needs and its FFmpeg is inside its folder",
+                      all(value is True for value in status["imports"].values()) and status["ffmpeg_verified"]
+                      and Path(status["ffmpeg"]).resolve().is_relative_to(copy), {"imports": status["imports"], "ffmpeg": status["ffmpeg"],
+                                                                                   "sentence data": status["sentence_data_problem"] or "in place"})
 
 
 def body(run: common.Scenario) -> None:
     if run.args.network != "online-setup":
-        raise common.Blocked("a first-run setup downloads the app's Python, packages and FFmpeg (about 2.9 GB) and this run was not given "
+        raise common.Blocked("a first-run setup downloads the app's Python, packages and FFmpeg (about 1.6 GB in this scenario) and this run was not given "
                              "--network online-setup; nothing was downloaded")
     if sys.platform != "win32":
         raise common.Blocked("this scenario is Windows'")
