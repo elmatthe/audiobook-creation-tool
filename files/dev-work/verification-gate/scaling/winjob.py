@@ -4,6 +4,12 @@ Promoted unchanged in substance from Phase 7A's evidence tools for the m4b-scali
 
 The harness puts itself in a new job, so every FFmpeg/ffprobe it starts is counted: total processes, CPU, I/O bytes and
 the peak commit of the whole tree. KILL_ON_JOB_CLOSE means no child can outlive the harness.
+
+**What the job's peak commit counts** (measured, v0.7.2 Phase 8 remediation). Windows keeps charging a job for a process
+that has exited for as long as anyone holds a handle to it: about 77 KB each on the qualification machine, gone the
+moment the handle is closed. A harness that keeps every child's ``Popen`` object therefore adds that much per child to
+the figure it is trying to read (155 MB of 236 MB on the 1,000-chapter book), and the sum is not the same twice.
+``bench_run.py`` reads a child's figures when it ends and lets it go; nothing here keeps a handle either.
 """
 from __future__ import annotations
 
@@ -86,6 +92,67 @@ class Job:
             "read_bytes": basic.Io.ReadTransferCount, "write_bytes": basic.Io.WriteTransferCount,
             "peak_process_commit": ext.PeakProcessMemoryUsed, "peak_job_commit": ext.PeakJobMemoryUsed,
         }
+
+
+    def process_ids(self) -> list[int]:
+        """The processes in the job right now (``JobObjectBasicProcessIdList``)."""
+        listed = _IdList()
+        if not _k.QueryInformationJobObject(self.handle, 3, ctypes.byref(listed), ctypes.sizeof(listed), None):
+            return []
+        return [int(listed.ProcessIdList[index]) for index in range(listed.NumberOfProcessIdsInList)]
+
+    def children_of(self, parent: int) -> list[dict]:
+        """Every process in the job whose parent is *parent*, each with a query handle the caller must close.
+
+        Windows gives a hidden console program its own console host (``conhost.exe``), started as that program's child:
+        this is how the harness finds the one that belongs to the continuous decoder (v0.7.2 Phase 8 remediation).
+        """
+        found = []
+        for pid in self.process_ids():
+            if pid == parent:
+                continue
+            handle = _k.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                continue
+            info = _BasicInformation()
+            if _nt.NtQueryInformationProcess(handle, 0, ctypes.byref(info), ctypes.sizeof(info), None) == 0 \
+                    and int(info.InheritedFromUniqueProcessId or 0) == parent:
+                found.append({"pid": pid, "image": image_name(handle), "handle": int(handle)})
+            else:
+                _k.CloseHandle(handle)
+        return found
+
+
+class _IdList(ctypes.Structure):
+    _fields_ = [("NumberOfAssignedProcesses", w.DWORD), ("NumberOfProcessIdsInList", w.DWORD),
+                ("ProcessIdList", ctypes.c_size_t * 1024)]
+
+
+class _BasicInformation(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_void_p) for name in ("ExitStatus", "PebBaseAddress", "AffinityMask", "BasePriority",
+                                                     "UniqueProcessId", "InheritedFromUniqueProcessId")]
+
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_nt = ctypes.WinDLL("ntdll")
+_nt.NtQueryInformationProcess.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
+_k.OpenProcess.restype = w.HANDLE
+_k.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+_k.CloseHandle.argtypes = [w.HANDLE]
+_k.QueryFullProcessImageNameW.argtypes = [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)]
+
+
+def image_name(handle: int) -> str:
+    """The file name of a process's image, lower case, or ``?``."""
+    buffer = ctypes.create_unicode_buffer(1024)
+    size = w.DWORD(1024)
+    if not _k.QueryFullProcessImageNameW(w.HANDLE(handle), 0, buffer, ctypes.byref(size)):
+        return "?"
+    return buffer.value.replace("/", "\\").rsplit("\\", 1)[-1].lower()
+
+
+def close_handle(handle: int) -> None:
+    _k.CloseHandle(w.HANDLE(handle))
 
 
 def _ft(value: w.FILETIME) -> float:

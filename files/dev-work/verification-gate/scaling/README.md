@@ -41,11 +41,39 @@ encoder fault kills the K-th encoder from the feed after its first block of audi
 exits long before any fixed delay. Each run's log line gives the machine's load before and during it and this run's own
 share, so contention is visible rather than guessed; the qualification should run while nobody uses the machine.
 
+**How T4 and T5 are measured** (v0.7.2 Phase 8 remediation; the budgets did not move). Three things the harness read
+were not the Converter, and each failed or nearly failed a run on the 1,000-chapter book:
+
+* *The job's peak commit.* Windows keeps charging a job for an exited process while anyone holds a handle to it (about
+  77 KB each here). The harness kept every child's `Popen` object, so 155 MB of that book's 236 MB "peak" was its own
+  bookkeeping, different by up to 1.5 MB between identical runs, against a 1 MiB allowance. A child's figures are now
+  read when it ends and it is let go (`bench_run.Child`), so the figure is what the job's live processes hold.
+* *One more FFmpeg.* Windows starts a console host (`conhost.exe`) for every hidden console child. The decoder's lives
+  as long as the decoder, so it is part of what one more FFmpeg open of the book costs the job. The harness finds it
+  (`winjob.Job.children_of`) and T4's envelope is the seeking route's peak, the decoder at its own peak, that one
+  console host at its own peak, and 1 MiB for the audio. Nothing else is allowed for, and nothing that was not measured.
+* *Staged bytes.* The total is at its peak for a few milliseconds per chapter, at the end of the cover pass; a sample
+  every 0.5 s mostly misses it, so two routes that stage the same files read different "peaks" by chance. The harness
+  now reads every owned temporary's real size at each moment the total can only fall next (just before a temporary is
+  discarded and just before a staged file is published: `bench_run.StagingCensus`). Staged media is compared exactly,
+  with no allowance, and the seeking route's own runs must agree with each other to the byte. FFmpeg's diagnostics
+  files are read at the same moments but apart: at its default verbosity FFmpeg lists the book's chapters into them
+  (123 KB per pass on 1,000 chapters) and their length differs by a few bytes between identical runs, so they are held
+  to the 1.05 x this scenario applies to writes. The 0.5 s sampler stays as a witness: it must never see more than
+  the exact reading, or something lowered the total without being read.
+
+"No PCM on disk" keeps its total comparison (the job's writes less the two counted pipes, at most 1.05 x the seeking
+route's) and gains the direct figures for the two processes that touch the audio: every byte the decoder wrote is its
+stream or its own diagnostics file, and the application wrote nothing beyond its feed to the encoders but what it writes
+on the seeking route as well. `qualify.resource_checks` judges all of it from the runs' summaries;
+`qualify.py --smoke` rehearses it on the 100-chapter book, and `--smoke --rehearse resources --code <a copy of scripts>`
+measures a copy with a planted defect (its verdict is SMOKE, never PASS).
+
 **Budgets** (Phase 7A record section 8, approved for 7B): T1 6 h/48 chapters at least 2.0x median wall and process-tree
 CPU; T1b 1,000 chapters at least 1.8x wall and 2.0x CPU; T2 below the threshold the seeking route, above it at most 10 %
 slower beyond same-session noise; T3 per-chapter slope at most 0.1 s per hour of prefix and last/first quarter at most
-1.15; T4 at most 1 MiB of audio held, no PCM on disk, job peak within the seeking route's plus the decoder's own plus
-1 MiB; T5 staged bytes no higher; T6 heartbeat p99 at most 0.25 s and no stall over 2 s; T7 Cancel settled within 2 s,
+1.15; T4 at most 1 MiB of audio held, no PCM on disk, job peak within the seeking route's plus one more FFmpeg open of
+the book plus 1 MiB; T5 staged bytes no higher; T6 heartbeat p99 at most 0.25 s and no stall over 2 s; T7 Cancel settled within 2 s,
 every owned process reaped; T8 every output equal to the pinned reference, ineligible books on the seeking route. The
 12-hour book's ratio is reported, without a throughput budget. The budgets are frozen in `qualify.py` and are not moved
 after a failed run.

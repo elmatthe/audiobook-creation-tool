@@ -364,6 +364,8 @@ def _record_problems(directory: Path, results: dict) -> list[str]:
         if not start.get("nonce") or start.get("nonce") != results.get("nonce"):
             problems.append(f"{START_NAME} and {RESULTS_NAME} are not from the same run (nonce)")
     problems += _artifact_problems(directory, results.get("artifacts"), results)
+    if results.get("mode") == "qualification":
+        problems += _scenario_problems(directory, results)
     if results.get("status") == "PASS":
         problems += _pass_problems(results)
     return problems
@@ -415,8 +417,76 @@ def _pass_problems(results: dict) -> list[str]:
     if results.get("cleanup", {}).get("owned_children_remaining") != 0:
         problems.append("PASS without a clean process cleanup")
     counts = results.get("counts") or {}
-    if not (counts.get("executed") or counts.get("journeys_passed")):
+    if results.get("mode") == "qualification":
+        # A qualification collects no test and runs no journey: what it executed is one scenario, and the scenario's own
+        # verdict is its evidence. Until v0.7.2 Phase 8 the rule below was applied here as well, so every true
+        # qualification PASS read INVALID. What stands in its place is checked by _scenario_problems.
+        ran = (results.get("qualification") or {}).get("ran") or {}
+        if list(ran.values()) != ["PASS"]:
+            problems.append(f"a qualification PASS whose scenarios ended {ran}")
+        elif (results.get("qualification") or {}).get("satisfied") != list(ran):
+            problems.append(f"a qualification PASS that does not name {list(ran)} as satisfied")
+    elif not (counts.get("executed") or counts.get("journeys_passed")):
         problems.append("PASS with no executed tests")
+    return problems
+
+
+#: What a scenario's runner must exit with for its verdict to stand (verify.py, check_scenario).
+_SCENARIO_EXIT = {"PASS": EXIT_PASS, "FAIL": EXIT_FAIL, "BLOCKED": EXIT_BLOCKED}
+SCENARIO_VERDICT = "qualification/verdict.json"
+
+
+def _scenario_problems(directory: Path, results: dict) -> list[str]:
+    """Whether a qualification run's sealed scenario result follows from the scenario's own verdict and its runner's exit.
+
+    The gate seals PASS for a scenario only when its runner exited 0 having written a PASS verdict; FAIL or BLOCKED when
+    the verdict says so; FAIL when a PASS verdict came with any other exit. A reader takes none of that on trust: the
+    verdict must be part of the sealed evidence (so its bytes are the ones the run wrote), readable, about this scenario,
+    and it and the recorded exit must lead to the sealed result. A PASS must also have run something: checks, every one
+    passed, and at least one run. A run whose scenario never reached a verdict has nothing to compare and is left as
+    sealed: it can only be FAIL, BLOCKED or NOT RUN, because a PASS needs a scenario that ended PASS.
+    """
+    ran = (results.get("qualification") or {}).get("ran")
+    if not isinstance(ran, dict) or not ran:
+        return []
+    if len(ran) != 1:
+        return [f"a qualification run that recorded {len(ran)} scenarios"]
+    (name, sealed), = ran.items()
+    problems: list[str] = []
+    checks = [c for c in results.get("checks") or [] if isinstance(c, dict) and c.get("name") == f"scenario:{name}"]
+    if len(checks) != 1 or checks[0].get("status") != sealed or checks[0].get("required", True) is not True:
+        problems.append(f"scenario {name} is recorded as {sealed} but its check says "
+                        f"{[c.get('status') for c in checks] or 'nothing'}")
+    stages = [s for s in results.get("stages") or [] if isinstance(s, dict) and s.get("name") == f"qualification:{name}"]
+    if len(stages) != 1:
+        return problems + [f"scenario {name} has {len(stages)} recorded runs of its runner"]
+    ended, code = stages[0].get("ended"), stages[0].get("returncode")
+    listed = {item.get("path") for item in results.get("artifacts") or [] if isinstance(item, dict)}
+    if SCENARIO_VERDICT not in listed:
+        return problems + [f"scenario {name}'s verdict is not part of the sealed evidence"]
+    try:
+        verdict = json.loads((Path(directory) / SCENARIO_VERDICT).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return problems + [f"scenario {name}'s verdict is missing or unreadable: {type(exc).__name__}"]
+    if not isinstance(verdict, dict) or verdict.get("scenario") != name:
+        return problems + [f"{SCENARIO_VERDICT} is not the verdict of scenario {name}"]
+    said = verdict.get("status") if verdict.get("status") in _SCENARIO_EXIT else "FAIL"
+    follows = said if said != "PASS" or (ended == "exited" and code == EXIT_PASS) else "FAIL"
+    if follows != sealed:
+        problems.append(f"scenario {name} is sealed {sealed}, but its verdict says {verdict.get('status')!r} and its "
+                        f"runner {ended} with exit {code!r}: that makes {follows}")
+    if sealed == "PASS":
+        judged = verdict.get("checks")
+        if not isinstance(judged, list) or not judged:
+            problems.append(f"scenario {name} passed with no checks in its verdict")
+        else:
+            bad = [c.get("name") if isinstance(c, dict) else repr(c) for c in judged
+                   if not isinstance(c, dict) or c.get("status") != "PASS"]
+            if bad:
+                problems.append(f"scenario {name} passed with checks not passed in its verdict: {bad[:8]}")
+        runs = verdict.get("runs")
+        if isinstance(runs, bool) or not isinstance(runs, int) or runs < 1:
+            problems.append(f"scenario {name} passed having made no run ({runs!r})")
     return problems
 
 

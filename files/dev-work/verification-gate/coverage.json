@@ -21653,19 +21653,41 @@
           "path": "files/dev-work/verification-gate/helpers/runstore.py",
           "symbols": [
             "reserve_run_dir",
-            "read_run_status"
+            "read_run_status",
+            "_scenario_problems"
           ]
         },
         {
           "path": "files/dev-work/verification-gate/helpers/pytest_reports.py",
           "symbols": []
+        },
+        {
+          "path": "files/dev-work/verification-gate/scaling/qualify.py",
+          "symbols": [
+            "resource_checks"
+          ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/scaling/bench_run.py",
+          "symbols": [
+            "Child",
+            "StagingCensus"
+          ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/scaling/winjob.py",
+          "symbols": [
+            "Job"
+          ]
         }
       ],
       "contracts": [
         "one canonical entry point with focused, changed, full and qualification modes",
         "a run without agreeing records, or that ran nothing, is never PASS",
         "each run owns a new directory and a later status read rejects copied, changed or stale evidence",
-        "Every qualification scenario has a runner (m4b-scaling since Phase 7B; edge-low-memory, optional-engines and fresh-windows since Phase 8, under qualification/). A scenario that needs the network runs only with the --network policy it declares, handed on by name, and is BLOCKED without it; a missing application, engine or model is BLOCKED, never a pass."
+        "Every qualification scenario has a runner (m4b-scaling since Phase 7B; edge-low-memory, optional-engines and fresh-windows since Phase 8, under qualification/). A scenario that needs the network runs only with the --network policy it declares, handed on by name, and is BLOCKED without it; a missing application, engine or model is BLOCKED, never a pass.",
+        "a sealed qualification result is read through its scenario: PASS only when the scenario's verdict is part of the sealed evidence, says PASS with checks that all passed and at least one run, and its runner exited 0; a verdict or a runner exit that does not lead to the sealed result makes the record invalid",
+        "the m4b-scaling harness reads what it compares: no handle to an exited child is kept, the decoder's console host is found and measured, and staged bytes are read exactly at every discard and publication; a figure that was not measured fails its check"
       ],
       "selection": [
         "files/tests/test_verification_gate_contract.py",
@@ -21709,6 +21731,66 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_verification_gate_contract.py::test_a_network_policy_another_scenario_declares_is_refused_before_anything_exists"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_sealed_qualification_pass_reads_pass"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_no_executed_tests_rule_still_stands_for_every_other_mode"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_sealed_qualification_fail_stays_fail"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_sealed_qualification_blocked_stays_blocked"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_qualification_stopped_part_way_is_incomplete_and_never_a_pass"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_resealed_qualification_pass_that_its_own_verdict_contradicts_is_invalid[says-fail]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_resealed_qualification_pass_that_its_own_record_contradicts_is_invalid[runner-exit-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_qualification_fail_cannot_be_resealed_into_a_pass"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_resource_checks_pass_a_run_that_keeps_every_budget"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_t4_holds_the_job_peak_to_the_seeking_peak_one_more_ffmpeg_and_one_mebibyte"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_t4_fails_on_a_buffer_over_the_limit_or_any_audio_written_to_disk[the-decoder-spools-its-stream]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_t5_compares_exact_staged_media_with_no_allowance"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_staging_census_reads_the_exact_peak_of_media_and_diagnostics_apart"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_benchmark_child_is_let_go_once_it_has_ended"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_decoders_console_host_is_found_among_the_jobs_processes"
           }
         ]
       },
@@ -23796,6 +23878,44 @@
       ],
       "evidence": "v0.7.2 Phase 8 final full gate on 052bef1 (2026-11-10_175132_full_3527): launcher.six-tools-at-three-sizes BLOCKED, 'another window covers the owned window at 166,1043'; the window at that point was Shell_TrayWnd (0,1032)-(1920,1080). The same refusal in 2026-11-10_083655_changed_26e7. With the window placed lower the bottom row of points fell below the screen and the picture was kept: tts-1400x900.png and the other five 1400x900 pictures of 2026-11-09_170309_full_7178 (the Phase 7B full gate) and of 2026-11-10_123220_changed_422d show the taskbar and a black band, and hide the window's last 107 rows",
       "resolution": "Fixed in v0.7.2 Phase 8: native_input.resize_client moves a window that would reach past its monitor's work area back inside it and refuses a size the work area cannot hold; native_input.screenshot tests the rectangle every four pixels and along its far edges and refuses a point on no monitor; resize_and_check records that the whole client area is inside the work area at each size. control.partly-hidden-window-is-not-pictured places a strip that all 25 former points miss and then hangs the window off the desktop, and passes only when both pictures are refused. No check was removed or relaxed. The pictures kept by earlier runs are unchanged evidence of those runs; the six 1400x900 candidates from them are not fit to be baselines and the candidate list of the final gate replaces them."
+    },
+    {
+      "id": "ACT72-067",
+      "severity": "Major",
+      "phase": 8,
+      "status": "closed",
+      "title": "verify.py --status read every sealed qualification PASS as INVALID ('PASS with no executed tests'): a qualification collects no test and runs no journey, and the reader applied the rule of the other modes to it. It could refuse a true PASS; it could not certify a false one",
+      "features": [
+        "ACT.GATE.RUNNER"
+      ],
+      "evidence": "v0.7.2 Phase 8 recovery: the Phase 7B run 2026-11-10_124457_qualification_c208 and the three Phase 8 runs 2026-11-10_201840_qualification_aeef, 2026-11-10_202939_qualification_0902 and 2026-11-10_203702_qualification_3396 all read INVALID at 75436ee. files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/08-reader-dry-run-on-saved-runs.txt reads every saved run with the old and the corrected reader: those four change to PASS and no other reading changes",
+      "resolution": "Fixed in the v0.7.2 Phase 8 remediation: runstore.read_run_status judges a qualification by its scenario (_scenario_problems). The scenario's verdict must be part of the sealed evidence, readable and about that scenario, and it and the recorded exit of its runner must lead to the sealed result in both directions; a PASS must also hold checks, every one passed, and at least one run. The rule for every other mode is unchanged, FAIL, BLOCKED and INCOMPLETE read as before, and the identity and environment comparison is untouched. Tests through the public --status on real runs of a real runner: a PASS, a FAIL, a BLOCKED, a PASS verdict with a failing exit, a run killed part way, a verdict missing, truncated or rewritten, eight resealed verdicts and nine resealed records that contradict themselves, a FAIL resealed as PASS, and changed documents, policy and source (files/tests/test_verification_gate_contract.py). No saved run was rewritten."
+    },
+    {
+      "id": "ACT72-068",
+      "severity": "Major",
+      "phase": 8,
+      "status": "closed",
+      "title": "m4b-scaling's T4 compared a job peak that was mostly the harness's own bookkeeping, against an envelope that left out one process: bench_run.py kept a handle to every exited child, Windows charges a job about 77 KB for each (155 MB of 236 MB on the 1,000-chapter book, different by up to 1.5 MB between identical runs), and the envelope counted the decoder's FFmpeg but not the console host Windows starts with it. One run in each of two sessions was over by 0.1 and 0.21 MB against a 1 MiB allowance",
+      "features": [
+        "ACT.GATE.RUNNER",
+        "ACT.CONVERTER.SCALING"
+      ],
+      "evidence": "T4:scale1000:tput-scale1000-181 of 2026-11-10_222147_qualification_95eb: 266,633,216 bytes against 236,277,760 + 29,097,984 + 1,048,576 (208,896 over); Phase 7B's first attempt, 0.1 MB over (Phase 7A record section 13.5). Measured cause: files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/02-forensic-findings.md with 01-forensics.txt (every saved run decomposed), 04-job-residue-300.txt and 04-job-residue-held-handles.txt (300 children: nothing charged once let go, 77.5 KB each while held), 03-job-census-*.json (what is alive at the peak), 05-console-host-parent.txt, 09-replay.txt",
+      "resolution": "Fixed in the v0.7.2 Phase 8 remediation, in the measurement and not in the budget: bench_run.py reads a child's figures when it ends and lets it go (Child.settle), so the job's peak is what its live processes hold; it finds the decoder's console host among the job's processes (winjob.Job.children_of) and records its peak; qualify.resource_checks holds the job peak to the seeking route's peak plus the decoder at its own peak plus that one console host at its own peak plus 1 MiB, and allows for nothing that was not found and measured. 'No PCM on disk' keeps its total comparison and gains the direct figures: every byte the decoder wrote is its stream or its diagnostics file, and the application wrote nothing beyond its feed but what it writes on the seeking route. T1-T8 and T1b, the fixtures and the pinned reference are unchanged. Planted defects measured on copies of the application each fail the part that names them, and an unchanged copy passes (files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/10-controls.md); the judge's own tests are in files/tests/test_verification_gate_contract.py."
+    },
+    {
+      "id": "ACT72-069",
+      "severity": "Major",
+      "phase": 8,
+      "status": "closed",
+      "title": "m4b-scaling's T5 compared two chance samples with no allowance: staged bytes were sampled every 0.5 s, the total is at its peak for a few milliseconds per chapter, and the figure also counted FFmpeg's diagnostics file (123 KB of chapter listing per pass on the 1,000-chapter book). Both routes stage the same files; one run read 68 bytes more than the seeking route's largest sample",
+      "features": [
+        "ACT.GATE.RUNNER",
+        "ACT.CONVERTER.SCALING"
+      ],
+      "evidence": "T5:scale1000:tput-scale1000-180 of 2026-11-11_011239_qualification_2dbf: 215,796 against 215,728. files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/02-forensic-findings.md and 09-replay.txt: all 18 sampled peaks of that book in three sessions (215,302 to 215,936) are below what one chapter's two passes leave staged at the end of the cover pass, and 215,796 is a value the seeking route itself recorded in two earlier sessions",
+      "resolution": "Fixed in the v0.7.2 Phase 8 remediation: bench_run.StagingCensus reads the real size of every owned temporary just before each discard and each publication, the only moments the total can fall, so the largest reading is the peak. Staged media is compared exactly, with no allowance, and the seeking route's own runs must agree to the byte; nothing may be left behind; every publication must have been read. FFmpeg's diagnostics files are read at the same moments, apart, and held to the 1.05 x the scenario applies to writes, because their length differs by a few bytes between identical runs. The 0.5 s sampler stays as a witness that must never see more than the exact reading. No threshold was widened and no fixture changed. One more staged copy of a chapter, and a decoded-audio spool kept as an owned temporary, each fail T5 on a copy of the application (files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/10-controls.md); tests in files/tests/test_verification_gate_contract.py."
     }
   ],
   "source_review": {

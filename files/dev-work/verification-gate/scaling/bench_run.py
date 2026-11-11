@@ -30,6 +30,18 @@ Promoted from Phase 7A's evidence harness. One process per measurement:
   mid-chapter (a fixed delay missed it: a 1.5 s chapter's encoder lives about 40 ms).
 * Pipe bytes are counted exactly (read from the decoder, written to the encoders), because Windows counts a pipe write
   as a write: the qualification takes them off the job's write bytes before asking whether anything was spooled.
+* **No handle to an exited child is kept** (v0.7.2 Phase 8 remediation). Windows charges a job about 77 KB for every
+  exited process someone still holds a handle to, so a harness that kept every child's ``Popen`` object read its own
+  bookkeeping as the job's peak commit: 155 MB of 236 MB on the 1,000-chapter book, and not the same twice. A child's
+  figures are read when it ends and it is let go (``Child.settle``).
+* **The continuous decoder's console host is found and measured.** Windows starts one (``conhost.exe``) for every hidden
+  console child; the decoder's lives as long as the decoder, so it is part of what one more FFmpeg costs the job.
+* **Staged bytes are read exactly, not sampled** (``StagingCensus``). The application lowers what it has staged only by
+  discarding one of its temporaries or by publishing a staged file, both through ``shared.output_paths``; between those
+  moments the total can only grow. Each is wrapped, and the real size of every ``.act-tmp-*`` file under the output base
+  is read just before it, so the largest reading is the peak. Staged media and FFmpeg's own diagnostics files are
+  counted apart: the media's sizes are fixed by the outputs, the diagnostics text is not. The 0.5 s sampler stays as an
+  independent witness: it must never see more than the census did.
 
 Writes ``results.json`` into ``--out``. Exit 0 when the run completed as asked (whatever the run's own state), 3 when
 containment refused it, 4 when the harness itself failed.
@@ -123,6 +135,105 @@ def neutralize_shell(sp_module, converter_module, os_module, reveals: list) -> N
         raise Refused("the file manager could still be opened from this run")
 
 
+class Child:
+    """One child this run started. Its ``Popen`` object, and with it the open handle to the process, is kept only while
+    the child runs: an exited process someone still holds a handle to stays charged to the job (module docstring)."""
+
+    def __init__(self, kind: str, proc, started: float) -> None:
+        self.kind, self.pid, self.started = kind, proc.pid, started
+        self.proc = proc
+        self.facts: dict | None = None
+
+    def alive(self) -> bool:
+        proc = self.proc
+        return proc is not None and proc.poll() is None
+
+    def settle(self) -> dict:
+        """The child's CPU, peaks and I/O: read once it has ended, and then its handle is let go."""
+        proc = self.proc
+        if proc is None:
+            return self.facts or {}
+        facts = winjob.process_facts(int(proc._handle))
+        if proc.poll() is None:
+            return facts  # still running: a reading, and the handle stays
+        self.facts, self.proc = facts, None
+        return facts
+
+
+TEMPORARY_PREFIX = ".act-tmp-"
+#: The application's FFmpeg diagnostics files: ``.act-tmp-ffmpeg-*.log`` for a pass, ``.act-tmp-decoder-*.log`` for the
+#: continuous decoder. Everything else it stages under the output base is media.
+DIAGNOSTICS_SUFFIX = ".log"
+
+
+class StagingCensus:
+    """Exactly what the application has staged under one output base, read at the moments it can only fall next.
+
+    ``read`` adds up the real size of every ``.act-tmp-*`` file under the base. ``wrap`` puts a reading in front of the
+    two things that lower the total (``discard_temporary`` and ``atomic_replace`` of ``shared.output_paths``), so the
+    largest reading is the peak: between two such moments files are only created and written. Nothing else is changed.
+    """
+
+    def __init__(self, base: Path) -> None:
+        self.base = str(base)
+        self.readings = {"discard": 0, "publish": 0, "end": 0}
+        self.peak = {"media_bytes": 0, "media_files": 0, "diagnostics_bytes": 0, "diagnostics_files": 0,
+                     "total_bytes": 0, "total_files": 0}
+        self.at_peak: dict = {}
+        self.left: dict | None = None
+        self._lock = threading.Lock()
+
+    def read(self, moment: str) -> dict:
+        media, logs = [], []
+        for folder, _subs, names in os.walk(self.base):
+            for name in names:
+                if name.startswith(TEMPORARY_PREFIX):
+                    try:
+                        size = os.stat(os.path.join(folder, name)).st_size
+                    except OSError:
+                        continue  # gone between the listing and the reading: not staged any more
+                    (logs if name.endswith(DIAGNOSTICS_SUFFIX) else media).append(size)
+        now = {"media_bytes": sum(media), "media_files": len(media), "diagnostics_bytes": sum(logs),
+               "diagnostics_files": len(logs), "total_bytes": sum(media) + sum(logs), "total_files": len(media) + len(logs)}
+        with self._lock:
+            self.readings[moment] = self.readings.get(moment, 0) + 1
+            for key, value in now.items():
+                if value > self.peak[key]:
+                    self.peak[key] = value
+                    if key in ("media_bytes", "total_bytes"):
+                        self.at_peak[key] = {"moment": moment, "media": sorted(media), "diagnostics": sorted(logs)}
+        return now
+
+    def wrap(self, output_paths_module) -> None:
+        real_discard, real_replace = output_paths_module.discard_temporary, output_paths_module.atomic_replace
+
+        def discard_temporary(path, *args, **kwargs):
+            if path is not None:
+                self.read("discard")
+            return real_discard(path, *args, **kwargs)
+
+        def atomic_replace(temporary, target, *args, **kwargs):
+            self.read("publish")
+            return real_replace(temporary, target, *args, **kwargs)
+
+        output_paths_module.discard_temporary = discard_temporary
+        output_paths_module.atomic_replace = atomic_replace
+
+    def finish(self) -> None:
+        """One last reading once the run has settled: what is still staged then was left behind."""
+        self.left = self.read("end")
+
+    def record(self) -> dict:
+        left = self.left or {}
+        return {"method": "the real size of every owned temporary, read just before each discard and each publication",
+                "peak_media_bytes": self.peak["media_bytes"], "peak_media_files": self.peak["media_files"],
+                "peak_diagnostics_bytes": self.peak["diagnostics_bytes"],
+                "peak_diagnostics_files": self.peak["diagnostics_files"],
+                "peak_total_bytes": self.peak["total_bytes"], "peak_total_files": self.peak["total_files"],
+                "readings_before_discard": self.readings["discard"], "readings_before_publish": self.readings["publish"],
+                "at_peak": self.at_peak, "left_bytes": left.get("total_bytes"), "left_files": left.get("total_files")}
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--code", required=True, type=Path, help="the scripts folder of the code under test")
@@ -148,9 +259,13 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed, pipe, kill_target) -> None:
+def instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed, pipe, kill_target, job) -> None:
     """Timers, pipe byte counts and records around the continuous route; the decoder kill, and the armed encoder kill,
-    when asked. Behaviour is otherwise unchanged."""
+    when asked. Behaviour is otherwise unchanged.
+
+    The decoder's record also names the processes Windows started for it (its console host), each at its own peak, and
+    the size of its diagnostics file, so the qualification can account for every byte the decoder wrote and for
+    everything the job holds because of that one FFmpeg."""
     real_qualify = m4b_continuous.qualify
 
     def qualify(source, report, **k):
@@ -181,6 +296,10 @@ def instrument_continuous(m4b_continuous, decisions, decoders, current, args, ki
 
     def timed_feed(self, write, first, count, *, last):
         feed_calls["n"] += 1
+        if not getattr(self, "_bench_companions", None) and self._proc is not None:
+            # By its first feed the decoder is running, so the console host Windows gave it exists. Looked for again at
+            # each feed until it is found: what was not found is not allowed for (qualify.resource_checks).
+            self._bench_companions = job.children_of(self._proc.pid)
         if args.kill == "decoder" and feed_calls["n"] == args.kill_at and not killed:
             self._proc.kill()
             self._proc.wait(30)
@@ -206,12 +325,25 @@ def instrument_continuous(m4b_continuous, decisions, decoders, current, args, ki
         return real_feed(self, timed_write, first, count, last=last)
 
     def recorded_close(self):
+        diagnostics = getattr(self, "_diagnostics", None)
+        try:
+            diagnostics_bytes = os.stat(diagnostics).st_size if diagnostics is not None else None
+        except OSError:
+            diagnostics_bytes = None
         reaped = real_close(self)
         if not getattr(self, "_bench_recorded", False) and self._proc is not None:
             self._bench_recorded = True
+            companions = []
+            for companion in getattr(self, "_bench_companions", None) or []:
+                facts = winjob.process_facts(companion["handle"])
+                winjob.close_handle(companion["handle"])
+                companions.append({"pid": companion["pid"], "image": companion["image"],
+                                   "peak_commit": facts.get("peak_commit"), "write_bytes": facts.get("write_bytes")})
+            self._bench_companions = []
             decoders.append({"source": self._source.name, "peak_buffered": self.peak_buffered,
                              "position": self.position, "total": self.route.total_samples,
                              "returncode": self.returncode, "reaped": reaped,
+                             "diagnostics_bytes": diagnostics_bytes, "companions": companions,
                              **winjob.process_facts(int(self._proc._handle))})
         return reaped
 
@@ -290,6 +422,12 @@ def main(argv=None) -> int:
         return real_reserve(tool_key, *a, **k)
 
     output_paths.reserve_run_directory = reserve_run_directory
+    staging = StagingCensus(output_base)
+    staging.wrap(output_paths)
+    if m4b_execution.output_paths is not output_paths or (
+            m4b_continuous is not None and m4b_continuous.output_paths is not output_paths):
+        raise Refused("the application would discard and publish through another module than the one being read")
+    containment["staging_census"] = True
     if m4b_continuous is None and args.route != "legacy":
         raise SystemExit("this code tree has only the seeking route: use --route legacy")
     production_threshold = None if m4b_continuous is None else m4b_continuous.MIN_SAVED_PREFIX_SECONDS
@@ -303,7 +441,7 @@ def main(argv=None) -> int:
     decisions: list[dict] = []
     decoders: list[dict] = []
     current: dict = {"seg": None, "attempt": 0}
-    children: list = []           # (kind, proc, started) of every child this run started
+    children: list[Child] = []    # every child this run started; none keeps its process handle once it has ended
     audio_passes = {"n": 0}
     killed: list[dict] = []
     pipe = {"from_decoder_bytes": 0, "to_encoders_bytes": 0}
@@ -316,7 +454,9 @@ def main(argv=None) -> int:
         proc = real_popen(cmd, **kwargs)
         kind = classify(cmd)
         with lock:
-            children.append((kind, proc, time.perf_counter()))
+            for earlier in children:
+                earlier.settle()
+            children.append(Child(kind, proc, time.perf_counter()))
         if kind in ("segment", "pcm", "whole"):
             audio_passes["n"] += 1
             # Passes run one after another: an armed encoder that never took a block is over, never the next one's.
@@ -347,7 +487,7 @@ def main(argv=None) -> int:
 
     m4b_probe.probe_source = probe_source
     if m4b_continuous is not None:
-        instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed, pipe, kill_target)
+        instrument_continuous(m4b_continuous, decisions, decoders, current, args, killed, pipe, kill_target, job)
     real_run_argv, real_streaming = m4b_execution.run_argv, m4b_execution.run_argv_streaming
 
 
@@ -355,9 +495,9 @@ def main(argv=None) -> int:
         record = {"kind": classify(argv), "wall_s": time.perf_counter() - t0, "rc": result.returncode,
                   "cancelled": result.cancelled, "producer_failed": getattr(result, "producer_failed", False)}
         with lock:
-            match = next((proc for kind, proc, _t in reversed(children) if kind == record["kind"]), None)
+            match = next((child for child in reversed(children) if child.kind == record["kind"]), None)
         if match is not None:
-            record.update(winjob.process_facts(int(match._handle)))
+            record.update(match.settle())
         if current["seg"] is not None:
             current["seg"]["passes"].append(record)
 
@@ -474,8 +614,7 @@ def main(argv=None) -> int:
             frames = sys._current_frames()
             names = {thread.ident: thread.name for thread in threading.enumerate()}
             with lock:
-                live = [{"kind": kind, "pid": proc.pid, "running": proc.poll() is None}
-                        for kind, proc, _t in children if proc.poll() is None]
+                live = [{"kind": child.kind, "pid": child.pid, "running": True} for child in children if child.alive()]
             stall_dumps.append({
                 "at_s": round(now - (state["t_start"] or now), 3), "late_s": round(late, 3),
                 "segments_done": len(segments), "machine_load_pct_since_last_tick": winjob.load_between(
@@ -492,7 +631,7 @@ def main(argv=None) -> int:
 
     def live_children() -> list:
         with lock:
-            return [{"kind": kind, "pid": proc.pid} for kind, proc, _t in children if proc.poll() is None]
+            return [{"kind": child.kind, "pid": child.pid} for child in children if child.alive()]
 
     def tick():
         now = time.perf_counter()
@@ -566,6 +705,7 @@ def main(argv=None) -> int:
     stop.set()
     for thread in threads:
         thread.join(timeout=5)
+    staging.finish()
     load_during = winjob.load_between(load_before, winjob.system_times())
     job_after = job.snapshot()
     self_after = winjob.self_facts()
@@ -588,8 +728,9 @@ def main(argv=None) -> int:
     walls = [s["wall_s"] for s in segments if s["attempt"] == 0]
     with lock:
         child_kinds: dict = {}
-        for kind, _proc, _t in children:
-            child_kinds[kind] = child_kinds.get(kind, 0) + 1
+        for child in children:
+            child.settle()
+            child_kinds[child.kind] = child_kinds.get(child.kind, 0) + 1
     results = {
         "label": args.label, "code": str(code), "argv": sys.argv,
         "environment": {"python": sys.version.split()[0], "platform": platform.platform(),
@@ -641,7 +782,7 @@ def main(argv=None) -> int:
         "pipe": pipe,
         "reveals": [{**r, "at": round(r["at"] - state["t_start"], 3)} for r in reveals],
         "disk": {"peak_staged_bytes": disk["peak_staged"], "samples": disk["samples"],
-                 "output_bytes": sum(f["bytes"] for f in files)},
+                 "output_bytes": sum(f["bytes"] for f in files), "exact": staging.record()},
         "probes": probes,
         "segments": [{**{k: v for k, v in s.items() if k != "t_begin"},
                       "begin_offset_s": round(s["t_begin"] - state["t_start"], 3)} for s in segments],

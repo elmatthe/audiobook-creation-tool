@@ -30,15 +30,37 @@ qualification, and the open file-manager windows are counted before and after. P
 * T3  6 h and 12 h books: per-chapter wall time slope at most 0.1 s per hour of prefix; last-quarter / first-quarter median
       at most 1.15.
 * T4  audio held by the route at most 1 MiB at any moment; no PCM on disk; peak job commit within the seeking route's
-      peak plus the decoder process's own peak plus that 1 MiB. "No PCM on disk": the job's write bytes, less the pipe
+      peak plus one more FFmpeg open of the book plus that 1 MiB. "One more FFmpeg" is the decoder process and the
+      console host Windows starts for it, each at its own peak. "No PCM on disk": the job's write bytes, less the pipe
       bytes the harness counted exactly (the decoder's stream into the application and the application's feed into
-      each encoder; Windows counts a pipe write as a write), at most 1.05 x the seeking route's write bytes.
-* T5  peak staged bytes no higher than the seeking route's.
+      each encoder; Windows counts a pipe write as a write), at most 1.05 x the seeking route's write bytes; and, for
+      the two processes that touch the audio, directly: every byte the decoder wrote is its stream or its diagnostics
+      file, and the application wrote nothing beyond its feed but what it writes on the seeking route as well.
+* T5  peak staged bytes no higher than the seeking route's: the staged media, read exactly, with no allowance.
 * T6  UI heartbeat p99 at most 0.25 s in every continuous run, and no stall over 2 s in one.
 * T7  Cancel during a late chapter settles within 2 s with every owned process stopped and reaped.
 * T8  every output of every case equals the pinned reference digest; ineligible books take the seeking route.
 
 The 12-hour book is measured three times and its ratio is reported; no throughput budget applies to it.
+
+**How T4 and T5 are measured** (v0.7.2 Phase 8 remediation; the budgets above are the approved ones and did not move).
+Phase 8 ran this scenario twice on one unchanged candidate and each run failed one of these two checks on the
+1,000-chapter book, by 0.21 MB and by 68 bytes. Neither figure measured the Converter:
+
+* The job's peak commit included about 77 KB for every exited child the harness still held a handle to (two thousand
+  of them, 155 MB of 236 MB), a residue that differs by up to 1.5 MB between identical runs; and the envelope counted
+  the decoder's FFmpeg but not the console host Windows starts with it (1.7 MB at its peak). ``bench_run.py`` now lets
+  every child go when it ends, and finds and measures that console host.
+* "Staged bytes" was the largest of a few hundred 0.5-second samples of a total that is at its peak for a few
+  milliseconds per chapter, so both routes' figures were chance draws below one and the same true peak; and it counted
+  FFmpeg's diagnostics file with the media. ``bench_run.py`` now reads every owned temporary's real size at each moment
+  the total can only fall next. Staged media has fixed sizes (the outputs are byte-identical), so it is compared
+  exactly. FFmpeg's diagnostics text differs by a few bytes between identical runs, so it is held to the 1.05 x this
+  scenario already applies to writes. The sampler remains as a witness that must never see more than the exact reading.
+
+``resource_checks`` judges both from the runs' summaries and nothing else, so the same code is exercised by
+``files/tests/test_verification_gate_contract.py`` on planted figures, by ``--smoke`` on a small real book, and by a
+qualification.
 """
 from __future__ import annotations
 
@@ -69,8 +91,10 @@ CALIBRATION_BOOKS = ["small2_600000", "small3_200000", "small5_120000", "scale10
 
 class Qualification:
     def __init__(self, root: Path, pair: dict, build: dict, threshold: float, per_book_second: float,
-                 python: str) -> None:
+                 python: str, code: Path | None = None) -> None:
         self.root = root
+        #: The scripts folder under test. Anything but the repository's own is a planted-defect control (--smoke only).
+        self.code = code
         self.pair = pair
         self.build = build
         self.threshold = threshold
@@ -103,7 +127,7 @@ class Qualification:
             expect_continuous: bool | None = None, expect_states=("SUCCEEDED",), timeout=3600.0) -> dict | None:
         label = f"{case}-{len(self.runs) + 1:03d}"
         record = common.bench(self.root, label, [self.books[name]], self.pair, route=route, timeout=timeout,
-                              extra=extra, mode=mode, metadata=metadata, python=self.python)
+                              extra=extra, mode=mode, metadata=metadata, python=self.python, code=self.code)
         results = record.get("results")
         summary = {"label": label, "case": case, "book": name, "route": route, "mode": mode, "metadata": metadata,
                    "extra": list(extra), "exit": record["exit"], "load_before_pct": record["load_before_pct"]}
@@ -126,6 +150,10 @@ class Qualification:
             "cpu_s": job["run_user_s"] + job["run_kernel_s"], "processes": job["run_processes"],
             "active_after": job["active_after"], "peak_job_commit": job["after_run"]["peak_job_commit"],
             "peak_staged_bytes": results["disk"]["peak_staged_bytes"], "write_bytes": job["run_write_bytes"],
+            "staging": results["disk"].get("exact") or {},
+            "app_peak_commit": results["harness_self"]["after"].get("peak_commit"),
+            "app_write_bytes": (results["harness_self"]["after"].get("write_bytes", 0)
+                                - results["harness_self"]["before"].get("write_bytes", 0)),
             "heartbeat": results["heartbeat"], "stalls_over_1s": len(results["stall_diagnostics"]),
             "decoders": decoder_peaks, "pipe": results.get("pipe") or {}, "reveals": results.get("reveals", []),
             "alive_at_settle": results["outcome"]["alive_at_settle"],
@@ -302,39 +330,8 @@ class Qualification:
             arms = tput.get("arms")
             if not arms:
                 continue
-            legacy_peak = max(s["peak_job_commit"] for s in arms["legacy"])
-            # Sampled every 0.5 s, so a sampled peak can miss the real one. Both routes stage exactly the same files in the
-            # same passes (the audio pass's MP3, then the cover pass's copy beside it), so the seeking route's real peak is
-            # at least two copies of its largest chapter; the larger of that and what was sampled is its peak.
-            legacy_staged = max(max(s["peak_staged_bytes"] for s in arms["legacy"]),
-                                2 * max(s["max_file_bytes"] for s in arms["legacy"]))
-            legacy_writes = max(s["write_bytes"] for s in arms["legacy"])
-            for summary in arms["auto"]:
-                decoder = summary["decoders"][0] if summary["decoders"] else {}
-                buffered = decoder.get("peak_buffered", 0)
-                decoder_peak = decoder.get("peak_commit") or 0
-                envelope = legacy_peak + decoder_peak + MIB
-                # Windows counts a pipe write as a write, so the job's write bytes include the decoder's PCM stream into
-                # the application and the application's feed into the encoders (attempt 1 compared them raw and read
-                # 16 GB of pipe traffic as disk). Both are counted exactly by the harness and taken off.
-                pipe = summary.get("pipe") or {}
-                from_decoder = pipe.get("from_decoder_bytes", 0)
-                to_encoders = pipe.get("to_encoders_bytes", 0)
-                disk_writes = summary["write_bytes"] - from_decoder - to_encoders
-                decoder_other = (decoder.get("write_bytes") or 0) - from_decoder
-                self.check(f"T4:{tput['book']}:{summary['label']}",
-                           0 < buffered <= MIB and summary["peak_job_commit"] <= envelope
-                           and from_decoder > 0 and disk_writes <= legacy_writes * 1.05,
-                           f"audio held {buffered} bytes (limit {MIB}); job peak {summary['peak_job_commit'] / 1e6:.1f} MB vs "
-                           f"seeking {legacy_peak / 1e6:.1f} MB + decoder {decoder_peak / 1e6:.1f} MB + 1 MiB = "
-                           f"{envelope / 1e6:.1f} MB; writes {summary['write_bytes'] / 1e6:.0f} MB less pipes "
-                           f"{from_decoder / 1e6:.0f} MB from the decoder and {to_encoders / 1e6:.0f} MB to the encoders = "
-                           f"{disk_writes / 1e6:.0f} MB vs seeking {legacy_writes / 1e6:.0f} MB x 1.05 (no PCM spool); "
-                           f"the decoder's own writes beyond its stream {decoder_other} bytes",
-                           buffered=buffered, peak=summary["peak_job_commit"], envelope=envelope,
-                           disk_writes=disk_writes, decoder_other=decoder_other)
-                self.check(f"T5:{tput['book']}:{summary['label']}", summary["peak_staged_bytes"] <= legacy_staged,
-                           f"peak staged {summary['peak_staged_bytes']} bytes vs seeking route {legacy_staged}")
+            for check in resource_checks(tput["book"], arms["legacy"], arms["auto"]):
+                self.check(check["name"], check["ok"], check["detail"], **check["facts"])
 
     def cancels(self) -> None:
         """T7: Cancel while a late chapter encodes; every owned process reaped; the book taken back."""
@@ -380,8 +377,15 @@ class Qualification:
                                timeout=1800)
             self.identical(summary, "scale100")
 
-    def smoke(self) -> None:
+    def rehearse_resources(self, reps: int = 2) -> None:
+        """T4 and T5 end to end on a small real book: the same runs, summaries and judge a qualification uses."""
+        self.resources([self.throughput("scale100", reps, None, None, None)])
+
+    def smoke(self, only: str = "all") -> None:
         """A few minutes of the real cases, to prove the harness end to end before a qualification. Never a verdict."""
+        if only == "resources":
+            self.rehearse_resources()
+            return
         for name, route, mode, metadata, continuous in (("route10", "continuous", "split", "preserve", True),
                                                         ("route10", "auto", "whole", "preserve", False),
                                                         ("r96k", "continuous", "split", "preserve", False)):
@@ -400,6 +404,7 @@ class Qualification:
         self.check("smoke:cancel", summary is not None and summary["cancel_to_settled_s"] is not None
                    and summary["cancel_to_settled_s"] <= 2.0 and summary["files"] == 0,
                    f"cancel settled {None if summary is None else summary['cancel_to_settled_s']} s")
+        self.rehearse_resources()
         self.heartbeat()
 
     def heartbeat(self) -> None:
@@ -410,6 +415,112 @@ class Qualification:
         self.check("T6", bool(continuous) and worst_p99 <= 0.25 and not over_2s,
                    f"{len(continuous)} continuous runs: worst heartbeat p99 {worst_p99} s (limit 0.25); runs with a "
                    f"stall over 2 s: {over_2s or 'none'}", worst_p99=worst_p99, over_2s=over_2s)
+
+
+def _mb(value) -> str:
+    return f"{(value or 0) / 1e6:.2f} MB"
+
+
+def resource_checks(book: str, legacy: list[dict], auto: list[dict]) -> list[dict]:
+    """T4 and T5 for one book: every one-decode run against the same session's seeking runs.
+
+    *legacy* and *auto* are the runs' summaries (``Qualification.run``). Returns one ``{"name", "ok", "detail", "facts"}``
+    per check, in order. A figure that was not measured fails its check; nothing here assumes a missing one is fine.
+    """
+    checks: list[dict] = []
+    legacy_peak = max(s["peak_job_commit"] for s in legacy)
+    legacy_writes = max(s["write_bytes"] for s in legacy)
+    legacy_app_writes = max(s.get("app_write_bytes") or 0 for s in legacy)
+    # ------------------------------------------------------------------ T5: what the seeking route staged, exactly
+    measured_problems = []
+    for run in (*legacy, *auto):
+        staging = run.get("staging") or {}
+        if not staging:
+            measured_problems.append(f"{run['label']}: no exact staging figures")
+            continue
+        if not (staging.get("readings_before_publish", 0) >= run["files"] > 0 and staging.get("readings_before_discard", 0) > 0):
+            measured_problems.append(f"{run['label']}: {staging.get('readings_before_publish')} readings before a "
+                                     f"publication for {run['files']} outputs")
+        if staging.get("left_files") != 0:
+            measured_problems.append(f"{run['label']}: {staging.get('left_files')} temporaries left behind "
+                                     f"({staging.get('left_bytes')} bytes)")
+        if run["peak_staged_bytes"] > (staging.get("peak_total_bytes") or 0):
+            measured_problems.append(f"{run['label']}: the 0.5 s sampler saw {run['peak_staged_bytes']} bytes staged, more "
+                                     f"than the exact reading's peak {staging.get('peak_total_bytes')}: something lowered "
+                                     "the total without a reading")
+    legacy_media = sorted({(s.get("staging") or {}).get("peak_media_bytes") for s in legacy}, key=lambda v: (v is None, v))
+    if len(legacy_media) != 1 or legacy_media[0] is None:
+        measured_problems.append(f"the seeking route's own runs staged different peaks {legacy_media}: not an exact figure")
+    seeking_media = max((v for v in legacy_media if v is not None), default=0)
+    seeking_diagnostics = max(((s.get("staging") or {}).get("peak_diagnostics_bytes") or 0) for s in legacy)
+    for summary in auto:
+        decoder = summary["decoders"][0] if summary["decoders"] else {}
+        buffered = decoder.get("peak_buffered", 0)
+        decoder_peak = decoder.get("peak_commit") or 0
+        # Windows starts a console host for a hidden console program, as its child: the decoder's lives as long as the
+        # decoder, so one more FFmpeg costs the job both. Only that one process is allowed for, at its own peak.
+        companions = decoder.get("companions") or []
+        hosts = [c for c in companions if c.get("image") == "conhost.exe"]
+        host_peak = (hosts[0].get("peak_commit") or 0) if len(hosts) == 1 else 0
+        strangers = [c.get("image") for c in companions if c.get("image") != "conhost.exe"] + [c.get("image") for c in hosts[1:]]
+        envelope = legacy_peak + decoder_peak + host_peak + MIB
+        # Windows counts a pipe write as a write, so the job's write bytes include the decoder's PCM stream into
+        # the application and the application's feed into the encoders (attempt 1 compared them raw and read
+        # 16 GB of pipe traffic as disk). Both are counted exactly by the harness and taken off.
+        pipe = summary.get("pipe") or {}
+        from_decoder = pipe.get("from_decoder_bytes", 0)
+        to_encoders = pipe.get("to_encoders_bytes", 0)
+        disk_writes = summary["write_bytes"] - from_decoder - to_encoders
+        decoder_writes = decoder.get("write_bytes")
+        decoder_diagnostics = decoder.get("diagnostics_bytes") or 0
+        decoder_other = None if decoder_writes is None else decoder_writes - from_decoder - decoder_diagnostics
+        app_writes = summary.get("app_write_bytes")
+        app_other = None if app_writes is None else app_writes - to_encoders
+        parts = {
+            "audio held": 0 < buffered <= MIB,
+            "job peak": summary["peak_job_commit"] <= envelope and not strangers,
+            "stream counted": from_decoder > 0,
+            "writes": disk_writes <= legacy_writes * 1.05,
+            "decoder wrote only its stream": decoder_other == 0,
+            "application wrote only its feed": app_other is not None and app_other <= legacy_app_writes * 1.05,
+        }
+        failed = [name for name, ok in parts.items() if not ok]
+        checks.append({
+            "name": f"T4:{book}:{summary['label']}", "ok": not failed,
+            "detail": (f"audio held {buffered} bytes (limit {MIB}); job peak {_mb(summary['peak_job_commit'])} vs seeking "
+                       f"{_mb(legacy_peak)} + decoder {_mb(decoder_peak)} + its console host {_mb(host_peak)} + 1 MiB = "
+                       f"{_mb(envelope)}; writes {summary['write_bytes'] / 1e6:.0f} MB less pipes "
+                       f"{from_decoder / 1e6:.0f} MB from the decoder and {to_encoders / 1e6:.0f} MB to the encoders = "
+                       f"{disk_writes / 1e6:.0f} MB vs seeking {legacy_writes / 1e6:.0f} MB x 1.05 (no PCM spool); the "
+                       f"decoder wrote {decoder_other} bytes that are neither its stream nor its diagnostics file "
+                       f"({decoder_diagnostics} bytes); the application wrote {app_other} bytes beyond its feed vs "
+                       f"{legacy_app_writes} x 1.05 on the seeking route"
+                       + (f"; other children of the decoder {strangers}" if strangers else "")
+                       + (f"; FAILED: {failed}" if failed else "")),
+            "facts": {"buffered": buffered, "peak": summary["peak_job_commit"], "envelope": envelope,
+                      "seeking_peak": legacy_peak, "decoder_peak": decoder_peak, "console_host_peak": host_peak,
+                      "disk_writes": disk_writes, "decoder_other": decoder_other, "app_other": app_other,
+                      "failed_parts": failed}})
+        staging = summary.get("staging") or {}
+        media = staging.get("peak_media_bytes")
+        diagnostics = staging.get("peak_diagnostics_bytes")
+        problems = list(measured_problems)
+        if media is None or media > seeking_media:
+            problems.append(f"staged media {media} bytes is more than the seeking route's {seeking_media}")
+        if diagnostics is None or diagnostics > seeking_diagnostics * 1.05:
+            problems.append(f"diagnostics {diagnostics} bytes is more than the seeking route's {seeking_diagnostics} x 1.05")
+        checks.append({
+            "name": f"T5:{book}:{summary['label']}", "ok": not problems,
+            "detail": (f"peak staged media {media} bytes vs the seeking route's {seeking_media} (exact, read before every "
+                       f"discard and publication: {staging.get('readings_before_discard')} + "
+                       f"{staging.get('readings_before_publish')} readings; no allowance); FFmpeg diagnostics "
+                       f"{diagnostics} bytes vs {seeking_diagnostics} x 1.05; left behind {staging.get('left_files')}; "
+                       f"the 0.5 s sampler saw at most {summary['peak_staged_bytes']} of {staging.get('peak_total_bytes')}"
+                       + (f"; FAILED: {problems}" if problems else "")),
+            "facts": {"media": media, "seeking_media": seeking_media, "diagnostics": diagnostics,
+                      "seeking_diagnostics": seeking_diagnostics, "sampled": summary["peak_staged_bytes"],
+                      "problems": problems}})
+    return checks
 
 
 def git(*args: str) -> str:
@@ -446,7 +557,16 @@ def main(argv=None) -> int:
     parser.add_argument("--stall-reps", type=int, default=10)
     parser.add_argument("--smoke", action="store_true",
                         help="development only: a few quick cases to exercise the harness; the verdict is SMOKE, never PASS")
+    parser.add_argument("--rehearse", choices=("all", "resources"), default="all",
+                        help="with --smoke: every quick case, or only the T4/T5 rehearsal on the 100-chapter book")
+    parser.add_argument("--code", type=Path, default=None,
+                        help="with --smoke only: a scripts folder to measure instead of the repository's, for a planted-"
+                             "defect control; a qualification always measures the repository's own")
     args = parser.parse_args(argv)
+    if (args.code is not None or args.rehearse != "all") and not args.smoke:
+        print("refused: --code and --rehearse belong to --smoke; a qualification measures the repository's own code, "
+              "every case", file=sys.stderr)
+        return 3
     root = args.out.resolve()
     outputs_root = (common.GATE_DIR / "outputs").resolve()
     verdict_path = root / "verdict.json"
@@ -481,7 +601,10 @@ def main(argv=None) -> int:
         if build is None:
             status, reason = "BLOCKED", f"FFmpeg {pair['ffmpeg_sha256'][:12]} is not a build the reference was pinned on"
             return 2
-        qualification = Qualification(root, pair, build, threshold, per_book_second, args.python)
+        qualification = Qualification(root, pair, build, threshold, per_book_second, args.python,
+                                      code=None if args.code is None else args.code.resolve())
+        if args.code is not None:
+            qualification.log(f"PLANTED-DEFECT CONTROL: measuring {args.code.resolve()}, not the repository's scripts")
         qualification.log(f"identity: HEAD {identity['head']}, code {identity['code_digest'][:12]}, "
                           f"{pair['version']}, threshold {threshold} s")
         before = common.protected_snapshot()
@@ -491,7 +614,7 @@ def main(argv=None) -> int:
             qualification.books[name] = common.ensure_fixture(name, build, pair, qualification.log)
             qualification.hashes[name] = build["fixtures"][name]["sha256"]
         if args.smoke:
-            qualification.smoke()
+            qualification.smoke(args.rehearse)
             after = common.protected_snapshot()
             qualification.log(f"file manager windows open at the end: {common.shell_windows()} (at the start "
                               f"{windows_before})")
@@ -499,7 +622,8 @@ def main(argv=None) -> int:
                                 if before == after else "the owner's Downloads output tree CHANGED")
             failing = [c["name"] for c in qualification.checks if c["status"] != "PASS"]
             status = "SMOKE"
-            reason = f"smoke only, never a qualification; {len(failing)} failing check(s): {failing[:12]}"
+            reason = (f"smoke only, never a qualification{'' if args.code is None else ' (a planted-defect control)'}; "
+                      f"{len(failing)} failing check(s): {failing[:12]}")
             return 3
         qualification.compatibility()
         qualification.small_books(args.small_reps)

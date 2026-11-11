@@ -12,6 +12,7 @@ stopped by something else, or that skipped its target, would otherwise look like
 from __future__ import annotations
 
 import ctypes
+import functools
 import json
 import os
 import shutil
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -1760,3 +1762,536 @@ def test_a_runs_scratch_carries_its_owner_and_the_audit_reads_it(tree):
     assert owner["run_id"] == outcome.directory.name and owner["kind"] == "act-gate-scratch"
     done = tree.run("--audit-scratch")
     assert done.code == 0 and scratch.name in done.stdout and "abandoned" in done.stdout and scratch.is_dir(), done
+
+
+# --------------------------------------------------------------------------- #
+# Reading a qualification run back (v0.7.2 Phase 8 remediation)
+# --------------------------------------------------------------------------- #
+# Until this phase the reader applied "PASS with no executed tests" to qualification runs too. A qualification collects
+# no test and runs no journey, so every true qualification PASS read INVALID (Phase 7B's among them): the reader could
+# refuse a true PASS, though never certify a false one. Each test below makes a real run with a real runner of the
+# scenario, through the gate, and reads it back through the public --status.
+SCENARIO_RUNNER = '''
+import json, sys, time
+from pathlib import Path
+out = Path(sys.argv[sys.argv.index("--out") + 1])
+out.mkdir(parents=True)
+(out / "progress.log").write_text("started\\n")
+{before}
+(out / "verdict.json").write_text(json.dumps({verdict!r}))
+sys.exit({code})
+'''
+TWO_CHECKS = [{"name": "T8:one", "status": "PASS", "detail": "identical"}, {"name": "T1", "status": "PASS", "detail": "2.1x"}]
+
+
+def _qualification(tree, verdict: dict, code: int, *, before: str = ""):
+    """One real qualification run of m4b-scaling whose runner writes *verdict* and exits *code*."""
+    (tree.gate / "scaling" / "qualify.py").write_text(
+        textwrap.dedent(SCENARIO_RUNNER).format(verdict=verdict, code=code, before=before), encoding="utf-8")
+    tree.commit("a small runner for the scenario")
+    return tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
+
+
+def _verdict(status: str, checks=None, runs: int = 3) -> dict:
+    return {"scenario": "m4b-scaling", "status": status, "reason": "as planted", "runs": runs,
+            "checks": TWO_CHECKS if checks is None else checks}
+
+
+@pytest.fixture
+def qualified_run(tree):
+    outcome = _qualification(tree, _verdict("PASS"), 0)
+    assert outcome.code == 0 and outcome.results["status"] == "PASS", outcome
+    return tree, outcome.directory
+
+
+def test_a_sealed_qualification_pass_reads_pass(qualified_run):
+    """The defect: this very record, with no test executed and no journey passed, read INVALID."""
+    tree, directory = qualified_run
+    results = json.loads((directory / "results.json").read_text(encoding="utf-8"))
+    assert results["counts"]["executed"] == 0 and results["counts"]["journeys_passed"] == 0, "the condition the old rule refused"
+    assert results["qualification"]["ran"] == {"m4b-scaling": "PASS"}
+    status = tree.status(str(directory))
+    assert status.returncode == 0 and "status: PASS" in status.stdout and "problem" not in status.stdout, status.stdout
+    current = tree.status(str(directory), "--require-current")
+    assert current.returncode == 0 and "current: exact" in current.stdout, current.stdout
+
+
+def test_the_no_executed_tests_rule_still_stands_for_every_other_mode(qualified_run):
+    """The control of the repair: the rule was not removed, only kept away from the one mode that executes no test."""
+    tree, directory = qualified_run
+    _rewrite_results(directory, lambda r: r.update(mode="focused"), reseal=True)
+    status = tree.status(str(directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and "PASS with no executed tests" in status.stdout, status.stdout
+
+
+def test_a_sealed_qualification_fail_stays_fail(tree):
+    failing = [*TWO_CHECKS, {"name": "T5:scale1000:tput-scale1000-180", "status": "FAIL", "detail": "68 bytes"}]
+    outcome = _qualification(tree, _verdict("FAIL", failing), 1)
+    assert outcome.code == 1, outcome
+    status = tree.status(str(outcome.directory))
+    assert status.returncode == 1 and "status: FAIL" in status.stdout and "problem" not in status.stdout, status.stdout
+    assert tree.status(str(outcome.directory), "--require-current").returncode == 1
+
+
+def test_a_sealed_qualification_blocked_stays_blocked(tree):
+    """The real runner in this small tree: the application's M4B code is not here, so it says BLOCKED."""
+    outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
+    assert outcome.code == 2, outcome
+    status = tree.status(str(outcome.directory))
+    assert status.returncode == 2 and "status: BLOCKED" in status.stdout and "problem" not in status.stdout, status.stdout
+
+
+def test_a_pass_verdict_from_a_runner_that_did_not_exit_zero_reads_fail_never_pass(tree):
+    outcome = _qualification(tree, _verdict("PASS"), 1)
+    assert outcome.code == 1, outcome
+    status = tree.status(str(outcome.directory))
+    assert status.returncode == 1 and "status: FAIL" in status.stdout, status.stdout
+
+
+def test_a_qualification_stopped_part_way_is_incomplete_and_never_a_pass(tree):
+    """A real interruption: the gate is killed while the scenario's runner works. What is left has no verdict."""
+    started = tree.root / "runner-started"
+    (tree.gate / "scaling" / "qualify.py").write_text(textwrap.dedent(SCENARIO_RUNNER).format(
+        verdict=_verdict("PASS"), code=0, before=f"Path({str(started)!r}).write_text('x')\ntime.sleep(120)"), encoding="utf-8")
+    tree.commit("a runner that is still working")
+    proc = subprocess.Popen([sys.executable, str(tree.gate / "verify.py"), "--mode", "qualification", "--scenario", "m4b-scaling"],
+                            cwd=tree.outside, env=tree.environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 60
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "the runner never started"
+    finally:
+        proc.kill()
+        proc.wait(timeout=30)
+    run = next(tree.outputs.iterdir())
+    assert not (run / "results.json").exists() and (run / "INCOMPLETE.json").exists()
+    for extra in ((), ("--require-current",)):
+        status = tree.status(str(run), *extra)
+        assert status.returncode == 3 and "status: INCOMPLETE" in status.stdout, status.stdout
+
+
+def test_a_qualification_pass_with_its_marker_back_or_its_result_gone_is_incomplete(qualified_run):
+    tree, directory = qualified_run
+    (directory / "INCOMPLETE.json").write_text("{}", encoding="utf-8")
+    assert "status: INCOMPLETE" in tree.status(str(directory)).stdout
+    (directory / "INCOMPLETE.json").unlink()
+    assert tree.status(str(directory)).returncode == 0, "the control: the same run without the marker"
+    (directory / "results.json").unlink()
+    status = tree.status(str(directory))
+    assert status.returncode == 3 and "status: INCOMPLETE" in status.stdout, status.stdout
+
+
+@pytest.mark.parametrize("damage, needle", [
+    (lambda path: path.unlink(), "verdict.json is missing"),
+    (lambda path: path.write_bytes(path.read_bytes()[:40]), "changed after the run"),
+    (lambda path: path.write_text(json.dumps(_verdict("FAIL")), encoding="utf-8"), "changed after the run"),
+], ids=["missing", "truncated", "rewritten"])
+def test_a_qualification_pass_whose_verdict_file_is_missing_truncated_or_rewritten_is_invalid(qualified_run, damage, needle):
+    tree, directory = qualified_run
+    damage(directory / "qualification" / "verdict.json")
+    status = tree.status(str(directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and needle in status.stdout, status.stdout
+
+
+def _replant_verdict(directory: Path, verdict) -> None:
+    """A determined edit: the verdict replaced, the manifest brought into line with it, and the record sealed again."""
+    load_gate("act_verify_contract_replant")
+    from helpers import runstore
+
+    path = directory / "qualification" / "verdict.json"
+    path.write_text(verdict if isinstance(verdict, str) else json.dumps(verdict), encoding="utf-8")
+
+    def relist(results):
+        for item in results["artifacts"]:
+            if item["path"] == "qualification/verdict.json":
+                item.update(size=path.stat().st_size, sha256=runstore.sha256_file(path))
+
+    _rewrite_results(directory, relist, reseal=True)
+
+
+@pytest.mark.parametrize("verdict, needle", [
+    (_verdict("FAIL"), "that makes FAIL"),
+    (_verdict("BLOCKED"), "that makes BLOCKED"),
+    (_verdict("PASS", [*TWO_CHECKS, {"name": "T4:x", "status": "FAIL"}]), "checks not passed in its verdict: ['T4:x']"),
+    (_verdict("PASS", []), "passed with no checks"),
+    (_verdict("PASS", runs=0), "having made no run"),
+    ({**_verdict("PASS"), "scenario": "fresh-windows"}, "is not the verdict of scenario m4b-scaling"),
+    ("{ not json", "missing or unreadable"),
+    ("[]", "is not the verdict of scenario m4b-scaling"),
+], ids=["says-fail", "says-blocked", "a-failed-check", "no-checks", "no-runs", "another-scenario", "not-json", "not-an-object"])
+def test_a_resealed_qualification_pass_that_its_own_verdict_contradicts_is_invalid(qualified_run, verdict, needle):
+    """Sealing a record again does not make it agree with itself: the verdict is read, not only hashed."""
+    tree, directory = qualified_run
+    _replant_verdict(directory, verdict)
+    status = tree.status(str(directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and needle in status.stdout, status.stdout
+
+
+def _drop_verdict_from_manifest(results: dict) -> None:
+    results["artifacts"] = [item for item in results["artifacts"] if item["path"] != "qualification/verdict.json"]
+
+
+@pytest.mark.parametrize("edit, needle", [
+    (lambda r: [s for s in r["stages"] if s["name"].startswith("qualification:")][0].update(returncode=1), "with exit 1: that makes FAIL"),
+    (lambda r: [s for s in r["stages"] if s["name"].startswith("qualification:")][0].update(ended="killed"), "that makes FAIL"),
+    (lambda r: r["qualification"].update(ran={}), "a qualification PASS whose scenarios ended {}"),
+    (lambda r: r["qualification"].update(ran={"m4b-scaling": "FAIL"}), "a qualification PASS whose scenarios ended"),
+    (lambda r: r["qualification"].update(satisfied=[]), "does not name ['m4b-scaling'] as satisfied"),
+    (lambda r: r["qualification"]["ran"].update({"fresh-windows": "PASS"}), "recorded 2 scenarios"),
+    (lambda r: r.update(stages=[s for s in r["stages"] if not s["name"].startswith("qualification:")]), "0 recorded runs of its runner"),
+    (_drop_verdict_from_manifest, "not part of the sealed evidence"),
+    (lambda r: r.update(exit_code=1), "PASS with exit code"),
+], ids=["runner-exit-1", "runner-killed", "ran-nothing", "ran-fail", "not-satisfied", "two-scenarios", "no-runner-stage",
+        "verdict-unlisted", "exit-code-1"])
+def test_a_resealed_qualification_pass_that_its_own_record_contradicts_is_invalid(qualified_run, edit, needle):
+    tree, directory = qualified_run
+    _rewrite_results(directory, edit, reseal=True)
+    status = tree.status(str(directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and needle in status.stdout, status.stdout
+
+
+def test_a_qualification_fail_cannot_be_resealed_into_a_pass(tree):
+    """The sealed result must follow from the verdict and the runner's exit, in both directions."""
+    outcome = _qualification(tree, _verdict("FAIL", [{"name": "T5:x", "status": "FAIL"}]), 1)
+    assert outcome.code == 1, outcome
+
+    def claim_pass(results):
+        results.update(status="PASS", exit_code=0)
+        results["qualification"].update(ran={"m4b-scaling": "PASS"}, satisfied=["m4b-scaling"], pending=[])
+        for check in results["checks"]:
+            check["status"] = "PASS"
+
+    _rewrite_results(outcome.directory, claim_pass, reseal=True)
+    status = tree.status(str(outcome.directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and "that makes FAIL" in status.stdout, status.stdout
+
+
+def test_a_qualification_pass_does_not_stand_in_for_changed_source_policy_or_documents(qualified_run):
+    tree, directory = qualified_run
+    tree.write("md-instructions/Handoff.md", "# a docs-only edit\n")
+    docs = tree.status(str(directory), "--require-current")
+    assert docs.returncode == 3 and "current: docs-only" in docs.stdout and "both SHAs" in docs.stdout, docs.stdout
+    policy = tree.policy()
+    policy["process"]["drain_seconds"] = 4
+    tree.write_policy(policy)
+    tree.commit("policy moved")
+    moved = tree.status(str(directory), "--require-current")
+    assert moved.returncode == 3 and "current: stale" in moved.stdout and "policy_digest" in moved.stdout, moved.stdout
+    tree.write("scripts/app.py", "x = 1" + chr(10))
+    tree.commit("source moved")
+    stale = tree.status(str(directory), "--require-current")
+    assert stale.returncode == 3 and "current: stale" in stale.stdout and "source_digest" in stale.stdout, stale.stdout
+    assert tree.status(str(directory)).returncode == 0, "still a true record of the source it ran on"
+
+
+# --------------------------------------------------------------------------- #
+# The m4b-scaling harness: what T4 and T5 measure (v0.7.2 Phase 8 remediation)
+# --------------------------------------------------------------------------- #
+@functools.lru_cache(maxsize=None)
+def _scaling_module(name: str):
+    """bench_run.py or qualify.py, loaded the way the gate runs them (their own folder first on the path)."""
+    if sys.platform != "win32":
+        pytest.skip("the benchmark harness accounts through Windows Job Objects")
+    import importlib.util  # noqa: PLC0415
+
+    saved_path, saved_modules = list(sys.path), {key: sys.modules.get(key) for key in ("winjob", "common", "recipe")}
+    try:
+        spec = importlib.util.spec_from_file_location(f"act_scaling_{name}_contract", GATE_DIR / "scaling" / f"{name}.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path[:] = saved_path
+        for key, value in saved_modules.items():
+            if value is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = value
+
+
+MIB = 1 << 20
+
+
+def _seeking(label: str, **over) -> dict:
+    """A seeking-route run's summary. The figures are those of the 1,000-chapter book with the corrected harness."""
+    run = {"label": label, "files": 1000, "peak_job_commit": 82_100_000, "write_bytes": 339_406_132,
+           "app_write_bytes": 2_132_979, "peak_staged_bytes": 215_728, "decoders": [], "pipe": {},
+           "staging": {"peak_media_bytes": 94_311, "peak_diagnostics_bytes": 122_852, "peak_total_bytes": 217_163,
+                       "readings_before_discard": 3000, "readings_before_publish": 1000, "left_files": 0, "left_bytes": 0}}
+    run.update(over)
+    return run
+
+
+def _one_decode(label: str = "tput-scale1000-180", *, decoder=None, staging=None, **over) -> dict:
+    stream = 530_963_296
+    run = _seeking(label, peak_job_commit=82_100_000 + 29_097_984 + 1_740_800 + 600_000,
+                   write_bytes=219_834_875 + 2 * stream, app_write_bytes=stream + 1_999_074, peak_staged_bytes=215_796,
+                   pipe={"from_decoder_bytes": stream, "to_encoders_bytes": stream})
+    run["decoders"] = [{"peak_buffered": 532_728, "peak_commit": 29_097_984, "write_bytes": stream, "diagnostics_bytes": 0,
+                        "companions": [{"pid": 4, "image": "conhost.exe", "peak_commit": 1_740_800}], **(decoder or {})}]
+    run["staging"] = {**run["staging"], "readings_before_discard": 3001, **(staging or {})}
+    run.update(over)
+    return run
+
+
+def _judged(auto: dict, legacy=None) -> dict:
+    qualify = _scaling_module("qualify")
+    legacy = legacy or [_seeking("tput-scale1000-179"), _seeking("tput-scale1000-182"), _seeking("tput-scale1000-183")]
+    checks = qualify.resource_checks("scale1000", legacy, [auto])
+    assert [c["name"] for c in checks] == [f"T4:scale1000:{auto['label']}", f"T5:scale1000:{auto['label']}"]
+    return {c["name"].split(":")[0]: c for c in checks}
+
+
+def test_the_resource_checks_pass_a_run_that_keeps_every_budget():
+    """The no-change control of every planted figure below."""
+    judged = _judged(_one_decode())
+    assert judged["T4"]["ok"] and judged["T5"]["ok"], judged
+    assert judged["T4"]["facts"]["failed_parts"] == [] and judged["T5"]["facts"]["problems"] == []
+
+
+@pytest.mark.parametrize("planted, part", [
+    (dict(decoder={"peak_buffered": MIB + 1}), "audio held"),
+    (dict(decoder={"peak_buffered": 0}), "audio held"),
+    (dict(decoder={"peak_buffered": 16 * MIB}), "audio held"),
+    (dict(pipe={"from_decoder_bytes": 0, "to_encoders_bytes": 530_963_296}), "stream counted"),
+    (dict(write_bytes=219_834_875 + 2 * 530_963_296 + 530_963_296), "writes"),
+    (dict(decoder={"write_bytes": 2 * 530_963_296}), "decoder wrote only its stream"),
+    (dict(decoder={"write_bytes": 530_963_296 + 1}), "decoder wrote only its stream"),
+    (dict(decoder={"write_bytes": None}), "decoder wrote only its stream"),
+    (dict(app_write_bytes=530_963_296 + 1_999_074 + 530_963_296), "application wrote only its feed"),
+    (dict(app_write_bytes=530_963_296 + 2_132_979 * 2), "application wrote only its feed"),
+    (dict(app_write_bytes=None), "application wrote only its feed"),
+], ids=["a-buffer-over-1-MiB", "no-buffer-measured", "a-16-MiB-buffer", "the-stream-not-counted", "a-whole-book-PCM-spool-in-the-total",
+        "the-decoder-spools-its-stream", "the-decoder-writes-one-byte-elsewhere", "the-decoder's-writes-not-measured",
+        "the-application-spools-the-stream", "the-application-writes-twice-its-own", "the-application's-writes-not-measured"])
+def test_t4_fails_on_a_buffer_over_the_limit_or_any_audio_written_to_disk(planted, part):
+    judged = _judged(_one_decode(**planted))
+    assert not judged["T4"]["ok"] and part in judged["T4"]["facts"]["failed_parts"], judged["T4"]
+
+
+def test_a_decoder_diagnostics_file_is_accounted_for_and_nothing_else_is():
+    """Every byte the decoder wrote is its stream or its own diagnostics file, whose size is measured."""
+    told = dict(write_bytes=530_963_296 + 120, diagnostics_bytes=120)
+    assert _judged(_one_decode(decoder=told))["T4"]["ok"]
+    assert not _judged(_one_decode(decoder={**told, "diagnostics_bytes": 119}))["T4"]["ok"]
+
+
+def test_t4_holds_the_job_peak_to_the_seeking_peak_one_more_ffmpeg_and_one_mebibyte():
+    """Seeking peak + the decoder + the console host Windows starts for it + 1 MiB: to the byte, and nothing more."""
+    envelope = 82_100_000 + 29_097_984 + 1_740_800 + MIB
+    assert _judged(_one_decode(peak_job_commit=envelope))["T4"]["ok"]
+    over = _judged(_one_decode(peak_job_commit=envelope + 1))["T4"]
+    assert not over["ok"] and over["facts"]["failed_parts"] == ["job peak"] and over["facts"]["envelope"] == envelope
+    # A route that held an eighth of this book's audio (66 MB) outside its counted buffer, or one chapter of a long book:
+    assert not _judged(_one_decode(peak_job_commit=envelope + 66_000_000))["T4"]["ok"]
+    # The seeking route's peak is the largest of its runs, as it always was.
+    lower = [_seeking("a", peak_job_commit=81_000_000), _seeking("b", peak_job_commit=81_500_000), _seeking("c")]
+    assert _judged(_one_decode(peak_job_commit=envelope), lower)["T4"]["ok"]
+    assert not _judged(_one_decode(peak_job_commit=envelope), lower[:2])["T4"]["ok"]
+
+
+@pytest.mark.parametrize("companions, allowed", [
+    ([], 0),
+    ([{"pid": 4, "image": "conhost.exe", "peak_commit": None}], 0),
+    ([{"pid": 4, "image": "conhost.exe", "peak_commit": 1_740_800}, {"pid": 5, "image": "conhost.exe", "peak_commit": 1_740_800}], 0),
+], ids=["no-console-host-found", "its-peak-not-read", "two-console-hosts"])
+def test_only_one_measured_console_host_is_allowed_for(companions, allowed):
+    """What was not found or not measured is not allowed for: the envelope falls back to the decoder alone."""
+    base = 82_100_000 + 29_097_984 + MIB
+    judged = _judged(_one_decode(decoder={"companions": companions}, peak_job_commit=base + 1))["T4"]
+    assert judged["facts"]["console_host_peak"] == allowed and "job peak" in judged["facts"]["failed_parts"], judged
+
+
+def test_a_decoder_that_starts_anything_but_its_console_host_fails_t4():
+    extra = [{"pid": 4, "image": "conhost.exe", "peak_commit": 1_740_800}, {"pid": 9, "image": "ffmpeg.exe", "peak_commit": 30_000_000}]
+    judged = _judged(_one_decode(decoder={"companions": extra}))["T4"]
+    assert not judged["ok"] and "job peak" in judged["facts"]["failed_parts"] and "ffmpeg.exe" in judged["detail"], judged
+
+
+def test_the_job_peak_that_failed_in_phase_8_was_inside_the_complete_envelope():
+    """Session 95eb, T4:scale1000:tput-scale1000-181, as recorded: 266,633,216 bytes against 236,277,760 (seeking, with
+    the harness's own held handles in it) + 29,097,984 (decoder) + 1 MiB. The envelope left out the decoder's console
+    host. With one counted, the same reading is inside; this is the arithmetic, not a verdict on that run."""
+    recorded = _one_decode(peak_job_commit=266_633_216, decoder={"peak_commit": 29_097_984, "companions": []})
+    legacy = [_seeking("a", peak_job_commit=235_909_120), _seeking("b", peak_job_commit=236_277_760),
+              _seeking("c", peak_job_commit=235_761_664)]
+    as_frozen = _judged(recorded, legacy)["T4"]
+    assert not as_frozen["ok"] and as_frozen["facts"]["envelope"] == 236_277_760 + 29_097_984 + MIB
+    assert recorded["peak_job_commit"] - as_frozen["facts"]["envelope"] == 208_896
+    with_host = _one_decode(peak_job_commit=266_633_216, decoder={"peak_commit": 29_097_984})
+    assert _judged(with_host, legacy)["T4"]["ok"]
+
+
+def test_t5_compares_exact_staged_media_with_no_allowance():
+    assert _judged(_one_decode(staging={"peak_media_bytes": 94_311}))["T5"]["ok"], "equal is not more"
+    assert _judged(_one_decode(staging={"peak_media_bytes": 94_310}))["T5"]["ok"]
+    one_more = _judged(_one_decode(staging={"peak_media_bytes": 94_312}))["T5"]
+    assert not one_more["ok"] and "staged media 94312 bytes is more than the seeking route's 94311" in one_more["detail"]
+    # One more staged chapter kept, or a decoded chapter spooled beside it:
+    assert not _judged(_one_decode(staging={"peak_media_bytes": 94_311 + 32_505}))["T5"]["ok"]
+    assert not _judged(_one_decode(staging={"peak_media_bytes": 94_311 + 529_200}))["T5"]["ok"]
+
+
+def test_the_sampled_figures_that_failed_in_phase_8_no_longer_decide_t5():
+    """Session 2dbf: sampled 215,796 against the seeking route's sampled 215,728, 68 bytes. Both were samples of one and
+    the same true peak. With the staged media read exactly and equal, that pair of samples passes; the samples are kept
+    only as a witness that must not exceed the exact reading."""
+    auto = _one_decode(peak_staged_bytes=215_796)
+    legacy = [_seeking("a", peak_staged_bytes=215_512), _seeking("b", peak_staged_bytes=215_728), _seeking("c", peak_staged_bytes=215_586)]
+    assert _judged(auto, legacy)["T5"]["ok"]
+
+
+@pytest.mark.parametrize("planted, needle", [
+    (dict(staging={"left_files": 1, "left_bytes": 31_918}), "1 temporaries left behind"),
+    (dict(staging={"readings_before_publish": 999}), "999 readings before a publication for 1000 outputs"),
+    (dict(staging={"readings_before_discard": 0}), "readings before a publication"),
+    (dict(peak_staged_bytes=217_164), "the 0.5 s sampler saw 217164 bytes staged, more than the exact reading's peak 217163"),
+    (dict(staging={"peak_diagnostics_bytes": 128_995}), "diagnostics 128995 bytes is more than the seeking route's 122852 x 1.05"),
+    (dict(staging={"peak_media_bytes": None}), "staged media None bytes"),
+], ids=["a-temporary-left-behind", "a-publication-not-read", "no-discard-read", "the-sampler-saw-more", "diagnostics-over-1.05x",
+        "media-not-measured"])
+def test_t5_fails_when_the_reading_is_incomplete_or_shows_more(planted, needle):
+    judged = _judged(_one_decode(**planted))["T5"]
+    assert not judged["ok"] and needle in judged["detail"], judged["detail"]
+
+
+def test_t5_fails_without_exact_figures_and_when_the_seeking_runs_disagree():
+    missing = _one_decode()
+    missing["staging"] = {}
+    assert "no exact staging figures" in _judged(missing)["T5"]["detail"]
+    legacy = [_seeking("a"), _seeking("b"), _seeking("c")]
+    legacy[1]["staging"] = {**legacy[1]["staging"], "peak_media_bytes": 94_312}
+    judged = _judged(_one_decode(), legacy)["T5"]
+    assert not judged["ok"] and "not an exact figure" in judged["detail"], judged["detail"]
+    legacy[2]["staging"] = {}
+    assert "no exact staging figures" in _judged(_one_decode(), legacy)["T5"]["detail"]
+
+
+def test_diagnostics_text_a_few_bytes_longer_is_not_extra_staging():
+    """FFmpeg's own text differs by a few bytes between identical runs (measured: 14,651 against 14,655 on one book)."""
+    assert _judged(_one_decode(staging={"peak_diagnostics_bytes": 122_856}))["T5"]["ok"]
+
+
+def _census(tmp_path):
+    bench = _scaling_module("bench_run")
+    base = tmp_path / "output-base"
+    folder = base / "M4B-Converter-Outputs" / "run" / "book"
+    folder.mkdir(parents=True)
+    census = bench.StagingCensus(base)
+
+    def discard(path):
+        if path is None:
+            return False
+        Path(path).unlink()
+        return True
+
+    module = types.SimpleNamespace(discard_temporary=discard, atomic_replace=lambda source, target: os.replace(source, target))
+    census.wrap(module)
+    return census, module, folder
+
+
+def _chapter(module, folder: Path, number: int, *, audio: int, final: int, log: int) -> None:
+    """One chapter staged, measured and published the way m4b_execution.convert_segment does it."""
+    staged_final, staged_audio = folder / f".act-tmp-{number:04d}-f.mp3", folder / f".act-tmp-{number:04d}-a.mp3"
+    staged_final.write_bytes(b"")
+    staged_audio.write_bytes(b"")
+    for target, size in ((staged_audio, audio), (staged_final, final)):
+        diagnostics = folder / f".act-tmp-ffmpeg-{number:04d}{target.name[-5]}.log"
+        diagnostics.write_bytes(b"d" * log)
+        target.write_bytes(b"m" * size)
+        module.discard_temporary(diagnostics)
+    module.atomic_replace(staged_final, folder / f"{number:04d}.mp3")
+    module.discard_temporary(staged_audio)
+
+
+def test_the_staging_census_reads_the_exact_peak_of_media_and_diagnostics_apart(tmp_path):
+    """The peak is at the end of a chapter's second pass, just before that pass's diagnostics file is discarded: for a
+    few milliseconds in a real run, which a 0.5 s sampler mostly misses. The census reads it because it reads there."""
+    census, module, folder = _census(tmp_path)
+    for number, audio, final in ((1, 31_656, 60_900), (2, 32_505, 61_816), (3, 31_918, 61_237)):
+        _chapter(module, folder, number, audio=audio, final=final, log=122_852)
+    census.finish()
+    record = census.record()
+    assert record["peak_media_bytes"] == 32_505 + 61_816 and record["peak_media_files"] == 2
+    assert record["peak_diagnostics_bytes"] == 122_852 and record["peak_diagnostics_files"] == 1
+    assert record["peak_total_bytes"] == 32_505 + 61_816 + 122_852 and record["peak_total_files"] == 3
+    assert record["at_peak"]["media_bytes"] == {"moment": "discard", "media": [32_505, 61_816], "diagnostics": [122_852]}
+    assert record["readings_before_publish"] == 3 and record["readings_before_discard"] == 9
+    assert record["left_files"] == 0 and record["left_bytes"] == 0
+    assert sorted(path.name for path in folder.iterdir()) == ["0001.mp3", "0002.mp3", "0003.mp3"], "published outputs are not staging"
+
+
+def test_the_staging_census_sees_extra_staging_a_spool_and_a_leftover(tmp_path):
+    census, module, folder = _census(tmp_path)
+    _chapter(module, folder, 1, audio=31_656, final=60_900, log=100)
+    honest = census.record()["peak_media_bytes"]
+    assert honest == 31_656 + 60_900
+    # A decoded chapter spooled beside the outputs as one of the application's own temporaries, kept while a chapter is made:
+    spool = folder / ".act-tmp-decoded-0002.pcm"
+    spool.write_bytes(b"p" * 529_200)
+    _chapter(module, folder, 2, audio=31_656, final=60_900, log=100)
+    assert census.record()["peak_media_bytes"] == honest + 529_200
+    census.finish()
+    assert census.record()["left_files"] == 1 and census.record()["left_bytes"] == 529_200
+    # Discarding nothing (the application passes None for a temporary it never made) is not a reading.
+    before = census.record()["readings_before_discard"]
+    assert module.discard_temporary(None) is False and census.record()["readings_before_discard"] == before
+
+
+def test_a_benchmark_child_is_let_go_once_it_has_ended():
+    """Windows keeps charging a job for an exited process while a handle to it is open (about 77 KB each, measured), and
+    the harness used to keep every child's Popen object: 155 MB of the 1,000-chapter book's 236 MB 'job peak' was that."""
+    if sys.platform != "win32":
+        pytest.skip("the benchmark harness accounts through Windows Job Objects")
+    bench = _scaling_module("bench_run")
+    proc = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
+    child = bench.Child("segment", proc, time.perf_counter())
+    try:
+        assert child.alive() and child.proc is proc
+        running = child.settle()
+        assert child.proc is proc and child.facts is None and "peak_commit" in running, "a running child keeps its handle"
+    finally:
+        proc.stdin.close()
+        proc.wait(30)
+    assert not child.alive()
+    facts = child.settle()
+    assert child.proc is None, "the harness still holds the exited child's Popen object, and with it the handle"
+    assert facts["peak_commit"] > 0 and facts is child.facts and child.settle() is facts and child.pid == proc.pid
+    source = (GATE_DIR / "scaling" / "bench_run.py").read_text(encoding="utf-8")
+    assert "children.append(Child(" in source and "children.append((kind, proc" not in source
+
+
+def test_the_decoders_console_host_is_found_among_the_jobs_processes():
+    """The job is made in a child interpreter: a job that kills on close must never be put around pytest itself."""
+    if sys.platform != "win32":
+        pytest.skip("console hosts and Job Objects are Windows")
+    script = textwrap.dedent(f"""
+        import json, subprocess, sys
+        sys.path.insert(0, {str(GATE_DIR / 'scaling')!r})
+        import winjob
+        job = winjob.Job()
+        child = subprocess.Popen(["cmd.exe", "/d", "/k"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            child.stdin.write(b"rem\\r\\n")
+            child.stdin.flush()
+            found = []
+            for _ in range(200):
+                found = job.children_of(child.pid)
+                if found:
+                    break
+                import time; time.sleep(0.05)
+            facts = [dict(image=c["image"], peak=winjob.process_facts(c["handle"]).get("peak_commit")) for c in found]
+            for c in found:
+                winjob.close_handle(c["handle"])
+            print(json.dumps({{"ids": len(job.process_ids()), "found": facts, "strangers": job.children_of(0)}}))
+        finally:
+            child.stdin.close()
+            child.wait(30)
+    """)
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    told = json.loads(done.stdout.strip().splitlines()[-1])
+    assert [item["image"] for item in told["found"]] == ["conhost.exe"], told
+    assert told["found"][0]["peak"] > 0 and told["ids"] >= 3 and told["strangers"] == [], told

@@ -91,10 +91,13 @@ def ensure_fixture(name: str, build: dict, pair: dict, log) -> Path:
 
 
 def bench(run_root: Path, label: str, sources: list[Path], pair: dict, *, route: str, timeout: float,
-          extra: tuple = (), mode: str = "split", metadata: str = "preserve", python: str | None = None) -> dict:
-    """One contained benchmark run in its own process. Returns its results, or a record of why there are none."""
+          extra: tuple = (), mode: str = "split", metadata: str = "preserve", python: str | None = None,
+          code: Path | None = None) -> dict:
+    """One contained benchmark run in its own process. Returns its results, or a record of why there are none.
+
+    *code* is the scripts folder to measure: the repository's own unless a planted-defect control names another."""
     out = run_root / "runs" / label
-    argv = [python or sys.executable, str(HERE / "bench_run.py"), "--code", str(SCRIPTS), "--ffmpeg", pair["ffmpeg"],
+    argv = [python or sys.executable, str(HERE / "bench_run.py"), "--code", str(code or SCRIPTS), "--ffmpeg", pair["ffmpeg"],
             "--root", str(run_root), "--out", str(out), "--route", route, "--mode", mode, "--metadata", metadata,
             "--label", label, "--timeout", str(timeout), "--hash-outputs", *map(str, extra)]
     for source in sources:
