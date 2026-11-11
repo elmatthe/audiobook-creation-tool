@@ -46,6 +46,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   first-run choices and Cancel, and Clear Downloaded Data from the click to the next launch.
 - Three qualification scenarios (`verify.py --mode qualification`): `optional-engines`, `edge-low-memory` and
   `fresh-windows`. A scenario that needs the network runs only when it is given its `--network` policy.
+- The gate's pictures of a window are now of the whole window, inside the desktop, with nothing over it: a journey moves
+  its window inside the work area before enlarging it, and a picture is refused if any part of the window is covered or
+  off the screen. Before, a picture could include the Windows taskbar (development evidence only; nothing shipped).
 
 ## [Unreleased] — v0.7.2 Phase 7B: long split books convert much faster, with identical files (2026-11-10)
 
