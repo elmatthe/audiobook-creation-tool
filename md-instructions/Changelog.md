@@ -16,6 +16,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased] — v0.7.2 Phase 8: the release candidate (version 0.7.2): a window freeze and two narration defects fixed (2026-11-10)
 
 **Fixed**
+- **Verification only (Phase 8 remediation, 2026-11-11).** Nothing in the application changed. The `m4b-scaling` qualification now measures what its memory and staging checks compare: it no longer reads its own open process handles as the job's memory, it counts the console host Windows starts with the decoder, and it reads staged bytes exactly at every discard and publication instead of sampling them. `verify.py --status` reads a qualification PASS as a PASS. The budgets did not move (ACT72-067, ACT72-068, ACT72-069).
+
 - **M4B Converter: the window no longer freezes when a run ends.** The Converter shows its output folder when a run
   finishes. It asked Windows to do that from the window itself, so while Explorer was busy or restarting the whole
   window stopped responding (up to 37 seconds was measured). The folder is now asked for in the background: the run's
