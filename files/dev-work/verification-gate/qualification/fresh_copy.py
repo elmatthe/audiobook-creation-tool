@@ -114,6 +114,9 @@ def main() -> int:
                 if event == "socket.connect" and not str(arguments[1:2]).count("127.0.0.1"):
                     attempts.append(str(arguments[1])[:100])
                     raise PermissionError("offline status check")
+                if event == "socket.getaddrinfo" and arguments[0] not in (None, "", "localhost", "127.0.0.1", "::1"):
+                    attempts.append(f"name lookup: {str(arguments[0])[:80]}")
+                    raise PermissionError("offline status check")
 
             sys.addaudithook(hook)
             record["venv_python"] = Path(sys.executable).resolve().is_relative_to(copy / ".venv")
@@ -130,14 +133,29 @@ def main() -> int:
             record["ffmpeg_verified"] = bool(ffmpeg_utils.verified_ffmpeg())
             record["ffmpeg"] = ffmpeg_utils.ffmpeg_path() and str(ffmpeg_utils.ffmpeg_path())
             record["sentence_data_problem"] = nltk_store.problem(copy)
-            from tts import voice_install
+            from tts import voice_install, voice_registry
 
-            try:
-                status = voice_install.models_status()
-                record["models_status"] = {str(key): (value if isinstance(value, (bool, int, str, type(None))) else str(value))
-                                           for key, value in (status.items() if isinstance(status, dict) else enumerate(status))}
-            except Exception as exc:  # noqa: BLE001 - recorded
-                record["models_status_error"] = f"{type(exc).__name__}: {exc}"[:300]
+            # Each voice's own answer, asked the way the TTS panel asks it before a run: is it usable here, and if not, would the
+            # panel offer Install & Continue for it. An Edge voice needs nothing installed.
+            voices: dict = {}
+            for entry in voice_registry.VOICES:
+                backend, voice_id = entry.backend, entry.voice_id
+                if backend == "edge":
+                    voices[f"{backend}:{voice_id}"] = {"usable": True, "reason": "", "offered": None}
+                    continue
+                try:
+                    if backend == "qwen3":
+                        from tts import qwen3_runtime
+
+                        usable, reason = qwen3_runtime.voice_availability(voice_id)
+                    else:
+                        usable, reason = voice_install.models_status(backend, voice_id)
+                    offered = voice_install.installable(backend, voice_id, reason)
+                except Exception as exc:  # noqa: BLE001 - recorded, and it fails the check that reads it
+                    usable, reason, offered = None, f"{type(exc).__name__}: {exc}", None
+                voices[f"{backend}:{voice_id}"] = {"usable": usable, "reason": str(reason)[:240], "offered": offered}
+            record["voices"] = voices
+            record["voice_counts"] = {backend: sum(1 for key in voices if key.startswith(backend + ":")) for backend in voice_registry.BACKENDS}
             record["network_attempts"] = attempts
             record["optional_folders"] = {name: (copy / name).exists() for name in
                                           (".venv/engines", "files/runtime-data/models", "files/runtime-data/chatterbox", ".venv-qwen3")}
@@ -147,11 +165,24 @@ def main() -> int:
 
             import launcher
             from shared import config as shared_config
-            from shared import settings as app_settings
+            from shared import output_paths, paths
 
-            outputs = args.out / "outputs"
-            app_settings.set("output_base_directory", str(outputs))
-            shared_config.invalidate()
+            # Before any window: the copy's own settings file, and an output base inside this run's folder, read back from the
+            # application's effective configuration. Refused before anything is built if either is not so.
+            outputs = (args.out / "outputs").resolve()
+            settings_file = Path(paths.SETTINGS_FILE).resolve()
+            if not settings_file.is_relative_to(copy):
+                raise SystemExit(f"refused: the settings file is {settings_file}, outside the extracted copy")
+            shared_config.set_output_base(str(outputs))
+            effective = Path(output_paths.resolve_output_base(shared_config.get_effective())).resolve()
+            if effective != outputs:
+                raise SystemExit(f"refused: the effective output base is {effective}, not {outputs}")
+            from shared import subprocess_utils as sp
+
+            reveals: list = []
+            sp.reveal_in_file_manager = lambda path, *a, **k: reveals.append(str(path))
+            os.startfile = lambda *a, **k: reveals.append(str(a[:1]))
+            record.update(settings_file=str(settings_file), output_base=str(effective), reveals=reveals)
             errors, boxes = [], []
             for name in ("showinfo", "showwarning", "showerror", "askyesno", "askokcancel"):
                 setattr(messagebox, name, lambda *a, _n=name, **k: boxes.append([_n, *map(str, a)]) or False)

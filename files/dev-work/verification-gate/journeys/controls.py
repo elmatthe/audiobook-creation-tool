@@ -91,6 +91,80 @@ def covered(context: Context) -> None:
         raise oracle.OracleFailure("the guard clicked a covered target")
 
 
+#: The twenty-five places a picture's rectangle was tested at until v0.7.2 Phase 8. Kept here so the control can show what they missed.
+COARSE = (0.02, 0.25, 0.5, 0.75, 0.98)
+
+
+def _refused_picture(session: AppSession, name: str) -> str | None:
+    try:
+        session.screenshot(name)
+    except native.ScreenshotRefused as exc:
+        return str(exc)
+    return None
+
+
+@scenario("control.partly-hidden-window-is-not-pictured", tool="gate", layers=("native", "control"), tier="control",
+          summary="A strip lying between the 25 points a picture used to be tested at, then the window hanging off the screen: each picture "
+                  "is refused. Uncovered, and moved back inside the work area by the journeys' own resize, the same window is pictured")
+def partly_hidden(context: Context) -> None:
+    report = context.report
+    under = _target(context, "under", geometry="480x400+260+140")
+    under.screenshot("whole")
+    report.check("the no-change control: the window with nothing over it is pictured", (under.screenshots / "whole.png").is_file())
+    left, top, right, bottom = native.client_on_screen(under.hwnd)
+    report.equal("its client area is the size asked for", [right - left, bottom - top], [480, 400])
+    rows = [int(top + (bottom - top) * fraction) for fraction in COARSE]
+    coarse = [(int(left + (right - left) * fraction), y) for y in rows for fraction in COARSE]
+
+    strip = _target(context, "strip", geometry=f"{right - left}x20+{left}+{rows[1] + 12}", on_top=True)
+    strip_left, strip_top, strip_right, strip_bottom = native.window_rect(strip.hwnd)
+    if not (rows[1] < strip_top and strip_bottom <= rows[2]):
+        raise oracle.OracleFailure(f"the control could not be set up: the strip's rows {strip_top}..{strip_bottom} are not between "
+                                   f"{rows[1]} and {rows[2]}")
+    middle = ((max(left, strip_left) + min(right, strip_right)) // 2, (strip_top + strip_bottom) // 2)
+    report.equal("the strip lies over the window", native.root_window_at(*middle), strip.hwnd)
+    missed = [point for point in coarse if native.root_window_at(*point) != under.hwnd]
+    report.check("every one of the 25 points tested before still finds the window, so the picture would have been kept", not missed, missed)
+    shot = _refused_picture(under, "must-not-exist-strip")
+    report.check("the picture is refused because of the strip", shot is not None and "covers the owned window" in shot, shot)
+    report.check("and no picture was written", not (under.screenshots / "must-not-exist-strip.png").exists())
+    facts = strip.close_by_user()
+    report.equal("the strip closed", facts["exit_status"], 0)
+
+    native.acquire_foreground(under.hwnd)
+    wait_until(lambda: native.foreground_owner()[0] == under.hwnd, 5, "the window to hold the foreground again")
+    home = native.window_rect(under.hwnd)
+    edge = native.user32.GetSystemMetrics(native.SM_XVIRTUALSCREEN) + native.user32.GetSystemMetrics(native.SM_CXVIRTUALSCREEN)
+    native.move_window(under.hwnd, edge - 150, home[1])
+    wait_until(lambda: native.window_rect(under.hwnd)[0] == edge - 150, 5, "the window to reach the edge of the desktop")
+    hanging = native.client_on_screen(under.hwnd)
+    report.check("the window now reaches past the last monitor", hanging[2] > edge, {"client": list(hanging), "desktop_right": edge})
+    shot = _refused_picture(under, "must-not-exist-off-screen")
+    report.check("the picture is refused because part of the window is on no monitor", shot is not None and "off the screen" in shot, shot)
+    report.check("and no picture was written", not (under.screenshots / "must-not-exist-off-screen.png").exists())
+
+    native.resize_client(under.hwnd, 480, 400)
+    wait_until(lambda: native.window_rect(under.hwnd)[0] != edge - 150, 5, "the resize to move the window")
+    under.settle()
+    client, area = native.client_on_screen(under.hwnd), native.work_area(under.hwnd)
+    report.check("the journeys' own resize moved the window wholly inside the work area",
+                 area[0] <= client[0] and area[1] <= client[1] and client[2] <= area[2] and client[3] <= area[3],
+                 {"client": list(client), "work_area": list(area)})
+    report.equal("at the size asked for", [client[2] - client[0], client[3] - client[1]], [480, 400])
+    native.acquire_foreground(under.hwnd)
+    under.screenshot("moved-inside")
+    report.check("and there it is pictured", (under.screenshots / "moved-inside.png").is_file())
+    refused = None
+    try:
+        native.resize_client(under.hwnd, 20000, 20000)
+    except native.DesktopUnavailable as exc:
+        refused = str(exc)
+    report.check("a size the work area cannot hold is refused", refused is not None and "cannot hold" in refused, refused)
+    report.equal("and the window was left as it was", list(native.client_size(under.hwnd)), [480, 400])
+    if shot is None:
+        raise oracle.OracleFailure("a picture was taken of a window that was not wholly on the screen")
+
+
 @scenario("control.disabled-target-is-refused", tool="gate", layers=("native", "control"), tier="control",
           summary="A disabled control is never clicked as though it were live")
 def disabled(context: Context) -> None:

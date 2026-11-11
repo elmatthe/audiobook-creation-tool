@@ -140,10 +140,15 @@ def expect_clean_close(context: Context, session: AppSession, *, label: str = "c
 
 
 def resize_and_check(session: AppSession, context: Context, tool: str, keys: list[str], size: tuple[int, int]) -> None:
-    """A real window-manager resize, then every named control fully inside the client area. Size and overlap alone do not prove on-screen."""
+    """A real window-manager resize, then the window wholly inside its monitor's work area and every named control fully inside the
+    client area. Size and overlap alone do not prove on-screen, and neither does a control inside a window that is itself partly hidden."""
     native.resize_client(session.hwnd, *size)
     wait_until(lambda: tuple(native.client_size(session.hwnd)) == size, 8, f"the client area to reach {size}")
     session.settle()
+    client, area = native.client_on_screen(session.hwnd), native.work_area(session.hwnd)
+    context.report.check(f"{tool} at {size[0]}x{size[1]}: the whole client area is inside the desktop's work area",
+                         area[0] <= client[0] and area[1] <= client[1] and client[2] <= area[2] and client[3] <= area[3],
+                         {"client": list(client), "work_area": list(area)})
     window = session.client.call("window")
     for key in keys:
         widget = session.widget(tool, key)

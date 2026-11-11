@@ -153,12 +153,18 @@ class Scenario:
         return record
 
     def child(self, label: str, script: Path, arguments: list[str], *, timeout: float, env: dict | None = None,
-              python: str | None = None) -> dict:
-        """One contained case in a process of its own. Its ``result.json`` is the answer; its output is kept beside it."""
+              python: str | None = None, exact_env: bool = False) -> dict:
+        """One contained case in a process of its own. Its ``result.json`` is the answer; its output is kept beside it.
+
+        ``env`` is laid over this process's environment, or with ``exact_env`` is the child's whole environment, so a variable the
+        caller left out on purpose is really absent."""
         folder = self.root / "runs" / label
         folder.mkdir(parents=True, exist_ok=False)
         environment = {key: value for key, value in os.environ.items() if key.upper() not in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP")}
-        environment.update(env or {})
+        if exact_env:
+            environment = dict(env or {})
+        else:
+            environment.update(env or {})
         self.log(f"run {label}: start")
         began = time.monotonic()
         with open(folder / "output.log", "wb") as output:

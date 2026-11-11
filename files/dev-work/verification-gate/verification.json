@@ -212,6 +212,7 @@
       "control.real-click-reaches-the-target",
       "control.lost-foreground-blocks-input",
       "control.covered-target-is-refused",
+      "control.partly-hidden-window-is-not-pictured",
       "control.disabled-target-is-refused",
       "control.dead-input-path-blocks",
       "control.second-run-refused-by-the-lease",

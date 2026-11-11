@@ -65,6 +65,17 @@ def clean_environment(local: Path, temp: Path, **more) -> dict:
     return env
 
 
+def long_paths_enabled() -> bool | None:
+    """Whether this Windows lets a program use paths past 260 characters: it decides how deep a folder the app can be set up in."""
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
+            return bool(winreg.QueryValueEx(key, "LongPathsEnabled")[0])
+    except OSError:
+        return None
+
+
 def tree_size(root: Path) -> tuple[int, int]:
     count = total = 0
     for folder, _folders, files in os.walk(root):
@@ -168,7 +179,7 @@ class Fresh:
 
     def act(self, label: str, copy: Path, python: str, mode: str, *, offline: bool, name: str, timeout: float, extra=()) -> dict | None:
         record = self.run.child(label, HERE / "fresh_copy.py", ["--copy", str(copy), "--mode", mode, *extra], timeout=timeout,
-                                env=self.env(name, offline=offline), python=python)
+                                env=self.env(name, offline=offline), python=python, exact_env=True)
         result = record["result"]
         if result is None or not result.get("finished"):
             self.run.check(f"{label}: the step ran and left a record", False,
@@ -190,8 +201,10 @@ class Fresh:
         sys.path.insert(0, str(common.GATE_DIR))
         from adapters.windows import native_input as native
 
+        env = self.env(name, offline=True)
+        env["PATH"] = f"{copy / 'files' / 'bin'}{os.pathsep}{env['PATH']}"  # as bootstrap.launch_gui hands the app its own FFmpeg
         child = subprocess.Popen([str(copy / ".venv" / "Scripts" / "pythonw.exe"), str(copy / "scripts" / "launcher.py")],
-                                 cwd=copy / "scripts", env=self.env(name, offline=True), creationflags=0x08000000)
+                                 cwd=copy / "scripts", env=env, creationflags=0x08000000)
         window = None
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline and child.poll() is None and window is None:
@@ -239,15 +252,33 @@ class Fresh:
                       and status["venv_python"], status["imports"])
             run.check("A: FFmpeg is proved and the sentence data is in place", status["ffmpeg_verified"] and not status["sentence_data_problem"]
                       and Path(status["ffmpeg"]).resolve().is_relative_to(copy), [status["ffmpeg"], status["sentence_data_problem"]])
-            run.check("A: no optional voice is installed, and asking made no connection", not status["network_attempts"]
-                      and not status["optional_folders"][".venv/engines"] and "models_status_error" not in status,
-                      {"status": status.get("models_status") or status.get("models_status_error"), "folders": status["optional_folders"]})
+            voices, counts = status["voices"], status["voice_counts"]
+            optional = {key: value for key, value in voices.items() if not key.startswith("edge:")}
+            run.check("A: every engine's voices are listed, and the Edge voices need nothing installed", all(counts.get(backend, 0) > 0
+                      for backend in ("edge", "kokoro", "chatterbox", "qwen3")) and all(value["usable"] is True for key, value in
+                                                                                         voices.items() if key.startswith("edge:")), counts)
+            wrong = {key: value for key, value in optional.items() if value["usable"] is not False or not value["reason"].strip()}
+            run.check("A: every optional voice says it is not installed, with a reason, and asking made no connection",
+                      bool(optional) and not wrong and not status["network_attempts"] and not any(status["optional_folders"].values()),
+                      wrong or {"voices": len(optional), "attempts": status["network_attempts"], "folders": status["optional_folders"],
+                                "reasons": sorted({value["reason"] for value in optional.values()})})
+            unoffered = sorted(key for key, value in optional.items() if not value["offered"])
+            run.check("A: the app would offer Install & Continue for each of them, and installs none by itself", not unoffered,
+                      unoffered or sorted({str(value["offered"]) for value in optional.values()}))
         tools = self.act("A-tools", copy, venv, "tools", offline=True, name=name, timeout=600)
+        contained = False
         if tools is not None:
+            contained = (Path(tools["output_base"]).is_relative_to(run.root) and Path(tools["settings_file"]).is_relative_to(copy)
+                         and not tools["reveals"])
+            run.check("A: the copy's settings are its own, its output base is inside this run, and no folder window was asked for",
+                      contained, {key: tools[key] for key in ("settings_file", "output_base", "reveals")})
             run.check("A: the real launcher builds all six tools with no error and writes no output", len(tools["offered"]) == 6
                       and all(shown for _key, shown in tools["visited"]) and not tools["errors"] and not tools["output_created"],
                       {"offered": tools["offered"], "errors": tools["errors"][:2], "boxes": tools["message_boxes"][:3]})
-        self.launch_and_close(copy, name)
+        if contained:
+            self.launch_and_close(copy, name)
+        else:
+            run.check("A: the application's window opened", False, "not started: the copy's output base and settings were not proved to be its own")
         run.check("A: nothing was installed outside the app's folder", tree_size(self.scratch / name / "localappdata")[0] == 0
                   or not any((self.scratch / name / "localappdata").rglob("python*.exe")),
                   f"{tree_size(self.scratch / name / 'localappdata')[0]} files under the stand-in LOCALAPPDATA")
@@ -317,8 +348,7 @@ def body(run: common.Scenario) -> None:
         raise common.Blocked(f"TEMP is {temp}, not the gate's own scratch: run this through verify.py so its folders are owned and removed by the gate")
     scratch = temp.parent / "fw"
     scratch.mkdir()
-    identity = run.identity(elevated=bool(ctypes.windll.shell32.IsUserAnAdmin()), scratch=str(scratch),
-                            long_paths=common.git("--version") and None)
+    identity = run.identity(elevated=bool(ctypes.windll.shell32.IsUserAnAdmin()), scratch=str(scratch), long_paths=long_paths_enabled())
     run.log(f"identity: HEAD {identity['head']}, elevated {identity['elevated']}, scratch {scratch}")
     run.check("this run is not elevated: setup needs no administrator rights", not identity["elevated"], identity["elevated"])
     fresh = Fresh(run, scratch)

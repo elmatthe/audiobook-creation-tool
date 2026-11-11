@@ -340,6 +340,42 @@ def test_the_desktop_lease_is_exclusive_and_released(tmp_path):
         pass
 
 
+def _native():
+    sys.path.insert(0, str(GATE_DIR))
+    try:
+        from adapters.windows import native_input as native
+    finally:
+        sys.path.remove(str(GATE_DIR))
+    return native
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a Windows desktop")
+@pytest.mark.parametrize("rectangle", [(138, 161, 1538, 1061), (0, 0, 1, 1), (-1920, 0, -1917, 3), (10, 10, 15, 400), (268, 201, 748, 601)])
+def test_a_pictures_rectangle_is_tested_closely_and_to_its_far_edges(rectangle):
+    """ACT72-066: 25 points let a 48-pixel taskbar pass between two rows. Nothing as large as the grid may fit between two tested places."""
+    native = _native()
+    left, top, right, bottom = rectangle
+    columns, rows = native.shot_points(left, top, right, bottom)
+    assert native.SHOT_GRID <= 4, "a wider grid lets a thin strip through"
+    for values, first, last in ((columns, left, right - 1), (rows, top, bottom - 1)):
+        assert values[0] == first and values[-1] == last, "both edges are tested exactly"
+        assert values == sorted(set(values)) and all(first <= value <= last for value in values)
+        assert all(later - earlier <= native.SHOT_GRID for earlier, later in zip(values, values[1:]))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a Windows desktop")
+def test_the_taskbar_band_that_passed_between_the_old_rows_is_now_crossed():
+    """The measured case: a 1400x900 client area at 216,239 on a 1080-high screen, taskbar rows 1032 to 1079. The 25 former points
+    missed every one of those rows; the grid now crosses them."""
+    native = _native()
+    left, top, right, bottom = 216, 239, 1616, 1139
+    former_rows = [int(top + (bottom - top) * fraction) for fraction in (0.02, 0.25, 0.5, 0.75, 0.98)]
+    assert not [row for row in former_rows if 1032 <= row < 1080], "the control: the old rows really did miss the band"
+    _columns, rows = native.shot_points(left, top, right, bottom)
+    assert [row for row in rows if 1032 <= row < 1080]
+    assert [row for row in rows if row >= 1080], "and the rows below the screen are tested too, where a point on no monitor is refused"
+
+
 def test_the_policy_and_this_layout_are_where_the_plan_says():
     for relative in ("verify.py", "acceptance_runner.py", "adapters/windows/native_input.py", "adapters/windows/app_launcher.py", "journeys/common.py",
                      "fixtures/manifest.json", "baselines/approved.json", "helpers/media_oracle.py"):

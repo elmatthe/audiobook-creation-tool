@@ -30,6 +30,7 @@ VK = {"return": 0x0D, "tab": 0x09, "escape": 0x1B, "down": 0x28, "up": 0x26, "le
       "delete": 0x2E, "backspace": 0x08, "space": 0x20, "control": 0x11, "shift": 0x10, "alt": 0x12, "a": 0x41, "f4": 0x73, "f24": 0x87}
 WM_CLOSE = 0x0010
 SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
+MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTONEAREST = 0, 2
 GW_OWNER = 4
 GA_ROOT = 2
 UOI_NAME = 2
@@ -66,6 +67,10 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", w.DWORD), ("u", _INPUTUNION)]
 
 
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
+
+
 WNDENUMPROC = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
 user32.SendInput.argtypes = [w.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = w.UINT
@@ -91,6 +96,11 @@ user32.WindowFromPoint.restype = w.HWND
 user32.GetAncestor.argtypes = [w.HWND, w.UINT]
 user32.GetAncestor.restype = w.HWND
 user32.GetCursorPos.argtypes = [ctypes.POINTER(w.POINT)]
+user32.MonitorFromWindow.argtypes = [w.HWND, w.DWORD]
+user32.MonitorFromWindow.restype = w.HANDLE
+user32.MonitorFromPoint.argtypes = [w.POINT, w.DWORD]
+user32.MonitorFromPoint.restype = w.HANDLE
+user32.GetMonitorInfoW.argtypes = [w.HANDLE, ctypes.POINTER(MONITORINFO)]
 user32.OpenInputDesktop.restype = w.HANDLE
 user32.OpenInputDesktop.argtypes = [w.DWORD, w.BOOL, w.DWORD]
 user32.GetThreadDesktop.argtypes = [w.DWORD]
@@ -261,12 +271,39 @@ def child_controls(hwnd: int) -> list[dict]:
     return found
 
 
+def work_area(hwnd: int) -> tuple[int, int, int, int]:
+    """What the taskbar and any other docked bar leave free on the window's monitor: the only part of it a whole window can be seen in."""
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(MONITORINFO)
+    if not user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), ctypes.byref(info)):
+        raise OSError(f"GetMonitorInfoW failed: {ctypes.get_last_error()}")
+    return info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom
+
+
 def resize_client(hwnd: int, width: int, height: int) -> None:
-    """Resize through the window manager so the CLIENT area asks for width x height: Tk's geometry is the client size."""
+    """Resize through the window manager so the CLIENT area asks for width x height: Tk's geometry is the client size.
+
+    The window keeps its place unless the new size would reach past its monitor's work area. Then it is moved back inside by just that
+    much, as a person drags a window before enlarging it. Windows places a new window wherever its cascade has got to, so without this a
+    window grown here ran under the taskbar on some runs and not on others (ACT72-066). A size the work area cannot hold at all is
+    refused: such a window could not be seen whole, so nothing about what it shows could be proved.
+    """
     left, top, right, bottom = window_rect(hwnd)
     client_w, client_h = client_size(hwnd)
-    if not user32.SetWindowPos(hwnd, None, left, top, width + (right - left - client_w), height + (bottom - top - client_h),
-                               SWP_NOZORDER | SWP_NOACTIVATE):
+    frame_w, frame_h = width + (right - left - client_w), height + (bottom - top - client_h)
+    area = work_area(hwnd)
+    if frame_w > area[2] - area[0] or frame_h > area[3] - area[1]:
+        raise DesktopUnavailable(f"the work area {area[2] - area[0]}x{area[3] - area[1]} cannot hold a window whose client area is "
+                                 f"{width}x{height}; it was not resized")
+    left, top = max(area[0], min(left, area[2] - frame_w)), max(area[1], min(top, area[3] - frame_h))
+    if not user32.SetWindowPos(hwnd, None, left, top, frame_w, frame_h, SWP_NOZORDER | SWP_NOACTIVATE):
+        raise OSError(f"SetWindowPos failed: {ctypes.get_last_error()}")
+
+
+def move_window(hwnd: int, left: int, top: int) -> None:
+    """Put the window's frame at left, top with its size unchanged, wherever that is. For the controls that need a window out of place."""
+    was_left, was_top, right, bottom = window_rect(hwnd)
+    if not user32.SetWindowPos(hwnd, None, left, top, right - was_left, bottom - was_top, SWP_NOZORDER | SWP_NOACTIVATE):
         raise OSError(f"SetWindowPos failed: {ctypes.get_last_error()}")
 
 
@@ -293,7 +330,7 @@ def root_window_at(x: int, y: int) -> int:
     return int(user32.GetAncestor(hwnd, GA_ROOT) or 0) if hwnd else 0
 
 
-def _client_on_screen(hwnd: int) -> tuple[int, int, int, int]:
+def client_on_screen(hwnd: int) -> tuple[int, int, int, int]:
     origin = w.POINT(0, 0)
     user32.ClientToScreen.argtypes = [w.HWND, ctypes.POINTER(w.POINT)]
     user32.ClientToScreen(hwnd, ctypes.byref(origin))
@@ -305,8 +342,23 @@ class ScreenshotRefused(DesktopUnavailable):
     """The owned window's client area was not wholly its own on screen, so a picture of it could show something else."""
 
 
+#: The grid a picture's rectangle is tested on, in pixels. The last column and the last row are always tested as well.
+SHOT_GRID = 4
+
+
+def shot_points(left: int, top: int, right: int, bottom: int, step: int = SHOT_GRID) -> tuple[list[int], list[int]]:
+    """The columns and the rows a picture's rectangle is tested on: every ``step`` pixels, and its last column and last row exactly."""
+    return sorted({*range(left, right, step), right - 1}), sorted({*range(top, bottom, step), bottom - 1})
+
+
 def screenshot(hwnd: int, path: Path) -> dict:
-    """Only the owned window's client area, and only while nothing else lies over it, so no other content of the desktop can reach evidence.
+    """Only the owned window's client area, and only while all of it is on a monitor with nothing else lying over it, so no other content
+    of the desktop can reach evidence.
+
+    The rectangle is tested every ``SHOT_GRID`` pixels and along its far edges, so anything at least that large in both directions is
+    found wherever it lies. Until v0.7.2 Phase 8 twenty-five points were tested, and a taskbar 48 pixels high passed between two rows of
+    them: pictures were kept with the owner's taskbar across the window and with the part of the window below the screen black
+    (ACT72-066). A point on no monitor is refused for that second reason.
 
     The frame is left out because its invisible resize border and rounded corners show whatever is behind. ``PrintWindow``, which would
     avoid all of this, is not used: measured on this Tk, a second call leaves the application's main thread unresponsive for over 30 s, and
@@ -314,11 +366,17 @@ def screenshot(hwnd: int, path: Path) -> dict:
     """
     from PIL import ImageGrab
 
-    left, top, right, bottom = _client_on_screen(hwnd)
-    for fraction_y in (0.02, 0.25, 0.5, 0.75, 0.98):
-        for fraction_x in (0.02, 0.25, 0.5, 0.75, 0.98):
-            x, y = int(left + (right - left) * fraction_x), int(top + (bottom - top) * fraction_y)
-            if root_window_at(x, y) != int(hwnd):
+    left, top, right, bottom = client_on_screen(hwnd)
+    if right <= left or bottom <= top:
+        raise ScreenshotRefused("the owned window has no client area to picture; no picture was taken")
+    columns, rows = shot_points(left, top, right, bottom)
+    for y in rows:
+        for x in columns:
+            point = w.POINT(x, y)
+            if not user32.MonitorFromPoint(point, MONITOR_DEFAULTTONULL):
+                raise ScreenshotRefused(f"the owned window is off the screen at {x},{y}; no picture was taken")
+            found = user32.WindowFromPoint(point)
+            if not found or int(user32.GetAncestor(found, GA_ROOT) or 0) != int(hwnd):
                 raise ScreenshotRefused(f"another window covers the owned window at {x},{y}; no picture was taken")
     image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
     Path(path).parent.mkdir(parents=True, exist_ok=True)

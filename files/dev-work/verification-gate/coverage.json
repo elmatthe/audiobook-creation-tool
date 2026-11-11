@@ -21842,7 +21842,11 @@
           "path": "files/dev-work/verification-gate/adapters/windows/native_input.py",
           "symbols": [
             "DesktopLease",
-            "desktop_status"
+            "desktop_status",
+            "screenshot",
+            "shot_points",
+            "resize_client",
+            "work_area"
           ]
         },
         {
@@ -21869,7 +21873,8 @@
         "input goes only to the owned process's foreground window, at a target the pointer really hits",
         "a lost foreground, a covered or disabled target, a dead input path or another desktop blocks rather than passes",
         "one automation run holds the desktop at a time",
-        "the observation channel can look and cannot act"
+        "the observation channel can look and cannot act",
+        "a picture is taken only of an owned window whose whole client area is on a monitor with nothing else over it, tested every four pixels and along its far edges; a window a journey enlarges is first moved inside its monitor's work area, and a size the work area cannot hold is refused"
       ],
       "selection": [
         "files/tests/test_native_acceptance.py"
@@ -21878,6 +21883,7 @@
         "control.real-click-reaches-the-target",
         "control.lost-foreground-blocks-input",
         "control.covered-target-is-refused",
+        "control.partly-hidden-window-is-not-pictured",
         "control.disabled-target-is-refused",
         "control.dead-input-path-blocks",
         "control.second-run-refused-by-the-lease",
@@ -21898,6 +21904,14 @@
             "test": "files/tests/test_native_acceptance.py::test_a_key_path_has_no_way_to_call_anything"
           },
           {
+            "kind": "behavior",
+            "test": "files/tests/test_native_acceptance.py::test_a_pictures_rectangle_is_tested_closely_and_to_its_far_edges[rectangle0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_native_acceptance.py::test_the_taskbar_band_that_passed_between_the_old_rows_is_now_crossed"
+          },
+          {
             "kind": "control",
             "scenario": "control.real-click-reaches-the-target"
           },
@@ -21908,6 +21922,10 @@
           {
             "kind": "control",
             "scenario": "control.covered-target-is-refused"
+          },
+          {
+            "kind": "control",
+            "scenario": "control.partly-hidden-window-is-not-pictured"
           },
           {
             "kind": "control",
@@ -23765,6 +23783,19 @@
       ],
       "evidence": "v0.7.2 Phase 8, found by the first real Media Foundation test (ACT72-048) on a generated book; not reproduced on an xHE-AAC book, which is the only codec the application sends to this decoder, and the duration guard would have refused the result",
       "resolution": "Fixed in v0.7.2 Phase 8: m4b_winaudio._Reader decodes its first buffer before reporting its format, re-reads the format when Media Foundation says it changed, and raises DecodeError for a change after that. files/tests/test_m4b_winaudio_real.py; without the fix its mono cases fail."
+    },
+    {
+      "id": "ACT72-066",
+      "severity": "Major",
+      "phase": 8,
+      "status": "closed",
+      "title": "The gate's picture of a window could include the owner's taskbar and a black band, or be refused, depending on where Windows had placed the window: a journey enlarged the window where it stood, so at 1400x900 on a 1920x1080 desktop it ran under the taskbar, and only 25 points of the picture's rectangle were tested for anything lying over it",
+      "features": [
+        "ACT.GATE.NATIVE-INPUT",
+        "ACT.GATE.VISUAL-BASELINES"
+      ],
+      "evidence": "v0.7.2 Phase 8 final full gate on 052bef1 (2026-11-10_175132_full_3527): launcher.six-tools-at-three-sizes BLOCKED, 'another window covers the owned window at 166,1043'; the window at that point was Shell_TrayWnd (0,1032)-(1920,1080). The same refusal in 2026-11-10_083655_changed_26e7. With the window placed lower the bottom row of points fell below the screen and the picture was kept: tts-1400x900.png and the other five 1400x900 pictures of 2026-11-09_170309_full_7178 (the Phase 7B full gate) and of 2026-11-10_123220_changed_422d show the taskbar and a black band, and hide the window's last 107 rows",
+      "resolution": "Fixed in v0.7.2 Phase 8: native_input.resize_client moves a window that would reach past its monitor's work area back inside it and refuses a size the work area cannot hold; native_input.screenshot tests the rectangle every four pixels and along its far edges and refuses a point on no monitor; resize_and_check records that the whole client area is inside the work area at each size. control.partly-hidden-window-is-not-pictured places a strip that all 25 former points miss and then hangs the window off the desktop, and passes only when both pictures are refused. No check was removed or relaxed. The pictures kept by earlier runs are unchanged evidence of those runs; the six 1400x900 candidates from them are not fit to be baselines and the candidate list of the final gate replaces them."
     }
   ],
   "source_review": {
