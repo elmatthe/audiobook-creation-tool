@@ -1495,20 +1495,39 @@ def test_no_active_caller_depends_on_the_retired_gate_path():
     """Migration is complete only when nothing active still names ``scripts/verify.py``.
 
     What may still name it, and why: the plans and the permanent history record past commands and stay true as history;
-    this test and the packaging test assert its absence; and one comment in ``scripts/requirements.txt`` is byte-hash-locked
-    into setup (editing it would make every installed environment look stale), so it waits for the next dependency change.
+    so do the review reports kept as Markdown in ``files/dev-work/phase9-remote-review/`` (v0.7.2 Phase 9: an independent
+    reviewer's report is never edited afterwards, and two say the retired path was not run); this test and the packaging
+    test assert its absence; and one comment in ``scripts/requirements.txt`` is byte-hash-locked into setup (editing it
+    would make every installed environment look stale), so it waits for the next dependency change.
     """
     assert not (REPO_ROOT / "scripts" / "verify.py").exists()
     done = subprocess.run(["git", "grep", "-l", "-F", "scripts/verify.py"], cwd=REPO_ROOT, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if done.returncode not in (0, 1):
         pytest.skip("not a git checkout")
+    assert active_callers_of_the_retired_path(done.stdout) == []
+
+
+def active_callers_of_the_retired_path(listed: str) -> list[str]:
+    """Of ``git grep -l`` output naming ``scripts/verify.py``, the paths that are not history or the tests asserting absence."""
     allowed = {"files/tests/test_verification_gate_contract.py", "files/tests/test_release_packaging.py",
                "scripts/requirements.txt", "md-instructions/Handoff.md", "md-instructions/Decisions.md",
                "md-instructions/Changelog.md", "md-instructions/Briefing.md"}
-    active = [path for path in done.stdout.splitlines()
-              if path not in allowed and not path.startswith(("files/plans/", "files/release-history/"))]
-    assert not active, active
+    return [path for path in listed.splitlines()
+            if path not in allowed and not path.startswith(("files/plans/", "files/release-history/"))
+            and not (path.startswith("files/dev-work/phase9-remote-review/") and path.endswith(".md")
+                     and "/" not in path[len("files/dev-work/phase9-remote-review/"):])]
+
+
+def test_only_history_and_the_absence_tests_may_name_the_retired_gate_path():
+    """The exemptions above, held exactly: a review report is history; code, a nested file or any other folder is not."""
+    history = "\n".join(["files/plans/old.md", "files/release-history/x.md", "md-instructions/Handoff.md",
+                         "files/dev-work/phase9-remote-review/PHASE9-CODEX-FOCUSED-CLOSURE.md"])
+    assert active_callers_of_the_retired_path(history) == []
+    for active in ("files/dev-work/phase9-remote-review/probe.py", "files/dev-work/phase9-remote-review/sub/notes.md",
+                   "files/dev-work/verification-gate/verify.py", "scripts/launcher.py", "README.md",
+                   "files/dev-work/phase9-remote-review.md"):
+        assert active_callers_of_the_retired_path(history + "\n" + active) == [active], active
 
 
 # --------------------------------------------------------------------------- #

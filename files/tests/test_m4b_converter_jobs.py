@@ -237,6 +237,18 @@ def function(name: str) -> ast.FunctionDef:
     raise AssertionError(f"{name} is not defined in the panel")
 
 
+def values_assigned_to(attribute: str) -> list[str]:
+    """The source of every value the panel ever assigns to ``self.<attribute>``."""
+    found = []
+    for node in ast.walk(parse_panel()):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)
+                   and target.value.id == "self" and target.attr == attribute for target in targets):
+                found.append(ast.unparse(node.value) if node.value is not None else "<annotation only>")
+    return found
+
+
 def states(panel) -> list[jc.JobState]:
     """The distinct states the run moved through, in order.
 
@@ -409,9 +421,16 @@ def test_the_worker_names_no_widget_and_holds_no_estimator():
     window still locked. The rule is unchanged and is asserted where the work
     actually happens; the wrapper and its settlement helper are held to the same
     rule, so the guard cannot become a way in for a widget.
+
+    v0.7.2 Phase 9 (remote re-review R9-04) added ``_cancel_decision``: the lock
+    a Cancel latch and a publication decision are taken under, read by the
+    worker's ``authorize_publication``. It is a threading primitive like
+    ``_cancel_event``, and it is held to being one: the panel never assigns it
+    anything but ``threading.Lock()``.
     """
     body = self_attributes(function("_run_conversion"))
-    assert body == {"_cancel_event", "_log_q"}, body
+    assert body == {"_cancel_event", "_cancel_decision", "_log_q"}, body
+    assert values_assigned_to("_cancel_decision") == ["threading.Lock()"]
 
     wrapper = self_attributes(function("convert_worker"))
     assert wrapper == {"_run_conversion", "_settle_unexpected"}, wrapper

@@ -1355,17 +1355,19 @@ def test_everything_the_user_changed_afterwards_is_ignored(
 
 
 def test_the_retry_worker_reads_no_widget():
-    """**Structural.** The same two attributes the run worker was allowed.
+    """**Structural.** The same attributes the run worker is allowed.
 
     Phase 17 moved the body to ``_run_conversion``; the rule is unchanged and is
     asserted where the work happens. The wrapper is held to its own narrow set so
-    the guard cannot become a way in for a widget.
+    the guard cannot become a way in for a widget. ``_cancel_decision`` (v0.7.2
+    Phase 9, R9-04) is the lock the Cancel latch and a publication decision share;
+    ``test_m4b_converter_jobs`` holds it to being a ``threading.Lock()``.
     """
     worker = function("_run_conversion")
     reached = {node.attr for node in ast.walk(worker)
                if isinstance(node, ast.Attribute)
                and isinstance(node.value, ast.Name) and node.value.id == "self"}
-    assert reached <= {"_cancel_event", "_log_q"}, sorted(reached)
+    assert reached <= {"_cancel_event", "_cancel_decision", "_log_q"}, sorted(reached)
 
     wrapper = function("convert_worker")
     outer = {node.attr for node in ast.walk(wrapper)
