@@ -13,6 +13,35 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 Phase 9 remediation: five defects an independent review found, fixed (2026-11-12)
+
+**Fixed**
+- **TTS, PDF sources: words and numbers on a line of their own are read again.** The page-number cleanup added in
+  Phase 8 removed any number that happened to be the first or last line of a page, and an older rule removed any line of
+  one to four capital letters anywhere in a book. A sentence that ended a page with a number lost the number ("The safe
+  opens with the code 1984" was read without the code), and "NOT", "NASA" or "I" on a line of their own vanished from
+  the sentence they belonged to. A line is now removed only when the page's layout and another page both show it to be
+  a page number or a running head: it stands clear at the top or bottom of the page, and the numbers count up page by
+  page, or the same short heading sits at the same place on another page. Anything less certain is read aloud. A number
+  range or a compound name broken at a line end keeps its hyphen ("1939-1945").
+  - Still imperfect, and read aloud rather than dropped: a running head longer than four capital letters, a page
+    number or heading that appears only once, a large drop capital on a line of its own. A compound word broken at a
+    line end before a small letter still loses its hyphen ("well-known" is read as "wellknown").
+- **M4B Converter: Cancel pressed while a finished file is being checked no longer publishes it.** The last step
+  before a converted file gets its name is measuring its length. A Cancel that arrived during that measurement was not
+  looked at again, so the file appeared in the output folder after Cancel. Cancel is now asked again after the
+  measurement, and the file is given its name only if Cancel had not been pressed by then. If the file was already
+  being saved when Cancel arrived, it stays and the result says so. Pause is unchanged: the file in hand is finished
+  and saved, and the run waits before the next book.
+- **M4B Converter: a file that appears in the output folder during a conversion is never overwritten.** If something
+  else created a file with the same name while a book was converting, the Converter replaced it. It now stops that book
+  with "already exists, so it was not replaced", leaves the other file exactly as it is, and leaves no temporary file
+  behind. Retry Failed behaves the same way.
+- **Verification only.** A qualification run could be recorded as passed although its own result said a check had
+  failed, that nothing had run, or that it belonged to another scenario. The gate now checks this before a pass is
+  recorded. The `m4b-scaling` staging check (T5) reads every temporary file exactly, whoever removes it and however,
+  fails when it cannot, and compares the total with no allowance, as approved. No budget changed.
+
 ## [Unreleased] — v0.7.2 Phase 8: the release candidate (version 0.7.2): a window freeze and two narration defects fixed (2026-11-10)
 
 **Fixed**
