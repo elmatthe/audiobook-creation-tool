@@ -197,7 +197,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 
 - In-place changes are written to a temporary file beside the original, then swapped in with one atomic replace. Any failure before the swap leaves the original as it was and no temporary file behind.
 - Linked, missing or folder sources are refused; numbered copies beside the source never collide.
-- A new output that must replace nothing is published by a second operation, `publish_new`: the temporary file is given a name that must be free, by one operation that itself refuses a taken name (v0.7.2 Phase 9, ACT72-074). The M4B Converter publishes through it. `atomic_replace` stays the deliberate replacement of a file in place; which one a writer means is chosen where it publishes.
+- A new output that must replace nothing is published by a second operation, `publish_new`: the temporary file is given a name that must be free, by one operation that itself refuses a taken name (v0.7.2 Phase 9, ACT72-074). The M4B Converter publishes through it, and the MP3 Tool and the M4B Maker and Metadata Editor staging publish through its move (`move_without_replacing`) since the Phase 9 remote re-review (ACT72-075). `atomic_replace` stays the deliberate replacement of a file in place; which one a writer means is chosen where it publishes.
 - Checked on Windows on a junction, the one link an ordinary account can always create. A file symlink is checked only where the account holds the privilege to make one, which the gate's machine does not, so the gate does not count that case.
 
 ### Saved settings file and malformed-file recovery
@@ -306,7 +306,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 `ACT.SHARED.M4B-STAGING`
 
 - Lives in `scripts/m4b/m4b_staging.py`; the Converter does not use it. The Maker and Metadata Editor engines stage each output in a private folder directly under their work area and publish it onto its planned final name.
-- Publication refuses an unstaged file, an existing destination or a link, and is atomic (through a temporary sibling when the work area is on another drive). Discarding removes only the staging folder's own contents and never follows a symlink or junction. The work area is removed only when empty.
+- Publication refuses an unstaged file, an existing destination or a link, and is atomic (through a temporary sibling when the work area is on another drive). The move itself refuses a taken name, on either route, so a file another program puts at the planned name after the check is kept byte for byte and nothing is published (v0.7.2 Phase 9 remote re-review, ACT72-075). Discarding removes only the staging folder's own contents and never follows a symlink or junction. The work area is removed only when empty.
 
 ## Setup, launch and repair
 

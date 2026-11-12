@@ -524,6 +524,104 @@ def test_a_cancel_after_the_last_output_was_published_leaves_it_and_the_run_succ
     assert destinations(panel)[0].exists(), "a file legitimately published before the Cancel is never taken back"
 
 
+class Contended:
+    """The panel's decision lock, saying when another thread has had to wait for it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.waited = threading.Event()
+
+    def __enter__(self):
+        if not self._lock.acquire(blocking=False):
+            self.waited.set()
+            self._lock.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._lock.release()
+
+
+def test_cancel_pressed_while_a_publication_is_being_authorized_waits_for_that_decision_and_the_commit_stays(
+        make_panel, tmp_path, run_env, monkeypatch):
+    """v0.7.2 Phase 9 remote re-review R9-04, the reviewer's interleaving on the real panel: the worker has read the
+    Cancel latch clear and is inside the controller's authorization when Cancel is pressed. Until then Cancel set its
+    latch at once and the authorization that followed was granted with the latch already set ("controller authorized
+    True with event True"). The latch and the decision now share one lock: Cancel waits the moment the decision takes,
+    the commit that came first is published whole and stays, and nothing after it starts. The worker is let go only by
+    Cancel having to wait, so a Cancel that does not wait leaves it held and fails this, with no sleep."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    params = start(panel)
+    decision = panel._cancel_decision = Contended()
+    real = jc.JobController.authorize_commit
+    inside, decided = threading.Event(), []
+
+    def authorize_commit(controller) -> bool:
+        if not decided:
+            inside.set()
+            assert decision.waited.wait(WAIT), "Cancel latched without waiting for the authorization under way"
+        granted = real(controller)
+        decided.append((granted, panel._cancel_event.is_set()))
+        return granted
+
+    monkeypatch.setattr(jc.JobController, "authorize_commit", authorize_commit)
+
+    def cancel_during_the_authorization() -> None:
+        assert inside.wait(WAIT), "the worker never reached the authorization"
+        panel.cancel()  # on the main thread, as the button does; returns once the decision under way is made
+        assert decision.waited.is_set(), "Cancel latched without waiting for the authorization under way"
+        assert panel._cancel_event.is_set() and panel.job_controller.cancel_check()
+
+    work_on_a_thread(panel, params, tmp_path, cancel_during_the_authorization)
+    assert decided == [(True, False)], "granted, and only ever with the latch still clear"
+    assert panel.job_controller.state is jc.JobState.CANCELLED
+    assert [path.name for path in destinations(panel) if path.exists()] == ["A.mp3"]
+    assert len(run_env["commands"]) == 1, "no book was started after the Cancel"
+    assert temporaries(tmp_path) == [] and panel.job_controller.commits_in_flight == 0
+
+
+def test_a_cancel_latched_before_the_controller_hears_of_it_already_refuses_the_next_authorization(
+        make_panel, tmp_path, run_env, monkeypatch):
+    """The other side of the same boundary, in the reviewer's order: Cancel's latch is set, the worker then asks to
+    publish before the controller has heard of the Cancel, and only then does the controller hear. The latch decides:
+    the authorization is refused, nothing is published, and the run is cancelled."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    params = start(panel)
+    held, decided, made = Hold(nth=1), [], threading.Event()
+    real_gate = m4b_execution.CommitGate
+
+    def gate(*, authorize, finished):
+        def held_then_authorize() -> bool:
+            held()  # after the segment's last look at Cancel, before the decision
+            granted = authorize()
+            decided.append(granted)
+            made.set()
+            return granted
+        return real_gate(authorize=held_then_authorize, finished=finished)
+
+    monkeypatch.setattr(m4b_execution, "CommitGate", gate)
+    real_request = jc.JobController.request_cancel
+
+    def request_cancel(controller):
+        held.release.set()  # the latch is set; the worker decides before the controller hears of the Cancel
+        assert made.wait(WAIT), "the worker never decided"
+        return real_request(controller)
+
+    monkeypatch.setattr(jc.JobController, "request_cancel", request_cancel)
+
+    def cancel_before_the_decision() -> None:
+        assert held.entered.wait(WAIT), "the worker never reached the decision"
+        panel.cancel()
+
+    work_on_a_thread(panel, params, tmp_path, cancel_before_the_decision)
+    assert decided == [False], "the latch came first, so the decision was a refusal"
+    assert panel.job_controller.state is jc.JobState.CANCELLED
+    assert [path for path in destinations(panel) if path.exists()] == []
+    assert temporaries(tmp_path) == [] and panel.job_controller.commits_in_flight == 0
+    assert len(run_env["commands"]) == 1
+
+
 def test_a_name_taken_at_the_commit_during_retry_failed_is_refused_and_the_plan_does_not_move(
         make_panel, tmp_path, run_env, monkeypatch):
     """Retry Failed repeats a frozen plan. A stranger's file at the frozen name, appearing in the instant before the

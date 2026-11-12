@@ -18,7 +18,11 @@ bytes were staged and T5 read 92,520. An assumption about which functions the ap
   ``DirectoryWatch``): what Windows itself reports. It is not used to measure. It is the independent account the readings
   are held to: a temporary Windows saw removed or renamed that no reading was taken for (a child process deleting it, a
   native call) makes the measurement incomplete, and so does a temporary a reading saw that Windows never reported
-  created under this base during the run.
+  created under this base during the run. Both are held to account per file, not per name: each report Windows makes
+  is counted, and each reading is of the file that had the name at that moment (its identity on the volume), so a
+  reading taken for one file never covers a later file that reuses its name (remote re-review R9-02). A file renamed
+  away and back to the same name would count as two files with one reading, and fail: the application does not do
+  that, and a failure is the safe way to be wrong.
 * *Each temporary from one reading to the next.* One that is gone, or smaller, without an operation that announced it,
   was lowered unobserved.
 
@@ -42,6 +46,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as w
 import os
+from collections import Counter
 import secrets
 import stat
 import struct
@@ -79,6 +84,9 @@ class DirectoryWatch:
         self.removed: set[str] = set()
         self.renamed_from: set[str] = set()
         self.renamed_to: set[str] = set()
+        # Each report counted, not only each name: one name can be one file's, then another's (remote re-review R9-02).
+        self.began: Counter[str] = Counter()   # a file came to have the name: created there, or renamed to it
+        self.ended: Counter[str] = Counter()   # a file stopped having it: removed, or renamed away
         self.events = 0
         self.lost = 0
         self.error: str | None = None
@@ -123,6 +131,10 @@ class DirectoryWatch:
                         place = os.path.normcase(os.path.join(self.root, name))
                         {_ADDED: self.added, _REMOVED: self.removed, _RENAMED_FROM: self.renamed_from,
                          _RENAMED_TO: self.renamed_to}.get(action, set()).add(place)
+                        if action in (_ADDED, _RENAMED_TO):
+                            self.began[place] += 1
+                        elif action in (_REMOVED, _RENAMED_FROM):
+                            self.ended[place] += 1
                     if not following:
                         break
                     offset += following
@@ -178,10 +190,14 @@ class StagingCensus:
         self.at_peak: dict = {}
         self.left: dict | None = None
         self._lock = threading.RLock()
+        # A place is a name, and a name can hold one file and later another: so what was read, announced or truncated is
+        # kept per file at each place, by its identity on the volume, never for the name (remote re-review R9-02).
         self._sizes: dict[str, int] = {}        # every temporary of the last reading, by its place
-        self._ever: set[str] = set()            # every temporary any reading saw
-        self._announced: set[str] = set()       # places an observed operation was about to remove, rename or write over
-        self._may_shrink: set[str] = set()      # places an observed operation was about to truncate
+        self._identities: dict[str, tuple] = {} # ...and which file each of them was
+        self._ever: dict[str, set] = {}         # place -> every file a reading saw there
+        self._announced: dict[str, set] = {}    # place -> files there an observed operation was about to remove, rename
+                                                # or write over (each taken from the reading made just before it)
+        self._may_shrink: dict[str, set] = {}   # place -> files there an observed operation was about to truncate
         self._sinks: dict[str, tuple] = {}      # a child's output sink: place -> identity on the volume
         self._opened: dict[str, str] = {}       # temporaries this process opened for writing itself
         self._unobserved: list[str] = []
@@ -227,10 +243,10 @@ class StagingCensus:
                 place = None if isinstance(args[0], int) else self._place(args[0])
                 if place or isinstance(args[0], int):
                     # A descriptor names no file, so any truncation through one is read for: it may be a temporary's.
-                    self.read("truncate")
-                    if place:
-                        with self._lock:
-                            self._may_shrink.add(place)
+                    with self._lock:
+                        self.read("truncate")
+                        if place and place in self._identities:
+                            self._may_shrink.setdefault(place, set()).add(self._identities[place])
         except Exception as exc:  # noqa: BLE001 - recorded: a measurement with an error in it is not exact
             self._errors.append(f"{event}: {type(exc).__name__}: {exc}"[:300])
 
@@ -243,9 +259,13 @@ class StagingCensus:
                     and TEMPORARY_PREFIX in str(target)]
         if not places and not relative:
             return
-        self.read(kind)
         with self._lock:
-            self._announced.update(places)
+            self.read(kind)
+            for place in places:
+                # The file there now is the one this operation removes, renames or writes over. No file there, no bytes
+                # at stake, and nothing announced: a file that appears in the meantime is not covered by this reading.
+                if place in self._identities:
+                    self._announced.setdefault(place, set()).add(self._identities[place])
             self._unobserved += [f"{kind} of {str(target)[-80:]} relative to a directory handle, which cannot be placed"
                                  for target in relative]
 
@@ -263,14 +283,15 @@ class StagingCensus:
         if not writing:
             return
         try:
-            holds = os.lstat(place).st_size
+            info = os.lstat(place)
+            holds, identity = info.st_size, (info.st_dev, info.st_ino)
         except OSError:
-            holds = 0
+            holds, identity = 0, None
         if holds:
             self.read("open")  # bytes that are there now may be gone once this handle exists
         with self._lock:
-            if truncating:
-                self._may_shrink.add(place)
+            if truncating and identity is not None:
+                self._may_shrink.setdefault(place, set()).add(identity)
             if not creating:
                 self._opened[place] = str(mode if mode is not None else f"flags {flags:#x}")
             if holds and not truncating:
@@ -323,17 +344,22 @@ class StagingCensus:
         with self._lock:
             sizes, identities = self._walk()
             for place, before in self._sizes.items():
-                if place not in sizes:
-                    if place not in self._announced:
+                was = self._identities.get(place)
+                announced = was in self._announced.get(place, ())
+                if place not in sizes or identities[place] != was:
+                    # Gone, or the name now holds another file: either way the file read last time is gone.
+                    if not announced:
                         self._unobserved.append(f"{os.path.basename(place)} ({before} bytes) was gone at a reading, and "
                                                 "no operation of this process had announced its removal")
-                elif sizes[place] < before and place not in self._may_shrink and place not in self._announced:
+                elif sizes[place] < before and was not in self._may_shrink.get(place, ()) and not announced:
                     self._unobserved.append(f"{os.path.basename(place)} went from {before} to {sizes[place]} bytes "
                                             "with no operation announcing it")
             # An announcement is kept, not consumed: the operation it stands for runs after the reading that preceded it,
-            # and another thread's reading may come between the two.
+            # and another thread's reading may come between the two. It is kept for that one file, never for its name.
             self._sizes = sizes
-            self._ever.update(sizes)
+            self._identities = identities
+            for place, identity in identities.items():
+                self._ever.setdefault(place, set()).add(identity)
             media = sorted(size for place, size in sizes.items() if self._sinks.get(place) != identities[place])
             logs = sorted(size for place, size in sizes.items() if self._sinks.get(place) == identities[place])
             now = {"media_bytes": sum(media), "media_files": len(media), "diagnostics_bytes": sum(logs),
@@ -368,8 +394,15 @@ class StagingCensus:
             watch = self._watch
             left = self.left or {}
             finished = self._finished
-            unreported = sorted((watch.removed | watch.renamed_from) - self._announced) if finished else []
-            uncreated = sorted(self._ever - watch.added - watch.renamed_to) if finished else []
+            # Every time Windows reported a file leaving a name, a reading must have been taken for a file there: as many
+            # different files read for at that name as files that left it. One reading never vouches for a later file
+            # that took the same name (remote re-review R9-02: a child reused a name a reading had been taken for, grew
+            # it to 200,100 bytes unread, removed it, and T5 passed on a 100-byte peak).
+            unreported = sorted((place, ended, len(self._announced.get(place, ()))) for place, ended in watch.ended.items()
+                                if ended > len(self._announced.get(place, ()))) if finished else []
+            # ...and every file a reading saw at a name must have been reported coming to have it, in this run.
+            uncreated = sorted(place for place, files in self._ever.items()
+                               if len(files) > watch.began.get(place, 0)) if finished else []
             written = sorted(set(self._opened) - set(self._sinks))
             return {
                 "method": ("the real size of every owned temporary, read before each removal, rename, truncation and "
@@ -395,7 +428,10 @@ class StagingCensus:
                     "diagnostics_sinks": len(self._sinks),
                     "unobserved": list(self._unobserved[:20]) + [
                         f"{os.path.basename(place)} was removed or renamed, as Windows reported, with no reading "
-                        "taken for it" for place in unreported[:20]],
+                        "taken for it" if not read else
+                        f"{os.path.basename(place)} was removed or renamed {ended} times, as Windows reported, and a "
+                        f"reading was taken for only {read} of the files that had that name"
+                        for place, ended, read in unreported[:20]],
                     "without_creation": [os.path.basename(place) for place in uncreated[:20]],
                     "written_by_the_application": [f"{os.path.basename(place)} ({self._opened[place]})" for place in written[:20]],
                     "links": [os.path.basename(place) for place in sorted(self._links)[:20]],

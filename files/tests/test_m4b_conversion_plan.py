@@ -1290,7 +1290,9 @@ def test_the_worker_reads_no_widget():
     reached = {node.attr for node in ast.walk(worker)
                if isinstance(node, ast.Attribute)
                and isinstance(node.value, ast.Name) and node.value.id == "self"}
-    assert reached == {"_cancel_event", "_log_q"}, reached
+    # `_cancel_decision` is a threading.Lock, not a widget: the Cancel latch and a publication's authorization are
+    # decided under it (v0.7.2 Phase 9 remote re-review R9-04).
+    assert reached == {"_cancel_event", "_cancel_decision", "_log_q"}, reached
 
     wrapper = next(node for node in ast.walk(tree)
                    if isinstance(node, ast.FunctionDef) and node.name == "convert_worker")

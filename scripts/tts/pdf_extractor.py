@@ -151,6 +151,10 @@ _SAME_LINE = 2.0
 _CLEAR_BY = 1.5
 #: ...and is set no larger than that text, within this many points: a larger line is a title.
 _SIZE_SLACK = 0.5
+#: ...and is printed in the page's margin: within this fraction of the page's height of its top or bottom edge. A line
+#: further in is the page's text, however far it stands from the line before it and however often it repeats (v0.7.2
+#: Phase 9 remote re-review R9-01: an emphasised "NOT" a few lines down two pages was taken for a running head).
+_MARGIN = 0.125
 
 
 class _EdgeLine(NamedTuple):
@@ -167,9 +171,17 @@ def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLin
     """The lines of one page that stand clear at its top or bottom edge, from the page's own geometry.
 
     *layout* is PyMuPDF's ``dict`` of the same text page *raw* came from. Its lines must be *raw*'s lines, one for one:
-    if they are not (or there is no layout), nothing on this page is called an edge line and all of its text is kept.
+    if they are not (or there is no layout, or it does not say how tall the page is), nothing on this page is called an
+    edge line and all of its text is kept.
+
+    An edge line stands in the page's top or bottom margin (:data:`_MARGIN`), clear of the rest of the page's text. A
+    line at the bottom that the sentence above it runs into (that line does not end a sentence) is that sentence's word,
+    and is not an edge line unless it is a bare number: whether a number is the page's is still decided by counting.
     """
     if not layout:
+        return []
+    height = layout.get("height")
+    if not isinstance(height, (int, float)) or not height > 0:
         return []
     rows = []  # one per line of the raw text, in its order: (text, baseline, box top, box bottom, size, level)
     for block in layout.get("blocks") or ():
@@ -198,8 +210,11 @@ def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLin
 
     inner = [row for row in written if not on(highest, row) and not on(lowest, row)]
     found: dict[int, _EdgeLine] = {}
-    for level in (highest, lowest):
+    for level, in_margin in ((highest, highest <= height * _MARGIN), (lowest, lowest >= height * (1 - _MARGIN))):
+        if not in_margin:
+            continue  # inside the page, where its text is printed: never furniture, whatever it says
         others = [row for row in written if not on(level, row)]
+        runs_into = False
         if others:
             nearest = min(others, key=lambda row: abs(row[2] - level))
             baselines = sorted(row[2] for row in inner)
@@ -208,9 +223,12 @@ def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLin
             if abs(nearest[2] - level) <= _CLEAR_BY * spacing:
                 continue  # in the run of the page's text: a line of it, whatever it says
             text_size = statistics.median(row[5] for row in (inner or [nearest]))
+            runs_into = level == lowest and nearest[2] < level and nearest[1][-1] not in _ENDS_A_BLOCK
         else:
             text_size = None  # nothing else on the page: a leaf that holds only its number, or only one line
         for row in written:
+            if runs_into and not _PAGE_NUMBER.fullmatch(row[1]):
+                continue  # the sentence above runs into it: its word, never a running head
             if on(level, row) and (text_size is None or row[5] <= text_size + _SIZE_SLACK):
                 found[row[0]] = _EdgeLine(page_index, row[0], row[1], row[2])
     return list(found.values())

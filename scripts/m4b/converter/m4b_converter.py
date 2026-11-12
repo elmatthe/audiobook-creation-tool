@@ -451,6 +451,9 @@ class M4BConverterUI(ttk.Frame):
         # from it while a controller is present; it mirrors it into the
         # controller and lets `checkpoint()` decide.
         self._cancel_event = threading.Event()
+        # Held while the latch above is set and while a publication is decided, and for nothing else: so a Cancel is
+        # either wholly before a decision or wholly after it (v0.7.2 Phase 9 remote review R9-04). See `_latch_cancel`.
+        self._cancel_decision = threading.Lock()
         self._log_q: queue.Queue = queue.Queue()
 
         # --- the shared job-control foundation ------------------------- #
@@ -1298,12 +1301,25 @@ class M4BConverterUI(ttk.Frame):
         """
         if not self._busy.is_set() or self._cancel_event.is_set():
             return
-        self._cancel_event.set()
+        self._latch_cancel()
         controller = self._controller
         if controller is not None:
             controller.request_cancel()
         self._log_q.put(("log", "Cancelling… stopping the file being converted now; its book is taken back, and books "
                                 "already finished are kept.\n"))
+
+    def _latch_cancel(self) -> None:
+        """Set this panel's Cancel latch, in one order with every publication decision (v0.7.2 Phase 9, R9-04).
+
+        The worker's ``authorize_publication`` reads the latch and asks the controller for the commit while holding the
+        same lock, so the two cannot interleave: a Cancel latched here before a decision makes that decision a refusal,
+        and a decision made first was a commit the controller already counts as in flight when its Cancel arrives. Until
+        the remote re-review the latch was set with no lock, and a decision that had read it clear could still be
+        granted after it was set. Only the latch is set under the lock: it is held for no I/O and no call out, so Cancel
+        stays immediate.
+        """
+        with self._cancel_decision:
+            self._cancel_event.set()
 
     def disable_inputs(self, state: bool):
         """Lock or unlock this panel's inputs and processing options.
@@ -1813,13 +1829,17 @@ class M4BConverterUI(ttk.Frame):
                 succeeded. The controller decides it in one step under the
                 lock its Cancel latch is taken under, and records a commit it
                 grants, so ``finish_cancelled`` cannot be reached while one is
-                still landing. This panel's own event is set a moment before
-                the controller hears of a Cancel, so it is read first: a Cancel
-                that has begun is a Cancel that came first.
+                still landing. This panel's own latch is set a moment before
+                the controller hears of a Cancel, so it is read too, and read
+                under the lock ``_latch_cancel`` sets it under, held until the
+                controller has answered: a Cancel whose latch is set first is
+                the Cancel that came first (remote re-review R9-04). The lock
+                is released before the file is published.
                 """
-                if self._cancel_event.is_set():
-                    return False
-                return controller is None or controller.authorize_commit()
+                with self._cancel_decision:
+                    if self._cancel_event.is_set():
+                        return False
+                    return controller is None or controller.authorize_commit()
 
             def publication_finished() -> None:
                 if controller is not None:
@@ -2537,7 +2557,7 @@ class M4BConverterUI(ttk.Frame):
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
         if self._busy.is_set():
-            self._cancel_event.set()
+            self._latch_cancel()
         controller = self._controller
         if controller is not None and not controller.is_terminal:
             # This is also what makes closing a *paused* run safe: the request

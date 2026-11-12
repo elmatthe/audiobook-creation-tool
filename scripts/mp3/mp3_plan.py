@@ -405,15 +405,27 @@ def is_published(book: BookPlan) -> bool:
     return bool(outputs) and all(path.is_file() for path in outputs)
 
 
+def _identity(path: Path) -> tuple[int, int]:
+    """Which file *path* names, on its volume. A move keeps it; another writer's file has its own."""
+    info = os.lstat(path)
+    return info.st_dev, info.st_ino
+
+
 def publish_book(book: BookPlan) -> tuple[Path, ...]:
     """Make a fully staged Book visible, atomically at the Book boundary.
 
     Refuses — before moving anything — unless **every** planned output is a
     regular staged file and none of the published paths already exists. Then
-    moves file by file with ``os.replace`` (same filesystem, so each move is
-    atomic) and, on any failure, moves what it already moved back to staging,
-    so a Book is either published whole or not at all and its successful
-    pieces are still there for a retry.
+    moves file by file, each by one operation that itself refuses a name that
+    is taken (``output_paths.move_without_replacing``): a file another writer
+    puts at a planned name after the look above is never replaced (v0.7.2
+    Phase 9 remote review R9-03; until then each move was ``os.replace``). On
+    any failure, what this attempt moved is moved back to staging, so a Book is
+    either published whole or not at all and its successful pieces are still
+    there for a retry. Only a file that is still the very file this attempt
+    moved is taken back, and the Book folder is removed only if this attempt
+    made it and it is empty: nothing another writer put there is moved or
+    removed.
     """
     _require_owned(book)
     pairs = tuple(zip(book.staged_outputs, book.published_outputs))
@@ -425,23 +437,35 @@ def publish_book(book: BookPlan) -> tuple[Path, ...]:
         if published.exists() or published.is_symlink():
             raise PlanError(f"{published} already exists; nothing was published")
     output_paths.assert_no_link_in(book.published_dir.parent, book.published_dir)
+    made_folder = not book.published_dir.exists()
     book.published_dir.mkdir(parents=True, exist_ok=True)
-    moved: list[tuple[Path, Path]] = []
+    moved: list[tuple[Path, Path, tuple[int, int]]] = []
     try:
         for staged, published in pairs:
-            os.replace(staged, published)
-            moved.append((staged, published))
+            identity = _identity(staged)
+            output_paths.move_without_replacing(staged, published)
+            moved.append((staged, published, identity))
     except OSError as exc:
-        for staged, published in reversed(moved):
+        left: list[str] = []
+        for staged, published, identity in reversed(moved):
             try:
-                os.replace(published, staged)
+                if _identity(published) != identity:
+                    left.append(published.name)  # no longer the file this attempt published: someone else's, untouched
+                    continue
+                output_paths.move_without_replacing(published, staged)
+            except OSError:
+                left.append(published.name)
+        if made_folder:
+            try:
+                book.published_dir.rmdir()  # only when empty: whatever else is there stays
             except OSError:
                 pass
-        try:
-            book.published_dir.rmdir()
-        except OSError:
-            pass
-        raise PlanError(f"publishing {book.folder_name} failed and was rolled back: {exc}") from exc
+        reason = (f"{exc.filename2 or exc.filename or 'a planned name'} was taken after the run was planned, "
+                  "and was not replaced" if isinstance(exc, FileExistsError) else str(exc))
+        if left:
+            raise PlanError(f"publishing {book.folder_name} failed ({reason}); "
+                            f"{', '.join(left)} could not be taken back") from exc
+        raise PlanError(f"publishing {book.folder_name} failed and was rolled back: {reason}") from exc
     return tuple(published for _staged, published in pairs)
 
 

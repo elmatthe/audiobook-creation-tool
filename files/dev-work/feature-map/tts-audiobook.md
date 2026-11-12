@@ -187,8 +187,11 @@ same run, queue and output rules, with their own synthesis (described in the tts
   breaks. Nothing else is removed. Only one PDF is read at a time in the process. Every route uses this one extractor,
   and worker sizing cleans a PDF the same way.
 - **What counts as page furniture (v0.7.2 Phase 9, ACT72-070).** A line is taken out only when two things hold. Where it
-  is: on the top or bottom line of its page, clear of the page's other text by more than a line and a half of that text's
-  own spacing (or alone on the page), and set no larger than that text. What repeats: for a page number, another page
+  is: on the top or bottom line of its page, in the page's margin (the outer eighth of its height, top or bottom), clear
+  of the page's other text by more than a line and a half of that text's own spacing (or alone on the page), and set no
+  larger than that text; a line at the foot that the sentence above it runs into is that sentence's word unless it is a
+  bare number (v0.7.2 Phase 9 remote re-review: an emphasised "NOT" a few lines down two pages was taken for a running
+  head and deleted from both). What repeats: for a page number, another page
   carries a number that differs from it by exactly the distance between the two pages; for a running head of one to four
   capitals, the same word stands at the same height on another page. A bare number or a line of capitals that fails
   either test is text and is read: the year a sentence ends a page with, an acronym or an emphasised word on a line of

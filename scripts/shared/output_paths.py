@@ -1060,6 +1060,31 @@ class DestinationOccupied(OutputPathError):
     """A new output's name was taken when it came to be published. Nothing was replaced."""
 
 
+def move_without_replacing(source, destination) -> None:
+    """Give *source* the name *destination* by one operation that itself refuses a name that is taken.
+
+    The primitive under :func:`publish_new`, for writers that have already proved *source* is theirs some other way
+    (a staged file inside its own run's private work area: the MP3 Tool and the M4B Maker and Metadata Editor, v0.7.2
+    Phase 9 remote review R9-03). A taken name raises :class:`FileExistsError` and the file there is not touched;
+    every other failure is the operating system's own :class:`OSError`, ``errno`` intact, so a caller can still tell a
+    move to another volume (``EXDEV``) from the rest. Never a look followed by a move.
+
+    * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``: it fails when the name exists
+      and never copies.
+    * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
+      old name is then removed. If that removal fails the move has still happened: the old name is only a second name
+      for the same file.
+    """
+    if os.name == "nt":
+        os.rename(source, destination)
+        return
+    os.link(source, destination)
+    try:
+        os.unlink(source)
+    except OSError:
+        pass
+
+
 def publish_new(temporary: Path, destination: Path) -> None:
     """Give a plan-owned temporary file a **new** name, by one operation that itself refuses a name that is taken.
 
@@ -1089,11 +1114,7 @@ def publish_new(temporary: Path, destination: Path) -> None:
             f"{temporary} does not carry the temporary prefix",
         )
     try:
-        if os.name == "nt":
-            os.rename(temporary, destination)
-        else:
-            os.link(temporary, destination)
-            discard_temporary(temporary)  # published all the same if this fails: only a second name for the same file
+        move_without_replacing(temporary, destination)
     except FileExistsError as exc:
         raise DestinationOccupied(
             f"{destination.name} already exists, so it was not replaced.",

@@ -346,6 +346,57 @@ def test_the_same_capitals_set_as_a_title_on_two_pages_are_read(tmp_path):
     assert text == "II\nThe wind rose after dark.\n\nII\nNobody slept that night."
 
 
+def placed_pdf(folder: Path, name: str, pages: list[list[tuple[float, str, float]]], **size) -> Path:
+    """A real PDF with each line exactly where the test puts it: ``(baseline, text, font size)``, top to bottom."""
+    document = fitz.open()
+    for lines in pages:
+        sheet = document.new_page(**size)
+        for at, text, fontsize in lines:
+            sheet.insert_text((72, at), text, fontname="helv", fontsize=fontsize)
+    path = folder / f"{name}.pdf"
+    document.save(path)
+    document.close()
+    with fitz.open(path) as written:
+        raw = [sheet.get_text("text") for sheet in written]
+    assert raw == ["".join(text + "\n" for _at, text, _size in lines) for lines in pages], "not the page the test describes"
+    return path
+
+
+@pytest.mark.parametrize("word", ["NOT", "I", "FBI", "NASA"])
+def test_the_same_short_capitals_in_the_body_of_two_pages_are_read_on_both(tmp_path, word):
+    """v0.7.2 Phase 9 remote re-review R9-01, on the reviewer's own pages: PyMuPDF's default page, two lines of text at
+    the top, and an emphasised word a few lines further down, standing clear of the line before it at the same height on
+    both pages. It is the lowest line of each page, so it was taken for a running head on both and deleted: "The next
+    command is The signal has been checked." Nothing in a page's body is furniture now, however often it repeats."""
+    page_lines = [(80, "The signal has been checked.", 11), (96, "The next command is", 11), (160, word, 11)]
+    text = pdf_extractor.extract_text_from_pdf(str(placed_pdf(tmp_path, "repeated-body", [page_lines, page_lines])))
+    assert words(text) == words(f"The signal has been checked. The next command is {word} " * 2)
+
+
+def test_a_repeated_body_word_is_read_while_the_running_head_and_page_numbers_in_the_margins_are_not(tmp_path):
+    """The positive control beside it: the same book page as the rest of this module, with its running head and number
+    in the margins and a word of the text standing alone further down, at the same height on both pages."""
+    def leaf(number: int):
+        return [(HEAD_Y, "IV", 9), (BODY_TOP, "The signal has been checked", 11), (BODY_TOP + LINE_STEP, "twice over, and", 11),
+                (BODY_TOP + 2 * LINE_STEP, "the next command is", 11), (BODY_TOP + 3 * LINE_STEP, "always", 11),
+                (BODY_TOP + 7 * LINE_STEP, "NOT", 11), (FOOT_Y, str(number), 9)]
+    path = placed_pdf(tmp_path, "head-body-number", [leaf(12), leaf(13)], width=PAGE_WIDTH, height=PAGE_HEIGHT)
+    text = pdf_extractor.extract_text_from_pdf(str(path))
+    assert words(text) == words("The signal has been checked twice over, and the next command is always NOT " * 2)
+
+
+def test_capitals_in_the_bottom_margin_that_a_sentence_runs_into_are_read_and_a_running_head_there_is_not(tmp_path):
+    """At the foot of the page, where a running head can stand, a line of capitals that the sentence above it runs into
+    (that line does not end) is that sentence's word. The control: the same capitals under a finished sentence, at the
+    same height on two pages, are the running head, and are taken out as before."""
+    runs_on = narration(tmp_path, "foot-word", page(["The next command is"], number="NOT"),
+                        page(["The next command is"], number="NOT"))
+    assert words(runs_on) == words("The next command is NOT The next command is NOT")
+    finished = narration(tmp_path, "foot-head", page(["The command was checked."], number="IV"),
+                         page(["The command was checked."], number="IV"))
+    assert words(finished) == words("The command was checked. The command was checked.")
+
+
 # --------------------------------------------------------------------------- #
 # What must not be joined
 # --------------------------------------------------------------------------- #
@@ -422,7 +473,9 @@ def test_only_a_line_that_stands_clear_at_the_top_or_bottom_of_its_page_can_be_f
     assert [(line.text, line.line, round(line.at)) for line in found[0][1]] == [("IV", 0, HEAD_Y), ("12", 4, FOOT_Y)]
     assert found[1][1] == [], "a number at the text's own spacing under the line before it is a line of the text"
     assert [(line.text, round(line.at)) for line in found[2][1]] == [("14", FOOT_Y)], "a leaf that holds only its number"
-    assert [line.text for line in found[3][1]] == ["One line only."], "alone on its page: standing clear, and still text unless it repeats"
+    # Alone on its page, but where the page's text is printed, not in its margin: not even a candidate (R9-01). Until the
+    # remote re-review it was one, and only its not repeating kept it.
+    assert found[3][1] == [], "a line in the body of the page is never furniture"
     assert [raw for raw, _edges in found] == [expected_raw(spec) for spec in (
         page(["The keeper climbed the narrow stairs and the door", "stood", "open"], head="IV", number=12),
         page(["The safe opens with the code", "1984"]), page([], number=14), page(["One line only."]))], \

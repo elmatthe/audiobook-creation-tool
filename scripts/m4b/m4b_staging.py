@@ -15,10 +15,12 @@ must sit **directly** under the operation's work root and the staged file
 directly inside it, or the call is refused.
 
 Publication refuses an already-present destination (the planner reserved it;
-anything there now is someone else's), moves with ``os.replace`` — or, when the
-work root is on another filesystem, copies to a plan-owned temporary sibling in
-the destination folder and replaces atomically from there — so the final name
-never holds a partial file. Discard removes only the staging directory's own
+anything there now is someone else's), moves by an operation that itself
+refuses a taken name — or, when the work root is on another filesystem, copies
+to a plan-owned temporary sibling in the destination folder and gives it the
+name the same way — so the final name never holds a partial file and a file
+that takes the name at the last moment is never replaced (v0.7.2 Phase 9 remote
+review R9-03). Discard removes only the staging directory's own
 entries, links unlinked and never followed; the work root itself is pruned
 only when empty, with ``rmdir`` alone.
 """
@@ -145,14 +147,24 @@ def discard_staging(plan: StagedOutput, *, work_root: Path) -> int:
     return removed + 1
 
 
+def _occupied(published: Path, exc: BaseException) -> StagingError:
+    return StagingError(f"{published} already exists; nothing was published", stage="publish",
+                        detail=f"the name was taken when the staged file came to be published: {exc!r}")
+
+
 def publish_staged(plan: StagedOutput, *, work_root: Path) -> Path:
     """Make a fully staged output visible, atomically, at its planned path.
 
     Refuses — before moving anything — unless the staged file is a regular
-    file and the published path does not already exist. Moves with
-    ``os.replace``; when the work root is on another filesystem, copies to a
-    plan-owned temporary sibling in the destination folder and replaces
-    atomically from there, so the final name never holds a partial file.
+    file and the published path does not already exist. That look is only an
+    early, clear refusal: the move itself is the one that refuses a taken name
+    (``output_paths.move_without_replacing``), so a file another writer puts at
+    the name after the look is never replaced (v0.7.2 Phase 9 remote review
+    R9-03; until then the move was ``os.replace``). When the work root is on
+    another filesystem the staged file is copied to a plan-owned temporary
+    sibling in the destination folder and given the name from there by
+    ``output_paths.publish_new``, which refuses a taken name the same way, so the
+    final name never holds a partial file and never loses someone else's.
     """
     require_owned(plan, work_root)
     staged, published = plan.staged, plan.published
@@ -167,20 +179,25 @@ def publish_staged(plan: StagedOutput, *, work_root: Path) -> Path:
                            stage="publish")
     output_paths.assert_no_link_in(published.parent, published)
     try:
-        os.replace(staged, published)
+        output_paths.move_without_replacing(staged, published)
         return published
+    except FileExistsError as exc:
+        raise _occupied(published, exc) from exc
     except OSError as exc:
         if getattr(exc, "errno", None) not in (getattr(os, "EXDEV", 18), 18):
             raise StagingError(f"publishing {plan.filename} failed: {exc}",
                                stage="publish", detail=repr(exc)) from exc
-    # Cross-device: stage a sibling in the destination folder, then replace.
+    # Cross-device: stage a sibling in the destination folder, then give it the name.
     temporary = None
     try:
         temporary = output_paths.temporary_sibling(published)
         shutil.copyfile(staged, temporary)
-        output_paths.atomic_replace(temporary, published)
+        output_paths.publish_new(temporary, published)
         temporary = None
         os.unlink(staged)
+    except output_paths.DestinationOccupied as exc:
+        output_paths.discard_temporary(temporary)
+        raise _occupied(published, exc) from exc
     except (OSError, output_paths.OutputPathError) as exc:
         if temporary is not None:
             output_paths.discard_temporary(temporary)

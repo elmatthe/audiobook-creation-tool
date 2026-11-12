@@ -24146,7 +24146,8 @@
       "id": "ACT72-070",
       "severity": "Major",
       "phase": 9,
-      "status": "closed",
+      "status": "open",
+      "reopened": "Reopened by the independent Phase 9 remote re-review, finding R9-01 (files/dev-work/phase9-remote-review/PHASE9-CODEX-REMOTE-REVIEW.md): a short line of capitals in the body of two pages, standing clear of the line before it at the same height on both, was still taken for a running head and deleted from both ('The next command is NOT' read without NOT). Repaired at the targeted remediation checkpoint (files/dev-work/phase9-remote-review/PHASE9-CLAUDE-TARGETED-REMEDIATION.md): a furniture candidate must stand in the page's top or bottom margin, the outer eighth of its height, and a line at the foot that the sentence above it runs into is text unless it is a bare number (tts/pdf_extractor._edge_lines); real-PDF regressions on the reviewer's own pages for NOT, I and acronyms, with furniture controls (files/tests/test_pdf_text_cleaning.py). Open until an independent re-review confirms the repair.",
       "title": "PDF narration lost text: a line was taken for page furniture by its shape alone. A bare number on the first or last line of a page was deleted as its page number (new in v0.7.2 Phase 8: 'The safe opens with the code 1984' was read without the 1984), any other line of digits left on its own was deleted, and any line of one to four capitals was deleted wherever it stood (inherited: 'The signal is NOT a command' was read as 'The signal is a command'). A range of numbers broken at its hyphen was read as one number (1939-1945 as 19391945)",
       "features": [
         "ACT.TTS.PDF-TEXT"
@@ -24158,7 +24159,8 @@
       "id": "ACT72-071",
       "severity": "Major",
       "phase": 9,
-      "status": "closed",
+      "status": "open",
+      "reopened": "Reopened by the independent Phase 9 remote re-review, finding R9-04 (files/dev-work/phase9-remote-review/PHASE9-CODEX-REMOTE-REVIEW.md): the panel set its Cancel latch with no lock, so a worker that had read the latch clear could still be granted the commit after the latch was set ('controller authorized True with event True') and publish. Repaired at the targeted remediation checkpoint (files/dev-work/phase9-remote-review/PHASE9-CLAUDE-TARGETED-REMEDIATION.md): the latch is set (M4BConverterUI._latch_cancel, from cancel and close) under the lock the worker's authorize_publication holds while it reads the latch and asks the controller, released before any file operation; real-panel regressions with the reviewer's interleaving and the latch-first order (files/tests/test_m4b_publication_order.py). Open until an independent re-review confirms the repair.",
       "title": "Converter: a Cancel pressed while a finished output was being measured was followed by that output being published, and on the last book the run reported SUCCEEDED. Nothing between the last FFmpeg pass and the destination looked at Cancel",
       "features": [
         "ACT.CONVERTER.CANCEL",
@@ -24183,7 +24185,8 @@
       "id": "ACT72-073",
       "severity": "Major",
       "phase": 9,
-      "status": "closed",
+      "status": "open",
+      "reopened": "Reopened by the independent Phase 9 remote re-review, finding R9-02 (files/dev-work/phase9-remote-review/PHASE9-CODEX-REMOTE-REVIEW.md): the census held its account per name, so a reading taken for one file at a name covered a later file that reused the name; a child grew such a file to 200,100 bytes unread and T5 passed on a 100-byte peak. Repaired at the targeted remediation checkpoint (files/dev-work/phase9-remote-review/PHASE9-CLAUDE-TARGETED-REMEDIATION.md): scaling/staging.py counts every removal and rename Windows reports at each name and holds them to the distinct files (identity on the volume) a reading was taken for there, and keys announcements and truncations by file, never by name; the zero-increase T5 budget is unchanged; real-file regression with the clean control, the reused name and a never-read name (files/tests/test_verification_gate_contract.py). Open until an independent re-review confirms the repair.",
       "title": "m4b-scaling's T5 missed staged bytes and judged a budget nobody approved: the Phase 8 census read before two helper functions only, so a temporary removed any other way lowered the total unread (154,048 bytes staged, 92,520 read); it took any name ending in .log for diagnostics; and it held the staged media exactly but FFmpeg's diagnostics files apart at 1.05 x, where the frozen budget is 'peak staged bytes no higher than production's'",
       "features": [
         "ACT.GATE.RUNNER",
@@ -24215,8 +24218,8 @@
         "ACT.MP3.STAGING-PUBLISH",
         "ACT.SHARED.M4B-STAGING"
       ],
-      "evidence": "Read from source while repairing ACT72-074 in the v0.7.2 Phase 9 remediation (scripts/mp3/mp3_plan.py publish_book; scripts/m4b/m4b_staging.py publish_staged): each refuses an existing name and then moves with os.replace. Not reproduced by a run, and not changed",
-      "deferred": "Not decided. Outside the five findings the Phase 9 remediation was given, so it was recorded rather than changed. The same output_paths.publish_new would close it in both places; each publishes several files with a roll-back, which that change has to keep. For the owner."
+      "evidence": "Read from source while repairing ACT72-074 in the v0.7.2 Phase 9 remediation (scripts/mp3/mp3_plan.py publish_book; scripts/m4b/m4b_staging.py publish_staged): each refuses an existing name and then moves with os.replace. Reproduced by the independent Phase 9 remote re-review, finding R9-03 (files/dev-work/phase9-remote-review/PHASE9-CODEX-REMOTE-REVIEW.md): a file created at the destination after the check was replaced and publication reported success, for both publishers",
+      "repaired": "At the targeted remediation checkpoint (files/dev-work/phase9-remote-review/PHASE9-CLAUDE-TARGETED-REMEDIATION.md): both publishers give each output its name by shared/output_paths.move_without_replacing, the primitive under publish_new (os.rename on Windows, MoveFileExW without replacement; os.link elsewhere), and M4B staging's cross-device route publishes its temporary sibling through publish_new instead of atomic_replace. A taken name is refused and kept byte for byte, the staged file stays for a retry, the MP3 roll-back takes back only files this attempt published that are still the files it moved and removes the Book folder only if it made it and it is empty. atomic_replace is unchanged for authorized in-place replacement. Regressions for single-output, multi-output roll-back with retry, a replaced earlier output, and same-device and cross-device collisions (files/tests/test_mp3_plan.py, files/tests/test_m4b_staging.py). Open until an independent re-review confirms the repair."
     }
   ],
   "source_review": {
@@ -24230,7 +24233,7 @@
     "scripts/launcher.py": "de0c7e32025bb62c2240cba305c9caaaec66cfca9ad9ad6ba816dd86ff913b26",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "d7f225ccd1956d91ef0d3457e1cd2385ac9de7975c7db212669efa0a84fb01da",
+    "scripts/m4b/converter/m4b_converter.py": "df606e340910dbc721b8f0db022411bedbcceb5df48658d1e96497958f44531c",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "6d2dfa4b399172f0bda4f26ad9853561f52414be5d0eeba7e2bfb645f970ac45",
@@ -24241,7 +24244,7 @@
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
     "scripts/m4b/m4b_probe.py": "4b87188ab0b04066c8f65f5d516de3054f7cc5a50a4367d1ecba587b71e7075f",
-    "scripts/m4b/m4b_staging.py": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
+    "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
     "scripts/m4b/maker/m4b_maker.py": "3a0b92b99ed274f75a4fd885a276d5f684a6af05d70500b8b361d54de8899df9",
@@ -24256,7 +24259,7 @@
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
-    "scripts/mp3/mp3_plan.py": "ea2c7bace5ded16562c724ca1d94e8c9ea2edc33662b5361aa30d4967f5b0eb5",
+    "scripts/mp3/mp3_plan.py": "f362093d84f60ba751644a653d9717cbdbcc101aaba42bfa3c302a2fb6a93733",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
     "scripts/mp3/mp3_tool.py": "dde6601a0d5b663c751620f2ae06e7cfbadef0ee9b8d445b1aad854f0579ec71",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
@@ -24301,7 +24304,7 @@
     "scripts/shared/optional_setup_tk_harness_v3.py": "23727d8ea3d09d7ac49d523a05055748f378593c9cacd6b7c9942241562afb26",
     "scripts/shared/optional_setup_v3.py": "1a3fa01225bbc10dd68a5f41092ab5c9134546835b6035279301626f04c18d43",
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
-    "scripts/shared/output_paths.py": "27d0ad0a9bfe3f40b926522631886658966fd9b67708df7cf3a2122371098f12",
+    "scripts/shared/output_paths.py": "1a027a2d62b6d0f91f04c13fa3c64acb47c2d43b7251c3cdae00fa4400aca2a6",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
@@ -24337,7 +24340,7 @@
     "scripts/tts/optional_setup_readonly_worker_v3.py": "6fa9c0cf53ce267eb70c0a4cf12a17185b07d96b757173e8017ef1a57ffb862a",
     "scripts/tts/optional_setup_worker.py": "35cdccd7246389b3cbf1f9d07368777aa618c1c713078eb5913ec7e85f47916f",
     "scripts/tts/output_names.py": "daa986300100f9fca00c58a344768dde3d1c3712512a75c42f4c0ddb03cedf5c",
-    "scripts/tts/pdf_extractor.py": "b310f775027ad26a7c1911c17778a3895777a6cdd638b9bec401dabb744c5f25",
+    "scripts/tts/pdf_extractor.py": "08f43995aea1b9107ccfc39a1b9b4eb4ca2e7088024f0c51884a38e2a659b5ce",
     "scripts/tts/publication.py": "2006abe24f6ab7e1432f4d8b8a659e59db47c348ad719d72cd364e1755c48dbc",
     "scripts/tts/quality_corpus.py": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
     "scripts/tts/qwen3_clone_setup.py": "58d4109a90738a13cafb5c4ab14a4fb7deebf04d07baa905ab78df2d90049471",

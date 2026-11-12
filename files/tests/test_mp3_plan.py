@@ -540,22 +540,106 @@ def test_publication_rolls_back_if_a_move_fails_midway(source_root, reserve, mon
     made = plan(workspace(a), observe(a), reserve)
     entry = made.books[0]
     _stage_all(entry)
-    real_replace = os.replace
+    real_move = output_paths.move_without_replacing  # the publication's move since v0.7.2 Phase 9 (R9-03)
     calls = {"n": 0}
 
     def flaky(src, dst):
         calls["n"] += 1
         if calls["n"] == 2:
             raise OSError("disk went away")
-        real_replace(src, dst)
+        real_move(src, dst)
 
-    monkeypatch.setattr(mp.os, "replace", flaky)
+    monkeypatch.setattr(output_paths, "move_without_replacing", flaky)
     with pytest.raises(PlanError):
         mp.publish_book(entry)
-    monkeypatch.setattr(mp.os, "replace", real_replace)
+    monkeypatch.setattr(output_paths, "move_without_replacing", real_move)
     assert all(path.is_file() for path in entry.staged_outputs), "everything is back"
     assert not any(path.exists() for path in entry.published_outputs)
     assert mp.is_published(entry) is False
+
+
+COMPETITOR = b"competitor must survive"
+
+
+def _compete_at(monkeypatch, name: str, *, then=None):
+    """Another writer creates *name* after ``publish_book`` looked and found it free, in the instant before the real
+    filesystem operation that would give a staged output that name (v0.7.2 Phase 9 remote review R9-03)."""
+    real_move = output_paths.move_without_replacing
+    planted: list[Path] = []
+
+    def move(src, dst):
+        if Path(dst).name == name and Path(src).parent.parent.name == mp.WORK_DIRNAME and not planted:
+            Path(dst).write_bytes(COMPETITOR)
+            planted.append(Path(dst))
+        result = real_move(src, dst)
+        if then is not None:
+            then(Path(src), Path(dst))
+        return result
+
+    monkeypatch.setattr(output_paths, "move_without_replacing", move)
+    return planted
+
+
+def test_a_file_that_takes_a_single_outputs_name_after_the_look_is_kept(source_root, reserve, monkeypatch):
+    a = book(source_root, "F", ["1.mp3"], album="Dune")
+    entry = plan(workspace(a), observe(a), reserve).books[0]
+    _stage_all(entry)
+    staged_bytes = entry.tracks[0].staged.read_bytes()
+    planted = _compete_at(monkeypatch, entry.tracks[0].published.name)
+    with pytest.raises(PlanError, match="was taken after the run was planned"):
+        mp.publish_book(entry)
+    assert planted == [entry.tracks[0].published]
+    assert entry.tracks[0].published.read_bytes() == COMPETITOR, "the competitor's bytes are exactly as they were"
+    assert entry.tracks[0].staged.read_bytes() == staged_bytes, "the staged output stays for a retry"
+    assert entry.published_dir.is_dir(), "the folder holds someone else's file, so it stays"
+
+
+def test_a_competitor_at_a_later_outputs_name_rolls_back_only_this_attempts_outputs_and_a_retry_then_lands(
+        source_root, reserve, monkeypatch):
+    a = book(source_root, "F", ["1.mp3", "2.mp3", "3.mp3"], album="Dune")
+    entry = plan(workspace(a), observe(a), reserve).books[0]
+    _stage_all(entry)
+    staged = {path: path.read_bytes() for path in entry.staged_outputs}
+    bystander = entry.published_dir / "unrelated.txt"
+    entry.published_dir.mkdir(parents=True)
+    bystander.write_bytes(b"not this run's")
+    taken = entry.tracks[1].published
+    real_move = output_paths.move_without_replacing
+    _compete_at(monkeypatch, taken.name)
+    with pytest.raises(PlanError, match="rolled back"):
+        mp.publish_book(entry)
+    assert taken.read_bytes() == COMPETITOR
+    assert {path: path.read_bytes() for path in entry.staged_outputs} == staged, "every staged output is back, intact"
+    assert not entry.tracks[0].published.exists() and not entry.tracks[2].published.exists()
+    assert bystander.read_bytes() == b"not this run's" and entry.published_dir.is_dir(), "a folder it did not make stays"
+    # The competitor goes away; the retry publishes the same staged outputs at the same planned names.
+    taken.unlink()
+    monkeypatch.setattr(output_paths, "move_without_replacing", real_move)
+    assert set(mp.publish_book(entry)) == set(entry.published_outputs)
+    assert all(path.read_bytes() == staged[stage] for stage, path in zip(entry.staged_outputs, entry.published_outputs))
+
+
+def test_a_rollback_never_takes_back_a_file_that_is_no_longer_the_one_it_published(source_root, reserve, monkeypatch):
+    """Output 1 is published, then another writer replaces it, then output 2's name turns out to be taken. The rollback
+    may move back only what this attempt published: the replacement at output 1's name is someone else's and stays."""
+    a = book(source_root, "F", ["1.mp3", "2.mp3"], album="Dune")
+    entry = plan(workspace(a), observe(a), reserve).books[0]
+    _stage_all(entry)
+    first, second = entry.tracks
+
+    def replace_the_first(src, dst):
+        if dst == first.published:
+            dst.unlink()
+            dst.write_bytes(b"a later writer's file")
+
+    _compete_at(monkeypatch, second.published.name, then=replace_the_first)
+    with pytest.raises(PlanError) as failed:
+        mp.publish_book(entry)
+    assert first.published.read_bytes() == b"a later writer's file", "not moved into staging, not removed"
+    assert second.published.read_bytes() == COMPETITOR
+    assert second.staged.is_file() and not first.staged.exists(), "this attempt's own second output stays staged"
+    assert "was taken after the run was planned" in str(failed.value)
+    assert f"{first.published.name} could not be taken back" in str(failed.value), "and the failure says so"
 
 
 def test_publish_never_overwrites_an_existing_published_file(source_root, reserve):

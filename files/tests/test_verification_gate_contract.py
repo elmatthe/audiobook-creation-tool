@@ -2866,6 +2866,48 @@ def test_a_temporary_another_process_removes_is_not_passed_off_as_read(tmp_path)
     assert any("the total fell without a reading" in text for text in problems)
 
 
+_TRANSIENT = ("from pathlib import Path; import sys; p = Path(sys.argv[1]); p.write_bytes(b'z' * 200_100); "
+              "print(p.stat().st_size, flush=True); p.unlink()")
+
+
+@WINDOWS_ONLY
+@pytest.mark.parametrize("child", [None, ".act-tmp-reused.mp3", ".act-tmp-fresh.mp3"],
+                         ids=["the-control", "a-name-a-reading-was-taken-for", "a-name-never-read"])
+def test_a_reading_taken_for_one_file_never_vouches_for_a_later_file_of_the_same_name(tmp_path, child):
+    """v0.7.2 Phase 9 remote re-review R9-02, the reviewer's three cases. This process makes ``.act-tmp-reused.mp3``
+    (100 bytes), and removes it: read for, and announced. A child then makes a file of that very name, grows it to
+    200,100 bytes, confirms the size and removes it, with no reading taken. The census kept its account per name, so the
+    earlier announcement covered the later file and T5 passed on the honest peak. Each file that has a name is
+    accounted for now: the reused name fails as the never-read name always did, and the run with no child still passes
+    against the same budget, unchanged."""
+    legacy = [_honest(tmp_path, f"seek-{n}").summary(f"seek-{n}", 1) for n in (1, 2)]
+    run = _Staged(tmp_path, "auto")
+    first = run.folder / ".act-tmp-reused.mp3"
+    descriptor = os.open(first, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(descriptor, b"x" * 100)
+    os.close(descriptor)
+    os.unlink(first)
+    witnessed = None
+    if child is not None:
+        done = subprocess.run([sys.executable, "-c", _TRANSIENT, str(run.folder / child)], check=True,
+                              capture_output=True, text=True)
+        witnessed = int(done.stdout.strip())
+    run.chapter(1, audio=31_656, final=60_900, log=4_100)
+    auto = run.summary("auto", 1)
+    judged = _t5_of(auto, legacy)
+    if child is None:
+        assert judged["ok"] and judged["problems"] == [], judged
+        assert judged["total"] == judged["seeking_total"] == 31_656 + 60_900 + 4_100
+        return
+    assert witnessed == 200_100 > auto["staging"]["peak_total_bytes"], "the child's file was never read"
+    assert not judged["ok"], judged
+    unobserved = auto["staging"]["observer"]["unobserved"]
+    expected = ("was removed or renamed 2 times, as Windows reported, and a reading was taken for only 1"
+                if child == ".act-tmp-reused.mp3" else "as Windows reported, with no reading taken for it")
+    assert any(text.startswith(child) and expected in text for text in unobserved), unobserved
+    assert any("the total fell without a reading" in text for text in judged["problems"]), judged
+
+
 @WINDOWS_ONLY
 def test_the_directory_watch_reports_what_happened_under_the_folder_and_nothing_else(tmp_path):
     module = _scaling_module("staging")

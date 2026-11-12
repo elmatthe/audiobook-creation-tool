@@ -10,9 +10,12 @@ contract, exercised directly and through both engines' delegation:
 - discard removes the staging directory's own entries and nothing outside it,
   a link inside it (symlink **or** Windows junction) is removed as a link and
   never followed;
-- publication refuses an already-present destination or a link, moves with
-  ``os.replace`` and takes the plan-owned temporary-sibling route on another
-  filesystem, so the final name never holds a partial file;
+- publication refuses an already-present destination or a link, moves by an
+  operation that itself refuses a taken name (``output_paths.move_without_replacing``,
+  until v0.7.2 Phase 9 remote review R9-03 ``os.replace``) and takes the
+  plan-owned temporary-sibling route on another filesystem, so the final name
+  never holds a partial file and a file that takes the name after the look is
+  kept, byte for byte;
 - the work root is pruned with ``rmdir`` only, and only when empty.
 """
 
@@ -214,20 +217,20 @@ def test_a_cross_device_work_root_takes_the_temporary_sibling_route(layout, monk
     run, work, plan = layout
     m4b_staging.prepare_staging(plan, work_root=work)
     plan.staged.write_bytes(b"candidate")
-    real_replace = os.replace
+    real_move = output_paths.move_without_replacing
     seen: list[tuple[Path, Path]] = []
 
-    def cross_device(src, dst, *a, **k):
+    def cross_device(src, dst):
         seen.append((Path(src), Path(dst)))
         if Path(src) == plan.staged:
             raise OSError(errno.EXDEV, "cross-device link")
-        return real_replace(src, dst, *a, **k)
+        return real_move(src, dst)
 
-    monkeypatch.setattr(os, "replace", cross_device)
+    monkeypatch.setattr(output_paths, "move_without_replacing", cross_device)
     assert m4b_staging.publish_staged(plan, work_root=work) == plan.published
     assert plan.published.read_bytes() == b"candidate"
     assert not plan.staged.exists()
-    # The second replace came from a plan-owned sibling inside the destination folder.
+    # The second move came from a plan-owned sibling inside the destination folder.
     assert len(seen) == 2 and seen[1][0].parent == plan.published.parent
     assert seen[1][0].name.startswith(output_paths.TEMP_SIBLING_PREFIX)
     assert sorted(p.name for p in run.iterdir()) == [".work", "Book.m4b"], "no sibling left"
@@ -238,16 +241,53 @@ def test_a_failure_on_the_cross_device_route_leaves_no_partial_destination(layou
     m4b_staging.prepare_staging(plan, work_root=work)
     plan.staged.write_bytes(b"candidate")
 
-    def refuse(src, dst, *a, **k):
+    def refuse(src, dst):
         raise OSError(errno.EXDEV, "cross-device link")
 
-    monkeypatch.setattr(os, "replace", refuse)
+    monkeypatch.setattr(output_paths, "move_without_replacing", refuse)
     with pytest.raises(StagingError) as failed:
         m4b_staging.publish_staged(plan, work_root=work)
     assert failed.value.stage == "publish"
     assert not plan.published.exists()
     assert plan.staged.read_bytes() == b"candidate", "the candidate is retained"
     assert sorted(p.name for p in run.iterdir()) == [".work"], "no temporary sibling left"
+
+
+COMPETITOR = b"competitor must survive"
+
+
+@pytest.mark.parametrize("route", ["same-device", "cross-device"])
+def test_a_file_that_takes_the_name_after_the_look_is_kept_and_nothing_is_published(layout, monkeypatch, route):
+    """v0.7.2 Phase 9 remote review R9-03: the destination is free when ``publish_staged`` looks, and another writer
+    creates it in the instant before the real filesystem operation. Until then that operation was ``os.replace``:
+    publication reported success and the competitor's bytes were gone. Now the operation itself refuses the name."""
+    run, work, plan = layout
+    m4b_staging.prepare_staging(plan, work_root=work)
+    plan.staged.write_bytes(b"new output")
+    real_move = output_paths.move_without_replacing
+    planted: list[Path] = []
+
+    def compete_then_move(src, dst):
+        if route == "cross-device" and Path(src) == plan.staged:
+            raise OSError(errno.EXDEV, "cross-device link")
+        assert not Path(dst).exists(), "the look found the name free"
+        Path(dst).write_bytes(COMPETITOR)  # the other writer, after the look, before the operation
+        planted.append(Path(src))
+        return real_move(src, dst)
+
+    monkeypatch.setattr(output_paths, "move_without_replacing", compete_then_move)
+    with pytest.raises(StagingError) as refused:
+        m4b_staging.publish_staged(plan, work_root=work)
+    assert refused.value.stage == "publish" and "already exists" in str(refused.value)
+    assert planted, "the competing writer really went first"
+    assert plan.published.read_bytes() == COMPETITOR, "the competitor's file is exactly as it was"
+    assert plan.staged.read_bytes() == b"new output", "the staged file is kept for a retry"
+    assert sorted(p.name for p in run.iterdir()) == [".work", "Book.m4b"], "no temporary sibling left"
+    # Once the name is free again the same staged file is published there.
+    plan.published.unlink()
+    monkeypatch.setattr(output_paths, "move_without_replacing", real_move)
+    assert m4b_staging.publish_staged(plan, work_root=work) == plan.published
+    assert plan.published.read_bytes() == b"new output" and not plan.staged.exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -303,5 +343,8 @@ def test_the_pattern_knows_nothing_of_ffmpeg_tags_covers_or_tk():
         assert not any(banned in name for name in modules), banned
     calls = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
     assert "shutil.rmtree" not in calls and "os.walk" not in calls, "links are never entered"
-    assert {"os.replace", "os.unlink", "os.rmdir", "os.scandir", "shutil.copyfile"} <= calls
+    assert {"os.unlink", "os.rmdir", "os.scandir", "shutil.copyfile"} <= calls
+    # A new output is never given its name by an operation that replaces what is there (R9-03).
+    assert {"output_paths.move_without_replacing", "output_paths.publish_new"} <= calls
+    assert not calls & {"os.replace", "os.rename", "shutil.move", "output_paths.atomic_replace"}, calls
     assert "output_paths.assert_no_link_in" in calls, "link detection is the shared authority's"
