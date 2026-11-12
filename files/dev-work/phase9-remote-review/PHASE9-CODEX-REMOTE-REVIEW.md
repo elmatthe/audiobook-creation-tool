@@ -173,3 +173,9 @@ Preservation: new writes were confined to the owned disposable evidence root and
 **INCOMPLETE / GUI GATE NOT RUN:** after bounded fixes and their negative controls, obtain a fresh independent run of the required applicable Windows gate and affected qualifications from a verified accessible interactive desktop. Preserve the failed controls and evidence, frozen budgets, legitimate commit-first behavior, and owner files. Owner listening/visual acceptance remains separate.
 
 Do not declare full Phase 9 PASS, enter Phase 10 as accepted, merge, tag or release on this report. The authorized next Git action is publication of this report alone to the named feature branch, followed by stopping.
+
+## Git publication outcome — blocked by SSH authentication
+
+The exact staged list was inspected before committing and contained only `files/dev-work/phase9-remote-review/PHASE9-CODEX-REMOTE-REVIEW.md`. `git diff --cached --check` passed. Report-only commit `664353ced520ea558cd1a633337964b3df750c84` was created with no attribution trailer. The authorized push command was `git push origin HEAD:refs/heads/feature/0.7.2-windows-hardening-verification`.
+
+That push failed before publication: Git Credential Manager reported `Unable to persist credentials with the 'wincredman' credential store`, followed by `/dev/tty: No such device or address` and `could not read Username for 'https://github.com'`. A read-only `gh auth status` check then reported that the existing configured account's token is invalid. No login, credential-store change, remote change, history rewrite or alternate-destination push was attempted. This report-only follow-up records the blocker in a separate local commit; its SHA is returned in the final response. Publication requires working GitHub authentication in a session able to push to the authorized feature branch. The review is complete within its stated remote scope, but **the report has not been pushed**.
