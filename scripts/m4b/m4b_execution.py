@@ -20,10 +20,25 @@ the file is removed as soon as the tail is taken.
 **Why nothing is written to its final name.** A destination that exists is a
 destination that looks finished. Every pass writes to a temporary file in the
 *destination's own folder* — the same filesystem, so the final move is a single
-``os.replace`` rather than a copy — and the frozen destination only comes into
+rename rather than a copy — and the frozen destination only comes into
 existence once the process exited cleanly, the artwork pass (if any) also
 exited cleanly, and the measured duration matched what the plan asked for. A
 failure at any of those points leaves the folder exactly as it was.
+
+**The order at the end** (v0.7.2 Phase 9, review findings P9-02 and P9-05).
+Between the last process and the destination there used to be nothing that
+looked at Cancel, and a look at the destination followed by ``os.replace``. So
+a Cancel pressed while the finished file was being measured was followed by
+that file being published and the run reported as succeeded, and a file that
+appeared under the planned name after the look was replaced. Now: Cancel is
+asked again before the measurement and after it; then the commit is
+*authorized*, one step ordered against the Cancel latch by whoever owns it
+(:class:`CommitGate`), so of a Cancel and a commit exactly one comes first and
+both know which; and only then the one operation that gives the file its name,
+which itself refuses a name that is taken (``output_paths.publish_new``). A
+Cancel that came first leaves no output and the segment is reported cancelled.
+An authorization that came first has won: the file is published whole and
+stays, like every output finished before a Cancel.
 
 **Why the cancellation ladder is a ladder.** ``terminate()`` asks; a process
 mid-encode usually goes. If it has not gone within the grace period it is
@@ -39,6 +54,7 @@ the run, and the plan owns the answers.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -173,6 +189,25 @@ class SegmentOutcome:
     @property
     def failed(self) -> bool:
         return not self.finalised and not self.cancelled
+
+
+@dataclass(frozen=True, slots=True)
+class CommitGate:
+    """Who may say that an output becomes final, ordered against Cancel (v0.7.2 Phase 9, review finding P9-02).
+
+    ``authorize`` is asked once, immediately before the one operation that gives a finished file its name. It answers in
+    a single step taken under the same lock as the Cancel latch: ``False`` when Cancel came first, and the file is then
+    not published; ``True`` when this commit came first, recorded so that a Cancel arriving a moment later can see the
+    commit it lost to. ``finished`` gives that authorization back once the operation has ended, however it ended.
+
+    The panel builds this from the controller of its run (that controller's ``authorize_commit`` and
+    ``commit_finished``), the pair narration has published through since v0.7.2 Phase 1; this module stays free of the
+    controller itself and is handed two callables. Without a gate the low-level latch is looked at one last time
+    instead, which is all a caller with no controller can be given.
+    """
+
+    authorize: Callable[[], bool]
+    finished: Callable[[], None]
 
 
 def tail_of(path: Path, *, limit: int = DETAIL_TAIL) -> str:
@@ -618,6 +653,7 @@ def convert_segment(
     on_command: Callable[[Sequence[str]], None] | None = None,
     feed: Callable[[Callable[[bytes], None]], None] | None = None,
     stop_feed: Callable[[], None] | None = None,
+    commit: CommitGate | None = None,
 ) -> SegmentOutcome:
     """Produce one planned output, or explain truthfully why it does not exist.
 
@@ -625,6 +661,12 @@ def convert_segment(
     the plan's shape requires, measure what was produced, and only then move it
     onto the frozen destination. Nothing that fails any of those steps leaves a
     file behind, and the destination never appears half-written.
+
+    *commit* orders that last move against Cancel (:class:`CommitGate`): a Cancel
+    that comes before the authorization is reported as cancelled and publishes
+    nothing, whichever pass or check it arrived during. The move itself never
+    replaces anything: a destination taken since the plan was made, even in the
+    instant before the move, is refused and left as it is.
 
     *measure* reads a produced file's duration; it is injected so the drift
     guard can be exercised without media. *on_command* is a transcript hook —
@@ -641,6 +683,10 @@ def convert_segment(
 
     def refuse(message: str, detail: str = "") -> SegmentOutcome:
         return SegmentOutcome(destination=destination, message=message,
+                              detail=detail, commands=tuple(commands_run))
+
+    def stopped(detail: str = "") -> SegmentOutcome:
+        return SegmentOutcome(destination=destination, cancelled=True,
                               detail=detail, commands=tuple(commands_run))
 
     try:
@@ -698,9 +744,7 @@ def convert_segment(
                 return refuse(f"{destination.name} could not be started.", str(exc))
 
             if result.cancelled:
-                return SegmentOutcome(destination=destination, cancelled=True,
-                                      detail=result.detail,
-                                      commands=tuple(commands_run))
+                return stopped(result.detail)
 
             if result.producer_failed:
                 # ffmpeg can exit 0 on the audio it did receive, so a decoder
@@ -716,7 +760,15 @@ def convert_segment(
                     f"{destination.name} could not be written.",
                     f"ffmpeg exited {result.returncode}\n{result.detail}")
 
+        # A pass that ended by itself in the instant Cancel was pressed reports
+        # no cancellation of its own: the process was already gone. Nothing
+        # below is a process, so the latch is asked here, and again once the
+        # measurement (a child of its own, seconds on a long book) is back.
+        if cancelled():
+            return stopped()
         measured = measure(staged_final)
+        if cancelled():
+            return stopped()
         drift = drift_of(measured, work.expected_duration)
         if drift is not None and drift > DRIFT_TOLERANCE:
             return refuse(
@@ -730,13 +782,27 @@ def convert_segment(
         # The plan reserved this name and nothing has written it since. If
         # something else has, that is not a collision to renumber around — the
         # frozen plan must stay retry-stable — so it is refused rather than
-        # overwritten.
-        if destination.exists():
+        # overwritten. This look is a courtesy that saves asking for a commit;
+        # the guarantee is the publication itself, below.
+        occupied = "the planned destination was occupied after the run was planned"
+        if os.path.lexists(destination):
             return refuse(
                 f"{destination.name} already exists, so it was not replaced.",
-                "the planned destination was occupied after the run was planned")
+                occupied)
 
-        output_paths.atomic_replace(staged_final, destination)
+        # Cancel or this commit: whichever comes first, and both know.
+        if commit is None:
+            if cancelled():
+                return stopped()
+        elif not commit.authorize():
+            return stopped()
+        try:
+            output_paths.publish_new(staged_final, destination)
+        except output_paths.DestinationOccupied as exc:
+            return refuse(exc.message, f"{occupied}: {exc.detail}")
+        finally:
+            if commit is not None:
+                commit.finished()
         staged_final = None  # type: ignore[assignment]  # ownership transferred
         return SegmentOutcome(destination=destination, finalised=True,
                               measured=measured, commands=tuple(commands_run))

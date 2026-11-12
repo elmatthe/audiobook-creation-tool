@@ -1772,22 +1772,40 @@ def test_a_runs_scratch_carries_its_owner_and_the_audit_reads_it(tree):
 # refuse a true PASS, though never certify a false one. Each test below makes a real run with a real runner of the
 # scenario, through the gate, and reads it back through the public --status.
 SCENARIO_RUNNER = '''
-import json, sys, time
+import json, subprocess, sys, time
 from pathlib import Path
 out = Path(sys.argv[sys.argv.index("--out") + 1])
 out.mkdir(parents=True)
 (out / "progress.log").write_text("started\\n")
+head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+(out / "identity.json").write_text(json.dumps({{"scenario": "m4b-scaling", "head": head}}))
+(out / "runs.json").write_text(json.dumps([{{"label": f"run-{{n}}"}} for n in range({runs})]))
 {before}
-(out / "verdict.json").write_text(json.dumps({verdict!r}))
+{write_verdict}
 sys.exit({code})
 '''
 TWO_CHECKS = [{"name": "T8:one", "status": "PASS", "detail": "identical"}, {"name": "T1", "status": "PASS", "detail": "2.1x"}]
+#: What this small tree's policy says a PASS of the scenario holds: the two checks above, by name and by family, and three runs.
+SMALL_PASS = {"checks": 2, "runs": 3, "names": ["T1"], "families": {"T8:": 1}}
+_UNSET = object()
 
 
-def _qualification(tree, verdict: dict, code: int, *, before: str = ""):
-    """One real qualification run of m4b-scaling whose runner writes *verdict* and exits *code*."""
-    (tree.gate / "scaling" / "qualify.py").write_text(
-        textwrap.dedent(SCENARIO_RUNNER).format(verdict=verdict, code=code, before=before), encoding="utf-8")
+def _qualification(tree, verdict, code: int, *, before: str = "", requires=_UNSET, stage: dict | None = None):
+    """One real qualification run of m4b-scaling whose runner leaves its identity and its runs, writes *verdict* (a string is
+    written as it is; ``None`` writes no verdict) and exits *code*. *before* runs just before the verdict is written."""
+    counted = verdict.get("runs") if isinstance(verdict, dict) else 0
+    written = ("" if verdict is None else f'(out / "verdict.json").write_text({verdict!r})' if isinstance(verdict, str)
+               else f'(out / "verdict.json").write_text(json.dumps({verdict!r}))')
+    (tree.gate / "scaling" / "qualify.py").write_text(textwrap.dedent(SCENARIO_RUNNER).format(
+        write_verdict=written, code=code, before=before, runs=counted if type(counted) is int else 0), encoding="utf-8")
+    policy = tree.policy()
+    if requires is None:
+        policy["scenarios"]["m4b-scaling"].pop("pass_requires", None)
+    else:
+        policy["scenarios"]["m4b-scaling"]["pass_requires"] = SMALL_PASS if requires is _UNSET else requires
+    if stage is not None:
+        policy["stages"]["qualification"] = stage
+    tree.write_policy(policy)
     tree.commit("a small runner for the scenario")
     return tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
 
@@ -1852,7 +1870,8 @@ def test_a_qualification_stopped_part_way_is_incomplete_and_never_a_pass(tree):
     """A real interruption: the gate is killed while the scenario's runner works. What is left has no verdict."""
     started = tree.root / "runner-started"
     (tree.gate / "scaling" / "qualify.py").write_text(textwrap.dedent(SCENARIO_RUNNER).format(
-        verdict=_verdict("PASS"), code=0, before=f"Path({str(started)!r}).write_text('x')\ntime.sleep(120)"), encoding="utf-8")
+        write_verdict=f'(out / "verdict.json").write_text(json.dumps({_verdict("PASS")!r}))', code=0, runs=3,
+        before=f"Path({str(started)!r}).write_text('x')\ntime.sleep(120)"), encoding="utf-8")
     tree.commit("a runner that is still working")
     proc = subprocess.Popen([sys.executable, str(tree.gate / "verify.py"), "--mode", "qualification", "--scenario", "m4b-scaling"],
                             cwd=tree.outside, env=tree.environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1986,6 +2005,266 @@ def test_a_qualification_pass_does_not_stand_in_for_changed_source_policy_or_doc
 
 
 # --------------------------------------------------------------------------- #
+# What the gate itself seals for a scenario (v0.7.2 Phase 9, review finding P9-03)
+# --------------------------------------------------------------------------- #
+# The tests above damage a record after it was sealed and ask the reader. The Phase 9 review asked the other question:
+# what does the gate seal when the scenario's own runner hands it a verdict that contradicts itself? It sealed PASS with
+# exit 0 for a PASS beside a failed check, for a PASS with nothing run, and for another scenario's PASS, and only the
+# reader refused the record afterwards. Each test below is one real run: the real gate, its real supervisor, a real child
+# that exits by itself, the real finalizer, and then the real reader. It states all four answers: what the gate judged,
+# what it exited with, what it sealed, and what the reader makes of the sealed record. They must agree, and none may be
+# PASS unless the first test's control is.
+def _answers(tree, outcome) -> dict:
+    """The gate's judgement, its exit, the sealed result and the reader's answer, for one run."""
+    results = outcome.results
+    scenario = [c for c in results["checks"] if c["name"] == "scenario:m4b-scaling"]
+    evidence = [c for c in results["checks"] if c["name"] == "scenario-evidence:m4b-scaling"]
+    read = tree.status(str(outcome.directory))
+    said = [line.split("status:", 1)[1].split("(")[0].strip() for line in read.stdout.splitlines() if line.startswith("status:")]
+    return {"scenario": scenario[0]["status"] if scenario else None, "scenario_detail": scenario[0]["detail"] if scenario else "",
+            "evidence": evidence[0]["status"] if evidence else None, "evidence_detail": evidence[0]["detail"] if evidence else "",
+            "exit": outcome.code, "sealed": (results["status"], results["exit_code"]),
+            "ran": results["qualification"]["ran"], "satisfied": results["qualification"]["satisfied"],
+            "reader": (said[0] if said else None, read.returncode), "reader_problems": "problem:" in read.stdout,
+            "reader_out": read.stdout}
+
+
+def _assert_agreed_and_not_a_pass(answers: dict, status: str = "FAIL") -> None:
+    code = {"FAIL": 1, "BLOCKED": 2}[status]
+    assert answers["exit"] == code and answers["sealed"] == (status, code), answers
+    assert answers["satisfied"] == [], answers
+    assert answers["reader"] == (status, code) and not answers["reader_problems"], answers["reader_out"]
+
+
+def test_the_control_a_whole_scenario_pass_is_sealed_pass_and_read_as_pass(tree):
+    """The no-change control of every case below: the same runner, the same policy, an honest verdict."""
+    answers = _answers(tree, _qualification(tree, _verdict("PASS"), 0))
+    assert answers["scenario"] == "PASS" and answers["evidence"] == "PASS", answers
+    assert answers["exit"] == 0 and answers["sealed"] == ("PASS", 0), answers
+    assert answers["ran"] == {"m4b-scaling": "PASS"} and answers["satisfied"] == ["m4b-scaling"], answers
+    assert answers["reader"] == ("PASS", 0) and not answers["reader_problems"], answers["reader_out"]
+
+
+@pytest.mark.parametrize("verdict, needle", [
+    (_verdict("PASS", [*TWO_CHECKS, {"name": "T5:x", "status": "FAIL", "detail": "9 bytes"}]), "1 of its checks did not pass: ['T5:x']"),
+    (_verdict("PASS", [], runs=0), "it holds no checks"),
+    (_verdict("PASS", []), "it holds no checks"),
+    (_verdict("PASS", runs=0), "it made no run (0)"),
+    ({**_verdict("PASS"), "runs": True}, "it made no run (True)"),
+    ({**_verdict("PASS"), "checks": "every one passed"}, "it holds no checks"),
+    ({**_verdict("PASS"), "checks": [*TWO_CHECKS, "T9 passed"]}, "1 of its checks did not pass"),
+    ({**_verdict("PASS"), "status": "SMOKE"}, "the verdict's status is 'SMOKE'"),
+], ids=["a-failed-check", "nothing-executed", "no-checks", "no-runs", "runs-is-not-a-number", "checks-is-not-a-list",
+        "a-check-that-is-not-a-record", "an-unknown-status"])
+def test_a_pass_verdict_that_does_not_bear_itself_out_is_sealed_fail_by_the_gate_itself(tree, verdict, needle):
+    """The runner exits 0 in every case: only the verdict's own content stands between it and a sealed PASS."""
+    answers = _answers(tree, _qualification(tree, verdict, 0))
+    assert answers["scenario"] == "FAIL" and needle in answers["scenario_detail"], answers
+    assert answers["evidence"] is None, "a verdict that is not a PASS has no PASS to hold to its evidence"
+    assert answers["ran"] == {"m4b-scaling": "FAIL"}, answers
+    _assert_agreed_and_not_a_pass(answers)
+
+
+@pytest.mark.parametrize("verdict, needle", [
+    ({**_verdict("PASS"), "scenario": "fresh-windows"}, "the verdict is about scenario 'fresh-windows', not m4b-scaling"),
+    ({key: value for key, value in _verdict("PASS").items() if key != "scenario"}, "the verdict is about scenario None"),
+    ("[]", "the verdict is list, not an object"),
+    ('"PASS"', "the verdict is str, not an object"),
+    ("{ not json", "without a readable verdict"),
+    (None, "without a readable verdict"),
+], ids=["another-scenario", "no-scenario-named", "a-list", "a-string", "not-json", "no-verdict-at-all"])
+def test_a_verdict_that_is_not_this_scenarios_is_no_verdict_and_the_run_fails(tree, verdict, needle):
+    """Nothing of the scenario is recorded, because there is nothing of it: the run is FAIL and reads FAIL."""
+    answers = _answers(tree, _qualification(tree, verdict, 0))
+    assert answers["scenario"] == "FAIL" and needle in answers["scenario_detail"], answers
+    assert answers["ran"] == {} and answers["evidence"] is None, answers
+    _assert_agreed_and_not_a_pass(answers)
+
+
+@pytest.mark.parametrize("status, code, sealed", [
+    ("PASS", 1, "FAIL"), ("PASS", 2, "FAIL"), ("PASS", 3, "FAIL"),
+    ("FAIL", 0, "FAIL"), ("FAIL", 1, "FAIL"), ("FAIL", 2, "FAIL"),
+    ("BLOCKED", 0, "BLOCKED"), ("BLOCKED", 2, "BLOCKED"), ("BLOCKED", 1, "BLOCKED"),
+], ids=lambda value: str(value))
+def test_no_exit_code_can_raise_a_verdict_and_only_exit_zero_lets_a_pass_stand(tree, status, code, sealed):
+    """The verdict and the runner's exit are held against each other in one direction only: downwards."""
+    answers = _answers(tree, _qualification(tree, _verdict(status), code))
+    assert answers["scenario"] == sealed and answers["ran"] == {"m4b-scaling": sealed}, answers
+    _assert_agreed_and_not_a_pass(answers, sealed)
+
+
+@WINDOWS_ONLY
+def test_a_runner_stopped_by_the_gate_after_writing_pass_is_not_a_pass(tree):
+    """An interrupted child: the PASS verdict is on disk, but the runner never exited by itself. The gate stops it at its
+    budget, and what it stopped did not pass."""
+    outcome = _qualification(tree, _verdict("PASS"), 0, stage={"timeout_seconds": 8, "stall_seconds": 60},
+                             before=f'(out / "verdict.json").write_text(json.dumps({_verdict("PASS")!r}))\ntime.sleep(300)')
+    answers = _answers(tree, outcome)
+    stage = [s for s in outcome.results["stages"] if s["name"] == "qualification:m4b-scaling"][0]
+    assert stage["ended"] != "exited", stage
+    assert answers["scenario"] == "FAIL" and "its runner" in answers["scenario_detail"], answers
+    _assert_agreed_and_not_a_pass(answers)
+
+
+@pytest.mark.parametrize("before, requires, needle", [
+    ('(out / "identity.json").unlink()', _UNSET, "no readable identity.json"),
+    ('(out / "identity.json").write_text("{ not json")', _UNSET, "no readable identity.json"),
+    ('(out / "identity.json").write_text(json.dumps({"scenario": "m4b-scaling", "head": "0" * 40}))', _UNSET,
+     "the scenario measured HEAD '0000000000000000000000000000000000000000'"),
+    ('(out / "identity.json").write_text(json.dumps({"scenario": "edge-low-memory", "head": head}))', _UNSET,
+     "identity.json is of scenario 'edge-low-memory'"),
+    ('(out / "runs.json").unlink()', _UNSET, "no readable runs.json"),
+    ('(out / "runs.json").write_text(json.dumps([{"label": "only-one"}]))', _UNSET, "runs.json records 1 run(s), the verdict counts 3"),
+    ("", {**SMALL_PASS, "checks": 3}, "2 checks, the scenario has at least 3"),
+    ("", {**SMALL_PASS, "runs": 4}, "3 runs, the scenario has at least 4"),
+    ("", {**SMALL_PASS, "names": ["T1", "T6"]}, "required checks are missing: ['T6']"),
+    ("", {**SMALL_PASS, "families": {"T8:": 1, "T5:": 1}}, "0 checks named 'T5:'*, the scenario has at least 1"),
+    ("", {**SMALL_PASS, "families": {"T8:": 2}}, "1 checks named 'T8:'*, the scenario has at least 2"),
+    ("", None, "the policy states no pass_requires for m4b-scaling"),
+], ids=["no-identity", "unreadable-identity", "another-head", "another-scenarios-identity", "no-runs-file", "fewer-runs-recorded",
+        "fewer-checks-than-the-scenario", "fewer-runs-than-the-scenario", "a-required-check-missing", "a-required-family-missing",
+        "a-family-short-of-its-checks", "no-requirement-stated"])
+def test_a_pass_verdict_without_the_whole_scenario_or_its_evidence_is_not_accepted(tree, before, requires, needle):
+    """The verdict is honest and consistent, so the scenario's own result stays PASS; what is missing beside it fails the
+    run through a check of its own, the scenario is not called satisfied, and the reader agrees with the sealed FAIL."""
+    answers = _answers(tree, _qualification(tree, _verdict("PASS"), 0, before=before, requires=requires))
+    assert answers["scenario"] == "PASS" and answers["ran"] == {"m4b-scaling": "PASS"}, answers
+    assert answers["evidence"] == "FAIL" and needle in answers["evidence_detail"], answers
+    assert answers["satisfied"] == [], "a scenario is satisfied only by a run that itself passed"
+    _assert_agreed_and_not_a_pass(answers)
+
+
+@WINDOWS_ONLY
+def test_a_scenario_that_passes_but_leaves_a_process_behind_fails_the_run_and_satisfies_nothing(tree):
+    pid_file = tree.root / "left-behind.pid"
+    before = (f"child = subprocess.Popen([sys.executable, '-c', {SLEEPER!r}])\n"
+              f"Path({str(pid_file)!r}).write_text(str(child.pid), encoding='ascii')")
+    outcome = _qualification(tree, _verdict("PASS"), 0, before=before)
+    answers = _answers(tree, outcome)
+    assert answers["scenario"] == "PASS" and outcome.check("cleanup")["status"] == "FAIL", answers
+    assert outcome.results["cleanup"]["owned_children_remaining"] >= 1 and answers["satisfied"] == [], answers
+    _assert_agreed_and_not_a_pass(answers)
+    assert _wait_gone(int(pid_file.read_text(encoding="ascii"))), "the owned process was not stopped"
+
+
+def test_a_scenario_that_passes_while_its_source_changes_fails_the_run_and_satisfies_nothing(tree):
+    """The tested inputs were not frozen: the PASS describes no one source."""
+    target = tree.root / "scripts" / "launcher.py"
+    outcome = _qualification(tree, _verdict("PASS"), 0, before=f"Path({str(target)!r}).write_text('# changed during the run\\n')")
+    answers = _answers(tree, outcome)
+    assert answers["scenario"] == "PASS" and outcome.check("tree")["status"] == "FAIL", answers
+    assert answers["satisfied"] == [], answers
+    _assert_agreed_and_not_a_pass(answers)
+
+
+def test_a_record_the_gate_sealed_fail_for_a_contradictory_verdict_cannot_be_resealed_into_a_pass(tree):
+    """The tampered sealed record: the gate's own FAIL, edited to say PASS and sealed again, is INVALID to the reader."""
+    outcome = _qualification(tree, _verdict("PASS", [*TWO_CHECKS, {"name": "T5:x", "status": "FAIL"}]), 0)
+    assert outcome.code == 1, outcome
+
+    def claim_pass(results):
+        results.update(status="PASS", exit_code=0)
+        results["qualification"].update(ran={"m4b-scaling": "PASS"}, satisfied=["m4b-scaling"], pending=[])
+        for check in results["checks"]:
+            check["status"] = "PASS"
+
+    _rewrite_results(outcome.directory, claim_pass, reseal=True)
+    status = tree.status(str(outcome.directory))
+    assert status.returncode == 3 and "status: INVALID" in status.stdout and "that makes FAIL" in status.stdout, status.stdout
+    assert "checks not passed in its verdict: ['T5:x']" in status.stdout, status.stdout
+
+
+def _gate_module():
+    return load_gate("act_verify_contract_scenario")
+
+
+@pytest.mark.parametrize("ended, code, verdict, expected", [
+    ("exited", 0, _verdict("PASS"), "PASS"),
+    ("exited", 0, _verdict("PASS", [{"name": "only", "status": "PASS"}], runs=1), "PASS"),
+    ("exited", 1, _verdict("PASS"), "FAIL"),
+    ("exited", None, _verdict("PASS"), "FAIL"),
+    ("timeout", 0, _verdict("PASS"), "FAIL"),
+    ("killed", 0, _verdict("PASS"), "FAIL"),
+    ("exited", 0, _verdict("PASS", [{"name": "only", "status": "pass"}]), "FAIL"),
+    ("exited", 0, _verdict("PASS", [{"name": "only"}]), "FAIL"),
+    ("exited", 0, _verdict("PASS", [{"name": "only", "status": "NOT RUN"}]), "FAIL"),
+    ("exited", 0, _verdict("PASS", runs=-1), "FAIL"),
+    ("exited", 0, {**_verdict("PASS"), "runs": 2.0}, "FAIL"),
+    ("exited", 0, {**_verdict("PASS"), "runs": "3"}, "FAIL"),
+    ("exited", 0, _verdict("FAIL"), "FAIL"),
+    ("exited", 0, _verdict("BLOCKED"), "BLOCKED"),
+    ("exited", 0, {**_verdict("PASS"), "status": None}, "FAIL"),
+    ("exited", 0, {**_verdict("PASS"), "scenario": "m4b-scaling "}, None),
+    ("exited", 0, None, None),
+    ("exited", 0, 7, None),
+])
+def test_the_gates_rule_and_the_readers_rule_for_a_scenario_verdict_agree_on_every_planted_case(tmp_path, ended, code, verdict, expected):
+    """Two implementations of one rule, on purpose (the reader takes nothing of the gate's on trust): ``verify.judge_scenario``
+    decides what is sealed, ``runstore._scenario_problems`` re-derives it from the sealed evidence. Whatever the gate would seal
+    for these inputs, the reader must find no fault with exactly that and must fault every other status."""
+    verify = _gate_module()
+    from helpers import runstore
+
+    status, _why = verify.judge_scenario("m4b-scaling", verdict, ended, code)
+    assert status == expected
+    if status is None:
+        return  # no verdict of this scenario: the gate records no scenario result, and the reader has nothing to compare
+    directory = tmp_path / "run"
+    (directory / "qualification").mkdir(parents=True)
+    (directory / "qualification" / "verdict.json").write_text(json.dumps(verdict), encoding="utf-8")
+    for sealed in ("PASS", "FAIL", "BLOCKED"):
+        results = {"qualification": {"ran": {"m4b-scaling": sealed}},
+                   "checks": [{"name": "scenario:m4b-scaling", "status": sealed, "required": True}],
+                   "stages": [{"name": "qualification:m4b-scaling", "ended": ended, "returncode": code}],
+                   "artifacts": [{"path": "qualification/verdict.json"}]}
+        problems = runstore._scenario_problems(directory, results)
+        assert (problems == []) == (sealed == status), (sealed, status, problems)
+
+
+def test_the_real_policy_states_the_whole_of_every_scenarios_pass():
+    """Every frozen scenario says what its PASS contains, and the named checks and the families account for every check of it:
+    a scenario cannot lose a budget's check and still be accepted. The numbers are those of each scenario's own PASS on the
+    v0.7.2 Phase 8 candidate (79, 61, 76 and 43 checks; 207, 6, 6 and 11 runs)."""
+    policy = json.loads((GATE_DIR / "verification.json").read_text(encoding="utf-8"))
+    whole = {"m4b-scaling": (79, 207), "edge-low-memory": (61, 6), "optional-engines": (76, 6), "fresh-windows": (43, 11)}
+    assert set(policy["scenarios"]) == set(whole)
+    for name, (checks, runs) in whole.items():
+        requires = policy["scenarios"][name]["pass_requires"]
+        assert (requires["checks"], requires["runs"]) == (checks, runs), name
+        assert len(requires["names"]) + sum(requires["families"].values()) == checks, f"{name}: a check no rule requires"
+        prefixes = list(requires["families"])
+        assert not [(a, b) for a in prefixes for b in prefixes if a != b and b.startswith(a)], f"{name}: one family inside another"
+        assert not [(n, p) for n in requires["names"] for p in prefixes if n.startswith(p)], f"{name}: a named check counted in a family"
+    scaling = policy["scenarios"]["m4b-scaling"]["pass_requires"]
+    assert {"T1", "T1b", "T6", "containment"} == set(scaling["names"])
+    assert {"T2:below:", "T2:above:", "T3:", "T4:", "T5:", "T7:", "T8:", "fault:", "pause:"} == set(scaling["families"])
+
+
+def test_a_whole_scenario_verdict_meets_the_real_policy_and_one_missing_budget_check_does_not(tmp_path):
+    """The real requirement of m4b-scaling, on a verdict shaped like its real PASS; then the same verdict without its T5 checks,
+    with one T4 check fewer, and without T6: each is refused by name."""
+    verify = _gate_module()
+    requires = json.loads((GATE_DIR / "verification.json").read_text(encoding="utf-8"))["scenarios"]["m4b-scaling"]["pass_requires"]
+    names = [*requires["names"], *(f"{prefix}{n}" for prefix, count in requires["families"].items() for n in range(count))]
+    folder = tmp_path / "qualification"
+    folder.mkdir()
+    (folder / "identity.json").write_text(json.dumps({"head": "abc"}), encoding="utf-8")
+    (folder / "runs.json").write_text(json.dumps([{}] * 207), encoding="utf-8")
+
+    def problems(kept):
+        verdict = {"scenario": "m4b-scaling", "status": "PASS", "runs": 207, "checks": [{"name": n, "status": "PASS"} for n in kept]}
+        return verify.scenario_evidence_problems("m4b-scaling", verdict, folder, "abc", requires)
+
+    assert problems(names) == []
+    assert any("'T5:'" in text for text in problems([n for n in names if not n.startswith("T5:")]))
+    assert any("8 checks named 'T4:'" in text for text in problems([n for n in names if n != "T4:0"]))
+    assert any("required checks are missing: ['T6']" in text for text in problems([n for n in names if n != "T6"]))
+    # A check of another name does not stand in for a missing one, even when the count is made up.
+    padded = [n for n in names if not n.startswith("T5:")] + [f"run:extra-{n}" for n in range(9)]
+    assert len(padded) == 79 and any("'T5:'" in text for text in problems(padded))
+
+
+# --------------------------------------------------------------------------- #
 # The m4b-scaling harness: what T4 and T5 measure (v0.7.2 Phase 8 remediation)
 # --------------------------------------------------------------------------- #
 @functools.lru_cache(maxsize=None)
@@ -1995,7 +2274,7 @@ def _scaling_module(name: str):
         pytest.skip("the benchmark harness accounts through Windows Job Objects")
     import importlib.util  # noqa: PLC0415
 
-    saved_path, saved_modules = list(sys.path), {key: sys.modules.get(key) for key in ("winjob", "common", "recipe")}
+    saved_path, saved_modules = list(sys.path), {key: sys.modules.get(key) for key in ("winjob", "common", "recipe", "staging")}
     try:
         spec = importlib.util.spec_from_file_location(f"act_scaling_{name}_contract", GATE_DIR / "scaling" / f"{name}.py")
         module = importlib.util.module_from_spec(spec)
@@ -2013,24 +2292,41 @@ def _scaling_module(name: str):
 MIB = 1 << 20
 
 
-def _seeking(label: str, **over) -> dict:
+def _clean_staging(**over) -> dict:
+    """What ``staging.StagingCensus.record()`` holds for a run that was read completely: the 1,000-chapter book's figures."""
+    record = {"base_chars": 214, "peak_media_bytes": 94_311, "peak_diagnostics_bytes": 122_852, "peak_total_bytes": 217_163,
+              "readings": {"start": 1, "remove": 3000, "rename": 1000, "end": 1}, "at_start_files": 0, "left_files": 0,
+              "left_bytes": 0,
+              "observer": {"finished": True, "audit_hook": True, "diagnostics_sinks": 2000, "unobserved": [], "links": [],
+                           "without_creation": [], "written_by_the_application": [], "errors": [],
+                           "watch": {"armed": True, "drained": True, "lost": 0, "error": None, "events": 9004,
+                                     "created": 4000, "removed": 3000, "renamed": 1000}}}
+    observer = over.pop("observer", None)
+    watch = over.pop("watch", None)
+    record.update(over)
+    if observer is not None:
+        record["observer"] = {**record["observer"], **observer}
+    if watch is not None:
+        record["observer"] = {**record["observer"], "watch": {**record["observer"]["watch"], **watch}}
+    return record
+
+
+def _seeking(label: str, *, staging=None, **over) -> dict:
     """A seeking-route run's summary. The figures are those of the 1,000-chapter book with the corrected harness."""
     run = {"label": label, "files": 1000, "peak_job_commit": 82_100_000, "write_bytes": 339_406_132,
            "app_write_bytes": 2_132_979, "peak_staged_bytes": 215_728, "decoders": [], "pipe": {},
-           "staging": {"peak_media_bytes": 94_311, "peak_diagnostics_bytes": 122_852, "peak_total_bytes": 217_163,
-                       "readings_before_discard": 3000, "readings_before_publish": 1000, "left_files": 0, "left_bytes": 0}}
+           "staging": _clean_staging(**(staging or {}))}
     run.update(over)
     return run
 
 
 def _one_decode(label: str = "tput-scale1000-180", *, decoder=None, staging=None, **over) -> dict:
     stream = 530_963_296
-    run = _seeking(label, peak_job_commit=82_100_000 + 29_097_984 + 1_740_800 + 600_000,
+    run = _seeking(label, staging=staging, peak_job_commit=82_100_000 + 29_097_984 + 1_740_800 + 600_000,
                    write_bytes=219_834_875 + 2 * stream, app_write_bytes=stream + 1_999_074, peak_staged_bytes=215_796,
                    pipe={"from_decoder_bytes": stream, "to_encoders_bytes": stream})
     run["decoders"] = [{"peak_buffered": 532_728, "peak_commit": 29_097_984, "write_bytes": stream, "diagnostics_bytes": 0,
                         "companions": [{"pid": 4, "image": "conhost.exe", "peak_commit": 1_740_800}], **(decoder or {})}]
-    run["staging"] = {**run["staging"], "readings_before_discard": 3001, **(staging or {})}
     run.update(over)
     return run
 
@@ -2123,19 +2419,48 @@ def test_the_job_peak_that_failed_in_phase_8_was_inside_the_complete_envelope():
     assert _judged(with_host, legacy)["T4"]["ok"]
 
 
-def test_t5_compares_exact_staged_media_with_no_allowance():
-    assert _judged(_one_decode(staging={"peak_media_bytes": 94_311}))["T5"]["ok"], "equal is not more"
-    assert _judged(_one_decode(staging={"peak_media_bytes": 94_310}))["T5"]["ok"]
-    one_more = _judged(_one_decode(staging={"peak_media_bytes": 94_312}))["T5"]
-    assert not one_more["ok"] and "staged media 94312 bytes is more than the seeking route's 94311" in one_more["detail"]
+def test_t5_holds_every_staged_byte_to_the_seeking_routes_largest_peak_with_no_allowance():
+    """The approved budget, to the letter (Phase 7A record, section 8: "peak staged bytes no higher than production's"):
+    everything the application has staged, media and diagnostics alike, against the largest exact peak of the session's
+    seeking runs. Phase 8 had judged the media exactly and the diagnostics apart at 1.05 x, which let a larger total
+    pass; the Phase 9 review showed one passing nine bytes over (P9-04)."""
+    assert _judged(_one_decode())["T5"]["ok"], "equal is not higher"
+    assert _judged(_one_decode(staging={"peak_total_bytes": 217_162, "peak_diagnostics_bytes": 122_851}))["T5"]["ok"]
+    one_more = _judged(_one_decode(staging={"peak_total_bytes": 217_164, "peak_diagnostics_bytes": 122_853}))["T5"]
+    assert not one_more["ok"], "one byte more, in a diagnostics file, is more"
+    assert "217164 bytes staged at the peak is more than the seeking route's 217163" in one_more["detail"]
+    assert (one_more["facts"]["total"], one_more["facts"]["seeking_total"]) == (217_164, 217_163)
+    nine_more = _judged(_one_decode(staging={"peak_total_bytes": 217_172, "peak_diagnostics_bytes": 122_861}))["T5"]
+    assert not nine_more["ok"], "the reviewed harness passed exactly this"
+    five_percent = _judged(_one_decode(staging={"peak_total_bytes": 217_163 + 6_142, "peak_diagnostics_bytes": 128_994}))["T5"]
+    assert not five_percent["ok"], "and this was the allowance it gave"
+
+
+def test_the_seeking_routes_figure_is_the_largest_exact_peak_of_its_own_runs_and_the_boundary_is_that_byte():
+    legacy = [_seeking("a", staging={"peak_total_bytes": 217_160, "peak_diagnostics_bytes": 122_849}),
+              _seeking("b"),
+              _seeking("c", staging={"peak_total_bytes": 217_161, "peak_diagnostics_bytes": 122_850})]
+    at_the_boundary = _judged(_one_decode(), legacy)["T5"]
+    assert at_the_boundary["ok"] and at_the_boundary["facts"]["seeking_totals"] == [217_160, 217_163, 217_161]
+    assert not _judged(_one_decode(staging={"peak_total_bytes": 217_164, "peak_diagnostics_bytes": 122_853}), legacy)["T5"]["ok"]
+    # Against the two lower seeking runs alone the same one-decode run is two bytes over: a FAIL, not something to round away.
+    over = _judged(_one_decode(), [legacy[0], legacy[2]])["T5"]
+    assert not over["ok"] and "217163 bytes staged at the peak is more than the seeking route's 217161" in over["detail"]
+
+
+def test_more_staged_media_fails_even_where_the_total_is_no_higher():
+    """The media's sizes are fixed by the outputs, so it is also held exactly on its own. That can only add a failure."""
+    swapped = _judged(_one_decode(staging={"peak_media_bytes": 94_316, "peak_diagnostics_bytes": 122_847}))["T5"]
+    assert not swapped["ok"] and "staged media 94316 bytes is more than the seeking route's 94311" in swapped["detail"]
     # One more staged chapter kept, or a decoded chapter spooled beside it:
-    assert not _judged(_one_decode(staging={"peak_media_bytes": 94_311 + 32_505}))["T5"]["ok"]
-    assert not _judged(_one_decode(staging={"peak_media_bytes": 94_311 + 529_200}))["T5"]["ok"]
+    for extra in (32_505, 529_200):
+        more = _judged(_one_decode(staging={"peak_media_bytes": 94_311 + extra, "peak_total_bytes": 217_163 + extra}))["T5"]
+        assert not more["ok"] and "bytes staged at the peak is more than" in more["detail"], more["detail"]
 
 
-def test_the_sampled_figures_that_failed_in_phase_8_no_longer_decide_t5():
+def test_the_sampled_figures_that_failed_in_phase_8_do_not_decide_t5():
     """Session 2dbf: sampled 215,796 against the seeking route's sampled 215,728, 68 bytes. Both were samples of one and
-    the same true peak. With the staged media read exactly and equal, that pair of samples passes; the samples are kept
+    the same true peak. With everything staged read exactly and equal, that pair of samples passes; the samples are kept
     only as a witness that must not exceed the exact reading."""
     auto = _one_decode(peak_staged_bytes=215_796)
     legacy = [_seeking("a", peak_staged_bytes=215_512), _seeking("b", peak_staged_bytes=215_728), _seeking("c", peak_staged_bytes=215_586)]
@@ -2143,100 +2468,482 @@ def test_the_sampled_figures_that_failed_in_phase_8_no_longer_decide_t5():
 
 
 @pytest.mark.parametrize("planted, needle", [
-    (dict(staging={"left_files": 1, "left_bytes": 31_918}), "1 temporaries left behind"),
-    (dict(staging={"readings_before_publish": 999}), "999 readings before a publication for 1000 outputs"),
-    (dict(staging={"readings_before_discard": 0}), "readings before a publication"),
+    (dict(staging={"left_files": 1, "left_bytes": 31_918}), "1 temporaries left behind (31918 bytes)"),
+    (dict(staging={"readings": {"start": 1, "remove": 3001, "rename": 999, "end": 1}}), "999 readings before a rename for 1000 outputs"),
+    (dict(staging={"readings": {"start": 1, "rename": 1000, "end": 1}}), "no reading before a removal"),
+    (dict(staging={"readings": None}), "None readings before a rename for 1000 outputs"),
     (dict(peak_staged_bytes=217_164), "the 0.5 s sampler saw 217164 bytes staged, more than the exact reading's peak 217163"),
-    (dict(staging={"peak_diagnostics_bytes": 128_995}), "diagnostics 128995 bytes is more than the seeking route's 122852 x 1.05"),
     (dict(staging={"peak_media_bytes": None}), "staged media None bytes"),
-], ids=["a-temporary-left-behind", "a-publication-not-read", "no-discard-read", "the-sampler-saw-more", "diagnostics-over-1.05x",
-        "media-not-measured"])
-def test_t5_fails_when_the_reading_is_incomplete_or_shows_more(planted, needle):
+    (dict(staging={"peak_total_bytes": None}), "None bytes staged at the peak"),
+    (dict(staging={"peak_total_bytes": True}), "True bytes staged at the peak"),
+    (dict(staging={"at_start_files": 2}), "2 temporaries were there before the run"),
+    (dict(staging={"base_chars": 215}), "paths of different lengths [214, 215]"),
+    (dict(staging={"observer": {"finished": False}}), "the reading was not finished"),
+    (dict(staging={"observer": {"audit_hook": False}}), "file operations were not being heard"),
+    (dict(staging={"watch": {"armed": False}}), "Windows' report of the output base was not complete"),
+    (dict(staging={"watch": {"drained": False}}), "Windows' report of the output base was not complete"),
+    (dict(staging={"watch": {"lost": 1}}), "Windows' report of the output base was not complete"),
+    (dict(staging={"watch": {"error": "ReadDirectoryChangesW failed (error 5)"}}), "Windows' report of the output base was not complete"),
+    (dict(staging={"observer": {"unobserved": [".act-tmp-x.mp3 (61440 bytes) was gone at a reading"]}}), "the total fell without a reading"),
+    (dict(staging={"observer": {"links": [".act-tmp-link.mp3"]}}), "links among the temporaries"),
+    (dict(staging={"observer": {"without_creation": [".act-tmp-old.mp3"]}}), "temporaries nobody saw created under this base in this run"),
+    (dict(staging={"observer": {"written_by_the_application": [".act-tmp-audio.log (wb)"]}}),
+     "temporaries the application wrote through a handle of its own"),
+    (dict(staging={"observer": {"errors": ["os.truncate: IndexError"]}}), "errors while reading"),
+    (dict(staging={"observer": {"diagnostics_sinks": 0}}), "bytes counted as diagnostics with no child's output sink recorded"),
+], ids=["a-temporary-left-behind", "a-publication-not-read", "no-removal-read", "no-readings-recorded", "the-sampler-saw-more",
+        "media-not-measured", "total-not-measured", "total-not-a-number", "temporaries-before-the-run", "paths-of-another-length",
+        "reading-not-finished", "operations-not-heard", "watch-never-live", "watch-not-drained", "watch-lost-a-report",
+        "watch-failed", "a-decrease-nobody-read", "a-link", "a-temporary-nobody-saw-created", "written-by-the-application",
+        "an-error-while-reading", "diagnostics-with-no-sink"])
+def test_t5_fails_when_the_reading_is_not_complete_or_shows_more(planted, needle):
+    """Every figure is equal to the seeking route's in each case: only what the reading says about itself differs."""
     judged = _judged(_one_decode(**planted))["T5"]
     assert not judged["ok"] and needle in judged["detail"], judged["detail"]
 
 
-def test_t5_fails_without_exact_figures_and_when_the_seeking_runs_disagree():
+def test_an_incomplete_reading_of_a_seeking_run_fails_t5_as_well():
+    """The seeking route's figure is the budget. If it was not read completely there is no budget to hold anything to."""
+    legacy = [_seeking("a"), _seeking("b", staging={"observer": {"unobserved": ["a temporary went unread"]}}), _seeking("c")]
+    judged = _judged(_one_decode(), legacy)["T5"]
+    assert not judged["ok"] and "b: the total fell without a reading" in judged["detail"], judged["detail"]
+
+
+@pytest.mark.parametrize("missing", ["unobserved", "links", "without_creation", "written_by_the_application", "errors"])
+def test_a_record_that_does_not_say_is_never_taken_as_clean(missing):
+    auto = _one_decode()
+    del auto["staging"]["observer"][missing]
+    judged = _judged(auto)["T5"]
+    assert not judged["ok"] and "the record does not say whether there were" in judged["detail"], judged["detail"]
+
+
+def test_t5_fails_without_exact_figures_without_the_observers_account_and_when_the_seeking_runs_disagree():
     missing = _one_decode()
     missing["staging"] = {}
     assert "no exact staging figures" in _judged(missing)["T5"]["detail"]
-    legacy = [_seeking("a"), _seeking("b"), _seeking("c")]
-    legacy[1]["staging"] = {**legacy[1]["staging"], "peak_media_bytes": 94_312}
+    as_phase_8_recorded = _one_decode()  # figures, and no account of how completely they were read
+    del as_phase_8_recorded["staging"]["observer"]
+    assert "no record that every decrease of the staged total was observed" in _judged(as_phase_8_recorded)["T5"]["detail"]
+    legacy = [_seeking("a"), _seeking("b", staging={"peak_media_bytes": 94_312}), _seeking("c")]
     judged = _judged(_one_decode(), legacy)["T5"]
     assert not judged["ok"] and "not an exact figure" in judged["detail"], judged["detail"]
     legacy[2]["staging"] = {}
     assert "no exact staging figures" in _judged(_one_decode(), legacy)["T5"]["detail"]
+    unmeasured = [_seeking("a"), _seeking("b", staging={"peak_total_bytes": None}), _seeking("c")]
+    assert "are not all measured" in _judged(_one_decode(), unmeasured)["T5"]["detail"]
 
 
-def test_diagnostics_text_a_few_bytes_longer_is_not_extra_staging():
-    """FFmpeg's own text differs by a few bytes between identical runs (measured: 14,651 against 14,655 on one book)."""
-    assert _judged(_one_decode(staging={"peak_diagnostics_bytes": 122_856}))["T5"]["ok"]
+# --------------------------------------------------------------------------- #
+# The staging census itself, on real files (v0.7.2 Phase 9, review finding P9-04)
+# --------------------------------------------------------------------------- #
+# The tests above hand the judge planted figures. These make the figures: a real output base, real files, real child
+# processes writing them, and the real census (its audit hook and its directory watch) reading. In every case the
+# truth is taken by a witness that shares nothing with the census: the test's own listing and its own ``stat``, at the
+# moment the test knows the total is at its largest. The census must report that number. Phase 8's census read before two
+# wrapped helpers only, and its tests removed their extra files through those same helpers, so they could not show what
+# the review then showed with a direct ``unlink``: 200,100 bytes staged, 100 reported.
+_WRITER = ("import sys; open(sys.argv[1], 'wb').write(b'm' * int(sys.argv[2])); "
+           "sys.stdout.write('d' * int(sys.argv[3])); sys.stdout.flush()")
 
 
-def _census(tmp_path):
-    bench = _scaling_module("bench_run")
-    base = tmp_path / "output-base"
-    folder = base / "M4B-Converter-Outputs" / "run" / "book"
-    folder.mkdir(parents=True)
-    census = bench.StagingCensus(base)
+class _Staged:
+    """One output base with the census on it, and a chapter's life lived on it by plain filesystem calls and real children."""
 
-    def discard(path):
-        if path is None:
-            return False
-        Path(path).unlink()
-        return True
+    def __init__(self, root: Path, name: str = "run-a") -> None:
+        self.module = _scaling_module("staging")
+        self.base = root / name / "output-base"
+        self.folder = self.base / "M4B-Converter-Outputs" / "run" / "book"
+        self.folder.mkdir(parents=True)
+        self.census = self.module.StagingCensus(self.base)
+        assert self.census.armed(), self.census.record()["observer"]
+        self.witnessed = 0
 
-    module = types.SimpleNamespace(discard_temporary=discard, atomic_replace=lambda source, target: os.replace(source, target))
-    census.wrap(module)
-    return census, module, folder
+    def witness(self) -> int:
+        """Everything staged right now, by this test's own listing: nothing of the census is used."""
+        now = sum(path.stat().st_size for path in self.base.rglob(".act-tmp-*") if path.is_file())
+        self.witnessed = max(self.witnessed, now)
+        return now
+
+    def temporary(self, stem: str, suffix: str) -> Path:
+        import tempfile  # noqa: PLC0415
+
+        handle, name = tempfile.mkstemp(prefix=f".act-tmp-{stem}-", suffix=suffix, dir=self.folder)
+        os.close(handle)
+        return Path(name)
+
+    def written_by_a_child(self, target: Path, size: int) -> Path:
+        """*size* bytes in *target*, written by another process: how FFmpeg fills a staged file."""
+        subprocess.run([sys.executable, "-c", _WRITER, str(target), str(size), "0"], check=True, stdout=subprocess.DEVNULL)
+        return target
+
+    def a_pass(self, target: Path, size: int, log: int) -> Path:
+        """One encoder pass as ``m4b_execution.run_argv`` makes it: a diagnostics file created, opened and handed to a child
+        as its output, the child writing its output file. Returns the diagnostics file, still there."""
+        diagnostics = self.temporary("ffmpeg", ".log")
+        with open(diagnostics, "wb") as sink:
+            child = subprocess.Popen([sys.executable, "-c", _WRITER, str(target), str(size), str(log)], stdout=sink)
+            self.census.diagnostics_sink(sink, child.pid)
+        assert child.wait(60) == 0
+        return diagnostics
+
+    def chapter(self, number: int, *, audio: int, final: int, log: int, at_the_peak=None, in_the_publication=None) -> None:
+        """One chapter staged and published in ``m4b_execution.convert_segment``'s order."""
+        staged_final, staged_audio = self.temporary(f"{number:04d}", ".mp3"), self.temporary(f"{number:04d}", ".mp3")
+        os.unlink(self.a_pass(staged_audio, audio, log))
+        diagnostics = self.a_pass(staged_final, final, log)
+        self.witness()  # the largest moment of an honest chapter: both files and the second pass's diagnostics
+        if at_the_peak is not None:
+            at_the_peak(staged_final)
+        os.unlink(diagnostics)
+        if in_the_publication is not None:
+            in_the_publication(staged_final)
+        os.rename(staged_final, self.folder / f"{number:04d}.mp3")
+        os.unlink(staged_audio)
+
+    def record(self) -> dict:
+        self.census.finish()
+        return self.census.record()
+
+    def summary(self, label: str, files: int) -> dict:
+        """This run as ``Qualification.run`` would summarise it for the judge: its real census record, an honest sampler."""
+        return {"label": label, "files": files, "peak_staged_bytes": 0, "staging": self.record()}
 
 
-def _chapter(module, folder: Path, number: int, *, audio: int, final: int, log: int) -> None:
-    """One chapter staged, measured and published the way m4b_execution.convert_segment does it."""
-    staged_final, staged_audio = folder / f".act-tmp-{number:04d}-f.mp3", folder / f".act-tmp-{number:04d}-a.mp3"
-    staged_final.write_bytes(b"")
-    staged_audio.write_bytes(b"")
-    for target, size in ((staged_audio, audio), (staged_final, final)):
-        diagnostics = folder / f".act-tmp-ffmpeg-{number:04d}{target.name[-5]}.log"
-        diagnostics.write_bytes(b"d" * log)
-        target.write_bytes(b"m" * size)
-        module.discard_temporary(diagnostics)
-    module.atomic_replace(staged_final, folder / f"{number:04d}.mp3")
-    module.discard_temporary(staged_audio)
+def _t5_of(auto: dict, legacy: list[dict]) -> dict:
+    """T5 alone, from real census records: the other figures of a run are not the subject here."""
+    qualify = _scaling_module("qualify")
+    problems = [f"{run['label']}: {text}" for run in (*legacy, auto) for text in qualify.staging_problems(run)]
+    totals = [run["staging"]["peak_total_bytes"] for run in legacy]
+    return {"problems": problems, "seeking_total": max(totals), "total": auto["staging"]["peak_total_bytes"],
+            "ok": not problems and auto["staging"]["peak_total_bytes"] <= max(totals)
+            and auto["staging"]["peak_media_bytes"] <= max(run["staging"]["peak_media_bytes"] for run in legacy)}
 
 
-def test_the_staging_census_reads_the_exact_peak_of_media_and_diagnostics_apart(tmp_path):
-    """The peak is at the end of a chapter's second pass, just before that pass's diagnostics file is discarded: for a
-    few milliseconds in a real run, which a 0.5 s sampler mostly misses. The census reads it because it reads there."""
-    census, module, folder = _census(tmp_path)
-    for number, audio, final in ((1, 31_656, 60_900), (2, 32_505, 61_816), (3, 31_918, 61_237)):
-        _chapter(module, folder, number, audio=audio, final=final, log=122_852)
-    census.finish()
-    record = census.record()
-    assert record["peak_media_bytes"] == 32_505 + 61_816 and record["peak_media_files"] == 2
-    assert record["peak_diagnostics_bytes"] == 122_852 and record["peak_diagnostics_files"] == 1
-    assert record["peak_total_bytes"] == 32_505 + 61_816 + 122_852 and record["peak_total_files"] == 3
-    assert record["at_peak"]["media_bytes"] == {"moment": "discard", "media": [32_505, 61_816], "diagnostics": [122_852]}
-    assert record["readings_before_publish"] == 3 and record["readings_before_discard"] == 9
-    assert record["left_files"] == 0 and record["left_bytes"] == 0
-    assert sorted(path.name for path in folder.iterdir()) == ["0001.mp3", "0002.mp3", "0003.mp3"], "published outputs are not staging"
+def _honest(root: Path, name: str, chapters=((1, 31_656, 60_900),), log: int = 4_100) -> "_Staged":
+    run = _Staged(root, name)
+    for number, audio, final in chapters:
+        run.chapter(number, audio=audio, final=final, log=log)
+    return run
 
 
-def test_the_staging_census_sees_extra_staging_a_spool_and_a_leftover(tmp_path):
-    census, module, folder = _census(tmp_path)
-    _chapter(module, folder, 1, audio=31_656, final=60_900, log=100)
-    honest = census.record()["peak_media_bytes"]
-    assert honest == 31_656 + 60_900
-    # A decoded chapter spooled beside the outputs as one of the application's own temporaries, kept while a chapter is made:
-    spool = folder / ".act-tmp-decoded-0002.pcm"
-    spool.write_bytes(b"p" * 529_200)
-    _chapter(module, folder, 2, audio=31_656, final=60_900, log=100)
-    assert census.record()["peak_media_bytes"] == honest + 529_200
-    census.finish()
-    assert census.record()["left_files"] == 1 and census.record()["left_bytes"] == 529_200
-    # Discarding nothing (the application passes None for a temporary it never made) is not a reading.
-    before = census.record()["readings_before_discard"]
-    assert module.discard_temporary(None) is False and census.record()["readings_before_discard"] == before
+@WINDOWS_ONLY
+def test_the_census_reads_the_exact_peak_of_everything_staged_and_says_how_completely(tmp_path):
+    """Three honest chapters. The peak is at the end of a chapter's second pass, just before that pass's diagnostics file
+    is removed: a few milliseconds in a real run. The census reads it because it reads before every removal."""
+    run = _honest(tmp_path, "run-a", ((1, 31_656, 60_900), (2, 32_505, 61_816), (3, 31_918, 61_237)), log=122_852)
+    record = run.record()
+    assert record["peak_total_bytes"] == run.witnessed == 32_505 + 61_816 + 122_852
+    assert (record["peak_media_bytes"], record["peak_media_files"]) == (32_505 + 61_816, 2)
+    assert (record["peak_diagnostics_bytes"], record["peak_diagnostics_files"]) == (122_852, 1)
+    assert record["at_peak"]["total_bytes"] == {"moment": "remove", "media": [32_505, 61_816], "diagnostics": [122_852]}
+    assert record["readings"] == {"start": 1, "remove": 9, "rename": 3, "end": 1}, "three removals and one rename a chapter"
+    assert (record["at_start_files"], record["left_files"], record["left_bytes"]) == (0, 0, 0)
+    observer = record["observer"]
+    assert observer["finished"] and observer["audit_hook"] and observer["diagnostics_sinks"] == 6
+    assert {key: observer[key] for key in ("unobserved", "links", "without_creation", "written_by_the_application", "errors")} == {
+        "unobserved": [], "links": [], "without_creation": [], "written_by_the_application": [], "errors": []}
+    watch = observer["watch"]
+    assert (watch["armed"], watch["drained"], watch["lost"], watch["error"]) == (True, True, 0, None)
+    assert (watch["created"], watch["removed"], watch["renamed"]) == (12, 9, 3), "Windows counted the same life, independently"
+    assert sorted(path.name for path in run.folder.iterdir()) == ["0001.mp3", "0002.mp3", "0003.mp3"], "published outputs are not staging"
+    assert _scaling_module("qualify").staging_problems({"label": "x", "files": 3, "peak_staged_bytes": run.witnessed,
+                                                        "staging": record}) == [], "and the judge takes this record as complete"
+
+
+@WINDOWS_ONLY
+@pytest.mark.parametrize("extra, by, where", [(61_816, "a-child", "in_the_publication"),
+                                             (61_816, "the-application", "in_the_publication"),
+                                             (4_096, "a-child", "at_the_peak")],
+                         ids=["a-whole-copy-inside-the-publication", "a-whole-copy-written-by-the-application",
+                              "four-kibibytes-at-the-peak"])
+def test_one_more_file_made_and_unlinked_directly_is_read_to_the_byte_and_fails_t5(tmp_path, extra, by, where):
+    """The review's two controls (P9-04): a whole copy of the chapter made inside the publication, and 4 KiB of audio made
+    at the peak, each removed by a plain ``unlink`` that goes through no helper of the application. The reviewed harness
+    reported the honest peak for both and passed T5; another check's failure in the same run was all that stopped them.
+    Here T5 itself reads the larger total, the very number the witness took, and fails."""
+    legacy = [_honest(tmp_path, f"seek-{n}").summary(f"seek-{n}", 1) for n in (1, 2)]
+    run = _Staged(tmp_path, "onedec")
+    seen = {}
+
+    def one_more_file(staged_final: Path) -> None:
+        copy = staged_final.with_name(".act-tmp-review-extra.mp3")
+        if by == "a-child":
+            run.written_by_a_child(copy, extra)
+        else:
+            copy.write_bytes(b"m" * extra)
+        seen["with_it"] = run.witness()
+        copy.unlink()  # not discard_temporary, not a publication: nothing the old census wrapped
+
+    run.chapter(1, audio=31_656, final=60_900, log=4_100, **{where: one_more_file})
+    auto = run.summary("onedec", 1)
+    honest_peak = 31_656 + 60_900 + 4_100
+    assert legacy[0]["staging"]["peak_total_bytes"] == legacy[1]["staging"]["peak_total_bytes"] == honest_peak
+    with_it = 31_656 + 60_900 + extra + (4_100 if where == "at_the_peak" else 0)
+    assert seen["with_it"] == with_it > honest_peak, "the planted file really made the total larger than an honest run's"
+    assert auto["staging"]["peak_total_bytes"] == with_it == run.witnessed, "the census read exactly what the witness saw"
+    judged = _t5_of(auto, legacy)
+    assert not judged["ok"] and judged["total"] > judged["seeking_total"], judged
+    if by == "the-application":
+        assert any("the application wrote through a handle of its own" in text for text in judged["problems"]), judged
+    else:
+        assert judged["problems"] == [], "the reading was complete; the run simply staged more than the seeking route"
+
+
+@WINDOWS_ONLY
+@pytest.mark.parametrize("how", ["os.truncate", "open-for-writing", "a-handle's-truncate", "a-descriptor's-truncate",
+                                 "renamed-away", "written-over", "pathlib-unlink", "shutil-rmtree"])
+def test_every_way_of_lowering_what_is_staged_is_read_first(tmp_path, how):
+    """A 50,000-byte file a child wrote, and nothing larger anywhere in the run, then made to stop counting in each way a
+    file can. The witness takes the total while it is there; the census must report exactly that, whichever call lowered
+    it. (Nothing here passes through ``discard_temporary`` or a publication.)"""
+    import shutil  # noqa: PLC0415
+
+    run = _Staged(tmp_path)
+    transient = run.written_by_a_child(run.temporary("spool", ".pcm"), 50_000)
+    bystander = run.written_by_a_child(run.temporary("other", ".mp3"), 7_000)
+    there = run.witness()
+    assert there == 57_000
+    flagged = None
+    if how == "os.truncate":
+        os.truncate(transient, 0)
+    elif how == "open-for-writing":
+        with open(transient, "wb"):
+            pass
+        flagged = "written_by_the_application"
+    elif how == "a-handle's-truncate":
+        with open(transient, "r+b") as handle:
+            handle.truncate(0)
+        flagged = "unobserved"
+    elif how == "a-descriptor's-truncate":
+        descriptor = os.open(transient, os.O_RDWR)
+        os.ftruncate(descriptor, 0)
+        os.close(descriptor)
+        flagged = "unobserved"
+    elif how == "renamed-away":
+        os.rename(transient, run.folder / "kept-under-another-name.bin")
+    elif how == "written-over":
+        small = run.written_by_a_child(run.temporary("small", ".pcm"), 10)
+        there = run.witness()
+        assert there == 57_010
+        os.replace(small, transient)
+    elif how == "pathlib-unlink":
+        transient.unlink()
+    else:
+        nested = run.folder / "work"
+        nested.mkdir()
+        os.rename(transient, nested / transient.name)
+        shutil.rmtree(nested)
+    for leftover in (transient, bystander):
+        if leftover.exists():
+            os.unlink(leftover)
+    record = run.record()
+    assert record["peak_total_bytes"] == there == run.witnessed, (how, record["peak_total_bytes"], there)
+    observer = record["observer"]
+    assert observer["errors"] == []
+    if flagged is None:
+        assert observer["unobserved"] == [] and observer["written_by_the_application"] == [], observer
+    else:
+        assert observer[flagged], f"{how} leaves something the reading cannot follow, and the record must say so: {observer}"
+
+
+@WINDOWS_ONLY
+def test_a_temporary_forgotten_and_a_publication_interrupted_are_left_behind_and_say_so(tmp_path):
+    run = _Staged(tmp_path)
+    run.chapter(1, audio=31_656, final=60_900, log=4_100)
+    run.written_by_a_child(run.temporary("forgotten", ".pcm"), 529_200)
+    # A second chapter that stops after its first pass: its two staged files and that pass's diagnostics stay.
+    staged_final, staged_audio = run.temporary("0002", ".mp3"), run.temporary("0002", ".mp3")
+    run.a_pass(staged_audio, 31_000, 4_100)
+    assert staged_final.exists()
+    record = run.record()
+    assert (record["left_files"], record["left_bytes"]) == (4, 529_200 + 31_000 + 4_100)
+    problems = _scaling_module("qualify").staging_problems({"label": "x", "files": 1, "peak_staged_bytes": 0, "staging": record})
+    assert problems == [f"4 temporaries left behind ({529_200 + 31_000 + 4_100} bytes)"]
+
+
+@WINDOWS_ONLY
+def test_a_file_is_diagnostics_only_when_a_child_was_given_it_as_its_output_never_by_its_name(tmp_path):
+    """The reviewed census took any name ending in ``.log`` for diagnostics, so 4,096 bytes of audio in
+    ``.act-tmp-audio-buffer.log`` were not staged media. Provenance decides now: what a child was handed as its output."""
+    run = _Staged(tmp_path)
+    audio_named_log = run.written_by_a_child(run.folder / ".act-tmp-audio-buffer.log", 4_096)
+    reading = run.census.read("check")
+    assert (reading["media_bytes"], reading["diagnostics_bytes"]) == (4_096, 0), "a .log nobody was handed is media"
+    # The other way round: a real child's real output sink is diagnostics whatever it is called.
+    target = run.temporary("0001", ".mp3")
+    sink_named_mp3 = run.temporary("sink", ".mp3")
+    with open(sink_named_mp3, "wb") as sink:
+        child = subprocess.Popen([sys.executable, "-c", _WRITER, str(target), "100", "300"], stdout=sink)
+        run.census.diagnostics_sink(sink, child.pid)
+    assert child.wait(60) == 0
+    reading = run.census.read("check")
+    assert (reading["media_bytes"], reading["diagnostics_bytes"]) == (4_096 + 100, 300)
+    # ...and it is that file, not that name: remove it, let a child write audio under the same name, and it is media.
+    os.unlink(sink_named_mp3)
+    run.written_by_a_child(sink_named_mp3, 800)
+    reading = run.census.read("check")
+    assert (reading["media_bytes"], reading["diagnostics_bytes"]) == (4_096 + 100 + 800, 0)
+    for path in (audio_named_log, target, sink_named_mp3):
+        os.unlink(path)
+    record = run.record()
+    assert record["peak_media_bytes"] == 4_096 + 100 + 800 and record["peak_diagnostics_bytes"] == 300
+    assert record["observer"]["unobserved"] == [] and record["observer"]["written_by_the_application"] == []
+
+
+@WINDOWS_ONLY
+def test_a_link_among_the_temporaries_is_never_followed_and_fails_the_reading(tmp_path):
+    """A junction (a reparse point any account may make) to a folder that holds someone else's 80,000-byte file under a
+    temporary's name, and a second name (a hard link) for someone else's file. Neither is entered or taken as staged media
+    without saying so; a symbolic link is the same case where this account may create one."""
+    import _winapi  # noqa: PLC0415
+
+    foreign = tmp_path / "someone-elses"
+    foreign.mkdir()
+    (foreign / ".act-tmp-foreign.mp3").write_bytes(b"f" * 80_000)
+    (foreign / "theirs.bin").write_bytes(b"t" * 9_000)
+    run = _Staged(tmp_path)
+    junction = run.folder / "linked"
+    _winapi.CreateJunction(str(foreign), str(junction))
+    made = ["linked"]
+    try:
+        os.link(foreign / "theirs.bin", run.folder / ".act-tmp-second-name.mp3")
+        made.append(".act-tmp-second-name.mp3")
+        try:
+            os.symlink(foreign / ".act-tmp-foreign.mp3", run.folder / ".act-tmp-symbolic.mp3")
+            made.append(".act-tmp-symbolic.mp3")
+        except OSError:
+            pass  # this account may not create symbolic links; the junction and the hard link are the case either way
+        reading = run.census.read("check")
+        assert reading["total_bytes"] == 9_000, "the junction was not entered and the symbolic link not followed"
+        os.unlink(run.folder / ".act-tmp-second-name.mp3")
+        if ".act-tmp-symbolic.mp3" in made:
+            os.unlink(run.folder / ".act-tmp-symbolic.mp3")
+        record = run.record()
+        assert sorted(record["observer"]["links"]) == sorted(made)
+        problems = _scaling_module("qualify").staging_problems({"label": "x", "files": 0, "peak_staged_bytes": 0, "staging": record})
+        assert any("links among the temporaries" in text for text in problems), problems
+        assert (foreign / ".act-tmp-foreign.mp3").stat().st_size == 80_000 and (foreign / "theirs.bin").stat().st_size == 9_000
+    finally:
+        os.rmdir(junction)  # the link alone; what it pointed to stays
+
+
+@WINDOWS_ONLY
+def test_a_temporary_that_was_there_before_the_run_is_not_this_runs_and_the_record_says_so(tmp_path):
+    """Missing ownership evidence: nothing saw this file created under this base in this run."""
+    base = tmp_path / "run-a" / "output-base" / "M4B-Converter-Outputs" / "run" / "book"
+    base.mkdir(parents=True)
+    (base / ".act-tmp-from-an-earlier-run.mp3").write_bytes(b"o" * 12_345)
+    run = _Staged.__new__(_Staged)
+    run.module = _scaling_module("staging")
+    run.base, run.folder, run.witnessed = tmp_path / "run-a" / "output-base", base, 0
+    run.census = run.module.StagingCensus(run.base)
+    os.unlink(base / ".act-tmp-from-an-earlier-run.mp3")
+    record = run.record()
+    assert record["at_start_files"] == 1 and record["observer"]["without_creation"] == [".act-tmp-from-an-earlier-run.mp3"]
+    problems = _scaling_module("qualify").staging_problems({"label": "x", "files": 0, "peak_staged_bytes": 0, "staging": record})
+    assert any("nobody saw created under this base in this run" in text for text in problems)
+    assert any("1 temporaries were there before the run" in text for text in problems)
+
+
+@WINDOWS_ONLY
+def test_a_temporary_another_process_removes_is_not_passed_off_as_read(tmp_path):
+    """The audit hook hears this process only. A removal by any other process is what Windows' own report is kept for:
+    one file a reading had seen, and one a child both made and removed between two readings."""
+    remover = "import os, sys; os.unlink(sys.argv[1])"
+    run = _Staged(tmp_path)
+    seen = run.written_by_a_child(run.temporary("seen", ".mp3"), 40_000)
+    run.census.read("check")
+    subprocess.run([sys.executable, "-c", remover, str(seen)], check=True)
+    unseen = run.folder / ".act-tmp-never-read.pcm"
+    subprocess.run([sys.executable, "-c", "import os, sys; open(sys.argv[1], 'wb').write(b'p' * 90000); os.unlink(sys.argv[1])",
+                    str(unseen)], check=True)
+    record = run.record()
+    unobserved = record["observer"]["unobserved"]
+    assert any(seen.name in text and "was gone at a reading" in text for text in unobserved), unobserved
+    assert any(unseen.name in text and "as Windows reported, with no reading taken for it" in text for text in unobserved), unobserved
+    assert record["peak_total_bytes"] == 40_000, "what was never read is not in the figure, which is why the figure is refused"
+    problems = _scaling_module("qualify").staging_problems({"label": "x", "files": 0, "peak_staged_bytes": 0, "staging": record})
+    assert any("the total fell without a reading" in text for text in problems)
+
+
+@WINDOWS_ONLY
+def test_the_directory_watch_reports_what_happened_under_the_folder_and_nothing_else(tmp_path):
+    module = _scaling_module("staging")
+    inside, outside = tmp_path / "watched", tmp_path / "elsewhere"
+    (inside / "deep" / "er").mkdir(parents=True)
+    outside.mkdir()
+    watch = module.DirectoryWatch(inside)
+    try:
+        assert watch.armed and watch.error is None
+        owned = inside / "deep" / "er" / ".act-tmp-0001-abc.mp3"
+        renamed, moved = owned.with_name(".act-tmp-0001-def.mp3"), inside / "deep" / "er" / ".act-tmp-0002-ghi.mp3"
+        owned.write_bytes(b"x")
+        os.rename(owned, renamed)                                  # to another temporary's name, in its own folder
+        os.rename(renamed, inside / "deep" / "er" / "0001.mp3")    # published: to an output's name, in its own folder
+        moved.write_bytes(b"m")
+        os.rename(moved, inside / "deep" / moved.name)             # into another folder
+        (inside / ".act-tmp-top.log").write_bytes(b"y")
+        os.unlink(inside / ".act-tmp-top.log")
+        (inside / "an-ordinary-file.txt").write_bytes(b"z")
+        (outside / ".act-tmp-not-watched.mp3").write_bytes(b"w")
+        assert watch.mark(), "everything up to here has been reported"
+        place = lambda path: os.path.normcase(str(path))  # noqa: E731
+        # Windows reports a rename inside one folder as a rename, and a move to another folder as a removal there and a
+        # creation here. Either way the old name is in what the census holds its readings to (removed or renamed away).
+        assert watch.added == {place(owned), place(moved), place(inside / "deep" / moved.name), place(inside / ".act-tmp-top.log")}
+        assert watch.renamed_from == {place(owned), place(renamed)} and watch.renamed_to == {place(renamed)}
+        assert watch.removed == {place(moved), place(inside / ".act-tmp-top.log")}
+        assert watch.lost == 0
+    finally:
+        watch.stop()
+
+
+@WINDOWS_ONLY
+def test_the_census_hears_only_its_own_base_never_stops_an_operation_and_hands_out_copies(tmp_path):
+    run = _Staged(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    before = dict(run.census.readings)
+    stranger = elsewhere / ".act-tmp-someone-elses.mp3"
+    stranger.write_bytes(b"s" * 100)
+    os.unlink(stranger)
+    (run.folder / "an-output.mp3").write_bytes(b"o")
+    os.unlink(run.folder / "an-output.mp3")
+    assert run.census.readings == before, "a temporary of another folder, and a file that is not a temporary, are not this census's"
+    # An event the hook cannot make sense of is recorded and never raised: raising would stop the application's operation.
+    for event, arguments in (("os.truncate", ()), ("os.remove", (object(),)), ("os.rename", (None, 7, None, None)),
+                             ("open", (b"\xff\xfe.act-tmp-odd", "wb", 0))):
+        run.census._heard(event, arguments)
+    run.chapter(1, audio=1_000, final=2_000, log=300)
+    first = run.record()
+    first["at_peak"]["total_bytes"]["media"].append(999_999)
+    first["observer"]["errors"].append("edited by a reader")
+    again = run.census.record()
+    assert again["at_peak"]["total_bytes"]["media"] == [1_000, 2_000]
+    assert again["observer"]["errors"] == ["os.truncate: IndexError: tuple index out of range"]
+    assert again["peak_total_bytes"] == run.witnessed == 3_300
+
+
+def test_the_converters_own_code_never_shortens_a_file_through_a_handle():
+    """The one thing the census cannot hear is a file shortened through a handle already open. The Converter has no such
+    code; if it ever gains some, this fails and the census has to learn to read it before T5 can be trusted again."""
+    import ast  # noqa: PLC0415
+
+    scripts = REPO_ROOT / "scripts"
+    sources = [*sorted((scripts / "m4b").glob("*.py")), *sorted((scripts / "m4b" / "converter").glob("*.py")),
+               scripts / "shared" / "output_paths.py", scripts / "shared" / "subprocess_utils.py"]
+    assert {"m4b_execution.py", "m4b_continuous.py", "m4b_converter.py", "output_paths.py"} <= {path.name for path in sources}
+    found = []
+    for source in sources:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in ("truncate", "ftruncate", "fdopen", "mmap"):
+                found.append(f"{source.relative_to(scripts).as_posix()}: .{node.attr}")
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [alias.name for alias in node.names] + ([node.module] if isinstance(node, ast.ImportFrom) else [])
+                if "mmap" in names:
+                    found.append(f"{source.relative_to(scripts).as_posix()}: imports mmap")
+    assert found == []
 
 
 def test_a_benchmark_child_is_let_go_once_it_has_ended():
@@ -2260,6 +2967,27 @@ def test_a_benchmark_child_is_let_go_once_it_has_ended():
     assert facts["peak_commit"] > 0 and facts is child.facts and child.settle() is facts and child.pid == proc.pid
     source = (GATE_DIR / "scaling" / "bench_run.py").read_text(encoding="utf-8")
     assert "children.append(Child(" in source and "children.append((kind, proc" not in source
+
+
+def test_a_benchmark_run_refuses_a_folder_too_deep_for_its_own_temp():
+    """Every run is given its own TEMP inside its folder. At 262 characters that TEMP made Windows spin for good inside
+    CreateProcess (BasepQueryAppCompat -> GetTempPathW, read from the thread's stack), with FFprobe created and never
+    started: twenty minutes at a full core before it was stopped (Phase 9 remediation, a planted-defect control with a
+    long name). A run folder that deep is refused before anything is made in it; one character less is not."""
+    bench = _scaling_module("bench_run")
+    assert 222 < bench.LONGEST_TEMP < 260, "a gate qualification's own run folders (about 222) must stay allowed"
+    root = Path("C:/q")
+    fits = root / ("d" * (bench.LONGEST_TEMP - len(str(root / "x" / "tmp")) + 1))
+    assert len(str(fits / "tmp")) == bench.LONGEST_TEMP and bench.run_temp(fits) == fits / "tmp"
+    too_deep = fits.with_name(fits.name + "d")
+    with pytest.raises(bench.Refused) as refused:
+        bench.run_temp(too_deep)
+    assert refused.value.code == bench.EXIT_CONTAINMENT
+    assert f"would be {bench.LONGEST_TEMP + 1} characters" in refused.value.message and "TEMP" in refused.value.message
+    source = (GATE_DIR / "scaling" / "bench_run.py").read_text(encoding="utf-8")
+    main = source[source.index("def main("):]
+    assert main.index("temp = run_temp(out)") < main.index("out.mkdir("), "refused only after the folder was made"
+    assert 'out / "tmp"' not in main, "the run's TEMP is taken from somewhere the length is not judged"
 
 
 def test_the_decoders_console_host_is_found_among_the_jobs_processes():

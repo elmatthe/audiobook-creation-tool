@@ -958,14 +958,28 @@ class GateRun:
             self.check(f"scenario:{name}", "FAIL", f"the scenario ended {result.ended} (exit {result.returncode}) without a "
                                                    f"readable verdict: {type(exc).__name__}: {exc}")
             return
-        status = verdict.get("status") if verdict.get("status") in ("PASS", "FAIL", "BLOCKED") else "FAIL"
-        if result.ended != "exited" or result.returncode != {"PASS": 0, "FAIL": 1, "BLOCKED": 2}[status]:
-            status = "FAIL" if status == "PASS" else status
-        failing = [item["name"] for item in verdict.get("checks", []) if item.get("status") != "PASS"]
+        status, refused = judge_scenario(name, verdict, result.ended, result.returncode)
+        if status is None:
+            # Not this scenario's verdict at all: there is nothing of this scenario to record, so nothing is.
+            self.check(f"scenario:{name}", "FAIL", f"the scenario ended {result.ended} (exit {result.returncode}) and left "
+                                                   f"no verdict of its own: {'; '.join(refused)}; {self.relative(verdict_file)}")
+            return
+        judged = verdict.get("checks") if isinstance(verdict.get("checks"), list) else []
+        failing = [item.get("name") if isinstance(item, dict) else repr(item)[:40] for item in judged
+                   if not isinstance(item, dict) or item.get("status") != "PASS"]
         self.qualified[name] = status
-        self.check(f"scenario:{name}", status, f"{verdict.get('reason', '')}; {len(verdict.get('checks', []))} checks, "
-                                               f"{verdict.get('runs', 0)} runs; failing {failing[:8]}; verdict "
-                                               f"{self.relative(verdict_file)}")
+        self.check(f"scenario:{name}", status, f"{verdict.get('reason', '')}; {len(judged)} checks, {verdict.get('runs', 0)!r} "
+                                               f"runs; failing {failing[:8]}; verdict {self.relative(verdict_file)}"
+                                               + (f"; NOT A PASS: {'; '.join(refused)}" if refused else ""))
+        if status == "PASS":
+            # What the reader cannot re-derive from the verdict alone, held by a check of its own (so the record stays one the
+            # reader agrees with): the PASS is about this run's source, and it is the whole scenario.
+            problems = scenario_evidence_problems(name, verdict, folder, self.identity_start.get("head"),
+                                                  scenario.get("pass_requires"))
+            self.check(f"scenario-evidence:{name}", "FAIL" if problems else "PASS",
+                       "; ".join(problems[:8]) if problems else
+                       f"its own identity names this run's HEAD, its runs are recorded, and every check the policy requires of "
+                       f"a PASS is there ({len(judged)} checks, {verdict.get('runs')} runs)")
 
     def select(self) -> Selection:
         mode = self.args.mode
@@ -1343,6 +1357,9 @@ class GateRun:
         status, exit_code = self.outcome()
         temp_problems = self.remove_temp(status)
         counts = self.counts()
+        # A scenario is satisfied by a run that itself passed: its own PASS verdict inside a run that failed its cleanup, its
+        # evidence or its tree check satisfies nothing (v0.7.2 Phase 9). ``ran`` keeps what each verdict made, either way.
+        satisfied = sorted(n for n, s in self.qualified.items() if s == "PASS") if status == "PASS" else []
         results = {
             "schema_version": runstore.SCHEMA_VERSION, "run_id": self.record.run_id, "nonce": self.record.nonce,
             "mode": self.args.mode, "label": self.args.label, "lifecycle": "completed", "status": status,
@@ -1358,8 +1375,8 @@ class GateRun:
             "environment": self.environment, "counts": counts, "checks": self.checks, "stages": self.stages,
             "coverage": {**(self.coverage_result.record() if self.coverage_result else {"inventory_reviewed": False}),
                          "exceptions": [item for feature in (self.coverage or {}).get("features", []) for item in feature.get("exceptions", [])]},
-            "qualification": {"required": [], "satisfied": sorted(n for n, s in self.qualified.items() if s == "PASS"),
-                              "pending": [n for n in SCENARIO_NAMES if self.qualified.get(n) != "PASS"],
+            "qualification": {"required": [], "satisfied": satisfied,
+                              "pending": [n for n in SCENARIO_NAMES if n not in satisfied],
                               "ran": dict(self.qualified)},
             "pending_requirements": self.policy.get("later_phase_requirements", []),
             "release_ready": False,
@@ -1623,6 +1640,95 @@ def baseline_problems(approved: list[dict]) -> list[str]:
 
 
 _SEVERITY = ("FAIL", "BLOCKED", "NOT RUN", "PASS", "NOT APPLICABLE")
+
+
+#: What a scenario's runner must exit with for its verdict to stand as written.
+_SCENARIO_EXIT = {"PASS": 0, "FAIL": 1, "BLOCKED": 2}
+
+
+def judge_scenario(name: str, verdict, ended: str, returncode) -> tuple[str | None, list[str]]:
+    """What one scenario's own verdict and its runner's exit make of it, before anything is recorded (v0.7.2 Phase 9, P9-03).
+
+    Returns the status to record and why it is not the one the verdict wrote. ``None`` means the file is not a verdict of
+    this scenario at all (not an object, or about another scenario): there is nothing of this scenario to record.
+
+    A verdict can only be lowered here, never raised. FAIL and BLOCKED stand as written. PASS stands only when the runner
+    exited 0 and the verdict bears it out: at least one run, and checks, every one of them passed. Until this phase the
+    exit was the only thing held against a PASS, so a verdict that said PASS beside a failed check, with nothing run, or for
+    another scenario was sealed PASS with exit 0, and only the reader refused it afterwards (``runstore._scenario_problems``,
+    which derives the same result from the sealed evidence by its own code).
+    """
+    if not isinstance(verdict, dict):
+        return None, [f"the verdict is {type(verdict).__name__}, not an object"]
+    if verdict.get("scenario") != name:
+        return None, [f"the verdict is about scenario {verdict.get('scenario')!r}, not {name}"]
+    said = verdict.get("status")
+    if said not in _SCENARIO_EXIT:
+        return "FAIL", [f"the verdict's status is {said!r}"]
+    if said != "PASS":
+        return said, []
+    problems = []
+    if ended != "exited" or returncode != _SCENARIO_EXIT["PASS"]:
+        problems.append(f"its runner {ended} with exit {returncode!r}")
+    checks = verdict.get("checks")
+    if not isinstance(checks, list) or not checks:
+        problems.append("it holds no checks")
+    else:
+        bad = [item.get("name") if isinstance(item, dict) else repr(item)[:40] for item in checks
+               if not isinstance(item, dict) or item.get("status") != "PASS"]
+        if bad:
+            problems.append(f"{len(bad)} of its checks did not pass: {bad[:8]}")
+    runs = verdict.get("runs")
+    if isinstance(runs, bool) or not isinstance(runs, int) or runs < 1:
+        problems.append(f"it made no run ({runs!r})")
+    return ("FAIL" if problems else "PASS"), problems
+
+
+def scenario_evidence_problems(name: str, verdict: dict, folder: Path, head: str | None, requires: dict | None) -> list[str]:
+    """Why a scenario's PASS verdict is not enough to accept, from what lies beside it (v0.7.2 Phase 9, P9-03).
+
+    The verdict is the scenario's own word. Accepting it also needs: the scenario's record of what it measured
+    (``identity.json``) naming this run's HEAD and no other scenario; its runs recorded (``runs.json``), as many as the
+    verdict counts; and the whole scenario, which the policy states as ``pass_requires``: a least number of checks and
+    runs, the checks that must be there by name, and how many each family of checks must hold. A check that is missing
+    was not passed. A scenario the policy gives no ``pass_requires`` cannot be accepted: nothing says what its PASS is.
+    """
+    problems: list[str] = []
+    try:
+        identity = json.loads((folder / "identity.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        identity = None
+        problems.append(f"no readable identity.json beside the verdict ({type(exc).__name__}): the PASS names no source")
+    if identity is not None:
+        if not isinstance(identity, dict) or not head or identity.get("head") != head:
+            found = identity.get("head") if isinstance(identity, dict) else type(identity).__name__
+            problems.append(f"the scenario measured HEAD {found!r}, this run is of {head!r}")
+        elif identity.get("scenario", name) != name:
+            problems.append(f"identity.json is of scenario {identity.get('scenario')!r}")
+    try:
+        runs = json.loads((folder / "runs.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        runs = None
+        problems.append(f"no readable runs.json beside the verdict ({type(exc).__name__})")
+    if runs is not None and (not isinstance(runs, list) or len(runs) != verdict.get("runs")):
+        size = len(runs) if isinstance(runs, list) else type(runs).__name__
+        problems.append(f"runs.json records {size} run(s), the verdict counts {verdict.get('runs')!r}")
+    if not isinstance(requires, dict) or not requires:
+        return problems + [f"the policy states no pass_requires for {name}, so nothing says what its PASS must contain"]
+    names = [item.get("name") for item in verdict.get("checks", []) if isinstance(item, dict)]
+    text = [item for item in names if isinstance(item, str)]
+    if len(names) < int(requires.get("checks", 1)):
+        problems.append(f"{len(names)} checks, the scenario has at least {requires.get('checks')}")
+    if not isinstance(verdict.get("runs"), int) or verdict["runs"] < int(requires.get("runs", 1)):
+        problems.append(f"{verdict.get('runs')!r} runs, the scenario has at least {requires.get('runs')}")
+    missing = [wanted for wanted in requires.get("names", []) if wanted not in names]
+    if missing:
+        problems.append(f"required checks are missing: {missing[:8]}")
+    for prefix, least in sorted((requires.get("families") or {}).items()):
+        found = sum(1 for item in text if item.startswith(prefix))
+        if found < int(least):
+            problems.append(f"{found} checks named {prefix!r}*, the scenario has at least {least}")
+    return problems
 
 
 def _worst(statuses) -> str:

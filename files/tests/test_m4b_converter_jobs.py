@@ -1507,7 +1507,9 @@ def test_the_panel_is_still_classic():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("victim", ["atomic_replace", "temporary_sibling"])
+# (v0.7.2 Phase 9: the Converter publishes a new output through ``publish_new``, which refuses a taken name, where it used
+# to call ``atomic_replace``. The victim is the function the worker really calls.)
+@pytest.mark.parametrize("victim", ["publish_new", "temporary_sibling"])
 def test_a_failure_inside_the_execution_loop_still_releases_the_panel(
         make_panel, tmp_path, run_env, monkeypatch, victim):
     panel = make_panel()

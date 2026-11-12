@@ -35,7 +35,29 @@
       "phase": 7,
       "network": [],
       "runner": "scaling/qualify.py",
-      "detail": "M4B Converter split at scale against the frozen Phase 7A/7B budgets T1-T8 and T1b and the pinned per-build reference outputs (scaling/README.md); about three hours, never part of a routine mode"
+      "detail": "M4B Converter split at scale against the frozen Phase 7A/7B budgets T1-T8 and T1b and the pinned per-build reference outputs (scaling/README.md); about three hours, never part of a routine mode",
+      "pass_requires": {
+        "about": "What a PASS of this scenario must contain (v0.7.2 Phase 9): the gate refuses a PASS verdict with fewer checks or runs, without a named check, or with fewer checks of a family than the whole scenario makes. A check that is missing was not passed.",
+        "checks": 79,
+        "runs": 207,
+        "names": [
+          "T1",
+          "T1b",
+          "T6",
+          "containment"
+        ],
+        "families": {
+          "T2:below:": 10,
+          "T2:above:": 5,
+          "T3:": 6,
+          "T4:": 9,
+          "T5:": 9,
+          "T7:": 2,
+          "T8:": 30,
+          "fault:": 3,
+          "pause:": 1
+        }
+      }
     },
     "edge-low-memory": {
       "phase": 8,
@@ -43,13 +65,43 @@
         "online-edge"
       ],
       "runner": "qualification/edge_low_memory.py",
-      "detail": "real Microsoft Edge speech through the real TTS panel: eight files in flight at once, a mixed folder with PDFs, Cancel during synthesis and during finalization, Pause then Cancel, and the queue under a real per-process memory limit (qualification/edge_low_memory.py); sends a few hundred short requests, so it runs only with --network online-edge and is BLOCKED without it"
+      "detail": "real Microsoft Edge speech through the real TTS panel: eight files in flight at once, a mixed folder with PDFs, Cancel during synthesis and during finalization, Pause then Cancel, and the queue under a real per-process memory limit (qualification/edge_low_memory.py); sends a few hundred short requests, so it runs only with --network online-edge and is BLOCKED without it",
+      "pass_requires": {
+        "checks": 61,
+        "runs": 6,
+        "names": [],
+        "families": {
+          "overlap-8:": 8,
+          "folder-mixed:": 8,
+          "cancel-active:": 11,
+          "cancel-finalize:": 8,
+          "pause-then-cancel:": 12,
+          "low-memory:": 11,
+          "containment:": 3
+        }
+      }
     },
     "optional-engines": {
       "phase": 8,
       "network": [],
       "runner": "qualification/optional_engines.py",
-      "detail": "bounded real synthesis, offline, on the Kokoro, Chatterbox Turbo and Qwen3-TTS already installed on this computer: two voices each, multi-chunk text, eight workers asked for and one used, the published MP3 decoded and measured (qualification/optional_engines.py); never downloads, a missing engine or model is BLOCKED"
+      "detail": "bounded real synthesis, offline, on the Kokoro, Chatterbox Turbo and Qwen3-TTS already installed on this computer: two voices each, multi-chunk text, eight workers asked for and one used, the published MP3 decoded and measured (qualification/optional_engines.py); never downloads, a missing engine or model is BLOCKED",
+      "pass_requires": {
+        "checks": 76,
+        "runs": 6,
+        "names": [
+          "every engine produced a measured sample",
+          "Qwen3 ran in its own engine process",
+          "memory was measured for every sample"
+        ],
+        "families": {
+          "kokoro / ": 22,
+          "chatterbox / ": 22,
+          "qwen3 / ": 22,
+          "installed ": 4,
+          "containment:": 3
+        }
+      }
     },
     "fresh-windows": {
       "phase": 8,
@@ -57,7 +109,22 @@
         "online-setup"
       ],
       "runner": "qualification/fresh_windows.py",
-      "detail": "the committed application packaged by the real packager and audited, extracted fresh, set up by the real first-run base setup, launched, repaired offline after controlled damage, stopped during setup and completed offline from kept files, failed cleanly offline with nothing to reuse and then finished by the next start once the network was back (qualification/fresh_windows.py); downloads about 1.6 GB into the gate's scratch, so it runs only with --network online-setup and is BLOCKED without it; a fresh extraction on this Windows 11 account, not a new Windows installation"
+      "detail": "the committed application packaged by the real packager and audited, extracted fresh, set up by the real first-run base setup, launched, repaired offline after controlled damage, stopped during setup and completed offline from kept files, failed cleanly offline with nothing to reuse and then finished by the next start once the network was back (qualification/fresh_windows.py); downloads about 1.6 GB into the gate's scratch, so it runs only with --network online-setup and is BLOCKED without it; a fresh extraction on this Windows 11 account, not a new Windows installation",
+      "pass_requires": {
+        "checks": 43,
+        "runs": 11,
+        "names": [
+          "this run is not elevated: setup needs no administrator rights"
+        ],
+        "families": {
+          "package:": 4,
+          "A:": 17,
+          "B:": 5,
+          "C:": 10,
+          "repair:": 3,
+          "containment:": 3
+        }
+      }
     }
   },
   "later_phase_requirements": [],

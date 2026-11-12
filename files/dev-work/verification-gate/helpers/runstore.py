@@ -439,8 +439,9 @@ SCENARIO_VERDICT = "qualification/verdict.json"
 def _scenario_problems(directory: Path, results: dict) -> list[str]:
     """Whether a qualification run's sealed scenario result follows from the scenario's own verdict and its runner's exit.
 
-    The gate seals PASS for a scenario only when its runner exited 0 having written a PASS verdict; FAIL or BLOCKED when
-    the verdict says so; FAIL when a PASS verdict came with any other exit. A reader takes none of that on trust: the
+    The gate seals PASS for a scenario only when its runner exited 0 having written a PASS verdict that bears it out
+    (checks, every one passed, and at least one run); FAIL or BLOCKED when the verdict says so; FAIL when a PASS verdict
+    came with any other exit or does not bear itself out. A reader takes none of that on trust: the
     verdict must be part of the sealed evidence (so its bytes are the ones the run wrote), readable, about this scenario,
     and it and the recorded exit must lead to the sealed result. A PASS must also have run something: checks, every one
     passed, and at least one run. A run whose scenario never reached a verdict has nothing to compare and is left as
@@ -471,22 +472,35 @@ def _scenario_problems(directory: Path, results: dict) -> list[str]:
     if not isinstance(verdict, dict) or verdict.get("scenario") != name:
         return problems + [f"{SCENARIO_VERDICT} is not the verdict of scenario {name}"]
     said = verdict.get("status") if verdict.get("status") in _SCENARIO_EXIT else "FAIL"
-    follows = said if said != "PASS" or (ended == "exited" and code == EXIT_PASS) else "FAIL"
+    unborne = _pass_not_borne_out(name, verdict)
+    # A PASS the verdict does not bear out makes FAIL, exactly as a PASS with any other exit does. Until v0.7.2 Phase 9 only
+    # the exit was held against it here, so this line answered "that makes PASS" for a verdict with a failed check, and the
+    # gate itself sealed such a verdict PASS (P9-03). The gate now records FAIL for it (verify.judge_scenario); this is the
+    # same answer, derived here from the sealed evidence. A sealed PASS is refused by the lines below as before.
+    stands = said != "PASS" or (ended == "exited" and code == EXIT_PASS and not unborne)
+    follows = said if stands else "FAIL"
     if follows != sealed:
         problems.append(f"scenario {name} is sealed {sealed}, but its verdict says {verdict.get('status')!r} and its "
                         f"runner {ended} with exit {code!r}: that makes {follows}")
     if sealed == "PASS":
-        judged = verdict.get("checks")
-        if not isinstance(judged, list) or not judged:
-            problems.append(f"scenario {name} passed with no checks in its verdict")
-        else:
-            bad = [c.get("name") if isinstance(c, dict) else repr(c) for c in judged
-                   if not isinstance(c, dict) or c.get("status") != "PASS"]
-            if bad:
-                problems.append(f"scenario {name} passed with checks not passed in its verdict: {bad[:8]}")
-        runs = verdict.get("runs")
-        if isinstance(runs, bool) or not isinstance(runs, int) or runs < 1:
-            problems.append(f"scenario {name} passed having made no run ({runs!r})")
+        problems += unborne
+    return problems
+
+
+def _pass_not_borne_out(name: str, verdict: dict) -> list[str]:
+    """Why a verdict could not be a PASS whatever it says: no checks, a check that did not pass, or no run."""
+    problems = []
+    judged = verdict.get("checks")
+    if not isinstance(judged, list) or not judged:
+        problems.append(f"scenario {name} passed with no checks in its verdict")
+    else:
+        bad = [c.get("name") if isinstance(c, dict) else repr(c) for c in judged
+               if not isinstance(c, dict) or c.get("status") != "PASS"]
+        if bad:
+            problems.append(f"scenario {name} passed with checks not passed in its verdict: {bad[:8]}")
+    runs = verdict.get("runs")
+    if isinstance(runs, bool) or not isinstance(runs, int) or runs < 1:
+        problems.append(f"scenario {name} passed having made no run ({runs!r})")
     return problems
 
 

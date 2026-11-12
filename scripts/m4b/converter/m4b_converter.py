@@ -1803,6 +1803,31 @@ class M4BConverterUI(ttk.Frame):
                     return True
                 return controller is not None and controller.cancel_check()
 
+            def authorize_publication() -> bool:
+                """Cancel or this output's commit: whichever comes first (v0.7.2 Phase 9, P9-02).
+
+                Asked once per output, immediately before the finished file
+                is given its name. ``interrupted`` above is a look, and a look
+                followed by the commit leaves a gap: Cancel could latch and
+                return, and the file then appeared and the run said it had
+                succeeded. The controller decides it in one step under the
+                lock its Cancel latch is taken under, and records a commit it
+                grants, so ``finish_cancelled`` cannot be reached while one is
+                still landing. This panel's own event is set a moment before
+                the controller hears of a Cancel, so it is read first: a Cancel
+                that has begun is a Cancel that came first.
+                """
+                if self._cancel_event.is_set():
+                    return False
+                return controller is None or controller.authorize_commit()
+
+            def publication_finished() -> None:
+                if controller is not None:
+                    controller.commit_finished()
+
+            commit_gate = m4b_execution.CommitGate(
+                authorize=authorize_publication, finished=publication_finished)
+
             def announce(argv) -> None:
                 """One command, into the transcript and the Details pane."""
                 line = " ".join(str(part) for part in argv)
@@ -2001,6 +2026,7 @@ class M4BConverterUI(ttk.Frame):
                         on_command=announce,
                         feed=feed,
                         stop_feed=None if decoder is None else decoder.close,
+                        commit=commit_gate,
                     )
                     ended = clock() if timed else None
 

@@ -36,7 +36,9 @@ qualification, and the open file-manager windows are counted before and after. P
       each encoder; Windows counts a pipe write as a write), at most 1.05 x the seeking route's write bytes; and, for
       the two processes that touch the audio, directly: every byte the decoder wrote is its stream or its diagnostics
       file, and the application wrote nothing beyond its feed but what it writes on the seeking route as well.
-* T5  peak staged bytes no higher than the seeking route's: the staged media, read exactly, with no allowance.
+* T5  peak staged bytes no higher than the seeking route's: every byte the application has staged (media and FFmpeg's
+      diagnostics files alike), read exactly, against the largest exact peak of the same session's seeking runs, with
+      no allowance.
 * T6  UI heartbeat p99 at most 0.25 s in every continuous run, and no stall over 2 s in one.
 * T7  Cancel during a late chapter settles within 2 s with every owned process stopped and reaped.
 * T8  every output of every case equals the pinned reference digest; ineligible books take the seeking route.
@@ -52,11 +54,28 @@ Phase 8 ran this scenario twice on one unchanged candidate and each run failed o
   the decoder's FFmpeg but not the console host Windows starts with it (1.7 MB at its peak). ``bench_run.py`` now lets
   every child go when it ends, and finds and measures that console host.
 * "Staged bytes" was the largest of a few hundred 0.5-second samples of a total that is at its peak for a few
-  milliseconds per chapter, so both routes' figures were chance draws below one and the same true peak; and it counted
-  FFmpeg's diagnostics file with the media. ``bench_run.py`` now reads every owned temporary's real size at each moment
-  the total can only fall next. Staged media has fixed sizes (the outputs are byte-identical), so it is compared
-  exactly. FFmpeg's diagnostics text differs by a few bytes between identical runs, so it is held to the 1.05 x this
-  scenario already applies to writes. The sampler remains as a witness that must never see more than the exact reading.
+  milliseconds per chapter, so both routes' figures were chance draws below one and the same true peak.
+  ``bench_run.py`` now reads every owned temporary's real size at each moment the total can only fall next. The sampler
+  remains as a witness that must never see more than the exact reading.
+
+**T5 after the Phase 9 independent review** (finding P9-04; the budget is the approved one, to the letter). Phase 8's
+exact reading had two faults. It read before two helper functions only, so a temporary removed any other way lowered
+the total unread (a whole extra copy of a chapter was missed). And it judged the staged media with no allowance but
+FFmpeg's diagnostics files apart, at 1.05 x, so a run that staged more in total could pass: a budget nobody approved.
+Now ``staging.StagingCensus`` reads before every removal, rename, truncation and writing-open this process makes,
+whoever asks for it; holds that against Windows' own report of every removal and rename under the output base; calls a
+file diagnostics only when the run handed it to a child as its output sink, never by its name; follows no link; and says
+so in its record when any of that was not clean. T5 fails unless every run it compares was read completely, and passes
+only when the one-decode run's exact peak total is no higher than the largest exact peak total of the seeking runs: all
+staged bytes, zero allowance. The staged media is also compared on its own, exactly, as before; that can only add a
+failure. FFmpeg writes file paths into its diagnostics, so the runs compared must have output paths of one length
+(they do: one case name, a three-digit number); T5 fails if they do not, rather than compare unlike texts.
+
+What that literal comparison costs is stated, not hidden: FFmpeg ends each pass's diagnostics with a status line whose
+speed figure varies in length, so two identical runs can differ by a few bytes at the peak. A one-decode run can
+therefore fail by a byte or two when all the seeking runs of its book happened to fall short of the total they usually
+reach; such a result is a FAIL of this scenario and is reported as one, never run again until it passes. The measured
+spread is recorded with the Phase 9 remediation evidence, for the owner.
 
 ``resource_checks`` judges both from the runs' summaries and nothing else, so the same code is exercised by
 ``files/tests/test_verification_gate_contract.py`` on planted figures, by ``--smoke`` on a small real book, and by a
@@ -431,28 +450,21 @@ def resource_checks(book: str, legacy: list[dict], auto: list[dict]) -> list[dic
     legacy_peak = max(s["peak_job_commit"] for s in legacy)
     legacy_writes = max(s["write_bytes"] for s in legacy)
     legacy_app_writes = max(s.get("app_write_bytes") or 0 for s in legacy)
-    # ------------------------------------------------------------------ T5: what the seeking route staged, exactly
-    measured_problems = []
-    for run in (*legacy, *auto):
-        staging = run.get("staging") or {}
-        if not staging:
-            measured_problems.append(f"{run['label']}: no exact staging figures")
-            continue
-        if not (staging.get("readings_before_publish", 0) >= run["files"] > 0 and staging.get("readings_before_discard", 0) > 0):
-            measured_problems.append(f"{run['label']}: {staging.get('readings_before_publish')} readings before a "
-                                     f"publication for {run['files']} outputs")
-        if staging.get("left_files") != 0:
-            measured_problems.append(f"{run['label']}: {staging.get('left_files')} temporaries left behind "
-                                     f"({staging.get('left_bytes')} bytes)")
-        if run["peak_staged_bytes"] > (staging.get("peak_total_bytes") or 0):
-            measured_problems.append(f"{run['label']}: the 0.5 s sampler saw {run['peak_staged_bytes']} bytes staged, more "
-                                     f"than the exact reading's peak {staging.get('peak_total_bytes')}: something lowered "
-                                     "the total without a reading")
+    # ------------------------------------------------------------------ T5: what each route staged, exactly
+    measured_problems = [f"{run['label']}: {problem}" for run in (*legacy, *auto) for problem in staging_problems(run)]
+    lengths = sorted({(s.get("staging") or {}).get("base_chars") for s in (*legacy, *auto)}, key=lambda v: (v is None, v))
+    if len(lengths) != 1 or lengths[0] is None:
+        measured_problems.append(f"the runs' output folders have paths of different lengths {lengths}: FFmpeg writes them "
+                                 "into its diagnostics, so their staged bytes cannot be compared to the byte")
     legacy_media = sorted({(s.get("staging") or {}).get("peak_media_bytes") for s in legacy}, key=lambda v: (v is None, v))
     if len(legacy_media) != 1 or legacy_media[0] is None:
-        measured_problems.append(f"the seeking route's own runs staged different peaks {legacy_media}: not an exact figure")
+        measured_problems.append(f"the seeking route's own runs staged different media peaks {legacy_media}: not an exact figure")
     seeking_media = max((v for v in legacy_media if v is not None), default=0)
-    seeking_diagnostics = max(((s.get("staging") or {}).get("peak_diagnostics_bytes") or 0) for s in legacy)
+    legacy_totals = [(s.get("staging") or {}).get("peak_total_bytes") for s in legacy]
+    if any(not _is_count(value) for value in legacy_totals):
+        measured_problems.append(f"the seeking route's peak totals {legacy_totals} are not all measured")
+    #: "Peak staged bytes no higher than production's": production's is the largest exact peak of this session's seeking runs.
+    seeking_total = max((v for v in legacy_totals if _is_count(v)), default=0)
     for summary in auto:
         decoder = summary["decoders"][0] if summary["decoders"] else {}
         buffered = decoder.get("peak_buffered", 0)
@@ -502,25 +514,75 @@ def resource_checks(book: str, legacy: list[dict], auto: list[dict]) -> list[dic
                       "disk_writes": disk_writes, "decoder_other": decoder_other, "app_other": app_other,
                       "failed_parts": failed}})
         staging = summary.get("staging") or {}
+        total = staging.get("peak_total_bytes")
         media = staging.get("peak_media_bytes")
-        diagnostics = staging.get("peak_diagnostics_bytes")
+        readings = staging.get("readings") if isinstance(staging.get("readings"), dict) else {}
         problems = list(measured_problems)
-        if media is None or media > seeking_media:
+        if not _is_count(total) or total > seeking_total:
+            problems.append(f"{total} bytes staged at the peak is more than the seeking route's {seeking_total}")
+        if not _is_count(media) or media > seeking_media:
             problems.append(f"staged media {media} bytes is more than the seeking route's {seeking_media}")
-        if diagnostics is None or diagnostics > seeking_diagnostics * 1.05:
-            problems.append(f"diagnostics {diagnostics} bytes is more than the seeking route's {seeking_diagnostics} x 1.05")
         checks.append({
             "name": f"T5:{book}:{summary['label']}", "ok": not problems,
-            "detail": (f"peak staged media {media} bytes vs the seeking route's {seeking_media} (exact, read before every "
-                       f"discard and publication: {staging.get('readings_before_discard')} + "
-                       f"{staging.get('readings_before_publish')} readings; no allowance); FFmpeg diagnostics "
-                       f"{diagnostics} bytes vs {seeking_diagnostics} x 1.05; left behind {staging.get('left_files')}; "
-                       f"the 0.5 s sampler saw at most {summary['peak_staged_bytes']} of {staging.get('peak_total_bytes')}"
+            "detail": (f"peak staged bytes {total} vs the seeking route's {seeking_total} (every owned temporary, media and "
+                       f"diagnostics, exact, no allowance; the seeking runs' own peaks {legacy_totals}); of that, media "
+                       f"{media} vs {seeking_media}, diagnostics {staging.get('peak_diagnostics_bytes')}; read before "
+                       f"{readings.get('remove')} removals, {readings.get('rename')} renames, {readings.get('truncate', 0)} "
+                       f"truncations and {readings.get('open', 0)} writing-opens; left behind {staging.get('left_files')}; "
+                       f"the 0.5 s sampler saw at most {summary['peak_staged_bytes']}"
                        + (f"; FAILED: {problems}" if problems else "")),
-            "facts": {"media": media, "seeking_media": seeking_media, "diagnostics": diagnostics,
-                      "seeking_diagnostics": seeking_diagnostics, "sampled": summary["peak_staged_bytes"],
-                      "problems": problems}})
+            "facts": {"total": total, "seeking_total": seeking_total, "seeking_totals": legacy_totals, "media": media,
+                      "seeking_media": seeking_media, "diagnostics": staging.get("peak_diagnostics_bytes"),
+                      "sampled": summary["peak_staged_bytes"], "problems": problems}})
     return checks
+
+
+def _is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def staging_problems(run: dict) -> list[str]:
+    """Why one run's staged-bytes figures are not an exact, complete reading. Empty when they are.
+
+    The figures are ``staging.StagingCensus.record()``. Each thing the census could not vouch for is a problem here, and
+    so is its absence from the record: a field that is not there was not checked, and is never taken as clean.
+    """
+    staging = run.get("staging") or {}
+    if not staging:
+        return ["no exact staging figures"]
+    observer = staging.get("observer")
+    if not isinstance(observer, dict):
+        return ["no record that every decrease of the staged total was observed"]
+    problems = []
+    watch = observer.get("watch") if isinstance(observer.get("watch"), dict) else {}
+    if observer.get("finished") is not True or observer.get("audit_hook") is not True:
+        problems.append("the reading was not finished, or this process's file operations were not being heard")
+    if watch.get("armed") is not True or watch.get("drained") is not True or watch.get("lost") != 0 or watch.get("error"):
+        problems.append(f"Windows' report of the output base was not complete: {watch}")
+    for key, what in (("unobserved", "the total fell without a reading"), ("links", "links among the temporaries"),
+                      ("without_creation", "temporaries nobody saw created under this base in this run"),
+                      ("written_by_the_application", "temporaries the application wrote through a handle of its own"),
+                      ("errors", "errors while reading")):
+        found = observer.get(key)
+        if not isinstance(found, list):
+            problems.append(f"the record does not say whether there were {what}")
+        elif found:
+            problems.append(f"{what}: {found[:3]}")
+    readings = staging.get("readings") if isinstance(staging.get("readings"), dict) else {}
+    if not (readings.get("rename", 0) >= run["files"] > 0):
+        problems.append(f"{readings.get('rename')} readings before a rename for {run['files']} outputs")
+    if not readings.get("remove", 0) > 0:
+        problems.append("no reading before a removal")
+    if staging.get("at_start_files") != 0:
+        problems.append(f"{staging.get('at_start_files')} temporaries were there before the run")
+    if staging.get("left_files") != 0:
+        problems.append(f"{staging.get('left_files')} temporaries left behind ({staging.get('left_bytes')} bytes)")
+    if (staging.get("peak_diagnostics_bytes") or 0) > 0 and not observer.get("diagnostics_sinks"):
+        problems.append("bytes counted as diagnostics with no child's output sink recorded")
+    if run["peak_staged_bytes"] > (staging.get("peak_total_bytes") or 0):
+        problems.append(f"the 0.5 s sampler saw {run['peak_staged_bytes']} bytes staged, more than the exact reading's peak "
+                        f"{staging.get('peak_total_bytes')}: something lowered the total without a reading")
+    return problems
 
 
 def git(*args: str) -> str:

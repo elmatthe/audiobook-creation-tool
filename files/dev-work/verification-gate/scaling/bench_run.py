@@ -36,12 +36,14 @@ Promoted from Phase 7A's evidence harness. One process per measurement:
   figures are read when it ends and it is let go (``Child.settle``).
 * **The continuous decoder's console host is found and measured.** Windows starts one (``conhost.exe``) for every hidden
   console child; the decoder's lives as long as the decoder, so it is part of what one more FFmpeg costs the job.
-* **Staged bytes are read exactly, not sampled** (``StagingCensus``). The application lowers what it has staged only by
-  discarding one of its temporaries or by publishing a staged file, both through ``shared.output_paths``; between those
-  moments the total can only grow. Each is wrapped, and the real size of every ``.act-tmp-*`` file under the output base
-  is read just before it, so the largest reading is the peak. Staged media and FFmpeg's own diagnostics files are
-  counted apart: the media's sizes are fixed by the outputs, the diagnostics text is not. The 0.5 s sampler stays as an
-  independent witness: it must never see more than the census did.
+* **Staged bytes are read exactly, not sampled** (``staging.StagingCensus``; v0.7.2 Phase 9, review finding P9-04).
+  The real size of every ``.act-tmp-*`` file under the output base is read just before each operation of this process
+  that can lower the total: every removal, rename, truncation and writing-open, observed as audit events whichever
+  function asked for them, so the largest reading is the peak. Windows' own report of every removal and rename under
+  the base is kept beside it (``staging.DirectoryWatch``), and a decrease that no reading preceded makes the figure
+  incomplete rather than smaller. A file is diagnostics only when this run handed it to a child as its output sink;
+  everything else staged is media, whatever it is called. The 0.5 s sampler stays as an independent witness: it must
+  never see more than the census did.
 
 Writes ``results.json`` into ``--out``. Exit 0 when the run completed as asked (whatever the run's own state), 3 when
 containment refused it, 4 when the harness itself failed.
@@ -62,7 +64,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import staging as staging_census  # noqa: E402
 import winjob  # noqa: E402
+
+#: The exact reading of what the application has staged (``staging.py``), under the name this module has always had for it.
+StagingCensus = staging_census.StagingCensus
 
 EXIT_CONTAINMENT = 3
 EXIT_HARNESS = 4
@@ -72,6 +78,22 @@ class Refused(SystemExit):
     def __init__(self, message: str) -> None:
         super().__init__(EXIT_CONTAINMENT)
         self.message = message
+
+
+#: The longest path a run's own temporary folder may have. Every run is given ``<its folder>\tmp`` as TEMP, and Windows
+#: cannot start a process whose TEMP is longer than GetTempPathW can return: CreateProcess then retries for ever at a
+#: full core (BasepQueryAppCompat -> GetTempPathW), with the child created and never started. Seen at 262 characters
+#: in the Phase 9 remediation (a planted-defect control with a long name); a gate qualification's own are about 222.
+LONGEST_TEMP = 248
+
+
+def run_temp(out: Path) -> Path:
+    """This run's own temporary folder. Refused, before anything is made, when Windows could not use it as TEMP."""
+    temp = out / "tmp"
+    if len(str(temp)) > LONGEST_TEMP:
+        raise Refused(f"{out} is too deep: this run's own temporary folder would be {len(str(temp))} characters long, "
+                      f"and Windows cannot start a process whose TEMP is longer than {LONGEST_TEMP}")
+    return temp
 
 
 def sha256(path: Path) -> str:
@@ -158,80 +180,6 @@ class Child:
             return facts  # still running: a reading, and the handle stays
         self.facts, self.proc = facts, None
         return facts
-
-
-TEMPORARY_PREFIX = ".act-tmp-"
-#: The application's FFmpeg diagnostics files: ``.act-tmp-ffmpeg-*.log`` for a pass, ``.act-tmp-decoder-*.log`` for the
-#: continuous decoder. Everything else it stages under the output base is media.
-DIAGNOSTICS_SUFFIX = ".log"
-
-
-class StagingCensus:
-    """Exactly what the application has staged under one output base, read at the moments it can only fall next.
-
-    ``read`` adds up the real size of every ``.act-tmp-*`` file under the base. ``wrap`` puts a reading in front of the
-    two things that lower the total (``discard_temporary`` and ``atomic_replace`` of ``shared.output_paths``), so the
-    largest reading is the peak: between two such moments files are only created and written. Nothing else is changed.
-    """
-
-    def __init__(self, base: Path) -> None:
-        self.base = str(base)
-        self.readings = {"discard": 0, "publish": 0, "end": 0}
-        self.peak = {"media_bytes": 0, "media_files": 0, "diagnostics_bytes": 0, "diagnostics_files": 0,
-                     "total_bytes": 0, "total_files": 0}
-        self.at_peak: dict = {}
-        self.left: dict | None = None
-        self._lock = threading.Lock()
-
-    def read(self, moment: str) -> dict:
-        media, logs = [], []
-        for folder, _subs, names in os.walk(self.base):
-            for name in names:
-                if name.startswith(TEMPORARY_PREFIX):
-                    try:
-                        size = os.stat(os.path.join(folder, name)).st_size
-                    except OSError:
-                        continue  # gone between the listing and the reading: not staged any more
-                    (logs if name.endswith(DIAGNOSTICS_SUFFIX) else media).append(size)
-        now = {"media_bytes": sum(media), "media_files": len(media), "diagnostics_bytes": sum(logs),
-               "diagnostics_files": len(logs), "total_bytes": sum(media) + sum(logs), "total_files": len(media) + len(logs)}
-        with self._lock:
-            self.readings[moment] = self.readings.get(moment, 0) + 1
-            for key, value in now.items():
-                if value > self.peak[key]:
-                    self.peak[key] = value
-                    if key in ("media_bytes", "total_bytes"):
-                        self.at_peak[key] = {"moment": moment, "media": sorted(media), "diagnostics": sorted(logs)}
-        return now
-
-    def wrap(self, output_paths_module) -> None:
-        real_discard, real_replace = output_paths_module.discard_temporary, output_paths_module.atomic_replace
-
-        def discard_temporary(path, *args, **kwargs):
-            if path is not None:
-                self.read("discard")
-            return real_discard(path, *args, **kwargs)
-
-        def atomic_replace(temporary, target, *args, **kwargs):
-            self.read("publish")
-            return real_replace(temporary, target, *args, **kwargs)
-
-        output_paths_module.discard_temporary = discard_temporary
-        output_paths_module.atomic_replace = atomic_replace
-
-    def finish(self) -> None:
-        """One last reading once the run has settled: what is still staged then was left behind."""
-        self.left = self.read("end")
-
-    def record(self) -> dict:
-        left = self.left or {}
-        return {"method": "the real size of every owned temporary, read just before each discard and each publication",
-                "peak_media_bytes": self.peak["media_bytes"], "peak_media_files": self.peak["media_files"],
-                "peak_diagnostics_bytes": self.peak["diagnostics_bytes"],
-                "peak_diagnostics_files": self.peak["diagnostics_files"],
-                "peak_total_bytes": self.peak["total_bytes"], "peak_total_files": self.peak["total_files"],
-                "readings_before_discard": self.readings["discard"], "readings_before_publish": self.readings["publish"],
-                "at_peak": self.at_peak, "left_bytes": left.get("total_bytes"), "left_files": left.get("total_files")}
 
 
 def parse_args(argv=None):
@@ -358,12 +306,12 @@ def main(argv=None) -> int:
         raise Refused(f"the qualification folder {root} does not exist")
     if not inside(out, root) or out == root:
         raise Refused(f"{out} is not inside the qualification folder {root}")
+    temp = run_temp(out)
     out.mkdir(parents=True, exist_ok=False)
     job = winjob.Job()
     job_at_start = job.snapshot()
 
     # ------------------------------------------------------------------ containment, before any application import
-    temp = out / "tmp"
     temp.mkdir()
     for key in ("TEMP", "TMP", "TMPDIR"):
         os.environ[key] = str(temp)
@@ -422,11 +370,11 @@ def main(argv=None) -> int:
         return real_reserve(tool_key, *a, **k)
 
     output_paths.reserve_run_directory = reserve_run_directory
+    # Before anything is staged: from here every removal, rename, truncation and writing-open of an owned temporary by
+    # this process is read first, whichever function performs it, and Windows' own account of the base is being kept.
     staging = StagingCensus(output_base)
-    staging.wrap(output_paths)
-    if m4b_execution.output_paths is not output_paths or (
-            m4b_continuous is not None and m4b_continuous.output_paths is not output_paths):
-        raise Refused("the application would discard and publish through another module than the one being read")
+    if not staging.armed():
+        raise Refused(f"what is staged under {output_base} could not be watched: {staging.record()['observer']['watch']}")
     containment["staging_census"] = True
     if m4b_continuous is None and args.route != "legacy":
         raise SystemExit("this code tree has only the seeking route: use --route legacy")
@@ -452,6 +400,10 @@ def main(argv=None) -> int:
 
     def popen(cmd, **kwargs):
         proc = real_popen(cmd, **kwargs)
+        for stream in ("stdout", "stderr"):
+            # A file handed to a child as where its output goes is that child's diagnostics: the only way a staged file
+            # is counted as diagnostics rather than media (never by its name).
+            staging.diagnostics_sink(kwargs.get(stream), proc.pid)
         kind = classify(cmd)
         with lock:
             for earlier in children:

@@ -328,8 +328,11 @@ def test_pymupdf_is_never_used_by_two_threads_at_once(monkeypatch):
     monkeypatch.setattr(pdf_extractor, "_PYMUPDF_LOCK", counting)
 
     class Page:
-        def get_text(self, _kind):
-            return "A page of text.\n"
+        def get_textpage(self, flags=None):
+            return object()
+
+        def get_text(self, kind, textpage=None):
+            return "A page of text.\n" if kind == "text" else {"blocks": []}
 
     class Doc:
         def __iter__(self):

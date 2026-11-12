@@ -215,7 +215,6 @@ def collect_extraction() -> dict:
         "clean_page_text": pdf._clean_page_text(PDF_PAGE),
         "dehyphenate": pdf._dehyphenate(PDF_PAGE),
         "rejoin_soft_wrapped": pdf._rejoin_soft_wrapped_lines(PDF_PAGE),
-        "strip_noise_lines": pdf._strip_noise_lines(PDF_PAGE),
         "merge_blocks_across_page_gaps": pdf._merge_blocks_across_page_gaps(PDF_PAGE),
     }
     with tempfile.TemporaryDirectory(prefix="speech_char_") as tmp:

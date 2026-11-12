@@ -579,3 +579,21 @@ run's MP3s were hashed and deleted by the harness; the fixtures stay in the igno
 ACT72-012 is closed on this PASS (coverage ledger resolution). The `qualification` entry for `m4b-scaling` stays on
 `ACT.CONVERTER.SCALING` as release-pending evidence: a routine gate never satisfies it, and a future FFmpeg build, machine
 or route change is qualified by running it again.
+
+## 14. How T4 and T5 are measured since Phase 8 and Phase 9 (the budgets of section 8 as frozen)
+
+Section 8's budgets are unchanged. What changed twice is how the scenario reads the two resource budgets, and this
+section is the pointer from this record to where that is written down.
+
+**Phase 8 (ACT72-068, ACT72-069).** The harness had been reading its own bookkeeping as the job's memory and sampling
+staged bytes every half second; both are described in `files/dev-work/verification-gate/scaling/README.md`. T4's envelope
+counts the decoder's console host since then, which was put to the owner as a change to the harness's own formula.
+
+**Phase 9 (ACT72-073, the independent review's finding P9-04).** Phase 8's exact reading of staged bytes was taken before
+two helper functions only, so a temporary removed any other way was not read; and its judgement held the staged media
+exactly but FFmpeg's diagnostics files apart at 1.05 x. The second was not T5 as frozen in section 8 ("peak staged bytes no
+higher than production's"). Since Phase 9 the scenario reads everything the application stages before every removal,
+rename, truncation and writing-open of its process, holds that to Windows' own report of the output base, and judges T5
+to the letter: the exact peak total of the one-decode run no higher than the largest exact peak total of the same
+session's seeking runs, with no allowance. The table row of section 13.5 for T5 describes the Phase 7B implementation and
+is left as the record of that run.

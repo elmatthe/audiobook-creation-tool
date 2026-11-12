@@ -769,14 +769,16 @@ def test_a_long_pdf_stops_being_read_between_its_pages(tmp_path, monkeypatch, st
     path = make_pdf(tmp_path / "long.pdf", [(f"Words on page {i}. " * 20, 10) for i in range(6)])
     from tts import pdf_extractor
 
+    # Counted where a page is read. (Until v0.7.2 Phase 9 this counted the cleaning, which then ran page by page; the pages
+    # are now cleaned together once they have been read, because what is a page number is decided across pages.)
     pages_read = []
-    real_clean = pdf_extractor._clean_page_text
+    real_read = pdf_extractor._read_page
 
-    def clean(raw):
+    def read_page(page, index, **limits):
         pages_read.append(1)
-        return real_clean(raw)
+        return real_read(page, index, **limits)
 
-    monkeypatch.setattr(pdf_extractor, "_clean_page_text", clean)
+    monkeypatch.setattr(pdf_extractor, "_read_page", read_page)
     now = [0.0]
     stopped = [False]
 
@@ -806,7 +808,8 @@ def test_an_abnormal_page_is_not_given_the_conversions_costly_cleaning(tmp_path,
 
     monkeypatch.setattr(pdf_extractor, "SIZING_CLEAN_CHARS", 500)
     path = make_pdf(tmp_path / "abnormal.pdf", [("abc def ghi " * 200, 6)])
-    monkeypatch.setattr(pdf_extractor, "_clean_page_text", lambda raw: pytest.fail("beyond the limit"))
+    monkeypatch.setattr(pdf_extractor, "_clean_page_text", lambda raw, furniture=(): pytest.fail("beyond the limit"))
+    monkeypatch.setattr(pdf_extractor, "_edge_lines", lambda *a, **k: pytest.fail("beyond the limit: not measured either"))
     pages, read, text = pdf_extractor.pdf_text_sample(str(path), 10)
     assert (pages, read) == (1, 1)
     assert text.count("abc") == 200
@@ -820,7 +823,8 @@ def test_an_ordinary_dense_page_is_cleaned_as_a_conversion_cleans_it(tmp_path, m
     path = make_pdf(tmp_path / "dense.pdf", [("Dense words in a line of text. " * 500, 5)])
     cleaned = []
     real_clean = pdf_extractor._clean_page_text
-    monkeypatch.setattr(pdf_extractor, "_clean_page_text", lambda raw: (cleaned.append(1), real_clean(raw))[1])
+    monkeypatch.setattr(pdf_extractor, "_clean_page_text",
+                        lambda raw, furniture=(): (cleaned.append(1), real_clean(raw, furniture))[1])
     pdf_extractor.pdf_text_sample(str(path), 10)
     assert cleaned == [1]
 

@@ -182,19 +182,33 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Extract and clean PDF text
 `ACT.TTS.PDF-TEXT`
 
-- **Behaviour:** PyMuPDF text with page numbers at a page's edge removed, words broken by hyphens rejoined (across lines
-  and across pages), wrapped lines joined, remaining number-only and short all-caps lines dropped, and paragraphs merged
-  across page breaks. Only one PDF is read at a time in the process. Every
-  route uses this one extractor.
-- **Page numbers (v0.7.2 Phase 8, ACT72-063):** a number printed as the first or last line of a page is removed before the
-  page's lines are joined, so it is no longer read out in the middle of a sentence that runs on to the next page, and a
-  word hyphenated at the foot of a page is joined to its other half.
-- **Checked against expected narration (ACT72-057):** real PDFs built line by line, each checked before the cleaner sees
-  it, are held to text written out by hand: hyphen joins, wrapped lines, page numbers, short running heads, paragraphs,
-  and what must not be joined or deleted.
-- **Known limits (ACT72-064, open):** a running head longer than four capitals (a title on every page) is narrated at
-  each page; a line that is only a one-to-four-letter all-caps word is dropped; a compound word broken at its own hyphen
-  loses the hyphen; a bare number that ends a page is taken for its page number.
+- **Behaviour:** PyMuPDF text with the page's furniture taken out (its printed number, a short running head), words
+  broken by hyphens rejoined (across lines and across pages), wrapped lines joined and paragraphs merged across page
+  breaks. Nothing else is removed. Only one PDF is read at a time in the process. Every route uses this one extractor,
+  and worker sizing cleans a PDF the same way.
+- **What counts as page furniture (v0.7.2 Phase 9, ACT72-070).** A line is taken out only when two things hold. Where it
+  is: on the top or bottom line of its page, clear of the page's other text by more than a line and a half of that text's
+  own spacing (or alone on the page), and set no larger than that text. What repeats: for a page number, another page
+  carries a number that differs from it by exactly the distance between the two pages; for a running head of one to four
+  capitals, the same word stands at the same height on another page. A bare number or a line of capitals that fails
+  either test is text and is read: the year a sentence ends a page with, an acronym or an emphasised word on a line of
+  its own, a chapter numeral above its chapter. (Until this phase a line was removed for its shape alone, which deleted
+  such text: "The signal is NOT a command" was read as "The signal is a command".)
+- **Hyphens.** A hyphen at a line end is dropped when the word carries on in a small letter ("impor-" / "tant"). Before a
+  capital or beside a digit it is the text's own and is kept ("Anglo-" / "Saxon", "1939-" / "1945").
+- **Capitals inside a sentence.** A line that looks like a heading is joined into the sentence when the line before it is
+  unfinished and the line after it carries on in a small letter.
+- **Page numbers in a running sentence (v0.7.2 Phase 8, ACT72-063):** a page number is taken out before the page's lines
+  are joined, so it is not read out in the middle of a sentence that runs on to the next page, and a word hyphenated at
+  the foot of a page is joined to its other half.
+- **Checked against expected narration (ACT72-057, ACT72-070):** real PDFs built line by line, each checked before the
+  cleaner sees it, are held to text written out by hand, with furniture placed where a book prints it. The Phase 9
+  reviewer's own three-page PDF is one of them.
+- **Known limits (ACT72-064, open, for the owner). None loses a word:** a running head longer than four capitals (a
+  title on every page) is narrated at each page; furniture that nothing repeats (a one-page document's number, a number
+  that does not count with its neighbours) is narrated; a compound word broken at its own hyphen before a small letter
+  loses the hyphen ("well-" / "known" is read "wellknown"); capitals that end or begin a page inside a sentence keep a
+  line break there; a drop capital set as a line of its own is read as a letter by itself.
 
 ### A source with nothing to read fails cleanly
 `ACT.TTS.NO-TEXT`

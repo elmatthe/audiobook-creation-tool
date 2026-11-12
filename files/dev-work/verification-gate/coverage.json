@@ -1137,13 +1137,16 @@
             "_clean_page_text",
             "_dehyphenate",
             "_rejoin_soft_wrapped_lines",
-            "_strip_noise_lines",
             "_looks_like_heading_line",
             "_merge_blocks_across_page_gaps",
             "_join_pages",
             "pdf_text_sample",
-            "_drop_page_number_at_the_edges",
-            "_join_words_split_across_pages"
+            "_join_words_split_across_pages",
+            "_mend",
+            "_EdgeLine",
+            "_edge_lines",
+            "_furniture",
+            "_read_page"
           ]
         },
         {
@@ -1155,11 +1158,12 @@
         }
       ],
       "contracts": [
-        "PDF text comes from PyMuPDF with a page number printed as the first or last line of a page removed before lines are joined, words hyphenated across lines and across pages joined, soft-wrapped lines rejoined, the remaining digit-only and short all-caps lines removed and paragraphs merged across page breaks.",
+        "PDF text comes from PyMuPDF with only the page's furniture taken out: a printed page number and a running head of one to four capitals, each recognised by where the line stands (on the top or bottom line of its page, clear of the page's other text, set no larger than it) and by what repeats (page numbers that differ by the distance between their pages; the same head at the same height on another page). Every other line is narrated, a bare number or a line of capitals included (v0.7.2 Phase 9, ACT72-070).",
         "Only one PyMuPDF call runs at a time in the process, so files converting side by side each get their own text.",
         "A directly added PDF with no '#' heading gets its first text line as the spoken chapter title (never the file name), removed once from the body.",
         "Every route that reads a PDF (Edge direct, Edge folder, Kokoro, Chatterbox, Qwen3) uses this one extractor.",
-        "Known limits of the cleaning (ACT72-064): a running head longer than four capitals is narrated as a heading; a line that is only a one-to-four-letter all-caps word is dropped wherever it is; a compound word broken at its own hyphen loses the hyphen; a bare number that is a page's last line is taken for its page number."
+        "Known limits of the cleaning, none of which loses a word (ACT72-064, open, for the owner): a running head longer than four capitals is narrated at each page; furniture that nothing repeats is narrated; a compound word broken at its own hyphen before a small letter loses the hyphen; capitals that end or begin a page inside a sentence keep a line break; a drop capital set as a line of its own is read as a letter by itself.",
+        "Words hyphenated across lines and across pages are joined when the word carries on in a small letter; a hyphen before a capital or beside a digit is kept. Soft-wrapped lines are rejoined, a line of capitals that a sentence runs through with them, and paragraphs are merged across page breaks. Worker sizing cleans a PDF the same way."
       ],
       "selection": [
         "files/tests/test_tts_smoke.py",
@@ -1240,10 +1244,6 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_pdf_text_cleaning.py::test_only_a_bare_number_on_the_first_or_last_line_of_a_page_is_taken_for_its_page_number"
-          },
-          {
-            "kind": "behavior",
             "test": "files/tests/test_pdf_text_cleaning.py::test_only_a_page_that_ends_in_a_hyphen_is_joined_to_the_next_page_without_a_space"
           },
           {
@@ -1252,7 +1252,51 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_pdf_text_cleaning.py::test_limit_a_line_that_is_only_a_short_word_in_capitals_is_dropped_wherever_it_is"
+            "test": "files/tests/test_pdf_text_cleaning.py::test_the_reviewers_pdf_a_year_that_ends_a_page_and_a_not_on_a_line_of_its_own_are_both_read"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_number_that_is_the_first_line_of_a_page_is_read"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_numbers_that_count_up_across_pages_are_read_when_they_stand_in_the_run_of_the_text"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_year_that_ends_a_page_is_read_and_the_page_number_under_it_is_not"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_short_word_in_capitals_on_a_line_of_its_own_inside_a_sentence_is_read[NOT]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_chapter_numeral_that_stands_once_above_its_chapter_is_read"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_range_of_numbers_broken_at_its_hyphen_keeps_both_numbers"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_a_bare_number_is_a_page_number_only_when_another_page_counts_with_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_short_capitals_are_a_running_head_only_when_the_same_word_stands_at_the_same_height_on_another_page"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_only_a_line_that_stands_clear_at_the_top_or_bottom_of_its_page_can_be_furniture"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_sizing_cleans_a_pdf_exactly_as_the_conversion_does"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_pdf_text_cleaning.py::test_limit_a_page_number_or_running_head_that_nothing_repeats_is_read_out"
           }
         ]
       },
@@ -9207,7 +9251,8 @@
             "drift_of",
             "drift_message",
             "convert_segment",
-            "remove_outputs"
+            "remove_outputs",
+            "CommitGate"
           ]
         },
         {
@@ -9216,17 +9261,25 @@
             "measured_duration",
             "M4BConverterUI._run_conversion"
           ]
+        },
+        {
+          "path": "scripts/shared/output_paths.py",
+          "symbols": [
+            "publish_new",
+            "DestinationOccupied"
+          ]
         }
       ],
       "contracts": [
         "Each output is encoded into a temporary file beside its destination and moved onto its final name only after FFmpeg (and any cover pass) exit cleanly and the measured length is within 3% of the planned span.",
-        "A failed, cancelled or wrong-length output leaves nothing behind; an existing file at the planned name is never overwritten.",
+        "A failed, cancelled or wrong-length output leaves nothing behind. An existing file at the planned name is never overwritten: the finished file is given its name by one operation that itself refuses a taken name (output_paths.publish_new), so a file that takes the name after the Converter looked, even in the instant before the move, is kept byte for byte and that output fails; the frozen plan is not renumbered (v0.7.2 Phase 9, ACT72-074).",
         "If one chapter of a split book fails, the book's chapters already written are removed; other books' outputs are untouched.",
         "FFmpeg's diagnostics go to a temporary file, never an undrained pipe; only a bounded tail reaches Details. Sources are never modified."
       ],
       "selection": [
         "files/tests/test_m4b_execution.py",
-        "files/tests/test_m4b_continuous.py"
+        "files/tests/test_m4b_continuous.py",
+        "files/tests/test_m4b_publication_order.py"
       ],
       "journeys": [],
       "verification": {
@@ -9266,6 +9319,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_continuous.py::test_a_feed_that_outlives_its_encoder_is_a_failure_not_a_success"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_taken_name_is_refused_and_both_files_keep_their_bytes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_eight_writers_racing_for_one_name_have_exactly_one_winner_every_time"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_name_taken_at_the_commit_is_refused_keeps_its_bytes_and_gives_the_authorization_back"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_file_that_takes_the_name_while_a_real_output_is_being_published_is_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_replacing_a_file_in_place_is_still_what_atomic_replace_does_and_only_it"
           }
         ]
       },
@@ -9296,7 +9369,9 @@
             "_reap",
             "run_argv",
             "run_argv_streaming",
-            "remove_outputs"
+            "remove_outputs",
+            "convert_segment",
+            "CommitGate"
           ]
         },
         {
@@ -9318,14 +9393,16 @@
         "No further book is probed or converted; a cancel during preflight reserves no run folder.",
         "The run reports CANCELLED only after cleanup; books never reached are 'not attempted', not failures.",
         "The log says what Cancel does: the file being converted is stopped now and its book is taken back; books already finished are kept (v0.7.2, ACT72-027).",
-        "On the continuous route Cancel stops the encoder and the book's decoder and reaps both before the run settles (v0.7.2 Phase 7B)."
+        "On the continuous route Cancel stops the encoder and the book's decoder and reaps both before the run settles (v0.7.2 Phase 7B).",
+        "Cancel and an output's last step have one order (v0.7.2 Phase 9, ACT72-071): Cancel is asked again before and after the finished file is measured, and the commit is authorized in one step under the lock the Cancel latch is taken under. A Cancel that came first publishes nothing and the run settles CANCELLED, on the last book as on any other; an authorization that came first has won, and that one output is published whole and stays."
       ],
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
         "files/tests/test_m4b_execution.py",
         "files/tests/test_m4b_conversion_plan.py",
         "files/tests/test_m4b_retry.py",
-        "files/tests/test_m4b_continuous.py"
+        "files/tests/test_m4b_continuous.py",
+        "files/tests/test_m4b_publication_order.py"
       ],
       "journeys": [
         "converter.cancel-during-encode"
@@ -9375,6 +9452,46 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_converter_jobs.py::test_the_cancel_line_says_what_cancel_does"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_that_lands_as_the_last_pass_ends_by_itself_publishes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_during_the_final_validation_publishes_nothing[with-the-controllers-gate]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_immediately_before_the_authorization_is_the_one_that_came_first"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_immediately_before_the_filesystem_commit_has_lost_and_can_see_what_it_lost_to"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_cancel_during_a_books_final_validation_cancels_the_run_and_keeps_only_what_was_already_finished[the-last-book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_between_the_authorization_and_the_commit_has_lost_to_that_one_output[the-last-book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_after_the_last_output_was_published_leaves_it_and_the_run_succeeded"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_the_journey_cancel_on_the_main_thread_during_the_real_final_validation_publishes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_the_same_journey_with_the_new_ordering_taken_out_publishes_after_cancel_as_the_reviewed_candidate_did"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_cancel_during_a_later_chapters_validation_takes_the_whole_real_book_back"
           }
         ]
       },
@@ -9410,7 +9527,8 @@
         "files/tests/test_m4b_converter_jobs.py",
         "files/tests/test_m4b_conversion_plan.py",
         "files/tests/test_m4b_retry.py",
-        "files/tests/test_m4b_continuous.py"
+        "files/tests/test_m4b_continuous.py",
+        "files/tests/test_m4b_publication_order.py"
       ],
       "journeys": [],
       "verification": {
@@ -9438,6 +9556,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_continuous.py::test_pause_between_chapters_then_resume_gives_the_same_bytes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_pause_during_the_final_validation_publishes_that_output_and_only_then_pauses"
           }
         ]
       },
@@ -9487,7 +9609,8 @@
         "files/tests/test_m4b_retry.py",
         "files/tests/test_m4b_hardening.py",
         "files/tests/test_m4b_converter_jobs.py",
-        "files/tests/test_m4b_continuous.py"
+        "files/tests/test_m4b_continuous.py",
+        "files/tests/test_m4b_publication_order.py"
       ],
       "journeys": [],
       "verification": {
@@ -9527,6 +9650,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_continuous.py::test_a_killed_process_fails_its_book_and_retry_repeats_it_exactly[encoder]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_name_taken_at_the_commit_during_retry_failed_is_refused_and_the_plan_does_not_move"
           }
         ]
       },
@@ -18310,7 +18437,9 @@
             "temporary_sibling",
             "discard_temporary",
             "atomic_replace",
-            "validate_source_for_replacement"
+            "validate_source_for_replacement",
+            "publish_new",
+            "DestinationOccupied"
           ]
         }
       ],
@@ -18319,11 +18448,13 @@
         "atomic_replace refuses any source that is not one of its own temporary files, and discard_temporary refuses a real file.",
         "A write, validation or replace failure leaves the original unchanged and no temporary file behind.",
         "A linked, missing or folder source is refused for replacement.",
-        "Numbered copies beside the source never reuse the unnumbered name and never collide with each other."
+        "Numbered copies beside the source never reuse the unnumbered name and never collide with each other.",
+        "A new output that must replace nothing is published by publish_new: a temporary file is given a name that must be free, by one operation that itself refuses a taken name (Windows' rename without replacement; a hard link elsewhere). atomic_replace stays the deliberate replacement of a file in place; which one a writer means is chosen where it publishes (v0.7.2 Phase 9, ACT72-074)."
       ],
       "selection": [
         "files/tests/test_cover_source_side.py",
-        "files/tests/test_m4b_staging.py"
+        "files/tests/test_m4b_staging.py",
+        "files/tests/test_m4b_publication_order.py"
       ],
       "journeys": [],
       "verification": {
@@ -18347,6 +18478,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_cover_source_side.py::test_several_sources_in_one_directory_do_not_collide"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_free_name_is_given_and_the_temporary_name_is_gone"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_only_a_plan_owned_temporary_file_may_be_published"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_publication_order.py::test_a_look_followed_by_a_replace_loses_the_other_writers_file_and_the_publication_does_not"
           }
         ]
       },
@@ -21679,6 +21822,13 @@
           "symbols": [
             "Job"
           ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/scaling/staging.py",
+          "symbols": [
+            "StagingCensus",
+            "DirectoryWatch"
+          ]
         }
       ],
       "contracts": [
@@ -21687,7 +21837,8 @@
         "each run owns a new directory and a later status read rejects copied, changed or stale evidence",
         "Every qualification scenario has a runner (m4b-scaling since Phase 7B; edge-low-memory, optional-engines and fresh-windows since Phase 8, under qualification/). A scenario that needs the network runs only with the --network policy it declares, handed on by name, and is BLOCKED without it; a missing application, engine or model is BLOCKED, never a pass.",
         "a sealed qualification result is read through its scenario: PASS only when the scenario's verdict is part of the sealed evidence, says PASS with checks that all passed and at least one run, and its runner exited 0; a verdict or a runner exit that does not lead to the sealed result makes the record invalid",
-        "the m4b-scaling harness reads what it compares: no handle to an exited child is kept, the decoder's console host is found and measured, and staged bytes are read exactly at every discard and publication; a figure that was not measured fails its check"
+        "the m4b-scaling harness reads what it compares: no handle to an exited child is kept, the decoder's console host is found and measured, and everything the application stages is read exactly before every removal, rename, truncation and writing-open of its process (not before two helper functions only), held to Windows' own report of the output base, with a staged file counted as diagnostics only when a child was handed it as its output; a figure that was not measured, or not read completely, fails its check. T5 is the frozen budget to the letter: the exact peak of everything staged no higher than the seeking route's largest, with no allowance (v0.7.2 Phase 9, ACT72-073)",
+        "the gate itself seals a scenario PASS only when the scenario's verdict bears it out (this scenario, its runner exited 0, at least one run, every check passed) and the whole scenario is beside it: its own identity names the run's HEAD, its runs are recorded, and every check the policy requires of that scenario's PASS is there (pass_requires). Anything else is sealed FAIL by the gate, a scenario is called satisfied only by a run that itself passed, and the reader derives the same from the sealed evidence (v0.7.2 Phase 9, ACT72-072)"
       ],
       "selection": [
         "files/tests/test_verification_gate_contract.py",
@@ -21778,19 +21929,91 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_verification_gate_contract.py::test_t5_compares_exact_staged_media_with_no_allowance"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_verification_gate_contract.py::test_the_staging_census_reads_the_exact_peak_of_media_and_diagnostics_apart"
-          },
-          {
-            "kind": "behavior",
             "test": "files/tests/test_verification_gate_contract.py::test_a_benchmark_child_is_let_go_once_it_has_ended"
           },
           {
             "kind": "behavior",
             "test": "files/tests/test_verification_gate_contract.py::test_the_decoders_console_host_is_found_among_the_jobs_processes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_t5_holds_every_staged_byte_to_the_seeking_routes_largest_peak_with_no_allowance"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_seeking_routes_figure_is_the_largest_exact_peak_of_its_own_runs_and_the_boundary_is_that_byte"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_t5_fails_when_the_reading_is_not_complete_or_shows_more[a-decrease-nobody-read]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_census_reads_the_exact_peak_of_everything_staged_and_says_how_completely"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_one_more_file_made_and_unlinked_directly_is_read_to_the_byte_and_fails_t5[a-whole-copy-inside-the-publication]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_one_more_file_made_and_unlinked_directly_is_read_to_the_byte_and_fails_t5[four-kibibytes-at-the-peak]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_every_way_of_lowering_what_is_staged_is_read_first[os.truncate]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_every_way_of_lowering_what_is_staged_is_read_first[renamed-away]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_file_is_diagnostics_only_when_a_child_was_given_it_as_its_output_never_by_its_name"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_link_among_the_temporaries_is_never_followed_and_fails_the_reading"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_temporary_that_was_there_before_the_run_is_not_this_runs_and_the_record_says_so"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_temporary_another_process_removes_is_not_passed_off_as_read"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_converters_own_code_never_shortens_a_file_through_a_handle"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_control_a_whole_scenario_pass_is_sealed_pass_and_read_as_pass"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_pass_verdict_that_does_not_bear_itself_out_is_sealed_fail_by_the_gate_itself[a-failed-check]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_pass_verdict_that_does_not_bear_itself_out_is_sealed_fail_by_the_gate_itself[nothing-executed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_verdict_that_is_not_this_scenarios_is_no_verdict_and_the_run_fails[another-scenario]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_pass_verdict_without_the_whole_scenario_or_its_evidence_is_not_accepted[a-required-family-missing]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_scenario_that_passes_but_leaves_a_process_behind_fails_the_run_and_satisfies_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_the_real_policy_states_the_whole_of_every_scenarios_pass"
           }
         ]
       },
@@ -23840,19 +24063,20 @@
         "ACT.TTS.PDF-TEXT"
       ],
       "evidence": "v0.7.2 Phase 8, found by the ACT72-057 fixtures on real PDFs: PyMuPDF hands a page number over as one more line of the page, and the lines were joined before number-only lines were removed",
-      "resolution": "Fixed in v0.7.2 Phase 8: pdf_extractor removes a digit-only first or last line of each page before joining (_drop_page_number_at_the_edges) and joins a word hyphenated across a page break (_join_words_split_across_pages). Seven of the new tests fail on the earlier code. The existing speech goldens are unchanged."
+      "resolution": "Fixed in v0.7.2 Phase 8: pdf_extractor removes a digit-only first or last line of each page before joining (_drop_page_number_at_the_edges) and joins a word hyphenated across a page break (_join_words_split_across_pages). Seven of the new tests fail on the earlier code. The existing speech goldens are unchanged.",
+      "superseded": "The rule this fix added (a digit-only first or last line of a page is its page number) deleted text and was replaced in v0.7.2 Phase 9: see ACT72-070. What it fixed stays fixed, by evidence instead of by shape."
     },
     {
       "id": "ACT72-064",
       "severity": "Minor",
       "phase": 8,
       "status": "open",
-      "title": "PDF cleaning limits that need a decision: a running head longer than four capitals (a title printed on every page) is narrated at each page; a line that is only a one-to-four-letter all-caps word (an acronym that wraps alone) is dropped; a compound word broken at its hyphen loses the hyphen; a bare number ending a page is taken for its page number",
+      "title": "PDF cleaning limits that need a decision, none of which loses a word: a running head longer than four capitals (a title printed on every page) is narrated at each page; page furniture that nothing repeats (a one-page document's number, a number that does not count with its neighbours) is narrated; a compound word broken at its hyphen before a small letter loses the hyphen; capitals that end or begin a page inside a sentence keep a line break; a drop capital set as a line of its own is read as a letter by itself",
       "features": [
         "ACT.TTS.PDF-TEXT"
       ],
-      "evidence": "v0.7.2 Phase 8 fixtures (the four test_limit_* tests in files/tests/test_pdf_text_cleaning.py state each exactly)",
-      "deferred": "Not decided. Proposed for the owner at the Phase 8 checkpoint: a later release, because a general answer (recognising a running head by its repetition across pages, telling an acronym from a numeral) is new cleaning behaviour rather than a repair. Open until the owner rules."
+      "evidence": "v0.7.2 Phase 8 fixtures, restated in Phase 9: the five test_limit_* tests in files/tests/test_pdf_text_cleaning.py state each exactly",
+      "deferred": "Not decided. The Phase 9 independent review (P9-01) refused the blanket deferral proposed at Phase 8, because two of the four limits then listed lost narration (a bare number ending a page, a short word in capitals on a line of its own). Those two were defects and are repaired under ACT72-070; they are no longer limits. What remains is listed above one by one: in each, something is read that a listener might not want, or a word comes out oddly; in none is a word lost. Open until the owner rules on each."
     },
     {
       "id": "ACT72-065",
@@ -23915,7 +24139,84 @@
         "ACT.CONVERTER.SCALING"
       ],
       "evidence": "T5:scale1000:tput-scale1000-180 of 2026-11-11_011239_qualification_2dbf: 215,796 against 215,728. files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/02-forensic-findings.md and 09-replay.txt: all 18 sampled peaks of that book in three sessions (215,302 to 215,936) are below what one chapter's two passes leave staged at the end of the cover pass, and 215,796 is a value the seeking route itself recorded in two earlier sessions",
-      "resolution": "Fixed in the v0.7.2 Phase 8 remediation: bench_run.StagingCensus reads the real size of every owned temporary just before each discard and each publication, the only moments the total can fall, so the largest reading is the peak. Staged media is compared exactly, with no allowance, and the seeking route's own runs must agree to the byte; nothing may be left behind; every publication must have been read. FFmpeg's diagnostics files are read at the same moments, apart, and held to the 1.05 x the scenario applies to writes, because their length differs by a few bytes between identical runs. The 0.5 s sampler stays as a witness that must never see more than the exact reading. No threshold was widened and no fixture changed. One more staged copy of a chapter, and a decoded-audio spool kept as an owned temporary, each fail T5 on a copy of the application (files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/10-controls.md); tests in files/tests/test_verification_gate_contract.py."
+      "resolution": "Fixed in the v0.7.2 Phase 8 remediation: bench_run.StagingCensus reads the real size of every owned temporary just before each discard and each publication, the only moments the total can fall, so the largest reading is the peak. Staged media is compared exactly, with no allowance, and the seeking route's own runs must agree to the byte; nothing may be left behind; every publication must have been read. FFmpeg's diagnostics files are read at the same moments, apart, and held to the 1.05 x the scenario applies to writes, because their length differs by a few bytes between identical runs. The 0.5 s sampler stays as a witness that must never see more than the exact reading. No threshold was widened and no fixture changed. One more staged copy of a chapter, and a decoded-audio spool kept as an owned temporary, each fail T5 on a copy of the application (files/dev-work/verification-gate/outputs/2026-11-11_phase8_remediation_7c3e/10-controls.md); tests in files/tests/test_verification_gate_contract.py.",
+      "superseded": "The exact reading this introduced was taken before two helper functions only, and its judgement allowed FFmpeg's diagnostics files 1.05 x apart from the media, which is not the approved budget: both corrected in v0.7.2 Phase 9, see ACT72-073."
+    },
+    {
+      "id": "ACT72-070",
+      "severity": "Major",
+      "phase": 9,
+      "status": "closed",
+      "title": "PDF narration lost text: a line was taken for page furniture by its shape alone. A bare number on the first or last line of a page was deleted as its page number (new in v0.7.2 Phase 8: 'The safe opens with the code 1984' was read without the 1984), any other line of digits left on its own was deleted, and any line of one to four capitals was deleted wherever it stood (inherited: 'The signal is NOT a command' was read as 'The signal is a command'). A range of numbers broken at its hyphen was read as one number (1939-1945 as 19391945)",
+      "features": [
+        "ACT.TTS.PDF-TEXT"
+      ],
+      "evidence": "Phase 9 independent Codex review, finding P9-01 (files/dev-work/verification-gate/outputs/2026-11-11_phase9_codex_6a91/pdf-staging-probes.json); reproduced on the reviewed commit by files/dev-work/verification-gate/outputs/2026-11-11_phase9_remediation_e7b2/pdf-before.json",
+      "resolution": "Fixed in the v0.7.2 Phase 9 remediation: tts/pdf_extractor takes a line out only as page furniture, on evidence of where it stands on its page (PyMuPDF's own geometry of the same text page) and of what repeats across pages (_edge_lines, _furniture); a line that fails either test is narrated. A line of capitals a sentence runs through is joined into it, and a hyphen before a capital or beside a digit is kept. Four tests that asserted the lost text as limits are gone; real-PDF tests with hand-written narration cover the reviewer's own fixture, numbers and capitals at every position, genuine page numbers and running heads, and worker sizing (files/tests/test_pdf_text_cleaning.py). The remaining limits lose no word and stay with the owner as ACT72-064."
+    },
+    {
+      "id": "ACT72-071",
+      "severity": "Major",
+      "phase": 9,
+      "status": "closed",
+      "title": "Converter: a Cancel pressed while a finished output was being measured was followed by that output being published, and on the last book the run reported SUCCEEDED. Nothing between the last FFmpeg pass and the destination looked at Cancel",
+      "features": [
+        "ACT.CONVERTER.CANCEL",
+        "ACT.CONVERTER.SAFE-PUBLISH"
+      ],
+      "evidence": "Phase 9 independent Codex review, finding P9-02 (real panel, real FFmpeg: files/dev-work/verification-gate/outputs/2026-11-11_phase9_codex_6a91/live-challenges/cancel-final-validation); reproduced on the reviewed commit by files/dev-work/verification-gate/outputs/2026-11-11_phase9_remediation_e7b2/converter-publication-before.json",
+      "resolution": "Fixed in the v0.7.2 Phase 9 remediation: m4b_execution.convert_segment asks the Cancel latch again before and after the measurement and publishes only through an authorization ordered against the Cancel latch (CommitGate, built by the panel from its controller's authorize_commit and commit_finished, the pair narration has used since Phase 1). A Cancel that came first publishes nothing and the run settles CANCELLED; an authorization that came first has won and that one output stays. Tests with a real worker thread held at exact points and Cancel on the main thread, on the last book as on any other, a real-FFmpeg journey of the reviewer's scenario, and a control that takes the ordering out and shows the same journey publishing after Cancel (files/tests/test_m4b_publication_order.py)."
+    },
+    {
+      "id": "ACT72-072",
+      "severity": "Major",
+      "phase": 9,
+      "status": "closed",
+      "title": "The gate sealed a qualification PASS with exit 0 for a scenario verdict that said PASS beside a failed check, with no run and no check, or about another scenario; only the status reader refused the record afterwards. No real qualification verdict had these contradictions",
+      "features": [
+        "ACT.GATE.RUNNER"
+      ],
+      "evidence": "Phase 9 independent Codex review, finding P9-03 (files/dev-work/verification-gate/outputs/2026-11-11_phase9_codex_6a91/qualification-boundary-probes.json); reproduced on the reviewed commit by files/dev-work/verification-gate/outputs/2026-11-11_phase9_remediation_e7b2/qualification-boundary-before.json",
+      "resolution": "Fixed in the v0.7.2 Phase 9 remediation: verify.judge_scenario decides what is sealed before anything is recorded (a PASS stands only for this scenario, with its runner exited 0, at least one run and every check passed; a verdict is only ever lowered), and verify.scenario_evidence_problems holds a PASS to what lies beside it: the scenario's identity naming the run's HEAD, its runs recorded, and every check verification.json requires of that scenario's PASS (pass_requires), so a missing check is not a pass. A scenario is called satisfied only by a run that itself passed. The reader's own derivation now makes FAIL of a PASS verdict that does not bear itself out, as the gate does, so the two agree; every sealed run on disk reads the same status as before (reader-dry-run.json in the remediation evidence). Tests through the real gate, supervisor, finalizer and reader state the gate's judgement, its exit, the sealed result and the reader's answer for each case (files/tests/test_verification_gate_contract.py)."
+    },
+    {
+      "id": "ACT72-073",
+      "severity": "Major",
+      "phase": 9,
+      "status": "closed",
+      "title": "m4b-scaling's T5 missed staged bytes and judged a budget nobody approved: the Phase 8 census read before two helper functions only, so a temporary removed any other way lowered the total unread (154,048 bytes staged, 92,520 read); it took any name ending in .log for diagnostics; and it held the staged media exactly but FFmpeg's diagnostics files apart at 1.05 x, where the frozen budget is 'peak staged bytes no higher than production's'",
+      "features": [
+        "ACT.GATE.RUNNER",
+        "ACT.CONVERTER.SCALING"
+      ],
+      "evidence": "Phase 9 independent Codex review, finding P9-04 (live-challenges-summary.json, transient-small-copy-verdict.json and bounded-final-controls.json in files/dev-work/verification-gate/outputs/2026-11-11_phase9_codex_6a91); reproduced on the reviewed commit by files/dev-work/verification-gate/outputs/2026-11-11_phase9_remediation_e7b2/staging-before.json",
+      "resolution": "Fixed in the v0.7.2 Phase 9 remediation: scaling/staging.py reads every owned temporary's size before every removal, rename, truncation and writing-open of the benchmark process (Python audit events, raised before the operation whoever asks for it), holds that to Windows' own report of every removal and rename under the output base, counts a file as diagnostics only when a child was handed it as its output, follows no link, and records whatever it could not vouch for; qualify.resource_checks fails T5 unless every compared run was read completely, and judges the frozen budget to the letter: the exact peak total against the largest exact peak total of the seeking runs, no allowance (the staged media is also still compared exactly). No budget moved. Tests on real files with an independent witness (files/tests/test_verification_gate_contract.py) and planted-defect copies of the application measured by the tracked harness (controls.md in the remediation evidence)."
+    },
+    {
+      "id": "ACT72-074",
+      "severity": "Minor",
+      "phase": 9,
+      "status": "closed",
+      "title": "Converter: a file that took an output's planned name after the Converter had looked at it, and before it moved the finished file there, was replaced. The look was exists(), the move os.replace",
+      "features": [
+        "ACT.CONVERTER.SAFE-PUBLISH",
+        "ACT.SHARED.OUTPUT-PATHS.REPLACE"
+      ],
+      "evidence": "Phase 9 independent Codex review, finding P9-05 (files/dev-work/verification-gate/outputs/2026-11-11_phase9_codex_6a91/converter-publication-probe.json); reproduced on the reviewed commit by files/dev-work/verification-gate/outputs/2026-11-11_phase9_remediation_e7b2/converter-publication-before.json",
+      "resolution": "Fixed in the v0.7.2 Phase 9 remediation: shared/output_paths.publish_new gives a temporary file a new name by one operation that itself refuses a taken name (os.rename on Windows, which is MoveFileExW without replacement; os.link elsewhere), and the Converter publishes through it. atomic_replace is unchanged and stays the confirmed replacement of a file in place. A name taken at the commit is kept byte for byte, the output fails, and the frozen plan is not renumbered; eight writers racing for one name have exactly one winner in every round (files/tests/test_m4b_publication_order.py)."
+    },
+    {
+      "id": "ACT72-075",
+      "severity": "Minor",
+      "phase": 9,
+      "status": "open",
+      "title": "The MP3 Tool and the M4B Maker / Metadata Editor staging publish a new output by a look followed by os.replace (mp3_plan.publish_book; m4b_staging.publish_staged), the same sequence that let the Converter replace a file that took the planned name in between (ACT72-074)",
+      "features": [
+        "ACT.MP3.STAGING-PUBLISH",
+        "ACT.SHARED.M4B-STAGING"
+      ],
+      "evidence": "Read from source while repairing ACT72-074 in the v0.7.2 Phase 9 remediation (scripts/mp3/mp3_plan.py publish_book; scripts/m4b/m4b_staging.py publish_staged): each refuses an existing name and then moves with os.replace. Not reproduced by a run, and not changed",
+      "deferred": "Not decided. Outside the five findings the Phase 9 remediation was given, so it was recorded rather than changed. The same output_paths.publish_new would close it in both places; each publishes several files with a roll-back, which that change has to keep. For the owner."
     }
   ],
   "source_review": {
@@ -23929,14 +24230,14 @@
     "scripts/launcher.py": "de0c7e32025bb62c2240cba305c9caaaec66cfca9ad9ad6ba816dd86ff913b26",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "f4336b431c5cd1c833ca7187078065c65dae7e4e1d49f8dfbd6f90f1208d717d",
+    "scripts/m4b/converter/m4b_converter.py": "d7f225ccd1956d91ef0d3457e1cd2385ac9de7975c7db212669efa0a84fb01da",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "6d2dfa4b399172f0bda4f26ad9853561f52414be5d0eeba7e2bfb645f970ac45",
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
     "scripts/m4b/m4b_continuous.py": "1be6e837c4e408dea7566131686b5d19111bf4f57640e54ac0f0d9b03c78f94b",
-    "scripts/m4b/m4b_execution.py": "992c6d18e0f26b98bb91f194fadb51323d49060563fe31e9e6937b1090cee801",
+    "scripts/m4b/m4b_execution.py": "a00877e3e024e1f3b95cca001ad0c3c7caf4dd312755e4a0e6859ceb167ae704",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
     "scripts/m4b/m4b_probe.py": "4b87188ab0b04066c8f65f5d516de3054f7cc5a50a4367d1ecba587b71e7075f",
@@ -24000,7 +24301,7 @@
     "scripts/shared/optional_setup_tk_harness_v3.py": "23727d8ea3d09d7ac49d523a05055748f378593c9cacd6b7c9942241562afb26",
     "scripts/shared/optional_setup_v3.py": "1a3fa01225bbc10dd68a5f41092ab5c9134546835b6035279301626f04c18d43",
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
-    "scripts/shared/output_paths.py": "30c2443ece82baabc5ab051297f9a372df9950e698c8928355b82a29466bea8e",
+    "scripts/shared/output_paths.py": "27d0ad0a9bfe3f40b926522631886658966fd9b67708df7cf3a2122371098f12",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
     "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
@@ -24036,7 +24337,7 @@
     "scripts/tts/optional_setup_readonly_worker_v3.py": "6fa9c0cf53ce267eb70c0a4cf12a17185b07d96b757173e8017ef1a57ffb862a",
     "scripts/tts/optional_setup_worker.py": "35cdccd7246389b3cbf1f9d07368777aa618c1c713078eb5913ec7e85f47916f",
     "scripts/tts/output_names.py": "daa986300100f9fca00c58a344768dde3d1c3712512a75c42f4c0ddb03cedf5c",
-    "scripts/tts/pdf_extractor.py": "a8b9ab7cfada51cb35d381c8846bc9cc180fb28938f9a48d55537d3c9d098b21",
+    "scripts/tts/pdf_extractor.py": "b310f775027ad26a7c1911c17778a3895777a6cdd638b9bec401dabb744c5f25",
     "scripts/tts/publication.py": "2006abe24f6ab7e1432f4d8b8a659e59db47c348ad719d72cd364e1755c48dbc",
     "scripts/tts/quality_corpus.py": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
     "scripts/tts/qwen3_clone_setup.py": "58d4109a90738a13cafb5c4ab14a4fb7deebf04d07baa905ab78df2d90049471",
