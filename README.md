@@ -10,8 +10,6 @@ A Windows desktop app for turning PDF/TXT books into narrated audio and combinin
 |---|---|---|
 | Windows | [AudiobookTool-Windows-v0.7.2.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.2/AudiobookTool-Windows-v0.7.2.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
 
-The link above is the intended v0.7.2 release asset URL; it becomes available when the GitHub release is published.
-
 macOS and Linux are not qualified or distributed for v0.7.2; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
 
 Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
