@@ -7774,7 +7774,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_m4b_converter_jobs.py::test_a_failure_inside_the_execution_loop_still_releases_the_panel[atomic_replace]"
+            "test": "files/tests/test_m4b_converter_jobs.py::test_a_failure_inside_the_execution_loop_still_releases_the_panel[publish_new]"
           },
           {
             "kind": "native",
