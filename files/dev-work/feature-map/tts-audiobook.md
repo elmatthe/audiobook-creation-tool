@@ -192,7 +192,10 @@ same run, queue and output rules, with their own synthesis (described in the tts
   larger than that text; a line at the foot that the sentence above it runs into is that sentence's word unless it is a
   bare number (v0.7.2 Phase 9 remote re-review: an emphasised "NOT" a few lines down two pages was taken for a running
   head and deleted from both). What repeats: for a page number, another page
-  carries a number that differs from it by exactly the distance between the two pages; for a running head of one to four
+  carries a number that differs from it by exactly the distance between the two pages, and at least one of those numbers
+  stands apart from the text (under a finished sentence, alone, at the top, or set smaller than the text): numbers that
+  every sentence above them runs into, set as the text is, are read (Phase 9 focused closure: access codes 1984 and 1985
+  under "The required access code is" were lost); for a running head of one to four
   capitals, the same word stands at the same height on another page. A bare number or a line of capitals that fails
   either test is text and is read: the year a sentence ends a page with, an acronym or an emphasised word on a line of
   its own, a chapter numeral above its chapter. (Until this phase a line was removed for its shape alone, which deleted

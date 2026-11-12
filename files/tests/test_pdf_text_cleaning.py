@@ -397,6 +397,64 @@ def test_capitals_in_the_bottom_margin_that_a_sentence_runs_into_are_read_and_a_
     assert words(finished) == words("The command was checked. The command was checked.")
 
 
+# The Phase 9 focused closure review's geometry (R9-01, ACT72-070): PyMuPDF's default page, a line of text at y=620 and a
+# bare number at y=750, inside the foot margin and clear of the text. Each case below changes one thing only.
+def foot_numbers(folder: Path, name: str, lines: list[str], numbers: list[str], size: float = 11) -> str:
+    pages = [[(620, line, 11), (750, number, size)] for line, number in zip(lines, numbers)]
+    return pdf_extractor.extract_text_from_pdf(str(placed_pdf(folder, name, pages)))
+
+
+@pytest.mark.parametrize("numbers", [["1984", "1985"], ["42", "43"], ["1984", "1985", "1986"]],
+                         ids=["the-reviewers-codes", "an-answer", "three-pages"])
+def test_numbers_that_sentences_run_into_are_read_even_when_they_count_with_their_pages(tmp_path, numbers):
+    """The review's reproduction: "The required access code is" with its code under it, 1984 on one page and 1985 on the
+    next. The codes count up exactly as page numbers would, so both were taken out. Each sentence runs into its number
+    and each number is set as the text is: nothing marks them as the pages' rather than the sentences', so they are read."""
+    text = foot_numbers(tmp_path, "codes", ["The required access code is"] * len(numbers), numbers)
+    assert words(text) == [word for number in numbers for word in ["The", "required", "access", "code", "is", number]]
+
+
+def test_numbers_that_do_not_count_with_their_pages_are_read_in_the_same_place(tmp_path):
+    """The review's own control: 1984 and 9001 do not count with their pages, so they were never page numbers."""
+    text = foot_numbers(tmp_path, "not-counting", ["The required access code is"] * 2, ["1984", "9001"])
+    assert words(text) == words("The required access code is 1984 The required access code is 9001")
+
+
+@pytest.mark.parametrize("lines, size", [
+    (["The page ends here.", "So does this one."], 11),
+    (["The required access code is", "So does this one."], 11),
+    (["The required access code is", "The required access code is"], 9),
+], ids=["under-finished-sentences", "one-page-under-a-finished-sentence", "set-smaller-than-the-text"])
+def test_page_numbers_in_the_same_place_are_still_taken_out(tmp_path, lines, size):
+    """Printed page numbers 198 and 199 in the very place of the codes above, and they are taken out: one of them stands
+    apart from the text, under a finished sentence, or both are set smaller than the text, as a page number is."""
+    text = foot_numbers(tmp_path, "folios", lines, ["198", "199"], size=size)
+    assert words(text) == words(" ".join(lines))
+
+
+def test_a_running_head_and_page_numbers_beside_numbers_of_the_text_are_told_apart(tmp_path):
+    """A book page with its running head and its page number in the margins, an unfinished sentence ending the text, and
+    on the next page a year the text names: the head and the numbers go, the year stays."""
+    def leaf(number: int, last: str):
+        return [(HEAD_Y, "IV", 9), (BODY_TOP, "The keeper wrote the year down", 11), (BODY_TOP + LINE_STEP, last, 11),
+                (FOOT_Y, str(number), 9)]
+    path = placed_pdf(tmp_path, "head-numbers-year", [leaf(198, "and the code beside"), leaf(199, "it: 1984.")],
+                      width=PAGE_WIDTH, height=PAGE_HEIGHT)
+    text = pdf_extractor.extract_text_from_pdf(str(path))
+    assert words(text) == words("The keeper wrote the year down and the code beside The keeper wrote the year down it: 1984.")
+
+
+def test_ambiguous_a_year_alone_in_the_foot_margin_under_finished_sentences_is_taken_for_a_page_number(tmp_path):
+    """Stated, not solved: a bare number alone in the foot margin, under a finished sentence, counting with the next
+    page's, is a page number by every mark the page carries, and is taken out even when it was meant as a year. The same
+    years that do not count with their pages are read. Nothing on the pages tells the first case from a book's page
+    numbers; preserving it would mean reading every book's page numbers aloud (v0.7.2 Phase 9 focused closure)."""
+    taken = foot_numbers(tmp_path, "year-folio", ["The vault was sealed."] * 2, ["1984", "1985"])
+    assert words(taken) == words("The vault was sealed. The vault was sealed.")
+    kept = foot_numbers(tmp_path, "year-text", ["The vault was sealed."] * 2, ["1984", "1990"])
+    assert words(kept) == words("The vault was sealed. 1984 The vault was sealed. 1990")
+
+
 # --------------------------------------------------------------------------- #
 # What must not be joined
 # --------------------------------------------------------------------------- #

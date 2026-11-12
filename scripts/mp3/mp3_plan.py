@@ -411,6 +411,94 @@ def _identity(path: Path) -> tuple[int, int]:
     return info.st_dev, info.st_ino
 
 
+#: Whether a roll-back can move a published file back by an operation bound to that file rather than to its name. Only
+#: Windows offers one (a rename made through a handle that also denies everyone else deletion of the file); elsewhere a
+#: roll-back leaves what it published where it is and says so (v0.7.2 Phase 9 focused closure, R9-03).
+_CAN_TAKE_BACK = os.name == "nt"
+_WIN32: tuple | None = None
+
+
+def _win32() -> tuple:
+    """``(ctypes, kernel32, FILE_RENAME_INFO)``, made once, on Windows only."""
+    global _WIN32
+    if _WIN32 is None:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                         wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel32.SetFileInformationByHandle.restype = wintypes.BOOL
+        kernel32.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        class RenameInfo(ctypes.Structure):  # FILE_RENAME_INFO; the name runs on past its one declared character
+            _fields_ = [("ReplaceIfExists", wintypes.DWORD), ("RootDirectory", wintypes.HANDLE),
+                        ("FileNameLength", wintypes.DWORD), ("FileName", wintypes.WCHAR * 1)]
+
+        _WIN32 = (ctypes, kernel32, RenameInfo)
+    return _WIN32
+
+
+def _open_held(path: Path) -> int | None:
+    """A descriptor holding the file *path* names, opened for deletion with deletion not shared: while it is open no
+    other program can rename, replace or delete that file. A link is opened as itself, never followed. None when the file
+    cannot be opened so (gone, a folder, or held by another program that does not share deletion)."""
+    import msvcrt
+
+    ctypes, kernel32, _ = _win32()
+    handle = kernel32.CreateFileW(os.path.abspath(path), 0x00010000 | 0x0080,  # DELETE | FILE_READ_ATTRIBUTES
+                                  0x0001 | 0x0002, None, 3,  # FILE_SHARE_READ | FILE_SHARE_WRITE; OPEN_EXISTING
+                                  0x00200000, None)  # FILE_FLAG_OPEN_REPARSE_POINT
+    if handle in (None, ctypes.c_void_p(-1).value):
+        return None
+    try:
+        return msvcrt.open_osfhandle(handle, os.O_RDONLY)
+    except OSError:
+        kernel32.CloseHandle(handle)
+        return None
+
+
+def _rename_held(descriptor: int, target: Path) -> bool:
+    """Rename the very file *descriptor* holds to *target*, refusing a taken name; whatever its old name holds now is
+    not involved (``SetFileInformationByHandle``, ``FileRenameInfo``, no replacement)."""
+    import msvcrt
+
+    ctypes, kernel32, RenameInfo = _win32()
+    name = os.path.abspath(target).encode("utf-16-le")
+    buffer = ctypes.create_string_buffer(ctypes.sizeof(RenameInfo) + len(name))  # zeroed: the name ends in a null
+    info = RenameInfo.from_buffer(buffer)
+    info.ReplaceIfExists = 0
+    info.RootDirectory = None
+    info.FileNameLength = len(name)
+    ctypes.memmove(ctypes.addressof(info) + RenameInfo.FileName.offset, name, len(name))
+    return bool(kernel32.SetFileInformationByHandle(msvcrt.get_osfhandle(descriptor), 3, buffer, len(buffer)))
+
+
+def _take_back(published: Path, staged: Path, identity: tuple[int, int]) -> bool:
+    """Move *published* back to *staged* only if it is still the very file this attempt published. Whether it is back.
+
+    The decision and the move are bound to one open file, never to the name (v0.7.2 Phase 9 focused closure, R9-03;
+    until then the identity was read by name and the file then moved by name, so a file another program put there in
+    between was moved into this run's staging). The file is held (:func:`_open_held`), its identity is read from that
+    hold, and the rename is made through the same hold (:func:`_rename_held`): while held, no other program can replace
+    it, and the rename can only move it. A name replaced before the hold holds the other program's file, whose identity
+    is not this attempt's: it is left exactly where it is. Where no such operation exists nothing is moved."""
+    if not _CAN_TAKE_BACK:
+        return False
+    descriptor = _open_held(published)
+    if descriptor is None:
+        return False
+    try:
+        info = os.fstat(descriptor)
+        if (info.st_dev, info.st_ino) != identity:
+            return False  # another program's file has the name: it stays where it is
+        return _rename_held(descriptor, staged)
+    finally:
+        os.close(descriptor)
+
+
 def publish_book(book: BookPlan) -> tuple[Path, ...]:
     """Make a fully staged Book visible, atomically at the Book boundary.
 
@@ -423,9 +511,11 @@ def publish_book(book: BookPlan) -> tuple[Path, ...]:
     any failure, what this attempt moved is moved back to staging, so a Book is
     either published whole or not at all and its successful pieces are still
     there for a retry. Only a file that is still the very file this attempt
-    moved is taken back, and the Book folder is removed only if this attempt
-    made it and it is empty: nothing another writer put there is moved or
-    removed.
+    moved is taken back, by an operation bound to that file and not to its name
+    (:func:`_take_back`; Phase 9 focused closure), and the Book folder is
+    removed only if this attempt made it and it is empty: nothing another writer
+    put there is moved or removed. An output that cannot be taken back that way
+    is left where it is and named in the error.
     """
     _require_owned(book)
     pairs = tuple(zip(book.staged_outputs, book.published_outputs))
@@ -449,12 +539,11 @@ def publish_book(book: BookPlan) -> tuple[Path, ...]:
         left: list[str] = []
         for staged, published, identity in reversed(moved):
             try:
-                if _identity(published) != identity:
-                    left.append(published.name)  # no longer the file this attempt published: someone else's, untouched
-                    continue
-                output_paths.move_without_replacing(published, staged)
+                back = _take_back(published, staged, identity)
             except OSError:
-                left.append(published.name)
+                back = False
+            if not back:
+                left.append(published.name)  # still published, or another program's file at its name: left as it is
         if made_folder:
             try:
                 book.published_dir.rmdir()  # only when empty: whatever else is there stays
@@ -464,7 +553,7 @@ def publish_book(book: BookPlan) -> tuple[Path, ...]:
                   "and was not replaced" if isinstance(exc, FileExistsError) else str(exc))
         if left:
             raise PlanError(f"publishing {book.folder_name} failed ({reason}); "
-                            f"{', '.join(left)} could not be taken back") from exc
+                            f"{', '.join(left)} could not be taken back and were left where they are") from exc
         raise PlanError(f"publishing {book.folder_name} failed and was rolled back: {reason}") from exc
     return tuple(published for _staged, published in pairs)
 

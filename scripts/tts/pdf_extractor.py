@@ -165,6 +165,9 @@ class _EdgeLine(NamedTuple):
     line: int       # the line's index among the lines of the page's text
     text: str
     at: float       # its baseline, in points from the top of the page
+    #: A bare number at the foot that the sentence above it runs into, set as large as that sentence: on its page alone
+    #: it may as well be the sentence's last word as the page's number (v0.7.2 Phase 9 focused closure, R9-01).
+    in_sentence: bool = False
 
 
 def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLine]:
@@ -176,7 +179,9 @@ def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLin
 
     An edge line stands in the page's top or bottom margin (:data:`_MARGIN`), clear of the rest of the page's text. A
     line at the bottom that the sentence above it runs into (that line does not end a sentence) is that sentence's word,
-    and is not an edge line unless it is a bare number: whether a number is the page's is still decided by counting.
+    and is not an edge line unless it is a bare number: a page number under an unfinished sentence is common, so such a
+    number stays a candidate, marked ``in_sentence`` unless it is set smaller than the page's text, and the pages it
+    counts with decide (:func:`_furniture`).
     """
     if not layout:
         return []
@@ -230,7 +235,8 @@ def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLin
             if runs_into and not _PAGE_NUMBER.fullmatch(row[1]):
                 continue  # the sentence above runs into it: its word, never a running head
             if on(level, row) and (text_size is None or row[5] <= text_size + _SIZE_SLACK):
-                found[row[0]] = _EdgeLine(page_index, row[0], row[1], row[2])
+                in_sentence = runs_into and not row[5] < text_size - _SIZE_SLACK
+                found[row[0]] = _EdgeLine(page_index, row[0], row[1], row[2], in_sentence)
     return list(found.values())
 
 
@@ -238,7 +244,11 @@ def _furniture(edge_lines: list[_EdgeLine]) -> dict[int, set[int]]:
     """Which edge lines are page furniture, as ``{page: {line, ...}}``. Standing at the edge is necessary, never enough.
 
     * A page number: digits, and another page has an edge line of digits that differs from it by exactly the distance
-      between the two pages. A book's pages count up together; two bare numbers of the text do not.
+      between the two pages. A book's pages count up together; two bare numbers of the text do not. And at least one
+      of those numbers stands apart from the text: under a finished sentence, alone, at the top, or set smaller than the
+      page's text. Numbers that every sentence above them runs into, set as the text is, are read: nothing on those
+      pages tells a page number from the sentence's own last word, so they are kept (v0.7.2 Phase 9 focused closure,
+      R9-01: "The required access code is" / "1984" on one page and "1985" on the next lost both codes).
     * A short running head: one to four capitals, and the same word stands at the same height on another page. A
       chapter numeral printed once above its chapter is a heading, and is kept.
     """
@@ -251,7 +261,7 @@ def _furniture(edge_lines: list[_EdgeLine]) -> dict[int, set[int]]:
         elif _SHORT_HEAD.fullmatch(line.text):
             heads[line.text].append(line)
     for run in counted.values():
-        if len({line.page for line in run}) > 1:
+        if len({line.page for line in run}) > 1 and not all(line.in_sentence for line in run):
             for line in run:
                 drop[line.page].add(line.line)
     for same_word in heads.values():
