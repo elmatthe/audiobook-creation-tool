@@ -4,6 +4,52 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-12 — ACT v0.7.2 — owner-approved composite verification acceptance
+
+The full Windows gate at `c4a9853a9fadca77320e576c618d14395dd2191c` reported three failures in structural
+tests made stale by approved Phase 9 changes. The test-only correction
+`5978e88f8c62f7f1c1c31dc0ed0a663ddfece5c0` passed the affected regressions, negative controls and focused
+verification. No production code was changed by that correction. The owner explicitly accepts the combined evidence
+and waives another complete full-Windows-gate execution for this v0.7.2 release only. The historical full-gate FAIL
+remains unchanged. This supersedes the preceding closeout's requirement for another full run and draft status; it is
+a release-specific exception to the roadmap's clean-final-full-gate requirement, not a policy for future releases.
+
+**Accepted evidence, with execution identities preserved:**
+
+- Full gate `2026-11-12_135000_full_85b2` at `c4a9853`: **FAIL**, 15,034 executed, 14,966 passed, 3 failed,
+  65 authorized policy skips; 56/56 native journeys and 262/262 required coverage; other required checks passed.
+- Correction `5978e88`: exactly three test modules, four affected tests and seven negative controls passed;
+  focused `2026-11-12_153553_focused_531d`: 921 passed, 1 policy skip; package audit PASS.
+- Independent Codex full gate PASS at `85960252c7e2873b1e83875a759b1dfcd501c747`;
+  R9-02/R9-04 focused PASS at `a943a26f9c5592e05631e27f21019d0250aa28c4`, report `3f02d4c`;
+  R9-01/R9-03 final focused PASS at `a00f0a2b73068dae33b06fb1ae95083cc4251b4b`, published report `11fa574`.
+  No remaining reproduced material defect from those reviews; their original scope limits remain.
+- At `c4a9853`: `m4b-scaling` `2026-11-12_112630_qualification_1476`, PASS 79/79 checks, 207 runs;
+  `edge-low-memory` `2026-11-12_134404_qualification_a6dd`, PASS 61/61 checks. Accepted carry-forward to this closeout.
+- At `3aa421a288a11587ad7078a5a949c05dae5f6e17`: `optional-engines`
+  `2026-11-12_030349_qualification_f77a`, PASS 76/76; `fresh-windows`
+  `2026-11-12_025238_qualification_25cd`, PASS 43/43. Historical, mechanically stale; accepted carry-forward
+  on the existing readiness assessment that relevant inputs are unchanged. No new platform qualification is implied.
+
+**Administrative closure:** close ACT72-073 on the independent R9-02 PASS and real-FFmpeg scaling PASS above.
+Updating `coverage.json` changes the evidence/policy digest; earlier executions remain valid historical records for
+their actual tested sources, not mechanically current evidence. No gate record, threshold, skip or policy is altered.
+
+**Visuals and remaining acceptance:** 89 visual candidates remain unapproved; formal baseline approval is deferred
+for this release, supported by native geometry checks, 56 journeys and prior owner UX acceptance. `approved.json`
+is unchanged. Prior listening/UX approvals carry forward where behavior is unchanged. Only two owner decisions
+remain: ACT72-064's five presentation limits and three classification ambiguities (including genuine number loss),
+and the Windows-focused release scope plus final PR review/manual merge. ACT72-030 stays open/deferred;
+ACT72-064 stays open. Windows 11 HOME-PC at 100% scaling is qualified; Windows 10 is not separately qualified,
+and macOS/Linux are not qualified. Off-Windows MP3 rollback leaves partial published outputs visible and reports
+them; retry may need reconciliation. The cross-platform no-clobber path may require filesystem hard-link support.
+
+No new verification execution, tests or qualifications in this administrative checkpoint. No final-source clean
+full-gate PASS is claimed. No merge, auto-merge, tag, release or archive publication is authorized or performed.
+Details and the exact two-decision checklist: `files/dev-work/phase9-remote-review/ACT-v0.7.2-FINAL-PR-READINESS.md`.
+
+Signed: Codex, recording the owner's explicit 2026-11-12 final administrative closeout instruction.
+
 ## 2026-11-12 - Release readiness: issues close on the independent closures, the ledger is frozen before any run, a failed gate is corrected but not rerun, and the PR stays a draft (v0.7.2 release closeout)
 
 **Context.** The owner's final-release instruction authorized publishing Codex's final closure, closing the ledger,

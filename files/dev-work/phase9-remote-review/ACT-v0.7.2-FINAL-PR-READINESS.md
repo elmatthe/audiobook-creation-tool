@@ -1,5 +1,92 @@
 # ACT v0.7.2 — Final PR readiness
 
+## 2026-11-12 owner-approved administrative closeout — current disposition
+
+**Verification accepted by the owner as composite evidence for v0.7.2 only.** No new engineering review or
+verification execution occurred in this checkpoint. The earlier assessment below is preserved as history, including
+its failed executions and then-pending decisions; this addendum supersedes its draft/full-rerun requirements and
+owner checklist. The full gate's historical verdict remains **FAIL**, never PASS. Final-source clean full-gate PASS
+is not claimed. PR readiness requires publication of this administrative commit and the updated PR description;
+the owner alone makes the final acceptance and manual merge decisions.
+
+### Recorded owner decision and source identities
+
+**ACT v0.7.2 — owner-approved composite verification acceptance.** The full Windows gate at
+`c4a9853a9fadca77320e576c618d14395dd2191c` reported three failures in structural tests made stale by approved
+Phase 9 changes. The test-only correction `5978e88f8c62f7f1c1c31dc0ed0a663ddfece5c0` passed the affected
+regressions, negative controls and focused verification. No production code was changed by that correction.
+The owner explicitly accepts the combined evidence and waives another complete full-Windows-gate execution for
+this v0.7.2 release only. The historical full-gate FAIL remains unchanged.
+
+Starting feature HEAD: `0dd84c82f8063b57fdf04153d40f5ba8fb2db8e9`; remote master/merge-base:
+`204c33bbd2d11db8a0848b261a5cb567a9240d74`. This closeout changes only Decisions, Handoff, this existing report
+and ACT72-073's ledger entry. The final commit SHA is reported externally after committing. Changing `coverage.json`
+changes the evidence/policy digest; these runs remain historical evidence for their actual tested sources.
+The owner accepts their carry-forward, without changing mechanical freshness rules, run records, thresholds,
+skips or verification policies. This exception does not apply to future releases.
+
+| Evidence | Original execution identity | Result and accepted relationship |
+|---|---|---|
+| Full Windows gate | `c4a9853`, `2026-11-12_135000_full_85b2` | **FAIL**: 15,034 executed, 14,966 passed, 3 failed, 65 authorized policy skips; 56/56 native journeys, 262/262 required coverage; other required checks passed |
+| Test-only correction, exactly three modules | `5978e88`, `2026-11-12_153553_focused_531d` | Four affected tests, seven negative controls passed; focused **PASS**, 921 passed, 1 policy skip; package audit PASS; no full gate on the correction |
+| Independent Codex full gate | `85960252c7e2873b1e83875a759b1dfcd501c747`, `2026-11-11_124747_full_b6c3` | Historical **PASS**; original review found defects subsequently remediated; not a final-source full gate |
+| Independent focused closures | `a943a26f9c5592e05631e27f21019d0250aa28c4`, report `3f02d4c`; `a00f0a2b73068dae33b06fb1ae95083cc4251b4b`, report `11fa574` | R9-02/R9-04 and then R9-01/R9-03 **PASS** within stated scope; no remaining reproduced material defect from these reviews; final report published unchanged |
+| `m4b-scaling` | `c4a9853`, `2026-11-12_112630_qualification_1476` | **PASS**, 79/79 checks, 207 runs, real FFmpeg including T5; accepted carry-forward |
+| `edge-low-memory` | `c4a9853`, `2026-11-12_134404_qualification_a6dd` | **PASS**, 61/61 checks; accepted carry-forward |
+| `optional-engines` | `3aa421a288a11587ad7078a5a949c05dae5f6e17`, `2026-11-12_030349_qualification_f77a` | Historical **PASS**, 76/76; mechanically stale; accepted carry-forward on existing unchanged-input assessment |
+| `fresh-windows` | `3aa421a288a11587ad7078a5a949c05dae5f6e17`, `2026-11-12_025238_qualification_25cd` | Historical **PASS**, 43/43; mechanically stale; accepted carry-forward on existing unchanged-input/package assessment; not a newly qualified installation/platform |
+
+Supporting tracked reports remain unchanged:
+[remote re-review](PHASE9-CODEX-REMOTE-REVIEW.md),
+[R9-02/R9-04 focused closure](PHASE9-CODEX-FOCUSED-CLOSURE.md),
+[R9-01/R9-03 final closure](PHASE9-CODEX-FINAL-CLOSURE.md).
+The original independent review's local evidence identity is retained in historical section 4 below.
+
+### Issue and visual disposition
+
+**75 issues: 73 closed, 2 open.** ACT72-073 is administratively **CLOSED** on independent R9-02 PASS plus
+real-FFmpeg `m4b-scaling` PASS (79/79 checks, 207 runs) at the identities above. ACT72-070, ACT72-071 and
+ACT72-075 remain closed. ACT72-030 remains **OPEN / DEFERRED** for future maintenance. ACT72-064 remains
+**OPEN**, pending the owner's final release disposition.
+
+The 89 captured visual candidates remain **unapproved**. The owner defers formal screenshot-baseline approval;
+individual approval is not required for this merge. `approved.json` is unchanged. Supporting evidence is existing
+native geometry checks, 56 native journeys and prior owner UX acceptance. Prior approval of the 28 voice previews
+and unchanged UX remains effective; no re-listening, regenerated samples or repeated native workflows is required.
+
+### Only two remaining owner decisions
+
+**A — ACT72-064:** accept or defer the remaining PDF limitations when reviewing PR #14.
+
+1. Longer running headers may be narrated repeatedly.
+2. Non-repeated page furniture may be narrated.
+3. Some line-broken compounds lose their hyphen.
+4. Some capitals at page boundaries retain line breaks.
+5. Isolated drop capitals may be narrated separately.
+6. A meaningful standalone number resembling a sequential page number may be removed.
+7. Printed page numbers resembling sentence-ending numbers may be narrated.
+8. One number with strong page-number evidence can cause its counting sequence to be removed, including another
+   ambiguous number.
+
+The first five are presentation limitations; the last three are classification ambiguities. Some genuinely
+ambiguous numbers can be lost. These eight are not collectively harmless or already approved/deferred.
+
+**B — Release scope and final PR merge:** accept a Windows-focused v0.7.2 release, qualified on Windows 11 HOME-PC
+at 100% display scaling. Windows 10 is **not separately qualified**; macOS and Linux are **not qualified**.
+Off-Windows MP3 rollback conservatively leaves partial published outputs visible and reports them; retry may
+require reconciling those outputs. The cross-platform no-clobber path may require hard-link support unavailable
+on some filesystems. The owner inspects PR #14 and manually merges only after accepting scope and limitations.
+
+No remaining technical blocker is identified by the accepted evidence. After successful publication and PR-body
+update, mark existing PR #14 ready for review. If push authentication fails, keep the local commit and leave PR #14
+unchanged; report the exact SHA/blocker without credential troubleshooting. No new tests, full/focused gates,
+qualifications, GUI journeys, conversions, installs or repairs ran here. No merge, auto-merge, tag, release or archive
+publication was performed. Stop after this administrative checkpoint.
+
+---
+
+## Historical readiness assessment — preserved unchanged
+
 **Verdict: BLOCKED. The PR stays a draft.** Prepared 2026-11-12 by Claude Code on HOME-PC (Windows 11 build
 26300.9974).
 

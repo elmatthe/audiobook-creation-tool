@@ -2,6 +2,47 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 owner-approved composite verification; administrative closeout (2026-11-12, Codex, HOME-PC)
+
+This block supersedes the historical status/next-action blocks below. Branch
+`feature/0.7.2-windows-hardening-verification`; starting local/remote HEAD
+`0dd84c82f8063b57fdf04153d40f5ba8fb2db8e9`; remote master and merge-base
+`204c33bbd2d11db8a0848b261a5cb567a9240d74`. The closeout commit contains only this file, Decisions,
+the existing readiness report and ACT72-073's ledger entry; its SHA/publication outcome is reported after committing.
+
+- **Owner exception recorded:** Decisions 2026-11-12, "ACT v0.7.2 — owner-approved composite verification acceptance."
+  Full gate `2026-11-12_135000_full_85b2` at `c4a9853a9fadca77320e576c618d14395dd2191c` remains **FAIL**:
+  15,034 executed, 14,966 passed, 3 stale structural failures, 65 policy skips; 56/56 journeys, 262/262 coverage.
+  Correction `5978e88f8c62f7f1c1c31dc0ed0a663ddfece5c0` changed exactly three test modules and no production
+  code; four affected tests, seven negative controls and focused gate `2026-11-12_153553_focused_531d`
+  (921 passed, 1 policy skip), plus package audit PASS. The owner accepts this combination and waives another
+  full Windows gate for v0.7.2 only. No synthetic PASS or clean final-source full-gate claim.
+- **Independent evidence unchanged:** full Windows gate PASS at `8596025`; R9-02/R9-04 focused PASS at `a943a26`
+  (`3f02d4c`); R9-01/R9-03 final focused PASS at `a00f0a2` (published `11fa574`). Both closure reports are unchanged.
+- **Qualifications accepted by identity:** `m4b-scaling` `2026-11-12_112630_qualification_1476`, 79/79 checks,
+  207 runs, and `edge-low-memory` `2026-11-12_134404_qualification_a6dd`, 61/61 checks, PASS at `c4a9853`,
+  carried forward. Historical `optional-engines` `2026-11-12_030349_qualification_f77a`, 76/76, and
+  `fresh-windows` `2026-11-12_025238_qualification_25cd`, 43/43, PASS at
+  `3aa421a288a11587ad7078a5a949c05dae5f6e17`: mechanically stale; owner accepts carry-forward on the
+  existing unchanged-input assessment. These are not new executions or broader platform qualification.
+- **Ledger:** 75 total, 73 closed, 2 open. ACT72-073 closed on independent R9-02 and real-FFmpeg scaling evidence.
+  Ledger status changes the evidence/policy digest; historical runs remain valid for their actual tested sources.
+  ACT72-030 remains open/deferred; ACT72-064 remains open. ACT72-070/-071/-075 stay closed.
+- **Visuals:** 89 candidates remain unapproved; formal approval deferred by owner, supported by geometry checks,
+  56 native journeys and prior UX acceptance. `approved.json` unchanged. No repeat preview listening or GUI acceptance.
+- **Only remaining owner decisions:** A, accept/defer ACT72-064's five presentation limits and three classification
+  ambiguities, including genuine ambiguous-number loss; B, accept Windows-focused scope and review/manual merge
+  PR #14. Qualified Windows 11 HOME-PC, 100% scaling; Windows 10 not separately qualified; macOS/Linux unqualified.
+  Off-Windows MP3 rollback leaves/reports partial published outputs; retry may need reconciliation. Cross-platform
+  no-clobber publication may require filesystem hard links. Exact eight PDF limits are in the readiness report.
+- **Next exact action:** publish the scoped administrative commit, update existing PR #14 and mark ready for review
+  only after remote HEAD matches and its description is updated. If the ordinary push fails authentication, preserve
+  the local commit, leave the PR unchanged and report the SHA/blocker; no credential troubleshooting. Then STOP.
+  Owner reviews https://github.com/elmatthe/audiobook-creation-tool/pull/14 and manually merges after decisions A/B.
+- **Execution/protection:** no new tests, gate, qualifications or conversions. Preserve all 14 tracked deletions,
+  untracked owner/v0.8.0 work, retained evidence, environments, caches, media and unrelated repositories/processes.
+  No merge, auto-merge, tag, release or archive publication.
+
 ## CURRENT STATE — v0.7.2 final release readiness: BLOCKED, PR left as a draft. The one authorized full Windows gate FAILED on `c4a9853` (3 stale structural tests); the test-only correction `5978e88` passed a focused gate but no full gate; `m4b-scaling` and `edge-low-memory` PASS; UNMERGED; branch `feature/0.7.2-windows-hardening-verification` (2026-11-12, Claude Code)
 
 This block supersedes the blocks below for status and next action. Full record:
