@@ -210,11 +210,15 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **Checked against expected narration (ACT72-057, ACT72-070):** real PDFs built line by line, each checked before the
   cleaner sees it, are held to text written out by hand, with furniture placed where a book prints it. The Phase 9
   reviewer's own three-page PDF is one of them.
-- **Known limits (ACT72-064, open, for the owner). None loses a word:** a running head longer than four capitals (a
+- **Known limits (ACT72-064, open, for the owner). Five lose no word:** a running head longer than four capitals (a
   title on every page) is narrated at each page; furniture that nothing repeats (a one-page document's number, a number
   that does not count with its neighbours) is narrated; a compound word broken at its own hyphen before a small letter
   loses the hyphen ("well-" / "known" is read "wellknown"); capitals that end or begin a page inside a sentence keep a
-  line break there; a drop capital set as a line of its own is read as a letter by itself.
+  line break there; a drop capital set as a line of its own is read as a letter by itself. **Three are layout
+  ambiguities** (the Phase 9 final closure review): a bare number alone in the foot margin under a finished sentence,
+  set as the text and counting with the next page's (a year, 1984 then 1985), cannot be told from a page number and is
+  removed, so it is not read; counting page numbers that every sentence above them runs into, set as the text, are read
+  out; in a counting run, one number with page-number evidence makes every member furniture.
 
 ### A source with nothing to read fails cleanly
 `ACT.TTS.NO-TEXT`
