@@ -12,7 +12,10 @@ What this composes, and defines none of
   every state it actually reaches into the event stream, so nothing here keeps
   a rival state machine. Pause, Resume and Cancel are the controller's
   requests; the worker honours them at ``checkpoint`` between Books and, through
-  the Phase 4 engine, between steps inside a Book.
+  the Phase 4 engine, between steps inside a Book. Cancel also stops a running
+  FFmpeg or ffprobe at once: :meth:`Attempt.run` puts the attempt inside
+  ``subprocess_utils.cancellable`` with the controller's non-blocking
+  ``cancel_check`` (v0.7.2, ACT72-023). Pause never interrupts a step.
 - **One worker body per attempt** (:meth:`Attempt.run`), run exactly once on
   whatever thread the caller chooses. Nothing here starts a thread or touches
   a widget; events cross to the UI through the ``publish`` callable the caller
@@ -49,17 +52,30 @@ re-captured — from the Plan 6 requests, and re-runs only the retryable failed
 Books. Earlier results are merged so the settled result always describes the
 whole frozen run (a retry that itself succeeded while another Book still stands
 failed is, for the batch, completed with failures — Decision 28A).
+
+Staging lives exactly as long as a Retry Failed can reach it (v0.7.2, ACT72-031)
+---------------------------------------------------------------------------
+Each attempt, before its terminal event, removes the staging of every Book its
+settled result cannot retry, so a cancelled, failed or fully published run
+keeps nothing; only the validated candidates of Books Retry Failed would re-run
+stay. :meth:`MakerRun.abandon` removes those too when the caller lets the run
+go (Clear All Imports, a new Build, closing the tool); an attempt still running
+then keeps nothing when it ends. The caller may supply ``staging_lock`` so the
+two never overlap across threads, and ``on_staging_released``, called once
+nothing is staged any more (the panel's custom-mode work area is closed there).
 """
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ContextManager
 
 from shared import metadata
+from shared import subprocess_utils as sp
 from shared.book_workspace import WorkspaceRunResult, retry_failed_books
 from shared.cancellation import ConversionCancelled
 from shared.importing import IdFactory
@@ -139,6 +155,12 @@ class Attempt:
         self.records: tuple[BookRecord, ...] = ()
         self.result: WorkspaceRunResult | None = None
         self._ran = False
+        #: Set, under the run's staging lock, once this attempt has removed what it cannot retry.
+        self.released = False
+        #: The Book under way, from its start until its record is in; and the one a Cancel stopped part-way, if any.
+        #: Its result stays NOT_ATTEMPTED (Plan 3, Decisions 2026-11-05); the panel says "Cancelled" (ACT72-004).
+        self.current_book_id: str | None = None
+        self.stopped_book_id: str | None = None
 
     @property
     def is_retry(self) -> bool:
@@ -169,23 +191,55 @@ class Attempt:
             self.result = self._owner._settle(self, final.state)
 
         try:
-            self._execute(records)
+            # Every FFmpeg and ffprobe of the attempt answers to the controller's non-blocking cancel_check: Cancel
+            # stops the running one and no later one starts (v0.7.2, ACT72-023). Pause stays at the checkpoints.
+            with sp.cancellable(controller.cancel_check, controller.checkpoint):
+                self._recover_temporaries()
+                self._execute(records)
             final = (controller.complete_with_failures()
                      if any(not entry.succeeded for entry in records)
                      else controller.succeed())
             settle(final)
+            self._release_staging()
             reporter.completed(final)
         except ConversionCancelled:
+            self.stopped_book_id = self.current_book_id
             final = controller.finish_cancelled()
             settle(final)
+            self._release_staging()
             reporter.cancelled(final)
         except BaseException as exc:  # noqa: BLE001 - deliberately everything
             detail = f"{type(exc).__name__}: {exc}"
             reporter.technical(detail)
             final = controller.fail(FAULT_MESSAGE, detail)
             settle(final)
+            self._release_staging()
             reporter.completed(final)
         return self.result
+
+    def _recover_temporaries(self) -> None:
+        """What killed runs left in the owned temporary area, removed before this attempt's first Book (ACT72-031)."""
+        recover = self._owner._recover_temporaries
+        if recover is None:
+            return
+        try:
+            lines = list(recover(self.controller.cancel_check))
+        except Exception as exc:  # noqa: BLE001 - leftovers never stop a build
+            lines = [f"What an interrupted run left was not checked: {type(exc).__name__}: {exc}"]
+        for line in lines:
+            self.reporter.technical(line)
+
+    def _release_staging(self) -> None:
+        """Before the terminal event, so a Retry Failed pressed on it finds exactly what it needs (ACT72-031)."""
+        try:
+            problems = self._owner._attempt_ended(self)
+        except Exception as exc:  # noqa: BLE001 - the terminal event must still be sent
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            try:
+                self.reporter.technical(f"Private staging left in place: {line}")
+            except Exception:  # pragma: no cover - reporting is best effort here
+                pass
 
     # -- the Books ----------------------------------------------------------- #
 
@@ -193,11 +247,13 @@ class Attempt:
         total = len(self.books)
         for done, book in enumerate(self.books):
             self.checkpoint()
+            self.current_book_id = book.book_id
             self.reporter.stage_changed(f"book-{book.number}",
                                         f"Book {book.number}: {book.filename}")
             self.reporter.progress(done, total, item_id=book.occurrence_ids[0],
                                    stage=f"book-{book.number}")
             records.append(self._run_book(book))
+            self.current_book_id = None
             # Visible as each Book settles, so a live status can be read from
             # the attempt without a second state model beside it.
             self.records = tuple(records)
@@ -243,6 +299,10 @@ class Attempt:
             try:
                 proc.validate_staged_m4b(book, book.staged)
                 reporter.technical(f"[kept] {book.filename}: reusing the staged candidate")
+            except ConversionCancelled:
+                # Cancel during the check is Cancel at the checkpoint below: the candidate goes.
+                proc.discard_staging(book, work_root=work_root)
+                raise
             except proc.ProcessingError:
                 retained = False
                 proc.discard_staging(book, work_root=work_root)
@@ -264,6 +324,10 @@ class Attempt:
                     tags["series"] = book.series
                 metadata.write_m4b_tags(book.staged, tags)
                 proc.validate_staged_m4b(book, book.staged)
+            except ConversionCancelled:
+                # Not a numbering failure and not retryable: as at the checkpoint below. Nothing was committed.
+                proc.discard_staging(book, work_root=work_root)
+                raise
             except Exception as exc:  # noqa: BLE001 - the candidate is retained for a retry
                 return failed("number", "the series part could not be written",
                               f"{type(exc).__name__}: {exc}")
@@ -301,7 +365,10 @@ class MakerRun:
 
     def __init__(self, plan: RunPlan, *, id_factory: IdFactory,
                  clock: Callable[[], float] = time.monotonic,
-                 publish: Callable[[Any], object] | None = None) -> None:
+                 publish: Callable[[Any], object] | None = None,
+                 staging_lock: ContextManager | None = None,
+                 on_staging_released: Callable[[], object] | None = None,
+                 recover_temporaries: Callable[[Callable[[], bool]], Any] | None = None) -> None:
         if not isinstance(plan, RunPlan):
             raise BatchError(f"plan must be a RunPlan, got {type(plan).__name__}")
         if not isinstance(id_factory, IdFactory):
@@ -310,6 +377,14 @@ class MakerRun:
         self._ids = id_factory
         self._clock = clock
         self._listeners: list[Callable[[Any], object]] = [publish] if publish else []
+        # Staging lifetime (ACT72-031): the caller's lock when an attempt's worker and its own thread may both release.
+        self._staging_lock: ContextManager = (contextlib.nullcontext() if staging_lock is None
+                                              else staging_lock)
+        self._on_staging_released = on_staging_released
+        self._abandoned = False
+        #: Called with the controller's cancel_check at each attempt's start, on its worker, before the first Book;
+        #: returns the lines to log. The panel passes the owned work area's recovery for a custom build.
+        self._recover_temporaries = recover_temporaries
         self.numbers: SuccessNumbers | None = (
             SuccessNumbers(plan.start_part) if plan.auto_number else None)
         self.attempts: tuple[Attempt, ...] = ()
@@ -431,3 +506,47 @@ class MakerRun:
                 work.rmdir()
         except OSError:
             pass
+
+    # -- staging lifetime (v0.7.2, ACT72-031) -------------------------------- #
+
+    def _attempt_ended(self, attempt: Attempt) -> tuple[str, ...]:
+        """An attempt settled: keep only the Books its result lets Retry Failed re-run. Worker thread."""
+        with self._staging_lock:
+            attempt.released = True
+            result = self.result
+            keep = (frozenset(result.retryable_book_ids)
+                    if not self._abandoned and result is not None and result.can_retry_failed
+                    else frozenset())
+            return self._release_staging(keep)
+
+    def abandon(self) -> tuple[str, ...]:
+        """No Retry Failed can reach this run any more: remove everything it staged. Safe to repeat; never raises.
+
+        Clear All Imports, a new Build and closing the tool all let the run go. An attempt still running keeps
+        nothing when it ends (its own release sees this), so nothing is removed under its feet here. Returns one line
+        per thing that could not be removed; it stays where it is.
+        """
+        with self._staging_lock:
+            self._abandoned = True
+            if any(not attempt.released for attempt in self.attempts):
+                return ()
+            return self._release_staging(frozenset())
+
+    def _release_staging(self, keep: frozenset) -> tuple[str, ...]:
+        """Remove the staging of every Book not in *keep*, through the engine's bounded discard (links are unlinked,
+        never followed), then the work root once empty. Published outputs never lie in staging."""
+        problems: list[str] = []
+        for book in self.plan.books:
+            if book.book_id in keep:
+                continue
+            try:
+                proc.discard_staging(book, work_root=self.plan.work_root)
+            except Exception as exc:  # noqa: BLE001 - one Book's problem never stops the rest
+                problems.append(f"{book.staging_dir}: {exc}")
+        self._prune_work_root()
+        if not keep and self._on_staging_released is not None:
+            try:
+                self._on_staging_released()
+            except Exception as exc:  # noqa: BLE001 - reported, never raised
+                problems.append(f"{self.plan.work_root}: {type(exc).__name__}: {exc}")
+        return tuple(problems)

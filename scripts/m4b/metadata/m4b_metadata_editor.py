@@ -81,8 +81,10 @@ bundle without those hints gets the compact composition. Only where things
 sit differs.
 """
 
+import gc
 import queue
 import sys
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -101,6 +103,7 @@ from shared import appearance
 from shared import config as shared_config
 from shared import job_control
 from shared import job_ui
+from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
@@ -162,6 +165,9 @@ STATUS_COMPLETED = "Completed"
 STATUS_FAILED = "Failed"
 STATUS_SKIPPED = "Skipped (unreadable)"
 STATUS_NOT_ATTEMPTED = "Not attempted"
+#: The Book a Cancel stopped part-way (v0.7.2, ACT72-004). Its result stays NOT_ATTEMPTED (no new disposition); this
+#: only tells it apart from the Books the run never reached.
+STATUS_CANCELLED = "Cancelled"
 
 #: Characters of the page Title / filename shown after ``Book N`` before eliding.
 HINT_LIMIT = 40
@@ -402,6 +408,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.last_plan: mp.RunPlan | None = None
         self.run: batch.EditorRun | None = None
         self._attempt: batch.Attempt | None = None
+        #: Keeps the run's worker and this thread from releasing staging at once (ACT72-034). A plain mutex.
+        self._staging_lock = threading.Lock()
         self._label: str = ""
         self._rendering = False
 
@@ -1508,6 +1516,8 @@ class M4BMetadataEditorUI(ttk.Frame):
                 "modified, and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self.run is not None
+        # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
+        self._abandon_run()
         self.workspace = wf.new_workspace(id_factory=self._ids)
         self.store = wf.ObservationStore()
         self.book_numbers = {}
@@ -1663,13 +1673,31 @@ class M4BMetadataEditorUI(ttk.Frame):
                 APP_TITLE, "None of the imported files could be read, so there is "
                            "nothing to write.", parent=self)
             return False
+        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
+        self._abandon_run()
         self.last_plan = plan
         self._label = ACTION_LABELS[action]
         self.run = self._run_factory(plan, id_factory=self._ids, clock=self._clock,
-                                     publish=self._publish)
+                                     publish=self._publish, staging_lock=self._staging_lock)
         self.var_outdir.set(str(plan.run_directory))
         self._start_attempt(self.run.start, self._label)
         return True
+
+    def _abandon_run(self) -> None:
+        """No Retry Failed can reach the current run any more (ACT72-034): its kept staging goes. Main thread; never
+        raises. A worker still running keeps nothing when it ends."""
+        run = self.run
+        if run is None:
+            return
+        try:
+            problems = run.abandon()
+        except Exception as exc:  # noqa: BLE001 - closing and clearing must go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            if self._closed:
+                logging_setup.get_logger().warning("M4B Metadata Editor: private staging left in place: %s", line)
+            else:
+                self._say("Some private staging could not be removed.", line)
 
     def _start_attempt(self, begin, label: str) -> None:
         """Begin one attempt through the run and start its one worker thread."""
@@ -1742,7 +1770,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         if result is not None:
             self._say(f"{self._label}: {result.succeeded_count} Book(s) completed, "
                       f"{result.failed_count} failed, {result.skipped_invalid_count} "
-                      f"skipped (unreadable), {result.not_attempted_count} not attempted "
+                      f"skipped (unreadable), {self._counts_text(result)} "
                       f"→ {self.last_plan.run_directory}")
         self.render()
 
@@ -1785,7 +1813,25 @@ class M4BMetadataEditorUI(ttk.Frame):
         result = self.last_result
         if result is None:
             return STATUS_READY
+        if book_id == self._stopped_book_id(result):
+            return STATUS_CANCELLED
         return self._status_of_disposition(result.disposition_for(book_id))
+
+    def _stopped_book_id(self, result) -> str | None:
+        """The Book a Cancel stopped part-way in the latest attempt, if the frozen result still calls it NOT_ATTEMPTED."""
+        attempt = self._attempt
+        stopped = getattr(attempt, "stopped_book_id", None)
+        if (stopped is None or result is None or result.state is not JobState.CANCELLED
+                or result.disposition_for(stopped) is not BookDisposition.NOT_ATTEMPTED):
+            return None
+        return stopped
+
+    def _counts_text(self, result) -> str:
+        """"N not attempted", or with the stopped Book told apart: "1 stopped by Cancel, N not attempted"."""
+        stopped = 1 if self._stopped_book_id(result) is not None else 0
+        never = result.not_attempted_count - stopped
+        return (f"{stopped} stopped by Cancel, {never} not attempted" if stopped
+                else f"{result.not_attempted_count} not attempted")
 
     def _current_stage(self) -> str | None:
         for entry in reversed(self.jobs.stream.events):
@@ -1859,6 +1905,8 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # Nothing can retry once the tool is closed (ACT72-034): kept staging goes now, or when the worker ends.
+        self._abandon_run()
         if self.run is not None:
             try:
                 self.run.cancel()
@@ -1884,6 +1932,13 @@ class M4BMetadataEditorUI(ttk.Frame):
                 self.var_outdir.trace_remove("write", self._outdir_trace)
             except (tk.TclError, ValueError):
                 pass
+
+    def destroy(self) -> None:
+        """Tear the panel down and finish the teardown on this thread, as the Converter and Cover panels do. Without this a closing window
+        never reaches :meth:`close`, so a running worker is never told to stop (measured, v0.7.2 Phase 3)."""
+        self.close()
+        super().destroy()
+        gc.collect()
 
 
 def build_ui(parent: tk.Misc, theme=None) -> M4BMetadataEditorUI:

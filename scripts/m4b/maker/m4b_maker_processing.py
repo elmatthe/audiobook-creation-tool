@@ -176,8 +176,16 @@ Listener = Callable[[ProcessingEvent], object]
 # --------------------------------------------------------------------------- #
 
 
+def _probe_output(cmd) -> bytes:
+    """``check_output``, supervised: Cancel stops the probe and raises ``ConversionCancelled`` (ACT72-023)."""
+    done = sp.run_supervised(cmd)
+    if done.returncode != 0:
+        raise CalledProcessError(done.returncode, cmd, output=done.stdout, stderr=done.stderr)
+    return done.stdout
+
+
 def ffprobe_duration_ms(p: Path) -> int:
-    data = sp.check_output(
+    data = _probe_output(
         [
             ffmpeg_utils.ffprobe_cmd(),
             "-v",
@@ -194,7 +202,7 @@ def ffprobe_duration_ms(p: Path) -> int:
     j = json.loads(data)
     dur = j["streams"][0].get("duration") if j.get("streams") else None
     if dur is None:
-        data = sp.check_output(
+        data = _probe_output(
             [
                 ffmpeg_utils.ffprobe_cmd(),
                 "-v",
@@ -217,14 +225,13 @@ def decoded_duration_us(p: Path) -> int:
     The same measured shape as the MP3 Tool's ``_decode_duration_seconds`` (this engine may not import it): the null
     muxer discards the PCM and only the progress record reaches Python, about 1.4 s per hour of audio. Decode errors
     are tolerated here as they are by the concat itself; a FAST concat that then fails falls back to Safe, which
-    measures its WAVs instead. Raises ``CalledProcessError`` when nothing could be decoded.
+    measures its WAVs instead. Raises ``CalledProcessError`` when nothing could be decoded, and ``ConversionCancelled``
+    when Cancel stopped it (supervised, ACT72-023).
     """
-    from subprocess import PIPE
-
     cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-nostdin", "-v", "error", "-i", str(p),
            "-map", "0:a:0", "-af", "asetpts=N/SR/TB", "-c:a", "pcm_s16le", "-f", "null", "-",
            "-nostats", "-progress", "pipe:1"]
-    done = sp.run(cmd, stdout=PIPE, stderr=PIPE)
+    done = sp.run_supervised(cmd)
     out = (done.stdout or b"").decode("utf-8", "replace")
     progress = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
     try:
@@ -473,10 +480,17 @@ def fast_concat_args(audio_list_path, ffmeta_path, out_path, bitrate) -> list[st
 
 
 def run_ffmpeg(args) -> None:
-    """Run one FFmpeg command, raising ``CalledProcessError`` with its stderr."""
-    from subprocess import PIPE
+    """Run one FFmpeg command, raising ``CalledProcessError`` with its stderr.
 
-    sp.run(list(args), check=True, stdout=PIPE, stderr=PIPE)
+    Supervised since v0.7.2 (ACT72-023): inside the batch attempt's Cancel block
+    a Cancel stops this very child and raises ``ConversionCancelled``, never a
+    ``CalledProcessError``, so it can neither trigger the FAST-to-Safe fallback
+    nor be recorded as a retryable encode failure.
+    """
+    cmd = list(args)
+    done = sp.run_supervised(cmd)
+    if done.returncode != 0:
+        raise CalledProcessError(done.returncode, cmd, output=done.stdout, stderr=done.stderr)
 
 
 def _stderr_of(exc: CalledProcessError) -> str:
@@ -554,6 +568,8 @@ def validate_staged_m4b(book: BookPlan, staged: Path) -> None:
         raise ProcessingError(f"{staged.name} was not produced", stage="validate")
     try:
         duration_ms = ffprobe_duration_ms(staged)
+    except ConversionCancelled:
+        raise  # a Cancel is not an unreadable file
     except Exception as exc:
         raise ProcessingError(f"{staged.name} has no readable audio stream",
                               stage="validate", detail=repr(exc)) from exc

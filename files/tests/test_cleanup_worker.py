@@ -857,13 +857,25 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     never a path that came from the cleanup catalog. That last part is what the
     two assertions below actually pin; being on this list is not permission to
     delete a catalog target.
+
+    ``os.rmdir`` belongs to the coordinator's ``cleanup_worker.py`` and to one
+    named file: ``work_area.py`` (in ``shared/`` since v0.7.2 Phase 6, batch D;
+    before that in ``tts/``, outside this check) removes only the private working
+    folders this process made under its own token, its own empty workspace, and
+    a workspace whose recorded owner has provably ended; it uses ``rmtree`` only
+    where the system removes a folder without following a link. It is held to the
+    same two assertions.
     """
     shared = REPO_ROOT / "scripts" / "shared"
-    allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py", "nltk_store.py"}
+    allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py", "nltk_store.py", "work_area.py"}
+    allowed_rmdir = {"cleanup_worker.py", "work_area.py"}
     for path in sorted(shared.glob("*.py")):
         source = path.read_text(encoding="utf-8")
-        if path.name != "cleanup_worker.py":
-            assert "os.rmdir" not in source, path.name
+        if "os.rmdir" in source:
+            assert path.name in allowed_rmdir, path.name
+        if path.name == "work_area.py":
+            assert "authorized_target" not in source
+            assert "compiled_target" not in source
         if "rmtree" in source:
             assert path.name in allowed_rmtree, path.name
             assert "authorized_target" not in source

@@ -9,6 +9,7 @@ Three launcher tiles, one sub-package each, plus the M4B code they share (the mo
 | `m4b_probe.py` | Reading one source file once, on a worker thread |
 | `m4b_commands.py` | The ffmpeg argument lists (built here, never executed here) |
 | `m4b_execution.py` | Running one planned segment, and stopping it |
+| `m4b_continuous.py` | The Converter's one-decode split route: a book decoded once, each chapter cut at exact sample positions |
 | `m4b_chapters.py` | Chapter vocabulary |
 | `m4b_naming.py` | One chapter title → one safe output filename |
 | `m4b_winaudio.py` | Windows Media Foundation decoding, for what ffmpeg cannot read |

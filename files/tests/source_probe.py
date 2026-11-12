@@ -43,7 +43,7 @@ def application_python_files(root: Path = UNIVERSAL) -> list[Path]:
     """``launcher.py`` plus every ``*.py`` under the application packages (nested packages included), sorted.
 
     Exactly the tree the whole-tree production guards covered before the packages were lifted one level up (checkpoint B1):
-    it excludes ``scripts/verify.py``, untracked machine-local scripts and packages and any stray top-level file, so a guard over it
+    it excludes untracked machine-local scripts and packages and any stray top-level file, so a guard over it
     gives the same answer on every machine. Application modules stay fully covered: a syntax error or a forbidden call in
     ``launcher.py`` or anywhere under a package still reaches the guard.
     """

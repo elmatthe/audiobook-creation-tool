@@ -1,7 +1,7 @@
 """Corrective checkpoint after B1 (Codex finding 1): production-module guards scan the application source, exactly.
 
 After ``launcher.py``, ``shared/``, ``tts/`` and ``mp3_tools/`` were lifted to ``scripts/``, a guard written as
-``scripts/**/*.py`` also read ``scripts/verify.py`` and any machine-local, untracked script (a developer's
+``scripts/**/*.py`` also read any machine-local, untracked script (a developer's
 ``project-status.py``), so an unrelated helper could fail a security or architecture guard on one machine only.
 ``source_probe.application_python_files`` is now the one definition of "the application's Python source". These tests pin
 it from both sides: it must cover EVERY application module (nested packages and future top-level packages included, so a
@@ -58,8 +58,9 @@ def test_every_tracked_application_module_is_covered_on_the_real_tree():
         pytest.skip("not a git checkout")
     covered = relative(application_python_files(SCRIPTS), SCRIPTS)
     tracked = {p.removeprefix("scripts/") for p in result.stdout.split("\n") if p.endswith(".py")}
-    assert tracked - {"verify.py"} <= covered, sorted(tracked - {"verify.py"} - covered)
-    assert "verify.py" not in covered and "launcher.py" in covered and "tts/qwen3_worker.py" in covered
+    assert tracked <= covered, sorted(tracked - covered)
+    assert "launcher.py" in covered and "tts/qwen3_worker.py" in covered
+    assert "verify.py" not in tracked, "the verification gate lives in files/dev-work/verification-gate since v0.7.2"
 
 
 def test_an_unregistered_tracked_top_level_folder_of_scripts_fails_until_it_is_registered(monkeypatch):
@@ -82,7 +83,7 @@ def test_nested_packages_are_covered_and_unregistered_folders_and_local_files_ar
     root = application_tree(tmp_path, {
         "speechkit/__init__.py": "", "speechkit/rules.py": CLEAN,       # an unregistered top-level package: NOT covered
         "dev_helpers/__init__.py": "", "dev_helpers/check_audio.py": BARE_FFMPEG,
-        "verify.py": CLEAN, "project-status.py": CLEAN, "local_helper.py": CLEAN,   # not application source
+        "project-status.py": CLEAN, "local_helper.py": CLEAN,   # not application source
         "notes/helper.py": CLEAN,                                        # a folder that is not a package
         "tts/__pycache__/stale.py": CLEAN,
     })
@@ -112,7 +113,7 @@ def run_removed_dependency_guard(monkeypatch, root: Path) -> None:
 
 
 def test_a_local_helper_with_a_bare_ffmpeg_call_does_not_fail_the_ffmpeg_guard(monkeypatch, tmp_path):
-    root = application_tree(tmp_path, {"project-status.py": BARE_FFMPEG, "verify.py": BARE_FFMPEG})
+    root = application_tree(tmp_path, {"project-status.py": BARE_FFMPEG, "local_helper.py": BARE_FFMPEG})
     run_bare_ffmpeg_guard(monkeypatch, root)  # passes
 
 

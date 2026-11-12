@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+import gate_locator
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
 
@@ -33,7 +35,7 @@ OLD_LAYOUT_ALLOWED = {
     "scripts/shared/bootstrap.py",                  # the leftover-folder warning names it on purpose
 }
 CODE_SUFFIXES = {".py", ".toml", ".bat", ".command", ".txt", ".cfg", ".ini"}
-TOP_LEVEL_SCRIPTS = {"launcher.py", "verify.py", "requirements.txt", "qwen3-requirements.txt", "README.md",
+TOP_LEVEL_SCRIPTS = {"launcher.py", "requirements.txt", "qwen3-requirements.txt", "README.md",
                      "qwen3-artifacts.json",  # v0.7.0 M3: the reviewed Qwen3 package manifest (ships)
                      "requirements-lock-windows-py312.txt"}  # v0.7.0: the app environment's hash lock (ships)
 PACKAGES = ("shared", "tts", "mp3", "m4b", "artwork")
@@ -55,11 +57,7 @@ def derived_roots() -> dict[str, Path]:
     from shared import bootstrap, cleanup_state, cleanup_worker, ffmpeg_health, ffmpeg_portable, paths, release
     from tts import chatterbox_synth, qwen3_runtime
 
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        import verify
-    finally:
-        sys.path.remove(str(SCRIPTS))
+    verify = gate_locator.load_gate("act_verify_canary")
     return {
         "shared.paths": paths.REPO_ROOT, "shared.bootstrap": bootstrap.REPO_ROOT,
         "shared.ffmpeg_health": ffmpeg_health.REPO_ROOT, "shared.ffmpeg_portable": ffmpeg_portable.REPO_ROOT,
@@ -91,11 +89,7 @@ def test_the_repository_root_agrees_with_git():
 def test_scripts_is_the_import_root_and_the_packages_import_under_their_plain_names():
     from shared import bootstrap, cleanup_worker, paths, release
 
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        import verify
-    finally:
-        sys.path.remove(str(SCRIPTS))
+    verify = gate_locator.load_gate("act_verify_canary")
     for label, value in (("paths.SCRIPTS_DIR", paths.SCRIPTS_DIR), ("bootstrap.SCRIPTS_DIR", bootstrap.SCRIPTS_DIR),
                          ("release.SCRIPTS_DIR", release.SCRIPTS_DIR), ("cleanup_worker.IMPORT_ROOT", cleanup_worker.IMPORT_ROOT),
                          ("verify.IMPORT_ROOT", verify.IMPORT_ROOT)):
@@ -140,13 +134,13 @@ def test_the_bundled_reference_recordings_are_where_they_were_and_bit_identical(
 
 
 def test_whole_tree_parametrizations_see_exactly_the_application_source():
-    """``scripts/`` also holds verify.py and machine-local files; those are not application source."""
+    """``scripts/`` also holds machine-local files, and until v0.7.2 held the gate; those are not application source."""
     import source_probe
 
     files = source_probe.application_python_files()
     relative = {p.relative_to(SCRIPTS).as_posix() for p in files}
     assert "launcher.py" in relative and "shared/paths.py" in relative and "tts/qwen3_worker.py" in relative
-    assert "verify.py" not in relative and "project-status.py" not in relative
+    assert "project-status.py" not in relative
     assert all(r == "launcher.py" or r.split("/")[0] in PACKAGES for r in relative)
     assert not any("__pycache__" in r for r in relative)
 

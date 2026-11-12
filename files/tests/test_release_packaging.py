@@ -383,7 +383,7 @@ def test_the_scripts_tree_is_complete(archives, os_name):
     assert packaged == expected
     assert "scripts/requirements.txt" in packaged
     assert "scripts/launcher.py" in packaged
-    assert "scripts/verify.py" not in packaged  # a development gate since v0.6.7 (ACT67-AUD-012)
+    assert "scripts/verify.py" not in packaged  # a development gate since v0.6.7 (ACT67-AUD-012); gone from scripts/ since v0.7.2
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -967,11 +967,21 @@ def test_a_successful_build_validates_publishes_and_cleans_up(tmp_path):
 # --------------------------------------------------------------------------- #
 # Developer entry points stay behind; everything the app runs ships (v0.6.7, audit ACT67-AUD-012)
 # --------------------------------------------------------------------------- #
-def test_the_developer_only_exclusion_is_exactly_three_tracked_files():
+def test_the_developer_only_exclusion_is_exactly_two_tracked_files():
     tracked = set(git(REPO_ROOT, "ls-files", "--", "scripts").splitlines())
-    assert release.DEVELOPER_ONLY_SCRIPTS == {
-        "scripts/verify.py", "scripts/shared/release.py", "scripts/tts/generate_voice_samples.py"}
+    assert release.DEVELOPER_ONLY_SCRIPTS == {"scripts/shared/release.py", "scripts/tts/generate_voice_samples.py"}
     assert release.DEVELOPER_ONLY_SCRIPTS <= tracked, "a stale name here would hide a rename"
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_the_verification_gate_and_every_development_tree_stay_out_of_the_archive(archives, os_name):
+    """v0.7.2 moved the gate under files/dev-work, which ships by construction: only a closed list is taken from files/."""
+    packaged = names(archives[os_name])
+    assert not [name for name in packaged if "verification-gate" in name or "dev-work" in name or "feature-map" in name]
+    assert not [name for name in packaged if name.startswith(("files/tests/", "files/dev-tools/", "files/plans/", "md-instructions/"))]
+    assert not [name for name in packaged if name.rsplit("/", 1)[-1] in ("verify.py", "gate_session_probe.py", "gate_locator.py")]
+    reference = [name for name in packaged if name.startswith("files/")]
+    assert reference and all(name.startswith("files/Cloned-Voice-Uploads/") for name in reference)
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)

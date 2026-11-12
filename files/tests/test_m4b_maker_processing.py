@@ -580,16 +580,16 @@ def test_publication_survives_a_cross_device_work_root(sources, reserve, monkeyp
     made, entry, _ = one_book(sources, reserve, title="T")
     assert proc.stage_book(entry, work_root=made.work_root, fast_first=True).succeeded
     staged_bytes = entry.staged.read_bytes()
-    real_replace = os.replace
+    real_move = output_paths.move_without_replacing  # the publication's move since v0.7.2 Phase 9 (R9-03)
     refused = {"n": 0}
 
     def cross_device(src, dst):
         if Path(src) == entry.staged and refused["n"] == 0:
             refused["n"] += 1
             raise OSError(errno.EXDEV, "cross-device link")
-        return real_replace(src, dst)
+        return real_move(src, dst)
 
-    monkeypatch.setattr(proc.os, "replace", cross_device)
+    monkeypatch.setattr(output_paths, "move_without_replacing", cross_device)
     published = proc.publish_book(entry, work_root=made.work_root)
     assert published == entry.published and entry.published.read_bytes() == staged_bytes
     assert not entry.staged.exists()

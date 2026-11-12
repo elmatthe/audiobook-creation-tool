@@ -1,14 +1,29 @@
-"""Extract plain text from PDF files using PyMuPDF."""
+"""Extract plain text from PDF files using PyMuPDF.
+
+**What is taken out, and on what evidence** (v0.7.2 Phase 9, review finding P9-01). A page's text is narrated; only its
+furniture is not: the printed page number and a short running head. Until this phase a line was taken for furniture by
+its shape alone, wherever it stood: any line of digits, any line of one to four capitals, and the first or last line of a
+page when it was a number. That deleted text: the year a sentence ended a page with, an acronym or an emphasised "NOT"
+that wrapped onto a line of its own. Shape is no longer enough. A line is furniture only when all of this holds:
+
+* *where it is*: it stands on the top or bottom line of its page, clear of the page's other text by more than a line and
+  a half of that text's own spacing (or it is the only line on the page), and it is set no larger than that text;
+* *what repeats*: for a page number, another page carries one too and the two differ by exactly the distance between
+  the pages; for a short running head, the same word stands at the same height on another page.
+
+Anything that fails either test is text and is kept, a number or capitals included. The rule can still be wrong in one
+direction only by design: page furniture that is on one page alone, or that the PDF does not place where it looks, is
+read out. ``files/tests/test_pdf_text_cleaning.py`` states each such case by name.
+"""
 
 import re
+import statistics
 import threading
+from collections import defaultdict
+from typing import NamedTuple
 
 import fitz
 
-# Line that is only digits (page numbers)
-_DIGITS_ONLY_LINE = re.compile(r"(?m)^\s*\d+\s*$")
-# Tiny all-caps tokens (running heads like "CH", "IV") — avoid broad 1–4 char removal (hits "No.")
-_SHORT_CAPS_TOKEN = re.compile(r"(?m)^\s*[A-Z]{1,4}\s*$")
 # "Chapter 52: Minefield" is NOT str.istitle() in Python (colon/digits); still must stay a standalone heading.
 _CHAPTERISH_HEAD = re.compile(
     r"^(chapter|prologue|epilogue|part|book|section)\s+\d+",
@@ -27,20 +42,45 @@ def _looks_like_heading_line(stripped: str) -> bool:
     return bool(_CHAPTERISH_HEAD.match(stripped))
 
 
+_HYPHEN_AT_A_LINE_END = re.compile(r"(?<=(\S))-[ \t]*\r?\n\s*(\S)")
+
+
+def _mend(before: str, after: str) -> str | None:
+    """What stands between *before* and *after* when a hyphen ended the line (or the page) between them: nothing for a
+    word broken there, the hyphen itself when it is the text's own, ``None`` when the hyphen is no word's at all.
+
+    A broken word carries on in a small letter ("impor-" / "tant"). A hyphen followed by a capital or with a digit on
+    either side was written by the author: a compound with a name ("Anglo-" / "Saxon"), a range ("1939-" / "1945"). Until
+    v0.7.2 Phase 9 every line-end hyphen was dropped, so that range was read as the one number 19391945.
+    """
+    if before.isalpha() and after.isalpha() and not after.isupper():
+        return ""
+    if before.isalnum() and after.isalnum():
+        return "-"
+    return None
+
+
 def _dehyphenate(text: str) -> str:
-    """Merge words broken across lines with a hyphen (impor-\\ntant → important)."""
-    text = re.sub(r"-\s*\r?\n\s*(\S)", r"\1", text)
-    return text
+    """Merge words broken across lines with a hyphen (impor-\\ntant → important); keep a hyphen that is the text's own."""
+    def join(match: re.Match) -> str:
+        between = _mend(match.group(1), match.group(2))
+        return match.group(0) if between is None else between + match.group(2)
+
+    return _HYPHEN_AT_A_LINE_END.sub(join, text)
 
 
 def _rejoin_soft_wrapped_lines(text: str) -> str:
     """
     Join lines that are mid-sentence; keep paragraph breaks after real sentence endings.
+
+    A line that looks like a heading (capitals, title case) is kept on its own, unless the sentence visibly runs through
+    it: the line before it is unfinished and the line after it carries on in a small letter. Then it is a word of that
+    sentence which the page's layout put on a line of its own ("The signal is" / "NOT" / "a command to open it."), and
+    it is joined like any other (v0.7.2 Phase 9).
     """
-    lines = text.split("\n")
+    lines = [line.strip() for line in text.split("\n")]
     rejoined: list[str] = []
-    for line in lines:
-        stripped = line.strip()
+    for index, stripped in enumerate(lines):
         if not stripped:
             rejoined.append("")
             continue
@@ -50,7 +90,8 @@ def _rejoin_soft_wrapped_lines(text: str) -> str:
                 rejoined.append(stripped)
                 continue
             prev_ends_sentence = bool(re.search(r'[.!?:)"\'—]\s*$', prev))
-            looks_like_heading = _looks_like_heading_line(stripped)
+            runs_on = index + 1 < len(lines) and lines[index + 1][:1].islower()
+            looks_like_heading = _looks_like_heading_line(stripped) and not runs_on
             if prev_ends_sentence or looks_like_heading:
                 rejoined.append(stripped)
             else:
@@ -58,13 +99,6 @@ def _rejoin_soft_wrapped_lines(text: str) -> str:
         else:
             rejoined.append(stripped)
     return "\n".join(rejoined)
-
-
-def _strip_noise_lines(text: str) -> str:
-    """Remove digit-only lines and tiny all-caps noise lines."""
-    text = _DIGITS_ONLY_LINE.sub("", text)
-    text = _SHORT_CAPS_TOKEN.sub("", text)
-    return text
 
 
 #: A block ending in one of these has finished; the next block does not continue it.
@@ -103,10 +137,169 @@ def _merge_blocks_across_page_gaps(text: str) -> str:
     return "\n\n".join(" ".join(pieces) for pieces in out)
 
 
-def _clean_page_text(text: str) -> str:
+# --------------------------------------------------------------------------- #
+# Page furniture: found by where a line stands and by what repeats, never by its shape alone
+# --------------------------------------------------------------------------- #
+
+#: A printed page number: digits and nothing else. Six are more than any book has pages.
+_PAGE_NUMBER = re.compile(r"\d{1,6}")
+#: A short running head: a chapter numeral or an abbreviation ("IV", "CH").
+_SHORT_HEAD = re.compile(r"[A-Z]{1,4}")
+#: Two lines whose baselines are this close (points) stand on one line of the page.
+_SAME_LINE = 2.0
+#: Furniture stands clear of the page's text by more than this many of that text's own line spacings.
+_CLEAR_BY = 1.5
+#: ...and is set no larger than that text, within this many points: a larger line is a title.
+_SIZE_SLACK = 0.5
+#: ...and is printed in the page's margin: within this fraction of the page's height of its top or bottom edge. A line
+#: further in is the page's text, however far it stands from the line before it and however often it repeats (v0.7.2
+#: Phase 9 remote re-review R9-01: an emphasised "NOT" a few lines down two pages was taken for a running head).
+_MARGIN = 0.125
+
+
+class _EdgeLine(NamedTuple):
+    """A line that stands alone at the top or the bottom of its page: where page furniture is printed, and so the only
+    kind of line that can be taken for it. Whether it is furniture is decided across pages (:func:`_furniture`)."""
+
+    page: int       # the page's index in the document
+    line: int       # the line's index among the lines of the page's text
+    text: str
+    at: float       # its baseline, in points from the top of the page
+    #: A bare number at the foot that the sentence above it runs into, set as large as that sentence: on its page alone
+    #: it may as well be the sentence's last word as the page's number (v0.7.2 Phase 9 focused closure, R9-01).
+    in_sentence: bool = False
+
+
+def _edge_lines(page_index: int, raw: str, layout: dict | None) -> list[_EdgeLine]:
+    """The lines of one page that stand clear at its top or bottom edge, from the page's own geometry.
+
+    *layout* is PyMuPDF's ``dict`` of the same text page *raw* came from. Its lines must be *raw*'s lines, one for one:
+    if they are not (or there is no layout, or it does not say how tall the page is), nothing on this page is called an
+    edge line and all of its text is kept.
+
+    An edge line stands in the page's top or bottom margin (:data:`_MARGIN`), clear of the rest of the page's text. A
+    line at the bottom that the sentence above it runs into (that line does not end a sentence) is that sentence's word,
+    and is not an edge line unless it is a bare number: a page number under an unfinished sentence is common, so such a
+    number stays a candidate, marked ``in_sentence`` unless it is set smaller than the page's text, and the pages it
+    counts with decide (:func:`_furniture`).
+    """
+    if not layout:
+        return []
+    height = layout.get("height")
+    if not isinstance(height, (int, float)) or not height > 0:
+        return []
+    rows = []  # one per line of the raw text, in its order: (text, baseline, box top, box bottom, size, level)
+    for block in layout.get("blocks") or ():
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines") or ():
+            spans = line.get("spans") or ()
+            text = "".join(span.get("text") or "" for span in spans)
+            if not text:
+                continue  # the plain text holds nothing for a line with no characters
+            box = line.get("bbox") or (0.0, 0.0, 0.0, 0.0)
+            origin = spans[0].get("origin")
+            direction = line.get("dir") or (1.0, 0.0)
+            rows.append((text, float(origin[1]) if origin else float(box[3]), float(box[1]), float(box[3]),
+                         max(float(span.get("size") or 0.0) for span in spans),
+                         direction[0] > 0.99 and abs(direction[1]) < 0.01))
+    if any("\n" in row[0] for row in rows) or "".join(row[0] + "\n" for row in rows) != raw:
+        return []
+    written = [(number, row[0].strip(), *row[1:5]) for number, row in enumerate(rows) if row[0].strip() and row[5]]
+    if not written:
+        return []
+    highest, lowest = min(row[2] for row in written), max(row[2] for row in written)
+
+    def on(level: float, row) -> bool:
+        return abs(row[2] - level) <= _SAME_LINE
+
+    inner = [row for row in written if not on(highest, row) and not on(lowest, row)]
+    found: dict[int, _EdgeLine] = {}
+    for level, in_margin in ((highest, highest <= height * _MARGIN), (lowest, lowest >= height * (1 - _MARGIN))):
+        if not in_margin:
+            continue  # inside the page, where its text is printed: never furniture, whatever it says
+        others = [row for row in written if not on(level, row)]
+        runs_into = False
+        if others:
+            nearest = min(others, key=lambda row: abs(row[2] - level))
+            baselines = sorted(row[2] for row in inner)
+            steps = [b - a for a, b in zip(baselines, baselines[1:]) if b - a > _SAME_LINE]
+            spacing = statistics.median(steps) if steps else nearest[4] - nearest[3]
+            if abs(nearest[2] - level) <= _CLEAR_BY * spacing:
+                continue  # in the run of the page's text: a line of it, whatever it says
+            text_size = statistics.median(row[5] for row in (inner or [nearest]))
+            runs_into = level == lowest and nearest[2] < level and nearest[1][-1] not in _ENDS_A_BLOCK
+        else:
+            text_size = None  # nothing else on the page: a leaf that holds only its number, or only one line
+        for row in written:
+            if runs_into and not _PAGE_NUMBER.fullmatch(row[1]):
+                continue  # the sentence above runs into it: its word, never a running head
+            if on(level, row) and (text_size is None or row[5] <= text_size + _SIZE_SLACK):
+                in_sentence = runs_into and not row[5] < text_size - _SIZE_SLACK
+                found[row[0]] = _EdgeLine(page_index, row[0], row[1], row[2], in_sentence)
+    return list(found.values())
+
+
+def _furniture(edge_lines: list[_EdgeLine]) -> dict[int, set[int]]:
+    """Which edge lines are page furniture, as ``{page: {line, ...}}``. Standing at the edge is necessary, never enough.
+
+    * A page number: digits, and another page has an edge line of digits that differs from it by exactly the distance
+      between the two pages. A book's pages count up together; two bare numbers of the text do not. And at least one
+      of those numbers stands apart from the text: under a finished sentence, alone, at the top, or set smaller than the
+      page's text. Numbers that every sentence above them runs into, set as the text is, are read: nothing on those
+      pages tells a page number from the sentence's own last word, so they are kept (v0.7.2 Phase 9 focused closure,
+      R9-01: "The required access code is" / "1984" on one page and "1985" on the next lost both codes).
+    * A short running head: one to four capitals, and the same word stands at the same height on another page. A
+      chapter numeral printed once above its chapter is a heading, and is kept.
+    """
+    drop: dict[int, set[int]] = defaultdict(set)
+    counted: dict[int, list[_EdgeLine]] = defaultdict(list)
+    heads: dict[str, list[_EdgeLine]] = defaultdict(list)
+    for line in edge_lines:
+        if _PAGE_NUMBER.fullmatch(line.text):
+            counted[int(line.text) - line.page].append(line)
+        elif _SHORT_HEAD.fullmatch(line.text):
+            heads[line.text].append(line)
+    for run in counted.values():
+        if len({line.page for line in run}) > 1 and not all(line.in_sentence for line in run):
+            for line in run:
+                drop[line.page].add(line.line)
+    for same_word in heads.values():
+        same_word.sort(key=lambda line: line.at)
+        level: list[_EdgeLine] = []
+        for line in [*same_word, None]:
+            if line is not None and (not level or line.at - level[-1].at <= _SAME_LINE):
+                level.append(line)
+                continue
+            if len({member.page for member in level}) > 1:
+                for member in level:
+                    drop[member.page].add(member.line)
+            level = [] if line is None else [line]
+    return drop
+
+
+def _join_words_split_across_pages(parts: list[str]) -> list[str]:
+    """A page that ends in a hyphen continues its last word on the next page: the same rule :func:`_dehyphenate`
+    applies between two lines, applied between two pages (v0.7.2 Phase 8, ACT72-063). Each part is one cleaned page."""
+    joined: list[str] = []
+    for part in parts:
+        if joined and len(joined[-1]) > 1 and joined[-1].endswith("-") and part[:1].strip():
+            between = _mend(joined[-1][-2], part[0])
+            if between is not None:
+                joined[-1] = joined[-1][:-1] + between + part
+                continue
+        joined.append(part)
+    return joined
+
+
+def _clean_page_text(text: str, furniture=()) -> str:
+    """One page's text as it is narrated. *furniture* holds the indices of the lines :func:`_furniture` found to be the
+    page's number or running head; they are taken out whole, before the lines are joined, so the sentence a page number
+    was printed under reads straight on (v0.7.2 Phase 8, ACT72-063). Nothing else is removed."""
+    if furniture:
+        text = "\n".join(line for index, line in enumerate(text.split("\n")) if index not in furniture)
     text = _dehyphenate(text)
     text = _rejoin_soft_wrapped_lines(text)
-    text = _strip_noise_lines(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -118,21 +311,35 @@ def _clean_page_text(text: str) -> str:
 _PYMUPDF_LOCK = threading.Lock()
 
 
+def _read_page(page, index: int, *, layout_up_to: int | None = None) -> tuple[str, list[_EdgeLine]]:
+    """A page's text, exactly as ``get_text("text")`` gives it, and its edge lines. Call with :data:`_PYMUPDF_LOCK` held.
+
+    Both come from one text page, so the geometry describes the very lines of the text. A page longer than
+    *layout_up_to* characters is not measured (sizing does not clean such a page either); it then has no edge lines.
+    """
+    textpage = page.get_textpage(flags=fitz.TEXTFLAGS_TEXT)
+    raw = page.get_text("text", textpage=textpage) or ""
+    if not raw.strip() or (layout_up_to is not None and len(raw) > layout_up_to):
+        return raw, []
+    return raw, _edge_lines(index, raw, page.get_text("dict", textpage=textpage))
+
+
 def extract_text_from_pdf(pdf_path: str) -> str:
-    parts: list[str] = []
+    read: list[tuple[int, str]] = []
+    edge_lines: list[_EdgeLine] = []
     with _PYMUPDF_LOCK:
         doc = fitz.open(pdf_path)
         try:
-            for page in doc:
-                raw = page.get_text("text") or ""
-                if not raw.strip():
-                    continue
-                cleaned = _clean_page_text(raw)
-                if cleaned:
-                    parts.append(cleaned)
+            for index, page in enumerate(doc):
+                raw, edges = _read_page(page, index)
+                if raw.strip():
+                    read.append((index, raw))
+                    edge_lines += edges
         finally:
             doc.close()
 
+    furniture = _furniture(edge_lines)
+    parts = [cleaned for index, raw in read if (cleaned := _clean_page_text(raw, furniture.get(index, ())))]
     if not parts:
         raise ValueError("No readable text found in PDF. File may be scanned/image-based.")
 
@@ -142,11 +349,9 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def _join_pages(parts: list[str]) -> str:
     """Cleaned pages as the one text a conversion speaks. Sizing reads pages through this too, so the two cannot disagree
     about where a paragraph ends: prose that continues across a page is one paragraph, in memory as one."""
-    full = "\n\n".join(parts)
+    full = "\n\n".join(_join_words_split_across_pages(parts))
     full = full.replace("\x0c", "\n")
     full = _merge_blocks_across_page_gaps(full)
-    full = re.sub(r"\n{3,}", "\n\n", full)
-    full = _strip_noise_lines(full)
     full = re.sub(r"\n{3,}", "\n\n", full)
     return full.strip()
 
@@ -162,7 +367,8 @@ def pdf_text_sample(pdf_path: str, max_pages: int, keep_reading=None):
 
     Every page of a PDF up to ``max_pages`` long, and otherwise ``max_pages`` pages spread evenly through it, stopping
     early when ``keep_reading()`` says so; it is asked before each page, so reading has a bound: the limit given, plus
-    one page. Each ordinary page gets the same cleaning a conversion gives it, and the pages are joined the way a
+    one page. Each ordinary page gets the same cleaning a conversion gives it, page furniture included (found among the
+    pages read, by the same rule and from each page's real position in the document), and the pages are joined the way a
     conversion joins them (:func:`_join_pages`), so a paragraph that continues across pages is sized as the one paragraph
     it will be. When only some pages were read, a join between two of them stands for the pages between: the caller scales
     the result up.
@@ -176,15 +382,20 @@ def pdf_text_sample(pdf_path: str, max_pages: int, keep_reading=None):
             pages = doc.page_count
             wanted = min(pages, max(1, int(max_pages)))
             read = 0
-            parts: list[str] = []
+            taken: list[tuple[int, str]] = []
+            edge_lines: list[_EdgeLine] = []
             for index in range(wanted):
                 if keep_reading is not None and not keep_reading():
                     break
-                raw = doc[index * pages // wanted].get_text("text") or ""
+                number = index * pages // wanted
+                raw, edges = _read_page(doc[number], number, layout_up_to=SIZING_CLEAN_CHARS)
                 read += 1
                 if raw.strip():
-                    parts.append(_clean_page_text(raw) if len(raw) <= SIZING_CLEAN_CHARS
-                                 else _SINGLE_LINE_BREAK.sub(" ", raw))
+                    taken.append((number, raw))
+                    edge_lines += edges
+            furniture = _furniture(edge_lines)
+            parts = [_clean_page_text(raw, furniture.get(number, ())) if len(raw) <= SIZING_CLEAN_CHARS
+                     else _SINGLE_LINE_BREAK.sub(" ", raw) for number, raw in taken]
             return pages, read, _join_pages(parts)
         except Exception:  # noqa: BLE001 - a damaged page table: the conversion will say so properly
             return None

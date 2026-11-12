@@ -989,7 +989,7 @@ def test_the_version_is_unchanged():
 
     # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
     # This pins the application version without asserting publication.
-    assert VERSION == "0.7.1"
+    assert VERSION == "0.7.2"
 
 
 # --------------------------------------------------------------------------- #
@@ -1024,9 +1024,9 @@ def _tone(path: Path, seconds: float = 1.0, freq: int = 440, codec=None) -> Path
 
 
 class _Q:
-    """Minimal worker host: a cancel event and a queue, like the real panels.
+    """Minimal worker host: a cancel event, the lock it is decided under, and a queue, like the real panels.
 
-    The worker body reaches for exactly these two attributes, which is asserted
+    The worker body reaches for exactly these three attributes, which is asserted
     structurally in ``test_m4b_conversion_plan``; this host is what proves the
     claim behaviourally against a real ffmpeg.
 
@@ -1038,6 +1038,7 @@ class _Q:
 
     def __init__(self):
         self._cancel_event = threading.Event()
+        self._cancel_decision = threading.Lock()
         self._log_q: "queue.Queue" = __import__("queue").Queue()
 
     def drain(self):

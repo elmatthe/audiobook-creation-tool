@@ -677,6 +677,45 @@ def test_remove_outputs_tolerates_a_file_that_is_already_gone(tmp_path):
         run / "never-existed.mp3",)
 
 
+def test_prune_empty_folders_removes_only_empty_folders_strictly_inside_the_run(tmp_path):
+    """v0.7.2 ACT72-029: the empty folders a failed book's outputs were to live in go; nothing else does."""
+    from m4b.m4b_execution import prune_empty_folders
+
+    run = tmp_path / "run"
+    lone = run / "Series" / "Book" / "01 - One.mp3"            # Series and Book end up empty
+    kept = run / "Shared" / "Other" / "01 - One.mp3"           # Shared still holds another book's file
+    lone.parent.mkdir(parents=True)
+    kept.parent.mkdir(parents=True)
+    (run / "Shared" / "someone else's.mp3").write_bytes(b"x")
+    outside = tmp_path / "elsewhere" / "Book" / "x.mp3"
+    outside.parent.mkdir(parents=True)
+    flat = run / "Whole.mp3"                                   # its folder is the run itself
+    removed = prune_empty_folders([lone, kept, outside, flat], inside=run)
+    assert set(removed) == {run / "Series" / "Book", run / "Series", run / "Shared" / "Other"}
+    assert run.is_dir(), "the run folder itself is never removed"
+    assert (run / "Shared" / "someone else's.mp3").is_file()
+    assert outside.parent.is_dir(), "a path outside the run is never touched"
+    assert prune_empty_folders([lone], inside=run) == (), "safe to repeat"
+    only = tmp_path / "run2" / "Book" / "01 - One.mp3"           # the run itself ends up empty
+    only.parent.mkdir(parents=True)
+    assert prune_empty_folders([only], inside=tmp_path / "run2") == (tmp_path / "run2" / "Book",)
+    assert (tmp_path / "run2").is_dir(), "an empty run folder is still never removed"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a directory junction is a Windows link")
+def test_prune_empty_folders_never_removes_or_follows_a_link(tmp_path):
+    from m4b.m4b_execution import prune_empty_folders
+
+    run = tmp_path / "run"
+    run.mkdir()
+    target = tmp_path / "Person's folder"
+    target.mkdir()                                             # empty, so an rmdir through the link would take it
+    link = run / "Book"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+    assert prune_empty_folders([link / "01 - One.mp3"], inside=run) == ()
+    assert os.path.lexists(link) and target.is_dir()
+
+
 # --------------------------------------------------------------------------- #
 # Through the panel: split, failure isolation, cancellation
 # --------------------------------------------------------------------------- #

@@ -236,6 +236,21 @@ def whole_book_argv(
     )
 
 
+def segment_times(start: float, end: float) -> tuple[str, str]:
+    """The ``-ss`` and ``-t`` strings of the span ``[start, end)``, exactly as :func:`segment_argv` writes them.
+
+    One function for both routes (v0.7.2 Phase 7B): the continuous route cuts the samples these two strings select, so
+    the strings it reads must be the strings the seeking route hands FFmpeg, not a second rendering that could differ by
+    a microsecond.
+    """
+    begin = _seconds(start, "start")
+    if not math.isfinite(float(end)):
+        raise ValueError(f"end must be finite, got {end!r}")
+    if float(end) <= float(start):
+        raise ValueError(f"end must be greater than start, got start={start!r} end={end!r}")
+    return begin, _seconds(float(end) - float(start), "duration")
+
+
 def segment_argv(
     *,
     ffmpeg: str,
@@ -258,12 +273,7 @@ def segment_argv(
     of a timeline belongs to ``m4b_chapters``, and the only checks here are the
     ones without which the command line itself would be meaningless.
     """
-    begin = _seconds(start, "start")
-    if not math.isfinite(float(end)):
-        raise ValueError(f"end must be finite, got {end!r}")
-    if float(end) <= float(start):
-        raise ValueError(f"end must be greater than start, got start={start!r} end={end!r}")
-    span = _seconds(float(end) - float(start), "duration")
+    begin, span = segment_times(start, end)
     return _core(
         ffmpeg=ffmpeg,
         source=source,

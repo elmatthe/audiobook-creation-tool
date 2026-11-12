@@ -1,0 +1,599 @@
+# ACT v0.7.2 Phase 7A — M4B Converter split: baseline, compatibility manifest and optimization design
+
+Status: **Phase 7A accepted; Phase 7B implemented the approved design (section 13).** Sections 1-12 are the Phase 7A
+checkpoint as reviewed (profiling and design; no production code changed then). The owner/ChatGPT review approved C1, the
+`ACT.CONVERTER.PRIMING` amendment for the new route only, byte identity as the oracle and the budgets of section 8, and
+did not approve C2. Section 13 records what Phase 7B built, how its threshold was calibrated, and its qualification.
+
+Authority: the owner's acceptance of Phase 6 at `721c323` and authorization of Phase 7A (2026-11-09; `Decisions.md`), and the
+Phase 7A prompt (plan §12.1–12.3, §14 Phase 7, sub-checkpoint 7A). Issue: ACT72-012 (Major).
+
+## 1. Identities
+
+| What | Identity |
+|---|---|
+| Code under test | working tree at `7ff1439` (scripts unchanged since `35de76a`); the split path (`m4b_commands`, `m4b_plan`, `m4b_probe`, `m4b_winaudio`, `m4b_metadata`, `m4b_destinations`, `m4b_naming`, `ffmpeg_utils`, `output_paths`) is byte-identical to `204c33b`; `m4b_execution` adds only `prune_empty_folders` (ACT72-029) and the panel only messages (ACT72-018/027/028) |
+| Compatibility reference | merged v0.7.1 `204c33b` (commit tree `2060dc7f`, `scripts` tree `67f2069d`), extracted read-only with `git archive` into the ignored evidence folder; the owner's checkout, `master` and the branch were not touched |
+| FFmpeg (both sides) | 9.0.1 full_build (gyan.dev), the machine's pinned pair; ffmpeg SHA-256 `57c56e36…2d8a`, ffprobe `afe05347…7208`; handed to both code trees explicitly |
+| Python | 3.12.10 (the project `.venv`), Tk on a withdrawn root |
+| Machine | HOME-PC: AMD Ryzen 7 9800X3D (8 cores, 16 threads), 32 GB, Windows 11 Pro 10.0.26300, Balanced power plan, mains power, system drive a Samsung 990 PRO NVMe SSD |
+| Load during the matrix | not idle: `explorer.exe` ≈ 3.7 cores and VS Code ≈ 1 core sustained, and the owner's other applications; each run records the machine's CPU load in the second before it starts (`matrix-progress.log`). Runs of each candidate alternate within every repetition, so both see the same background; the process tree's own CPU-seconds are reported beside wall time because they are far less sensitive to contention |
+| Fixtures | 12 deterministic synthetic books from one recipe (`tools/fixtures.py` in the evidence folder, §12; SHA-256 `520af7ae…`): lavfi pink/brown noise plus tremolo tones per channel, AAC-LC by FFmpeg's native encoder, a 600×600 JPEG cover as `attached_pic`, five book tags, chapters with odd millisecond boundaries. Each validated before use: chapter count (no muxer truncation at 500/1,000/2,000), streams, rate/channels, duration, complete decode |
+
+Fixture set: `route10` (10 ch, 66 s), `scale10` (10 × 1.5 s), `scale100`, `scale500`, `scale1000`, `scale2000` (≈1.5 s
+chapters), `long6_48` (6 h, 48 × 7.5 min), `long12_24` (12 h, 24 × 30 min), and variants `noelst` (no edit list: priming kept
+in the timeline), `mono22k` (22.05 kHz mono), `s48k` (48 kHz), `r96k` (96 kHz). All 44.1 kHz stereo 64 kbps unless named.
+
+## 2. The split path as it runs
+
+Per book, once: one ffprobe (`-show_format -show_streams -show_chapters`, `m4b_probe.probe_source`), a frozen plan (names,
+spans, tags, cover, decoder route), one reserved run folder.
+
+Per chapter, sequentially on the worker thread (`m4b_converter._run_conversion` → `m4b_execution.convert_segment`):
+
+| Step | Process | What it costs |
+|---|---|---|
+| audio pass (`segment_argv`) | 1 FFmpeg | start a process, open the book and parse its index, **decode from 0 to the chapter start and discard it** (output-side `-ss`), decode and encode the chapter (`libmp3lame -q:a Q`) |
+| cover pass (`attach_artwork_argv`), Preserve/Replace with a cover | 1 FFmpeg | start, open the MP3 and the book, stream-copy both |
+| measurement (`measured_duration`) | 1 ffprobe | start, read the MP3 header |
+| staging and publication | none | 2–3 temporary siblings, a drift check, `os.replace` |
+
+So a covered chapter costs three child processes (each with its own `conhost.exe` on Windows: the job counts six), a Strip
+chapter two. The Windows xHE-AAC route (`windows_decode`) is different already: one Media Foundation decode per book feeds
+every chapter's encoder through a pipe (`PcmTimeline` → `run_argv_streaming` → `pcm_argv`), so it has no prefix term.
+
+## 3. ACT72-012 reproduced and attributed
+
+Every production chapter costs a fixed part (process starts, opening the book, the cover pass, the measurement) plus its own
+decode and encode, plus **the decode of everything before it**, thrown away. Fitting each chapter's wall time against its
+start (least squares, the first production run of each tier):
+
+| Book | Production: s per hour of prefix | Per-chapter median by quarter of the book (first → last) | C1: s per hour | C1 quarters |
+|---|---|---|---|---|
+| 6 h, 48 × 7.5 min | **1.42** | 4.1, 5.7, 7.9, 10.3 s | −0.01 | 3.1, 3.4, 2.8, 3.1 s |
+| 12 h, 24 × 30 min | **1.56** | 12.5, 17.0, 21.6, 26.8 s | −0.04 | 11.5, 11.2, 11.3, 11.0 s |
+| 1,000 × 1.5 s (25 min) | **1.42** | 0.30, 0.40, 0.55, 0.68 s | 0.16 | 0.20, 0.20, 0.15, 0.20 s |
+| 500 × 1.5 s | 1.30 | 0.20, 0.25, 0.34, 0.39 s | −0.36 | 0.15, 0.15, 0.15, 0.15 s |
+| 1,000, Write none | 1.31 | 0.19, 0.29, 0.44, 0.54 s | −0.25 | 0.09, 0.09, 0.09, 0.09 s |
+
+The slope (1.3–1.6 s per hour of prefix, every chapter) matches the decode rate measured directly: a complete decode runs at
+≈2,600–2,800× realtime here (6 h in 7.75 s, 12 h in 16.5 s), i.e. ≈1.3–1.4 s per hour; the `m4b_commands` docstring recorded
+1.55 s/h on another build and machine. Summed over a book the prefix term is ≈ N·D/2 of decoding: on the 6-hour book about
+200 s of a 337 s run, on the 12-hour book about 215 s of 470 s, on the 1,000-chapter book about 300 s of 653 s (the
+rest there is per-chapter process overhead).
+
+**Other contributors, measured (median per chapter, production):**
+
+| Step | Small book | 6 h book | 12 h book | Grows with |
+|---|---|---|---|---|
+| audio pass (prefix + chapter decode + encode) | 0.04–0.08 s | 6.5 s | 19.2 s | chapter start (prefix) and length |
+| cover pass (stream copy; re-opens the book) | 0.03 s | 0.10 s | 0.22 s | **book size** (re-parses the book's index each chapter) |
+| ffprobe measurement of the output | 0.03 s | 0.03 s | 0.03 s | nothing |
+| preflight probe of the book (once) | 0.03 s | 0.06 s | 0.10 s | book size, once per book |
+| harness-visible worker overhead outside chapters | ≤ 0.3 s | ≤ 3 s | ≤ 3 s | — |
+
+Process starts dominate short chapters: a covered chapter runs three children (six processes with their `conhost.exe`), and on
+this machine under its background load each start costs tens of milliseconds and varies widely. Write none (no cover, no tags)
+saves about 0.15 s per chapter (1,000 chapters: 499 s instead of 653 s).
+
+## 4. Raw figures and comparisons
+
+The real Converter panel ran each book headless in its own process (`tools/bench_run.py`), in a Windows Job Object that counts
+every child; A = production, C1/C2 = the benchmark prototype of candidate C (§6). All runs succeeded; every source's SHA-256
+was unchanged afterwards; no staged temporary was left behind. "Identical" means every output byte-identical to the first
+production run of the same book and settings.
+
+**Matrix** (`analysis.json`; 77 runs, interleaved, under the background load described in §1):
+
+| Book | Route | Runs | Wall median (min–max) | Process-tree CPU | Peak job commit | Peak staged | Heartbeat p99 / max | Identical |
+|---|---|---|---|---|---|---|---|---|
+| route10 (10 ch, 66 s) | A / A at `204c33b` / C1 / C2 | 5 each | 2.42 / 2.56 / 2.46 / 1.66 s | 2.05 / 1.94 / 1.86 / 1.48 s | 52 / 52 / 78 / 78 MB | 0.3 MB | ≤0.76 / ≤1.24 s | yes / yes / yes / **no** |
+| route10, whole book | A | 5 | 0.74 s | 0.59 s | 52 MB | 1.3 MB | 0.14 s | yes |
+| scale10 (10 × 1.5 s) | A / ref / C1 | 5 each | 1.81 / 2.84 / 3.52 s | 1.53 / 1.53 / 1.77 s | 51 / 52 / 77 MB | 0.1 MB | ≤0.51 / ≤1.29 s | yes |
+| scale100 | A / ref / C1 / C2 | 3 each | 37.7 / 38.7 / 31.6 / 15.8 s | 19.0 / 19.4 / 14.8 / 10.4 s | 55 / 55 / 80 / 79 MB | 0.1 MB | ≤0.13 / ≤1.8 s | yes, yes, yes, **no** |
+| scale500 | A / ref / C1 | 2 / 1 / 2 | 215 / 224 / 129 s | 179 / 182 / 76 s | 64 / 64 / 92 MB | 0.2 MB | ≤0.11 / ≤0.29 s | yes |
+| scale1000 | A / C1 | 2 each | 653 / 322 s (**2.03×**) | 580 / 175 s | 77 / 107 MB | 0.2 MB | ≤0.11 / ≤1.9 s | yes |
+| scale1000, Write none | A / C1 | 1 each | 499 / 192 s (**2.60×**) | 505 / 103 s | 69 / 93 MB | ≤0.2 MB | ≤0.09 / ≤1.34 s | yes |
+| long6_48 (6 h, 48 ch) | A / C1 | 2 each | 337 / 151 s (**2.22×**) | 435 / 183 s | 148 / 218 MB | 17 MB | ≤0.03 / ≤0.29 s | yes |
+| long12_24 (12 h, 24 ch) | A / C1 | 1 each | 470 / 271 s (**1.73×**) | 599 / 358 s | 251 / 370 MB | 69 MB | ≤0.02 / ≤0.15 s | yes |
+
+**Quieter-period repeats** (`runs/quiet`, `runs/stall`; load before each run recorded, median 15 %):
+
+| Book | A | A at `204c33b` (noise floor) | C1 | C2 |
+|---|---|---|---|---|
+| route10, 10 runs each | 2.554 s (CPU 2.07) | 2.544 s (CPU 1.91) | 2.412 s (CPU 1.86): −5.6 % | — |
+| scale10, 10 runs each | 1.853 s (CPU 1.41) | 1.936 s (CPU 1.41) | 2.307 s (CPU 1.56): **+24 %** median, +14 % fastest-to-fastest | — |
+| scale100, 2–3 runs each | 18.9 s; later 35.2 s as load returned | — | 15.0 s; later 31.4 s | 15.2 s at the later load |
+
+**Behaviour under fault** (production and C1 alike):
+* Cancel pressed after 400 of 500 outputs: settled in 1.75 s (A) and 1.04 s (C1); no file left; the book's folder pruned.
+* An audio FFmpeg killed mid-chapter (6 h book, chapter 3): the chapter is refused, the book taken back, the run
+  COMPLETED_WITH_FAILURES; Retry Failed then succeeds (320 s A, 131 s C1) and all 48 files equal a clean run, byte for byte.
+* C1's continuous decoder killed after 50 of 100 outputs: the in-flight chapter is refused, the book is taken back, Retry
+  Failed succeeds, all 100 files identical. The decoder's exit status is checked at end of stream, so a dead decoder is never
+  mistaken for the end of the book.
+
+**Process counts per output** (children started by the worker; `conhost.exe` not counted): A 3.0 with a cover (audio, cover,
+measurement), 2.0 under Write none; C1 the same per output plus one decoder per book (and one extra ffprobe in the prototype
+that production would not need); C2 2.0.
+
+**Memory.** No route buffers audio: A holds none; C1 holds one 256 KiB block and a one-second tail (≈350 KB at 44.1 kHz
+stereo float). What grows with the book is FFmpeg's own index of it: the largest single process peaked at 223 MB commit on the
+12-hour book on both routes. C1's job peak is higher (370 MB against 251 MB there) because its decoder holds the book open
+while each chapter's cover pass opens it again.
+
+**Disk.** C1 adds nothing: peak staged bytes equal A's (two MP3s of one chapter at most: 69 MB for a 30-minute chapter).
+
+**Unexplained outlier.** One C1 matrix run (100 chapters, a kill that missed) shows the whole harness process idle for
+25.9 s outside chapter work, with a 25.7 s gap in the UI heartbeat; its chapters themselves were normal. Five reruns of the
+same configuration with a stall timeline showed no stall above 0.25 s, and no other C1 or A run comes close (worst A 1.9 s).
+The cause is not established; it is listed for 7B (§9) rather than explained away.
+
+## 5. Compatibility manifest (frozen from production output)
+
+Reference: production code at `204c33b` (contained `git archive`, tree `2060dc7f`) and the working tree, run through the real
+Converter panel by `tools/bench_run.py` with FFmpeg 9.0.1 (gyan full build, ffmpeg SHA-256 `57c56e36…`, ffprobe `afe05347…`),
+Python 3.12.10, on the validated fixtures in `fixtures/manifest.json`. Every property below was read from produced files
+(ffprobe, mutagen, raw bytes) or from the code path that produced them, not from intent.
+
+**Classification: byte identity is stable and is the oracle.** Repeated production runs produced byte-identical MP3s on every
+fixture, and `204c33b` matched the working tree byte for byte on the four fixtures compared (route10, scale10, scale100,
+scale500) (§4). A
+faster route must reproduce every output byte for byte wherever it applies; where it cannot, that case stays on today's route.
+
+| Property | Production behaviour (measured) |
+|---|---|
+| Container / extension | MP3 elementary stream, `.mp3`. MPEG-1 Layer III at 32/44.1/48 kHz; MPEG-2 Layer III at 22.05 kHz (mono22k). First frame is a Xing frame written by FFmpeg's mp3 muxer, carrying an encoder tag `Lavc63.1.` with encoder delay 576 and the end padding. |
+| Codec and encoding | `libmp3lame`, VBR `-q:a <Quality>` (default 2; 0–9 from the panel), `-threads 0`. No bitrate, no resampling option, no filters. |
+| Sample rate / channels | The source's rate and channel count when LAME supports the rate (44.1k, 48k, 22.05k measured); otherwise FFmpeg's negotiated rate (96k source → 48k output), resampled on the continuous stream **before** the chapter is cut. Mono stays mono, stereo stays stereo. |
+| Chapter count and order | One MP3 per source chapter, in source order (10, 100, 500, 1,000 measured; 2,000-chapter fixture validated). A chapterless book in split mode is one whole-book file (existing contract). |
+| Audible boundaries | Chapter *k* is exactly decoded samples `[half_up(S·rate), half_up(S·rate) + half_up(D·rate))`, with `S = "{:.6f}"` of the probed chapter start and `D = "{:.6f}"` of `end − start`, each parsed to integer microseconds (226 chapters on six fixtures, exact sample equality: `selection-probe.jsonl`). Decoding always starts at source time 0 (output-side seek), so every kept sample is fully reconstructed. No gaps or overlaps between consecutive chapters on any fixture (`boundary-model.txt`); a rounding overlap or gap of one sample is possible in principle and must be reproduced, not "fixed". |
+| Priming and timeline | With an edit list (FFmpeg-muxed AAC) the decoder's priming is removed and sample 0 is the first real sample. Without one (`noelst`) the 1,024 priming samples are part of the timeline and open chapter 1. MP3 gapless metadata (delay 576 + padding) decodes each chapter back to exactly its sample count (6.000000 s = 264,600 samples measured). |
+| Artwork | Preserve and Replace keep the book's attached picture: each chapter is encoded audio-only, then a second FFmpeg pass stream-copies the audio and the picture (`attach_artwork_argv`), giving an ID3v2.3 `APIC` (mjpeg 600×600 here). Write none (Strip) writes no picture. Whole-book mode attaches the picture in its single pass. |
+| Metadata | ID3v2.3 when any tag or chapter map is written: Preserve → `TIT2` chapter title, `TPE1`, `TPE2`, `TALB` from the source's allowlist, `TRCK` chapter order, `TSSE Lavf63.1.101`; Replace → typed fields (blank fields absent), `TIT2` chapter title, `TRCK`; Strip → ID3v2.4 header holding only FFmpeg's `TSSE` (FFmpeg's own encoder tag; the Converter writes nothing). Split outputs carry no chapter map. |
+| Filenames and layout | `<base>/M4B-Converter-Outputs/M4B-Converter-N/<source stem>/NN - <sanitised chapter title>.mp3`; `NN` zero-padded to `max(2, digits(total))`; `:` and other unsafe characters sanitised (`Chapter 1_ Opening`); non-ASCII kept (`Café`). |
+| Publication | Each pass writes a `.act-tmp-…` sibling in the chapter's own folder (plus a `.act-tmp-ffmpeg…log`), then ffprobe measures the result; more than 3 % from the planned span (above 1 s) is refused; an existing destination is refused, never replaced; `os.replace` publishes. Peak staged bytes are a chapter's MP3 or two (measured in `analysis.json`). |
+| Collisions | Names are planned once at preflight by one run-wide planner (case-insensitive, `-1`, `-2` suffixes); the run folder number is reserved atomically. Unchanged by any audio route. |
+| Cancel | Stops the running FFmpeg (terminate, kill, reap) within the 50 ms poll; the interrupted book's finished chapters are removed and its empty folders pruned (since v0.7.2 ACT72-029; `204c33b` leaves the empty folder); earlier books are kept; the run settles CANCELLED. Pause takes effect between outputs. |
+| Retry Failed | A failed book (for example, a killed FFmpeg) is retryable; Retry re-runs that book from its first chapter at the frozen names, with no new probe, plan or folder; the result merges into the run. |
+| Source preservation | Sources are never written (`assert_not_input`); every run's results record each source's SHA-256 after the run, compared with the fixture manifest. |
+
+**What a faster route must not change:** any byte of any output where it applies; the Xing frame (a single-pass cover encode
+changes its size: candidate C2); the encoder, quality or `-threads` setting; the PCM LAME receives (format, rate, first and last
+sample); the separate cover pass; validation (ffprobe measurement and drift guard); staging, refusal and publication; Cancel,
+Pause and Retry semantics; names, folders and collision handling.
+
+## 6. Candidate designs
+
+All candidates are judged against the frozen compatibility manifest (§5): byte identity where the
+route applies, today's route everywhere else. Numbers marked *measured* come from §4; *estimate* is reasoning.
+
+### A — today's route (reference)
+Per chapter: one FFmpeg that opens the book, decodes from 0 to the chapter start and discards it (output-side `-ss`), decodes
+and encodes the chapter; one FFmpeg cover pass when a cover is kept; one ffprobe of the result. Correct by construction
+(every sample fully reconstructed) and pinned by tests. Cost grows with each chapter's start: the prefix decode term summed
+over a book is ~N·D/2 of decoding.
+
+### B — remove redundant work, keep the command shapes
+Looked for: repeated probes of the source (none: one preflight probe per book, frozen), repeated chapter/metadata work
+(none: frozen plan), per-chapter ffprobe of the output (it *is* the validation; removing it is forbidden), the cover pass
+re-opening the book (a few tens of milliseconds; replacing its input with an extracted image is a byte-identity risk for a
+small gain), per-pass log temp files (microseconds). B cannot touch the prefix term, which is the defect. Verdict: no change
+worth its risk on its own; its small items are listed for 7B only where they come free.
+
+### C — one continuous decode per book, exact per-chapter PCM into the existing encoders
+One FFmpeg decodes the whole book once to the AAC decoder's own float samples (`pcm_f32le`, exact); the worker cuts chapter k
+as `[half_up(S·rate), +half_up(D·rate))` (the measured output-side-seek selection) and pipes it into one FFmpeg per chapter
+that encodes it with the same encoder settings through the existing `pcm_argv` + `run_argv_streaming` seams.
+* **C1** keeps the separate cover pass: byte-identical to production on every eligible fixture (*measured*).
+* **C2** maps the cover in the encode itself (one process less per chapter): audio frames, tags and decoded samples identical,
+  but the leading Xing/Info frame is 208 bytes instead of 522, so files are not byte-identical (*measured*). Owner's call.
+* Eligibility (frozen at preflight from the one existing probe): FFmpeg-decoded (not the Windows route), `sample_fmt` fltp,
+  sample rate one LAME accepts natively, 1–2 channels with a standard layout, `time_base` 1/rate and `start_pts` 0. Anything
+  else stays on A (a 96 kHz source is not byte-identical under C because production resamples the continuous stream before it
+  cuts: −100 dB RMS, *measured*).
+* Backstops: the decoder's exit status is checked at end of stream (a killed decoder fails the chapter; the book is taken back
+  and Retry Failed works: *measured*); the decoded total should equal the probed `duration_ts`; a short feed before the end
+  fails the chapter; the drift guard is unchanged.
+* Memory: one 256 KiB block plus a one-second tail (≈350 KB) in the worker; the decoder blocks on its pipe (back-pressure).
+  Disk: unchanged from A (no spool).
+* Cancel: the running encoder is stopped as today; the decoder must also be stopped and reaped (one more owned process).
+* Retry: unchanged contract (the whole book again, a fresh decoder).
+
+### D — owned PCM spool (whole book or per chapter)
+Decode once to a temporary PCM file, then encode chapters from it. Exactness needs float32 (s16 would change what LAME
+receives): a 12-hour stereo 44.1 kHz book is ~15.2 GB of spool; a per-chapter spool is bounded by the longest chapter
+(30 min ≈ 635 MB; a 10-hour chapter ≈ 12.7 GB). No speed advantage over C (C already streams; D adds write+read I/O); it adds
+disk preflight, cleanup and ownership of very large temporaries. It would only pay if single chapters had to be re-encoded
+independently, which no current contract asks for. Verdict: rejected.
+
+### E — reuse the existing streaming seams
+The Windows xHE route already decodes once and cuts PCM (`m4b_winaudio.PcmTimeline` → `run_argv_streaming` → `pcm_argv`).
+C1 reuses `pcm_argv` and `run_argv_streaming` unchanged. `PcmTimeline` itself is not reusable as is: it is fed by Media
+Foundation (Windows-only, xHE-AAC-only, 16-bit), and it cuts by accumulating rounded chapter *durations*
+(`bytes_for(end − start)`), which drifts from absolute sample positions by up to half a sample per chapter; C must cut at
+absolute positions to match A. So E is realised inside C1 as "same seams, FFmpeg-fed timeline with absolute cuts", not by
+routing AAC through Media Foundation.
+
+### Side by side
+
+| Criterion | A (today) | B (redundancy only) | C1 (one decode, cover pass kept) | C2 (one decode, cover in encode) | D (PCM spool) | E (existing seams) |
+|---|---|---|---|---|---|---|
+| Speed (measured / estimated) | reference | ≈0–3 % (no redundant probe exists) | 2.2× 6 h/48 ch, 2.0× 1,000 ch, 1.7× 12 h/24 ch, 2.6× Write none (*measured*) | C1 plus ≈2× more on many short chapters (100 ch: 15.2 vs 31.4 s, *measured*) | ≤ C1, plus spool write/read I/O (*estimate*) | is C1's mechanism |
+| PCM / sample boundaries | defines them | unchanged | identical samples (226/226 chapters; byte-identical files) | identical samples | identical if float32 | identical only with absolute cuts (`PcmTimeline` accumulates rounded durations) |
+| Priming and timestamps | decoder from 0; edit list honoured | unchanged | same decode from 0; needs `start_pts` 0, `time_base` 1/rate and no timestamp gaps (eligibility) | as C1 | as C1 | as C1 |
+| Codec and quality | libmp3lame VBR q | unchanged | same encoder, settings, input format | same encoder; Xing frame differs | same if float32 | same |
+| Peak memory / disk | per-process FFmpeg index; staged 2 chapter MP3s | unchanged | +1 process holding the book (+47 % job peak at 12 h); audio ≈0.6 MB; disk unchanged | as C1, one process fewer per chapter | spool up to 15 GB per 12 h book | as C1 |
+| Windows decoder coverage | MF route already one-decode | unchanged | AAC-LC via FFmpeg only; MF route untouched | as C1 | either decoder | MF route is the model, not reused for AAC |
+| Cancel / retry complexity | one child per pass | unchanged | one more owned process (decoder) to stop and reap; retry = fresh decoder (*measured* both) | as C1 | spool ownership and cleanup | as C1 |
+| Cleanup / publication safety | staged siblings, atomic publish | unchanged | unchanged publication; decoder exit status checked at end of stream | unchanged publication | adds large owned temporaries | unchanged |
+| Byte identity | — | yes | **yes** | **no** (Xing frame) | yes if float32 | yes when cut at absolute positions |
+
+### Not candidates
+* Moving `-ss` before `-i`: forbidden without new proof on the original priming corpus; C1 needs no seek at all.
+* Stream-copying AAC into `.mp3`, changing VBR quality, dropping the cover or the validation: forbidden.
+* Running hundreds of encoders in parallel: forbidden. (A small fixed pipeline, decoder alongside one encoder, is what C1 is.)
+
+## 7. Recommended smallest safe optimization (for review; not implemented)
+
+**Candidate C1: one continuous FFmpeg decode per eligible book, cut into exactly the samples today's output-side seek
+selects, each chapter encoded through the existing PCM seams; everything after the audio pass unchanged.**
+
+* **Route choice, frozen at preflight** in the `ItemPlan` (as `windows_decode` is), from the one probe that already runs:
+  FFmpeg decodes it (not the Windows route, no `aac_at`), AAC-LC, `sample_fmt` fltp, a sample rate LAME takes natively
+  (8, 11.025, 12, 16, 22.05, 24, 32, 44.1, 48 kHz), mono or stereo, `time_base` 1/rate and `start_pts` 0, split mode, and long
+  enough to pay (a size threshold calibrated in 7B; output bytes are the same either way, so the threshold is invisible).
+  Everything else keeps today's route, byte for byte, including its pinned `-ss`-after-`-i` command.
+* **The cut** uses integer microseconds exactly as FFmpeg parses the production `"{:.6f}"` strings, rounded half up, at
+  absolute positions (not accumulated durations); a one-second tail serves a rounding overlap and a gap is read and dropped.
+* **Transport** is `pcm_f32le` (the AAC decoder's own float samples, exact) through `m4b_commands.pcm_argv` and
+  `m4b_execution.run_argv_streaming`, which the Windows route already uses; the cover pass, the ffprobe measurement, the drift
+  guard, refusal and publication are untouched.
+* **Safety:** the decoder's exit status is checked at end of stream and the decoded total is compared with the probed
+  `duration_ts`; a short feed fails the chapter, which takes the book back as today; Cancel stops and reaps the decoder as
+  well as the encoder; Pause still waits between outputs; Retry Failed re-runs the book with a fresh decoder.
+* **Expected effect** (prototype, same session): 2.2× on a 6-hour 48-chapter book, 2.0× on 1,000 chapters, 1.7× on a 12-hour
+  24-chapter book, 2.6× on 1,000 chapters under Write none; per-chapter cost no longer grows with position; no extra disk;
+  ≈0.6 MB of audio buffered; one more process per book.
+* **Not recommended for 7B by default: C2** (the cover in the same encode). It halves C1's time again on many short chapters
+  (100 chapters: 15.2 s against 31.4 s), with identical tags, identical audio frames and identical decoded audio, but every
+  covered file's leading Xing/Info frame is 208 bytes instead of 522, so the files are not byte-identical. That is the
+  owner's call under the 18A amendment, and it can follow C1 later on its own evidence.
+* **Not pursued:** attaching the cover from an extracted image (a stream-copy extraction did not reproduce the picture; the
+  book-size-dependent part of the cover pass is under 2 % of C1's time on the 12-hour book); a PCM spool (candidate D).
+
+## 8. Proposed frozen performance budgets (calibrated proposals, not approved)
+
+Measured in the same session, production and candidate interleaved, at least three runs each (ten for small books), with an
+A-against-A control establishing the noise floor and the machine's load recorded; wall time and process-tree CPU both.
+
+| # | Budget | Plan §12.3 starting point | Proposed after measurement | Prototype measured |
+|---|---|---|---|---|
+| T1 | Throughput, prefix-dominated long book (6 h, 48 chapters, cover, Preserve) | ≥ 2× | **≥ 2.0× median wall and CPU** | 2.22× wall, 2.38× CPU |
+| T1b | Throughput, 1,000 short chapters (cover, Preserve) | ≥ 2× | **≥ 1.8× wall, ≥ 2.0× CPU**: process starts that C1 does not remove dominate here | 2.03× wall, 3.32× CPU |
+| T2 | Small books | ≤ 10 % median slowdown beyond noise | **Books below the size threshold take today's route (no change by construction); above it, ≤ 10 % median slowdown on a 66-s 10-chapter book** | route10 −5.6 %; a 15-s 10-chapter book was +24 % on C1, which is why the threshold exists |
+| T3 | Growth with position | none attributable to the prefix | **slope ≤ 0.1 s per hour of prefix; last-quarter / first-quarter per-chapter median ≤ 1.15** (6 h and 12 h books) | slope −0.01 / −0.04; ratio 1.01 / 0.96 (A: 1.42 / 1.56 s/h; 2.5 / 2.1) |
+| T4 | Memory | buffering bounded independently of duration | **audio held by the route ≤ 1 MiB at any duration; no PCM on disk; job peak commit ≤ production's + one more open of the book by FFmpeg** | ≈0.6 MB; 370 vs 251 MB at 12 h (the decoder's FFmpeg index) |
+| T5 | Disk | — | **peak staged bytes no higher than production's** | equal |
+| T6 | UI | — | **heartbeat p99 ≤ 0.25 s and no stall over 2 s attributable to the route** across the qualification set | p99 ≤ 0.12 s; one unexplained 25.7 s stall not reproduced (§9) |
+| T7 | Cancel | — | **settled ≤ 2 s after Cancel with every owned process reaped** | 1.04 s |
+| T8 | Compatibility | unchanged output contract | **every output byte-identical to production on every eligible fixture and mode; ineligible books unchanged** | met on every eligible run |
+
+Adjustments made, and why, before any implementation: T1b lowers the 2× bar to 1.8× wall for very many short chapters,
+because there each chapter's three process starts (unchanged by C1, removable only by C2's byte change) are most of the
+cost; T2 meets "no small-job regression" by routing rather than by tolerance, because the prototype's fixed per-book cost is
+a measurable share of a 15-second book; T4 restates "bounded memory" as bounded *audio* buffering, because FFmpeg's own index
+of a book grows with its length on both routes. These thresholds are not to be moved after a failed acceptance run.
+
+## 9. Unresolved decoder and platform qualification
+
+* **Windows Media Foundation (xHE-AAC):** not exercised. No xHE-AAC source can be made with the tools on this machine;
+  qualifying it needs a lawful owner-provided sample. The design does not touch that route (it already decodes once).
+* **HE-AAC / HE-AAC v2, ALAC, MP3-in-M4B, multichannel, rates LAME does not take (96 kHz measured: differs at −100 dB),
+  sources with timestamp gaps:** kept on today's route by the eligibility rule; HE-AAC is excluded only because no fixture
+  could be made, not because it is known to differ.
+* **FFmpeg builds:** only the machine's pinned 9.0.1 full build. Byte identity between the routes holds per build and must be
+  re-proven on whatever build is pinned (including the app-local portable build of a fresh setup).
+* **Content:** synthetic noise and tones only; real narration encodes faster or slower than this, so absolute times will
+  differ (ratios should not much). An owner-selected lawful book is optional supplementary evidence.
+* **macOS** (`aac_at`), Windows 10, non-default DPI: not run. The Tk root was withdrawn, so painting costs are not in the
+  heartbeat figures.
+* **The 2,000-chapter fixture** is validated (no chapter truncation) but was not converted, to keep the session bounded.
+* **Load:** the matrix ran beside a busy desktop (`explorer.exe` ≈ 3.7 cores, VS Code, a game); ratios and CPU-seconds are
+  robust to that, absolute wall times are not. 7B's qualification should run in a quiet session.
+* **The 25.7 s stall** seen once in a C1 run is unexplained; 7B must instrument and re-run before claiming T6.
+
+## 10. Owner decisions needed before Phase 7B
+
+1. Approve C1 as the design (§7), with its eligibility rule, the size threshold and today's route kept for everything else.
+2. Approve amending `ACT.CONVERTER.PRIMING`, whose contract says every chapter command puts `-ss` after `-i`: the new route
+   has no seek; its contract would be "exactly the samples the output-side seek selects, files byte-identical", while today's
+   route keeps the existing contract and tests.
+3. Approve byte identity as the compatibility oracle for eligible books (the manifest's classification).
+4. Decide C2: leave it out of 7B (recommended), or accept the Xing-frame difference for the extra speed on short chapters.
+5. Approve or adjust the budgets T1–T8, including T1b's 1.8× and T2's routing.
+6. Approve implementing the gate's reserved `m4b-scaling` qualification scenario in 7B from this harness and fixture recipe
+   (large fixtures generated on demand, about 1.1 GB; roughly an hour and a half of machine time per qualification run).
+7. Optionally provide lawful xHE-AAC / HE-AAC samples, or accept those as unqualified for the new route (they stay on today's).
+
+## 11. Phase 6 acceptance and commits
+
+* Starting SHA `721c3237` (Phase 6 closeout, equal to `origin`).
+* `7ff1439`: the owner's acceptance of Phase 6 at `721c323` recorded in `Decisions.md`, `Handoff.md` and `Briefing.md`
+  (documentation only; the full Windows gate PASS on `35de76a`, `2026-11-09_170309_full_7178`, carried forward under §13.3;
+  no gate ran on `721c323` or `7ff1439`). The owner also accepted the `work_area.py` cleanup-guard exception, deferred
+  ACT72-030 to a later maintenance release (open and tracked), kept the five cross-tool differences, and confirmed the
+  crimson-audiobooks `.gitignore` line as their own.
+* The Phase 7A checkpoint commit carries this record, the feature-map and issue-ledger notes and the canonical documents. No
+  application source, test, fixture or gate tool changed, and no gate ran for this checkpoint (as instructed).
+
+## 12. Evidence, reproduction and cleanup
+
+Evidence is in the ignored run folder `files/dev-work/verification-gate/outputs/2026-11-09_phase7a_375a/` (not in Git; the
+figures above are copied from it): `LEDGER.md`; `tools/` (`fixtures.py`, `bench_run.py`, `winjob.py`, `proto_c.py`,
+`selection_probe.py`, `attrib.py`, `matrix.py`, `analyze.py`, `quiet_small.py`, `followup.sh`); `fixtures/` and its
+`manifest.json`; `runs/{matrix,quiet,stall,ident,attrib-long6_48,attrib-scale1000,smoke-*}/*/results.json` (every run's
+timings, child processes, CPU, commit, heartbeat, staged bytes, source hashes and output hashes); `analysis.json` and
+`analysis.md`; `selection-probe.jsonl`; `boundary-model.txt`; `identity-small.txt`; `compatibility-manifest.md`;
+`design-candidates.md`; `system-info.json`; `matrix-progress.log` and `quiet-progress.log` (load before every run);
+`entry_state.json`, `final_state.json`, `protected-compare.txt`; `cleanup-manifest.json`; `downloads-mistake-cleanup.json`.
+
+Reproduce (from the repository root, with the project interpreter and the pinned FFmpeg):
+
+```text
+git archive 204c33b scripts | tar -x -C <evidence>/ref-204c33b
+python <evidence>/tools/fixtures.py --ffmpeg <ffmpeg.exe> --out <evidence>/fixtures route10 scale10 scale100 scale500 scale1000 scale2000 long6_48 long12_24 mono22k s48k r96k noelst
+python <evidence>/tools/selection_probe.py --ffmpeg <ffmpeg.exe> --fixture <evidence>/fixtures/route10.m4b
+python <evidence>/tools/bench_run.py --code scripts --ffmpeg <ffmpeg.exe> --source <evidence>/fixtures/long6_48.m4b --route a --out <evidence>/runs/<label> --hash-outputs
+python <evidence>/tools/bench_run.py --code <evidence>/ref-204c33b/scripts ... --route a        (the v0.7.1 reference)
+python <evidence>/tools/bench_run.py --code scripts ... --route c1 | c2                          (the benchmark prototype)
+python <evidence>/tools/matrix.py ; python <evidence>/tools/analyze.py
+python <evidence>/tools/attrib.py --code scripts --ffmpeg <ffmpeg.exe> --fixture <evidence>/fixtures/long6_48.m4b --chapters 0,12,24,36,47 --reps 3 --out <evidence>/runs/attrib-long6_48
+```
+
+The tools stay out of Git for this checkpoint: several standing tests police files under the gate folder, and this
+checkpoint runs no gate. Phase 7B should promote the fixture recipe, the harness and the oracles, with tests, into the gate's
+reserved `m4b-scaling` qualification scenario.
+
+**Containment incident (corrected).** The first smoke run wrote its 10 MP3s into the owner's
+`Downloads\Audiobook-Creation-Tool-Outputs\M4B-Converter-Outputs\M4B-Converter-1`: the panel reads the output base from the
+live configuration at Start, which the first harness did not set. Exactly those 10 files (matched by SHA-256 to the run's own
+record) and the three folders the run had created were removed with `rmdir` only; the pre-existing
+`Audiobook-Creation-Tool-Outputs\TTS-Audiobook-Outputs` was not touched (only its parent's modified time changed). The harness
+now sets the base through the app's own preference in a redirected settings file, checks it, and refuses any reservation
+outside its own folder; no later run wrote outside the evidence folder.
+
+**Cleanup.** 348 bulky outputs of the long runs and the fixture generator's intermediates (4.75 GB) were removed from the
+evidence folder (their hashes remain in each `results.json`; `cleanup-manifest.json`); the folder now holds 1.4 GB, mostly
+the validated fixtures kept for 7B. No staged temporary, FFmpeg or ffprobe process was left. The owner's protected state
+(14 tracked deletions, 4 untracked entries, `bfa7`, the 31 legacy `epub2tts_*` folders, settings, crimson-audiobooks,
+Audiobooks-(LIVE)) matches entry exactly (`protected-compare.txt`).
+
+## 13. Phase 7B: the accepted design, implemented and qualified
+
+### 13.1 What the review accepted (2026-11-10)
+
+C1 is approved: one continuous FFmpeg decode per eligible split book, sample-exact chapter cuts, the existing per-chapter
+MP3 encoding, cover pass and publication. `ACT.CONVERTER.PRIMING`'s output-side `-ss` contract changes only for the new
+route; the seeking route keeps it unchanged. Byte identity is the oracle for eligible books, with the independent audio,
+chapter, metadata, artwork and output-integrity oracles kept. C2 is not approved. The budgets T1-T8 and T1b of section 8
+are approved (the 12-hour ratio is reported, not promised). The reserved `m4b-scaling` scenario is implemented from a
+tracked harness and recipe, with large media only in ignored storage. HE-AAC, xHE-AAC, Media Foundation and other
+ineligible routes keep their behaviour. ACT72-012 stays open until C1 is implemented and qualified.
+
+### 13.2 What was built
+
+| Where | What |
+|---|---|
+| `scripts/m4b/m4b_continuous.py` (new) | `static_refusal` (the probe-only eligibility), `check_packet_lines` and `scan_packets` (the timestamp proof), `build_refusal` and `executable_fingerprint` (the qualified FFmpeg build), `saved_seconds` and the two calibrated constants, `qualify` (one frozen `RouteDecision` per book), `micros`, `half_up` and `chapter_frames` (the cut), `ContinuousDecoder` (start, `feed` by absolute position with a one-second tail for overlaps, end-of-stream checks, `close`), `owned_decoders` (a backstop that closes any decoder a worker left open). |
+| `m4b_commands.segment_times` | The `-ss` and `-t` strings, now one function used by `segment_argv` and by the cut, so the two can never read different strings. `segment_argv`'s command line is unchanged. |
+| `m4b_probe.AudioStreamFacts` | The audio stream's facts from the same one probe (stream count, codec, profile, sample format, rate, channels, layout, time base, start, declared samples, priming). No new process. |
+| `m4b_plan.ItemPlan.continuous`, `assemble_plan(continuous=)` | The route, frozen into the plan at preflight, only for a chaptered split book that FFmpeg decodes. A retry reads it from the plan. |
+| `m4b_execution` | `SegmentWork.continuous_decode`; `_passes` gives a continuous fragment `pcm_argv` (no seek, no book input) followed by the unchanged cover pass; `convert_segment` streams only that first pass and reports a Cancel as cancelled even if the stopped feed failed; `run_argv_streaming(on_stop=)` stops the feeding decoder when Cancel stops the encoder, and a producer still running after its join is a failure. |
+| `m4b_converter._run_conversion`, `convert_worker` | Preflight asks `qualify` for each split book after its probe (a child process, so between checkpoints, and Cancel stops it); the plan freezes the answer; each book attempt starts one decoder, feeds each chapter by `chapter_frames`, and closes it on every route out; the worker runs inside `owned_decoders`. |
+
+### 13.3 Eligibility, exactly
+
+A book takes the continuous route only when all of these hold, decided at preflight and frozen: split mode; a chaptered
+book; not xHE-AAC, no decoder other than FFmpeg's own (no Windows route, no `aac_at`); exactly one audio stream, `aac`
+profile `LC`, sample format `fltp`; a sample rate LAME takes as it is (8, 11.025, 12, 16, 22.05, 24, 32, 44.1, 48 kHz);
+1 channel `mono` or 2 channels `stereo`; time base `1/rate`; `start_pts` 0; a declared sample count (`duration_ts`);
+initial padding 0 or 1,024; a packet scan (ffprobe `pts,duration,flags`) proving at most one leading discarded packet of
+exactly one AAC frame, present exactly when the padding says so, then packets from 0 whose timestamps are the running
+sample count, each 1,024 samples but the last, none marked corrupt, adding up to the declared count; a qualified FFmpeg
+build (by fingerprint: the SHA-256 of each executable's size and first and last MiB; today gyan.dev 9.0.1 full_build,
+the application's portable pin and the winget package, the same archive); and an estimated saving
+`S = P - 2.0 x D` of at least 600 s, where P is every chapter's start added up and D the book's duration. Anything else,
+or anything that cannot be proven (an unreadable scan, a cancelled scan, an unexpected error), keeps the seeking route.
+
+### 13.4 The threshold: calibrated before qualification
+
+The route saves the seeking route's repeated prefix decoding and costs a pipe for the whole book. Measured on this
+machine (`k-measurement.json` in the evidence): moving a book's float samples through the decoder, Python and the
+encoder's input costs 1.9-2.4 times an AAC decode per second of book, so the route saves work only where P exceeds about
+1.4 x D. `PREFIX_PER_BOOK_SECOND = 2.0` rounds that up. Two earlier calibration attempts were stopped before any
+threshold was taken from them: the first because the per-build check had to exist before its cost was measured (it was
+then made a fingerprint: hashing the two 222 MB executables in full cost 0.32 s per process); the second because its
+metric, P alone, was shown wrong by its own partial data (a 3-chapter 10-minute book with 601 s of prefix was 24 % slower
+on the new route, and a 2-chapter 20-minute book used 20 % more CPU).
+
+The rule of `files/dev-work/verification-gate/scaling/calibrate.py`, fixed before its data: three arms per repetition in
+rotating order (seeking route, continuous route, seeking route again as a same-session control), every output equal to
+its pinned reference; `break_even` is the smallest S at and above which every calibration book's continuous median wall
+time and median process-tree CPU are no greater than the seeking route's; threshold = max(600, 2 x break_even rounded up
+to a minute). Fourteen books, 8 repetitions per arm, 336 runs, every output identical to its pinned reference (machine
+load before a run: median 8.5 %, range 1.5-91.8 %):
+
+| Book | Chapters | Duration s | P s | S s | Wall: seek / continuous (ratio) | CPU: seek / continuous (ratio) | Seek-vs-seek noise |
+|---|---|---|---|---|---|---|---|
+| small2_600000 | 2 | 1,200.9 | 600 | -1,802 | 7.79 / 7.66 (0.98) | 8.58 / 9.76 (1.14) | 1.1 % |
+| small3_200000 | 3 | 601.8 | 601 | -603 | 4.74 / 4.47 (0.94) | 4.91 / 5.27 (1.07) | 6.7 % |
+| small5_120000 | 5 | 603.4 | 1,205 | -1 | 5.02 / 5.18 (1.03) | 5.38 / 5.66 (1.05) | 4.5 % |
+| scale10 | 10 | 15.0 | 68 | 38 | 1.78 / 1.69 (0.95) | 1.45 / 1.45 (1.00) | 3.3 % |
+| small10_3000 | 10 | 36.4 | 164 | 91 | 2.17 / 2.21 (1.02) | 1.55 / 1.65 (1.06) | 2.2 % |
+| small10_4500 | 10 | 51.4 | 232 | 129 | 2.19 / 2.17 (0.99) | 1.73 / 1.69 (0.98) | 1.3 % |
+| route10 | 10 | 66.4 | 299 | 166 | 2.27 / 3.09 (1.36) | 1.88 / 1.89 (1.00) | 4.0 % |
+| small10_9000 | 10 | 96.4 | 434 | 241 | 2.51 / 2.20 (0.88) | 2.11 / 1.98 (0.94) | 2.3 % |
+| small10_13500 | 10 | 141.4 | 637 | 354 | 3.44 / 2.73 (0.80) | 2.77 / 2.34 (0.84) | 13.9 % |
+| small10_20000 | 10 | 206.4 | 929 | 516 | 3.27 / 2.89 (0.88) | 3.27 / 2.98 (0.91) | 13.1 % |
+| small7_86000 | 7 | 606.8 | 1,819 | 605 | 5.52 / 5.21 (0.94) | 5.91 / 5.91 (1.00) | 1.3 % |
+| small15_9000 | 15 | 143.0 | 1,010 | 724 | 4.05 / 3.82 (0.94) | 3.52 / 3.17 (0.90) | 2.3 % |
+| small20_9000 | 20 | 190.1 | 1,817 | 1,436 | 5.88 / 4.57 (0.78) | 4.48 / 3.79 (0.85) | 13.5 % |
+| small12_50000 | 12 | 607.2 | 3,342 | 2,128 | 6.65 / 5.71 (0.86) | 7.45 / 6.37 (0.86) | 0.1 % |
+
+`break_even` = 241 s (small10_9000), so the threshold is max(600, 540) = **600 s**: `MIN_SAVED_PREFIX_SECONDS = 600.0`,
+frozen with its test before qualification. CPU follows the model: every book with a negative S uses more CPU on the new
+route, every book from S = 241 uses less. The new calibration books were made by the recipe and pinned against the
+seeking route of `204c33b` itself.
+
+### 13.5 Qualification: PASS on attempt 2
+
+`verify.py --mode qualification --scenario m4b-scaling` on HOME-PC, evidence
+`files/dev-work/verification-gate/outputs/2026-11-10_124457_qualification_c208/` (ignored): gate **PASS**, scenario
+**PASS, 79 of 79 checks, 207 runs**, 12:44-14:50 (7,502 s), tree unchanged during the run, no owned process left.
+
+| Identity | |
+|---|---|
+| Commit | `90fcb3d` (tree `bf3e6632...`); its application code (`scripts/`) is byte-identical to the candidate `6a92e03`, `90fcb3d` changed only the harness (section 13.6) |
+| Code digest | `cab1d95c37bd...` (the tracked `scripts/` and `scaling/` bytes the run used) |
+| Python | 3.12.10 (the project's `.venv`) |
+| FFmpeg / ffprobe | gyan.dev 9.0.1 full_build (winget package; the same archive as the portable pin), SHA-256 `57c56e369d5b...` / `afe05347caaa...` |
+| Rule | `S = P - 2.0 x D >= 600 s`, the constants frozen before qualification (section 13.4) |
+| Machine | load before a run median 5.4 % (max 35.7 %), during median 12.7 % (max 37.0 %), each run's own share logged; no file-manager window open at the start or the end; 220 reveal requests recorded and not performed; no application crash event (1000/1002) during the run |
+
+| Budget | Result | |
+|---|---|---|
+| T1 (6 h, 48 chapters) | median wall 287.2 -> 132.9 s, **2.16x**; process-tree CPU 387.2 -> 170.2 s, **2.28x** (need 2.0x) | PASS |
+| T1b (1,000 chapters) | wall 444.1 -> 154.3 s, **2.88x** (need 1.8x); CPU 529.1 -> 140.7 s, **3.76x** (need 2.0x) | PASS |
+| T2 below the threshold | ten books, S from -1,802 to 516 s: seeking route, outputs unchanged | PASS |
+| T2 above the threshold | five books, S 605-7,148 s: continuous/seeking median wall 0.926, 0.896, 0.869, 0.886, 0.787 (limit 1.10 plus same-session noise, which measured at most 0.003) | PASS |
+| T3 | per-chapter slope -0.007 to 0.002 s per hour of prefix (limit 0.1); last/first quarter 0.993-1.002 (limit 1.15), three runs each of the 6 h and 12 h books | PASS |
+| T4 | audio held 610,968 / 532,728 / 605,656 bytes (6 h / 1,000 chapters / 12 h; limit 1 MiB); disk writes less the counted pipe bytes 853 / 220 / 1,704 MB against the seeking route's 835 / 339 / 1,666 MB x 1.05, no PCM spool, the decoder wrote nothing but its stream; job peak commit 225-226 / 266.0 / 373-374 MB against the harness's envelope (seeking peak + decoder peak + 1 MiB) 276.4 / 266.7 / 479 MB | PASS |
+| T5 | peak staged bytes no higher than the seeking route's on every run (sampled every 0.5 s; compared with the larger of the seeking route's sampled peak and two copies of its largest chapter, since both routes stage the same files in the same passes) | PASS |
+| T6 | 83 continuous runs: worst heartbeat p99 0.015 s (limit 0.25); no stall over 2 s. Across all 207 runs, both routes, the longest gap was 0.021 s | PASS |
+| T7 | Cancel settled in 0.249 s (6 h, continuous), 0.747 s (500 chapters, continuous), 0.252 s (6 h, seeking control); nothing alive at settle, no file left, state CANCELLED | PASS |
+| T8 | every output of every run equals its pinned reference (0 of 207 differ); every case took the expected route | PASS |
+| 12 h (reported) | long12_24 (24 chapters of 30 min): wall 401.4 -> 254.4 s, **1.58x**; CPU 521.3 -> 327.7 s, **1.59x** (attempt 1: 1.57x / 1.56x). The MP3 encode, the same on both routes, is most of what remains. | — |
+
+**The compatibility matrix** (T8; production settings unless named; digest = one SHA-256 over the run's outputs, first 16
+hex, equal to the pinned reference from `204c33b`):
+
+| Case | Route expected and taken | Outputs |
+|---|---|---|
+| route10 split preserve, auto | seeking (S 166 s, below) | `8a1ff13842cc948e` |
+| scale10 split preserve, auto | seeking (S 38 s) | `27747168afb3b1bc` |
+| route10 split preserve, continuous forced | continuous | `8a1ff13842cc948e` (= seeking) |
+| route10 split replace, continuous forced | continuous | `ac14584f1c640533` |
+| route10 split strip, continuous forced | continuous | `a50bf89880bcc191` |
+| route10 whole preserve, auto | whole book (no split) | `2429e219449fe776` |
+| noelst (no edit list, no priming) | continuous | `fc684d401c981d7a` |
+| mono22k (mono, 22.05 kHz) | continuous | `8c00e4b4aeb4f459` |
+| s48k (48 kHz) | continuous | `7ed256ec65ea00c9` |
+| r96k (96 kHz, a rate LAME does not take as it is) | seeking (refused at preflight) | `0efed01f14239401` |
+| scale100 split preserve, auto | continuous | `a752ff102ccd5564` |
+| scale500 split preserve, auto | continuous | `2ecf4a24bd7fbb2c` |
+
+**Faults, Cancel, Pause, Retry and reaping.** The encoder was killed from the feed after its first 262,144 bytes
+(scale100), and the decoder was killed on scale100 and on the 6 h book: each attempt ended COMPLETED_WITH_FAILURES with the
+book taken back, Retry Failed started a fresh decoder and SUCCEEDED, and the outputs equal the reference. Ten stall-study
+runs repeated the encoder kill: all ten fired, retried identically, longest heartbeat gap 0.021 s. Pause after 30 outputs
+held for 3 s with only the output in flight finishing (Pause waits at an output boundary), and the run's outputs were
+identical. After each of the 207 runs the job held only the harness itself, nothing was alive at a Cancel's settle, and
+the gate found no owned process after the scenario.
+
+**Memory, disk and processes.** No audio reaches disk: the decoder's 7.6 GB (6 h) or 15.2 GB (12 h) of float samples go
+through pipes and are counted exactly. The continuous route adds two child processes per book (the preflight packet scan
+and the decoder; the job counts four, each child with its console host: 294 against 290 on the 6 h book, 6,006 against
+6,002 on 1,000 chapters). Peak job commit grows by the decoder's own (118 MB on the 6 h book, 221 MB on the 12 h, 29 MB
+on 1,000 chapters). On 1,000 chapters the commit stays within the harness's envelope by only 0.7 MB (in attempt 1 one
+run exceeded it by 0.1 MB, section 13.6): that envelope is the harness's own, stricter than the approved T4, which asks
+for the memory to be reported, and it was left as frozen.
+
+### 13.6 Attempt 1: FAIL, from three harness defects
+
+The first run (`2026-11-10_090346_qualification_5021`, candidate `6a92e03`, 09:03-11:57) failed 25 of 90 checks. Every
+output equalled its pinned reference and T1 (2.06x wall, 2.24x CPU), T2, T3, T5, the decoder faults and Pause passed.
+The failures trace to the harness, not to the route:
+
+- **The end-of-run reveal was never neutralized.** The Converter opens its output folder when a run ends
+  (`sp.reveal_in_file_manager` -> `os.startfile`, on the Tk thread). The benchmark did not replace it, so every run opened
+  an Explorer window. Explorer crashed at 09:18 and 11:49 (and four times during calibration-3, 07:43-08:16); the open
+  windows loaded the machine to 46-83 % until each crash. `os.startfile` held the Tk loop for up to 36.9 s after the last
+  chapter, with no child alive: that is every heartbeat stall T6 flagged, both Cancel overruns (T7: 3.10 s = the stop in
+  about 0.1 s plus 2.87 s in `os.startfile`; 2.12 s on 500 chapters under 89 % load) and the contended 1,000-chapter timing
+  (T1b 1.54x).
+- **The encoder kill came too late.** It fired 0.3 s after the encoder started; a 1.5 s chapter's encoder lives about
+  40 ms, so the encoder fault and all ten stall-study runs killed nothing.
+- **T4 counted pipes as disk.** Windows counts a pipe write as a write, so the job's 16 GB on the 6 h book included twice
+  the book's float samples; with them taken off, every run wrote 0.65-1.02x the seeking route's bytes.
+
+`90fcb3d` corrects the harness: `bench_run.neutralize_shell` records both ways of opening the file manager and refuses to
+start a run (exit 3) unless the Converter can reach only the recorders (a test pins it; a planted defect fails it); the
+encoder fault kills the chosen encoder from the feed after its first block; the harness counts the pipe bytes exactly and
+T4 takes them off before the unchanged 1.05x comparison; each run logs the machine's load and its own share; the scenario
+counts file-manager windows before and after. Budgets, the threshold and the envelope did not move. A smoke run
+(`qual-smoke-4/`) and the changed-area gate on `90fcb3d` (`2026-11-10_123220_changed_422d`: 10 of 10 journeys,
+3,110 passed and 2 skipped) passed before attempt 2 started.
+
+Calibration-3 ran under the same Explorer load. In attempt 1 that load slowed the continuous route on 1,000 chapters about
+3.0x (457-471 s against 152-155 s in attempt 2) and the seeking route about 1.6x (675-725 s against 443-444 s): what the
+continuous route still pays per chapter is process starts and file operations, which contention hits hardest. So if
+calibration-3 was skewed, it was skewed against the continuous route and its break-even is if anything high. The threshold
+is in any case the 600 s floor, not twice the break-even (540 s): any break-even up to 300 s gives the same threshold. It
+was not recalibrated; a quiet recalibration is the owner's choice.
+
+### 13.7 The 25.7 s stall of Phase 7A
+
+Explained. The 7A outlier (section 4: a 100-chapter run idle for 25.9 s outside chapter work) has the signature attempt 1
+captured: of its 32 runs with a heartbeat gap over 1 s (both routes), 29 have stack samples showing the Tk main thread
+inside `os.startfile` after the last chapter with no child process alive, and the other 3 (gaps of 1.03-1.17 s, no stack
+sample) stalled at the same point, after the last chapter. The 7A harness did not neutralize the reveal either. With the reveal recorded instead of
+performed, no run of 207 on either route had a gap over 0.021 s. It is not the continuous route; it is a pre-existing
+behaviour of the Converter on both routes: **the end-of-run reveal calls `os.startfile` on the Tk thread, so a slow or
+restarting Explorer freezes the window** (36.9 s measured). It is outside Phase 7B's authority and is left for the owner
+(Handoff).
+
+### 13.8 Not qualified
+
+macOS; FFmpeg builds other than the qualified fingerprint (they keep the seeking route); HE-AAC, xHE-AAC and the Media
+Foundation route (they keep their routes); Windows 10 and other machines than HOME-PC; real narration (the books are
+deterministic noise and tones from the recipe); books larger than the matrix (the 2,000-chapter case was not run); Pause
+and Cancel at every chapter position (one position each).
+
+### 13.9 Owner impact and cleanup
+
+The reveal defect opened an Explorer window on the owner's desktop for every benchmark run before the fix (about 650: the
+three calibrations, the first smoke, the pinning runs and attempt 1), and Explorer crashed six times (Application log,
+07:43-11:49; none since). The 13 windows still open afterwards were closed one by one after proving each one's folder
+lay inside a qualification run's own folder (`explorer-windows-closed.txt`); no other window was touched. One full
+qualification was also started by mistake on the uncommitted tree (`qual-smoke-2/`, the `--smoke` flag left out) and
+stopped at about run 95; it is not a verdict. The two gate scratch folders this phase left in `%TEMP%\act-gate` (`8c61`,
+`bb2a`, each named by its own owner record, owner process ended, the blocked run's diagnostics already kept in the
+repository) were removed after a manifest of every file, size, hash and junction (`scratch-removal-manifest.json`; the
+20 junctions, test fixtures, all pointed inside `bb2a` and were removed as links first); `bfa7` was not touched. Every
+run's MP3s were hashed and deleted by the harness; the fixtures stay in the ignored `files/dev-work/m4b-scaling-cache/`
+(0.6 GB) for the next qualification; the evidence of both attempts stays.
+
+### 13.10 Outcome
+
+ACT72-012 is closed on this PASS (coverage ledger resolution). The `qualification` entry for `m4b-scaling` stays on
+`ACT.CONVERTER.SCALING` as release-pending evidence: a routine gate never satisfies it, and a future FFmpeg build, machine
+or route change is qualified by running it again.
+
+## 14. How T4 and T5 are measured since Phase 8 and Phase 9 (the budgets of section 8 as frozen)
+
+Section 8's budgets are unchanged. What changed twice is how the scenario reads the two resource budgets, and this
+section is the pointer from this record to where that is written down.
+
+**Phase 8 (ACT72-068, ACT72-069).** The harness had been reading its own bookkeeping as the job's memory and sampling
+staged bytes every half second; both are described in `files/dev-work/verification-gate/scaling/README.md`. T4's envelope
+counts the decoder's console host since then, which was put to the owner as a change to the harness's own formula.
+
+**Phase 9 (ACT72-073, the independent review's finding P9-04).** Phase 8's exact reading of staged bytes was taken before
+two helper functions only, so a temporary removed any other way was not read; and its judgement held the staged media
+exactly but FFmpeg's diagnostics files apart at 1.05 x. The second was not T5 as frozen in section 8 ("peak staged bytes no
+higher than production's"). Since Phase 9 the scenario reads everything the application stages before every removal,
+rename, truncation and writing-open of its process, holds that to Windows' own report of the output base, and judges T5
+to the letter: the exact peak total of the one-decode run no higher than the largest exact peak total of the same
+session's seeking runs, with no allowance. The table row of section 13.5 for T5 describes the Phase 7B implementation and
+is left as the record of that run.

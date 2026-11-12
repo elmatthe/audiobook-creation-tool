@@ -1,0 +1,4 @@
+{
+  "about": "Visual baselines the owner has approved. Each entry needs approved_by: owner, plus name, sha256, os, tk, dpi and client. A gate run only ever reads this file; an agent never adds to it. Empty until the owner reviews the candidates a run lists in visual-candidates.md.",
+  "approved": []
+}

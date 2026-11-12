@@ -1056,6 +1056,77 @@ def atomic_replace(temporary: Path, target: Path) -> None:
         ) from exc
 
 
+class DestinationOccupied(OutputPathError):
+    """A new output's name was taken when it came to be published. Nothing was replaced."""
+
+
+def move_without_replacing(source, destination) -> None:
+    """Give *source* the name *destination* by one operation that itself refuses a name that is taken.
+
+    The primitive under :func:`publish_new`, for writers that have already proved *source* is theirs some other way
+    (a staged file inside its own run's private work area: the MP3 Tool and the M4B Maker and Metadata Editor, v0.7.2
+    Phase 9 remote review R9-03). A taken name raises :class:`FileExistsError` and the file there is not touched;
+    every other failure is the operating system's own :class:`OSError`, ``errno`` intact, so a caller can still tell a
+    move to another volume (``EXDEV``) from the rest. Never a look followed by a move.
+
+    * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``: it fails when the name exists
+      and never copies.
+    * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
+      old name is then removed. If that removal fails the move has still happened: the old name is only a second name
+      for the same file.
+    """
+    if os.name == "nt":
+        os.rename(source, destination)
+        return
+    os.link(source, destination)
+    try:
+        os.unlink(source)
+    except OSError:
+        pass
+
+
+def publish_new(temporary: Path, destination: Path) -> None:
+    """Give a plan-owned temporary file a **new** name, by one operation that itself refuses a name that is taken.
+
+    For an output that must not replace anything: the name was planned as free, and if a file has taken it since, that
+    file stays exactly as it is and :class:`DestinationOccupied` is raised (v0.7.2 Phase 9, review finding P9-05).
+    :func:`atomic_replace` is the other operation and stays what it was: the deliberate, confirmed replacement of a
+    file in place. Which of the two a writer means is chosen where it publishes, never inferred here.
+
+    A look followed by a move is not this. Between ``exists()`` and ``os.replace`` another writer can create the name,
+    and the move then replaces what it wrote; the Converter published that way until this phase. Here the refusal is
+    the operation's own:
+
+    * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``, which fails when the name
+      exists and never copies.
+    * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
+      temporary name is then removed. A filesystem without hard links fails with a clear message; there is no fallback
+      to a look followed by a move.
+
+    Both are the primitives narration has published through since v0.7.1 (``tts.publication``), measured there on NTFS
+    with eight processes racing for one name. On failure of either kind the temporary file is still the caller's, to
+    discard; nothing here removes a destination.
+    """
+    temporary, destination = Path(temporary), Path(destination)
+    if not temporary.name.startswith(TEMP_SIBLING_PREFIX):
+        raise UnsafePathError(
+            "only a plan-owned temporary file may be published",
+            f"{temporary} does not carry the temporary prefix",
+        )
+    try:
+        move_without_replacing(temporary, destination)
+    except FileExistsError as exc:
+        raise DestinationOccupied(
+            f"{destination.name} already exists, so it was not replaced.",
+            f"the name was taken when the finished file came to be published: {type(exc).__name__}: {exc}",
+        ) from exc
+    except OSError as exc:
+        raise OutputPathError(
+            f"{destination.name} could not be saved in {destination.parent}",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
 def validate_source_for_replacement(source: Path) -> Path:
     """Prove *source* may be replaced in place, or raise :class:`UnsafePathError`.
 

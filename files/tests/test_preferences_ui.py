@@ -405,6 +405,34 @@ def test_reset_asks_for_confirmation_and_explains_the_scope(fresh_root):
         assert untouched in message
 
 
+def test_reset_names_the_appearance_it_returns_to_light(fresh_root):
+    """v0.7.2 Phase 6, ACT72-042: Reset also returns Light/Dark to Light, but neither the confirmation nor the card's
+    caption said so. Every kind of value the program saves in settings.json is named in both."""
+    from shared import appearance
+
+    assert appearance.set_appearance(appearance.DARK)
+    dialog = make_dialog(fresh_root, answer=True)
+    captions = []
+    stack = [dialog]
+    while stack:
+        widget = stack.pop()
+        stack.extend(widget.winfo_children())
+        try:
+            text = str(widget.cget("text"))
+        except tk.TclError:
+            continue
+        if text.startswith("Clears saved preferences only"):
+            captions.append(text)
+    assert dialog.reset_preferences() is True
+    (_title, message), = dialog._confirm.calls
+    for text in (message, *captions):
+        for named in ("last tool", "remembered folders", "output location", "Light/Dark"):
+            assert named in text, (named, text)
+        assert "Light" in text.replace("Light/Dark", ""), "and says what it returns to"
+    assert captions, "the card's caption was found"
+    assert appearance.get_appearance() == appearance.LIGHT, "the reset really does return it to Light"
+
+
 def test_cancelling_reset_changes_nothing(fresh_root, tmp_path):
     config.set_output_base(tmp_path / "Kept")
     app_settings.set("last_tool", "m4b_maker")

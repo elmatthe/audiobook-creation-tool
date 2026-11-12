@@ -49,7 +49,9 @@ thread. The engine knows nothing of any of that: it is handed the controller's
 ``ProcessingEvent`` lines into the shared job events on the worker's own
 thread — no widget is ever reached from there. Pause, Resume and Cancel are
 the controller's: ``PAUSED`` is shown only once the worker acknowledged it at
-a checkpoint, and Cancel stops at the next one, leaving the Books it never
+a checkpoint, and Cancel stops a running FFmpeg step at once (the engine is
+handed the controller's non-blocking ``cancel_check`` too; v0.7.2, ACT72-023)
+or otherwise at the next checkpoint, leaving the Books it never
 reached ``NOT_ATTEMPTED`` and the batch ``CANCELLED`` (there is no Book-level
 "cancelled"). When the terminal event is drained the per-Book ``RunResult``
 values the engine settled compose into the Plan 6 ``WorkspaceRunResult`` on
@@ -106,8 +108,10 @@ single-row composition. Only where things sit differs; every control, label
 and callback is the same.
 """
 
+import gc
 import queue
 import sys
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -126,6 +130,7 @@ from shared import appearance
 from shared import config as shared_config
 from shared import job_control
 from shared import job_ui
+from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
@@ -209,6 +214,9 @@ STATUS_COMPLETED = "Completed"
 STATUS_FAILED = "Failed"
 STATUS_SKIPPED = "Skipped"
 STATUS_NOT_ATTEMPTED = "Not attempted"
+#: The Book a Cancel stopped part-way (v0.7.2, ACT72-004). Its result stays NOT_ATTEMPTED (no new disposition); this
+#: only tells it apart from the Books the run never reached.
+STATUS_CANCELLED = "Cancelled"
 
 MIXED_MARK = "Mixed source metadata"
 #: The same marker in the tight density (v0.6.6 Phase 6). At the real
@@ -365,6 +373,9 @@ class _RunProjection:
             total += units
         self.total = total
         self._started: dict[str, int] = {}
+        #: The Books whose processing began (their "started" line), for telling a Book a Cancel stopped part-way
+        #: from one never reached (ACT72-004). Written on the worker, read on the main thread after the terminal event.
+        self.began: set[str] = set()
 
     def stage_of(self, book_id: str) -> str:
         return f"book-{self._position.get(book_id, 0)}"
@@ -376,6 +387,7 @@ class _RunProjection:
         message = _one_line(event.message)
         kind = event.kind
         if kind == "book":
+            self.began.add(book_id)
             reporter.stage_changed(stage, message)
             reporter.progress(self._offset.get(book_id, 0), self.total, stage=stage)
         elif kind == "track":
@@ -441,6 +453,10 @@ class _Attempt:
         self.projection = _RunProjection(reporter, plan, retry_items=self.retry_items)
         self.results: list[tuple[str, job_control.RunResult]] = []
         self.report = None
+        #: Read and written only under the panel's staging lock (v0.7.2, ACT72-019): ``running`` until the worker has
+        #: released what this attempt cannot retry; ``abandoned`` once no Retry Failed can reach the plan.
+        self.running = True
+        self.abandoned = False
 
     def record(self, report) -> None:
         """The engine's per-Book callback. Worker thread; append only."""
@@ -499,7 +515,10 @@ def _layout_hints(theme) -> dict:
         "label_wrap": metrics.get("field_label_wrap"),
         "label_wrap_narrow": metrics.get("field_label_wrap_narrow"),
         "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
-        "artwork_gap": int(metrics.get("artwork_gap", 8)),
+        # The fields' own gap (6): at 920x600 Book Settings is full to the
+        # pixel, and the 2 px this returns are what "Choose…" needed to show
+        # its whole label (v0.7.2 Phase 5, ACT72-020). Aqua's metrics keep 8.
+        "artwork_gap": int(metrics.get("artwork_gap", 6)),
         # v0.6.4 Phase 13 (macOS parity): Clear All Imports widened this band
         # past the aqua host, squeezing the import status bar to one pixel.
         "import_band_layout": str(metrics.get("import_band_layout", "compact")),
@@ -563,14 +582,17 @@ class _ArtworkControl:
         # Fixed character widths keep the pair compact; a theme whose native
         # buttons carry their own bezel padding (aqua) asks for the natural
         # width instead. ``theme`` is the appearance bundle and only styles.
+        # Each takes its label's own width (ttk width 0), never a fixed
+        # allocation: a width of 7 cut "Choose…" to "Choose." (v0.7.2 Phase 5,
+        # ACT72-020; the same correction as artwork.m4b_artwork_ui).
         self.btn_choose = ttk.Button(self.frame, text="Choose…",
                                      style=style_name(theme, "button"),
                                      command=self._choose,
-                                     **({} if natural else {"width": 7}))
+                                     **({} if natural else {"width": 0}))
         self.btn_clear = ttk.Button(self.frame, text="Clear",
                                     style=style_name(theme, "button"),
                                     command=self._clear,
-                                    **({} if natural else {"width": 5}))
+                                    **({} if natural else {"width": 0}))
         # Two rows only -- caption, then the two buttons side by side -- with
         # the preview spanning both on the left, so the control is no taller
         # than a label and an entry and the band it sits in stays compact.
@@ -733,6 +755,10 @@ class MP3ToolUI(ttk.Frame):
         self._settled: WorkspaceRunResult | None = None
         self._busy = False
         self._attempts = 0
+        #: Private staging lives exactly as long as a Retry Failed can reach it (v0.7.2, ACT72-019 / ACT72-037). The
+        #: worker releases what its attempt cannot retry; the main thread releases the rest once nothing can retry the
+        #: plan. This lock keeps the two from overlapping. A plain mutex around a few filesystem calls, not a signal.
+        self._staging_lock = threading.Lock()
         self._rendering = False
 
         # --- the shared importing foundation ----------------------------- #
@@ -778,6 +804,9 @@ class MP3ToolUI(ttk.Frame):
         self._book_options_lock = self._ButtonLock(
             self.btn_write_id3, self.btn_combine, self.check_auto_number,
             self.entry_start_number)
+        # The Chapter Titles box locks with the run, as the Maker's and the Editor's do (v0.7.2, ACT72-014): the run
+        # froze the titles at its start, so an edit made during it looked live and reached nothing.
+        self._chapters_lock = self._TextLock(self.chapter_text)
         self._install_jobs(IDLE_RUN_ID, ())
 
         self.render()
@@ -1170,7 +1199,7 @@ class MP3ToolUI(ttk.Frame):
         self._arrange_status()
         self.jobs.register_inputs(self.navigator, self._tracks_lock, self._import_lock)
         self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
-                                   self._book_options_lock)
+                                   self._book_options_lock, self._chapters_lock)
         self.jobs.render()
 
     def _fit_output_hint(self, _event=None) -> None:
@@ -1404,6 +1433,18 @@ class MP3ToolUI(ttk.Frame):
                 except tk.TclError:
                     pass
 
+    class _TextLock:
+        """The Chapter Titles box's run lock, as the Maker's and the Editor's (v0.7.2, ACT72-014)."""
+
+        def __init__(self, text: tk.Text) -> None:
+            self.text = text
+
+        def set_locked(self, locked: bool) -> None:
+            try:
+                self.text.configure(state="disabled" if locked else "normal")
+            except tk.TclError:
+                pass
+
     # ------------------------------------------------------------------ #
     # Dialog and confirmation seams (main thread, before any worker)
     # ------------------------------------------------------------------ #
@@ -1572,9 +1613,13 @@ class MP3ToolUI(ttk.Frame):
             return
         self._suspend_chapters = True
         try:
+            # A locked box is still filled by the panel itself (a disabled Text ignores edits); its state is put back.
+            state = str(self.chapter_text.cget("state"))
+            self.chapter_text.configure(state="normal")
             self.chapter_text.delete("1.0", "end")
             if raw:
                 self.chapter_text.insert("1.0", raw)
+            self.chapter_text.configure(state=state)
         finally:
             self._suspend_chapters = False
 
@@ -1889,6 +1934,8 @@ class MP3ToolUI(ttk.Frame):
                 "and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self._attempt is not None
+        # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
+        self._abandon_staging()
         self.workspace = wf.new_workspace(id_factory=self._ids)
         self.store = wf.ObservationStore()
         self.book_numbers = {}
@@ -1992,17 +2039,20 @@ class MP3ToolUI(ttk.Frame):
         space = self.workspace
         eligible = []
         for position, book in enumerate(space.books, start=1):
+            # The Book's stable number, as the navigator and the run log show it, never its position, which changes
+            # when a Book is removed (v0.7.2, ACT72-036).
+            number = self.book_numbers.get(book.book_id, position)
             try:
                 wf.parse_start_number(wf.start_number_text(book))
             except wf.MP3ValueError as exc:
-                messagebox.showerror(APP_TITLE, f"{label}: Start # for Book {position}: {exc}",
+                messagebox.showerror(APP_TITLE, f"{label}: Start # for Book {number}: {exc}",
                                      parent=self)
                 return False
             try:
                 wf.parse_time_delta(
                     str(wf.effective_scalars(space.shared, book).get("time_delta", "")))
             except wf.MP3ValueError as exc:
-                messagebox.showerror(APP_TITLE, f"{label}: Time for Book {position}: {exc}",
+                messagebox.showerror(APP_TITLE, f"{label}: Time for Book {number}: {exc}",
                                      parent=self)
                 return False
             if not book.files.is_empty:
@@ -2028,6 +2078,8 @@ class MP3ToolUI(ttk.Frame):
             output_paths.release_if_empty(reservation)
             messagebox.showerror(APP_TITLE, f"{label}: {exc}", parent=self)
             return False
+        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
+        self._abandon_staging()
         self.last_plan = plan
         self._settled = None
         self._start_attempt(label, plan)
@@ -2170,6 +2222,8 @@ class MP3ToolUI(ttk.Frame):
         try:
             self._run_attempt(attempt)
         except ConversionCancelled:
+            # Plan 3 offers no Retry Failed after a Cancel, so nothing staged is kept (ACT72-037).
+            self._release_staging(attempt, keep=())
             try:
                 reporter.cancelled(controller.finish_cancelled())
             except Exception:  # pragma: no cover - already stopping; do not mask it
@@ -2178,9 +2232,57 @@ class MP3ToolUI(ttk.Frame):
             detail = f"{type(exc).__name__}: {exc}"
             try:
                 reporter.technical(detail)
+            except Exception:  # pragma: no cover - already failing; do not mask it
+                pass
+            self._release_staging(attempt, keep=())
+            try:
                 reporter.completed(controller.fail(FAULT_MESSAGE, detail))
             except Exception:  # pragma: no cover - already failing; do not mask it
                 pass
+
+    def _release_staging(self, attempt: _Attempt, *, keep) -> None:
+        """The worker's half of the staging rule (v0.7.2, ACT72-019 / ACT72-037). Worker thread; touches no widget.
+
+        Called once per attempt, before its terminal event, with the Books this attempt can still retry: everything
+        else the plan staged goes now, so a run that cannot be retried leaves no ``.work``. A plan the main thread
+        already let go (:meth:`_abandon_staging`) keeps nothing. Never raises; what could not be removed is named in
+        the Detailed pane and stays where it is.
+        """
+        try:
+            with self._staging_lock:
+                attempt.running = False
+                problems = mp3_plan.release_staging(
+                    attempt.plan, keep=() if attempt.abandoned else frozenset(keep))
+        except Exception as exc:  # noqa: BLE001 - the terminal event must still be sent
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            try:
+                attempt.reporter.technical(f"Private staging left in place: {line}")
+            except Exception:  # pragma: no cover - reporting is best effort here
+                pass
+
+    def _abandon_staging(self) -> None:
+        """The main thread's half: no Retry Failed can reach the current plan any more. Main thread only.
+
+        Clear All Imports, a new run and closing the tool all drop the run. A worker still running keeps nothing
+        when it ends; otherwise the kept Books go now. Never raises.
+        """
+        attempt = self._attempt
+        if attempt is None:
+            return
+        try:
+            with self._staging_lock:
+                attempt.abandoned = True
+                if attempt.running:
+                    return
+                problems = mp3_plan.release_staging(attempt.plan)
+        except Exception as exc:  # noqa: BLE001 - closing must go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            if self._closed:
+                logging_setup.get_logger().warning("MP3 Tool: private staging left in place: %s", line)
+            else:
+                self._say("Some private staging could not be removed; it stays in the run's .work folder.", line)
 
     def _run_attempt(self, attempt: _Attempt) -> None:
         """The worker's body: the engine, then the controller's verdict."""
@@ -2188,13 +2290,20 @@ class MP3ToolUI(ttk.Frame):
         engine = (mp3_processing.combine_run
                   if plan.operation is mp3_plan.MP3Operation.COMBINE
                   else mp3_processing.write_id3_run)
+        # cancel_check, not checkpoint, is what a running FFmpeg step watches: Cancel stops it (ACT72-023), Pause waits.
         report = engine(plan, checkpoint=attempt.controller.checkpoint,
+                        cancel_check=attempt.controller.cancel_check,
                         on_event=attempt.projection, on_book=attempt.record,
                         retry_items=attempt.retry_items)
         attempt.report = report
         controller = attempt.controller
         final = (controller.complete_with_failures() if report.failed_book_ids
                  else controller.succeed())
+        # Retry Failed is offered only after a run completed with failures, and re-runs only Books with a retryable
+        # failure: their good pieces stay staged for it; every other Book's staging goes before the terminal event.
+        keep = ({book.book_id for book in report.books if not book.succeeded and book.result.has_retryable}
+                if final.state is JobState.COMPLETED_WITH_FAILURES else ())
+        self._release_staging(attempt, keep=keep)
         attempt.reporter.completed(final)
 
     # -- main-thread projections of the run --------------------------------- #
@@ -2236,9 +2345,11 @@ class MP3ToolUI(ttk.Frame):
         self.jobs.set_result(result)
         if result is not None:
             skipped = result.skipped_empty_count + result.skipped_invalid_count
+            stopped = len(self._stopped_book_ids(result))
+            never = (f"{stopped} stopped by Cancel, {result.not_attempted_count - stopped} not attempted"
+                     if stopped else f"{result.not_attempted_count} not attempted")
             self._say(f"{attempt.label}: {result.succeeded_count} Book(s) completed, "
-                      f"{result.failed_count} failed, {skipped} skipped, "
-                      f"{result.not_attempted_count} not attempted "
+                      f"{result.failed_count} failed, {skipped} skipped, {never} "
                       f"→ {attempt.plan.run_directory}")
         self.render()
 
@@ -2274,7 +2385,18 @@ class MP3ToolUI(ttk.Frame):
         result = self._settled
         if result is None:
             return STATUS_READY
+        if book_id in self._stopped_book_ids(result):
+            return STATUS_CANCELLED
         return self._status_of_disposition(result.disposition_for(book_id))
+
+    def _stopped_book_ids(self, result) -> set[str]:
+        """The Books a Cancel stopped part-way in the latest attempt: begun, never settled, NOT_ATTEMPTED (ACT72-004)."""
+        attempt = self._attempt
+        if attempt is None or result is None or result.state is not JobState.CANCELLED:
+            return set()
+        return {book_id for book_id in attempt.projection.began
+                if attempt.settled(book_id) is None
+                and result.disposition_for(book_id) is BookDisposition.NOT_ATTEMPTED}
 
     def _current_stage(self) -> str | None:
         """The stage the run's accepted events last announced, if any.
@@ -2325,11 +2447,13 @@ class MP3ToolUI(ttk.Frame):
             controller.resume()
 
     def cancel(self) -> None:
-        """Ask the run to stop at its next checkpoint. Cooperative, never forced.
+        """Ask the run to stop. A running FFmpeg step is stopped at once (ACT72-023).
 
-        No later Book starts; the one in flight stops between its stages; the
-        Books never reached settle as ``NOT_ATTEMPTED`` and the batch as
-        ``CANCELLED`` once the worker has acknowledged it -- never before.
+        No later Book starts and no later FFmpeg step; the one in flight is
+        terminated through its own process handle and a half-written staged
+        track or combined file removed (the ``.work`` folder itself stays, as
+        ACT72-037 records); the Books never reached settle as ``NOT_ATTEMPTED`` and the
+        batch as ``CANCELLED`` once the worker has acknowledged it -- never before.
         """
         controller = self.job_controller
         if controller is not None and self._busy:
@@ -2399,6 +2523,8 @@ class MP3ToolUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # Nothing can retry once the tool is closed (ACT72-019): kept staging goes now, or when the worker ends.
+        self._abandon_staging()
         controller = self.job_controller
         if controller is not None and self._busy:
             try:
@@ -2428,6 +2554,13 @@ class MP3ToolUI(ttk.Frame):
                 variable.trace_remove("write", token)
             except (tk.TclError, ValueError):
                 pass
+
+    def destroy(self) -> None:
+        """Tear the panel down and finish the teardown on this thread, as the Converter and Cover panels do. Without this a closing window
+        never reaches :meth:`close`, so a running worker is never told to stop (measured, v0.7.2 Phase 3)."""
+        self.close()
+        super().destroy()
+        gc.collect()
 
 
 def build_ui(parent: tk.Misc, theme=None) -> MP3ToolUI:

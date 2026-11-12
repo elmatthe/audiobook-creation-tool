@@ -931,3 +931,33 @@ def test_a_remapped_region_can_claim_the_wheel_again(mapped_root):
     wrap.event_generate("<Leave>", detail="NotifyAncestor")
     holder.destroy()
     mapped_root.update()
+
+
+def test_a_wheel_turned_over_the_region_or_its_controls_moves_it_and_stops_once_the_pointer_leaves(mapped_root):
+    """v0.7.2 Phase 6, ACT72-056: ownership was tested, movement never. A Canvas has no wheel binding of its own, so every
+    unit it moves here is ``enable_mousewheel``'s: a wheel over a control inside the region scrolls the region, both ways,
+    and once the pointer has really left, a wheel there moves nothing."""
+    wrap = ttk.Frame(mapped_root, width=160, height=90)
+    wrap.pack_propagate(False)
+    wrap.pack()
+    child = ttk.Label(wrap, text="a control inside the region")
+    child.pack(side="top")
+    canvas = tk.Canvas(wrap, height=50, scrollregion=(0, 0, 100, 2000), yscrollincrement=20)
+    canvas.pack(fill="both", expand=True)
+    ui_theme.enable_mousewheel(canvas, hover_region=wrap)
+    mapped_root.update()
+    assert canvas.yview()[0] == 0.0
+    wrap.event_generate("<Enter>")
+    child.event_generate("<MouseWheel>", delta=-120)
+    child.event_generate("<MouseWheel>", delta=-120)
+    mapped_root.update_idletasks()
+    down = canvas.yview()[0]
+    assert down == pytest.approx(40 / 2000), "two notches down over a child control move the region two units"
+    canvas.event_generate("<MouseWheel>", delta=120)
+    mapped_root.update_idletasks()
+    assert canvas.yview()[0] == pytest.approx(20 / 2000), "a notch up moves it back one"
+    wrap.event_generate("<Leave>", detail="NotifyAncestor")
+    child.event_generate("<MouseWheel>", delta=-120)
+    mapped_root.update_idletasks()
+    assert canvas.yview()[0] == pytest.approx(20 / 2000), "the pointer has left: the wheel is no longer the region's"
+    wrap.destroy()

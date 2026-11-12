@@ -504,14 +504,23 @@ class ReceiveResult:
 
 
 def _prepopulated(book: BookJob, summary: BookSourceSummary) -> BookJob:
-    """Section 11.3, the first-population half: write each nonblank majority.
+    """Section 11.3, the first-population half: fill each unset field from the majority.
 
     Called only when a Book had no inputs before this import. A blank majority
     writes nothing, so a Book whose sources carry no Album has no ``album`` key
     rather than an empty one that would masquerade as a user's clear.
+
+    **Only an absent key is unset** (v0.7.2 Phase 5, ACT72-006). A value the
+    person typed before the import, a field they cleared (stored as ``""`` by
+    :func:`set_book_field`), a value a duplicated Book carried over and a value
+    an emptied Book kept are all the session's own, and the imported files'
+    suggestion never replaces them. Before this, every nonblank majority was
+    written over whatever the Book held.
     """
     configuration = dict(book.configuration)
     for name in SCALAR_FIELDS:
+        if name in configuration:
+            continue
         value = summary.value_for(name)
         if value:
             configuration[name] = value

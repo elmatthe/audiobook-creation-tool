@@ -582,6 +582,53 @@ def test_every_required_control_is_on_screen_in_the_real_shell(
         _tear_down_shell(tk_root, existing)
 
 
+def _box(widget) -> tuple[int, int, int, int]:
+    x, y = widget.winfo_rootx(), widget.winfo_rooty()
+    return x, y, x + widget.winfo_width(), y + widget.winfo_height()
+
+
+def _overlaps(a, b) -> bool:
+    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+
+
+@pytest.mark.parametrize("geometry", sorted(SHELL_GEOMETRIES))
+def test_primary_and_job_controls_never_overlap_in_the_real_shell(
+        fake_settings, tk_root, geometry):
+    """The two operations, Clear Log, the progress bar and every job button
+    each keep a box of their own at every supported size. Being on screen at
+    full size (above) does not prove this: two controls can both be whole and
+    still sit on each other. ``test_mp3_tool_layout.py`` asks the same under
+    aqua only; this is the Windows measurement (v0.7.2 Phase 4)."""
+    if geometry == MINIMUM and _is_aqua(tk_root):
+        pytest.skip("920x600 is below the aqua minimum")
+    existing = set(tk_root.winfo_children())
+    try:
+        app = _fresh_shell(tk_root, geometry)
+        panel = _panel(app)
+        named = {
+            "Write ID3 Tags": panel.btn_write_id3,
+            "Combine": panel.btn_combine,
+            "Clear Log": panel.btn_clear_log,
+            "progress": panel.status.indicator.bar,
+        }
+        named.update({f"job {action.name}": button
+                      for action, button in panel.jobs.controls.buttons.items()})
+        assert len(named) > 4, "the job area offered no buttons to measure"
+        boxes = {}
+        for name, widget in named.items():
+            assert widget.winfo_ismapped(), f"{name} is not on screen at {geometry}"
+            boxes[name] = _box(widget)
+            width, height = boxes[name][2] - boxes[name][0], boxes[name][3] - boxes[name][1]
+            assert width > 1 and height > 1, f"{name} has no area at {geometry}"
+        names = list(boxes)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                assert not _overlaps(boxes[a], boxes[b]), (
+                    f"{a} {boxes[a]} overlaps {b} {boxes[b]} at {geometry}")
+    finally:
+        _tear_down_shell(tk_root, existing)
+
+
 def _png(path: Path) -> Path:
     from PIL import Image
 

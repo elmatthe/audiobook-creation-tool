@@ -46,6 +46,8 @@ MF_VERSION = (0x0002 << 16) | 0x0070
 MF_SOURCE_READER_FIRST_AUDIO_STREAM = 0xFFFFFFFD
 MF_SOURCE_READERF_ENDOFSTREAM = 0x2
 MF_SOURCE_READERF_ERROR = 0x1
+#: The decoder's output format is no longer the one that was negotiated; ``GetCurrentMediaType`` has the new one.
+MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED = 0x20
 
 #: How much decoded audio to hand upward at once. The reader's own buffers are
 #: ~4 KB; batching them keeps the number of pipe writes sane without ever
@@ -248,35 +250,74 @@ class _Reader:
         _check(set_current(reader, MF_SOURCE_READER_FIRST_AUDIO_STREAM, None,
                            media_type), "SetCurrentMediaType")
 
-        # Read the negotiated format back rather than assuming it.
-        current = ctypes.c_void_p()
-        get_current = _method(reader, 6, ctypes.c_long, ctypes.c_uint32,
-                              ctypes.POINTER(ctypes.c_void_p))
-        _check(get_current(reader, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
-                           ctypes.byref(current)), "GetCurrentMediaType")
-        self._current = current
-
-        # IMFAttributes::GetUINT32 is slot 7.
-        get_uint32 = _method(current, 7, ctypes.c_long,
-                             ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_uint32))
-
-        def value(key: str) -> int:
-            out = ctypes.c_uint32()
-            if get_uint32(current, ctypes.byref(g[key]), ctypes.byref(out)) != S_OK:
-                raise DecodeError(f"the decoder did not report its {key}")
-            return int(out.value)
-
-        self.format = PcmFormat(sample_rate=value("rate"),
-                                channels=value("channels"), bits=value("bits"))
-
         # IMFSourceReader::ReadSample is slot 9.
         self._read_sample = _method(
             reader, 9, ctypes.c_long, ctypes.c_uint32, ctypes.c_uint32,
             ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32),
             ctypes.POINTER(ctypes.c_longlong), ctypes.POINTER(ctypes.c_void_p))
 
+        # Read the negotiated format back rather than assuming it -- and then decode the first buffer before reporting
+        # it (v0.7.2 Phase 8, ACT72-048). What the reader negotiates before it has decoded anything is the decoder's
+        # promise, and the decoder may correct it once it has seen the audio: measured on a real mono 22.05 kHz AAC
+        # book, the promise was 44.1 kHz stereo (room for the SBR and parametric-stereo tools the stream turned out
+        # not to use) and every delivered byte was 22.05 kHz mono. The caller tells FFmpeg how to read the pipe from
+        # this one answer, so it has to be the format of the bytes that actually arrive.
+        try:
+            self.format = self._negotiated_format()
+            self._primed: list = [self._decode_next()]
+            if self._format_changed:
+                self.format = self._negotiated_format()
+                self._format_changed = False
+        except BaseException:
+            self.close()
+            raise
+
+    _format_changed = False
+
+    def _negotiated_format(self) -> PcmFormat:
+        """What the reader's decoder says it is delivering now."""
+        g = _guids()
+        current = ctypes.c_void_p()
+        get_current = _method(self._reader, 6, ctypes.c_long, ctypes.c_uint32,
+                              ctypes.POINTER(ctypes.c_void_p))
+        _check(get_current(self._reader, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+                           ctypes.byref(current)), "GetCurrentMediaType")
+        try:
+            # IMFAttributes::GetUINT32 is slot 7.
+            get_uint32 = _method(current, 7, ctypes.c_long,
+                                 ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_uint32))
+
+            def value(key: str) -> int:
+                out = ctypes.c_uint32()
+                if get_uint32(current, ctypes.byref(g[key]), ctypes.byref(out)) != S_OK:
+                    raise DecodeError(f"the decoder did not report its {key}")
+                return int(out.value)
+
+            return PcmFormat(sample_rate=value("rate"),
+                             channels=value("channels"), bits=value("bits"))
+        finally:
+            _release(current)
+
     def read(self) -> bytes | None:
-        """The next decoded buffer, or ``None`` at end of stream."""
+        """The next decoded buffer, or ``None`` at end of stream.
+
+        A format the decoder changes after the first buffer is refused, never followed: everything downstream was
+        told the first one, and audio read at the wrong rate or channel count is a wrong book, not a short one.
+        """
+        if self._primed:
+            return self._primed.pop()
+        block = self._decode_next()
+        if self._format_changed:
+            self._format_changed = False
+            now = self._negotiated_format()
+            if now != self.format:
+                raise DecodeError(
+                    f"the decoder changed its output format mid-stream (from {self.format.sample_rate} Hz, "
+                    f"{self.format.channels} channel(s), {self.format.bits} bit to {now.sample_rate} Hz, "
+                    f"{now.channels} channel(s), {now.bits} bit)")
+        return block
+
+    def _decode_next(self) -> bytes | None:
         flags = ctypes.c_uint32()
         stream = ctypes.c_uint32()
         timestamp = ctypes.c_longlong()
@@ -288,6 +329,8 @@ class _Reader:
             raise DecodeError(f"ReadSample failed: HRESULT 0x{hr & 0xFFFFFFFF:08X}")
         if flags.value & MF_SOURCE_READERF_ERROR:
             raise DecodeError("the media source reported an error mid-stream")
+        if flags.value & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED:
+            self._format_changed = True
         if flags.value & MF_SOURCE_READERF_ENDOFSTREAM:
             return None
         if not sample.value:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import queue
+import sys
 import threading
 from pathlib import Path
 
@@ -360,6 +361,31 @@ def test_replacement_refuses_a_linked_source(tmp_path):
         op.validate_source_for_replacement(link)
 
 
+def test_replacement_refuses_a_junction_or_directory_link(tmp_path):
+    """The link refusal on a real link this account can always make.
+
+    A file symlink needs a Windows privilege the account may not hold, so the
+    test above can skip; a junction needs none (a directory symlink elsewhere).
+    Without the link check the validator would still refuse, but as "not a
+    file", so the message is what proves the link was recognised as one
+    (v0.7.2 Phase 4).
+    """
+    real = tmp_path / "art" / "real"
+    real.mkdir(parents=True)
+    make_image(real / "cover.jpg")
+    link = tmp_path / "art" / "link.jpg"
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(real), str(link))
+    else:
+        link.symlink_to(real, target_is_directory=True)
+    with pytest.raises(op.UnsafePathError) as excinfo:
+        op.validate_source_for_replacement(link)
+    assert "is a link" in excinfo.value.message
+    assert (real / "cover.jpg").is_file(), "the link's target is untouched"
+
+
 def test_replacement_refuses_a_missing_or_directory_source(tmp_path):
     with pytest.raises(op.UnsafePathError):
         op.validate_source_for_replacement(tmp_path / "gone.jpg")
@@ -480,11 +506,41 @@ def test_focus_is_set_on_cancel_and_never_on_the_destructive_button():
     assert focused == {"btn_cancel"}, focused
 
 
+def _focus_and_press_return(root, win, button) -> None:
+    """A real Return key event delivered to the focused button of a mapped dialog (no handler is called directly).
+
+    Tk sends a key to the window that holds focus, and a dialog over the suite's withdrawn root is never viewable, so the
+    root is shown for the moment of the key press and withdrawn again, as test_ui_theme's mapped_root does."""
+    root.deiconify()
+    try:
+        root.update()
+        win.deiconify()
+        win.update()
+        button.focus_force()
+        win.update()
+        assert str(win.focus_get()) == str(button), "the key must reach the button that holds the keyboard"
+        button.event_generate("<Return>")
+        root.update()
+    finally:
+        root.withdraw()
+        root.update_idletasks()
+
+
 def test_enter_on_the_focused_default_cannot_start_a_replacement(fresh_root):
-    """Return activates whatever holds focus, and that is Cancel — not Replace."""
+    """Return presses what holds the keyboard, and that is Cancel: the dialog closes and nothing is replaced.
+
+    v0.7.2 Phase 6 (ACT72-060): this used to call Cancel's handler ("what Return would do"). Tk gives a ttk button no
+    Return binding, so in the running app Enter did nothing; a key event is what is sent now, and the window must go."""
     win = open_dialog(fresh_root, 2)
-    win.default_widget.invoke()           # what Return would do
+    _focus_and_press_return(fresh_root, win, win.btn_cancel)
     assert win.result["ok"] is False
+    assert not win.winfo_exists(), "Enter answered the dialog"
+
+
+def test_enter_presses_replace_only_once_the_person_has_moved_to_it(fresh_root):
+    win = open_dialog(fresh_root, 1)
+    _focus_and_press_return(fresh_root, win, win.btn_confirm)
+    assert win.result["ok"] is True and not win.winfo_exists()
 
 
 def test_the_message_states_the_irreversible_and_partial_batch_facts(fresh_root):

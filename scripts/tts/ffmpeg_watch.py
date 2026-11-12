@@ -16,14 +16,16 @@ unchanged, and no call site can be missed. pydub is pinned, and ``test_low_memor
 
 A failed ``export`` leaves pydub's two temporary files behind, the first holding the whole narration as a WAV, and nothing else knows
 their names. So its ``NamedTemporaryFile`` is replaced as well: inside a :func:`controlled` block they are remembered, and the block's
-end removes any still there (:func:`remove_temporaries`, which a fallback calls sooner, because it needs that disk space).
+end removes any still there (:func:`remove_temporaries`, which a fallback calls sooner, because it needs that disk space). They are
+made in the block's own folder of the TTS work area (v0.7.2, :mod:`shared.work_area`), made at the first one and removed after them,
+so a killed program's are recognised as its own and removed by a later run; before, they lay loose in the temp folder for good.
 
 **The deadlines.** Measured from the last progress: bytes read from FFmpeg, or growth of the file it is writing.
 
-* :data:`STALL_SECONDS`: no progress at all: killed, and the file fails with :class:`ProcessingStalled`.
-* Cancelled, with speech still to come after this (``abort_on_cancel``): killed within one :data:`WATCH_SECONDS`.
-* Cancelled, with the narration's last paragraph or its assembly in hand (the default): it is left to finish while it progresses, and
-  is killed after :data:`CANCEL_STALL_SECONDS` without progress or :data:`CANCEL_FINISH_SECONDS` in all. The caller is told, and says so.
+* :data:`STALL_SECONDS`: no progress at all, nobody has cancelled: killed, and the file fails with :class:`ProcessingStalled`.
+* Cancelled: killed within one :data:`WATCH_SECONDS`, whatever it was doing and however well it was going (v0.7.2). A Cancel stops
+  active work; it does not let finished narration be assembled or encoded first. :func:`wake` lets the Cancel be noticed before
+  the watchdog's next look. Nothing unfinished ever reaches a destination: that is :mod:`tts.publication`'s contract.
 """
 
 from __future__ import annotations
@@ -40,58 +42,86 @@ from typing import Callable, Iterator, Optional
 
 from shared import subprocess_utils
 from shared.cancellation import ConversionCancelled
+from shared import work_area
 
 WATCH_SECONDS = 0.25
 #: No progress at all, nobody has cancelled. A virus scanner opening a 4 GB WAV can hold FFmpeg for a minute or two; a whole
 #: narration takes seconds to minutes in all.
 STALL_SECONDS = 300
-#: After Cancel, how long finished narration may go without progress.
-CANCEL_STALL_SECONDS = 30
-#: After Cancel, how long finishing one step may take however well it is going: 4.6 hours of narration took about 30 s to assemble
-#: on HOME-PC, so about 3 minutes for 24 hours, and this leaves room for a much slower computer.
-CANCEL_FINISH_SECONDS = 600
 #: Enough of what FFmpeg said to explain a failure. It prints its build options first, which can run to a few KB.
 STDERR_TAIL_BYTES = 64 * 1024
 BLOCK_BYTES = 1024 * 1024
+CANCELLED_MESSAGE = "Conversion cancelled by user."
 
 
 class ProcessingStalled(RuntimeError):
     """FFmpeg stopped making progress and was killed. Nothing unfinished reaches a destination."""
 
 
+class _Scratch:
+    """A ``controlled`` block's own folder for pydub's temporaries, made at the first one. Shared with the threads the block's
+    context is copied into, hence the lock."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._folder: Optional[work_area.OwnedFolder] = None
+
+    def path(self) -> str:
+        with self._lock:
+            if self._folder is None:
+                self._folder = work_area.new_folder("pydub")
+            return str(self._folder.path)
+
+    def close(self) -> None:
+        with self._lock:
+            folder, self._folder = self._folder, None
+        if folder is not None:
+            folder.close()
+
+
 @dataclass(frozen=True)
 class _Control:
     cancel_check: Optional[Callable[[], bool]] = None
-    abort_on_cancel: bool = False
     temporaries: Optional[list] = None  # pydub's temporary files, while in a ``controlled`` block
+    scratch: Optional[_Scratch] = None  # where they are made, while in a ``controlled`` block
 
 
 _control: contextvars.ContextVar[_Control] = contextvars.ContextVar("ffmpeg_watch_control", default=_Control())
 
 
 @contextlib.contextmanager
-def controlled(cancel_check: Optional[Callable[[], bool]], *, abort_on_cancel: bool = False):
-    """Every FFmpeg this thread starts inside the block answers to ``cancel_check``. ``abort_on_cancel`` is for work a Cancel
-    would discard anyway; without it, what is running may be finished narration, which a Cancel lets finish while it progresses."""
+def controlled(cancel_check: Optional[Callable[[], bool]]):
+    """Every FFmpeg this thread starts inside the block answers to ``cancel_check``: once it says so, the process is killed
+    within one look, whatever stage of the conversion it belongs to."""
     _ensure_watchdog()
-    token = _control.set(_Control(cancel_check, abort_on_cancel, []))
+    scratch = _Scratch()
+    token = _control.set(_Control(cancel_check, [], scratch))
     try:
         yield
     finally:
         remove_temporaries()
         _control.reset(token)
+        scratch.close()  # after the files in it, whose handles remove_temporaries has closed
 
 
-def abort_on_cancel(abort: bool) -> None:
-    """For the rest of the enclosing :func:`controlled` block: is what comes next work a Cancel would discard anyway?"""
-    current = _control.get()
-    _control.set(_Control(current.cancel_check, abort, current.temporaries))
+def current_cancel_check() -> Optional[Callable[[], bool]]:
+    """The cancel check of the conversion this thread is running inside a :func:`controlled` block, or ``None``.
+
+    The Edge request loops read it here (v0.7.2) rather than taking a new parameter, so the seams the offline test
+    doubles stand in for keep their shape, and a request made anywhere in the conversion answers to the same Cancel the
+    watchdog does. ``parallel_edgespeak`` copies the context into its executor threads for the same reason.
+    """
+    return _control.get().cancel_check
 
 
 def _named_temporary_file(*args, **kwargs):
-    """pydub's ``NamedTemporaryFile``. A file it asked to keep (it removes those itself, if nothing fails) is remembered."""
+    """pydub's ``NamedTemporaryFile``. A file it asked to keep (it removes those itself, if nothing fails) is remembered. Inside a
+    ``controlled`` block it is made in the block's own work-area folder (pydub never names a folder; ``dir`` is the 7th argument)."""
+    control = _control.get()
+    if control.scratch is not None and len(args) < 7 and kwargs.get("dir") is None:
+        kwargs["dir"] = control.scratch.path()
     handle = tempfile.NamedTemporaryFile(*args, **kwargs)
-    remembered = _control.get().temporaries
+    remembered = control.temporaries
     if remembered is not None and not kwargs.get("delete", True):
         remembered[:] = [other for other in remembered if os.path.exists(other.name)]
         remembered.append(handle)
@@ -116,7 +146,6 @@ class _Watched:
         self.control = control
         self.progress_at = time.monotonic()
         self.size = -1
-        self.cancelled_at: Optional[float] = None
         self.verdict: Optional[BaseException] = None
 
 
@@ -141,15 +170,9 @@ def _verdict_on(item: _Watched, now: float) -> Optional[BaseException]:
             size = os.stat(item.output).st_size
             if size != item.size:
                 item.size, item.progress_at = size, now
-    idle = now - item.progress_at
     if _asked_to_cancel(item.control):
-        if item.control.abort_on_cancel:
-            return ConversionCancelled("Conversion cancelled by user.")
-        item.cancelled_at = now if item.cancelled_at is None else item.cancelled_at
-        if idle >= CANCEL_STALL_SECONDS or now - item.cancelled_at >= CANCEL_FINISH_SECONDS:
-            return ConversionCancelled(
-                "Cancelled before this file was saved: finishing its narration did not complete in the time allowed after Cancel, "
-                "so nothing was saved for it. Start it again to convert it.")
+        return ConversionCancelled(CANCELLED_MESSAGE)
+    idle = now - item.progress_at
     if idle >= STALL_SECONDS:
         return ProcessingStalled(
             f"FFmpeg stopped making progress for {round(idle)} seconds and was stopped. Nothing unfinished was saved. Check the "
@@ -175,13 +198,17 @@ def _watchdog() -> None:
             _watch_once()
             with _watched_lock:
                 idle = not _watched
-            if idle:
-                _wake.wait()
-                _wake.clear()
-            else:
-                time.sleep(WATCH_SECONDS)
+            # Asleep until the next look, or until something wakes it: a new process, or a Cancel (:func:`wake`).
+            _wake.wait(None if idle else WATCH_SECONDS)
+            _wake.clear()
         except BaseException:  # noqa: BLE001 - out of memory here too: this thread is the one that must not stop
             time.sleep(WATCH_SECONDS)
+
+
+def wake() -> None:
+    """Look at every watched process now, not at the next tick. The panel calls this when Cancel is pressed, so a cancelled
+    FFmpeg is killed as soon as the latch is set rather than up to :data:`WATCH_SECONDS` later."""
+    _wake.set()
 
 
 def _ensure_watchdog() -> None:

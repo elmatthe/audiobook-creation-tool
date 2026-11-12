@@ -80,10 +80,11 @@ from __future__ import annotations
 
 import contextlib
 import io
+import math
 import os
 import queue
+import re
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -142,7 +143,8 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import publication, worker_limits
+from tts import ffmpeg_watch, publication, worker_limits
+from shared import work_area
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -363,6 +365,12 @@ def _default_chatterbox_status(voice_id: str) -> tuple[bool, str]:
 #: What the engine line says when a Qwen3-TTS voice is selected (the preset and cloned voices share one engine).
 QWEN3_ENGINE_LABEL = "Qwen3-TTS (Local AI)"
 
+#: v0.7.2 Phase 6 (ACT72-058, owner-approved). Where the window is too small for the full hardware and speed disclosure
+#: (Decisions Q3/Q7) -- the 920x600 minimum -- it is presented as this button beside Install / repair, and the button
+#: shows the complete disclosure. The label stays short enough to share that row in the split arrangement.
+QWEN3_DETAILS_LABEL = "Hardware and speed..."
+QWEN3_DETAILS_TITLE = "Qwen3 hardware and speed"
+
 
 def qwen3_status(voice_id: str) -> tuple[bool, str]:
     """The panel's one question to the Qwen3 engine: can this voice run right now?
@@ -436,6 +444,80 @@ def _source_signatures(snapshot) -> tuple:
 
 #: v0.7.0: the consent for the Edge voices' English sentence data (``shared.nltk_store``).
 SENTENCE_DATA_TITLE = "English sentence data"
+
+
+#: The only rate form the Edge service takes: a sign, a whole number and a percent sign (edge_tts 7.3.1 checks exactly
+#: ``^[+-]\d+%$`` and refuses anything else, for every request of a folder-imported Edge file).
+EDGE_RATE = re.compile(r"[+-]\d+%")
+
+
+def edge_rate_problem(rate: str, imported) -> str:
+    """Why the Edge speech rate cannot be used for this queue, or ``""``. v0.7.2 Phase 5, ACT72-044.
+
+    Only folder-imported files send a rate (directly added Edge files keep Edge's natural pace), so a queue of direct
+    files never needs one. Asked at Start, before anything is frozen or reserved: a malformed rate used to reserve a
+    run folder and then fail every folder-imported Edge file, one service refusal at a time.
+    """
+    if all(entry.mirroring_root is None for entry in imported.files):
+        return ""
+    if EDGE_RATE.fullmatch(rate):
+        return ""
+    return (f"The Edge speech rate {rate!r} is not one the Edge voices accept. Type a sign, a whole number and %, "
+            "for example +10% or -5% (+0% is normal speed). Nothing was started.")
+
+
+#: Every voice family makes 24 kHz speech: Edge's service format, Kokoro's and Chatterbox's model rate, Qwen3's model
+#: output (each measured on the app's real output, v0.7.2 Phase 6). Nothing here resamples it.
+SPEECH_SAMPLE_RATE = 24000
+
+
+def mp3_bitrate_ceiling_kbps(sample_rate: int) -> int:
+    """The highest bit rate an MP3 at *sample_rate* can have: MPEG-1 Layer III (32, 44.1 and 48 kHz) 320 kbit/s,
+    MPEG-2 (16, 22.05 and 24 kHz) 160, MPEG-2.5 (8, 11.025 and 12 kHz) 64."""
+    if sample_rate >= 32000:
+        return 320
+    if sample_rate >= 16000:
+        return 160
+    return 64
+
+
+def mp3_bitrate_note(requested: str, sample_rate: int = SPEECH_SAMPLE_RATE) -> str:
+    """What to tell the person when *requested* is above what MP3 allows at the speech's sample rate, or ``""``.
+
+    v0.7.2 Phase 6, ACT72-021: a 24 kHz voice asked for 192k or 320k was encoded at MPEG-2 Layer III's 160 kbit/s
+    ceiling with no word to the user. The encoding is unchanged (no resampling); the person is told what the files get.
+    """
+    try:
+        kbps = int(str(requested).strip().lower().removesuffix("k"))
+    except ValueError:
+        return ""
+    ceiling = mp3_bitrate_ceiling_kbps(sample_rate)
+    if kbps <= ceiling:
+        return ""
+    return (f"MP3 bitrate {requested}: the voices make {sample_rate / 1000:g} kHz speech, and an MP3 at that rate can "
+            f"be at most {ceiling} kbit/s, so the files are written at {ceiling}k.")
+
+
+#: The Kokoro speeds the panel offers (its spinbox's range; 1.0 is normal speed).
+KOKORO_SPEED_MIN = 0.5
+KOKORO_SPEED_MAX = 2.0
+
+
+def kokoro_speed_problem(text: str) -> str:
+    """Why a typed Kokoro speed cannot be used, or ``""``. v0.7.2 Phase 6, ACT72-047.
+
+    The spinbox limits only its arrows: a typed 0, a negative number, ``nan`` or ``inf`` reached the engine unchecked,
+    and a word silently became 1.0. Asked at Start, before anything is frozen or reserved, like the Edge speech rate.
+    """
+    raw = str(text).strip()
+    try:
+        speed = float(raw)
+    except ValueError:
+        speed = None
+    if speed is not None and math.isfinite(speed) and KOKORO_SPEED_MIN <= speed <= KOKORO_SPEED_MAX:
+        return ""
+    return (f"The Kokoro speed {raw!r} cannot be used. Type a number from {KOKORO_SPEED_MIN} to {KOKORO_SPEED_MAX} "
+            "(1.0 is normal speed). Nothing was started.")
 
 
 def needs_sentence_data(imported) -> bool:
@@ -1200,12 +1282,27 @@ class TtsPanel(ttk.Frame):
         self.voice_status_lbl.grid_remove()
         self._wrap(self.voice_status_lbl, voice)
 
+        # The Qwen3 actions' row. Its own frame, so that the row's width -- both buttons side by side -- is part of
+        # what the layout measures, and so that it takes no height at all while neither button shows.
+        self.qwen3_actions = ttk.Frame(voice, style=st("surface"))
+        self.qwen3_actions.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.qwen3_actions.grid_remove()
         # The one in-app way to install or repair the Qwen3 voices (the same action for a first-time user and an
         # existing one). Shown only while a Qwen3 voice is selected and the platform offers it.
         self.qwen3_setup_btn = ttk.Button(
-            voice, text="Install / repair Qwen3 voices...", command=self.open_qwen3_setup, style=st("button"))
-        self.qwen3_setup_btn.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            self.qwen3_actions, text="Install / repair Qwen3 voices...", command=self.open_qwen3_setup,
+            style=st("button"))
+        self.qwen3_setup_btn.grid(row=0, column=0, sticky="w")
         self.qwen3_setup_btn.grid_remove()
+        # The compact presentation of the hardware and speed disclosure (ACT72-058): shown instead of the notice line
+        # only where the full text cannot fit (_layout_for), never at the same time as it. After Install in Tab order.
+        self.qwen3_details_btn = ttk.Button(
+            self.qwen3_actions, text=QWEN3_DETAILS_LABEL, command=self.show_qwen3_details, style=st("button"))
+        self.qwen3_details_btn.grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.qwen3_details_btn.grid_remove()
+        # Whether a Qwen3 disclosure is being shown, and whether it is shown compactly.
+        self._qwen3_disclosure = False
+        self._disclosure_compact = False
 
         self.voice_separator = ttk.Separator(voice, orient=tk.HORIZONTAL,
                                              style=st("separator"))
@@ -1335,7 +1432,9 @@ class TtsPanel(ttk.Frame):
         self.run_options = ttk.Frame(run, style=st("surface"))
         self.run_options.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
         self.chk_resume = ttk.Checkbutton(
-            self.run_options, text="Resume (skip existing MP3s)",
+            # ACT72-046 (v0.7.2 Phase 6): "Resume" promised to continue an earlier run, which a new run never does: each
+            # first attempt starts in a newly reserved folder. The behaviour is unchanged; the words say what it is.
+            self.run_options, text="Skip MP3s already in this run",
             variable=self.resume_var, style=st("checkbutton"))
         self.chk_overwrite = ttk.Checkbutton(
             self.run_options, text="Overwrite existing outputs without asking",
@@ -1516,6 +1615,7 @@ class TtsPanel(ttk.Frame):
             self.qwen3_setup_btn.grid()
         else:
             self.qwen3_setup_btn.grid_remove()
+        self._qwen3_disclosure = False
 
         # Only the two retained, user-editable controls (Band 3) take a default
         # from the preset now; the pause/trim fields Phase 7 removed are read
@@ -1550,9 +1650,10 @@ class TtsPanel(ttk.Frame):
             self.edge_rate_frm.grid_remove()
             note = self._qwen3_hardware()
             self.kokoro_notice_var.set(note)
-            if note:
-                self.kokoro_notice_lbl.grid()
-            else:  # e.g. a platform where the voices are not yet available: the status line says so, nothing else does
+            # Shown in full, or compactly where it cannot fit (_show_disclosure). Without a note -- e.g. a platform
+            # where the voices are not yet available -- the status line says so, and nothing else does.
+            self._qwen3_disclosure = bool(note)
+            if not note:
                 self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
         elif entry.backend == "kokoro":
@@ -1562,17 +1663,20 @@ class TtsPanel(ttk.Frame):
             )
             self.edge_rate_frm.grid_remove()
             self.kokoro_speed_frm.grid()
-            notice = (
-                "Kokoro voices run locally on this computer. The first Kokoro run "
-                "may download ~300 MB of voice model data, stored with the app. "
-            )
+            # v0.7.2 Phase 5 (ACT72-007). Since v0.7.0 the model files are
+            # installed only through Install & Continue's reviewed download and
+            # never fetched by a run, so the old "the first Kokoro run may
+            # download ~300 MB" was untrue. And when they are missing, the
+            # status line below already says what to do: the notice then
+            # steps aside, so the two never stack and push Start off a
+            # 920x600 window.
+            notice = "Kokoro voices run locally on this computer, from their installed model files. "
             if sys.version_info >= (3, 13):
                 notice += (
                     "WARNING: PyPI 'kokoro' currently requires Python 3.10–3.12. "
                     "Use a Python 3.12 virtual environment for Kokoro voices."
                 )
-            self.kokoro_notice_var.set(notice)
-            self.kokoro_notice_lbl.grid()
+            self.kokoro_notice_var.set(notice.strip())
             self._refresh_voice_status(entry)
         else:
             self.backend_label_var.set(
@@ -1583,10 +1687,37 @@ class TtsPanel(ttk.Frame):
             self.edge_rate_frm.grid()
             self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
+        # In the presentation the current size last called for; _content_changed decides it again just below.
+        self._show_disclosure(self._disclosure_compact)
         # A notice or setup message may have appeared or gone: the sections'
         # heights changed, so the layout's floors (and possibly its
         # arrangement) are re-derived from the widgets as they now are.
         self._content_changed()
+
+    def _show_disclosure(self, compact: bool) -> None:
+        """Present a Qwen3 voice's hardware and speed disclosure in full, or compactly (ACT72-058).
+
+        Compact is the owner-approved presentation for a window too small for the full text: the notice line steps
+        aside and the "Hardware and speed..." button beside Install / repair shows the complete disclosure. The text
+        itself is never cut -- ``kokoro_notice_var`` keeps all of it. Main thread only; grid positions only.
+        """
+        self._disclosure_compact = bool(compact)
+        if self._qwen3_disclosure and self._disclosure_compact:
+            self.kokoro_notice_lbl.grid_remove()
+            self.qwen3_details_btn.grid()
+        else:
+            self.qwen3_details_btn.grid_remove()
+            if self._qwen3_disclosure:
+                self.kokoro_notice_lbl.grid()
+        # The actions' row takes no height while neither of its buttons shows.
+        if self.qwen3_setup_btn.winfo_manager() or self.qwen3_details_btn.winfo_manager():
+            self.qwen3_actions.grid()
+        else:
+            self.qwen3_actions.grid_remove()
+
+    def show_qwen3_details(self) -> None:
+        """The complete hardware and speed disclosure, from the compact presentation's button. Main thread only."""
+        messagebox.showinfo(QWEN3_DETAILS_TITLE, self.kokoro_notice_var.get(), parent=self)
 
     def open_qwen3_setup(self) -> None:
         """Open the install/repair dialog. Main thread only.
@@ -1651,6 +1782,13 @@ class TtsPanel(ttk.Frame):
         else:
             self.voice_status_var.set(reason)
             self.voice_status_lbl.grid()
+        if entry.backend == "kokoro":
+            # One Kokoro message at a time (ACT72-007): the notice while the voice
+            # can run, the setup line while it cannot. Every caller re-measures.
+            if self._voice_available:
+                self.kokoro_notice_lbl.grid()
+            else:
+                self.kokoro_notice_lbl.grid_remove()
         return self._voice_available, reason
 
     # ------- worker -> GUI queue drain (main thread, on the one pump) -------
@@ -1768,7 +1906,11 @@ class TtsPanel(ttk.Frame):
         already running when a conversion started can still be stopped, and that stop
         reaches the coordinator only, never this run's controller.
         """
-        for widget in (self.go_btn, self.spin_workers, self.chk_overwrite, self.qwen3_setup_btn):
+        # Resume, the Edge speech rate and the Kokoro speed are frozen into the run at Start like every other option
+        # here (v0.7.2, ACT72-014): left editable they looked live and changed nothing. The Hardware and speed button
+        # only shows text, and Open Output Folder and Clear Log are not options, so none of them locks.
+        for widget in (self.go_btn, self.spin_workers, self.chk_overwrite, self.qwen3_setup_btn,
+                       self.chk_resume, self.entry_rate, self.spin_kokoro_speed):
             widget.configure(state=tk.DISABLED if locked else tk.NORMAL)
         # The two dropdowns are pick-one lists, never typeable: unlocking them
         # returns them to "readonly", not to "normal".
@@ -2113,6 +2255,11 @@ class TtsPanel(ttk.Frame):
         needs: dict = {}
         sections = {"sources": self.sources_section, "voice": self.voice_section,
                     "run": self.run_section}
+        # Every arrangement is measured with a Qwen3 disclosure in full; the
+        # compact presentation is measured once more below (ACT72-058), and
+        # whatever was on screen is put back at the end.
+        presented_compact = self._disclosure_compact
+        self._show_disclosure(False)
         for inner in ("stack", "side", "narrow"):
             self._arrange_sections(inner)
             for label, _owner, _reserve in self._wrapped:
@@ -2150,6 +2297,15 @@ class TtsPanel(ttk.Frame):
                 # "split" has to fit beneath Output & Run.
                 needs["activity_narrow"] = (self.activity.winfo_reqwidth(),
                                             self.activity.winfo_reqheight())
+                # ACT72-058: Voice & Audio again with a Qwen3 disclosure shown
+                # compactly, which only "split" may use (_layout_for).
+                if self._qwen3_disclosure:
+                    self._show_disclosure(True)
+                    self.update_idletasks()
+                    needs["voice_compact"] = (
+                        max(widths["voice"], self.voice_section.winfo_reqwidth()),
+                        self.voice_section.winfo_reqheight())
+                    self._show_disclosure(False)
         row_px = listbox.winfo_reqheight() / IMPORTER_LIST_HEIGHT
         needs["list_row_px"] = row_px
         needs["list_give"] = int(row_px * (IMPORTER_LIST_HEIGHT - IMPORTER_FLOOR_ROWS))
@@ -2158,18 +2314,25 @@ class TtsPanel(ttk.Frame):
         line = tkfont.Font(font=self.log.summary_text.cget("font")).metrics("linespace")
         needs["log_give"] = int(line) * (LOG_HEIGHT - LOG_FLOOR_LINES)
         self._needs = needs
+        self._show_disclosure(presented_compact)
         if self._layout_mode is not None:
             self._arrange_sections(self._layout_mode[1])
             self._size_list()
 
-    def _workflow_needs(self, inner: str) -> tuple[int, int]:
-        """The workflow column's natural width and its floor height."""
+    def _workflow_needs(self, inner: str, compact: bool = False) -> tuple[int, int]:
+        """The workflow column's natural width and its floor height.
+
+        ``compact`` asks for the split arrangement's left column with a Qwen3
+        disclosure shown compactly (ACT72-058); without one it changes nothing.
+        """
         n = self._needs
         sources, voice, run = n[inner]["sources"], n[inner]["voice"], n[inner]["run"]
         floor = sources[1] - n["list_give"]
         if inner == "narrow":
             # The split arrangement's left column: 1 over 2 only, the list at
             # its split floor.
+            if compact and "voice_compact" in n:
+                voice = n["voice_compact"]
             floor = sources[1] - n["list_give_split"]
             return (max(sources[0], voice[0]), floor + SECTION_GAP + voice[1])
         if inner == "side":
@@ -2203,6 +2366,17 @@ class TtsPanel(ttk.Frame):
         right ("split"), when both columns' measured floors fit. Only a panel
         too small even for that drops Activity beneath the workflow.
         """
+        return self._layout_for(width, height)[0]
+
+    def _layout_for(self, width: int, height: int) -> tuple[tuple[str, str], bool]:
+        """The arrangement for a panel of this size, and whether a Qwen3
+        disclosure is shown compactly in it. A pure function of the size.
+
+        v0.7.2 Phase 6 (ACT72-058, owner-approved): compact only when "split"
+        fits with the compact presentation and not with the full one -- the
+        920x600 minimum. Wherever the full disclosure fits, it is shown in full;
+        "wide" and "stacked" always show it in full.
+        """
         room_w = width - 2 * OUTER_PAD
         room_h = height - 2 * OUTER_PAD
         activity_w, activity_h = self._needs["activity"]
@@ -2210,14 +2384,15 @@ class TtsPanel(ttk.Frame):
         flow_w, flow_floor = self._workflow_needs("stack")
         if (room_w - COLUMN_GAP >= flow_w + activity_w
                 and max(flow_floor, activity_floor) <= room_h):
-            return ("wide", "stack")
-        left_w, left_floor = self._workflow_needs("narrow")
+            return ("wide", "stack"), False
         right_w, right_floor = self._split_right_needs()
-        if (room_w - COLUMN_GAP >= left_w + right_w
-                and max(left_floor, right_floor) <= room_h):
-            return ("split", "narrow")
+        for compact in ((False, True) if "voice_compact" in self._needs else (False,)):
+            left_w, left_floor = self._workflow_needs("narrow", compact)
+            if (room_w - COLUMN_GAP >= left_w + right_w
+                    and max(left_floor, right_floor) <= room_h):
+                return ("split", "narrow"), compact
         side_w, _ = self._workflow_needs("side")
-        return ("stacked", "side" if room_w >= side_w else "stack")
+        return ("stacked", "side" if room_w >= side_w else "stack"), False
 
     def _apply_layout(self, mode: tuple[str, str]) -> None:
         """Grid the workflow and Activity for one arrangement, then set floors."""
@@ -2295,7 +2470,7 @@ class TtsPanel(ttk.Frame):
         platform where it can least afford it (plan Section 11's "Activity is
         dominant").
         """
-        flow_w, _ = self._workflow_needs(inner)
+        flow_w, _ = self._workflow_needs(inner, self._disclosure_compact)
         if width <= 1 or self._is_aqua:
             return flow_w
         # In split the right column's own need is Output & Run's measured
@@ -2384,8 +2559,11 @@ class TtsPanel(ttk.Frame):
         width, height = self.winfo_width(), self.winfo_height()
         if width <= 1 or height <= 1:
             return
-        mode = self._choose_layout(width, height)
-        if force or mode != self._layout_mode:
+        mode, compact = self._layout_for(width, height)
+        if force or mode != self._layout_mode or compact != self._disclosure_compact:
+            # Before the layout is applied, so its floors are measured from the
+            # presentation actually on screen.
+            self._show_disclosure(compact)
             self._apply_layout(mode)
             return
         self._size_columns()
@@ -2476,6 +2654,18 @@ class TtsPanel(ttk.Frame):
         backend = "edge" if current_voice_entry is None else current_voice_entry.backend
         voice_id = (speaker if current_voice_entry is None
                     else current_voice_entry.voice_id)
+        if backend == "edge":
+            # The same value _freeze_run will freeze, judged before anything is frozen or reserved (ACT72-044).
+            problem = edge_rate_problem(self.rate_var.get().strip() or "+0%", snapshot)
+            if problem:
+                messagebox.showwarning("Edge speech rate", problem)
+                return
+        elif backend == "kokoro":
+            # The same value _freeze_run will freeze, judged before anything is frozen or reserved (ACT72-047).
+            problem = kokoro_speed_problem(self.kokoro_speed_var.get())
+            if problem:
+                messagebox.showwarning("Kokoro speed", problem)
+                return
 
         # A locally cloned voice needs its reference recording on *this* computer.
         # Asked here rather than trusted from selection time, and before anything is
@@ -2525,7 +2715,7 @@ class TtsPanel(ttk.Frame):
         if outcome.get("state") not in ("installed", "ready"):
             messagebox.showinfo("Conversion not started",
                                 "The voice was not installed, so this conversion was not started and nothing was "
-                                "created. Press Create again whenever you are ready.")
+                                "created. Press Start again whenever you are ready.")
             return
         ok, why = self._refresh_voice_status(entry)
         self._content_changed()
@@ -2536,7 +2726,7 @@ class TtsPanel(ttk.Frame):
             # The frozen run would narrate material that is no longer what was chosen: never silently.
             messagebox.showinfo("Conversion not started",
                                 "The voice is installed, but a source file changed or was removed while it was being "
-                                "installed, so this conversion was not started. Press Create again to narrate the "
+                                "installed, so this conversion was not started. Press Start again to narrate the "
                                 "files as they are now.")
             return
         if self._busy.is_set():
@@ -2557,7 +2747,7 @@ class TtsPanel(ttk.Frame):
         if not messagebox.askyesno(SENTENCE_DATA_TITLE, sentence_data_question(detail)):
             messagebox.showinfo("Conversion not started",
                                 "The English sentence data was not downloaded, so this conversion was not started and "
-                                "nothing was created. Press Create again whenever you are ready.")
+                                "nothing was created. Press Start again whenever you are ready.")
             return False
         self._pending_install = True
         try:
@@ -2569,7 +2759,7 @@ class TtsPanel(ttk.Frame):
         if error:
             messagebox.showwarning("Sentence data not installed",
                                    f"{error}\n\nThis conversion was not started. Check the internet connection and "
-                                   "press Create again.")
+                                   "press Start again.")
             return False
         return True
 
@@ -2656,6 +2846,10 @@ class TtsPanel(ttk.Frame):
         try:
             kokoro_speed = float(self.kokoro_speed_var.get())
         except ValueError:
+            kokoro_speed = 1.0
+        if not math.isfinite(kokoro_speed):
+            # Only a Kokoro run uses the speed, and run_job refused a bad one before this (ACT72-047). For any other voice
+            # the value is unused: a leftover "nan" or "inf" used to stop an Edge run with an OptionFreezeError.
             kokoro_speed = 1.0
         end_pause = int(preset["end_pause"])
         paragraph_pause = int(preset["paragraphpause"])
@@ -2767,6 +2961,10 @@ class TtsPanel(ttk.Frame):
                   if run_directory is None
                   else f"Run {self._run_count} — {run_directory.name}")
         self.log.divider(f"{DIVIDER_MARK} {heading}")
+        # The bitrate the files will really have, when the one asked for is above what MP3 allows (v0.7.2, ACT72-021).
+        note = mp3_bitrate_note(options["bitrate"])
+        if note:
+            self.log.append(note)
         for line in speech_prep_run_lines(options.get("speech_prep")):
             self.log.append_detail(line)
         self._controller = job_control.JobController(
@@ -2839,9 +3037,13 @@ class TtsPanel(ttk.Frame):
         if controller is None or controller.is_terminal:
             return
         controller.request_cancel()
+        # Whoever is asleep until its next poll learns of the latch now: the FFmpeg watchdog kills any encoder or decoder of
+        # this run within one look, and a file waiting at the memory gate leaves it (v0.7.2). Both are no-ops when idle.
+        ffmpeg_watch.wake()
+        worker_limits.ASSEMBLY_GATE.wake()
         # A panel-authored status line, not engine transcript: it belongs in
         # both panes, matching the sibling tools' own ``_say``/``append`` use.
-        self.log.append("Cancelling… will stop at the next checkpoint (chapter / chunk).")
+        self.log.append("Cancelling… stopping the files being converted now; nothing unfinished will be saved.")
 
     # ------- teardown -------
 
@@ -2948,6 +3150,10 @@ class _RunContext:
         self.completed: list[str] = []
         self.failures: list = []
         self.cancelled = False
+        #: Files a Cancel stopped part-way, and files it kept from starting (v0.7.2, ACT72-004): both stay
+        #: NOT_ATTEMPTED in the result (Decisions 2026-11-05); the closing line counts them apart.
+        self.stopped = 0
+        self.not_started = 0
         self._done = 0
         self._total = len(self.items)
         self._counter = threading.Lock()
@@ -3073,6 +3279,10 @@ class _RunContext:
                 self.log(f"Removed an unfinished file left by an interrupted run: {leftover.name}")
             for leftover in batch_convert.sweep_stale_chunk_folders(Path(params["run_directory"]).parent):
                 self.log(f"Removed working files left by an interrupted run: {leftover.name}")
+        # The temp folder's share (v0.7.2, ACT72-009): only workspaces of this tool whose owner is provably gone, bounded in
+        # time and stopped by Cancel. Anything it cannot prove is this tool's and finished stays, and is named.
+        for line in work_area.recover(cancel_check=self.cancel_check).log_lines():
+            self.log(line)
         # v0.7.1: direct and folder items alike, sized by the queued files themselves, their frozen settings and this
         # machine. A worker thread, so this may take a moment; it stops looking if the run is cancelled meanwhile.
         plan = worker_limits.plan_for_sources(
@@ -3129,9 +3339,10 @@ class _RunContext:
                         **speech_prep_kwargs(params),
                     )
                     if status != "success":
-                        return status, item, message, None
+                        # A file the folder route stopped for a Cancel had started: "stopped", not "skipped", below.
+                        return status, item, ("stopped" if status == "cancelled" else message), None
             except ConversionCancelled:
-                return "cancelled", item, None, None
+                return "cancelled", item, "stopped", None
             except Exception as exc:  # noqa: BLE001 - one item, not the run
                 return "failed", item, f"{type(exc).__name__}: {exc}", None
             category = ETA_CATEGORY_DIRECT if item["direct"] else ETA_CATEGORY_FOLDER
@@ -3147,7 +3358,15 @@ class _RunContext:
                 elif status == "cancelled":
                     self.cancelled = True
                     stamp = datetime.now().strftime("%H:%M:%S")
-                    self.log(f"[{stamp}] {item['source'].name} — skipped (cancelled)")
+                    # Two truths, told apart: a file that never started was skipped; one that had started was stopped,
+                    # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
+                    what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
+                            else "skipped (cancelled)")
+                    if message == "stopped":
+                        self.stopped += 1
+                    else:
+                        self.not_started += 1
+                    self.log(f"[{stamp}] {item['source'].name} — {what}")
                 else:
                     self.record_failure(item, message or "the conversion failed")
                 self.advance(item)
@@ -3191,9 +3410,15 @@ class _RunContext:
                 final = self.controller.succeed()
             self.publisher.completed(final)
         self.log_q.put((RESULT_MESSAGE, settled))
-        self.log_q.put(("done", "Cancelled." if cancelled else (
-            f"Conversion finished: {len(self.completed)} ok, "
-            f"{len(self.failures)} failed.")))
+        if cancelled:
+            # What happened to each file, not just that the run was cancelled (ACT72-004). A file that finished before
+            # the Cancel is kept; a stopped one left nothing unfinished behind.
+            failed = f", {len(self.failures)} failed" if self.failures else ""
+            done = (f"Cancelled: {len(self.completed)} finished{failed}, {self.stopped} stopped (nothing unfinished was "
+                    f"saved), {self.not_started} not started.")
+        else:
+            done = f"Conversion finished: {len(self.completed)} ok, {len(self.failures)} failed."
+        self.log_q.put(("done", done))
 
     def settle_fatal(self, exc: BaseException) -> None:
         """The run itself broke. A job failure, and never retryable."""
@@ -3251,11 +3476,12 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
     skip = {"trim_tts_padding", "trim_silence_db"}
     destination = item["destination"]
     publication.refuse_existing(destination, params["overwrite"])  # before hours of synthesis it could never publish
-    # ignore_cleanup_errors: once the file is published, a scanner holding the scratch copy must not fail the item.
-    with tempfile.TemporaryDirectory(prefix="tts_direct_", ignore_cleanup_errors=True) as stage:
+    # A private folder of the TTS work area (v0.7.2): listed with its owner, so a killed program's is removed by a later run.
+    # Its removal never fails the item: once the file is published, a scanner holding the scratch copy only delays it.
+    with work_area.conversion_folder("direct") as stage:
         produced = runner.run_conversion_job(
             str(item["source"]),
-            output_dir=stage,
+            output_dir=str(stage),
             speaker=params["speaker"],
             audio_format="mp3",
             mp3_bitrate=params["bitrate"],
@@ -3269,10 +3495,10 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
             **{k: v for k, v in pause_kw.items() if k not in skip},
             **speech_prep_kwargs(params),
         )
-        publication.publish_file(produced, destination, overwrite=params["overwrite"])
+        publication.publish_file(produced, destination, overwrite=params["overwrite"], cancel_check=cancel_check)
 
 
-def _convert_with_local_engine(item, params, log, synthesize) -> None:
+def _convert_with_local_engine(item, params, log, synthesize, cancel_check=None) -> None:
     """What the local engines share: their one PDF-to-text seam, and publication.
 
     Each engine writes one MP3 to the path it is given, and would truncate or replace whatever is there. It is given a
@@ -3288,7 +3514,8 @@ def _convert_with_local_engine(item, params, log, synthesize) -> None:
     destination = item["destination"]
     overwrite = params.get("overwrite", False)
     publication.refuse_existing(destination, overwrite)
-    with tempfile.TemporaryDirectory(prefix="tts_local_", ignore_cleanup_errors=True) as scratch:
+    # The engine's own encode WAV goes here too (work_area.current_folder), so nothing of this file lies loose in the temp folder.
+    with work_area.conversion_folder("local") as scratch:
         output = str(Path(scratch) / "output.mp3")
         if source.suffix.lower() == ".txt":
             synthesize(str(source), output)
@@ -3298,7 +3525,7 @@ def _convert_with_local_engine(item, params, log, synthesize) -> None:
             text_path = str(Path(scratch) / f"{source.stem}.txt")
             pdf_to_txt(str(source), text_path)
             synthesize(text_path, output)
-        publication.publish_file(output, destination, overwrite=overwrite)
+        publication.publish_file(output, destination, overwrite=overwrite, cancel_check=cancel_check)
     log(f"Saved: {destination}")
 
 
@@ -3333,7 +3560,9 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    _convert_with_local_engine(item, params, log, synthesize)
+    # The engine's one encode goes through pydub, so under this control a Cancel kills it within one look (v0.7.2).
+    with ffmpeg_watch.controlled(cancel_check):
+        _convert_with_local_engine(item, params, log, synthesize, cancel_check)
 
 
 def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
@@ -3376,7 +3605,9 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    _convert_with_local_engine(item, params, log, synthesize)
+    # The engine's one encode goes through pydub, so under this control a Cancel kills it within one look (v0.7.2).
+    with ffmpeg_watch.controlled(cancel_check):
+        _convert_with_local_engine(item, params, log, synthesize, cancel_check)
 
 
 def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
@@ -3418,7 +3649,7 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
             **speech_prep_kwargs(params),
         )
 
-    _convert_with_local_engine(item, params, log, synthesize)
+    _convert_with_local_engine(item, params, log, synthesize, cancel_check)
 
 
 class QueueWriter(io.TextIOBase):

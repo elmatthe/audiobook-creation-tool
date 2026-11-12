@@ -192,10 +192,9 @@ _STATUS_MESSAGES = {
 
 #: Shown for every malformed-chapter-map rejection. One sentence, no numbers: the
 #: specifics belong in ``detail``, which the Summary structurally cannot read.
-_MALFORMED_MESSAGE = (
-    "This file's chapter list is not usable, so it was not converted. "
-    "Converting it as a whole book instead will still work."
-)
+#: v0.7.2 (ACT72-026): it used to add "Converting it as a whole book instead will
+#: still work", but Whole book refuses the same chapter list, so no mode is offered.
+_MALFORMED_MESSAGE = "This file's chapter list is not usable, so it was not converted."
 
 
 @dataclass(frozen=True, slots=True)

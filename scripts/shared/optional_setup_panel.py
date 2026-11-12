@@ -82,10 +82,15 @@ class OptionalSetupPanel(ttk.Frame):
         self.text.configure(state="disabled")
 
     def _append(self, line: str) -> None:
+        # v0.7.2 Phase 6 (ACT72-059): follow only a reader at the bottom -- the newest line on screen, even partly --
+        # and leave a reader who scrolled up where they are (the rule of shared/job_ui.py's log, ACT72-005, and of
+        # bootstrap._append_following, which this module cannot import from).
+        follow = self.text.winfo_height() <= 1 or self.text.dlineinfo("end-2c") is not None
         self.text.configure(state="normal")
         self.text.insert("end", line + "\n")
-        self.text.see("end")
         self.text.configure(state="disabled")
+        if follow:
+            self.text.see("end")
 
     def _set_buttons(self, *specs: tuple[str, Callable[[], None]]) -> dict:
         for child in self.buttons.winfo_children():
@@ -291,6 +296,12 @@ class OptionalSetupPanel(ttk.Frame):
                 self.after(POLL_MS, self._poll)
             except tk.TclError:  # the window was closed
                 self._cancel.set()
+
+    @property
+    def busy(self) -> bool:
+        """A check or an install is running now. A caller that must ask before stopping it asks this first (v0.7.2,
+        ACT72-038): :meth:`close_requested` cancels as it answers."""
+        return self._busy
 
     def close_requested(self) -> bool:
         """The window is closing: cancel anything running. Returns True if it may close now."""

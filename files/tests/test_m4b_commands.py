@@ -643,11 +643,16 @@ def test_the_public_surface_is_exactly_four_builders():
     Foundation and the samples arrive here on stdin. It is a fourth *builder*,
     not a second conversion system -- same encoder, same quality, same
     allowlist, same ID3 version -- and this guard keeps the count honest.
+
+    v0.7.2 Phase 7B adds no builder: the continuous route encodes through
+    ``pcm_argv``. It adds ``segment_times``, which renders a span's ``-ss`` and
+    ``-t`` strings for ``segment_argv`` and for the continuous route's cut, so
+    the two cannot read different strings. It builds no command line.
     """
     public = {node.name for node in tree().body
               if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
     assert public == {"whole_book_argv", "segment_argv", "attach_artwork_argv",
-                      "pcm_argv"}
+                      "pcm_argv", "segment_times"}
 
 
 def test_the_tts_bitrate_contract_is_not_borrowed():

@@ -236,10 +236,9 @@ def test_the_tracked_config_toml_says_exactly_developer_mode_false():
 
 
 def _verify():
-    sys.path.insert(0, str(SCRIPTS))
-    import verify
+    import gate_locator
 
-    return verify
+    return gate_locator.load_gate("act_verify_developer_mode")
 
 
 @pytest.mark.parametrize("tail, message", [

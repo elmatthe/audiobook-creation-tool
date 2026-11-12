@@ -20,10 +20,25 @@ the file is removed as soon as the tail is taken.
 **Why nothing is written to its final name.** A destination that exists is a
 destination that looks finished. Every pass writes to a temporary file in the
 *destination's own folder* — the same filesystem, so the final move is a single
-``os.replace`` rather than a copy — and the frozen destination only comes into
+rename rather than a copy — and the frozen destination only comes into
 existence once the process exited cleanly, the artwork pass (if any) also
 exited cleanly, and the measured duration matched what the plan asked for. A
 failure at any of those points leaves the folder exactly as it was.
+
+**The order at the end** (v0.7.2 Phase 9, review findings P9-02 and P9-05).
+Between the last process and the destination there used to be nothing that
+looked at Cancel, and a look at the destination followed by ``os.replace``. So
+a Cancel pressed while the finished file was being measured was followed by
+that file being published and the run reported as succeeded, and a file that
+appeared under the planned name after the look was replaced. Now: Cancel is
+asked again before the measurement and after it; then the commit is
+*authorized*, one step ordered against the Cancel latch by whoever owns it
+(:class:`CommitGate`), so of a Cancel and a commit exactly one comes first and
+both know which; and only then the one operation that gives the file its name,
+which itself refuses a name that is taken (``output_paths.publish_new``). A
+Cancel that came first leaves no output and the segment is reported cancelled.
+An authorization that came first has won: the file is published whole and
+stays, like every output finished before a Cancel.
 
 **Why the cancellation ladder is a ladder.** ``terminate()`` asks; a process
 mid-encode usually goes. If it has not gone within the grace period it is
@@ -39,6 +54,7 @@ the run, and the plan owns the answers.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -140,10 +156,21 @@ class SegmentWork:
     #: back explicitly because ``-map_metadata -1`` strips the titles off the map
     #: ``-map_chapters`` copied; execution never re-reads the source to get them.
     chapter_titles: tuple[str, ...] = ()
+    #: Frozen at preflight (v0.7.2 Phase 7B): this fragment's audio is cut from
+    #: the book's one continuous FFmpeg decode and arrives on stdin as
+    #: ``pcm_args`` describes, instead of being sought per chapter. Only the
+    #: audio pass changes; the cover pass and everything after it are the
+    #: seeking route's.
+    continuous_decode: bool = False
 
     @property
     def fragment(self) -> bool:
         return self.span is not None
+
+    @property
+    def streams_audio(self) -> bool:
+        """Whether the first pass is fed on stdin rather than reading the book itself."""
+        return self.windows_decode or (self.continuous_decode and self.fragment)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +189,25 @@ class SegmentOutcome:
     @property
     def failed(self) -> bool:
         return not self.finalised and not self.cancelled
+
+
+@dataclass(frozen=True, slots=True)
+class CommitGate:
+    """Who may say that an output becomes final, ordered against Cancel (v0.7.2 Phase 9, review finding P9-02).
+
+    ``authorize`` is asked once, immediately before the one operation that gives a finished file its name. It answers in
+    a single step taken under the same lock as the Cancel latch: ``False`` when Cancel came first, and the file is then
+    not published; ``True`` when this commit came first, recorded so that a Cancel arriving a moment later can see the
+    commit it lost to. ``finished`` gives that authorization back once the operation has ended, however it ended.
+
+    The panel builds this from the controller of its run (that controller's ``authorize_commit`` and
+    ``commit_finished``), the pair narration has published through since v0.7.2 Phase 1; this module stays free of the
+    controller itself and is handed two callables. Without a gate the low-level latch is looked at one last time
+    instead, which is all a caller with no controller can be given.
+    """
+
+    authorize: Callable[[], bool]
+    finished: Callable[[], None]
 
 
 def tail_of(path: Path, *, limit: int = DETAIL_TAIL) -> str:
@@ -287,6 +333,7 @@ def run_argv_streaming(
     monotonic=time.monotonic,
     wait=time.sleep,
     spawn_thread=None,
+    on_stop: Callable[[], None] | None = None,
 ) -> ProcessResult:
     """Run one child that is *fed* on stdin, and always reap it.
 
@@ -294,6 +341,15 @@ def run_argv_streaming(
     pipe, cancellation polled between polls, the child collected on every route
     out -- with one addition: a producer thread pushes bytes into stdin while
     the main thread watches the process.
+
+    *on_stop* is called once when Cancel stops the child, before the producer
+    is joined (v0.7.2 Phase 7B). A producer that is itself fed by a process --
+    the continuous decoder -- can be blocked reading *that* process rather than
+    writing this one, and stopping this child alone would not unblock it; the
+    hook stops the feeding process too, so Cancel settles within its bound.
+
+    A producer still running after its join is a failure of the feed, never a
+    success: a write cannot have finished, so the encoded file cannot be whole.
 
     **Backpressure is the pipe itself.** *feed* is handed a ``write`` callable
     and blocks inside it whenever the encoder is behind, so a ten-hour decode
@@ -356,12 +412,16 @@ def run_argv_streaming(
                                    poll_seconds=poll_seconds,
                                    monotonic=monotonic, wait=wait)
                     stopped = True
+                    if on_stop is not None:
+                        on_stop()
                     break
                 wait(poll_seconds)
         finally:
             reaped = _reap(proc, timeout=grace_seconds)
             if producer is not None and hasattr(producer, "join"):
                 producer.join(timeout=grace_seconds)
+                if getattr(producer, "is_alive", lambda: False)():
+                    failure.append("the audio feed did not finish after the encoder ended")
 
         detail = tail_of(diagnostics)
         if failure:
@@ -472,16 +532,34 @@ def _passes(work: SegmentWork, *, ffmpeg: str, staged_final: Path,
 
     start, end = work.span  # type: ignore[misc]
     first = staged_final if keep is None else staged_audio
-    audio = tuple(m4b_commands.segment_argv(
-        ffmpeg=ffmpeg,
-        source=work.source,
-        destination=str(first),
-        quality=work.quality,
-        start=start,
-        end=end,
-        decoder_args=work.decoder_args,
-        output_args=output_args,
-    ))
+    if work.continuous_decode:
+        # v0.7.2 Phase 7B: the samples the seek below would keep arrive on stdin,
+        # cut from the book's one decode, so there is no seek and no book input
+        # here. The tags and the absent chapter map are the seek's own: the same
+        # allowlist arguments, the chapter pair owned by ``pcm_argv``. The cover
+        # still follows in its own pass, unchanged, because putting it in this
+        # encode changes the Xing frame (Phase 7A, candidate C2, not approved).
+        audio = tuple(m4b_commands.pcm_argv(
+            ffmpeg=ffmpeg,
+            pcm_args=work.pcm_args,
+            destination=str(first),
+            quality=work.quality,
+            output_args=_output_args(work, chapters=False),
+            metadata_source=work.source,
+            attached_picture=None,
+            keep_chapters=False,
+        ))
+    else:
+        audio = tuple(m4b_commands.segment_argv(
+            ffmpeg=ffmpeg,
+            source=work.source,
+            destination=str(first),
+            quality=work.quality,
+            start=start,
+            end=end,
+            decoder_args=work.decoder_args,
+            output_args=output_args,
+        ))
     if keep is None:
         return (audio,)
 
@@ -574,6 +652,8 @@ def convert_segment(
     wait=time.sleep,
     on_command: Callable[[Sequence[str]], None] | None = None,
     feed: Callable[[Callable[[bytes], None]], None] | None = None,
+    stop_feed: Callable[[], None] | None = None,
+    commit: CommitGate | None = None,
 ) -> SegmentOutcome:
     """Produce one planned output, or explain truthfully why it does not exist.
 
@@ -582,15 +662,31 @@ def convert_segment(
     onto the frozen destination. Nothing that fails any of those steps leaves a
     file behind, and the destination never appears half-written.
 
+    *commit* orders that last move against Cancel (:class:`CommitGate`): a Cancel
+    that comes before the authorization is reported as cancelled and publishes
+    nothing, whichever pass or check it arrived during. The move itself never
+    replaces anything: a destination taken since the plan was made, even in the
+    instant before the move, is refused and left as it is.
+
     *measure* reads a produced file's duration; it is injected so the drift
     guard can be exercised without media. *on_command* is a transcript hook —
-    it renders nothing and decides nothing.
+    it renders nothing and decides nothing. *feed* supplies the audio of a pass
+    that streams it (the Windows decoder, or the continuous decode of v0.7.2
+    Phase 7B, which only the first pass of a fragment uses); *stop_feed* is
+    handed to that pass so Cancel stops whatever feeds it as well.
+
+    A Cancel that stopped a pass is reported as cancelled even when the feed
+    failed at the same time: stopping the feed is how a Cancel ends it.
     """
     destination = Path(work.destination)
     commands_run: list[tuple[str, ...]] = []
 
     def refuse(message: str, detail: str = "") -> SegmentOutcome:
         return SegmentOutcome(destination=destination, message=message,
+                              detail=detail, commands=tuple(commands_run))
+
+    def stopped(detail: str = "") -> SegmentOutcome:
+        return SegmentOutcome(destination=destination, cancelled=True,
                               detail=detail, commands=tuple(commands_run))
 
     try:
@@ -618,22 +714,27 @@ def convert_segment(
         passes = _passes(work, ffmpeg=ffmpeg, staged_final=staged_final,
                          staged_audio=staged_audio)
 
-        for argv in passes:
+        for position, argv in enumerate(passes):
             commands_run.append(tuple(argv))
             if on_command is not None:
                 on_command(argv)
+            # The Windows route streams its one pass; the continuous route
+            # streams only the audio pass, and the cover pass reads files.
+            streamed = work.windows_decode or (position == 0 and work.streams_audio)
             try:
-                if work.windows_decode:
+                if streamed:
                     if feed is None:
                         return refuse(
                             f"{destination.name} could not be started.",
-                            "the plan asked for the Windows decoder but no "
-                            "decoded audio was supplied")
+                            "the plan asked for the "
+                            f"{'Windows decoder' if work.windows_decode else 'continuous decode'}"
+                            " but no decoded audio was supplied")
                     result = run_argv_streaming(
                         argv, feed=feed, cancelled=cancelled,
                         workspace=destination.parent,
                         poll_seconds=poll_seconds, grace_seconds=grace_seconds,
-                        popen=popen, monotonic=monotonic, wait=wait)
+                        popen=popen, monotonic=monotonic, wait=wait,
+                        on_stop=stop_feed)
                 else:
                     result = run_argv(
                         argv, cancelled=cancelled, workspace=destination.parent,
@@ -642,16 +743,14 @@ def convert_segment(
             except ProcessLaunchError as exc:
                 return refuse(f"{destination.name} could not be started.", str(exc))
 
+            if result.cancelled:
+                return stopped(result.detail)
+
             if result.producer_failed:
                 # ffmpeg can exit 0 on the audio it did receive, so a decoder
                 # that stopped early would otherwise look like success.
                 return refuse(f"{destination.name} could not be decoded.",
                               result.detail)
-
-            if result.cancelled:
-                return SegmentOutcome(destination=destination, cancelled=True,
-                                      detail=result.detail,
-                                      commands=tuple(commands_run))
             if result.unreaped:  # pragma: no cover - a child that would not die
                 return refuse(
                     f"{destination.name} could not be stopped cleanly.",
@@ -661,7 +760,15 @@ def convert_segment(
                     f"{destination.name} could not be written.",
                     f"ffmpeg exited {result.returncode}\n{result.detail}")
 
+        # A pass that ended by itself in the instant Cancel was pressed reports
+        # no cancellation of its own: the process was already gone. Nothing
+        # below is a process, so the latch is asked here, and again once the
+        # measurement (a child of its own, seconds on a long book) is back.
+        if cancelled():
+            return stopped()
         measured = measure(staged_final)
+        if cancelled():
+            return stopped()
         drift = drift_of(measured, work.expected_duration)
         if drift is not None and drift > DRIFT_TOLERANCE:
             return refuse(
@@ -675,13 +782,27 @@ def convert_segment(
         # The plan reserved this name and nothing has written it since. If
         # something else has, that is not a collision to renumber around — the
         # frozen plan must stay retry-stable — so it is refused rather than
-        # overwritten.
-        if destination.exists():
+        # overwritten. This look is a courtesy that saves asking for a commit;
+        # the guarantee is the publication itself, below.
+        occupied = "the planned destination was occupied after the run was planned"
+        if os.path.lexists(destination):
             return refuse(
                 f"{destination.name} already exists, so it was not replaced.",
-                "the planned destination was occupied after the run was planned")
+                occupied)
 
-        output_paths.atomic_replace(staged_final, destination)
+        # Cancel or this commit: whichever comes first, and both know.
+        if commit is None:
+            if cancelled():
+                return stopped()
+        elif not commit.authorize():
+            return stopped()
+        try:
+            output_paths.publish_new(staged_final, destination)
+        except output_paths.DestinationOccupied as exc:
+            return refuse(exc.message, f"{occupied}: {exc.detail}")
+        finally:
+            if commit is not None:
+                commit.finished()
         staged_final = None  # type: ignore[assignment]  # ownership transferred
         return SegmentOutcome(destination=destination, finalised=True,
                               measured=measured, commands=tuple(commands_run))
@@ -689,6 +810,43 @@ def convert_segment(
         for leftover in (staged_final, staged_audio):
             if leftover is not None:
                 output_paths.discard_temporary(leftover)
+
+
+def prune_empty_folders(paths: Iterable[Path], *, inside: Path) -> tuple[Path, ...]:
+    """Remove the folders an item's outputs were to live in, once they are empty (v0.7.2, ACT72-029).
+
+    For a book that failed or was cancelled, after :func:`remove_outputs`: a split book's own folder (and any mirrored
+    parent made for it) would otherwise stay behind empty. Walks up from each path's folder towards *inside*, the
+    reserved run folder, which is never removed, and removes each folder with ``rmdir`` alone, so a folder holding
+    anything (another book's work, a file someone put there) stops the walk. A path outside *inside*, or a folder
+    reached through a link, is never touched. Returns what was removed.
+    """
+    root = Path(inside)
+    removed: list[Path] = []
+    for path in paths:
+        current = Path(path).parent
+        while True:
+            try:
+                relative = current.relative_to(root)
+            except ValueError:
+                break
+            if not relative.parts:
+                break  # the run folder itself: the person was told about it, and a retry writes there
+            try:
+                output_paths.assert_no_link_in(root, current)
+                output_paths.assert_contained(root, current)
+            except output_paths.OutputPathError:
+                break
+            try:
+                current.rmdir()
+            except FileNotFoundError:
+                pass  # already gone; its parent may be empty now
+            except OSError:
+                break  # not empty, or held: it stays
+            else:
+                removed.append(current)
+            current = current.parent
+    return tuple(removed)
 
 
 def remove_outputs(paths: Iterable[Path], *, inside: Path) -> tuple[Path, ...]:

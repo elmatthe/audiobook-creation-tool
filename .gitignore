@@ -108,7 +108,12 @@ Map-Repo-Structure.bat
 # backups, clean-room copies and temporary evidence live here instead of in
 # external folders. Do not create project workspaces outside the repository.
 # Deliberate cross-platform fixtures stay in their approved tracked paths.
-files/dev-work/
+# v0.7.2: the verification gate and the feature map are tracked source inside it; each gate run's outputs are not.
+# A directory rule (files/dev-work/) would make these exceptions dead: git never looks inside an excluded directory.
+files/dev-work/*
+!files/dev-work/verification-gate/
+files/dev-work/verification-gate/outputs/
+!files/dev-work/feature-map/
 
 # Maintainer archives: local-only, never tracked, packaged or published.
 files/Archives/

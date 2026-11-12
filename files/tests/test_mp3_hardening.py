@@ -508,9 +508,14 @@ def test_a_failed_run_keeps_its_directory_and_a_later_run_never_reuses_it(
     assert later != first_dir and later.parent == first_dir.parent
     assert int(later.name.rsplit("-", 1)[1]) == int(first_dir.name.rsplit("-", 1)[1]) + 1
     # The first run can no longer be retried from the panel (it is not the
-    # last plan), and nothing of it was touched by the later run.
+    # last plan). Its folder stays, so its number is never reused, and nothing
+    # was published in it; since v0.7.2 (ACT72-019) the piece it kept for a
+    # retry goes when the later run replaces it, because no Retry Failed can
+    # reach it any more.
     assert panel.retry_failed() is False
-    assert first_plan.books[0].tracks[0].staged.is_file()
+    assert first_dir.is_dir()
+    assert not first_plan.books[0].tracks[0].staged.exists()
+    assert not first_plan.work_root.exists()
     assert not first_plan.books[0].published_dir.exists()
 
 
@@ -606,9 +611,13 @@ def test_track_failure_then_book_finalisation_failure_are_told_apart(
     assert sorted(e.item_id is None for e in failures) == [False, True]
     assert result.can_retry_failed is True
     assert not panel.last_plan.book_for(final_book.book_id).published_dir.exists()
-    assert all(t.staged.is_file()
-               for t in panel.last_plan.book_for(final_book.book_id).tracks), (
-        "a finalisation failure keeps every staged piece")
+    # Since v0.7.2 (ACT72-019) staging lives only as long as a Retry Failed can
+    # reach it: the item-less finalisation failure cannot be retried, so its
+    # pieces go when the run settles; the track failure's good piece stays.
+    final_plan = panel.last_plan.book_for(final_book.book_id)
+    assert not final_plan.staging_dir.exists(), "nothing can retry a finalisation failure"
+    track_plan = panel.last_plan.book_for(track_book.book_id)
+    assert any(t.staged.is_file() for t in track_plan.tracks), "the retryable Book keeps its good piece"
 
 
 def test_cancel_prevents_later_books_from_starting_under_real_threads(
@@ -768,7 +777,7 @@ def test_the_launcher_and_the_other_panels_are_where_they_were():
                          for t in (node.targets if isinstance(node, ast.Assign)
                                    else [node.target])))
     assert len(tools.value.elts) == 6
-    assert config.get_effective().project.version == "0.7.1"
+    assert config.get_effective().project.version == "0.7.2"
     # The M4B Maker left this list at v0.6.4 Phase 6 and the Metadata Editor
     # at Phase 10: both are workspace adopters now and name ``book_workspace``
     # on purpose. The Converter is the one M4B panel still held to it.

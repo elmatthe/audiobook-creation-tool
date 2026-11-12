@@ -286,8 +286,9 @@ class PreferencesDialog(tk.Toplevel):
 
         ttk.Label(
             card,
-            text="Clears saved preferences only — last tool, remembered folders and any "
-                 "custom output location. Nothing you downloaded or produced is removed.",
+            # Every saved preference, named (v0.7.2, ACT72-042: the appearance was reset too but went unmentioned).
+            text="Clears saved preferences only — last tool, remembered folders, any custom output "
+                 "location and Light/Dark (back to Light). Nothing you downloaded or produced is removed.",
             style=_style(t, "secondary_label"), wraplength=self.WRAP, justify="left",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(gap_sm, 0))
 
@@ -434,7 +435,8 @@ class PreferencesDialog(tk.Toplevel):
         agreed = self._confirm(
             "Reset preferences?",
             "This clears your saved preferences: the last tool you had open, remembered "
-            "folders, and any custom output location.\n\n"
+            "folders, any custom output location, and the Light/Dark appearance, which "
+            "goes back to Light.\n\n"
             "It does not delete downloaded data, models, logs, produced files or any of "
             "your own media, and it does not change the project's config.toml.\n\n"
             "Reset them now?",

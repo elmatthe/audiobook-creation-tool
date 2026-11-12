@@ -14,7 +14,7 @@ an earlier run, get ``-1``/``-2`` instead of being overwritten.
 from __future__ import annotations
 
 import argparse
-import asyncio
+import contextlib
 import os
 import re as _re
 import secrets
@@ -42,6 +42,8 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
 from shared import ffmpeg_utils, output_paths
 from shared.cancellation import ConversionCancelled
 from tts import audio_tail, edge_failures, ffmpeg_watch, output_names, publication, worker_limits
+from shared import work_area
+from tts.edge_requests import await_unless_cancelled, run_request, wait_unless_cancelled
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
@@ -143,13 +145,28 @@ def split_into_chunks(text: str, max_chars: int = CHUNK_TARGET) -> list[str]:
     return chunks
 
 
-async def chunk_to_mp3(text: str, path: str, voice: str, rate: str) -> None:
+async def chunk_to_mp3(text: str, path: str, voice: str, rate: str, cancel_check: Callable[[], bool] | None = None) -> None:
+    """One chunk from the service. The conversion's Cancel (v0.7.2) abandons the request in flight; the chunk file, if anything
+    was written, goes with it. ``cancel_check`` defaults to that of the :func:`ffmpeg_watch.controlled` block this conversion
+    runs inside, so the call sites, and the test doubles that stand in for them, keep their shape."""
+    if cancel_check is None:
+        cancel_check = ffmpeg_watch.current_cancel_check()
     comm = edge_tts.Communicate(text=text, voice=voice, rate=rate)
-    await comm.save(path)
+    try:
+        await await_unless_cancelled(comm.save(path), cancel_check)
+    except ConversionCancelled:
+        # A request that would not stop still holds it open, and that is no reason to report anything but the Cancel: the
+        # item's working folder goes at the end of the attempt, by which time the request has been dropped.
+        with contextlib.suppress(OSError):
+            Path(path).unlink(missing_ok=True)
+        raise
 
 
-def synthesize_chunk_mp3(text: str, path: str, voice: str, rate: str) -> None:
-    asyncio.run(chunk_to_mp3(text, path, voice, rate))
+def synthesize_chunk_mp3(text: str, path: str, voice: str, rate: str, cancel_check: Callable[[], bool] | None = None) -> None:
+    # Called with the four arguments it always took unless a check is given explicitly: the offline probes stand in for
+    # ``chunk_to_mp3`` with that shape, and the production route finds its check in the controlled context anyway.
+    request = chunk_to_mp3(text, path, voice, rate) if cancel_check is None else chunk_to_mp3(text, path, voice, rate, cancel_check)
+    run_request(request, note=print)
 
 
 def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,
@@ -217,8 +234,9 @@ def convert_single_pdf(
 
     The MP3 reaches ``out_mp3`` only through :mod:`tts.publication`: complete, all at once, and (unless ``overwrite``)
     never over a file that is already there. A failed or cancelled attempt leaves that path exactly as it found it. Cancel
-    is honoured between chunks; a narration with all its chunks is finished work, and is published, within the deadlines of
-    :mod:`tts.ffmpeg_watch`.
+    is honoured everywhere (v0.7.2): during a request, between chunks, through every back-off, at the memory gate, during
+    the assembly (:mod:`tts.ffmpeg_watch` kills the encoder) and up to the instant of publication. A narration with all its
+    chunks is not finished work past a Cancel: nothing of it is saved.
     """
     with ffmpeg_watch.controlled(cancel_check):
         return _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_report, cancel_check, out_mp3, bitrate,
@@ -255,9 +273,7 @@ def _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_repor
                 )
                 shutil.rmtree(tmp_root, ignore_errors=True)
                 tmp_root.mkdir(parents=True, exist_ok=True)
-                if _cancelled():
-                    return "cancelled", pdf_path, None
-                time.sleep(5)
+                wait_unless_cancelled(5, cancel_check)
 
             try:
                 if pdf_path.suffix.lower() == ".txt":
@@ -287,6 +303,8 @@ def _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_repor
                         try:
                             synthesize_chunk_mp3(chunk, cpath, speaker, rate)
                             break
+                        except ConversionCancelled:
+                            raise
                         except Exception as e:
                             # Only a failure another attempt can plausibly cure is retried (see edge_failures):
                             # a refused handshake or a changed protocol would fail identically every time.
@@ -296,21 +314,19 @@ def _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_repor
                                     f"  [retry {attempt+1}/{CHUNK_MAX_RETRIES-1}] "
                                     f"chunk {idx} of {pdf_path.name} — waiting {wait}s ({edge_failures.describe(e)})"
                                 )
-                                if _cancelled():  # do not sit out a back-off the user has cancelled
-                                    return "cancelled", pdf_path, None
-                                time.sleep(wait)
+                                wait_unless_cancelled(wait, cancel_check)  # never sit out a back-off the person has cancelled
                                 continue
                             final = edge_failures.final_error(e, attempt + 1)
                             if final is e:
                                 raise
                             raise final from e
                     chunk_paths.append(cpath)
-                    time.sleep(INTER_CHUNK_DELAY_SEC)
+                    wait_unless_cancelled(INTER_CHUNK_DELAY_SEC, cancel_check)
 
                 with publication.Stage(out_mp3, overwrite=overwrite) as stage:
                     # The whole narration is about to be assembled: in memory if it fits, after a wait if other files need
-                    # that memory first, and on disk if it does not or if memory runs out on the way. It is finished work by
-                    # now, so a Cancel sends it to disk, not away, and the deadlines after Cancel are ffmpeg_watch's.
+                    # that memory first, and on disk if it does not or if memory runs out on the way. A Cancel at any point
+                    # from here to the instant of publication stops it, and nothing of it is saved (v0.7.2).
                     def in_memory():
                         tail = merge_mp3s(chunk_paths, str(stage.path), bitrate)
                         return None if tail is None else tail.summary()  # test doubles of merge_mp3s return nothing
@@ -318,10 +334,10 @@ def _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_repor
                     summary = worker_limits.assemble(
                         worker_limits.decoded_size(chunk_paths), in_memory,
                         lambda: merge_mp3s_on_disk(chunk_paths, str(stage.path), bitrate, tmp_root / "assembly.wav"),
-                        finishing_check=_cancelled, note=log)
+                        cancel_check=cancel_check, note=log)
                     if summary is not None:
                         log(f"  {pdf_path.name}: {summary}")
-                    stage.publish()
+                    stage.publish(cancel_check)
                 if progress_report is not None:
                     progress_report(stem, "completed")
                 return "success", pdf_path, None
@@ -386,6 +402,8 @@ def run_batch_convert(
 
     for leftover in publication.sweep_orphans(output_dir):
         log(f"  Removed an unfinished file from an interrupted run: {leftover.name}")
+    for line in work_area.recover().log_lines():  # the temp folder's share, ownership-proved only (v0.7.2, ACT72-009)
+        log(f"  {line}")
     tmp_chunks_root = output_dir / ".tmp_chunks"
     if tmp_chunks_root.exists():
         orphaned = [d for d in tmp_chunks_root.iterdir() if _is_stale_chunk_folder(d)]

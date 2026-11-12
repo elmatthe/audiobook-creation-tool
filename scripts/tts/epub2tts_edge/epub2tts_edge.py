@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import contextlib
+import contextvars
 import copy
 import io
 import os
@@ -36,11 +37,15 @@ from tts import ffmpeg_watch  # noqa: E402
 ffmpeg_watch.install()  # every FFmpeg pydub starts for this engine can be stopped, and cannot hang it
 
 
-def _run_ffmpeg(cmd):
-    """Run an ffmpeg command through the shared console-suppressing wrapper.
+def _run_ffmpeg(cmd, *, deadline_seconds=None):
+    """Run one ffmpeg step through the shared supervisor, which can stop it; raise if it did not succeed.
 
-    Resolves the ffmpeg binary (bundled portable build or PATH) and hides the
-    console window on Windows. Replaces the upstream raw ``subprocess.run``.
+    Resolves the ffmpeg binary (bundled portable build or PATH) and hides the console window on Windows. Replaces the
+    upstream raw ``subprocess.run``. v0.7.2 Phase 6E (ACT72-010): it was a blocking ``run`` that nothing could stop, so a
+    Ctrl+C waited for FFmpeg to finish by itself and a hung FFmpeg hung the command line for good. Now it is
+    ``subprocess_utils.run_supervised``: stdin the null device, output to temporary files, and inside
+    :func:`_ctrl_c_stops_the_step` a Ctrl+C stops this very child. ``deadline_seconds``: still running after that long,
+    it is stopped and reaped and :class:`subprocess.TimeoutExpired` is raised (:func:`m4b_step_deadline`).
     """
     _ensure_shared_on_path()
     from shared import subprocess_utils as _sp
@@ -48,9 +53,96 @@ def _run_ffmpeg(cmd):
 
     if cmd and cmd[0] == "ffmpeg":
         cmd = [_ff.ffmpeg_cmd()] + list(cmd[1:])
+    done = _sp.run_supervised(cmd, deadline_seconds=deadline_seconds)
     # check=True (v0.6.6 Phase 10): a failed step used to be ignored, and
     # make_m4b went on to clean up and return an output that was never written.
-    return _sp.run(cmd, check=True)
+    if done.returncode != 0:
+        raise subprocess.CalledProcessError(done.returncode, done.args, done.stdout, done.stderr)
+    return done
+
+
+#: v0.7.2 Phase 6E (ACT72-010): the most one of :func:`make_m4b`'s two FFmpeg steps may take before it is treated as
+#: hung, stopped and reaped: the book's playing time plus ten minutes (:func:`m4b_step_deadline`). Both steps are local
+#: decoding and encoding, far faster than the book plays: measured on HOME-PC with these arguments (FFmpeg 9.0.1, a
+#: tone-and-noise book of 24 kHz mono FLAC chapters, linear from 1 to 6 hours, the same on one CPU), the concat into
+#: FLAC-in-MP4 ran at about 2,600 times and the AAC encode at about 380 times the playing rate (a 6-hour book: 8.4 s and
+#: 57 s). So a computer would have to be several hundred times slower before a working step reached its deadline, and a
+#: step that has stopped making progress is ended no later than one playing time plus ten minutes. The fixed ten minutes
+#: covers what does not grow with the book: starting FFmpeg, a virus scanner opening the parts, writing the index.
+M4B_STEP_DEADLINE_FIXED_SECONDS = 600.0
+M4B_STEP_DEADLINE_PER_AUDIO_SECOND = 1.0
+#: A part whose length cannot be read from its header is counted from its size at this rate: 8 kbit/s, below anything
+#: these FLAC parts are, so the guess can only make the deadline longer, never cut a real step short.
+_UNREADABLE_PART_BYTES_PER_SECOND = 1000
+#: The command line's exit status when Ctrl+C interrupted it (128 + SIGINT, as shells report), and when an FFmpeg step
+#: ran past its deadline (as GNU ``timeout`` reports). A failed step still raises: exit status 1 with its traceback.
+INTERRUPTED_EXIT_STATUS = 130
+DEADLINE_EXIT_STATUS = 124
+
+
+def m4b_step_deadline(files) -> float:
+    """Seconds either M4B step may run: :data:`M4B_STEP_DEADLINE_FIXED_SECONDS` plus the parts' playing time times
+    :data:`M4B_STEP_DEADLINE_PER_AUDIO_SECOND`. The playing time is read from each part's header; nothing is decoded."""
+    import mutagen
+
+    seconds = 0.0
+    for path in files:
+        try:
+            length = float(mutagen.File(path).info.length)
+            if not length > 0:
+                raise ValueError(f"no length in the header of {path}")
+            seconds += length
+        except Exception:  # noqa: BLE001 - not understood: counted from its size, generously
+            try:
+                seconds += os.path.getsize(path) / _UNREADABLE_PART_BYTES_PER_SECOND
+            except OSError:
+                pass  # missing: FFmpeg fails at once
+    return M4B_STEP_DEADLINE_FIXED_SECONDS + M4B_STEP_DEADLINE_PER_AUDIO_SECOND * seconds
+
+
+def _deadline_rule() -> str:
+    """:func:`m4b_step_deadline` in words, from its two settings: "the playing time plus 10 minutes"."""
+    rate = M4B_STEP_DEADLINE_PER_AUDIO_SECOND
+    playing = "the playing time" if rate == 1 else f"{rate:g} times the playing time"
+    return f"{playing} plus {M4B_STEP_DEADLINE_FIXED_SECONDS / 60:g} minutes"
+
+
+@contextlib.contextmanager
+def _ctrl_c_stops_the_step():
+    """Ctrl+C during :func:`make_m4b`'s FFmpeg steps stops the running step, and only then interrupts (v0.7.2 Phase 6E).
+
+    FFmpeg runs in a console of its own (``CREATE_NO_WINDOW``), so Ctrl+C reaches only this process, and Python raises
+    ``KeyboardInterrupt`` wherever the main thread happens to be. Here a press is recorded instead: the step's supervisor
+    sees it within one look, stops that very child through its own handle (terminate, then kill) and waits for it, and no
+    further step starts. Only then, on the way out, is it raised as the ``KeyboardInterrupt`` it was, so everything above
+    unwinds as for any Ctrl+C: nothing is published, and the conversion's work folder is removed. A second press while the
+    child is being stopped is only recorded again, so it cannot cut the stopping short and leave the child running.
+
+    Anywhere else -- not the main thread, or a program with its own SIGINT handling (or none) -- nothing is changed.
+    """
+    import signal
+
+    _ensure_shared_on_path()
+    from shared import subprocess_utils as _sp
+    from shared.cancellation import ConversionCancelled
+
+    if (threading.current_thread() is not threading.main_thread()
+            or signal.getsignal(signal.SIGINT) is not signal.default_int_handler):
+        yield
+        return
+    pressed = threading.Event()
+    previous = signal.signal(signal.SIGINT, lambda _signum, _frame: pressed.set())
+    try:
+        with _sp.cancellable(pressed.is_set):
+            yield
+    except ConversionCancelled as exc:
+        if not pressed.is_set():
+            raise
+        raise KeyboardInterrupt from exc
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    if pressed.is_set():  # pressed after the last step finished: still an interruption, and nothing is published
+        raise KeyboardInterrupt
 
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
@@ -509,9 +601,6 @@ def read_book(
         # v0.7.0 (Q1): the book's final sentence gets no sentence/paragraph pause and its chapter no chapter pause;
         # every pause between rendered content is unchanged. ``end_of_book_pause`` adds nothing (see its default).
         last_chapter = i == len(book_contents)
-        # With speech still to come a Cancel stops any FFmpeg of this file at once. After the last paragraph has begun, this may be
-        # the end of a finished narration, which a Cancel does not discard.
-        ffmpeg_watch.abort_on_cancel(True)
         files = []
         partname = _in_workdir(workdir, f"part{i}.flac")
         title_clip = _in_workdir(workdir, "sntnc0.mp3")
@@ -547,7 +636,6 @@ def read_book(
                 tqdm(chapter["paragraphs"], desc=f"Generating audio files: ", unit='pg', position=0)
             ):
                 _checkpoint()  # between paragraphs
-                ffmpeg_watch.abort_on_cancel(not (last_chapter and pindex == len(chapter["paragraphs"]) - 1))
                 ptemp = _in_workdir(workdir, f"pgraphs{pindex}.flac")
                 if os.path.isfile(ptemp):
                     print(f"{ptemp} exists, skipping to next paragraph")
@@ -657,7 +745,8 @@ def read_book(
                         os.remove(title_clip)
                 files.append(ptemp)
                 _tick()
-            # combine paragraphs into chapter
+            # combine paragraphs into chapter. A Cancel by now stops here too: finished speech is not joined after it (v0.7.2).
+            _checkpoint()
             if not last_chapter:
                 _append_chapter_pause(files, chapter_trailing_pause, _in_workdir(workdir, f"part{i}.pause.flac"))
             def _join_in_memory(files=files, partname=partname):
@@ -671,9 +760,7 @@ def read_book(
 
                 disk_assembly.join_to_flac(files, partname, f"{partname}.wav")
 
-            worker_limits.assemble(_decoded_size(files), _join_in_memory, _join_on_disk, note=print,
-                                   cancel_check=None if last_chapter else cancel_check,
-                                   finishing_check=cancel_check if last_chapter else None)
+            worker_limits.assemble(_decoded_size(files), _join_in_memory, _join_on_disk, note=print, cancel_check=cancel_check)
             for file in files:
                 os.remove(file)
             segments.append(partname)
@@ -722,6 +809,9 @@ def make_m4b(files, sourcefile, speaker, *, workdir=None):
         for filename in files:
             filename = filename.replace("'", "'\\''")
             f.write(f"file '{filename}'\n")
+    # v0.7.2 Phase 6E (ACT72-010): each step has a deadline from the book's length and answers to Ctrl+C. What a stopped
+    # step leaves (the .m4a, a half-written .m4b) is in the conversion's work folder, which the runner removes unpublished.
+    deadline = m4b_step_deadline(files)
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -738,20 +828,21 @@ def make_m4b(files, sourcefile, speaker, *, workdir=None):
         "-2",
         outputm4a,
     ]
-    _run_ffmpeg(ffmpeg_command)
-    ffmpeg_command = [
-        "ffmpeg",
-        "-i",
-        outputm4a,
-        "-i",
-        metadata_file,
-        "-map_metadata",
-        "1",
-        "-codec",
-        "aac",
-        outputm4b,
-    ]
-    _run_ffmpeg(ffmpeg_command)
+    with _ctrl_c_stops_the_step():
+        _run_ffmpeg(ffmpeg_command, deadline_seconds=deadline)
+        ffmpeg_command = [
+            "ffmpeg",
+            "-i",
+            outputm4a,
+            "-i",
+            metadata_file,
+            "-map_metadata",
+            "1",
+            "-codec",
+            "aac",
+            outputm4b,
+        ]
+        _run_ffmpeg(ffmpeg_command, deadline_seconds=deadline)
     os.remove(filelist)
     os.remove(metadata_file)
     os.remove(outputm4a)
@@ -822,20 +913,36 @@ def _retry_delay(failed_attempt: int, draw=None) -> float:
     return base * (1 - RETRY_JITTER + 2 * RETRY_JITTER * (random.random() if draw is None else draw()))
 
 
-def run_edgespeak(sentence, speaker, filename):
+def run_edgespeak(sentence, speaker, filename, cancel_check=None):
+    """One clip from the service, with up to three attempts.
+
+    The conversion's Cancel (v0.7.2) is read before every attempt, during the request itself and through every back-off: a
+    Cancel makes no further request, sits out no wait, and leaves no partial file, raising
+    :class:`~shared.cancellation.ConversionCancelled`. ``cancel_check`` defaults to the check of the :func:`ffmpeg_watch.controlled`
+    block this thread is converting inside, so callers hand it nothing new.
+    """
     if not _SPEAKABLE.search(sentence):
         AudioSegment.silent(duration=50).export(filename, format="mp3")
         return
     _ensure_shared_on_path()
+    from shared.cancellation import ConversionCancelled, raise_if_cancelled
     from tts import edge_failures
+    from tts.edge_requests import wait_unless_cancelled
 
+    if cancel_check is None:
+        cancel_check = ffmpeg_watch.current_cancel_check()
     for speakattempt in range(3):
+        raise_if_cancelled(cancel_check, "Conversion cancelled by user.")
         try:
             communicate = edge_tts.Communicate(sentence, speaker)
-            run_save(communicate, filename)
+            run_save(communicate, filename, cancel_check)
             if os.path.getsize(filename) == 0:
                 raise RuntimeError("Failed to save file from edge_tts")
             break
+        except ConversionCancelled:
+            with contextlib.suppress(OSError):
+                os.remove(filename)  # whatever the abandoned request had written
+            raise
         except Exception as e:
             # Only a failure another attempt can plausibly cure is retried: a refused handshake (HTTP 401/403),
             # a changed protocol or a local file problem would fail identically three times. The log names the
@@ -848,11 +955,20 @@ def run_edgespeak(sentence, speaker, filename):
                 if final is e:
                     raise
                 raise final from e
-            # wait a few seconds in case it is a transient network issue (growing, spread: see _retry_delay)
-            time.sleep(_retry_delay(speakattempt))
+            # wait a few seconds in case it is a transient network issue (growing, spread: see _retry_delay); a Cancel ends it
+            try:
+                wait_unless_cancelled(_retry_delay(speakattempt), cancel_check)
+            except ConversionCancelled:
+                with contextlib.suppress(OSError):
+                    os.remove(filename)
+                raise
 
-def run_save(communicate, filename):
-    asyncio.run(communicate.save(filename))
+def run_save(communicate, filename, cancel_check=None):
+    """The request itself. With a ``cancel_check`` a Cancel abandons it within a bounded time, whatever it does (v0.7.2)."""
+    _ensure_shared_on_path()
+    from tts.edge_requests import await_unless_cancelled, run_request
+
+    run_request(await_unless_cancelled(communicate.save(filename), cancel_check), note=print)
 
 async def parallel_edgespeak(sentences, speakers, filenames):
     semaphore = asyncio.Semaphore(10)  # Limit the number of concurrent tasks
@@ -864,7 +980,9 @@ async def parallel_edgespeak(sentences, speakers, filenames):
                 loop = asyncio.get_running_loop()
                 sentence = re.sub(r'[!]+', '!', sentence)
                 sentence = re.sub(r'[?]+', '?', sentence)
-                task = loop.run_in_executor(executor, run_edgespeak, sentence, speaker, filename)
+                # The executor thread gets this conversion's context, so its request answers to the same Cancel (v0.7.2).
+                context = contextvars.copy_context()
+                task = loop.run_in_executor(executor, context.run, run_edgespeak, sentence, speaker, filename)
                 tasks.append(task)
         await asyncio.gather(*tasks)
 
@@ -873,6 +991,8 @@ def main():
     parser = argparse.ArgumentParser(
         prog="epub2tts-edge",
         description="Read a text file to audiobook format",
+        epilog=(f"Exit status: 0 saved; 1 failed; {DEADLINE_EXIT_STATUS} an FFmpeg step of --format m4b passed its "
+                f"time limit ({_deadline_rule()}); {INTERRUPTED_EXIT_STATUS} interrupted by Ctrl+C."),
     )
     parser.add_argument(
         "sourcefile",
@@ -991,22 +1111,38 @@ def main():
 
     from .runner import run_conversion_job
 
-    run_conversion_job(
-        args.sourcefile,
-        output_dir=args.output_dir,
-        speaker=args.speaker,
-        audio_format=args.format,
-        mp3_bitrate=args.mp3_bitrate,
-        cover=args.cover,
-        paragraphpause=args.paragraphpause,
-        sentencepause=args.sentencepause,
-        title_trailing_pause=args.title_pause,
-        chapter_trailing_pause=args.chapter_pause,
-        end_of_book_pause=args.end_of_book_pause,
-        trim_tts_padding=not args.no_trim_chunks,
-        trim_silence_db=args.trim_silence_db,
-        overwrite=args.overwrite,
-    )
+    try:
+        run_conversion_job(
+            args.sourcefile,
+            output_dir=args.output_dir,
+            speaker=args.speaker,
+            audio_format=args.format,
+            mp3_bitrate=args.mp3_bitrate,
+            cover=args.cover,
+            paragraphpause=args.paragraphpause,
+            sentencepause=args.sentencepause,
+            title_trailing_pause=args.title_pause,
+            chapter_trailing_pause=args.chapter_pause,
+            end_of_book_pause=args.end_of_book_pause,
+            trim_tts_padding=not args.no_trim_chunks,
+            trim_silence_db=args.trim_silence_db,
+            overwrite=args.overwrite,
+        )
+    # v0.7.2 Phase 6E (ACT72-010): an interruption and a step stopped at its deadline end with their own exit status and
+    # one line, never as a success; the work folder has already been removed and nothing unfinished was published.
+    except KeyboardInterrupt as exc:
+        print("\nInterrupted (Ctrl+C). Nothing unfinished was saved.", *_notes(exc), sep="\n", file=sys.stderr)
+        raise SystemExit(INTERRUPTED_EXIT_STATUS) from None
+    except subprocess.TimeoutExpired as exc:
+        print(f"\nStopped: FFmpeg was still running after {exc.timeout:.0f} seconds, its limit for this book "
+              f"({_deadline_rule()}), as a step that has hung would be. Nothing unfinished was saved.", *_notes(exc),
+              sep="\n", file=sys.stderr)
+        raise SystemExit(DEADLINE_EXIT_STATUS) from None
+
+
+def _notes(exc: BaseException) -> list[str]:
+    """What the supervisor noted on the way (a child that would not exit even when killed), here or on its cause."""
+    return [note for error in (exc, exc.__cause__) if error is not None for note in getattr(error, "__notes__", [])]
 
 
 if __name__ == "__main__":

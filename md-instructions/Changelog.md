@@ -12,8 +12,338 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Categories: **Added** / **Changed** / **Fixed** / **Deprecated** / **Removed** / **Security**.
 
 ---
+
+## [Unreleased] — v0.7.2 release readiness: the last two review findings closed; NOT merged (2026-11-12)
+
+**Fixed**
+- **MP3 Tool, M4B Maker and Metadata Editor: a file that appears in the output folder while a Book is being
+  published is never overwritten.** Each output takes its name only if nothing holds it. Otherwise that Book fails, the
+  other file is left exactly as it was, and the finished file stays ready for Retry Failed.
+- **MP3 Tool: a failed publication's roll-back takes back only its own files.** On Windows each file is held from the
+  moment it is checked until it is moved back, so another program's file at that name can never be taken.
+  - Elsewhere, a roll-back leaves what was published where it is and says so; a retry then refuses until that is sorted
+    out.
+- **TTS, PDF sources: numbers that a sentence runs into at the foot of a page are read** (an access code "1984" was
+  dropped as if it were a page number).
+  - Still a limit, for the owner to decide: a bare number alone under a finished sentence, counting with the next page's
+    number, cannot be told from a page number and is left out.
+
+**Verification only**
+- The release record is `files/dev-work/phase9-remote-review/ACT-v0.7.2-FINAL-PR-READINESS.md`. The independent closure
+  reviews passed; the M4B scaling and Edge low-memory qualifications passed again on the release candidate. The full
+  Windows gate found three out-of-date structural tests; they were corrected, and the gate has not yet been run again.
+
+## [Unreleased] — v0.7.2 Phase 9 remediation: five defects an independent review found, fixed (2026-11-12)
+
+**Fixed**
+- **TTS, PDF sources: words and numbers on a line of their own are read again.** The page-number cleanup added in
+  Phase 8 removed any number that happened to be the first or last line of a page, and an older rule removed any line of
+  one to four capital letters anywhere in a book. A sentence that ended a page with a number lost the number ("The safe
+  opens with the code 1984" was read without the code), and "NOT", "NASA" or "I" on a line of their own vanished from
+  the sentence they belonged to. A line is now removed only when the page's layout and another page both show it to be
+  a page number or a running head: it stands clear at the top or bottom of the page, and the numbers count up page by
+  page, or the same short heading sits at the same place on another page. Anything less certain is read aloud. A number
+  range or a compound name broken at a line end keeps its hyphen ("1939-1945").
+  - Still imperfect, and read aloud rather than dropped: a running head longer than four capital letters, a page
+    number or heading that appears only once, a large drop capital on a line of its own. A compound word broken at a
+    line end before a small letter still loses its hyphen ("well-known" is read as "wellknown").
+- **M4B Converter: Cancel pressed while a finished file is being checked no longer publishes it.** The last step
+  before a converted file gets its name is measuring its length. A Cancel that arrived during that measurement was not
+  looked at again, so the file appeared in the output folder after Cancel. Cancel is now asked again after the
+  measurement, and the file is given its name only if Cancel had not been pressed by then. If the file was already
+  being saved when Cancel arrived, it stays and the result says so. Pause is unchanged: the file in hand is finished
+  and saved, and the run waits before the next book.
+- **M4B Converter: a file that appears in the output folder during a conversion is never overwritten.** If something
+  else created a file with the same name while a book was converting, the Converter replaced it. It now stops that book
+  with "already exists, so it was not replaced", leaves the other file exactly as it is, and leaves no temporary file
+  behind. Retry Failed behaves the same way.
+- **Verification only.** A qualification run could be recorded as passed although its own result said a check had
+  failed, that nothing had run, or that it belonged to another scenario. The gate now checks this before a pass is
+  recorded. The `m4b-scaling` staging check (T5) reads every temporary file exactly, whoever removes it and however,
+  fails when it cannot, and compares the total with no allowance, as approved. No budget changed.
+
+## [Unreleased] — v0.7.2 Phase 8: the release candidate (version 0.7.2): a window freeze and two narration defects fixed (2026-11-10)
+
+**Fixed**
+- **Verification only (Phase 8 remediation, 2026-11-11).** Nothing in the application changed. The `m4b-scaling` qualification now measures what its memory and staging checks compare: it no longer reads its own open process handles as the job's memory, it counts the console host Windows starts with the decoder, and it reads staged bytes exactly at every discard and publication instead of sampling them. `verify.py --status` reads a qualification PASS as a PASS. The budgets did not move (ACT72-067, ACT72-068, ACT72-069).
+
+- **M4B Converter: the window no longer freezes when a run ends.** The Converter shows its output folder when a run
+  finishes. It asked Windows to do that from the window itself, so while Explorer was busy or restarting the whole
+  window stopped responding (up to 37 seconds was measured). The folder is now asked for in the background: the run's
+  result is shown and the buttons work at once, and if the folder cannot be opened the Activity log says so and where the
+  files are. The same applies to every "Open Output Folder" and "Open log folder" button.
+- **TTS, PDF sources: page numbers are no longer read aloud in the middle of a sentence.** When a page ended partway
+  through a sentence, the page number printed under it was narrated as part of the sentence, and a word hyphenated at the
+  bottom of a page was joined to the number instead of to its other half. A number printed as the first or last line of
+  a page is now removed first, and a hyphenated word is joined across the page.
+- **M4B Converter, xHE-AAC books on Windows:** the Windows decoder's audio format is now read after it has decoded its
+  first audio, because Windows can correct its first answer; a format that changes later stops the book with a clear
+  message instead of risking wrong audio.
+- **Setup help:** `--repair-venv` no longer claims FFmpeg is never installed. The repair rebuilds only the Python
+  environment; the launch that follows checks FFmpeg and repairs it, as every launch does.
+
+**Changed**
+- The application's version is **0.7.2** (`version.py`, `config.toml`). There is no v0.7.2 release, tag or download yet;
+  the README still describes the published v0.7.0.
+
+**Known limits (not changed)**
+- PDF sources: a title printed at the top of every page is still read out at each page; a short all-capitals word alone
+  on a line is dropped; a compound word broken at its hyphen loses the hyphen (ACT72-064, awaiting a decision).
+
+**Added (development only)**
+- Tests on real media and real processes: the Windows decoder on real books, PDF cleaning against hand-written narration,
+  a window that crashes as it starts, the setup help text, and a busy file manager.
+- Three journeys on disposable copies of the application: the first-run window refusing a folder that is too deep, the
+  first-run choices and Cancel, and Clear Downloaded Data from the click to the next launch.
+- Three qualification scenarios (`verify.py --mode qualification`): `optional-engines`, `edge-low-memory` and
+  `fresh-windows`. A scenario that needs the network runs only when it is given its `--network` policy.
+- The gate's pictures of a window are now of the whole window, inside the desktop, with nothing over it: a journey moves
+  its window inside the work area before enlarging it, and a picture is refused if any part of the window is covered or
+  off the screen. Before, a picture could include the Windows taskbar (development evidence only; nothing shipped).
+
+## [Unreleased] — v0.7.2 Phase 7B: long split books convert much faster, with identical files (2026-11-10)
+
+**Changed**
+- **M4B Converter, Split by chapter.** A book of ordinary AAC audio with many chapters is now decoded once and each
+  chapter cut from that decode, instead of decoding everything before every chapter again. Every MP3 is byte-identical
+  to what the Converter wrote before. Small books, books of a few long chapters, other codecs, the Windows xHE-AAC
+  route and FFmpeg builds the route was not qualified on keep the previous route unchanged. The route is chosen when the
+  books are examined and kept for the whole run and for Retry Failed.
+- A book whose audio frames are damaged in a way FFmpeg skips silently now fails on the new route instead of producing
+  shifted chapters (its sample count no longer matches the book).
+- Measured on the Windows development machine: a 6-hour book of 48 chapters converts in 133 s instead of 287 s, a
+  1,000-chapter book in 154 s instead of 444 s, and a 12-hour book of 24 chapters in 254 s instead of 401 s.
+
+**Added (development only)**
+- The `m4b-scaling` qualification (`verify.py --mode qualification --scenario m4b-scaling`) with a deterministic book
+  recipe, a pinned per-FFmpeg-build reference and the frozen performance budgets. It passed (79 of 79 checks, 207 runs);
+  ACT72-012 is closed.
+
+**Fixed (development only)**
+- The qualification's benchmark runs opened an Explorer window each (the Converter reveals its output folder when a run
+  ends), which crashed Explorer six times on the development machine; a run now records that request instead and refuses
+  to start unless it can. The encoder fault now fires mid-chapter, and the disk-write budget no longer counts audio passed
+  between processes.
+
+## [Unreleased] — v0.7.2 Phase 7A: the M4B Converter's split slowdown measured (2026-11-10)
+
+**Added (development only; nothing a person sees changes)**
+- A measured baseline of the M4B Converter's Split by chapter against v0.7.1, a frozen compatibility manifest, a comparison of
+  five optimisation designs and proposed performance budgets (`files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md`). No application code changed; the proposed faster
+  route awaits review.
+
+## [Unreleased] — v0.7.2 Phase 6, final candidate: four standing checks the full gate found (2026-11-09)
+
+**Fixed (development only; nothing a person sees changes)**
+- The launcher's main-thread Tk teardown (batch B, ACT72-017) is named `_finish_tk_objects`: a standing check forbids the word "release" in the launcher, where it may only ever mean building a release.
+- The check that keeps folder removal in the cleanup coordinator now names `work_area.py`, which batch D moved into `shared/`: it removes only its own private working folders, and it is held to the same rule that it never reaches a cleanup target.
+- Two coverage entries named test ids pytest does not collect (a parameter containing "→", and a test batch D parametrized); both now name the collected ids.
+
+## [Unreleased] — v0.7.2 Phase 6, batch E: honest words for the TTS skip box, and the six tools side by side (2026-11-09)
+
+**Changed**
+- TTS: the box that was labelled "Resume (skip existing MP3s)" now reads "Skip MP3s already in this run". Every run starts in a new folder, so it never resumed an earlier run and never will; what it does is unchanged.
+
+**Added (development only; nothing here ships)**
+- A six-tool consistency matrix in the feature map: how the six tools behave where you would expect them to behave alike, and five places where they differ, each left for the owner to decide.
+
+**Not changed, for the owner to decide**
+- ACT72-030: eleven helper functions with no caller in the app (the Converter's `sanitize_filename` and `quote`, `m4b_probe.probe_sources`, `m4b_winaudio.unavailable_message`, and the MP3 Tool's `concat_mp3s_fast`, `normalize_to_wav`, `make_silence_wav`, `concat_wavs_to_mp3`, `add_silence_to_mp3`, `trim_from_end_mp3` with the `save_error_log` only they use) are kept: six MP3 test modules pin them as proven FFmpeg helpers, so removing them is not the small change a Phase 6 suggestion allows.
+
+## [Unreleased] — v0.7.2 Phase 6, batch D: the untested branches, and two defects they found (2026-11-09)
+
+**Fixed**
+- Cover Image: Enter now answers the "Confirm replacement of original images" question. Tk gives its buttons Space but not Enter, so Enter did nothing at all; it now presses the focused button, which is Cancel unless you moved to Replace. Escape and closing the window cancel, as before.
+- Cover Image: when a destination could not be planned after the run folder was made, the empty numbered folder was left behind; it is now given back, as every other tool does.
+- First-run setup: the two "setup was stopped" messages no longer tell you to run Setup_and_Run "again"; they say setup finishes the next time you start the app with it.
+
+**Changed (development only; nothing here ships)**
+- The owned temporary work area moved from `tts/` to `shared/`: the M4B Maker stages its custom builds in it too, and a tool may not import the TTS package. Its behaviour and its `act-tts` folder are unchanged.
+- New tests for branches that had none: import confirmations, Cancel Import, duplicate skips, remembered folders, reservation and plan failures, statuses and dividers, Clear Log, FFmpeg readiness and typed values in the M4B Maker, MP3 Tool, Metadata Editor, Converter and Cover Image; the launcher's own model-cache redirect; wheel scrolling. A real Cancel in a Maker custom build replaces a test that checked nothing.
+- Three new native journeys: the Cover replacement question answered with real Enter, Escape, Alt+F4 and a click; Alt+F4 while a folder scan is walking; the real mouse wheel over the Maker's Chapter Titles. The relaunch journey now also proves the window size is never carried over.
+
+## [Unreleased] — v0.7.2 Phase 6, batch C: accurate messages and validated values (2026-11-09)
+
+**Fixed**
+- MP3 Tool, M4B Maker and Metadata Editor: after a Cancel, the Book that was being processed now reads "Cancelled" and the closing line counts it as "stopped by Cancel"; Books the run never reached still read "Not attempted". TTS: the closing line of a cancelled run says how many files finished, were stopped and were not started.
+- Cover Image and M4B Converter: the Summary no longer shows "All done." above "Running." or "Finished." twice; the run's lines come first, its end once, then the closing line.
+- TTS: the MP3 bitrate you choose is now explained when it cannot be reached. Every voice makes 24 kHz speech, where an MP3 can be at most 160 kbit/s, so 192k and 320k give 160k files (measured on real output of every voice); the Summary now says so when a run starts. Nothing about the audio changed.
+- TTS: a Kokoro speed outside 0.5 to 2.0, or not a number, is refused when you press Start. A leftover bad Kokoro speed no longer stops an Edge conversion with an error.
+- Cover Image: a typed target size must be a whole number from 256 to 4096, the size box's own range; 0 no longer turns into 1024 and huge sizes no longer reach the resizer.
+- M4B Converter: the unusable-chapter message no longer suggests converting as a whole book (which refuses the same file); the Cancel message says the file being converted is stopped now and its book taken back; the Title field no longer promises the filename when left blank.
+- MP3 Tool and M4B Maker: a refused Start #, Time or Silence names the Book by the number the navigator shows, also after a Book was removed.
+- The launcher no longer calls a tool that failed to load "ready". Reset Preferences now says it also returns Light/Dark to Light.
+
+**Added (development only; nothing here ships)**
+- Tests for each, every one seen failing on a planted defect; a real-media check of the 24 kHz bitrate ceiling.
+
+## [Unreleased] — v0.7.2 Phase 6, batch B: run locks, shutdown and first-run setup (2026-11-09)
+
+**Fixed**
+- TTS: Resume, the Edge speech rate and the Kokoro speed now lock while a conversion runs, like every other option the run has already taken; before, they looked editable and changing them did nothing. MP3 Tool: the Chapter Titles box locks during a run too, as it already did in the M4B Maker and Metadata Editor. What you had chosen is unchanged when the run ends.
+- Closing the app no longer risks a long silent wait at exit: the closed window's Tk objects are now cleaned up straight away instead of later from a background thread, where each one waited about a second and logged an error (measured: about 23 seconds for TTS and 17 for Cover Image in the worst case).
+- First-run setup: answering No to "Stop setup?" while the optional voices are being checked or installed now really keeps that work going; before, it stopped anyway and launched the app.
+- First-run setup: closing the window while the app's packages are installing now asks "Stop setup?". Yes stops the package installer and everything it started, starts nothing else and closes the window once setup has stopped; setup finishes the next time the app is started with Setup_and_Run. Before, the window closed at once and the installer kept running in the background.
+
+**Added (development only; nothing here ships)**
+- Tests for each, seen failing on the old code and on planted defects: a real run held inside the engine for the locks, a real Tk root in its own process for the shutdown cleanup, and the real setup window with a stand-in installer that starts a process of its own. The forced-shutdown scenarios now check that no Tk call happens on a background thread and that nothing waits.
+
+## [Unreleased] — v0.7.2 Phase 6, batch A: private staging lives only as long as Retry Failed can use it (2026-11-09)
+
+**Fixed**
+- MP3 Tool: a run that was cancelled, that failed in a way Retry Failed cannot repair, or that stopped on an internal error no longer leaves its private `.work` folder in the run folder. The good pieces of a Book that failed in a way Retry Failed can repair are still kept for it, and only while Retry Failed can still use them: Clear All Imports, starting another run or closing the tool removes them. A link planted in that private folder (a Windows junction included) is removed as a link; what it points at is never touched.
+- M4B Maker and M4B Metadata Editor: the same rule for the checked copy kept after a publication or Series Part failure. A custom-folder Maker build now keeps its private work in the program's own temporary work area, which records which running program owns it; if the program is killed, the next custom build removes what it left once that program is provably gone, instead of `act-m4b-build-*` folders staying in the temporary folder for good.
+- M4B Converter: a split book that failed or was cancelled no longer leaves its empty book folder in the run folder. The run folder itself is never removed, and Retry Failed makes the book's folder again.
+
+**Added (development only; nothing here ships)**
+- Regression tests for each tool (failed publication and numbering, Cancel during a real FFmpeg step, a kept candidate then Clear All Imports, a new run or close, a run let go while its worker is still running, a killed Maker's leftovers, a planted junction), each seen failing on the old code and on a planted defect; the MP3 Tool's native unreadable-track journey now checks that nothing is left in `.work` after the tool closes.
+
+## [Unreleased] — v0.7.2 Phase 6E (2026-11-09)
+
+**Fixed**
+- Edge TTS command line (`epub2tts-edge --format m4b`, developer only): Ctrl+C now stops the M4B assembly at once. Before, it waited for FFmpeg to finish the running step by itself (measured: about 29 seconds on a step slowed to a 30-second book's playing time, so the wait grows with the book) and ended with a traceback, and a stalled FFmpeg hung the command line for good. Now the running FFmpeg is stopped, no further step starts, nothing is saved, and the command line prints one line and exits with status 130. Each step also has a time limit, the book's playing time plus ten minutes; a step still running then is stopped the same way and the command line exits with status 124. A failed step still exits with status 1. A run that is interrupted, stopped or fails never touches the files already in the output folder (with `--overwrite` too) or the sources.
+
+**Added (development only; nothing here ships)**
+- Tests that press a real Ctrl+C in the command line's own console during each FFmpeg step, between and after them, and while a step ignores the first stop, and that a stalled FFmpeg is stopped at its time limit and an unrelated FFmpeg survives; each seen failing on a planted defect.
+
+**Verified**
+- The canonical changed-area gate PASSED on `6ef00fe`: every scenario (49 of 49) and 14,466 tests, 65 of them skipped with named reasons. It ran every test because the change touches a module every tool shares. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
+## [Unreleased] — v0.7.2 Phase 6D (2026-11-08)
+
+**Fixed**
+- M4B Metadata Editor: Cancel now stops a chapter rename at once. Before, it waited for FFmpeg to finish rebuilding the chapter track (measured: about 59 seconds on a rename slowed to a one-minute book's playing time, so the wait grows with the book), and a Cancel pressed between the rename's two steps still started the second one. Nothing of the cancelled Book is published, Books already finished and the original files are untouched, and a stopped rename is never reported as a failure to retry. Pause is unchanged: the running rename finishes, then the run pauses.
+
+**Added (development only; nothing here ships)**
+- Tests that press Cancel and Pause during real chapter renames, at each of the rename's two FFmpeg steps and through the panel, and prove an unrelated FFmpeg survives and FFmpeg's real refusals stay retryable failures; each seen failing on a planted defect.
+
+**Verified**
+- The canonical changed-area gate PASSED on `0e35ee5`: every scenario (49 of 49) and 14,446 tests, 65 of them skipped with named reasons. It ran every test because the change touches a module every tool shares. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
+## [Unreleased] — v0.7.2 Phase 6C (2026-11-08)
+
+**Fixed**
+- MP3 Tool and M4B Maker: Cancel now stops FFmpeg at once, even in the middle of a long encode. Before, it waited for the running step to finish (measured: about 9 seconds for the MP3 Tool and 27 for the Maker on a one-hour book), and a Write ID3 run whose only Book was being encoded when Cancel was pressed went on to publish it. Nothing of a cancelled Book is published, Books already finished stay, and a stopped step is never reported as a failure to retry. Pause is unchanged: the running step finishes, then the run pauses.
+
+**Added (development only; nothing here ships)**
+- Tests that press Cancel and Pause during real encodes and during every FFmpeg step of both tools, and prove an unrelated FFmpeg survives; each seen failing on a planted defect. A test that the subprocess module imports on its own, as the optional-setup planning worker and the pre-setup FFmpeg check load it. The gate's orphan control now switches off both ways the application stops FFmpeg when its window closes.
+
+**Verified**
+- The canonical changed-area gate PASSED on `9c4a93e`: every scenario (49 of 49) and 14,432 tests, 65 of them skipped with named reasons. The first candidate's run had failed two checks (the optional-setup planning worker could not import the subprocess module without the cancellation module beside it, and the orphan control no longer saw the FFmpeg it exists to see, because Cancel now stopped it); both were repaired before this run. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
+## [Unreleased] — v0.7.2 Phase 6B (2026-11-08)
+
+**Fixed**
+- TTS: a conversion's temporary files (working folders, pydub's files and the local engines' encoding WAV, which can be as large as the whole narration) no longer stay in the system temp folder for good when the program is closed forcibly or crashes. They now live in the tool's own `act-tts` folder there, with a record of which running copy of the program owns them, and the next run removes what a program that has ended left. It never touches files it cannot prove are its own, another running copy's work, or anything else in the temp folder; it names what it left in Detailed. Folders left in the temp folder by earlier versions (`epub2tts_*`) are not removed automatically.
+
+**Added (development only; nothing here ships)**
+- Tests that kill and keep real child processes, damage the ownership record in fifteen ways, and plant links and swaps, each seen failing on a planted defect.
+
+**Verified**
+- The canonical changed-area gate PASSED on `dc74a3c`, its first run: every scenario (49 of 49) and 14,392 tests, 65 of them skipped with named reasons. The first candidate's run had failed two source-structure checks (a module missing from its package's list, and a class name reserved for the shared Book Workspace); both were repaired before this run. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
+## [Unreleased] — v0.7.2 Phase 6A (2026-11-08)
+
+**Fixed**
+- TTS: a Qwen3 voice selected at the 920x600 minimum pushed Start, Cancel and the log out of the window. At that size the hardware and speed note now sits behind a **Hardware and speed...** button beside Install / repair, which shows the whole note. Larger windows show the note in full, as before.
+- Setup: the first-run and repair windows, and the optional-voices step, threw a person reading earlier log lines back to the newest line on every new message. The log now follows new lines only while its newest line is on screen, and follows again once the reader is back at the bottom.
+
+**Added (development only; nothing here ships)**
+- Regression tests at real sizes in the real launcher for every Qwen3 state, and tests that run the real setup windows with the real mouse wheel. Each failed on the old code.
+
+**Verified**
+- The canonical changed-area gate passed on `69514f9`, its first run. The setup fixes touch modules every tool shares, so the gate selected every test and scenario: 49 of 49 scenarios and 14,344 tests, 65 of them skipped with named reasons. This is a checkpoint, not the full gate reserved for the end of Phase 6, and not a release.
+
+## [Unreleased] — v0.7.2 Phase 5 (2026-11-07)
+
+**Fixed**
+- The Summary and Detailed logs of every tool jumped back to the first line on every update, so new lines never came into view and a person reading earlier lines lost their place. Each pane now follows new lines while its newest line is on screen and stays where the reader is when they have scrolled up, through resizes and tab or tool switches. It follows again at the bottom.
+- MP3 Tool: an Album or Artist typed, or deliberately cleared, before a Book's first files were added was replaced by the files' own tags. A field is now filled from the files only when it has no value at all. A Book emptied and refilled also keeps its values. The written tags follow the panel.
+- TTS: with a Kokoro voice selected and not installed, the window at its 920x600 minimum lost Start and the log below the fold. Two messages were stacked, one of them still promising a download on first use, which has not been true since v0.7.0. One message now shows at a time and it says what is true.
+- TTS: an Edge speech rate the Edge voices refuse, such as "10%" without a sign, reserved a run folder and then failed every folder-imported file. Start now says how to type it, before anything is created.
+- TTS: messages said "Press Create again", but the button is labelled Start. They now say Start.
+- MP3 Tool, M4B Maker and M4B Metadata Editor: the artwork "Choose…" button read "Choose." at every size. Both artwork buttons now show their whole label.
+
+**Known issue**
+- TTS: a Qwen3 voice selected at the 920x600 minimum still pushes Start out of the window. Its hardware and speed disclosure and the Install / repair button need more height than that size has. 1024x720 and larger are fine. What gives way is the owner's decision (ACT72-058).
+
+**Added (development only; nothing here ships)**
+- Regression tests for each fix, on real widgets at real sizes and on the tags real runs publish, and a native journey that types and scrolls with real input. The tests that depended on whether Qwen3 was installed on the machine running them now state the state they assume.
+
+**Verified**
+- The complete Windows gate passed on `607ae39`, its first run: 49 of 49 scenarios and 14,327 tests, 65 of them skipped with named reasons. All 262 release-required features are mapped, and routine evidence in that run satisfied every one. 93 of them still wait on release evidence: owner checks, planned gaps or qualification. This is the routine gate, not a release.
+
+## [Unreleased] — v0.7.2 Phase 4 (2026-11-07)
+
+**Added (development only; nothing here ships)**
+- The feature map: `files/dev-work/feature-map/`, a README and one document per tool, describing 273 features of the app by stable id. How each is verified lives only in `files/dev-work/verification-gate/coverage.json`, now the reviewed inventory. It holds every feature's source, contracts and verification, every control, dialog, key binding and tool found in the source or in a running copy of the app, a review record for every source file, and a ledger of 57 issues.
+- The gate now refuses a full or changed run when the inventory has fallen behind the app: a new or renamed control, a changed source file nobody has reviewed against its features, a deleted or renamed test, a journey no feature maps, or an id that no longer exists.
+- Tests for four required behaviours that had none: Open log folder, the hidden console window for every child process, and the M4B Metadata Editor's Open Output Folder and Cancel Import with its scan confirmations.
+
+**Fixed (development only)**
+- Running the gate's own contract tests directly no longer leaves a folder in `%TEMP%\act-gate`.
+- A Maker test that asserted nothing now checks what its name says.
+
+**Changed**
+- The project briefing no longer says the M4B Metadata Editor's Import Folder has a subfolders option. It has none and always includes subfolders.
+
+**Verified**
+- The first complete Windows gate, on `927df46`, failed one check. Two release-required features were proved only by tests that always skip on Windows, so nothing on Windows proved them. Each now has a test that runs on Windows. Neither requirement was dropped.
+- The complete Windows gate then passed on `7987503`: 48 of 48 scenarios and 14,252 tests, 65 of them skipped with named reasons. All 262 release-required features are mapped, and routine evidence in that run satisfied every one. 99 of them still wait on release evidence: owner checks, planned gaps or qualification. This is the routine gate, not a release.
+
+## [Unreleased] — v0.7.2 Phase 3 acceptance closeout (2026-11-07)
+
+**Fixed**
+- Closing the app exited cleanly only because two internal lists happened to keep its closed main window alive. Without them, a background clean-up could crash the app on its way out (Windows error 0x80000003). The launcher now keeps its own window for the life of the program.
+
+**Changed (development only; nothing here ships)**
+- The verification gate's native journeys now run the app at Low integrity, so their real file dialogs can no longer add entries to the Windows recent-files history of the person running the gate. The gate refuses to run those journeys if it cannot show that this protection holds.
+
+**Verified**
+- The complete Windows gate passed on `118058c`: 46 of 46 scenarios and 14,206 tests, 65 of them skipped with named reasons. The journeys added no dialog-history entry.
+
+## [Unreleased] — v0.7.2 Phase 3 (2026-11-06)
+
+**Fixed**
+- Closing the window while M4B Maker was working left FFmpeg running after the app had exited. MP3 Tool runs FFmpeg the same way and gets the same fix, though it was not separately measured before the fix. Closing now stops the work and the FFmpeg it started. M4B Metadata Editor also stops its run now, as the other three tools already did. Any other process, including another program's FFmpeg, is left alone.
+
+**Added (development only; nothing here ships)**
+- A native Windows and real-media acceptance stage in the verification gate: 46 scenarios that drive the real application with real mouse and keyboard input, and read the real output back independently.
+- `--audit-scratch` and owner records for the gate's `%TEMP%\act-gate` scratch, approved by the owner. A failed run keeps its failing tests' folders in its own evidence.
+
+**Verified**
+- The complete Windows gate passed on `abd6400`: 46 of 46 scenarios and 14,190 tests, 65 of them skipped with named reasons. This is the routine gate, not a release.
 
 ## [Unreleased]
+
+### v0.7.2 Phase 2 — the canonical verification gate (2026-11-06) — development tooling only; identity stays 0.7.1; NOT published, tagged or merged
+
+- **Changed (the gate moved):** the one developer gate is now `files/dev-work/verification-gate/verify.py`, with modes `focused`, `changed`, `full` and `qualification`, and exit codes 0 PASS, 1 FAIL, 2 BLOCKED, 3 NOT RUN or incomplete, 64 invalid invocation, 130 interrupted. A bare command is now an invalid invocation rather than a 75-minute run.
+- **Removed:** `scripts/verify.py`. Nothing forwards to it, and nothing the application ships or runs ever used it. Evidence of earlier runs stays where it was and reads as legacy.
+- **Added (a pass has to be earned):** exit 0 alone no longer passes. The JUnit report and a record written from inside the pytest session must exist and agree. Ordinary and guarded collections must be disjoint and cover every test module, every skip must match a named reason, and selected, collected and executed tests must be the same set. A source change during the run, a leftover process or a stale or forged run directory each stops a PASS.
+- **Fixed (Windows):** the gate sets Windows error dialogs off for itself and everything it starts, and proves it on a real child, so a gate started from any terminal can no longer hang on a dialog waiting for a person. Each child runs in a kill-on-close Job Object with a time limit and a stall limit.
+- **Fixed (test):** `test_a_missing_file_is_probe_failed` never tested a missing file, because its stand-in ffprobe could not start at all. It stays as the test of that case, documented, beside a new test with a real ffprobe and a real missing file.
+- **Not in this phase:** native Windows journeys, real-media journeys, the reviewed feature inventory and the qualification scenarios. Each is reported as NOT RUN, naming the phase that owns it. No application behaviour changed.
+- **Added (a pass has to stay true):** reading a passed run later now checks the environment as well as the source, so a pass no longer counts as current after FFmpeg, pytest or the interpreter changes.
+- **Verified:** the complete migrated gate passed on `749e6c7`: ordinary 13,435 passed, 65 skipped, 0 failed; guarded 457 + 75 passed; dependency, docs, naming and configuration gates passed. That is the routine scope only, and the owner has not accepted it yet. Earlier full runs are kept: `69f072b` failed 3 tests because one test's disposable checkout did not copy the gate's new session probe, and `98761df` passed but was replaced when the environment check above was added.
+- **Fixed (closeout, the gate):** a repeated or empty option now exits 64, as a repeated option did before the migration. `--status --require-current` reads a run as current only where the gate wrote it: a copy, a junction or `..` reads `current: elsewhere` and exits 3, and an artifact reached through a link makes the run INVALID.
+- **Fixed (closeout, test isolation):** the suite now fails a run that writes the real settings file or any real runtime data, however the write was made, including by a child process or during import. A write the tripwire refuses inside `tempfile` now ends the call instead of retrying until the group stalled.
+- **Fixed (closeout, a crash found behind a warning):** a Tk root closed by code outside a shared-root scope could be collected on a worker thread, which ends the process with `0x80000003` (`Tcl_AsyncDelete`). The `main thread is not in main loop` warning in the guarded group was this, held off by accident. The suite now collects on the main thread before such a worker starts. No application code changed; closing a real window while a worker runs is recorded for Phase 3.
+- **Restored:** four test requirements lost in the migration, found by an independent audit of the 38 retired test ids. The earlier statement that nothing was lost was wrong.
+- **Verified (closeout):** the complete migrated gate passed on `47ba778`: ordinary 13,472 passed, 65 skipped, 0 failed; guarded 457 + 75 passed; dependency, docs, naming and configuration gates passed. That is the routine scope only, and the owner has not accepted it yet. Where ordinary test scratch lives is still the owner's decision.
+
+### v0.7.2 Phase 1 — Cancel stops now (2026-11-05) — identity 0.7.1 until the v0.7.2 release checkpoint; NOT published, tagged or merged
+
+- **Changed (Cancel):** Cancel stops every file being converted at once, whatever it is doing: asking the voice service for speech, a request in flight, a wait between attempts, a wait for memory, the narration being put together or encoded, and the last step of saving. Nothing unfinished is saved, nothing is asked of the voice service again, and nothing falls back to disk or tries again after Cancel. A file that was already saved before Cancel stays, and so does one in the last instant of being saved when Cancel was pressed, whole. Until now a narration whose speech was complete was allowed to finish and be saved for up to 10 minutes after Cancel.
+- **Fixed (Cancel and saving, found by independent review):** Cancel and the last step of saving a file now decide in one step which went first. If Cancel did, the file is not saved and whatever had that name stays. If the save did, the file finishes whole and counts as completed. Cancel never waits for the disk to decide this. Until now a file could appear just after Cancel had answered, with nothing recording that it could.
+- **Fixed (Cancel, Qwen3 voices):** a Cancel after a Qwen3 voice finished encoding now stops that file being saved. Until now it did not.
+- **Fixed (Cancel, Edge voices, found by independent review):** a request to the voice service can no longer hold up Cancel, whatever it does when cancelled. Stopping one takes about 2¼ s at most, measured at 0.1–1.2 s on the real client against a local server that never answers. It used to wait up to 10 s for a connection that would not close, for as long as a name lookup took, and for ever for a request that ignored the cancellation. A request that had to be abandoned, a request's cleanup that was cut short and a lookup still waiting for Windows are said in the log.
+- **Fixed (Cancel with several files, found by the full verification gate):** cancelling many files at once no longer waits for a clean-up of the program's whole memory once per file. Files dropped together now share that clean-up on a thread of its own, so eight take about as long as one: 2.66–2.74 s where the full gate on the previous commit measured 5.27 s against a limit of 5.25 s. The limit has not changed. A connection left behind by a request dropped while another clean-up was running is no longer forgotten. If the program cannot start that thread, usually for lack of memory, Cancel still ends on time, and the log says the connection may stay open until a later clean-up or until the application closes. The full verification gate on this correction has since passed: see "Verified" below.
+- **Changed (Cancel, local voices):** the Kokoro and Chatterbox voices' final encode now also stops on Cancel; Qwen3's already did.
+- **Changed (log):** a file stopped by Cancel is logged as "stopped (cancelled); nothing unfinished was saved"; a file that never started stays "skipped (cancelled)". Neither is a failure, and Retry Failed offers neither. The Cancel line itself now says what happens instead of "will stop at the next checkpoint".
+- **Not changed:** Pause (files already converting finish; nothing new starts until Resume; Cancel works while paused), every voice's audio and output names, Overwrite, publication (a saved file appears whole, once), the memory safety and no-hang guarantees of v0.7.1.
+- Measured on HOME-PC under a real memory limit with the real FFmpeg (`files/tests/test_low_memory.py`): Cancel-to-end 0.02–0.28 s across seven scenarios (a stalled encoder, a file assembling in memory with others waiting, a starved queue), nothing published after Cancel, no process or reservation left.
+- **Verified:** the complete verification gate passed on `0c1ef43` on Windows 11 (HOME-PC): 13,301 tests passed, 65 skipped, none failed; 532 guarded tests passed; the dependency, documentation, naming and configuration checks passed; the tested files were the same at the end as at the start. Eight files cancelled together took 3.22 s in that run, against the unchanged limit of 5.25 s. No program file changed for this; the gate only had to be started with Windows error dialogs off, because a test's deliberately invalid FFmpeg can otherwise open a dialog that waits for a person. The gate does not cover the real Cancel button in the real window, a real audiobook run, the real Edge service, local voice models, listening or macOS. Not accepted yet: the owner decides.
 
 ### v0.7.1 R2 review remediation (2026-11-04) — identity 0.7.1; NOT published, tagged or merged
 

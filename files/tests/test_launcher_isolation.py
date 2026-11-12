@@ -63,7 +63,7 @@ def _disposable_checkout(root: Path, *, settings: bytes | None) -> Path:
     for name in ("config.toml", "pytest.ini"):
         shutil.copy2(REPO_ROOT / name, copy / name)
     (copy / "files" / "tests").mkdir(parents=True)
-    for name in ("conftest.py", "cache_sandbox.py", "tk_gate.py", "test_launcher_smoke.py"):
+    for name in ("conftest.py", "cache_sandbox.py", "gate_session_probe.py", "tk_gate.py", "test_launcher_smoke.py"):
         shutil.copy2(TESTS / name, copy / "files" / "tests" / name)
     logs = copy / "files" / "runtime-data" / "logs"
     logs.mkdir(parents=True)
@@ -118,3 +118,47 @@ def test_the_standalone_run_builds_all_six_panels(tmp_path):
         cwd=copy, env={k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTEST_ADDOPTS")},
         capture_output=True, text=True, timeout=600)
     assert "test_all_six_tools_build_without_error_panels PASSED" in verbose.stdout, verbose.stdout + verbose.stderr
+
+
+# --------------------------------------------------------------------------- #
+# What the redirect cannot reach, a guard has to see
+# --------------------------------------------------------------------------- #
+#: Each writes the disposable checkout's "real" runtime data in a way the session's redirect of ``shared.paths`` cannot stop: by a
+#: literal path, from a child interpreter (the redirect is per process), and during import, before any fixture has run.
+_ROOTS = "from pathlib import Path\nimport subprocess, sys\nCHECKOUT = Path(__file__).resolve().parents[2]\n"
+_CHILD_SETTINGS = ("import sys; sys.path.insert(0, sys.argv[1]); from shared import settings; "
+                   "assert settings.set('from_a_child', True)")
+_CHILD_FILE = "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text('from a child', encoding='utf-8')"
+_WRITERS = {
+    "settings-by-literal-path": (
+        "the real settings file",
+        "def test_it():\n    (CHECKOUT / 'files/runtime-data/settings.json').write_text('{}', encoding='utf-8')\n"),
+    "settings-by-a-child": (
+        "the real settings file",
+        f"def test_it():\n    subprocess.run([sys.executable, '-c', {_CHILD_SETTINGS!r}, str(CHECKOUT / 'scripts')], check=True)\n"),
+    "other-runtime-data-by-a-child": (
+        "the real runtime data",
+        f"def test_it():\n    subprocess.run([sys.executable, '-c', {_CHILD_FILE!r}, "
+        "str(CHECKOUT / 'files/runtime-data/marker.json')], check=True)\n"),
+    "settings-during-import": (
+        "the real runtime data",
+        "sys.path.insert(0, str(CHECKOUT / 'scripts'))\nfrom shared import settings\nassert settings.set('at_import', True)\n\n"
+        "def test_it():\n    pass\n"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_WRITERS))
+def test_a_write_to_real_runtime_data_fails_the_run_whoever_makes_it(tmp_path, name):
+    guard, body = _WRITERS[name]
+    copy = _disposable_checkout(tmp_path, settings=SETTINGS_BYTES)
+    (copy / "files" / "tests" / "test_writer.py").write_text(_ROOTS + body, encoding="utf-8", newline="\n")
+    runtime = copy / "files" / "runtime-data"
+    before = _snapshot(runtime)
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTEST_ADDOPTS")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    done = subprocess.run([sys.executable, "-c", CHILD, "files/tests/test_writer.py", "-q", "-p", "no:cacheprovider",
+                           "--basetemp", str(tmp_path / "pytest-base")], cwd=copy, env=env, capture_output=True, text=True, timeout=300)
+    output = done.stdout + done.stderr
+    assert _snapshot(runtime) != before, "this control wrote nothing, so it proves nothing"
+    assert done.returncode != 0, output
+    assert "mutated real production state" in output and guard in output, output

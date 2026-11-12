@@ -273,7 +273,7 @@ def drain(panel, times: int = 3) -> None:
         panel._pump.tick()
 
 
-def start(panel, *, size: int = 64) -> None:
+def start(panel, *, size: int = 256) -> None:
     panel.var_size.set(size)
     panel.start_resize()
     drain(panel)
@@ -388,10 +388,10 @@ def test_every_output_affecting_setting_is_frozen_onto_the_run(make_panel, tmp_p
     import_files(panel, source)
     panel.var_letterbox.set(False)
 
-    start(panel, size=128)
+    start(panel, size=512)
 
     options = panel.run_snapshot.tool_options
-    assert options["size"] == 128
+    assert options["size"] == 512
     assert options["letterbox"] is False
     assert options["mode"] == cr.MODE_STANDARD
     assert jc.is_frozen_options(options), "the run's options must be a frozen mapping"
@@ -404,16 +404,16 @@ def test_a_later_ui_change_cannot_reach_a_run_that_already_started(
     runner = InlineRunner(defer=True)
     panel = make_panel(job_runner=runner)
     import_files(panel, source)
-    start(panel, size=64)
+    start(panel, size=256)
 
     panel.var_size.set(2048)
     panel.var_letterbox.set(False)
     runner.release()
     drain(panel)
 
-    assert panel.run_snapshot.tool_options["size"] == 64
+    assert panel.run_snapshot.tool_options["size"] == 256
     with Image.open(run_dir_of(output_base) / "a.jpg") as img:
-        assert img.size == (64, 64), "the run used the size it froze"
+        assert img.size == (256, 256), "the run used the size it froze"
 
 
 def test_a_later_import_cannot_change_the_items_of_a_running_job(make_panel, tmp_path):
@@ -485,6 +485,37 @@ def test_validation_completes_before_any_run_directory_is_reserved(
 
     assert warned, "the empty-list warning still comes first"
     assert not output_base.exists(), "nothing was reserved for a run that never began"
+
+
+@pytest.mark.parametrize("typed", ["0", "-5", "255", "4097", "100000", "nan", "inf", "1e3", "512.5", "", "abc", " 1024x"])
+def test_a_typed_size_outside_256_to_4096_or_not_a_whole_number_starts_nothing(
+        make_panel, output_base, tmp_path, monkeypatch, typed):
+    """v0.7.2 Phase 6, ACT72-025: only 'a number above 0' was checked, a typed 0 became 1024 and anything up to Pillow's
+    own limits reached the resizer. The spinbox's 256-4096 range limits only its arrows, so the typed text is judged."""
+    panel = make_panel()
+    import_files(panel, make_image(tmp_path / "art" / "a.png"))
+    resized: list = []
+    monkeypatch.setattr(cr, "resize_for_audiobook", lambda *a, **k: resized.append(a))
+    errors = capture_dialog(monkeypatch, "showerror")
+    panel.entry_size.delete(0, "end")
+    panel.entry_size.insert(0, typed)
+    panel.start_resize()
+    drain(panel)
+    assert errors and "256" in str(errors[-1]) and "4096" in str(errors[-1]), errors
+    assert resized == [], "nothing reached the resizer"
+    assert not output_base.exists(), "nothing was reserved"
+    assert panel.run_snapshot is None or panel.is_running is False
+
+
+@pytest.mark.parametrize("typed, size", [("256", 256), ("4096", 4096), (" 1024 ", 1024)])
+def test_the_range_ends_are_accepted_as_typed(make_panel, output_base, tmp_path, monkeypatch, typed, size):
+    panel = make_panel()
+    import_files(panel, make_image(tmp_path / "art" / "a.png"))
+    panel.entry_size.delete(0, "end")
+    panel.entry_size.insert(0, typed)
+    panel.start_resize()
+    drain(panel)
+    assert panel.run_snapshot.tool_options["size"] == size
 
 
 def test_a_bad_target_size_reserves_nothing(make_panel, output_base, tmp_path, monkeypatch):
@@ -777,7 +808,7 @@ def test_a_confirmed_replacement_asks_once_and_replaces_atomically(make_panel, t
     assert asked == [1], "exactly one confirmation, for the validated count"
     assert sha(source) != before
     with Image.open(source) as img:
-        assert img.size == (64, 64)
+        assert img.size == (256, 256)
     strays = [p.name for p in source.parent.iterdir()
               if p.name.startswith(op.TEMP_SIBLING_PREFIX)]
     assert strays == []
@@ -884,7 +915,7 @@ def test_a_completed_replacement_survives_a_later_failure_and_is_reported(
     start(panel)
 
     with Image.open(first) as img:
-        assert img.size == (64, 64)
+        assert img.size == (256, 256)
     assert sha(second) == second_before
     result = panel.run_result
     assert result.succeeded_count == 1 and result.failed_count == 1
@@ -1105,7 +1136,7 @@ def test_a_retried_replacement_revalidates_and_asks_again(
 
     assert asked == [1, 1], "the retry asked for its own confirmation"
     with Image.open(source) as img:
-        assert img.size == (64, 64)
+        assert img.size == (256, 256)
 
 
 def test_a_declined_retry_confirmation_creates_no_artifact(
@@ -1314,7 +1345,7 @@ def test_cancel_after_a_completed_replacement_leaves_it_replaced_and_says_so(
     drain(panel)
 
     with Image.open(first) as img:
-        assert img.size == (64, 64), "a completed replacement is never rolled back"
+        assert img.size == (256, 256), "a completed replacement is never rolled back"
     assert sha(second) == second_before, "the unreached original is unchanged"
     log = "\n".join(panel.log.details)
     assert "1 of 2 original(s) replaced" in log
@@ -1405,6 +1436,35 @@ def test_the_panel_offers_the_shared_run_controls(make_panel):
     assert labels[jc.JobAction.RESUME] == "Resume"
     assert labels[jc.JobAction.CANCEL] == "Cancel"
     assert jc.JobAction.RETRY_FAILED in labels
+
+
+@pytest.mark.parametrize("cancel", [False, True], ids=["finished", "cancelled"])
+def test_the_closing_line_follows_the_runs_own_lines_and_the_run_ends_once(make_panel, output_base, tmp_path, cancel):
+    """v0.7.2 Phase 6, ACT72-018: 'All done.' was appended before the adapter had rendered the run's own lines, so it
+    sat above 'Running.', and the terminal state change and the ending event each added 'Finished.'."""
+    panel = make_panel()
+    import_files(panel, make_image(tmp_path / "art" / "a.png"), make_image(tmp_path / "art" / "b.png"))
+    if cancel:
+        real = cr.resize_for_audiobook
+
+        def cancel_after_first(*args, **kwargs):
+            outcome = real(*args, **kwargs)
+            panel.job_controller.request_cancel()
+            return outcome
+
+        cr.resize_for_audiobook = cancel_after_first
+        try:
+            start(panel)
+        finally:
+            cr.resize_for_audiobook = real
+    else:
+        start(panel)
+    shown = list(panel.log.summary)
+    ending, closing = ("Cancelled.", "Cancelled.") if cancel else ("Finished.", "All done.")
+    assert shown[0] == "Running.", shown
+    assert shown[-1].startswith(closing), shown
+    assert shown[-2] == ending, "the run's own ending, once, then the panel's closing line"
+    assert sum(1 for line in shown[:-1] if line == ending) == 1, shown
 
 
 def test_the_summary_never_carries_a_traceback_or_a_command(

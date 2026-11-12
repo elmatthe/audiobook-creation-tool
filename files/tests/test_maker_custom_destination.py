@@ -319,7 +319,9 @@ def test_custom_mode_stages_outside_the_users_directory(tmp_path):
 
     v0.6.4 Phase 3 made this a planning contract: a custom destination carries
     an operation-owned work root that may not be, or lie inside, the chosen
-    folder; the panel makes that root in the system temp area.
+    folder. The panel makes that root in the system temp area: since v0.7.2
+    (ACT72-031) inside an owned work-area entry of kind ``maker`` rather than a
+    loose ``mkdtemp`` folder (behaviour in test_maker_staging_release.py).
     """
     chosen = tmp_path / "Chosen"
     chosen.mkdir()
@@ -330,25 +332,13 @@ def test_custom_mode_stages_outside_the_users_directory(tmp_path):
     elsewhere = mp.custom_destination(chosen, work_root=tmp_path / "op-work")
     assert elsewhere.work_root.parent == tmp_path
     source = Path(mk.__file__).read_text(encoding="utf-8")
-    assert "tempfile.mkdtemp(prefix=" in source
-    assert "WORK_ROOT_PREFIX" in source
+    assert 'work_area.new_folder("maker")' in source
+    assert "mkdtemp" not in source, "no loose, unowned staging root"
 
 
-def test_cancellation_never_removes_the_chosen_directory():
-    """The Phase 4 cancel path rmtree'd out_dir; in custom mode that is the user's folder."""
-    import ast
-
-    source = Path(mk.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ExceptHandler):
-            continue
-        body = ast.dump(node)
-        if "ConversionCancelled" not in ast.dump(node.type or ast.Name(id="")):
-            continue
-        # The unconditional rmtree(out_dir) must now sit behind the standard branch.
-        assert "custom_destination" in body, \
-            "cancellation must distinguish a reserved run from the user's folder"
+# test_cancellation_never_removes_the_chosen_directory looked for an except clause in the panel's source that had moved to
+# the engine, so it asserted nothing (ACT72-032). A Cancel pressed in a real custom build, in a folder that already holds the
+# owner's files, now proves it: test_maker_panel_branches::test_a_cancelled_custom_build_leaves_the_chosen_folder_and_everything_already_in_it.
 
 
 def test_cancellation_cleanup_is_guarded_in_source():
@@ -403,11 +393,11 @@ def test_source_mp3s_and_cover_are_never_written(tmp_path):
     import ast
 
     source = Path(mk.__file__).read_text(encoding="utf-8")
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            assert node.func.attr not in ("write_bytes", "write_text") or True
-    # ffmpeg is always invoked with the sources as -i inputs, never as outputs.
-    assert "-i" in source
+    # v0.7.2 Phase 4: this loop ended in "or True" and a check of "-i" passed only on the text "m4b-idle", so neither asserted anything.
+    # The panel runs no FFmpeg itself (the processing module does); what it can be held to is never writing a file.
+    writes = [node.lineno for node in ast.walk(ast.parse(source))
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("write_bytes", "write_text")]
+    assert writes == [], f"the Maker panel writes a file at lines {writes}"
     assert "shutil.move" not in source
     assert "os.replace" not in source
 

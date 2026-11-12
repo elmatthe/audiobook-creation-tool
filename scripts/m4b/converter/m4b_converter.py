@@ -16,9 +16,9 @@
 # became the only authority on run state and the only reporting pipeline --
 # one JobController, one JobReporter, one JobEventStream, one JobAdapter and
 # one EtaEstimator per run, all drained on the panel's single MainThreadPump.
-# Pause and cancel settle between books, because the ffmpeg call converting
-# one is indivisible; the process lifecycle that makes cancel act mid-file is
-# Phase 11's, and nothing here claims to have it.
+# Since Phase 11 Cancel stops the running FFmpeg mid-file (terminated, killed
+# if it refuses, reaped) and takes the interrupted book back whole; Pause still
+# settles between outputs. (This header said otherwise until v0.7.2, ACT72-027.)
 #
 # v0.6.6 Phase 4: presentation only. The panel is the Family-A guided layout
 # (1. Sources / 2. Conversion & Metadata / 3. Output & Run, Activity on the
@@ -70,6 +70,7 @@ from shared.job_control import (
     capture_run,
 )
 
+from m4b import m4b_continuous
 from m4b import m4b_execution
 from m4b.converter import m4b_metadata
 from m4b import m4b_numbering
@@ -128,6 +129,23 @@ TIMING_MESSAGE = "timing"
 #: thread that owns the widgets. The plan itself is frozen, so what crosses is a
 #: value, not a handle.
 PLAN_MESSAGE = "plan"
+
+#: The queue message that says the file manager could not be asked to show a folder (v0.7.2 Phase 8, ACT72-062). It
+#: comes from the shared helper's own thread, which is why it travels on the queue like everything else a thread tells
+#: this panel. It is a line for the Activity log and nothing more: the run's result is settled before any folder is shown.
+REVEAL_FAILED_MESSAGE = "reveal-failed"
+
+
+def _reveal_failure_reporter(log_q, folder: str):
+    """What the shared helper calls, on its own thread, when ``folder`` could not be shown.
+
+    It holds the queue and a string and never the panel: a Tk object let go of on a thread that is not Tk's own ends
+    the program, and the helper's thread is the last holder of whatever this closes over.
+    """
+    def report(reason: str) -> None:
+        log_q.put((REVEAL_FAILED_MESSAGE,
+                   f"The folder could not be opened in the file manager ({reason}). It is: {folder}\n"))
+    return report
 
 
 @dataclass(frozen=True)
@@ -433,6 +451,9 @@ class M4BConverterUI(ttk.Frame):
         # from it while a controller is present; it mirrors it into the
         # controller and lets `checkpoint()` decide.
         self._cancel_event = threading.Event()
+        # Held while the latch above is set and while a publication is decided, and for nothing else: so a Cancel is
+        # either wholly before a decision or wholly after it (v0.7.2 Phase 9 remote review R9-04). See `_latch_cancel`.
+        self._cancel_decision = threading.Lock()
         self._log_q: queue.Queue = queue.Queue()
 
         # --- the shared job-control foundation ------------------------- #
@@ -636,8 +657,10 @@ class M4BConverterUI(ttk.Frame):
 
         # The four fields. Always visible; disabled only where they cannot
         # apply -- Write none, which writes nothing -- so the form never jumps.
+        # "Title", like its three neighbours (v0.7.2, ACT72-028): it said "blank → filename", which nothing does --
+        # blank keeps the source's title under Preserve and writes no title under Replace, as the modes describe.
         fields = (
-            ("title_entry", "Title (blank → filename)", 5, 0),
+            ("title_entry", "Title", 5, 0),
             ("artist_entry", "Artist", 5, 2),
             ("album_artist_entry", "Album Artist", 6, 0),
             ("album_entry", "Album", 6, 2),
@@ -853,7 +876,18 @@ class M4BConverterUI(ttk.Frame):
         except output_paths.OutputPathError as exc:
             messagebox.showerror("Output folder", exc.message)
             return
-        sp.reveal_in_file_manager(target)
+        self._reveal(target)
+
+    def _reveal(self, folder) -> None:
+        """Ask the file manager to show ``folder`` without waiting for it (v0.7.2 Phase 8, ACT72-062).
+
+        The shared helper makes the operating system's call on a thread of its own, so a busy or restarting Explorer
+        no longer holds this window when a run ends. If the folder cannot be shown, the Activity log says so and where
+        it is; a conversion that succeeded has still succeeded.
+        """
+        request = sp.reveal_in_file_manager(folder)
+        if request is not None:  # a harness that records the request instead of making it hands nothing back
+            request.on_failure(_reveal_failure_reporter(self._log_q, str(folder)))
 
     # ------- the run: what it is, and who is driving it -------
 
@@ -1254,25 +1288,38 @@ class M4BConverterUI(ttk.Frame):
         t.start()
 
     def cancel(self):
-        """Ask the run to stop. Cooperative: nothing is suspended or killed.
+        """Ask the run to stop now.
 
-        At this phase the request settles at the **next boundary between
-        books**, because the ffmpeg call converting the current one is
-        indivisible and this phase does not own its process lifecycle. Phase 11
-        owns real mid-file termination and reaping; until then the status line
-        says ``Cancelling…`` and means exactly that.
-
-        What it does guarantee now: no later book starts, and a worker already
-        waiting at a paused checkpoint is woken, because cancel outranks pause
-        in the shared model.
+        The FFmpeg converting the current output is stopped through its own
+        process (terminated, killed if it refuses, always reaped), its temporary
+        output and the book's already finished outputs are taken back, so the
+        interrupted book is rolled back whole; books already finished stay and
+        no later book starts. A worker waiting at a paused checkpoint is woken,
+        because cancel outranks pause in the shared model. (Until v0.7.2 this
+        docstring and the log line described the retired between-books Cancel,
+        ACT72-027.)
         """
         if not self._busy.is_set() or self._cancel_event.is_set():
             return
-        self._cancel_event.set()
+        self._latch_cancel()
         controller = self._controller
         if controller is not None:
             controller.request_cancel()
-        self._log_q.put(("log", "Cancelling… will stop after the current file.\n"))
+        self._log_q.put(("log", "Cancelling… stopping the file being converted now; its book is taken back, and books "
+                                "already finished are kept.\n"))
+
+    def _latch_cancel(self) -> None:
+        """Set this panel's Cancel latch, in one order with every publication decision (v0.7.2 Phase 9, R9-04).
+
+        The worker's ``authorize_publication`` reads the latch and asks the controller for the commit while holding the
+        same lock, so the two cannot interleave: a Cancel latched here before a decision makes that decision a refusal,
+        and a decision made first was a commit the controller already counts as in flight when its Cancel arrives. Until
+        the remote re-review the latch was set with no lock, and a decision that had read it clear could still be
+        granted after it was set. Only the latch is set under the lock: it is held for no I/O and no call out, so Cancel
+        stays immediate.
+        """
+        with self._cancel_decision:
+            self._cancel_event.set()
 
     def disable_inputs(self, state: bool):
         """Lock or unlock this panel's inputs and processing options.
@@ -1339,6 +1386,15 @@ class M4BConverterUI(ttk.Frame):
             except tk.TclError:  # pragma: no cover - torn down
                 pass
 
+    def _render_job_events(self) -> None:
+        """Render every job event already published, now (main thread). Bounded; each drain renders what it took."""
+        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            return
+        for _ in range(1000):
+            if not jobs.drain():
+                return
+
     def log_write(self, text: str, *, summary: bool = False) -> None:
         """Add the worker's own transcript text to the Activity log.
 
@@ -1390,11 +1446,17 @@ class M4BConverterUI(ttk.Frame):
                     self._record_timing(payload)
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
+                elif kind == REVEAL_FAILED_MESSAGE:
+                    self.log_write(payload, summary=True)
                 elif kind == "done":
+                    # The run's own lines first, then this closing line under them (v0.7.2, ACT72-018): the ending event
+                    # was published before this line was queued, but the job drain had not rendered it yet.
+                    self._render_job_events()
                     self.log_write(payload[0], summary=True)
                     self._finish_idle()
                     if payload[1] is not None:
-                        sp.reveal_in_file_manager(payload[1])
+                        # Asked for, never waited for: the window is already settled and stays its own (ACT72-062).
+                        self._reveal(payload[1])
         except queue.Empty:
             pass
 
@@ -1480,7 +1542,12 @@ class M4BConverterUI(ttk.Frame):
         the window.
         """
         try:
-            self._run_conversion(params)
+            # Every continuous decoder this thread starts is closed when the run
+            # ends, however it ends (v0.7.2 Phase 7B): the body closes each one on
+            # every route out of its book, and this is the backstop for a route
+            # the body never reached.
+            with m4b_continuous.owned_decoders():
+                self._run_conversion(params)
         except ConversionCancelled:
             # The body handles its own cancellation and sends ``done``. Reaching
             # here means one escaped a path that does not, so settle it as a
@@ -1606,6 +1673,18 @@ class M4BConverterUI(ttk.Frame):
         # already exists and arrived with the call, and running it again would
         # re-open every question that plan has already answered.
         reports: dict = {}
+        # **The audio route of each split book, decided here and frozen into the
+        # plan** (v0.7.2 Phase 7B, ACT72-012): decoded once and cut, when the
+        # probe and a packet scan prove it gives the same samples, else sought
+        # per chapter as before. A scan is a child process like the probe, so it
+        # also runs between checkpoints; Cancel stops it at once.
+        routes: dict = {}
+
+        def asked_to_stop() -> bool:
+            if self._cancel_event.is_set():
+                return True
+            return controller is not None and controller.cancel_check()
+
         try:
             for entry in (() if retrying else imported):
                 checkpoint()
@@ -1614,6 +1693,17 @@ class M4BConverterUI(ttk.Frame):
                         entry.occurrence_id, f"Examining {entry.path.name}")
                 self._log_q.put(("log", f"  Examining {entry.path.name}…\n"))
                 reports[entry.occurrence_id] = m4b_probe.probe_source(entry.path)
+                if options.split:
+                    decision = m4b_continuous.qualify(
+                        entry.path, reports[entry.occurrence_id], split=True,
+                        cancelled=asked_to_stop)
+                    if decision.continuous:
+                        routes[entry.occurrence_id] = decision.route
+                    if reporter is not None:
+                        reporter.technical(
+                            f"{entry.path.name}: audio route "
+                            f"{'decoded once' if decision.continuous else 'seek per chapter'}"
+                            f" ({decision.reason})")
         except ConversionCancelled:
             cancelled = True
 
@@ -1638,6 +1728,7 @@ class M4BConverterUI(ttk.Frame):
                     reports=reports,
                     options=options,
                     reserve=_reserve_run,
+                    continuous=routes,
                 )
             except Exception as exc:
                 # Nothing was written, so a directory reserved a moment ago is
@@ -1728,6 +1819,35 @@ class M4BConverterUI(ttk.Frame):
                     return True
                 return controller is not None and controller.cancel_check()
 
+            def authorize_publication() -> bool:
+                """Cancel or this output's commit: whichever comes first (v0.7.2 Phase 9, P9-02).
+
+                Asked once per output, immediately before the finished file
+                is given its name. ``interrupted`` above is a look, and a look
+                followed by the commit leaves a gap: Cancel could latch and
+                return, and the file then appeared and the run said it had
+                succeeded. The controller decides it in one step under the
+                lock its Cancel latch is taken under, and records a commit it
+                grants, so ``finish_cancelled`` cannot be reached while one is
+                still landing. This panel's own latch is set a moment before
+                the controller hears of a Cancel, so it is read too, and read
+                under the lock ``_latch_cancel`` sets it under, held until the
+                controller has answered: a Cancel whose latch is set first is
+                the Cancel that came first (remote re-review R9-04). The lock
+                is released before the file is published.
+                """
+                with self._cancel_decision:
+                    if self._cancel_event.is_set():
+                        return False
+                    return controller is None or controller.authorize_commit()
+
+            def publication_finished() -> None:
+                if controller is not None:
+                    controller.commit_finished()
+
+            commit_gate = m4b_execution.CommitGate(
+                authorize=authorize_publication, finished=publication_finished)
+
             def announce(argv) -> None:
                 """One command, into the transcript and the Details pane."""
                 line = " ".join(str(part) for part in argv)
@@ -1817,6 +1937,28 @@ class M4BConverterUI(ttk.Frame):
                              STAGE_CONVERT, retryable=True)
                         continue
 
+                # **One decode for the whole book** when preflight proved it
+                # (v0.7.2 Phase 7B): each chapter is cut from it at absolute
+                # sample positions. Started fresh for every attempt, a retry
+                # included, and closed on every route out of this book.
+                decoder = None
+                if item.continuous is not None:
+                    decoder = m4b_continuous.ContinuousDecoder(
+                        item.continuous, ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
+                        source=in_file, workspace=plan.run_directory)
+                    try:
+                        announce(decoder.start())
+                    except Exception as exc:  # noqa: BLE001
+                        decoder.close()
+                        note(item_id,
+                             f"{in_file.name}: its audio could not be decoded.",
+                             f"{type(exc).__name__}: {exc}",
+                             STAGE_CONVERT, retryable=True)
+                        continue
+                    self._log_q.put((
+                        "log", f"  {in_file.name} is decoded once for all its "
+                               f"chapters.\n"))
+
                 for segment in item.segments:
                     # **The safe checkpoint, and it now sits between segments.**
                     # An ffmpeg encode is indivisible, so a pause asked for
@@ -1865,8 +2007,10 @@ class M4BConverterUI(ttk.Frame):
                         # duration mismatch to name a cause.
                         undecodable_xhe=item.undecodable_xhe,
                         windows_decode=item.windows_decode,
-                        pcm_args=(() if timeline is None
+                        pcm_args=(tuple(item.continuous.pcm_args()) if decoder is not None
+                                  else () if timeline is None
                                   else tuple(timeline.format.ffmpeg_input_args())),
+                        continuous_decode=decoder is not None and item.fragment,
                         # Frozen at preflight with everything else, so the worker
                         # never re-opens the book to recover what its chapters
                         # were called.
@@ -1883,6 +2027,15 @@ class M4BConverterUI(ttk.Frame):
 
                         def feed(write, _wanted=wanted):
                             timeline.feed(write, _wanted)
+                    elif decoder is not None:
+                        # Absolute positions, never a running sum of rounded
+                        # durations: the samples the seek would have kept.
+                        first, count = m4b_continuous.chapter_frames(
+                            segment.start, segment.end, item.continuous.sample_rate)
+
+                        def feed(write, _first=first, _count=count,
+                                 _last=segment is item.segments[-1]):
+                            decoder.feed(write, _first, _count, last=_last)
 
                     outcome = m4b_execution.convert_segment(
                         work,
@@ -1892,6 +2045,8 @@ class M4BConverterUI(ttk.Frame):
                         sources=tuple(entry.path for entry in imported),
                         on_command=announce,
                         feed=feed,
+                        stop_feed=None if decoder is None else decoder.close,
+                        commit=commit_gate,
                     )
                     ended = clock() if timed else None
 
@@ -1932,6 +2087,11 @@ class M4BConverterUI(ttk.Frame):
                             "log",
                             f"  {len(removed)} incomplete file(s) for "
                             f"{in_file.name} were removed.\n"))
+                    # ...and the folders made for this book, once empty (v0.7.2, ACT72-029): a split book's own
+                    # folder stayed behind empty. Never the run folder, never a folder that holds anything.
+                    m4b_execution.prune_empty_folders(
+                        [segment.destination for segment in item.segments],
+                        inside=plan.run_directory)
 
                 if failure is not None:
                     # Named by book *and* by output: a split run has many
@@ -1956,6 +2116,12 @@ class M4BConverterUI(ttk.Frame):
                     # Released on every route out of this item, including a
                     # failure or a cancel: a live decoder is a held file handle.
                     timeline.close()
+                if decoder is not None:
+                    # The same for the continuous decoder, a process: stopped if
+                    # it still runs (a failed or cancelled book) and reaped.
+                    if not decoder.close():
+                        self._log_q.put((
+                            "log", "  \u26a0 The decoder did not exit when asked.\n"))
 
                 if cancelled:
                     # Settled only now: the child is reaped, its temporary file
@@ -2391,7 +2557,7 @@ class M4BConverterUI(ttk.Frame):
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
         if self._busy.is_set():
-            self._cancel_event.set()
+            self._latch_cancel()
         controller = self._controller
         if controller is not None and not controller.is_terminal:
             # This is also what makes closing a *paused* run safe: the request

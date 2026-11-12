@@ -1247,3 +1247,86 @@ def test_manual_fixture_specimen_builds_from_production_primitives(tk_root):
         assert commanded == [], commanded
     finally:
         top.destroy()
+
+
+# --------------------------------------------------------------------------- #
+# v0.7.2 Phase 4: two required features the inventory found with no automated check
+# --------------------------------------------------------------------------- #
+
+
+def _dummy_library(root: Path, *names: str) -> Path:
+    """Files the scan lists by name. Nothing here reads them: each test ends the scan before a file is opened."""
+    root.mkdir(parents=True)
+    for name in names:
+        (root / name).write_bytes(b"never opened by these tests")
+    return root
+
+
+def _settle(panel, rounds: int = 20) -> None:
+    for _ in range(rounds):
+        panel._pump.tick()
+        if not panel._coordinator.is_active:
+            return
+
+
+def test_open_output_folder_reveals_the_tool_folder_then_the_last_run_and_explains_a_refusal(
+        make_panel, container, tmp_path, output_base, monkeypatch):
+    """ACT.METADATA.OPEN-OUTPUT: before any run, the tool's own folder, created so the person lands somewhere real and with no run
+    reserved; a folder that cannot be made is an error dialog, never a reveal of something else; after a run, that run's folder."""
+    revealed: list = []
+    monkeypatch.setattr(editor.sp, "reveal_in_file_manager", revealed.append)
+    panel = make_panel()
+    panel.open_outdir()
+    tool_folder = output_base / output_paths.ensure_tool_parent(editor.TOOL_KEY).name
+    assert revealed == [tool_folder] and tool_folder.is_dir() and not any(tool_folder.iterdir())
+
+    def refused(tool_key, effective=None):
+        raise output_paths.OutputPathError("The output folder cannot be created.", "denied for this test")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(editor.output_paths, "ensure_tool_parent", refused)
+        panel.open_outdir()
+    assert revealed == [tool_folder] and make_panel.dialogs[-1] == ("error", "The output folder cannot be created.")
+    import_folder(panel, library(container, tmp_path / "Library"))
+    assert run_action(panel, "save") is True
+    panel.open_outdir()
+    assert revealed[-1] == panel.last_plan.run_directory and panel.last_plan.run_directory.parent == tool_folder
+
+
+def test_cancel_import_ends_a_folder_scan_and_the_workspace_is_as_it_was(make_panel, tmp_path):
+    """ACT.METADATA.IMPORT-SCAN: Cancel Import during a folder scan ends it; no Book is made from what it had found."""
+    root = _dummy_library(tmp_path / "Library", "Alpha.m4b", "Beta.m4b")
+    panel = make_panel(thread_factory=parked_threads())
+    before = [book.book_id for book in panel.workspace.books]
+    panel._choose_folder = lambda: (str(root),)
+    panel.import_folder()
+    assert panel._coordinator.is_active and len(panel._thread_factory.bodies) == 1, "the scan is started and parked before its first file"
+    assert panel.cancel_import() is True
+    panel._thread_factory.bodies[0]()
+    _settle(panel)
+    assert not panel._coordinator.is_active
+    assert [book.book_id for book in panel.workspace.books] == before
+    assert all(wf.source_of(book) is None for book in panel.workspace.books)
+
+
+def test_a_broad_folder_or_a_large_result_is_imported_only_when_the_person_agrees(make_panel, tmp_path):
+    """ACT.METADATA.IMPORT-SCAN: the home folder (or a drive root) is asked about before anything is scanned, and a result over the warning
+    threshold is asked about before anything is imported; declining either leaves the workspace untouched."""
+    home = _dummy_library(tmp_path / "Home", "Alpha.m4b")
+    asked_broad: list = []
+    panel = make_panel(home=home, thread_factory=parked_threads(),
+                       confirm_broad_root=lambda roots: asked_broad.append(tuple(roots)) or False)
+    panel._choose_folder = lambda: (str(home),)
+    panel.import_folder()
+    assert asked_broad == [(home,)] and panel._thread_factory.bodies == [] and not panel._coordinator.is_active
+    assert all(wf.source_of(book) is None for book in panel.workspace.books)
+
+    library_root = _dummy_library(tmp_path / "Library", "Alpha.m4b", "Beta.m4b")
+    asked_large: list = []
+    panel = make_panel(effective_config=make_config(threshold=1),
+                       confirm_large_result=lambda outcome: asked_large.append(outcome.proposed_count) or False)
+    panel._choose_folder = lambda: (str(library_root),)
+    panel.import_folder()
+    _settle(panel)
+    assert asked_large == [2] and not panel._coordinator.is_active
+    assert all(wf.source_of(book) is None for book in panel.workspace.books)

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Suites that run only under files/tests/guarded_pytest.py. verify.py leaves them out of the ordinary pytest gate and runs every one in its guarded gate; each group's basetemp is a new folder below files/dev-work/p05b-stage4c whose name starts with the group's prefix, because the fixtures they drive accept only such an owned tree.",
+  "about": "Suites that run only under files/tests/guarded_pytest.py. The verification gate (files/dev-work/verification-gate/verify.py) leaves them out of the ordinary pytest gate and runs every one in its guarded gate; each group's basetemp is a new folder below files/dev-work/p05b-stage4c whose name starts with the group's prefix, because the fixtures they drive and six production modules accept only such an owned tree. Membership is pinned again in verification.json, so a suite cannot leave its guard as a side effect of anything.",
   "groups": [
     {
       "name": "v3-planning",

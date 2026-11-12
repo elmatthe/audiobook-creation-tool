@@ -119,11 +119,10 @@ EXCLUDED_DIR_PREFIXES = (".venv.", ".venv-")
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # Tracked developer entry points under scripts/ that the application never imports or runs (v0.6.7, audit
-# ACT67-AUD-012): the verification gate (needs files/tests and the dev docs), this packager (needs .git) and the
-# voice-sample evaluation helper (needs files/dev-tools). Named exactly, so nothing else can be dropped by accident;
-# each is repo-relative POSIX.
+# ACT67-AUD-012): this packager (needs .git) and the voice-sample evaluation helper (needs files/dev-tools). The
+# verification gate moved to files/dev-work/verification-gate in v0.7.2 and cannot ship: nothing under files/ is walked.
+# Named exactly, so nothing else can be dropped by accident; each is repo-relative POSIX.
 DEVELOPER_ONLY_SCRIPTS = frozenset({
-    "scripts/verify.py",
     "scripts/shared/release.py",
     "scripts/tts/generate_voice_samples.py",
 })

@@ -41,10 +41,10 @@ treats an allocation failure in memory as one more route decision: it gives back
 assembled on disk, once, without asking the service for anything again. If even that runs out, the file fails with a reason. Every
 FFmpeg on these routes is one this program can stop (:mod:`tts.ffmpeg_watch`), so none of this can end in a hang.
 
-*Cancel.* A file with more synthesis to come stops waiting at once. Finished narration is kept if it can be: on Cancel it stops
-waiting for its turn or for anybody's memory and is assembled on disk straight away; if even that much is not free within
-:data:`CANCEL_FINISH_WAIT_SECONDS` it says that it was not saved, and stops. What is already being assembled has the deadlines in
-:mod:`tts.ffmpeg_watch`.
+*Cancel.* (v0.7.2) Cancel wins at every step: a file waiting at the gate stops waiting at once, whether or not its synthesis is
+complete; an assembly under way is killed by :mod:`tts.ffmpeg_watch` within one look; nothing falls back to disk, tries again or is
+published after the latch. Finished narration is not an exception: the person asked for the work to stop, and it stops. What was
+already published before the Cancel stays. :meth:`AssemblyGate.wake` lets a Cancel reach a waiter before its next poll.
 
 *Before the run, a model.* Each queued file's narration is estimated from its real text and the run's frozen settings
 (:func:`estimate_text_seconds`). The run keeps ``max(1 GiB, 25 % of physical memory)`` free for Windows and other
@@ -182,8 +182,6 @@ DISK_ASSEMBLY_PROCESS_BYTES = 24 * 1024 ** 2
 #: How long the gate goes on with too little free even for that, with nothing of this run's to wait for, before every file
 #: waiting fails: one deadline for the whole queue.
 ASSEMBLY_MEMORY_WAIT_SECONDS = 300
-#: After Cancel, how long finished narration waits for enough to be free to assemble it on disk.
-CANCEL_FINISH_WAIT_SECONDS = 30
 #: Before the disk route's one further attempt, at least this long: what took the memory may have been a moment's peak.
 DISK_RETRY_PAUSE_SECONDS = 2
 #: Commit left for everything else on the computer. At zero, every program's next allocation fails, not just this one's.
@@ -374,8 +372,12 @@ class AssemblyPlace:
         was in the way), for at most the gate's wait, and at least :data:`DISK_RETRY_PAUSE_SECONDS`. ``stop`` ends it early."""
         if self._gate is not None:
             self._gate._wait_for_memory_holders(stop)
-        else:
-            time.sleep(DISK_RETRY_PAUSE_SECONDS)
+            return
+        deadline = time.monotonic() + DISK_RETRY_PAUSE_SECONDS
+        while time.monotonic() < deadline:
+            if stop is not None and stop():
+                return
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
 
 def _say(note: Optional[Callable[[str], None]], text: str) -> None:
@@ -495,49 +497,44 @@ class AssemblyGate:
                     return
                 self._condition.wait(self._poll)
 
+    def wake(self) -> None:
+        """Wake every waiter now. The panel calls this when Cancel is pressed, so a file waiting at the gate re-reads its cancel
+        check at once instead of at its next poll (v0.7.2). Harmless at any other time: a woken waiter that has no reason to
+        leave simply waits again."""
+        with self._condition:
+            self._condition.notify_all()
+
     @contextlib.contextmanager
     def place(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-              finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+              note: Optional[Callable[[str], None]] = None):
         """A place for an assembly of ``need`` bytes for the duration of the ``with`` block: an :class:`AssemblyPlace`. Waits
         while neither route has room.
 
-        ``cancel_check`` is for a file with more synthesis still to come, which a Cancel would stop anyway: it raises
-        :class:`ConversionCancelled` from the wait. ``finishing_check`` is for finished narration: a Cancel ends the wait for its
-        turn and sends it to disk, and raises only if not even that has room within :data:`CANCEL_FINISH_WAIT_SECONDS`.
-        Raises :class:`AssemblyMemoryError` when, with nothing here left to wait for, too little stayed free for too long.
-        ``note`` is never called with the gate's lock held.
+        ``cancel_check`` ends the wait at once with :class:`ConversionCancelled`, before any route is taken, whatever the file
+        was waiting for (v0.7.2: finished narration has no route of its own past a Cancel). Raises :class:`AssemblyMemoryError`
+        when, with nothing here left to wait for, too little stayed free for too long. ``note`` is never called with the gate's
+        lock held.
         """
         ticket = object()
         told = False
-        finishing_since: Optional[float] = None
         patience = ASSEMBLY_MEMORY_WAIT_SECONDS if self._wait_seconds is None else self._wait_seconds
         admitted: Optional[AssemblyPlace] = None
         with self._condition:
             self._queue.append(ticket)
         try:
             while admitted is None:
-                # Asked with no lock held: these belong to the run, and may take locks of their own.
+                # Asked with no lock held: it belongs to the run, and may take locks of its own.
                 cancelled = cancel_check is not None and cancel_check()
-                finishing = finishing_check is not None and finishing_check()
                 message = None
                 with self._condition:
                     now = self._clock()
-                    if finishing:
-                        if self._disk_has_room(self._read()):
-                            admitted = self._admit(need, False)
-                            break
-                        finishing_since = now if finishing_since is None else finishing_since
-                        if now - finishing_since >= CANCEL_FINISH_WAIT_SECONDS:
-                            raise ConversionCancelled(
-                                "Cancelled before this file was saved: its narration was complete, but too little memory stayed free "
-                                "to assemble it, so nothing was saved for it. Start it again to convert it.")
-                    elif self._queue[0] is ticket:
+                    if cancelled:
+                        raise ConversionCancelled("Conversion cancelled by user.")
+                    if self._queue[0] is ticket:
                         route = self._route(need)
                         if route is not None:
                             admitted = self._admit(need, route)
                             break
-                        if cancelled:
-                            raise ConversionCancelled("Conversion cancelled by user.")
                         if self._nothing_will_change():  # nothing of this run's is going to give memory back
                             self._starved_since = now if self._starved_since is None else self._starved_since
                             if now - self._starved_since >= patience:
@@ -548,8 +545,6 @@ class AssemblyGate:
                                     "then use Retry Failed.")
                         else:
                             self._starved_since = None
-                    elif cancelled:
-                        raise ConversionCancelled("Conversion cancelled by user.")
                     if not told and note is not None:
                         told = True
                         message = (f"Waiting for memory: this file's narration needs about {_gb(need)} to assemble, and "
@@ -566,12 +561,7 @@ class AssemblyGate:
                 self._condition.notify_all()
         try:
             if not admitted.in_memory and note is not None:
-                if finishing:
-                    why = "and Cancel was pressed, so it is not waiting its turn"
-                elif self._read() is None:
-                    why = "and free memory cannot be read here"
-                else:
-                    why = "more than this computer has free now"
+                why = "and free memory cannot be read here" if self._read() is None else "more than this computer has free now"
                 _say(note, f"This file's narration needs about {_gb(need)} to assemble, {why}, so it is being assembled on disk: "
                            "the same audio, using little memory.")
             yield admitted
@@ -580,10 +570,10 @@ class AssemblyGate:
 
     @contextlib.contextmanager
     def reserve(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-                finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+                note: Optional[Callable[[str], None]] = None):
         """:meth:`place`, for a caller with no use for falling back: yields ``True`` when it may be held in memory and ``False``
         when it must be assembled on disk."""
-        with self.place(need, cancel_check=cancel_check, finishing_check=finishing_check, note=note) as admitted:
+        with self.place(need, cancel_check=cancel_check, note=note) as admitted:
             yield admitted.in_memory
 
 
@@ -593,24 +583,28 @@ ASSEMBLY_GATE = AssemblyGate()
 
 @contextlib.contextmanager
 def assembly_place(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-                   finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+                   note: Optional[Callable[[str], None]] = None):
     """A place at :data:`ASSEMBLY_GATE` for assembling this much decoded audio. Below :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` it is
     too little to matter, and takes no reservation."""
     if pcm_bytes < ASSEMBLY_GATE_MIN_PCM_BYTES:
         yield AssemblyPlace(None, True, 0)
         return
-    with ASSEMBLY_GATE.place(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, finishing_check=finishing_check,
-                             note=note) as admitted:
+    with ASSEMBLY_GATE.place(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, note=note) as admitted:
         yield admitted
 
 
 @contextlib.contextmanager
 def assembly_slot(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-                  finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+                  note: Optional[Callable[[str], None]] = None):
     """:func:`assembly_place` as an answer alone: ``False`` when it must be assembled on disk, ``True`` when it may be held in
     memory. A conversion uses :func:`assemble`, which also handles the answer turning out to be wrong."""
-    with assembly_place(pcm_bytes, cancel_check=cancel_check, finishing_check=finishing_check, note=note) as admitted:
+    with assembly_place(pcm_bytes, cancel_check=cancel_check, note=note) as admitted:
         yield admitted.in_memory
+
+
+def _raise_if_cancelled(cancel_check: Optional[Callable[[], bool]]) -> None:
+    if cancel_check is not None and cancel_check():
+        raise ConversionCancelled("Conversion cancelled by user.")
 
 
 def out_of_memory_text(detail: str) -> str:
@@ -620,44 +614,47 @@ def out_of_memory_text(detail: str) -> str:
 
 
 def assemble(pcm_bytes: int, in_memory: Callable, on_disk: Callable, *, cancel_check: Optional[Callable[[], bool]] = None,
-             finishing_check: Optional[Callable[[], bool]] = None, note: Optional[Callable[[str], None]] = None):
+             note: Optional[Callable[[str], None]] = None):
     """Assemble this much finished audio where the gate says, and return what the route returned.
 
     If memory runs out on the way, the same parts are assembled on disk: ``in_memory`` and ``on_disk`` must both leave them where
     they were until they have succeeded. The disk route is tried at most twice, the second time after :meth:`AssemblyPlace.wait_for_room`,
-    and if it runs out then too, :class:`AssemblyMemoryError` says so. Either way every reservation goes back. A Cancel that stops
-    finished narration from being saved is said out loud here, for the file it belongs to.
-    """
-    try:
-        with assembly_place(pcm_bytes, cancel_check=cancel_check, finishing_check=finishing_check, note=note) as admitted:
-            if admitted.in_memory:
-                try:
-                    return in_memory()
-                except Exception as exc:  # noqa: BLE001 - only an allocation failure is taken further, below
-                    if not is_memory_failure(exc):
-                        raise
-                # Out of that block, so the failed attempt's frames, and all it managed to build, have gone already. What it left on
-                # disk goes too: the disk route is about to need that room.
-                admitted.to_disk()
-                from tts import ffmpeg_watch
+    and if it runs out then too, :class:`AssemblyMemoryError` says so. Either way every reservation goes back.
 
-                ffmpeg_watch.remove_temporaries()
-                _say(note, "Memory ran out while assembling this file's narration, so it is being assembled on disk instead: the "
-                           "same audio, using little memory. Nothing is being requested from the voice service again.")
-            for attempt in range(2):
-                try:
-                    return on_disk()
-                except Exception as exc:  # noqa: BLE001
-                    if not is_memory_failure(exc):
-                        raise
-                    detail = f"{type(exc).__name__}: {exc}"[:200]
-                if attempt == 0:
-                    admitted.wait_for_room(finishing_check)
-            raise AssemblyMemoryError(out_of_memory_text(detail))
-    except ConversionCancelled as exc:
-        if finishing_check is not None:
-            _say(note, str(exc))
-        raise
+    A Cancel wins at every step (v0.7.2): before the gate, before any fall back to disk and before any further attempt, it ends
+    this with :class:`ConversionCancelled` and nothing more is tried; an assembly already running is killed by
+    :mod:`tts.ffmpeg_watch`, which raises the same.
+    """
+    _raise_if_cancelled(cancel_check)
+    with assembly_place(pcm_bytes, cancel_check=cancel_check, note=note) as admitted:
+        if admitted.in_memory:
+            try:
+                return in_memory()
+            except Exception as exc:  # noqa: BLE001 - only an allocation failure is taken further, below
+                if not is_memory_failure(exc):
+                    raise
+            # A Cancel during the join: no fall back, nothing more is built.
+            _raise_if_cancelled(cancel_check)
+            # Out of that block, so the failed attempt's frames, and all it managed to build, have gone already. What it left on
+            # disk goes too: the disk route is about to need that room.
+            admitted.to_disk()
+            from tts import ffmpeg_watch
+
+            ffmpeg_watch.remove_temporaries()
+            _say(note, "Memory ran out while assembling this file's narration, so it is being assembled on disk instead: the "
+                       "same audio, using little memory. Nothing is being requested from the voice service again.")
+        for attempt in range(2):
+            _raise_if_cancelled(cancel_check)
+            try:
+                return on_disk()
+            except Exception as exc:  # noqa: BLE001
+                if not is_memory_failure(exc):
+                    raise
+                detail = f"{type(exc).__name__}: {exc}"[:200]
+            if attempt == 0:
+                admitted.wait_for_room(cancel_check)
+        _raise_if_cancelled(cancel_check)
+        raise AssemblyMemoryError(out_of_memory_text(detail))
 
 
 def sample_rate(path) -> int:

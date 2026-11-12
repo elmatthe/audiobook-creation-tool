@@ -1,0 +1,429 @@
+{
+  "schema_version": 1,
+  "about": "Execution policy of files/dev-work/verification-gate/verify.py: budgets, the frozen scenario names, what a skip may be, and what the routine gate does not yet cover. coverage.json holds the feature identities. A change here changes what PASS means, so this file is part of the policy digest of every run.",
+  "stages": {
+    "preflight": {
+      "timeout_seconds": 120
+    },
+    "collect": {
+      "timeout_seconds": 1500,
+      "stall_seconds": 900
+    },
+    "pytest": {
+      "timeout_seconds": 14400,
+      "stall_seconds": 1500
+    },
+    "guarded": {
+      "timeout_seconds": 5400,
+      "stall_seconds": 1500
+    },
+    "acceptance": {
+      "timeout_seconds": 2400,
+      "stall_seconds": 420
+    },
+    "qualification": {
+      "timeout_seconds": 28800,
+      "stall_seconds": 3600
+    }
+  },
+  "process": {
+    "drain_seconds": 15,
+    "kill_wait_seconds": 20
+  },
+  "scenarios": {
+    "m4b-scaling": {
+      "phase": 7,
+      "network": [],
+      "runner": "scaling/qualify.py",
+      "detail": "M4B Converter split at scale against the frozen Phase 7A/7B budgets T1-T8 and T1b and the pinned per-build reference outputs (scaling/README.md); about three hours, never part of a routine mode",
+      "pass_requires": {
+        "about": "What a PASS of this scenario must contain (v0.7.2 Phase 9): the gate refuses a PASS verdict with fewer checks or runs, without a named check, or with fewer checks of a family than the whole scenario makes. A check that is missing was not passed.",
+        "checks": 79,
+        "runs": 207,
+        "names": [
+          "T1",
+          "T1b",
+          "T6",
+          "containment"
+        ],
+        "families": {
+          "T2:below:": 10,
+          "T2:above:": 5,
+          "T3:": 6,
+          "T4:": 9,
+          "T5:": 9,
+          "T7:": 2,
+          "T8:": 30,
+          "fault:": 3,
+          "pause:": 1
+        }
+      }
+    },
+    "edge-low-memory": {
+      "phase": 8,
+      "network": [
+        "online-edge"
+      ],
+      "runner": "qualification/edge_low_memory.py",
+      "detail": "real Microsoft Edge speech through the real TTS panel: eight files in flight at once, a mixed folder with PDFs, Cancel during synthesis and during finalization, Pause then Cancel, and the queue under a real per-process memory limit (qualification/edge_low_memory.py); sends a few hundred short requests, so it runs only with --network online-edge and is BLOCKED without it",
+      "pass_requires": {
+        "checks": 61,
+        "runs": 6,
+        "names": [],
+        "families": {
+          "overlap-8:": 8,
+          "folder-mixed:": 8,
+          "cancel-active:": 11,
+          "cancel-finalize:": 8,
+          "pause-then-cancel:": 12,
+          "low-memory:": 11,
+          "containment:": 3
+        }
+      }
+    },
+    "optional-engines": {
+      "phase": 8,
+      "network": [],
+      "runner": "qualification/optional_engines.py",
+      "detail": "bounded real synthesis, offline, on the Kokoro, Chatterbox Turbo and Qwen3-TTS already installed on this computer: two voices each, multi-chunk text, eight workers asked for and one used, the published MP3 decoded and measured (qualification/optional_engines.py); never downloads, a missing engine or model is BLOCKED",
+      "pass_requires": {
+        "checks": 76,
+        "runs": 6,
+        "names": [
+          "every engine produced a measured sample",
+          "Qwen3 ran in its own engine process",
+          "memory was measured for every sample"
+        ],
+        "families": {
+          "kokoro / ": 22,
+          "chatterbox / ": 22,
+          "qwen3 / ": 22,
+          "installed ": 4,
+          "containment:": 3
+        }
+      }
+    },
+    "fresh-windows": {
+      "phase": 8,
+      "network": [
+        "online-setup"
+      ],
+      "runner": "qualification/fresh_windows.py",
+      "detail": "the committed application packaged by the real packager and audited, extracted fresh, set up by the real first-run base setup, launched, repaired offline after controlled damage, stopped during setup and completed offline from kept files, failed cleanly offline with nothing to reuse and then finished by the next start once the network was back (qualification/fresh_windows.py); downloads about 1.6 GB into the gate's scratch, so it runs only with --network online-setup and is BLOCKED without it; a fresh extraction on this Windows 11 account, not a new Windows installation",
+      "pass_requires": {
+        "checks": 43,
+        "runs": 11,
+        "names": [
+          "this run is not elevated: setup needs no administrator rights"
+        ],
+        "families": {
+          "package:": 4,
+          "A:": 17,
+          "B:": 5,
+          "C:": 10,
+          "repair:": 3,
+          "containment:": 3
+        }
+      }
+    }
+  },
+  "later_phase_requirements": [],
+  "coverage": {
+    "about": "Since v0.7.2 Phase 4 the routine gate requires the reviewed inventory: schema 2, inventory_reviewed, every discovered surface mapped, every application source file reviewed as it is now. Required in full and changed runs.",
+    "require_reviewed_inventory": true
+  },
+  "inventory": {
+    "minimum_ordinary": 13000,
+    "modules_without_tests": {
+      "test_kokoro_voices.py": "a manual five-voice harness run as a script; it is named test_ but defines no pytest test"
+    },
+    "minimum_guarded": {
+      "v3-planning": 450,
+      "v3-supervisor": 70
+    },
+    "guarded_membership": {
+      "v3-planning": [
+        "test_optional_setup_exchange_v3.py",
+        "test_optional_setup_confirmation_v3.py",
+        "test_optional_setup_display_controller_v3.py",
+        "test_optional_setup_planning_worker_v3.py",
+        "test_optional_setup_readonly_context_v3.py",
+        "test_optional_setup_tk_harness_v3.py",
+        "test_spacy_consumer.py",
+        "test_p05b_isolation.py"
+      ],
+      "v3-supervisor": [
+        "test_optional_setup_supervisor_v3.py"
+      ]
+    }
+  },
+  "required_self_tests": [
+    "files/tests/test_gate_scratch_exception.py",
+    "files/tests/test_native_acceptance.py",
+    "files/tests/test_real_media_acceptance.py",
+    "files/tests/test_repository_contract.py",
+    "files/tests/test_surface_discovery.py",
+    "files/tests/test_verification_coverage.py",
+    "files/tests/test_verification_gate_contract.py",
+    "files/tests/test_verify_evidence.py",
+    "files/tests/test_verify_guarded.py"
+  ],
+  "skip_policy": {
+    "win32": [
+      {
+        "id": "native-macos-only",
+        "pattern": "^(aqua geometry regression: native macOS metrics only|the aqua branch needs aqua)$",
+        "max": 39
+      },
+      {
+        "id": "no-symlink-privilege",
+        "pattern": "^this (environment|account) (cannot create|may not create)",
+        "max": 16
+      },
+      {
+        "id": "case-insensitive-filesystem",
+        "pattern": "^(this filesystem is case-insensitive, so the two names are one file|the Windows path layer is case-blind by definition)$",
+        "max": 3
+      },
+      {
+        "id": "local-fixture-absent",
+        "pattern": "^(set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture folder to run|no local A4 listening folder|no local ordered export|files/runtime-data/ currently holds no colliding test basename)$",
+        "max": 6
+      },
+      {
+        "id": "empty-parameter-set",
+        "pattern": "^got empty parameter set for ",
+        "max": 1
+      }
+    ]
+  },
+  "focused": {
+    "required_guards": [
+      "files/tests/test_application_source_boundary.py"
+    ]
+  },
+  "changed": {
+    "always": [
+      "files/tests/test_application_source_boundary.py",
+      "files/tests/test_repository_contract.py",
+      "files/tests/test_verification_coverage.py"
+    ],
+    "no_selection": [
+      "files/plans/",
+      "files/release-history/",
+      "md-instructions/",
+      "README.md",
+      "AI-WORKSPACE.md",
+      "REPO-STRUCTURE.md",
+      "scripts/project-status.py"
+    ],
+    "routes": {
+      "files/dev-work/verification-gate/": [
+        "files/tests/test_gate_scratch_exception.py",
+        "files/tests/test_native_acceptance.py",
+        "files/tests/test_real_media_acceptance.py",
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_surface_discovery.py",
+        "files/tests/test_verification_coverage.py",
+        "files/tests/test_verification_gate_contract.py",
+        "files/tests/test_verify_evidence.py",
+        "files/tests/test_verify_guarded.py"
+      ],
+      "files/dev-work/feature-map/": [
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_verification_coverage.py"
+      ],
+      ".gitignore": [
+        "files/tests/test_dev_work_isolation.py",
+        "files/tests/test_repository_contract.py"
+      ],
+      "pytest.ini": [
+        "files/tests/test_dev_work_isolation.py"
+      ],
+      "config.toml": [
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_developer_mode.py"
+      ],
+      "scripts/README.md": [
+        "files/tests/test_layout_canary.py"
+      ],
+      "scripts/shared/release.py": [
+        "files/tests/test_release_packaging.py"
+      ]
+    },
+    "full_on": [
+      "scripts/shared/",
+      "scripts/requirements",
+      "scripts/qwen3-",
+      "files/tests/conftest.py",
+      "files/tests/guarded_",
+      "files/tests/gate_",
+      "files/tests/source_probe.py",
+      "files/tests/write_tripwire.py",
+      "files/tests/cache_sandbox.py",
+      "files/tests/tk_gate.py",
+      "Setup_and_Run"
+    ]
+  },
+  "acceptance": {
+    "about": "The native Windows GUI and real-media journeys. A full run requires every scenario in required_scenarios; the runner's registered set must equal required plus optional, so a scenario cannot appear or vanish without an edit here. optional_scenarios need a declared applicability rule with evidence, and even then say nothing about engine qualification.",
+    "required_tools": [
+      "tts-audiobook",
+      "mp3-tool",
+      "m4b-converter",
+      "m4b-maker",
+      "m4b-metadata-editor",
+      "cover-image"
+    ],
+    "required_scenarios": [
+      "control.real-click-reaches-the-target",
+      "control.lost-foreground-blocks-input",
+      "control.covered-target-is-refused",
+      "control.partly-hidden-window-is-not-pictured",
+      "control.disabled-target-is-refused",
+      "control.dead-input-path-blocks",
+      "control.second-run-refused-by-the-lease",
+      "control.other-desktop-is-blocked",
+      "control.forced-landing-sees-the-crash",
+      "control.act-orphan-seen-without-the-stop",
+      "control.act-crash-seen-with-the-root-released",
+      "control.unmapped-live-control-is-caught",
+      "inventory.live-surfaces",
+      "launcher.six-tools-at-three-sizes",
+      "launcher.settings-survive-relaunch",
+      "launcher.switch-tools-during-work",
+      "cover.letterbox-numbered-run",
+      "cover.center-crop",
+      "cover.corrupt-image",
+      "mp3.write-id3-then-combine",
+      "mp3.unreadable-track",
+      "mp3.typed-values-survive-first-import",
+      "converter.split-by-chapter",
+      "converter.whole-book-replace-metadata",
+      "converter.corrupt-source",
+      "converter.cancel-during-encode",
+      "maker.build-with-chapters-and-artwork",
+      "maker.unreadable-track",
+      "metadata.save-tags-then-clear",
+      "metadata.confirmation-declined",
+      "metadata.unreadable-file",
+      "tts.edge-replay-direct-file",
+      "tts.edge-replay-folder-mixed",
+      "tts.service-failure-then-retry",
+      "tts.cancel-during-narration",
+      "tts.pause-at-file-boundary",
+      "tts.pdf-without-text",
+      "shutdown.tts-close-during-work",
+      "shutdown.tts-close-forced-landing",
+      "shutdown.converter-close-during-work",
+      "shutdown.converter-close-forced-landing",
+      "shutdown.mp3-close-during-work",
+      "shutdown.mp3-close-forced-landing",
+      "shutdown.maker-close-during-work",
+      "shutdown.maker-close-forced-landing",
+      "shutdown.metadata-close-during-work",
+      "shutdown.metadata-close-forced-landing",
+      "shutdown.cover-close-during-work",
+      "shutdown.cover-close-forced-landing",
+      "cover.replace-confirmation",
+      "shutdown.close-during-folder-scan",
+      "maker.wheel-over-a-long-book",
+      "setup.first-run-refuses-a-folder-too-deep",
+      "setup.first-run-choices-and-cancel",
+      "setup.clear-downloaded-data"
+    ],
+    "optional_scenarios": [
+      "tts.kokoro-local"
+    ],
+    "journey_routes": {
+      "scripts/mp3/": [
+        "mp3.typed-values-survive-first-import",
+        "mp3.unreadable-track",
+        "mp3.write-id3-then-combine",
+        "shutdown.mp3-close-during-work",
+        "shutdown.mp3-close-forced-landing"
+      ],
+      "scripts/m4b/converter/": [
+        "converter.cancel-during-encode",
+        "converter.corrupt-source",
+        "converter.split-by-chapter",
+        "converter.whole-book-replace-metadata",
+        "shutdown.converter-close-during-work",
+        "shutdown.converter-close-forced-landing"
+      ],
+      "scripts/m4b/maker/": [
+        "maker.build-with-chapters-and-artwork",
+        "maker.unreadable-track",
+        "maker.wheel-over-a-long-book",
+        "shutdown.maker-close-during-work",
+        "shutdown.maker-close-forced-landing"
+      ],
+      "scripts/m4b/metadata/": [
+        "metadata.confirmation-declined",
+        "metadata.save-tags-then-clear",
+        "metadata.unreadable-file",
+        "shutdown.metadata-close-during-work",
+        "shutdown.metadata-close-forced-landing"
+      ],
+      "scripts/artwork/": [
+        "cover.center-crop",
+        "cover.corrupt-image",
+        "cover.letterbox-numbered-run",
+        "cover.replace-confirmation",
+        "shutdown.close-during-folder-scan",
+        "shutdown.cover-close-during-work",
+        "shutdown.cover-close-forced-landing"
+      ],
+      "scripts/tts/": [
+        "shutdown.tts-close-during-work",
+        "shutdown.tts-close-forced-landing",
+        "tts.cancel-during-narration",
+        "tts.edge-replay-direct-file",
+        "tts.edge-replay-folder-mixed",
+        "tts.kokoro-local",
+        "tts.pause-at-file-boundary",
+        "tts.pdf-without-text",
+        "tts.service-failure-then-retry"
+      ],
+      "scripts/launcher.py": [
+        "launcher.settings-survive-relaunch",
+        "launcher.six-tools-at-three-sizes",
+        "launcher.switch-tools-during-work",
+        "setup.clear-downloaded-data"
+      ],
+      "scripts/shared/bootstrap.py": [
+        "setup.first-run-choices-and-cancel",
+        "setup.first-run-refuses-a-folder-too-deep"
+      ],
+      "scripts/shared/preferences_ui.py": [
+        "setup.clear-downloaded-data"
+      ],
+      "scripts/shared/maintenance.py": [
+        "setup.clear-downloaded-data"
+      ],
+      "scripts/shared/cleanup_": [
+        "setup.clear-downloaded-data"
+      ],
+      "Setup_and_Run": [
+        "setup.first-run-choices-and-cancel",
+        "setup.first-run-refuses-a-folder-too-deep"
+      ],
+      "scripts/": [
+        "inventory.live-surfaces"
+      ],
+      "files/dev-work/verification-gate/coverage.json": [
+        "control.unmapped-live-control-is-caught",
+        "inventory.live-surfaces"
+      ],
+      "files/dev-work/verification-gate/helpers/surface_": [
+        "control.unmapped-live-control-is-caught",
+        "inventory.live-surfaces"
+      ],
+      "files/dev-work/verification-gate/adapters/": "all",
+      "files/dev-work/verification-gate/journeys/": "all",
+      "files/dev-work/verification-gate/fixtures/": "all",
+      "files/dev-work/verification-gate/acceptance_runner.py": "all",
+      "files/dev-work/verification-gate/helpers/media_": "all"
+    }
+  }
+}

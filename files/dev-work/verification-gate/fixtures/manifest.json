@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "about": "Recipes for the deterministic inputs of the native and real-media journeys. Generated fresh in each run by helpers/media_fixtures.py from this file and the pinned FFmpeg, and validated before any application sees them. Synthetic, with no private data; the project's own generator is their provenance, and only the generated files carry FFmpeg's encoders.",
+  "fake_orchestration_fixtures": [
+    {"where": "files/tests/test_tool_output_integration.py::mp3_fixture", "why": "ID3 header bytes with no audio, for orchestration only. It can never satisfy a real-media requirement."}
+  ],
+  "fixtures": [
+    {"id": "cover-png", "kind": "image", "folder": "art", "name": "cover.png", "format": "png", "size": [640, 480],
+     "corners": [[220, 20, 20], [20, 200, 20], [20, 20, 220], [230, 210, 20]]},
+    {"id": "cover-square-jpeg", "kind": "image", "folder": "art", "name": "square.jpg", "format": "jpeg", "size": [600, 600],
+     "corners": [[220, 20, 20], [20, 200, 20], [20, 20, 220], [230, 210, 20]]},
+    {"id": "cover-portrait-png", "kind": "image", "folder": "covers", "name": "portrait.png", "format": "png", "size": [300, 500],
+     "corners": [[220, 20, 20], [20, 200, 20], [20, 20, 220], [230, 210, 20]]},
+    {"id": "cover-landscape-jpeg", "kind": "image", "folder": "covers", "name": "landscape.jpg", "format": "jpeg", "size": [800, 400],
+     "corners": [[220, 20, 20], [20, 200, 20], [20, 20, 220], [230, 210, 20]]},
+    {"id": "cover-alpha-png", "kind": "image", "folder": "covers", "name": "alpha.png", "format": "png", "size": [400, 400], "alpha": true,
+     "corners": [[220, 20, 20], [20, 200, 20], [20, 20, 220], [230, 210, 20]]},
+    {"id": "cover-truncated", "kind": "truncated", "folder": "covers-adverse", "name": "broken.png", "from": "cover-png", "keep_fraction": 0.2},
+
+    {"id": "track-1", "kind": "mp3-track", "folder": "tracks", "name": "01 Opening.mp3", "tone": 440, "seconds": 3.0, "seed": 1,
+     "tags": {"title": "Opening", "artist": "Source Artist", "album": "Source Album", "track": "1"}},
+    {"id": "track-2", "kind": "mp3-track", "folder": "tracks", "name": "02 Middle.mp3", "tone": 660, "seconds": 2.5, "seed": 2,
+     "tags": {"title": "Middle", "artist": "Source Artist", "album": "Source Album", "track": "2"}},
+    {"id": "track-3", "kind": "mp3-track", "folder": "tracks", "name": "03 Ending.mp3", "tone": 880, "seconds": 2.0, "seed": 3,
+     "tags": {"title": "Ending", "artist": "Source Artist", "album": "Source Album", "track": "3"}},
+    {"id": "track-long-1", "kind": "mp3-track", "folder": "tracks-long", "name": "01 Long.mp3", "tone": 330, "seconds": 240.0, "seed": 4, "tags": {"title": "Long One"}},
+    {"id": "track-long-2", "kind": "mp3-track", "folder": "tracks-long", "name": "02 Long.mp3", "tone": 392, "seconds": 240.0, "seed": 5, "tags": {"title": "Long Two"}},
+    {"id": "track-long-3", "kind": "mp3-track", "folder": "tracks-long", "name": "03 Long.mp3", "tone": 494, "seconds": 240.0, "seed": 6, "tags": {"title": "Long Three"}},
+    {"id": "track-garbage", "kind": "garbage", "folder": "tracks-adverse", "name": "not-audio.mp3", "bytes": 8192},
+
+    {"id": "book-m4b", "kind": "m4b", "folder": "books", "name": "Synthetic Book.m4b", "artwork": "cover-square-jpeg",
+     "tags": {"title": "Synthetic Book", "artist": "Fixture Author", "album": "Fixture Series", "album_artist": "Fixture Author", "genre": "Audiobook", "date": "2001", "comment": "synthetic"},
+     "sections": [
+       {"title": "Chapter One", "tone": 440, "seconds": 3.137},
+       {"title": "Chapter Two", "tone": 523, "seconds": 2.311},
+       {"title": "Chapter Three", "tone": 659, "seconds": 4.053},
+       {"title": "Chapter Four", "tone": 784, "seconds": 2.719},
+       {"title": "Chapter Five", "tone": 988, "seconds": 3.471}
+     ]},
+    {"id": "book-plain-m4b", "kind": "m4b", "folder": "books-plain", "name": "Plain Book.m4b",
+     "tags": {"title": "Plain Book", "artist": "Plain Author", "album": "Plain Album"},
+     "sections": [
+       {"title": "First", "tone": 349, "seconds": 2.25},
+       {"title": "Second", "tone": 415, "seconds": 2.75}
+     ]},
+    {"id": "book-long-m4b", "kind": "m4b-looped", "folder": "books-long", "name": "Long Book.m4b", "seed_seconds": 60, "loops": 60,
+     "tags": {"title": "Long Book", "artist": "Long Author", "album": "Long Album"},
+     "sections": [
+       {"title": "One", "seconds": 900.0},
+       {"title": "Two", "seconds": 900.0},
+       {"title": "Three", "seconds": 900.0},
+       {"title": "Four", "seconds": 900.0}
+     ]},
+    {"id": "book-truncated", "kind": "truncated", "folder": "books-adverse", "name": "Broken Book.m4b", "from": "book-plain-m4b", "keep_fraction": 0.4},
+    {"id": "book-garbage", "kind": "garbage", "folder": "books-adverse", "name": "Not A Book.m4b", "bytes": 16384},
+
+    {"id": "story-text", "kind": "text", "folder": "stories", "name": "Short Story.txt",
+     "text": "Chapter One\n\nThe first paragraph of this synthetic story begins plainly and moves along at an even pace.\n\nA second paragraph follows the blank line above, and the literal word blank stays in the words.\n\nChapter Two\n\nThe middle of the story has one more thing to say before it is finished.\n\nThe protected ending sentence is the very last thing narrated.\n"},
+    {"id": "story-text-b", "kind": "text", "folder": "stories", "name": "Second Story.txt",
+     "text": "A short second book comes next in the queue.\n\nIt has only this one more sentence to say.\n"},
+    {"id": "story-long-text", "kind": "text", "folder": "stories-long", "name": "Long Story.txt",
+     "text": "This story is long enough that several requests are still outstanding when the window is closed.\n\nEach paragraph is a separate piece of work for the narration engine and takes a moment to come back.\n\nThe third paragraph keeps the run going so that the worker is really busy.\n\nThe fourth paragraph is here for the same reason as the third one was.\n\nThe fifth paragraph continues the same way.\n\nThe sixth paragraph continues the same way.\n\nThe seventh paragraph continues the same way.\n\nThe eighth paragraph continues the same way.\n\nThe ninth paragraph continues the same way.\n\nThe tenth paragraph is the last, and it must never be published after a cancelled run.\n"},
+    {"id": "story-pdf", "kind": "pdf", "folder": "stories-pdf", "name": "Paper Story.pdf",
+     "pages": ["Prose begins on the first page of this document and carries on across the page break without", "stopping, so the sentence joins correctly on the second page. The end of the document is here."]},
+    {"id": "story-empty-pdf", "kind": "pdf", "folder": "stories-adverse", "name": "No Words.pdf", "pages": [" "]}
+  ]
+}

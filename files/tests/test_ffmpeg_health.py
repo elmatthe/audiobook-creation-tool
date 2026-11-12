@@ -960,3 +960,29 @@ def test_the_health_module_stays_importable_before_the_venv_exists():
         "__future__", "hashlib", "json", "os", "shutil", "subprocess", "sys",
         "time", "dataclasses", "pathlib", "typing", "subprocess_utils",
     }, sorted(roots)
+
+
+@pytest.mark.parametrize("route", ["package", "bare"])
+def test_subprocess_utils_imports_alone_by_either_route(tmp_path, route):
+    """``shared/subprocess_utils.py`` is imported with nothing of ``shared`` beside it, so it must import alone.
+
+    The health module above imports it bare off ``scripts/shared`` before the venv exists, and the optional-setup
+    planning worker runs on the reviewed source closure of ``optional_setup_planning_bridge_v3.SOURCES``, which carries
+    it and ``shared/__init__.py`` but not ``shared/cancellation.py``. A module-level import of anything else there broke
+    every planning run (v0.7.2 Phase 6C: ``No module named 'cancellation'``). Run in a clean interpreter on a copy of
+    exactly that one file.
+    """
+    import sys
+
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "__init__.py").write_text("", encoding="utf-8")
+    source = REPO_ROOT / "scripts" / "shared" / "subprocess_utils.py"
+    (shared / "subprocess_utils.py").write_bytes(source.read_bytes())
+    where, name = (tmp_path, "shared.subprocess_utils") if route == "package" else (shared, "subprocess_utils")
+    probe = (f"import sys; sys.path.insert(0, {str(where)!r}); import importlib; "
+             f"m = importlib.import_module({name!r}); print(m.__name__, callable(m.run_supervised))")
+    done = subprocess.run([sys.executable, "-I", "-B", "-c", probe], capture_output=True, text=True, timeout=60,
+                          cwd=tmp_path)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert done.stdout.split() == [name, "True"], done.stdout

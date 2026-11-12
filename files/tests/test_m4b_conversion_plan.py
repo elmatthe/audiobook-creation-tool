@@ -507,6 +507,19 @@ def test_a_malformed_chapter_map_fails_the_item(tmp_path, starts, reason):
     assert plan.unusable[0].reason == reason
 
 
+@pytest.mark.parametrize("mode", [ConversionMode.SPLIT, ConversionMode.WHOLE])
+def test_a_malformed_chapter_map_is_refused_in_both_modes_and_the_message_promises_neither(tmp_path, mode):
+    """v0.7.2 Phase 6, ACT72-026: the refusal said converting the book whole 'will still work', but Whole book refuses
+    a malformed chapter list too, so the advice was false in every mode."""
+    entries = direct(book(tmp_path / "src", "A.m4b"))
+    plan = plan_for(entries, {entries[0].occurrence_id: report(
+        duration=600.0, chapter_list=chapters(0.0, 300.0, 100.0))}, tmp_path / "run", mode=mode)
+    assert plan.items == ()
+    message = plan.unusable[0].message
+    assert "not usable" in message and "not converted" in message, message
+    assert "whole book" not in message.lower() and "will still work" not in message, message
+
+
 def test_a_malformed_chapter_map_is_never_routed_to_the_fallback(tmp_path):
     """Structural invalidity is a failure, not a chapterless book (§11.2)."""
     entries = direct(book(tmp_path / "src", "A.m4b"))
@@ -1277,7 +1290,9 @@ def test_the_worker_reads_no_widget():
     reached = {node.attr for node in ast.walk(worker)
                if isinstance(node, ast.Attribute)
                and isinstance(node.value, ast.Name) and node.value.id == "self"}
-    assert reached == {"_cancel_event", "_log_q"}, reached
+    # `_cancel_decision` is a threading.Lock, not a widget: the Cancel latch and a publication's authorization are
+    # decided under it (v0.7.2 Phase 9 remote re-review R9-04).
+    assert reached == {"_cancel_event", "_cancel_decision", "_log_q"}, reached
 
     wrapper = next(node for node in ast.walk(tree)
                    if isinstance(node, ast.FunctionDef) and node.name == "convert_worker")
@@ -1727,8 +1742,19 @@ def test_a_file_that_is_not_media_is_probe_failed(real_books):
 
 
 def test_a_missing_file_is_probe_failed(tmp_path, pinned_ffmpeg):
+    """What this really proves: an ffprobe that cannot start at all is PROBE_FAILED. ``pinned_ffmpeg``'s ffprobe is an invalid
+    executable, so it fails the same way whether or not the file exists. A real missing file is the test below."""
     found = m4b_probe.probe_source(tmp_path / "nothing-here.m4b")
     assert found.probe.status is ProbeStatus.PROBE_FAILED
+
+
+def test_a_real_ffprobe_reports_a_real_missing_file_as_probe_failed(real_books, tmp_path):
+    assert m4b_probe.probe_source(real_books["chaptered"]).probe.status is not ProbeStatus.PROBE_FAILED, "the control"
+    missing = tmp_path / "nothing-here.m4b"
+    found = m4b_probe.probe_source(missing)
+    assert found.probe.status is ProbeStatus.PROBE_FAILED
+    assert found.probe.chapters == ()
+    assert not missing.exists()
 
 
 def test_a_real_chaptered_book_plans_its_whole_timeline(real_books, tmp_path):

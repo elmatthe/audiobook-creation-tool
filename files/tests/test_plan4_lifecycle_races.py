@@ -277,8 +277,8 @@ class ParkedScan:
         return len(self.threads.made)
 
 
-def start_cover_run(panel, size: int = 64):
-    """Accept one Cover run without touching a single image."""
+def start_cover_run(panel, size: int = 256):
+    """Accept one Cover run without touching a single image. 256 is the smallest size Cover Image makes (ACT72-025)."""
     panel.var_size.set(size)
     panel.start_resize()
     return panel.job_controller

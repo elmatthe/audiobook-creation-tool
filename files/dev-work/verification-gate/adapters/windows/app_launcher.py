@@ -1,0 +1,341 @@
+"""The REAL launcher and panels, in an isolated instance, with the observation channel beside them. Test-only; never shipped.
+
+Runs ``launcher.main()`` itself, so what starts, what closes and how the process ends are production's. It differs from a user's launch
+in exactly these places, each named in the journey's evidence:
+
+  * settings, logs and runtime data point into this run's scratch, through the same module constants the test suite's isolation sets,
+    so the real ``files/runtime-data`` is never written. The proved FFmpeg record is copied in so the pinned pair is the one used.
+  * the output base is set in that isolated settings file, the way Preferences & Data would.
+  * when a journey asks, the Edge service is replaced at ``edge_tts.Communicate`` by a local stand-in that hands back REAL MP3 frames and
+    records each request. Everything after that point (requests, pacing, assembly, encoding, publication) is the production code. It is
+    labelled replayed speech in the evidence, never engine qualification.
+  * when a journey asks, a garbage collection is forced onto a worker thread after the window has gone (see ``_force_worker_collection``),
+    with the two module lists that happen to hold the closed root emptied first, so the application's own holder (``launcher._ROOT``) is
+    all that stands between it and the crash. The negative control takes that holder away too.
+  * revealing a folder in Explorer is recorded instead of performed. A finished Converter run reveals its folder, and a journey must not
+    leave Explorer windows on the owner's desktop or hand them the foreground. Whether the application asked, and for which folder, is
+    what the journey checks.
+  * a journey that runs real Kokoro reads the installed model through the real cache, offline: ``HF_HUB_OFFLINE`` makes a missing file an
+    error instead of a download, and the gate compares the real runtime data before and after.
+  * when the live-discovery negative control asks, one extra, unplaced button is added to a tool's panel (``_inject_control``), so that the
+    discovery journey can be shown to report a control nobody mapped.
+  * when a journey asks, every folder scan pauses at each entry it checks for Cancel (``slow_scan_seconds``), so a close can land
+    while the scan is still walking. Only the pace changes: the walk, its Cancel and everything after it are production's.
+  * when the orphan negative control asks, both of the application's stops of a running FFmpeg are taken away: the launcher's stop of its
+    media children once the window has gone, and (v0.7.2 Phase 6C) the supervised step's own answer to the Cancel a panel sends as it
+    closes, so that the orphan they exist to prevent must be seen.
+
+Usage: python app_launcher.py <config.json>
+"""
+
+from __future__ import annotations
+
+import contextlib
+import faulthandler
+import gc
+import hashlib
+import json
+import os
+import shutil
+import sys
+import threading
+import time
+import weakref
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[4]
+
+
+def _app_root() -> Path:
+    """Where the application's code is run from: this checkout, or the disposable copy a journey names (``app_root``, v0.7.2 Phase 8).
+
+    The application takes every folder it owns from where its own code is, and its cleanup helper is the file beside that code. So a
+    journey that lets the application delete its downloaded data runs a copy of it, and the copy is then the only installation it can
+    reach."""
+    try:
+        named = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("app_root")
+    except (IndexError, OSError, ValueError):
+        named = None
+    return Path(named) if named else REPO_ROOT
+
+
+APP_ROOT = _app_root()
+sys.path.insert(0, str(APP_ROOT / "scripts"))
+sys.path.insert(0, str(HERE))
+
+
+def _load_config() -> dict:
+    return json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+
+
+def _use_the_copy(config: dict) -> None:
+    """A disposable copy is its own installation: its settings, logs and data stay where the application itself keeps them, inside it.
+    Refuses unless the application really is the copy's, so nothing can be aimed at this checkout by a wrong path."""
+    from shared import ffmpeg_health, paths
+
+    if Path(paths.REPO_ROOT).resolve() != APP_ROOT.resolve() or APP_ROOT.resolve() == REPO_ROOT.resolve():
+        raise SystemExit(f"refused: the application under test is {paths.REPO_ROOT}, not the disposable copy {APP_ROOT}")
+    runtime = Path(paths.RESOURCES_DIR)
+    (runtime / "logs").mkdir(parents=True, exist_ok=True)
+    Path(config["runtime_dir"]).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(REPO_ROOT / "files" / "runtime-data" / ffmpeg_health.HEALTH_STATE_NAME, runtime / ffmpeg_health.HEALTH_STATE_NAME)
+    settings = {"output_base_directory": config["output_base"], "last_tool": config.get("last_tool", "tts"), **config.get("settings", {})}
+    Path(paths.SETTINGS_FILE).write_text(json.dumps(settings, indent=1), encoding="utf-8")
+
+
+def _isolate(config: dict) -> None:
+    """Point the application at this run's folders before anything reads them."""
+    if config.get("app_root"):
+        _use_the_copy(config)
+        return
+    from shared import ffmpeg_health, paths
+
+    runtime = Path(config["runtime_dir"])
+    runtime.mkdir(parents=True, exist_ok=True)
+    (runtime / "logs").mkdir(exist_ok=True)
+    paths.RESOURCES_DIR = runtime
+    paths.LOGS_DIR = runtime / "logs"
+    paths.SETTINGS_FILE = runtime / "settings.json"
+    ffmpeg_health.RESOURCES_DIR = runtime
+    state = REPO_ROOT / "files" / "runtime-data" / ffmpeg_health.HEALTH_STATE_NAME
+    shutil.copyfile(state, runtime / ffmpeg_health.HEALTH_STATE_NAME)
+    settings = {"output_base_directory": config["output_base"], "last_tool": config.get("last_tool", "tts"),
+                **config.get("settings", {})}
+    (runtime / "settings.json").write_text(json.dumps(settings, indent=1), encoding="utf-8")
+
+
+class _ReplayService:
+    """Stands where Microsoft's service stands. A request gets the recorded clip of real MP3 frames its text selects, so the same words
+    always make the same sound and the oracle can check order whatever order requests were made in. Nothing downstream is altered."""
+
+    def __init__(self, config: dict) -> None:
+        self.clips = [Path(path) for path in config["clips"]]
+        self.log = Path(config["log"])
+        self.delay = float(config.get("delay_seconds", 0))
+        self.fail_flag = Path(config["fail_flag"]) if config.get("fail_flag") else None
+        self.lock = threading.Lock()
+        self.count = 0
+
+    def clip_for(self, text: str) -> int:
+        return int(hashlib.sha256(str(text).encode("utf-8")).hexdigest(), 16) % len(self.clips)
+
+    def request(self, text: str, voice, rate) -> Path:
+        clip = self.clip_for(text)
+        with self.lock:
+            index = self.count
+            self.count += 1
+            with open(self.log, "a", encoding="utf-8") as sink:
+                sink.write(json.dumps({"index": index, "text": text, "voice": voice, "rate": rate, "clip": clip, "at": time.monotonic()}) + "\n")
+        return self.clips[clip]
+
+
+def _install_replay(config: dict) -> None:
+    import asyncio
+
+    import edge_tts
+
+    service = _ReplayService(config)
+
+    class Communicate:
+        """Every shape the production callers use: ``Communicate(text, voice)`` and ``Communicate(text=, voice=, rate=)``."""
+
+        def __init__(self, text=None, voice=None, rate=None, **_other) -> None:
+            self.clip = service.request(text, voice, rate)
+
+        async def save(self, path, *_other) -> None:
+            if service.delay:
+                await asyncio.sleep(service.delay)
+            if service.fail_flag is not None and service.fail_flag.exists():
+                raise ConnectionResetError("the replayed service was told to fail while this flag file exists")
+            shutil.copyfile(self.clip, path)
+
+    edge_tts.Communicate = Communicate
+
+
+def _record_reveals(log: Path) -> None:
+    from shared import subprocess_utils
+
+    def record(path) -> None:
+        with open(log, "a", encoding="utf-8") as sink:
+            sink.write(json.dumps({"path": str(path), "at": time.monotonic()}) + "\n")
+
+    subprocess_utils.reveal_in_file_manager = record
+
+
+def _holder_chain(root) -> list[str]:
+    """What keeps a closed root reachable: the shortest route up the referrers to something a collection never frees, a module's globals or
+    a running thread's frame. Reported in the evidence so "it did not crash" comes with its reason."""
+    import types
+
+    start = id(root)
+    seen = {start}
+    queue = [(root, [])]
+    skip = {id(queue), id(seen)}
+    while queue:
+        item, path = queue.pop(0)
+        for holder in gc.get_referrers(item):
+            if id(holder) in seen or id(holder) in skip or len(path) > 14:
+                continue
+            seen.add(id(holder))
+            if isinstance(holder, types.FrameType):
+                if holder.f_code.co_filename == __file__:
+                    continue
+                return [*path, f"frame {Path(holder.f_code.co_filename).name}:{holder.f_code.co_name}"]
+            if isinstance(holder, types.ModuleType):
+                return [*path, f"module {holder.__name__}"]
+            name = type(holder).__name__
+            if isinstance(holder, dict):
+                owner = next((module for module in list(sys.modules.values()) if getattr(module, "__dict__", None) is holder), None)
+                if owner is not None:
+                    return [*path, f"globals of {owner.__name__}"]
+            queue.append((holder, [*path, name]))
+            skip.add(id(queue[-1]))
+    return ["no route found"]
+
+
+def _force_worker_collection(root_gone: threading.Event, done: threading.Event, record: Path, roots: list, launcher) -> None:
+    """Plan: a collection that lands on a worker after the window closed is what crashes Tk (Decisions.md, Phase 2 closeout). Where one
+    lands normally follows allocation history, so a clean exit proves little; forcing it answers yes or no. Waits for the window to go,
+    then collects on this daemon thread, as any worker's allocation could. If Tk finalises here the process dies in that call."""
+    root_gone.wait()
+    began = time.monotonic()
+    me = threading.current_thread()
+    passes: list[int] = []
+
+    def watch(phase: str, info: dict) -> None:
+        if phase == "stop" and info["generation"] == 2 and threading.current_thread() is me:
+            passes.append(info["collected"])
+
+    gc.callbacks.append(watch)
+    # v0.7.2 Phase 6 (ACT72-017): what a collection here makes Python report and ignore -- a Tk object's __del__ calling
+    # into Tcl from this thread raises "main thread is not in main loop" after waiting about a second. Recorded, never
+    # hidden: the original hook still runs.
+    unraisable: list[str] = []
+    previous_hook = sys.unraisablehook
+
+    def hook(info) -> None:
+        if threading.current_thread() is me:
+            unraisable.append(f"{type(info.exc_value).__name__}: {info.exc_value} (in {info.object!r})"[:300])
+        previous_hook(info)
+
+    sys.unraisablehook = hook
+    # gc.collect returns 0 at once while another collection is running, so one call is no proof a pass happened here. Count real passes.
+    collected = 0
+    with open(record.with_suffix(".stacks.txt"), "w", encoding="utf-8") as stacks:
+        faulthandler.dump_traceback_later(8, file=stacks)
+        while not passes and time.monotonic() - began < 20:
+            collected = gc.collect()
+            if not passes:
+                time.sleep(0.02)
+        faulthandler.cancel_dump_traceback_later()
+    sys.unraisablehook = previous_hook
+    gc.callbacks.remove(watch)
+    alive = [ref() for ref in roots]
+    still = [item for item in alive if item is not None]
+    chain = _holder_chain(still[0]) if still else []
+    held = bool(still) and getattr(launcher, "_ROOT", None) is still[0]
+    del alive, still
+    record.write_text(json.dumps({"collected_on_worker": collected, "full_passes_on_worker": len(passes), "seconds": round(time.monotonic() - began, 3),
+                                  "root_still_reachable": any(ref() is not None for ref in roots), "held_by_application": held,
+                                  "root_holder_chain": chain, "unraisable_on_worker": unraisable}), encoding="utf-8")
+    done.set()
+
+
+def _slow_scans(seconds: float) -> None:
+    """Each folder scan waits ``seconds`` at every Cancel checkpoint it reaches (v0.7.2 Phase 6, ACT72-056). Installed before the
+    launcher builds a panel, so every coordinator it makes takes this scanner as its default."""
+    from shared import import_coordination
+
+    real = import_coordination.scan_roots
+
+    def paced(request, *, cancel_check=None, **kwargs):
+        def check() -> bool:
+            time.sleep(seconds)
+            return bool(cancel_check()) if cancel_check is not None else False
+
+        return real(request, cancel_check=check, **kwargs)
+
+    import_coordination.scan_roots = paced
+
+
+def _inject_control(root, app, spec: dict) -> None:
+    """A negative control for live discovery: one button nobody mapped, added to a tool's panel once the tool has built it. It is never
+    placed on screen, because discovery reads the widget tree, not the screen, and placing it could disturb the panel's own layout."""
+    from tkinter import ttk
+
+    def add() -> None:
+        container = app.containers.get(spec["tool"])
+        if container is None or not container.winfo_children():
+            root.after(50, add)
+            return
+        ttk.Button(container.winfo_children()[0], text=spec["text"])
+
+    root.after(50, add)
+
+
+def main() -> int:
+    config = _load_config()
+    _isolate(config)
+    if config.get("replay"):
+        _install_replay(config["replay"])
+
+    _record_reveals(Path(config["runtime_dir"]) / "reveals.jsonl")
+    if config.get("slow_scan_seconds"):
+        _slow_scans(float(config["slow_scan_seconds"]))
+
+    import launcher
+    from channel import Channel
+
+    if config.get("real_model_cache"):
+        launcher._configure_hf_cache = lambda: os.environ.update(HF_HOME=config["real_model_cache"], HF_HUB_OFFLINE="1")
+
+    root_gone, collected = threading.Event(), threading.Event()
+    force = config.get("force_worker_collection")
+    roots: list = []
+    if force:
+        threading.Thread(target=_force_worker_collection, args=(root_gone, collected, Path(force), roots, launcher),
+                         name="forced-landing", daemon=True).start()
+    real_app = launcher.LauncherApp
+
+    def app_with_channel(root):
+        roots.append(weakref.ref(root))
+        app = real_app(root)
+
+        def scoped(scope):
+            if scope is None:
+                return app
+            container = app.containers[scope]
+            children = container.winfo_children()
+            return children[0] if children else container
+
+        channel = Channel(root, channel_file=config["channel_file"], resolve=scoped)
+        root._acceptance_channel = channel
+        if config.get("inject_control"):
+            _inject_control(root, app, config["inject_control"])
+        return app
+
+    if config.get("control_no_stop_children"):
+        # A negative control: the orphan these two stops exist to prevent must then be seen. Since v0.7.2 Phase 6C a panel's close-time
+        # Cancel also reaches its running FFmpeg step, which stops it before the interpreter ends unless it loses that race; outside a
+        # cancellable block a supervised step simply runs to its end, as every step did before.
+        launcher.sp.stop_media_children = lambda: []
+        launcher.sp.cancellable = lambda *args, **kwargs: contextlib.nullcontext()
+    launcher.LauncherApp = app_with_channel
+    exit_code = launcher.main()
+    # main() has returned, so nothing on the main thread still holds the closed window.
+    if force:
+        # These two lists happen to hold the closed root as well. Empty them, so what is tested is the application's own holder alone.
+        from shared import appearance, output_paths
+
+        output_paths.forget_destination_hints()
+        appearance._listeners.clear()
+        if config.get("control_release_root"):
+            launcher._ROOT = None  # a negative control: with the application's own holder gone too, the Phase 2 crash must be seen
+        root_gone.set()
+        collected.wait(30)
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

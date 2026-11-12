@@ -108,6 +108,23 @@ image_capabilities.heif_capability()
 
 APP_TITLE = "Audiobook Cover Resizer v1.1"
 TARGET_SIZE = 1024  # default square size for covers
+#: The square sizes Cover Image makes: the size box's own range. A typed size outside it, or anything that is not a whole
+#: number, is refused at Start before anything is reserved or allocated (v0.7.2, ACT72-025): a typed 0 used to become
+#: 1024 and 100000 reached Pillow as a 100000 x 100000 canvas.
+MIN_SIZE = 256
+MAX_SIZE = 4096
+
+
+def target_size_problem(text: str) -> tuple[int | None, str]:
+    """The square size *text* asks for, or ``(None, why it cannot be used)``. Accepts only a whole number of pixels from
+    :data:`MIN_SIZE` to :data:`MAX_SIZE`, as typed: no fractions, signs, exponents, ``nan`` or ``inf``."""
+    raw = str(text).strip()
+    if not raw.isdigit() or not raw.isascii():
+        return None, f"Target size must be a whole number of pixels from {MIN_SIZE} to {MAX_SIZE}; {raw or 'nothing'!r} is not."
+    size = int(raw)
+    if not MIN_SIZE <= size <= MAX_SIZE:
+        return None, f"Target size must be from {MIN_SIZE} to {MAX_SIZE} pixels; {size} is outside that range."
+    return size, ""
 
 # settings.json keys (Phase 5)
 SOURCE_SIDE_LABEL = "Save beside source images"
@@ -300,6 +317,16 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
 
     win.protocol("WM_DELETE_WINDOW", cancel)
     win.bind("<Escape>", cancel)
+
+    def press_focused(_event=None):
+        # Return presses the button that holds the keyboard, as on any Windows dialog: Cancel unless the person moved to
+        # Replace. Tk gives a ttk button Space but no Return, so before v0.7.2 (ACT72-060) Enter here did nothing at all.
+        focused = win.focus_get()
+        (btn_confirm if focused is not None and str(focused) == str(btn_confirm) else btn_cancel).invoke()
+        return "break"
+
+    win.bind("<Return>", press_focused)
+    win.bind("<KP_Enter>", press_focused)
     win.cancel = cancel
     # Cancel is the initial focus, so Return activates the safe answer. Recorded
     # explicitly as well: Tk defers focus on an unmapped window, so the intent
@@ -2023,7 +2050,7 @@ class CoverResizerUI(ttk.Frame):
             row=0, column=0, sticky="w")
         self.var_size = tk.IntVar(value=TARGET_SIZE)
         self.entry_size = ttk.Spinbox(
-            options, from_=256, to=4096, textvariable=self.var_size, width=6,
+            options, from_=MIN_SIZE, to=MAX_SIZE, textvariable=self.var_size, width=6,
             increment=64, style=job_ui.style_name(bundle, "spinbox"),
         )
         self.entry_size.grid(row=0, column=1, sticky="w", padx=(8, 0))
@@ -2457,14 +2484,10 @@ class CoverResizerUI(ttk.Frame):
             messagebox.showwarning("No files", "Please import images first.")
             return
 
-        try:
-            size = int(self.var_size.get() or TARGET_SIZE)
-        except Exception:
-            messagebox.showerror("Bad size", "Target size must be a number.")
-            return
-
-        if size <= 0:
-            messagebox.showerror("Bad size", "Target size must be positive.")
+        # The text as typed (v0.7.2, ACT72-025): the spinbox's range limits only its arrows.
+        size, problem = target_size_problem(self.entry_size.get())
+        if problem:
+            messagebox.showerror("Bad size", problem + " Nothing was started.")
             return
 
         mode = self.effective_mode()
@@ -2486,12 +2509,16 @@ class CoverResizerUI(ttk.Frame):
         if mode == MODE_STANDARD:
             # Only the standard route reserves a run; an exception-mode
             # operation must not leave an unused numbered folder behind.
+            reservation = None
             try:
                 reservation = output_paths.reserve_run_directory(TOOL_KEY)
                 destinations = plan_destinations(
                     snapshot.files, reservation.run_directory,
                     planner=reservation.planner())
             except output_paths.OutputPathError as exc:
+                # A plan refused after reserving gives the empty run folder back, as every other tool does (v0.7.2, ACT72-061).
+                if reservation is not None:
+                    output_paths.release_if_empty(reservation)
                 messagebox.showerror("Output folder", exc.message)
                 return
             self.var_outdir.set(str(reservation.run_directory))
@@ -2623,6 +2650,15 @@ class CoverResizerUI(ttk.Frame):
         # The destination display is never typeable; it only greys out.
         self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
+    def _render_job_events(self) -> None:
+        """Render every job event already published, now (main thread). Bounded; each drain renders what it took."""
+        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            return
+        for _ in range(1000):
+            if not jobs.drain():
+                return
+
     def log_write(self, text: str, *, summary: bool = False) -> None:
         """Add the worker's own transcript text to the Activity log.
 
@@ -2673,6 +2709,9 @@ class CoverResizerUI(ttk.Frame):
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
+                    # The run's own lines first, then this closing line under them (v0.7.2, ACT72-018): the ending event
+                    # was published before this line was queued, but the job drain had not rendered it yet.
+                    self._render_job_events()
                     self.log_write(payload, summary=True)
                     self._finish_idle()
         except queue.Empty:

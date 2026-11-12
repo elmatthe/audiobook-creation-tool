@@ -69,6 +69,10 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_worker.py",
     # Added by the v0.7.1 R2 remediation: what supervises every FFmpeg on the Edge routes. Same reasoning as chatterbox_synth.py above.
     "tts/ffmpeg_watch.py",
+    # Added by v0.7.2 Phase 1: how one Edge request answers to Cancel. Same reasoning as chatterbox_synth.py above.
+    "tts/edge_requests.py",
+    # tts/work_area.py (v0.7.2 Phase 6B, ACT72-009) moved to shared/ in v0.7.2 Phase 6: the M4B Maker stages in it too, and a tool
+    # package may not import tts. This list is exactly the modules in tts/, so it left with the file.
     "tts/speech/__init__.py",
     "tts/speech/document.py",
     "tts/speech/classes.py",

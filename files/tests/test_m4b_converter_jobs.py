@@ -237,6 +237,18 @@ def function(name: str) -> ast.FunctionDef:
     raise AssertionError(f"{name} is not defined in the panel")
 
 
+def values_assigned_to(attribute: str) -> list[str]:
+    """The source of every value the panel ever assigns to ``self.<attribute>``."""
+    found = []
+    for node in ast.walk(parse_panel()):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)
+                   and target.value.id == "self" and target.attr == attribute for target in targets):
+                found.append(ast.unparse(node.value) if node.value is not None else "<annotation only>")
+    return found
+
+
 def states(panel) -> list[jc.JobState]:
     """The distinct states the run moved through, in order.
 
@@ -409,9 +421,16 @@ def test_the_worker_names_no_widget_and_holds_no_estimator():
     window still locked. The rule is unchanged and is asserted where the work
     actually happens; the wrapper and its settlement helper are held to the same
     rule, so the guard cannot become a way in for a widget.
+
+    v0.7.2 Phase 9 (remote re-review R9-04) added ``_cancel_decision``: the lock
+    a Cancel latch and a publication decision are taken under, read by the
+    worker's ``authorize_publication``. It is a threading primitive like
+    ``_cancel_event``, and it is held to being one: the panel never assigns it
+    anything but ``threading.Lock()``.
     """
     body = self_attributes(function("_run_conversion"))
-    assert body == {"_cancel_event", "_log_q"}, body
+    assert body == {"_cancel_event", "_cancel_decision", "_log_q"}, body
+    assert values_assigned_to("_cancel_decision") == ["threading.Lock()"]
 
     wrapper = self_attributes(function("convert_worker"))
     assert wrapper == {"_run_conversion", "_settle_unexpected"}, wrapper
@@ -977,6 +996,59 @@ def test_the_summary_is_the_shared_projection(make_panel, tmp_path, run_env):
     assert own[0].startswith("FFmpeg") and own[1].startswith("All done."), own
 
 
+def test_the_closing_line_follows_the_runs_own_lines_and_the_run_ends_once(make_panel, tmp_path, run_env):
+    """v0.7.2 Phase 6, ACT72-018: the panel's 'All done.' was appended before the adapter had rendered the run's
+    lines, so it sat above 'Running.', and the terminal state change and the ending event each added 'Finished.'."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b"))
+    work(panel, tmp_path, run_env)
+    shown = list(panel.log.summary)
+    assert shown[-1].startswith("All done."), shown
+    assert shown.index("Running.") < len(shown) - 1
+    assert shown.count("Finished.") == 1, shown
+    assert shown.index("Finished.") == len(shown) - 2, "the run's ending, then the panel's closing line"
+
+
+def test_the_cancel_line_says_what_cancel_does(make_panel, tmp_path, run_env):
+    """v0.7.2 Phase 6, ACT72-027: the line said 'will stop after the current file', but the running FFmpeg is stopped
+    mid-encode and the interrupted book is taken back whole."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    seen: list = []
+
+    def outcome(joined):
+        seen.append(joined)
+        if len(seen) == 2:                       # B is being converted when Cancel is pressed
+            panel.cancel()
+            return m4b_execution.ProcessResult(None, cancelled=True)
+        return None
+
+    run_env["outcome"] = outcome
+    work(panel, tmp_path, run_env)
+    shown = "\n".join(panel.log.details)
+    assert "stopping the file being converted now" in shown and "taken back" in shown, shown[-600:]
+    assert "after the current file" not in shown
+    plan = panel.run_plan
+    assert plan.items[0].segments[0].destination.exists(), "the finished book is kept"
+    assert not plan.items[1].segments[0].destination.exists(), "the interrupted book was taken back"
+
+
+def test_the_title_field_promises_no_filename(make_panel):
+    """v0.7.2 Phase 6, ACT72-028: the label said 'blank → filename', which no Converter code does."""
+    panel = make_panel()
+    texts = set()
+    stack = [panel]
+    while stack:
+        widget = stack.pop()
+        stack.extend(widget.winfo_children())
+        try:
+            texts.add(str(widget.cget("text")))
+        except tk.TclError:
+            pass
+    assert "Title" in texts
+    assert not any("filename" in text.lower() or "blank" in text.lower() for text in texts), sorted(texts)
+
+
 def test_the_details_are_the_shared_projection(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
@@ -1454,7 +1526,9 @@ def test_the_panel_is_still_classic():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("victim", ["atomic_replace", "temporary_sibling"])
+# (v0.7.2 Phase 9: the Converter publishes a new output through ``publish_new``, which refuses a taken name, where it used
+# to call ``atomic_replace``. The victim is the function the worker really calls.)
+@pytest.mark.parametrize("victim", ["publish_new", "temporary_sibling"])
 def test_a_failure_inside_the_execution_loop_still_releases_the_panel(
         make_panel, tmp_path, run_env, monkeypatch, victim):
     panel = make_panel()

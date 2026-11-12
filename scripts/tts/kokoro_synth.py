@@ -44,6 +44,7 @@ from shared import espeak_data
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts import model_assets
+from shared import work_area
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import KOKORO as KOKORO_ROUTE
@@ -77,7 +78,9 @@ def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
     tail = audio_tail.apply_final_tail_policy(arr, sample_rate)
     if log is not None:
         log(f"  {tail.summary()}")
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+    # The whole narration as a WAV: in the conversion's own work-area folder when there is one (the panel's), so a killed
+    # program's is recognised and removed by a later run (v0.7.2, ACT72-009).
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=work_area.current_folder()) as tmp_wav:
         tmp_wav_path = tmp_wav.name
     try:
         sf.write(tmp_wav_path, tail.pcm, sample_rate)
@@ -389,6 +392,10 @@ def kokoro_file_to_mp3(
     if not rendered:
         raise RuntimeError("Kokoro produced no audio segments.")
 
+    if cancel_check is not None and cancel_check():  # before the one encode: nothing unfinished is written (v0.7.2)
+        from shared.cancellation import ConversionCancelled
+
+        raise ConversionCancelled("Conversion cancelled by user.")
     log("  Assembling Kokoro audio...")
     _export_mp3(np.concatenate(rendered), SAMPLE_RATE, output_mp3_path, bitrate, log=log)
 

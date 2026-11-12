@@ -40,6 +40,7 @@ hides their console windows too.
 
 from __future__ import annotations
 
+import gc
 import importlib
 import importlib.util
 import os
@@ -50,6 +51,7 @@ from pathlib import Path
 
 try:
     import tkinter as tk
+    import tkinter.font as tkfont
     from tkinter import ttk
 except (ImportError, ModuleNotFoundError) as _tk_err:  # Tk-less / headless Python
     import sys as _sys
@@ -200,6 +202,9 @@ class LauncherApp:
         ffmpeg_utils.configure_pydub()
 
         self.containers: dict[str, ttk.Frame] = {}
+        #: Tools whose module failed to load: their container shows the error, and the status line says so every time
+        #: the tool is selected (v0.7.2, ACT72-041; it used to say "ready").
+        self.load_failed: set[str] = set()
         self.current_key: str | None = None
         self.buttons: dict[str, ttk.Button] = {}
         # The one live Preferences window. Held here so repeated activation
@@ -676,7 +681,8 @@ class LauncherApp:
 
         spec = next((t for t in TOOLS if t.key == key), None)
         if spec:
-            self._set_status(f"{spec.title} — ready.")
+            self._set_status(f"{spec.title} failed to load." if key in self.load_failed
+                             else f"{spec.title} — ready.")
         app_settings.set("last_tool", key)
 
     def _load_tool_into(self, key: str, container: ttk.Frame) -> bool:
@@ -690,6 +696,7 @@ class LauncherApp:
             return True
         except Exception as exc:  # missing deps, import error, etc.
             self.logger.exception("Failed to load tool %s", key)
+            self.load_failed.add(key)
             self._show_load_error(container, spec, exc)
             return True  # keep the container so the error message stays visible
 
@@ -770,6 +777,68 @@ class LauncherApp:
         self.root.destroy()
 
 
+# The application's own hold on its Tk root, for the life of the process. Tcl deletes its interpreter on whichever thread frees the root,
+# and a closed root freed by a collection on a worker thread ends the process with Tcl_AsyncDelete (0x80000003). Until v0.7.2 Phase 3
+# only two module lists happened to keep it reachable. Held here, the interpreter is deleted only when Python shuts down, on the main
+# thread, once it no longer runs daemon workers. Nothing else may clear this.
+_ROOT: tk.Tk | None = None
+
+
+def _finish_tk_objects(root: tk.Tk) -> int:
+    """Finish the closed window's Tcl variables, images and fonts here, on the main thread (v0.7.2, ACT72-017).
+
+    The window is gone, but closed panels' Tk objects can still sit in reference cycles, or be held by a worker that is
+    finishing its run. Freed later by a collection on a worker thread, each one's ``__del__`` would call into Tcl from
+    that thread: Tkinter then waits about a second for a main loop that has ended and raises "main thread is not in main
+    loop", which Python reports and ignores. A forced landing measured 18 to 26 s of that at shutdown.
+
+    So the teardown order is fixed here instead: a collection on this thread frees what is already garbage, and every
+    variable, image and font of *root* still alive is deleted from Tcl exactly as its ``__del__`` would, then marked
+    done, so that ``__del__`` has nothing left to do on whatever thread it eventually runs. Workers never use Tk objects
+    (only plain copies cross to them), so nothing still alive needs these. The root itself is not touched: ``_ROOT``
+    holds it until Python shuts down. Returns how many objects were finished here.
+    """
+    gc.collect()
+    interp = root.tk
+    finished = 0
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, tk.Variable):
+                if obj._tk is not interp:
+                    continue
+                try:
+                    if interp.getboolean(interp.call("info", "exists", obj._name)):
+                        interp.globalunsetvar(obj._name)
+                    for name in obj._tclCommands or ():
+                        interp.deletecommand(name)
+                except tk.TclError:
+                    pass
+                obj._tclCommands = None
+                obj._tk = None
+            elif isinstance(obj, tk.Image):
+                if obj.tk is not interp or not obj.name:
+                    continue
+                try:
+                    interp.call("image", "delete", obj.name)
+                except tk.TclError:
+                    pass
+                obj.name = None
+            elif isinstance(obj, tkfont.Font):
+                if obj._tk is not interp or not obj.delete_font:
+                    continue
+                try:
+                    interp.call("font", "delete", obj.name)
+                except tk.TclError:
+                    pass
+                obj.delete_font = False
+            else:
+                continue
+        except Exception:  # noqa: BLE001 - an object that cannot even be inspected is left as it is
+            continue
+        finished += 1
+    return finished
+
+
 def _configure_hf_cache() -> None:
     """Keep the HuggingFace model cache inside the project tree.
 
@@ -792,14 +861,19 @@ def _configure_hf_cache() -> None:
 
 
 def main() -> int:
+    global _ROOT
     # Install the global no-window guard first, before anything imports pydub /
     # edge-tts, so their internal ffmpeg spawns during the TTS combine stage
     # inherit hidden-window flags and do not flash console windows on Windows.
     sp.install_no_window_guard()
     _configure_hf_cache()
-    root = tk.Tk()
+    root = _ROOT = tk.Tk()
     LauncherApp(root)
     root.mainloop()
+    # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
+    _finish_tk_objects(root)
+    # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
+    sp.stop_media_children()
     return 0
 
 

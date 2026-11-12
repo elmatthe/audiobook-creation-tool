@@ -180,6 +180,12 @@ class ItemPlan:
     #: explicitly -- and execution must not re-open the source to find out what
     #: they were. Empty for a split run, whose outputs drop the map entirely.
     chapter_titles: tuple[str, ...] = ()
+    #: Decode this split book once and cut its chapters from the decoded samples
+    #: (``m4b_continuous``, v0.7.2 Phase 7B) rather than seeking per chapter.
+    #: The route's frozen facts, decided at preflight from the probe and a packet
+    #: scan, or ``None`` for the seeking route. Never re-derived after Start, so a
+    #: retry takes the same route with a fresh decoder.
+    continuous: object | None = None
 
     @property
     def total_segments(self) -> int:
@@ -313,6 +319,7 @@ def assemble_plan(
     options: PlanOptions,
     reserve,
     windows_decoder=None,
+    continuous: Mapping[str, object] | None = None,
 ) -> ConversionPlan:
     """Turn one frozen queue plus its probe reports into one immutable plan.
 
@@ -330,6 +337,11 @@ def assemble_plan(
     It is a seam so both answers are testable and so this module still runs no
     process of its own; production passes
     :func:`m4b.m4b_winaudio.available`.
+
+    *continuous* maps an occurrence id to the continuous-decode route preflight
+    proved for it (``m4b_continuous.qualify``); it is frozen into that item only
+    when the item is a chaptered fragment of a split run that FFmpeg decodes.
+    Every other item, and every occurrence not named, keeps the seeking route.
 
     Runs no process, reads no file, creates no directory and touches no widget.
     """
@@ -421,6 +433,7 @@ def assemble_plan(
     )
     destinations = {item.occurrence_id: item.destinations for item in planned}
 
+    proven = dict(continuous or {})
     items: list[ItemPlan] = []
     for entry, report, chaptered, route in usable:
         shape = shapes[entry.occurrence_id]
@@ -429,6 +442,8 @@ def assemble_plan(
             raise ValueError(
                 f"{entry.occurrence_id} planned {len(paths)} destinations "
                 f"for {len(shape)} outputs")
+        decoded_once = (proven.get(entry.occurrence_id)
+                        if options.split and chaptered and not route else None)
         items.append(ItemPlan(
             occurrence_id=entry.occurrence_id,
             source=Path(entry.path),
@@ -448,6 +463,7 @@ def assemble_plan(
             # so they are deliberately not carried into one.
             chapter_titles=(() if (options.split and chaptered) else
                             tuple(chapter.title for chapter in report.probe.chapters)),
+            continuous=decoded_once,
             segments=tuple(
                 SegmentPlan(
                     order=order,

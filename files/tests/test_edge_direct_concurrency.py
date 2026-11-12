@@ -13,6 +13,7 @@ synthesis: if any one conversion could not start until another finished, the bar
 from __future__ import annotations
 
 import ast
+import contextlib
 import io
 import os
 import threading
@@ -24,6 +25,7 @@ from pydub.generators import Sine
 
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
+from shared import work_area
 from tts.epub2tts_edge import epub2tts_edge as engine
 from tts.epub2tts_edge import runner
 
@@ -121,16 +123,18 @@ def _run_all(jobs, **kwargs):
 
 
 def _track_workdirs(monkeypatch) -> list[str]:
+    """The runner's own private folders, nobody else's: since v0.7.2 entries of the TTS work area of kind "edge"."""
     made: list[str] = []
-    real = runner.tempfile.mkdtemp
+    real = work_area.conversion_folder
 
-    def mkdtemp(*args, **kwargs):
-        path = real(*args, **kwargs)
-        if str(kwargs.get("prefix", "")).startswith("epub2tts_"):  # the runner's own folders, nobody else's
-            made.append(path)
-        return path
+    @contextlib.contextmanager
+    def conversion_folder(kind):
+        with real(kind) as folder:
+            if kind == "edge":
+                made.append(str(folder))
+            yield folder
 
-    monkeypatch.setattr(runner.tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(work_area, "conversion_folder", conversion_folder)
     return made
 
 
@@ -324,8 +328,11 @@ def test_pymupdf_is_never_used_by_two_threads_at_once(monkeypatch):
     monkeypatch.setattr(pdf_extractor, "_PYMUPDF_LOCK", counting)
 
     class Page:
-        def get_text(self, _kind):
-            return "A page of text.\n"
+        def get_textpage(self, flags=None):
+            return object()
+
+        def get_text(self, kind, textpage=None):
+            return "A page of text.\n" if kind == "text" else {"blocks": []}
 
     class Doc:
         def __iter__(self):

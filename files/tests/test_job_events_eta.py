@@ -1184,6 +1184,38 @@ def test_both_projections_are_empty_for_an_empty_run():
     assert detail_lines(()) == ()
 
 
+@pytest.mark.parametrize("state, end", [
+    (JobState.SUCCEEDED, "completed"), (JobState.COMPLETED_WITH_FAILURES, "completed"),
+    (JobState.CANCELLED, "cancelled")])
+def test_a_run_that_ended_says_so_once(clock, state, end):
+    """v0.7.2 Phase 6, ACT72-018: real panels copy every controller state into the stream, so the terminal state change
+    and the run's own ending event both reached the Summary with the same words."""
+    rep, flow = build_run(clock)
+    flow.drain([
+        rep.state_changed(state_snapshot(JobState.RUNNING)),
+        rep.state_changed(state_snapshot(state)),
+        getattr(rep, end)(state_snapshot(state)),
+    ])
+    lines = summary_lines(flow.events)
+    assert lines == ("Running.", state_message(state)), lines
+
+
+def test_a_terminal_state_with_no_ending_event_still_shows():
+    """Nothing is lost when a stream holds no ending event: the state change is then the only word on how it ended."""
+    rep, flow = build_run(FakeClock())
+    flow.drain([rep.state_changed(state_snapshot(JobState.RUNNING)),
+                rep.state_changed(state_snapshot(JobState.SUCCEEDED))])
+    assert summary_lines(flow.events) == ("Running.", "Finished.")
+
+
+def test_the_ending_events_own_message_is_the_one_shown(clock):
+    rep, flow = build_run(clock)
+    flow.drain([rep.state_changed(state_snapshot(JobState.RUNNING)),
+                rep.state_changed(state_snapshot(JobState.FAILED)),
+                rep.completed(state_snapshot(JobState.FAILED), "The run stopped because of an internal error.")])
+    assert summary_lines(flow.events) == ("Running.", "The run stopped because of an internal error.")
+
+
 def test_the_summary_view_of_an_empty_run_claims_nothing():
     view = project_summary(())
     assert view.state is None and view.stage is None
