@@ -4,6 +4,47 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-11-12 - Release readiness: issues close on the independent closures, the ledger is frozen before any run, a failed gate is corrected but not rerun, and the PR stays a draft (v0.7.2 release closeout)
+
+**Context.** The owner's final-release instruction authorized publishing Codex's final closure, closing the ledger,
+fresh qualifications where needed, ONE full Windows gate, packaging checks and a PR. It did not authorize a merge, a
+tag, a release or a second full gate. Record: `files/dev-work/phase9-remote-review/ACT-v0.7.2-FINAL-PR-READINESS.md`.
+
+**Decision 1 (issues close on their own contract).** ACT72-070, -071 and -075 said "open until an independent re-review
+confirms the repair", and Codex's focused closures did confirm them (`3f02d4c` at `a943a26`, `11fa574` at `a00f0a2`), so
+they close. Each closure cites the report, the reviewed SHA, the tests and the limits the reviewer stated.
+
+ACT72-073 stays open, because its census still had to run on real FFmpeg. `m4b-scaling` on `c4a9853` has now done that,
+so it is closure-ready. ACT72-064 gains the three layout ambiguities of the final closure; no deferral of it is recorded
+as approved. Rejected: closing all four on the review headline.
+
+**Decision 2 (the ledger changes before the runs, not after).** Every run's identity includes the policy digest, and
+`coverage.json` is policy. A status changed after a run makes that run `stale`. So the ledger was committed (`c4a9853`)
+before any run, and ACT72-073 is not flipped after its own evidence.
+
+**Decision 3 (freshness by relevant input).** `m4b-scaling` and `edge-low-memory` ran again, because the Converter, the
+T5 census and the PDF extractor changed. `optional-engines` and `fresh-windows` are carried forward from `3aa421a`, because
+no code on their paths changed. The gate's reader still calls them `stale`, and that is said, not hidden.
+
+`m4b-scaling` has no legitimate partial route: `qualify.py` refuses `--rehearse` outside `--smoke`, and `pass_requires`
+wants 79 checks over 207 runs. So it ran whole, once, after a smoke rehearsal that is never a verdict.
+
+**Decision 4 (a failed full gate is corrected, not rerun).** The gate on `c4a9853` failed three structural tests that
+Phase 9 changes had left stale. The correction (`5978e88`) changes tests only:
+
+- the Converter worker's guards allow the R9-04 decision lock and pin it to `threading.Lock()`;
+- the review reports in `files/dev-work/phase9-remote-review/` count as history for the retired-path check.
+
+It was checked by negative controls and a focused gate. The full gate counts as consumed: another needs the owner. No
+assertion was weakened. The allowed set grew by one threading primitive, which the new pin holds to being one; the
+exemption is limited to top-level Markdown in that one folder, and a new test pins that.
+
+**Decision 5 (the PR is a draft).** No full gate passed on the current source, so the PR is not presented as ready. Its
+blockers are named in it. The independence distinction is left to the owner: Codex ran the full gate independently on
+`8596025`, and after the remediation its reviews were focused.
+
+Signed: Claude Code (implementation agent), under the owner's 2026-11-12 final-release instruction.
+
 ## 2026-11-12 - Phase 9 remediation: uncertain PDF text is narrated; a new output takes its name only if nothing holds it and only once Cancel has lost; a qualification PASS is judged where it is produced; T5 is the approved sentence, read exactly and failed when it cannot be read (v0.7.2 Phase 9, ACT72-070 to ACT72-075)
 
 **Context.** The independent Codex review of `8596025` (Phase 9) failed the candidate on five findings, P9-01 to P9-05. Each was reproduced on that commit before any tracked file changed, and every fix has a control that fails without it. Evidence: `files/dev-work/verification-gate/outputs/2026-11-11_phase9_remediation_e7b2` (ignored): the before and after records, `negative-controls.md`, `controls.md`, `LEDGER.md` and the remediation report. The review's own package is `outputs/2026-11-11_phase9_codex_6a91`.

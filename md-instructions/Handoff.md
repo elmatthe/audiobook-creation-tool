@@ -2,6 +2,66 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 final release readiness: BLOCKED, PR left as a draft. The one authorized full Windows gate FAILED on `c4a9853` (3 stale structural tests); the test-only correction `5978e88` passed a focused gate but no full gate; `m4b-scaling` and `edge-low-memory` PASS; UNMERGED; branch `feature/0.7.2-windows-hardening-verification` (2026-11-12, Claude Code)
+
+This block supersedes the blocks below for status and next action. Full record:
+`files/dev-work/phase9-remote-review/ACT-v0.7.2-FINAL-PR-READINESS.md`. Working evidence (ignored):
+`files/dev-work/verification-gate/outputs/2026-11-12_release_9c3d/`.
+
+- **Commits.**
+  - `11fa574`: Codex's final focused closure, R9-01 and R9-03 PASS at `a00f0a2`. Pushed unchanged; GitHub's blob
+    equals the local one.
+  - `c4a9853`: the release candidate. Issue ledger and TTS feature map only.
+  - `5978e88`: the test-only correction, below.
+  - This commit: the four documents and the readiness report, Markdown only.
+  - `origin/master` = `204c33b` (merge-base; 0 behind).
+- **Ledger (in `c4a9853`).** ACT72-070, -071 and -075 closed on the Codex closures, each citing report, reviewed SHA,
+  tests and stated limits. ACT72-073 stays open and is now closure-ready: the R9-02 independent PASS is recorded, and
+  `m4b-scaling` below exercised the census on real FFmpeg; flipping it would move the policy digest of that evidence.
+  ACT72-064 now also lists the three layout ambiguities of the final closure, and the TTS feature map no longer says no
+  limit loses a word. Open: ACT72-030 (deferred), ACT72-064 (owner), ACT72-073 (closure-ready).
+- **Qualifications on `c4a9853` (read back PASS, current `exact`).**
+  - `m4b-scaling`: `2026-11-12_112630_qualification_1476`, 79/79 checks over 207 runs, 8,223 s.
+    - T1 2.36×; T1b 2.38× wall and 3.29× CPU.
+    - T4 least headroom 3.30 MB.
+    - T5: every one-decode total equal to the seeking route's to the byte, every removal and rename read first.
+    - T7 0.25 and 0.87 s; T8 30/30 identical.
+    - No narrower T5 route exists: `qualify.py` refuses `--rehearse` outside `--smoke`.
+  - `edge-low-memory`: `2026-11-12_134404_qualification_a6dd`, 61/61 checks, 6 runs; both PDFs narrated.
+  - Carried forward from `3aa421a`, with relevant inputs unchanged (mechanically `stale`): `optional-engines`,
+    `fresh-windows`.
+  - A smoke rehearsal (never a verdict) preceded `m4b-scaling`.
+- **Full Windows gate on `c4a9853`: FAIL** (`2026-11-12_135000_full_85b2`, exit 1, 6,204 s).
+  - 15,034 executed; 14,966 passed (14,434 ordinary, 457 and 75 guarded); **3 failed**; 65 policy skips.
+  - 56/56 journeys; coverage 262/262; every other check PASS.
+  - Failed: `test_m4b_converter_jobs::test_the_worker_names_no_widget_and_holds_no_estimator` and
+    `test_m4b_retry::test_the_retry_worker_reads_no_widget` (`a943a26` made the worker read `_cancel_decision`, a
+    `threading.Lock`, and did not update the guards), and
+    `test_verification_gate_contract::test_no_active_caller_depends_on_the_retired_gate_path` (two Phase 9 review reports
+    say the retired path was not run).
+  - Separately, `2026-11-12_134932_full_a730` was my launch error: started with a ten-minute tool timeout, stopped during
+    collection with 0 tests run, and kept as INCOMPLETE.
+- **Correction `5978e88` (tests only, pushed).**
+  - The worker guards allow `_cancel_decision` and pin it to `threading.Lock()`.
+  - Top-level Markdown in `files/dev-work/phase9-remote-review/` counts as history, pinned by a new test.
+  - Seven negative controls behave as expected.
+  - Focused gate `2026-11-12_153553_focused_531d` PASS: 922 executed, 921 passed, 1 skip; the changed modules and the
+    nine modules that read test files.
+  - **No full gate on it.**
+- **Package audit on `5978e88`: PASS.** 167 members, 4,797,632 bytes, SHA-256 `47cc957d…`; version 0.7.2; developer mode
+  off; six reference WAVs; `scripts/project-status.py` left out. Evidence only, not published.
+- **Independence.** Codex ran the full gate independently on `8596025` (PASS). After the remediation, its evidence is
+  focused only, and the current-source gate is Claude's. The owner decides.
+- **Owner's files.** Unchanged (`03-owner-state-before.txt` = `-after.txt`). Two new gate scratch folders are kept as
+  evidence: `%TEMP%\act-gate\f8d7` (the aborted launch) and `8c22` (the failed gate). Nothing was cleaned up.
+- **Next exact action.** STOP for the owner:
+  1. ACT72-064.
+  2. The release scope.
+  3. Authorize one full Windows gate on `5978e88` (Claude, or Codex independently), and decide whether the two
+     qualifications on `c4a9853` carry to `5978e88`.
+
+  Then mark the PR ready and merge. No merge, tag or release, and nothing of v0.8.0.
+
 ## CURRENT STATE — v0.7.2 Phase 9 final targeted fix: R9-01 (numbers) and R9-03 (MP3 roll-back) repaired with focused tests and mutation controls only; no gate, no qualification, no native journey; NOT accepted; STOP for a focused independent Codex closure check; branch `feature/0.7.2-windows-hardening-verification` (2026-11-12, Claude Code)
 
 This block supersedes the blocks below for status and next action. Codex's focused closure review of `a943a26` (`files/dev-work/phase9-remote-review/PHASE9-CODEX-FOCUSED-CLOSURE.md`, report-only commit `3f02d4c`, kept as it is) passed R9-02 and R9-04 within its scope and failed R9-01 and R9-03. This commit repairs those two; report: `files/dev-work/phase9-remote-review/PHASE9-CLAUDE-FINAL-TARGETED-FIX.md`.

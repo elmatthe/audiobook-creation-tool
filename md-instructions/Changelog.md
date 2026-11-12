@@ -13,6 +13,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.7.2 release readiness: the last two review findings closed; NOT merged (2026-11-12)
+
+**Fixed**
+- **MP3 Tool, M4B Maker and Metadata Editor: a file that appears in the output folder while a Book is being
+  published is never overwritten.** Each output takes its name only if nothing holds it. Otherwise that Book fails, the
+  other file is left exactly as it was, and the finished file stays ready for Retry Failed.
+- **MP3 Tool: a failed publication's roll-back takes back only its own files.** On Windows each file is held from the
+  moment it is checked until it is moved back, so another program's file at that name can never be taken.
+  - Elsewhere, a roll-back leaves what was published where it is and says so; a retry then refuses until that is sorted
+    out.
+- **TTS, PDF sources: numbers that a sentence runs into at the foot of a page are read** (an access code "1984" was
+  dropped as if it were a page number).
+  - Still a limit, for the owner to decide: a bare number alone under a finished sentence, counting with the next page's
+    number, cannot be told from a page number and is left out.
+
+**Verification only**
+- The release record is `files/dev-work/phase9-remote-review/ACT-v0.7.2-FINAL-PR-READINESS.md`. The independent closure
+  reviews passed; the M4B scaling and Edge low-memory qualifications passed again on the release candidate. The full
+  Windows gate found three out-of-date structural tests; they were corrected, and the gate has not yet been run again.
+
 ## [Unreleased] — v0.7.2 Phase 9 remediation: five defects an independent review found, fixed (2026-11-12)
 
 **Fixed**
