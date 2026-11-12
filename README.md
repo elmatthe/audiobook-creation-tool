@@ -1,16 +1,18 @@
-# Audiobook Creation Tool v0.7.0
+# Audiobook Creation Tool v0.7.2
 
 A Windows desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
 ## Download / Install
 
-**v0.7.0 is for Windows 10/11.** Download the Windows archive:
+**v0.7.2 is a Windows-focused release.** It is qualified on Windows 11 (HOME-PC) at 100% display scaling. Windows 10, other machines and other display scaling are not separately qualified.
 
 | Platform | Archive | Double-click after extraction |
 |---|---|---|
-| Windows | [AudiobookTool-Windows-v0.7.0.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.0/AudiobookTool-Windows-v0.7.0.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+| Windows | [AudiobookTool-Windows-v0.7.2.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.2/AudiobookTool-Windows-v0.7.2.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
 
-macOS is not part of v0.7.0 (it has not been qualified on a Mac yet); the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
+The link above is the intended v0.7.2 release asset URL; it becomes available when the GitHub release is published.
+
+macOS and Linux are not qualified or distributed for v0.7.2; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
 
 Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
 
@@ -67,7 +69,7 @@ Short samples of all 28 voices, each reading the same sentence and named exactly
 
 ## Requirements
 
-- Windows 10/11 (64-bit), with space for the Python environment, outputs and any voice models.
+- Windows (64-bit), with space for the Python environment, outputs and any voice models. Qualification is limited to Windows 11 at 100% display scaling as described above; Windows 10 is not separately qualified.
 - On Windows the app is portable: everything it needs stays inside its folder and nothing is installed on the computer. On the first run, setup asks before downloading the app's own Python 3.12 (a standalone build, about 46 MB, checked against a fixed SHA-256) into `files\runtime-data\python`; it does not use or change any Python already on the computer, needs no administrator rights and leaves PATH and file associations alone. FFmpeg is the app's own verified copy in `files\bin` (about 250 MB, also checked before use) unless a working FFmpeg is already on the computer. The Python packages come from a fixed list in which every package has one version and a SHA-256 (`scripts\requirements-lock-windows-py312.txt`); the downloaded packages are kept in `files\runtime-data\python-packages` (about 500 MB), so a repair needs no internet, and pip's cache stays in the folder too. The Edge voices' English sentence data (about 4.3 MB from NLTK's data repository, also checked) is downloaded during setup, or, if it is missing later, only after you agree when you start an Edge narration; it is kept in `files\runtime-data\nltk_data`. Deleting the folder removes everything the app set up.
 - Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (all four choices together download about 14.8 GB and use about 18 GB).
 

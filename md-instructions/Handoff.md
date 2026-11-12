@@ -2,6 +2,20 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.7.2 merged by owner; Windows packaging checkpoint (2026-11-12, Codex, HOME-PC)
+
+The owner merged PR #14; remote master verified at `7a9746d75d049ca4f01104ae14b726e6555377d4`.
+This supersedes earlier pending-merge status. Publication documentation updates README to 0.7.2, its intended
+Windows ZIP URL and Windows 11/100% scaling qualification scope, preserving installation instructions.
+The URL is preparatory: no GitHub release or tag is published in this task.
+
+Work is isolated in a contained detached worktree based on master; the main checkout, 14 tracked deletions and
+untracked owner files remain unchanged. After this documentation commit: push normally to master, run the existing
+`scripts/shared/release.py` once, validate the Windows ZIP against committed source and copy it to the main
+repository's `dist/` only without overwriting. Report the source SHA, absolute ZIP path, member count and SHA-256.
+No gate/qualification rerun, application change, merge operation, tag or release publication. The recorded
+v0.7.2 composite-verification acceptance and historical FAIL remain unchanged. Stop after packaging.
+
 ## CURRENT STATE — v0.7.2 owner-approved composite verification; administrative closeout (2026-11-12, Codex, HOME-PC)
 
 This block supersedes the historical status/next-action blocks below. Branch
