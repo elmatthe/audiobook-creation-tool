@@ -2,7 +2,7 @@
 voice_registry.py — Central registry of all supported TTS voices for epub2tts-edge v1.1.
 
 Each entry defines:
-  - backend:        "edge" | "kokoro" | "chatterbox" | "qwen3"
+  - backend:        "edge" | "kokoro" | "chatterbox" | "qwen3" | "omnivoice"
   - voice_id:       The voice identifier passed to the TTS engine
   - display_label:  Short human-readable name shown in the GUI dropdown
   - group_label:    Category header shown in the dropdown (cosmetic only)
@@ -59,6 +59,12 @@ its own backend (``"qwen3"``), its own internal id and its own engine, and dispa
 Availability is owned by ``tts/qwen3_runtime.py`` (platform, isolated environment, model files, and for clones the
 reference recording and an approved transcript).
 
+**v0.8.0 Phase 2 registered the six OmniVoice voices** (plan section 3): ``OmniVoice - Female 1``/``Female 2``/
+``Male 1``/``Male 2``/``Male 3``/``Male 4``, appended after the Qwen3 block in their own group, each cloned from the
+same bundled recording as its Chatterbox and Qwen3 namesakes but with its own backend (``"omnivoice"``), its own id and
+its own engine. Every earlier row keeps its backend, id, label, group, timing and position. Availability is owned by
+``tts/omnivoice_runtime.py`` (platform, GPU, isolated environment, model files, the recording and its reviewed excerpt).
+
 **Registered is not the same as available.** A row here says a voice is part of the
 supported configuration. Whether it can actually run on *this* machine is a separate
 question, owned by ``tts/chatterbox_synth.py`` — the Chatterbox voices are backed by
@@ -84,9 +90,9 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
-BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3"]
+BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3", "omnivoice"]
 #: The engines a row may name. Adding one is an engine change, never a registry edit.
-BACKENDS: tuple[str, ...] = ("edge", "kokoro", "chatterbox", "qwen3")
+BACKENDS: tuple[str, ...] = ("edge", "kokoro", "chatterbox", "qwen3", "omnivoice")
 
 
 @dataclass(frozen=True)
@@ -212,6 +218,30 @@ def _qwen3_preset(
     }
 
 
+def _omnivoice_preset(
+    sentence: int = 600,
+    paragraph: int = 700,
+    title: int = 1000,
+    chapter: int = 1800,
+    end: int = 0,  # v0.7.0 Q1: a local-engine narration ends with its last sound, no closing pause
+) -> dict:
+    """Timing defaults for the local OmniVoice engine (v0.8.0): the normal local-engine policy, exactly as
+    ``_qwen3_preset`` -- the paragraph pause between chunks, no closing pause, no rate/speed control (plan section 3
+    adds no new tuning controls), ``trim_edge_chunks`` off. No per-voice tuning.
+    """
+    return {
+        "sentencepause": str(sentence),
+        "paragraphpause": str(paragraph),
+        "title_ms": str(title),
+        "chapter_ms": str(chapter),
+        "end_pause": str(end),
+        "trim_dbfs": "-58",
+        "trim_edge_chunks": False,
+        "rate": "+0%",
+        "kokoro_speed": "1.0",
+    }
+
+
 #: The one cosmetic heading the four Chatterbox rows share, in the same
 #: "<engine> — <category>" shape the Edge and Kokoro groups already use. It is a
 #: dropdown separator only and never part of a voice's name.
@@ -220,6 +250,9 @@ CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 #: The heading the eight Qwen3 rows share. A separate, clearly identified group (owner ruling): it never reuses the
 #: Chatterbox heading even though six of the voices share a reference recording with a Chatterbox voice.
 QWEN3_GROUP_LABEL = "Qwen3-TTS Local AI — Preset and Cloned Voices"
+
+#: The heading the six OmniVoice rows share: one clearly labelled group of their own (plan section 3).
+OMNIVOICE_GROUP_LABEL = "OmniVoice Local AI — Cloned Voices"
 
 # Twenty-eight rows: five Edge, nine Kokoro (the original five plus the four Decision B additions of
 # 2026-10-19), six approved Chatterbox voices (the original four plus Male 3 and Male 4,
@@ -454,6 +487,50 @@ VOICES: list[VoiceEntry] = [
         group_label=QWEN3_GROUP_LABEL,
         timing_preset=_qwen3_preset(),
     ),
+    # ---- v0.8.0 Phase 2: the six OmniVoice voices, ids and labels exactly as plan section 3 specifies ---- #
+    # Each is conditioned only on the reviewed excerpt of its bundled recording (tts/omnivoice_runtime.py).
+    VoiceEntry(
+        backend="omnivoice",
+        voice_id="omnivoice-female-1",
+        display_label="OmniVoice - Female 1",
+        group_label=OMNIVOICE_GROUP_LABEL,
+        timing_preset=_omnivoice_preset(),
+    ),
+    VoiceEntry(
+        backend="omnivoice",
+        voice_id="omnivoice-female-2",
+        display_label="OmniVoice - Female 2",
+        group_label=OMNIVOICE_GROUP_LABEL,
+        timing_preset=_omnivoice_preset(),
+    ),
+    VoiceEntry(
+        backend="omnivoice",
+        voice_id="omnivoice-male-1",
+        display_label="OmniVoice - Male 1",
+        group_label=OMNIVOICE_GROUP_LABEL,
+        timing_preset=_omnivoice_preset(),
+    ),
+    VoiceEntry(
+        backend="omnivoice",
+        voice_id="omnivoice-male-2",
+        display_label="OmniVoice - Male 2",
+        group_label=OMNIVOICE_GROUP_LABEL,
+        timing_preset=_omnivoice_preset(),
+    ),
+    VoiceEntry(
+        backend="omnivoice",
+        voice_id="omnivoice-male-3",
+        display_label="OmniVoice - Male 3",
+        group_label=OMNIVOICE_GROUP_LABEL,
+        timing_preset=_omnivoice_preset(),
+    ),
+    VoiceEntry(
+        backend="omnivoice",
+        voice_id="omnivoice-male-4",
+        display_label="OmniVoice - Male 4",
+        group_label=OMNIVOICE_GROUP_LABEL,
+        timing_preset=_omnivoice_preset(),
+    ),
 ]
 
 
@@ -496,6 +573,12 @@ VOICE_REFERENCES: dict[tuple[str, str], str] = {
     ("qwen3", "qwen3-male-2"): "Male-2",
     ("qwen3", "qwen3-male-3"): "Male-3",
     ("qwen3", "qwen3-male-4"): "Male-4",
+    ("omnivoice", "omnivoice-female-1"): "Female-1",
+    ("omnivoice", "omnivoice-female-2"): "Female-2",
+    ("omnivoice", "omnivoice-male-1"): "Male-1",
+    ("omnivoice", "omnivoice-male-2"): "Male-2",
+    ("omnivoice", "omnivoice-male-3"): "Male-3",
+    ("omnivoice", "omnivoice-male-4"): "Male-4",
 }
 
 
@@ -564,7 +647,7 @@ def registry_problems(voices: list[VoiceEntry]) -> list[str]:
     if voices and DEFAULT_VOICE_KEY not in seen_keys:
         problems.append(f"the default voice {DEFAULT_VOICE_KEY[0]}/{DEFAULT_VOICE_KEY[1]} is not registered")
     for entry in voices:
-        if entry.backend == "chatterbox" and entry.key not in VOICE_REFERENCES:
+        if entry.backend in ("chatterbox", "omnivoice") and entry.key not in VOICE_REFERENCES:
             problems.append(f"{entry.backend}/{entry.voice_id}: no reference recording is mapped for this cloned voice "
                             "(add it to VOICE_REFERENCES)")
     if not voices:

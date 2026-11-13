@@ -1,5 +1,73 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Session 2 / Phase 2: PASS — six OmniVoice voices integrated; silence-safe excerpts; shared speech preparation (2026-11-13, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Plan:
+`files/plans/ACT-v0.8.0-OmniVoice-Integration-Plan-v0.7.3-Baseline.md` (revised narrowly in this commit for the owner's
+maximum-10-second rule). Decision record: Decisions 2026-11-13 (v0.8.0 Phase 2).
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, on the accepted Phase 1 commit
+  `48980fa0b2336c36e8f1f72480222c47000edfcd`; the Phase 2 commit is this checkpoint (SHA in the session report). The
+  owner's 17 tracked deletions and untracked files are untouched and not staged.
+- **Engine.** `scripts/tts/omnivoice_runtime.py` (identity, readiness, excerpt authority and silence rule, prompt
+  identity, locks, worker environment), `omnivoice_worker.py` (runs only in `.venv-omnivoice`: offline, network audit
+  hook, speech recognizer refused, `normalize_text=False`, trusted prompt cache), `omnivoice_synth.py` (prepare once,
+  300-character chunks, at most 48 chunks per worker process, Job Object containment, Cancel/failure supervision, the
+  shared assembly, final-tail policy and atomic MP3 publication), `omnivoice_manifest.json` (88 pinned packages, 11 model
+  files), `data/omnivoice_excerpts.json` (six reviewed crops and provisional transcripts).
+- **Wiring (minimal).** `voice_registry.py` (+6 rows after the unchanged 28, own group and backend), `voice_install.py`
+  (component `omnivoice`, offered only once the setup protocol has it), `worker_limits.py` (one file at a time),
+  `epub2tts_gui.py` (status seam, engine line, dispatch, `convert_with_omnivoice`), `speech/profiles.py`,
+  `speech/glossary.py`, `speech/data/modes.json` (route, engine scope, all-expand 16-class row), `tts/README.md`.
+- **Excerpts (provisional until Session 4).** End frames at 24 kHz: Female 1 199,440 (8.310 s, "...cross with me,"),
+  Female 2 176,160 (7.340 s, "...Jorg Reclentos,"), Male 1 117,240 (4.885 s, "...truthless of Shinovar,"), Male 2 198,360
+  (8.265 s, "...the Worm's Whiskers,"), Male 3 196,560 (8.190 s, "...for a day."), Male 4 218,280 (9.095 s, "...I was
+  drowsing,"). Every one ends inside a natural pause (>= 150 ms, adaptive floor) with >= 100 ms of quiet after the word
+  and >= 50 ms before the next sound; all six recordings are mid-speech at 10.000 s. The Phase 1 Male 1 crop (230,760,
+  9.615 s) fails the rule (it ends on the /th/ of "things") and is replaced. Review copies:
+  `files/dev-work/ov-p2/excerpts/` (ignored).
+- **Readiness on HOME-PC.** `.venv-omnivoice` holds exactly the pinned set; the model passed a full SHA-256 verification
+  this session and `files/runtime-data/omnivoice/model-verified.json` records it (beside the snapshot; no model file
+  changed). Not a production install record: Phase 3 still decides adopt-or-rebuild.
+- **Real smokes (technical only, not listening approval)** `files/dev-work/ov-p2/20261113-081533-smoke/report.json`: all
+  six PASS through the production path with the `v1` snapshot, two chunks each, one worker per chunk (worker 2 reloaded
+  the prompt from cache). MP3s 15.1-21.6 s, decoded peaks -0.45 to -3.30 dBFS, 0 samples at full scale; model load about
+  1.7 s per worker, 17 s of speech in about 1.8 s; peak VRAM 4.3 GB allocated (prompt build), 2.3 GB otherwise; Hub
+  cache empty before and after; no job folder left; the 6 recordings and 28 previews unchanged. Male 1 run twice gives a
+  byte-identical MP3 (prompt built, then cached).
+- **Tests (focused only; no full gate, no Codex review).** Command form:
+  `.venv\Scripts\python.exe -I -B -m pytest -q -p no:cacheprovider <files>`.
+  1. New `test_omnivoice_{reference,synth,speech,gui}.py` + `test_speech_{normalize,pipeline,g1,glossary,document}.py`:
+     **1719 passed**.
+  2. 41 touched-area, regression and meta-guard files (Qwen3 synth/GUI/runtime/worker/process, voice install, worker
+     limits, TTS jobs/importing/smoke, final tail, transcript bundle, source boundary, FFmpeg trust, EPUB retirement,
+     layout canary, repository contract, voice labels/previews, Chatterbox boundaries/integration/evaluation, Phase 1, ...):
+     **2777 passed, 3 skipped, 41 failed**, every failure inspected: 35 are assertions of the 28-voice / four-backend
+     roster or the 28-preview gallery (plan §5 assigns them to Phase 4), 6 are inherited from released v0.7.3 (four
+     version pins of 0.7.2: `test_plan3_boundaries`, `test_repository_contract`, `test_output_paths`,
+     `test_fatal_diagnostics`; `m4b_nero.py` missing from `test_layout_canary[m4b]` and `test_m4b_structural_authority`).
+  3. The 24 test files that read `md-instructions/`, over the staged docs: 1618 passed, 37 skipped, 5 failed (2 roster
+     pins, 3 inherited 0.7.2 version pins including `test_maintenance`).
+  4. Mutation controls: no-change control 382 passed; 11 of 11 mutants killed (double preparation, worker
+     normalization, 50 ms pause, no cancel at publication, early install offer, panel skipping the seam, full transcript
+     as reference text, unbounded worker, wrong structure, a native OmniVoice cell, a prompt key without the crop).
+- **Open for the owner / later phases.**
+  1. Session 4 (owner): approve or change the six crops and excerpt transcripts (Male 1 is now 4.885 s; the
+     alternatives are in Decisions); listen for calm, steady narration; class decisions for the all-expand row.
+  2. Phase 3: add `omnivoice` to the optional-setup protocol (Install & Continue then turns on by itself), license
+     disclosure (weights CC-BY-NC; tokenizer Boson Higgs Audio 2 Community Licence), adopt-or-rebuild of the Phase 1 env.
+  3. Phase 4: the 35 roster/preview assertions above; the inherited v0.7.3 failures before Session 5's gate -- released
+     `dbf38f7` sets VERSION 0.7.3 but NINE tests still pin 0.7.2 (`git grep '"0.7.2"' dbf38f7 -- files/tests`:
+     `test_fatal_diagnostics`, `test_maintenance`, `test_mp3_finalization`, `test_mp3_hardening`, `test_output_paths`,
+     `test_plan3_boundaries`, `test_preferences_maintenance_ui`, `test_repository_contract`,
+     `test_tool_output_integration`; they change anyway at 0.8.0), `m4b_nero.py` in two m4b guards, and the numba test
+     that passes only under `-B`; `generate_voice_samples.py` has no OmniVoice route; the longer run must re-check
+     peaks (Male 1/Male 3 chunks reached 0.997/0.99997, the decoder is unbounded) and the VRAM trend.
+  4. Known limitation: two different copies of the app can still run Qwen3 and OmniVoice at the same time (each engine
+     guards only its own model).
+- **Next exact action.** STOP. Session 3 / Phase 3 (the existing optional installer) only after the owner's review and
+  authorization. No Phase 3 code, no Codex review, no full gate before then.
+
 ## Current checkpoint — v0.8.0 Session 1 / Phase 1: PASS — isolated OmniVoice environment and one real offline clone (2026-11-13, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Plan:

@@ -26,7 +26,8 @@ MODE_TABLE_VERSION = 1
 MAX_MODE_FILE_BYTES = 100_000
 
 EDGE_DIRECT, EDGE_FOLDER, KOKORO, CHATTERBOX, QWEN3 = "edge_direct", "edge_folder", "kokoro", "chatterbox", "qwen3"
-ROUTES = (EDGE_DIRECT, EDGE_FOLDER, KOKORO, CHATTERBOX, QWEN3)
+OMNIVOICE = "omnivoice"  # v0.8.0: its own route, engine scope and mode-table row (plan section 4)
+ROUTES = (EDGE_DIRECT, EDGE_FOLDER, KOKORO, CHATTERBOX, QWEN3, OMNIVOICE)
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,8 @@ PROFILES: dict[str, EngineProfile] = {
     CHATTERBOX: EngineProfile(CHATTERBOX, "chatterbox", LOCAL_ENGINE_STRUCTURE, 300, ",:;-—–", False,
                               "unknown for years and currency; wheel punc_norm rewrites colons and dashes"),
     QWEN3: EngineProfile(QWEN3, "qwen3", HEADING_PARAGRAPH_STRUCTURE, 600, ",:;-—–", False, "unknown"),
+    # Qwen3's heading-as-paragraph structure, its own 300-character ceiling (tts.omnivoice_synth), no phoneme markup.
+    OMNIVOICE: EngineProfile(OMNIVOICE, "omnivoice", HEADING_PARAGRAPH_STRUCTURE, 300, ",:;-—–", False, "unknown"),
 }
 
 

@@ -79,12 +79,12 @@ def tamar(spoken="tay mar") -> list[dict]:
 # --------------------------------------------------------------------------- profiles and the mode table
 
 def test_five_routes_four_engines_and_no_rules_in_profiles():
-    assert profiles.ROUTES == ("edge_direct", "edge_folder", "kokoro", "chatterbox", "qwen3")
+    assert profiles.ROUTES == ("edge_direct", "edge_folder", "kokoro", "chatterbox", "qwen3", "omnivoice")
     assert {p.engine for p in profiles.PROFILES.values()} == set(ENGINE_IDS)
     assert profiles.PROFILES["edge_direct"].structure is None
     assert profiles.PROFILES["edge_folder"].structure == RAW_STRUCTURE
     assert profiles.PROFILES["kokoro"].structure == profiles.PROFILES["chatterbox"].structure == LOCAL_ENGINE_STRUCTURE
-    assert profiles.PROFILES["qwen3"].structure == HEADING_PARAGRAPH_STRUCTURE
+    assert profiles.PROFILES["qwen3"].structure == profiles.PROFILES["omnivoice"].structure == HEADING_PARAGRAPH_STRUCTURE
     assert [r for r, p in profiles.PROFILES.items() if p.phoneme_markup] == ["kokoro"]
     source = Path(profiles.__file__).read_text(encoding="utf-8")
     assert "re.compile" not in source and "finditer" not in source, "profiles select classes; rules live in classes.py"
@@ -131,7 +131,7 @@ def test_off_reads_nothing_and_unknown_settings_fall_back_to_off(tmp_path):
 def test_v1_reads_validates_and_reports_but_never_raises(tmp_path):
     clean = rollout_snapshot(user_dir=tmp_path / "absent")
     assert clean.enabled and clean.notes == () and clean.glossary == () and clean.user_overrides == ()
-    assert len(clean.cells) == 64 and len(clean.exceptions()) == 64
+    assert len(clean.cells) == 80 and len(clean.exceptions()) == 80  # 5 engines x 16 classes since v0.8.0
     broken = rollout_snapshot(user_dir=write_user(tmp_path / "b", glossary="{broken", modes="[1, 2]"))
     assert broken.enabled and broken.glossary == () and len(broken.notes) == 2
     unreadable_table = build_snapshot(SETTING_V1, user_dir=None, mode_table=tmp_path / "missing.json")
@@ -362,21 +362,22 @@ def test_the_panel_freezes_the_snapshot_and_hands_it_on_only_when_on(tmp_path):
     assert gui.speech_prep_kwargs({"speech_prep": run}) == {"speech_prep": run}
     assert gui.speech_prep_run_lines(OFF) == [] and gui.speech_prep_run_lines(None) == []
     lines = gui.speech_prep_run_lines(run)
-    assert lines[0].startswith("Speech preparation v1 (ruleset 1") and "64 of 64 cells not expanded" in lines[0]
+    assert lines[0].startswith("Speech preparation v1 (ruleset 1") and "80 of 80 cells not expanded" in lines[0]
     assert "glossary ignored" in lines[1]
     assert gui.SPEECH_USER_DIR.parts[-2:] == ("runtime-data", "speech")
 
 
 @pytest.mark.parametrize("helper, engine_name", [("convert_with_kokoro", "kokoro_file_to_mp3"),
                                                  ("convert_with_chatterbox", "chatterbox_file_to_mp3"),
-                                                 ("convert_with_qwen3", "qwen3_file_to_mp3")])
+                                                 ("convert_with_qwen3", "qwen3_file_to_mp3"),
+                                                 ("convert_with_omnivoice", "omnivoice_file_to_mp3")])
 def test_local_engine_helpers_pass_the_snapshot_only_when_on(helper, engine_name, tmp_path, monkeypatch):
     import importlib
 
     from tts import epub2tts_gui as gui
 
     module = {"kokoro_file_to_mp3": "tts.kokoro_synth", "chatterbox_file_to_mp3": "tts.chatterbox_synth",
-              "qwen3_file_to_mp3": "tts.qwen3_synth"}[engine_name]
+              "qwen3_file_to_mp3": "tts.qwen3_synth", "omnivoice_file_to_mp3": "tts.omnivoice_synth"}[engine_name]
     seen: list[dict] = []
 
     def engine(text_path, output_path, **kwargs):
@@ -472,7 +473,7 @@ def test_engine_modules_hold_no_normalization_rules():
     import ast
 
     tts_dir = Path(qs.__file__).parent
-    for name in ("kokoro_synth.py", "chatterbox_synth.py", "qwen3_synth.py", "batch_convert.py",
+    for name in ("kokoro_synth.py", "chatterbox_synth.py", "qwen3_synth.py", "omnivoice_synth.py", "batch_convert.py",
                  "epub2tts_edge/epub2tts_edge.py", "epub2tts_gui.py"):
         tree = ast.parse((tts_dir / name).read_text(encoding="utf-8"))
         for node in ast.walk(tree):

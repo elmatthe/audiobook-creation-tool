@@ -429,6 +429,33 @@ def _default_qwen3_setup_offered() -> bool:
     return qwen3_setup_offered()
 
 
+#: What the engine line says when an OmniVoice voice is selected (v0.8.0).
+OMNIVOICE_ENGINE_LABEL = "OmniVoice (Local AI)"
+
+
+def omnivoice_status(voice_id: str) -> tuple[bool, str]:
+    """The panel's one question to the OmniVoice engine: can this voice run right now?
+
+    Everything that decides it -- the platform, the GPU, the isolated environment, the model files, the recording and its
+    reviewed excerpt -- belongs to ``tts/omnivoice_runtime.py``. Lazy and never raising, like :func:`qwen3_status`, so a
+    machine with nothing installed still builds this panel and converts with every other engine.
+    """
+    try:
+        from tts.omnivoice_runtime import voice_availability
+    except Exception as exc:  # noqa: BLE001 - a missing engine is a status, not a crash
+        return False, (f"The OmniVoice voice engine is not available on this computer ({exc}). "
+                       "Every other voice is unaffected.")
+    try:
+        return voice_availability(voice_id)
+    except Exception as exc:  # noqa: BLE001 - likewise: report it, never crash a panel
+        return False, f"This voice could not be checked on this computer ({exc}). Every other voice is unaffected."
+
+
+def _default_omnivoice_status(voice_id: str) -> tuple[bool, str]:
+    """One hop, so the module function stays patchable (see _default_chatterbox_status)."""
+    return omnivoice_status(voice_id)
+
+
 def _source_signatures(snapshot) -> tuple:
     """``(path, size, mtime_ns)`` of every frozen source (``None`` for a missing one): what Install & Continue compares
     before resuming, so a file edited or removed during the install is never narrated silently."""
@@ -1004,6 +1031,7 @@ class TtsPanel(ttk.Frame):
         qwen3_hardware=None,
         qwen3_setup_offered=None,
         qwen3_setup_dialog=None,
+        omnivoice_status=None,
         local_assets=None,
         installable=None,
         install_dialog=None,
@@ -1074,6 +1102,9 @@ class TtsPanel(ttk.Frame):
                                      else _default_qwen3_setup_offered)
         self._qwen3_setup_dialog = (qwen3_setup_dialog if qwen3_setup_dialog is not None
                                     else _default_qwen3_setup_dialog)
+        # The same seam shape for the six OmniVoice voices (v0.8.0).
+        self._omnivoice_status = (omnivoice_status if omnivoice_status is not None
+                                  else _default_omnivoice_status)
         # v0.7.0 Install & Continue: whether a Kokoro/Chatterbox voice's model files are installed (they are never
         # downloaded on first use), which optional component installs a missing voice, and the review-and-install
         # dialog. All seams, so the suite never reads the real model cache or opens a real installer.
@@ -1656,6 +1687,17 @@ class TtsPanel(ttk.Frame):
             if not note:
                 self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
+        elif entry.backend == "omnivoice":
+            # No speed/rate control (plan section 3 adds no tuning controls) and no notice line of its own: only the
+            # status line, which appears when the voice cannot run here and says why.
+            self.backend_label_var.set(
+                f"Engine: {OMNIVOICE_ENGINE_LABEL}  |  Voice: {entry.voice_id}  "
+                f"|  Group: {entry.group_label}"
+            )
+            self.kokoro_speed_frm.grid_remove()
+            self.edge_rate_frm.grid_remove()
+            self.kokoro_notice_lbl.grid_remove()
+            self._refresh_voice_status(entry)
         elif entry.backend == "kokoro":
             self.backend_label_var.set(
                 f"Engine: Kokoro local AI  |  Voice code: {entry.voice_id}  "
@@ -1741,10 +1783,12 @@ class TtsPanel(ttk.Frame):
 
     def _voice_status(self, entry) -> tuple[bool, str]:
         """``(ok, reason)`` for *entry* from the engine seams alone, changing nothing on screen."""
-        if entry is None or entry.backend not in ("kokoro", "chatterbox", "qwen3"):
+        if entry is None or entry.backend not in ("kokoro", "chatterbox", "qwen3", "omnivoice"):
             return True, ""
         if entry.backend == "qwen3":
             return self._qwen3_status(entry.voice_id)
+        if entry.backend == "omnivoice":
+            return self._omnivoice_status(entry.voice_id)
         if entry.backend == "chatterbox":
             ok, reason = self._chatterbox_status(entry.voice_id)
             if not ok:
@@ -1770,7 +1814,7 @@ class TtsPanel(ttk.Frame):
         A Qwen3 voice asks the Qwen3 seam, never the Chatterbox one, and the reverse.
         """
         ok, reason = self._voice_status(entry)
-        if entry is None or entry.backend not in ("kokoro", "chatterbox", "qwen3"):
+        if entry is None or entry.backend not in ("kokoro", "chatterbox", "qwen3", "omnivoice"):
             self._voice_available = True
             self.voice_status_var.set("")
             self.voice_status_lbl.grid_remove()
@@ -3328,6 +3372,9 @@ class _RunContext:
                 elif backend == "qwen3":
                     convert_with_qwen3(item, params, self.log_q, self.log,
                                        self.cancel_check)
+                elif backend == "omnivoice":
+                    convert_with_omnivoice(item, params, self.log_q, self.log,
+                                           self.cancel_check)
                 elif item["direct"]:
                     convert_with_edge_engine(item, params, self.log_q,
                                              self.cancel_check)
@@ -3637,6 +3684,40 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
 
     def synthesize(text_path: str, output: str) -> None:
         qwen3_file_to_mp3(
+            text_path,
+            output,
+            voice_id=params["voice_id"],
+            end_silence_ms=params["end_pause"],
+            chunk_pause_ms=params["paragraph_pause"],
+            log=log,
+            cancel_check=cancel_check,
+            progress_callback=progress,
+            bitrate=params["bitrate"],
+            **speech_prep_kwargs(params),
+        )
+
+    _convert_with_local_engine(item, params, log, synthesize, cancel_check)
+
+
+def convert_with_omnivoice(item, params, log_q, log, cancel_check) -> None:
+    """One file through ``omnivoice_file_to_mp3``, the OmniVoice engine's own entry point (v0.8.0).
+
+    The same shape as :func:`convert_with_qwen3`: a PDF takes the one shared extractor, a TXT is handed over as it stands,
+    pauses come from the run's frozen voice preset, the run's frozen speech-preparation snapshot is passed on (the engine
+    prepares the text once), and each finished chunk refreshes the current-item message. The import stays inside the
+    function so a machine without OmniVoice never loads it to open this panel.
+    """
+    from tts.omnivoice_synth import omnivoice_file_to_mp3
+
+    source = item["source"]
+    publisher = params.get("publisher")
+
+    def progress(done: int, total: int) -> None:
+        if publisher is not None:
+            publisher.current_item(item["item_id"], f"Converting {source.name} — chunk {done}/{total}")
+
+    def synthesize(text_path: str, output: str) -> None:
+        omnivoice_file_to_mp3(
             text_path,
             output,
             voice_id=params["voice_id"],

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_comment": "Mode per engine and class: expand | native | glossary_only. Set from the owner's G1 listening verdicts (2026-10-20, files/tests/golden/speech/g1-verdicts.json): every cell expands except where the owner preferred the engine's own reading. Each native cell is a documented exception (Decisions 2026-10-20, Plan 01B A5) with a review checkpoint. HYG is mechanical-only and expands everywhere.",
+  "_comment": "Mode per engine and class: expand | native | glossary_only. Set from the owner's G1 listening verdicts (2026-10-20, files/tests/golden/speech/g1-verdicts.json): every cell expands except where the owner preferred the engine's own reading. Each native cell is a documented exception (Decisions 2026-10-20, Plan 01B A5) with a review checkpoint. HYG is mechanical-only and expands everywhere. The omnivoice row (v0.8.0) is the plan's provisional all-expand baseline, not a G1 verdict: any change to one of its cells needs the owner's Phase 4 listening decision.",
   "modes": {
     "edge": {
       "HYG": "expand",
@@ -57,6 +57,24 @@
       "SYM": "expand"
     },
     "qwen3": {
+      "HYG": "expand",
+      "CARD": "expand",
+      "DEC": "expand",
+      "ORD": "expand",
+      "PCT": "expand",
+      "CUR": "expand",
+      "YEAR": "expand",
+      "TIME": "expand",
+      "RATIO": "expand",
+      "DATE": "expand",
+      "RANGE": "expand",
+      "FRAC": "expand",
+      "UNIT": "expand",
+      "TITLE": "expand",
+      "ROMAN": "expand",
+      "SYM": "expand"
+    },
+    "omnivoice": {
       "HYG": "expand",
       "CARD": "expand",
       "DEC": "expand",

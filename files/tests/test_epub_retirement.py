@@ -67,6 +67,10 @@ PRODUCTION_TTS_SOURCES = (
     "tts/qwen3_runtime.py",
     "tts/qwen3_synth.py",
     "tts/qwen3_worker.py",
+    # Added by v0.8.0 Phase 2: the OmniVoice engine (runtime facts, synthesis, the venv-side worker). Same reasoning as above.
+    "tts/omnivoice_runtime.py",
+    "tts/omnivoice_synth.py",
+    "tts/omnivoice_worker.py",
     # Added by the v0.7.1 R2 remediation: what supervises every FFmpeg on the Edge routes. Same reasoning as chatterbox_synth.py above.
     "tts/ffmpeg_watch.py",
     # Added by v0.7.2 Phase 1: how one Edge request answers to Cancel. Same reasoning as chatterbox_synth.py above.

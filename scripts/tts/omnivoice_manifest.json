@@ -1,0 +1,432 @@
+{
+ "schema": "act-omnivoice-engine",
+ "version": 1,
+ "purpose": "What the six OmniVoice voices run on (ACT v0.8.0, plan section 4): the pinned package set of .venv-omnivoice and the pinned model snapshot. The application reads it to decide readiness; it never downloads from it. Qualified in Phase 1 (Decisions 2026-11-13); the package set is upstream OmniVoice's own uv.lock at tag 0.2.1 for win_amd64 / CPython 3.12, without extras.",
+ "engine": {
+  "omnivoice": "0.2.1",
+  "python": "3.12",
+  "platform": "win_amd64",
+  "git_commit": "5ba967c4d5b0f08244ae856b033eea583d1e4517",
+  "uv_lock_sha256": "56f22586e2d305dfc8913ed2569d7588fc96efdac00162397e035f5a014b07be"
+ },
+ "licenses": {
+  "code": "Apache-2.0 (omnivoice 0.2.1)",
+  "weights": "CC-BY-NC, stated in the model card's License section (\"The pre-trained model is licensed under the CC-BY-NC due to constraints from its training data (e.g., Emilia).\"); no version is given and the repository's metadata declares no license. Non-commercial.",
+  "audio_tokenizer": "Boson Higgs Audio 2 Community License Agreement (audio_tokenizer/LICENSE), based on the Meta Llama 3 Community License: attribution and a Notice file when distributed, the Llama 3 Acceptable Use Policy, an expanded license from Boson AI above 100,000 monthly active users, and no use of its outputs to improve another large language model."
+ },
+ "model": {
+  "repo": "k2-fsa/OmniVoice",
+  "revision": "c5fdb5ccb189668d56333f77ba2629f4cd7535f4",
+  "load_required": [
+   "config.json",
+   "model.safetensors",
+   "tokenizer.json",
+   "tokenizer_config.json",
+   "chat_template.jinja",
+   "audio_tokenizer/config.json",
+   "audio_tokenizer/model.safetensors",
+   "audio_tokenizer/preprocessor_config.json"
+  ],
+  "files": {
+   "README.md": {
+    "size": 9424,
+    "sha256": "b5d645a1874baa96a460a0e3a7d5a262811d682d04ce235878a16d5fed287fd3"
+   },
+   "audio_tokenizer/LICENSE": {
+    "size": 9171,
+    "sha256": "ac933dc084d119bd20401956b90d11ae87c248b2da62622cd580d82cdf2fa049"
+   },
+   "audio_tokenizer/README.md": {
+    "size": 5174,
+    "sha256": "0336368f8274a5ed09f54cee8d56a851ecee96026d9f391a6735762c16608a60"
+   },
+   "audio_tokenizer/config.json": {
+    "size": 2531,
+    "sha256": "eefb20806f7104e77c9a5277c9df0f9bb8826b08eb1d4e8ab2b9829b6ef9fac1"
+   },
+   "audio_tokenizer/model.safetensors": {
+    "size": 805665628,
+    "sha256": "fe7c5e8785e0a05833e1bfc3e002ec7f55af21e306b2e7154a448c1f54ccfb0d"
+   },
+   "audio_tokenizer/preprocessor_config.json": {
+    "size": 206,
+    "sha256": "ae61eea88558608ee2fa86d2aec9fce8d99a5ff75d09cb7651ccce21ae1d9084"
+   },
+   "chat_template.jinja": {
+    "size": 4168,
+    "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
+   },
+   "config.json": {
+    "size": 2238,
+    "sha256": "5e359117e13b420c5e0c925d4aba650d624767131f1d1746928f8b850d5dc372"
+   },
+   "model.safetensors": {
+    "size": 2450344112,
+    "sha256": "730839316de585f4c8298ec0e1712efc10fb19c6fa4e36eb741cb8d51ebcf6aa"
+   },
+   "tokenizer.json": {
+    "size": 11423986,
+    "sha256": "408f669b7e2b045fdf54201d815bd364e6667dbd845115da81239c40bc6dcfd1"
+   },
+   "tokenizer_config.json": {
+    "size": 533,
+    "sha256": "49f78845596a82bf15c83673794bdf9f76f812b11f60ab6a2239d9be65b00676"
+   }
+  },
+  "note": "The snapshot's two .gitattributes files are not part of the engine and are not checked."
+ },
+ "packages": [
+  [
+   "accelerate",
+   "1.13.0"
+  ],
+  [
+   "aiofiles",
+   "24.1.0"
+  ],
+  [
+   "annotated-doc",
+   "0.0.4"
+  ],
+  [
+   "annotated-types",
+   "0.7.0"
+  ],
+  [
+   "anyio",
+   "4.12.1"
+  ],
+  [
+   "audioread",
+   "3.1.0"
+  ],
+  [
+   "braceexpand",
+   "0.1.7"
+  ],
+  [
+   "brotli",
+   "1.2.0"
+  ],
+  [
+   "certifi",
+   "2026.2.25"
+  ],
+  [
+   "cffi",
+   "2.0.0"
+  ],
+  [
+   "charset-normalizer",
+   "3.4.6"
+  ],
+  [
+   "click",
+   "8.3.1"
+  ],
+  [
+   "colorama",
+   "0.4.6"
+  ],
+  [
+   "decorator",
+   "5.2.1"
+  ],
+  [
+   "fastapi",
+   "0.135.2"
+  ],
+  [
+   "ffmpy",
+   "1.0.0"
+  ],
+  [
+   "filelock",
+   "3.25.2"
+  ],
+  [
+   "fsspec",
+   "2026.2.0"
+  ],
+  [
+   "gradio",
+   "6.9.0"
+  ],
+  [
+   "gradio-client",
+   "2.3.0"
+  ],
+  [
+   "groovy",
+   "0.1.2"
+  ],
+  [
+   "h11",
+   "0.16.0"
+  ],
+  [
+   "hf-xet",
+   "1.4.2"
+  ],
+  [
+   "httpcore",
+   "1.0.9"
+  ],
+  [
+   "httpx",
+   "0.28.1"
+  ],
+  [
+   "huggingface-hub",
+   "1.7.2"
+  ],
+  [
+   "idna",
+   "3.11"
+  ],
+  [
+   "jinja2",
+   "3.1.6"
+  ],
+  [
+   "joblib",
+   "1.5.3"
+  ],
+  [
+   "lazy-loader",
+   "0.5"
+  ],
+  [
+   "librosa",
+   "0.11.0"
+  ],
+  [
+   "llvmlite",
+   "0.46.0"
+  ],
+  [
+   "markdown-it-py",
+   "4.0.0"
+  ],
+  [
+   "markupsafe",
+   "3.0.3"
+  ],
+  [
+   "mdurl",
+   "0.1.2"
+  ],
+  [
+   "mpmath",
+   "1.3.0"
+  ],
+  [
+   "msgpack",
+   "1.1.2"
+  ],
+  [
+   "networkx",
+   "3.6.1"
+  ],
+  [
+   "numba",
+   "0.64.0"
+  ],
+  [
+   "numpy",
+   "2.4.3"
+  ],
+  [
+   "omnivoice",
+   "0.2.1"
+  ],
+  [
+   "orjson",
+   "3.11.7"
+  ],
+  [
+   "packaging",
+   "26.0"
+  ],
+  [
+   "pandas",
+   "3.0.1"
+  ],
+  [
+   "pillow",
+   "12.1.1"
+  ],
+  [
+   "platformdirs",
+   "4.9.4"
+  ],
+  [
+   "pooch",
+   "1.9.0"
+  ],
+  [
+   "protobuf",
+   "7.34.1"
+  ],
+  [
+   "psutil",
+   "7.2.2"
+  ],
+  [
+   "pycparser",
+   "3.0"
+  ],
+  [
+   "pydantic",
+   "2.12.5"
+  ],
+  [
+   "pydantic-core",
+   "2.41.5"
+  ],
+  [
+   "pydub",
+   "0.25.1"
+  ],
+  [
+   "pygments",
+   "2.19.2"
+  ],
+  [
+   "python-dateutil",
+   "2.9.0.post0"
+  ],
+  [
+   "python-multipart",
+   "0.0.22"
+  ],
+  [
+   "pytz",
+   "2026.1.post1"
+  ],
+  [
+   "pyyaml",
+   "6.0.3"
+  ],
+  [
+   "regex",
+   "2026.2.28"
+  ],
+  [
+   "requests",
+   "2.32.5"
+  ],
+  [
+   "rich",
+   "14.3.3"
+  ],
+  [
+   "safehttpx",
+   "0.1.7"
+  ],
+  [
+   "safetensors",
+   "0.7.0"
+  ],
+  [
+   "scikit-learn",
+   "1.8.0"
+  ],
+  [
+   "scipy",
+   "1.17.1"
+  ],
+  [
+   "semantic-version",
+   "2.10.0"
+  ],
+  [
+   "setuptools",
+   "82.0.1"
+  ],
+  [
+   "shellingham",
+   "1.5.4"
+  ],
+  [
+   "six",
+   "1.17.0"
+  ],
+  [
+   "soundfile",
+   "0.13.1"
+  ],
+  [
+   "soxr",
+   "1.0.0"
+  ],
+  [
+   "starlette",
+   "0.52.1"
+  ],
+  [
+   "sympy",
+   "1.14.0"
+  ],
+  [
+   "tensorboardx",
+   "2.6.4"
+  ],
+  [
+   "threadpoolctl",
+   "3.6.0"
+  ],
+  [
+   "tokenizers",
+   "0.22.2"
+  ],
+  [
+   "tomlkit",
+   "0.13.3"
+  ],
+  [
+   "torch",
+   "2.8.0+cu128"
+  ],
+  [
+   "torchaudio",
+   "2.8.0+cu128"
+  ],
+  [
+   "tqdm",
+   "4.67.3"
+  ],
+  [
+   "transformers",
+   "5.3.0"
+  ],
+  [
+   "typer",
+   "0.24.1"
+  ],
+  [
+   "typing-extensions",
+   "4.15.0"
+  ],
+  [
+   "typing-inspection",
+   "0.4.2"
+  ],
+  [
+   "tzdata",
+   "2025.3"
+  ],
+  [
+   "urllib3",
+   "2.6.3"
+  ],
+  [
+   "uvicorn",
+   "0.42.0"
+  ],
+  [
+   "webdataset",
+   "1.0.2"
+  ]
+ ]
+}

@@ -20,7 +20,7 @@ from .integrity import content_hash
 
 BUNDLED_GLOSSARY = Path(__file__).with_name("data") / "glossary.default.json"
 SCHEMA_VERSION = 1
-ENGINE_IDS = ("edge", "kokoro", "chatterbox", "qwen3")
+ENGINE_IDS = ("edge", "kokoro", "chatterbox", "qwen3", "omnivoice")
 ALL_ENGINES = "*"
 MAX_FILE_BYTES = 1_000_000
 MAX_ENTRIES = 2000

@@ -166,4 +166,4 @@ def test_glossary_edits_are_traceable_and_hashed():
 
 
 def test_engine_ids_match_the_four_engines():
-    assert g.ENGINE_IDS == ("edge", "kokoro", "chatterbox", "qwen3")
+    assert g.ENGINE_IDS == ("edge", "kokoro", "chatterbox", "qwen3", "omnivoice")  # v0.8.0 adds a fifth engine

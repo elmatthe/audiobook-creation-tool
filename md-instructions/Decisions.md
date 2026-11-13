@@ -2,6 +2,91 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-13 — v0.8.0 Phase 2: ten seconds is a maximum and every OmniVoice excerpt ends in a natural pause; the engine prepares text once and runs in bounded offline workers (owner decision; implementation decisions by Claude Code)
+
+**Owner decision (2026-11-13, Session 2 kickoff), superseding the plan's exact-10-second crop.** Ten seconds is a
+MAXIMUM. Each of the six OmniVoice references starts at 0.000 s and ends as close to 10.000 s as is safe, never later:
+the final audible word is complete, the last sample lies inside a natural quiet interval after it, a short natural quiet
+tail is kept where the recording permits, nothing is padded or faded, and if the nearest safe pause is earlier the
+shorter excerpt is used; where no defensible end exists the ambiguity is reported, not guessed. The plan's §§3, 4, 5, 6
+and 7 now say this (narrow wording changes only; Session 1's historical text is unchanged).
+
+**The silence rule (`act-omnivoice-silence-v1`, `tts/omnivoice_runtime.py`).** Mean-square energy of 20 ms frames every
+5 ms; an adaptive threshold per recording, `floor + max(6 dB, 20% of (speech - floor))`, with floor and speech the 5th
+and 95th percentiles of its frame energies (never one low sample or a zero crossing). A quiet run counts as a natural
+pause only from 150 ms: English stop and glottal closures are shorter, and the real recordings have 40-80 ms closures
+inside and between words that an energy check alone would accept. The cut keeps at least 100 ms of the pause after the
+last word and at least 50 ms before the next sound; the latest such cut within 10 s is chosen deterministically. Silence
+cannot prove a word is complete, so each end word was also aligned with the approved transcript: syllable-nucleus counts
+between pauses against the transcript's syllables, and spectrograms of every boundary (no speech recognizer). The six
+transcripts are the approved full transcripts' exact opening words, cut at the pause; they are **provisional** until the
+owner's Session 4 listening.
+
+| Voice | End frame (24 kHz) | Duration | Last word | Natural pause |
+|---|---|---|---|---|
+| OmniVoice - Female 1 | 199,440 | 8.310 s | "me," | 7.850-8.360 s (510 ms) |
+| OmniVoice - Female 2 | 176,160 | 7.340 s | "Reclentos," | 7.115-7.390 s (275 ms) |
+| OmniVoice - Male 1 | 117,240 | 4.885 s | "Shinovar," | 4.295-4.935 s (640 ms) |
+| OmniVoice - Male 2 | 198,360 | 8.265 s | "Whiskers," | 7.995-8.315 s (320 ms) |
+| OmniVoice - Male 3 | 196,560 | 8.190 s | "day." | 7.280-8.240 s (960 ms) |
+| OmniVoice - Male 4 | 218,280 | 9.095 s | "drowsing," | 8.850-9.145 s (295 ms) |
+
+**Male 1: the Phase 1 proof crop is replaced.** Frame 230,760 (9.615 s, owner-accepted for the Session 1 proof) ends
+where the voicing of "all" runs into the /th/ frication of "things": its 20 ms frames measure -38 to -40 dB against the
+recording's -70.5 dB floor and -58.9 dB quiet threshold. Under the new rule that is a real defect. Between 4.935 s and
+10 s the recording has no natural pause, only 45, 80 and 65 ms closures (the 65 ms one at 8.70 s is most likely the
+glottal onset of "end" after "the", which would also have left the transcript's last word uncertain), so the rule gives
+the 640 ms pause after "Shinovar,": 4.885 s, inside upstream's own 3-10 s recommendation. Likewise Female 2's 65 ms gap
+after "subordinate," (8.53 s; stop closures) was not used. All six recordings are mid-speech at exactly 10.000 s. The
+owner may still choose differently in Session 4; any change is a new authority entry, never an edit to a recording.
+
+**Where it lives.** `scripts/tts/data/omnivoice_excerpts.json` holds, per voice, the recording's SHA-256 and format, the
+crop, the pause, the excerpt's PCM and WAV SHA-256, the last word, the transcript and its SHA-256, a status
+(`provisional`) and a note on the evidence; it is checked as a whole against the shipped full-transcript bundle and the
+registered recording hashes. The excerpt is cut again from the verified recording in each run's job folder (ignored,
+removed after the run), its PCM proved equal to the reviewed one; nothing is padded. `scripts/tts/omnivoice_manifest.json`
+pins the 88-package set (upstream's `uv.lock` at 0.2.1) and 11 model files (the snapshot's two `.gitattributes` are not
+part of the engine). Readiness is cheap: the environment's `*.dist-info` listing must equal the pinned set (pip aside),
+and the model's sizes and modification times must match a record (`files/runtime-data/omnivoice/model-verified.json`,
+beside the snapshot, never in it) that only a full SHA-256 verification (`verify_model_files`) writes. That verification
+was run once on HOME-PC this session over the Phase 1 snapshot (no file changed); it is not a production install record,
+and plan Phase 3 still decides whether the Phase 1 environment is adopted or rebuilt.
+
+**Engine decisions.** One OmniVoice file worker at a time; each worker renders at most 48 chunks and exits (upstream issue
+#199: no file accumulates GPU state in one process), reloading the model (about 1.7 s) and the clone prompt from cache.
+Chunks are at most 300 characters: upstream re-splits anything it estimates above 30 s of speech, and the excerpts speak
+about 12-14 characters a second. Generation is upstream's own 0.2.1 defaults (32 steps), fp16 on the GPU only: no CPU
+path is offered or claimed, and a computer without an NVIDIA GPU is told so and not offered an install. The worker runs
+`-I`, offline (Hub switches, an app-owned empty cache) behind an audit hook that refuses every non-loopback lookup and
+connection, refuses OmniVoice's speech recognizer outright, and calls `generate(..., normalize_text=False)`. A reusable
+clone prompt is filed under a SHA-256 of every input that shapes it (recording, excerpt PCM and crop, preprocessing and
+silence-rule versions, excerpt transcript, model revision, engine version, prompt format, preprocessing flag, dtype) and is
+loaded (`torch.load(weights_only=True)` upstream) only when its identity record matches and the file hashes to the bytes
+this app's worker recorded. The run holds `files/runtime-data/omnivoice/inference.lock` and a machine-wide named mutex of
+its own (`AudiobookCreationTool-OmniVoice-ModelGuard-v1`); it does not take Qwen3's, so two different copies of the app
+could still run Qwen3 and OmniVoice at once (within one app a run has one engine). The upstream decoder's final `tanh` is
+removed, so output is unbounded: in the six smokes no sample reached full scale (highest 0.99997, Male 3) and the decoded
+MP3s peaked at -0.45 dBFS or below with no overs, so no gain processing was added; the run logs its peak and any samples
+at full scale, and Phase 4's longer run must check them again.
+
+**Speech preparation.** OmniVoice is a fifth engine in the existing system and nothing else: route and engine `omnivoice`
+in `speech/profiles.py` (Qwen3's heading-as-paragraph structure, its own 300 ceiling, Qwen3's protected punctuation, no
+phoneme markup), the glossary's engine allowlist, and a complete 16-class `modes.json` row, all `expand` as the plan's
+provisional baseline (the table's comment says it is not a G1 verdict). No rule, number, unit, lexicon or historical
+verdict changed; the 60 G1 verdicts are pinned by a canonical hash. `prepare()` runs once per file in the app before
+chunking, with the run's frozen snapshot; `off` leaves only the structure stage.
+
+**Install & Continue.** The six voices name the component `omnivoice`, but it is offered only once the optional-setup
+protocol knows that component (plan Phase 3); until then an uninstalled voice shows the engine's sentence and Start is
+refused before anything is reserved.
+
+**Tests left for Phase 4 (plan §5 Session 4, "tests that explicitly assume four engines/28 total voices").** Registering
+the six rows makes 35 existing assertions of the 28-voice, four-backend roster and the 28-preview gallery fail (files:
+`test_chatterbox_boundaries`, `test_voice_labels`, `test_voice_previews`, `test_tts_smoke`, `test_fatal_diagnostics`,
+`test_tts_importing`, `test_chatterbox_integration`, `test_chatterbox_candidates`, `test_chatterbox_evaluation`,
+`test_epub_retirement`, `test_tts_jobs`). Each was inspected: every one is a closed-roster count, list or preview-manifest
+pin, none a behaviour change. `generate_voice_samples` has no OmniVoice route yet (Phase 4 listening pack decides it).
+
 ## 2026-11-13 — v0.8.0 Phase 1: OmniVoice is qualified in a sibling environment pinned to upstream's own lock; the proof's reference is an owner-accepted shorter whole-word crop (owner rulings recorded by Claude Code)
 
 **Environment.** `.venv-omnivoice` is a sibling of `.venv`, as plan §4 chose: OmniVoice 0.2.1 needs

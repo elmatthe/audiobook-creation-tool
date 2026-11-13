@@ -3,8 +3,8 @@
 v0.7.0 release (Install & Continue). Since P05B Stage 2, Kokoro and Chatterbox never download on first use: they load
 only verified local files (``tts.model_assets``). So the TTS panel must know, before it starts a run, whether the
 selected voice's models are on this computer, and if not, which of the four optional components installs them. This
-module answers both, cheaply and without importing an engine. Qwen3 voices keep their own complete answer
-(``qwen3_runtime.voice_availability``); this module only names their component.
+module answers both, cheaply and without importing an engine. Qwen3 and OmniVoice voices keep their own complete answers
+(``qwen3_runtime.voice_availability``, ``omnivoice_runtime.voice_availability``); this module only names their component.
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ def component_for(backend: str, voice_id: str) -> Optional[str]:
         for component, model_key in proto.QWEN3_MODEL_KEYS.items():
             if model_key == key:
                 return component
+    if backend == "omnivoice":
+        from tts import omnivoice_runtime as ov
+        return ov.COMPONENT if voice_id in {v.voice_id for v in ov.OMNIVOICE_VOICES} else None
     return None
 
 
@@ -75,6 +78,16 @@ def installable(backend: str, voice_id: str, reason: str) -> Optional[str]:
         return None
     if backend in ("kokoro", "chatterbox"):
         return component if NOT_INSTALLED in reason else None
+    if backend == "omnivoice":
+        # Offered only once the optional setup can install it (v0.8.0 Phase 3 adds the component to the protocol), and
+        # only when installing could help: never on a computer without an NVIDIA GPU, nor once engine and model are ready.
+        if component not in proto.COMPONENTS:
+            return None
+        try:
+            from tts import omnivoice_runtime as ov
+            return component if ov.install_would_help() else None
+        except Exception:  # noqa: BLE001
+            return None
     # Qwen3: the runtime's own reasons for a missing engine or model.
     try:
         from tts import qwen3_runtime as rt

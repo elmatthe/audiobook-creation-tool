@@ -120,8 +120,9 @@ EDGE = "edge"
 #: Simultaneous Edge files, whatever the machine (see the module docstring).
 EDGE_SERVICE_CEILING = 32
 #: The local engines: one file at a time, always.
-LOCAL_ENGINE_CEILINGS = {"kokoro": 1, "chatterbox": 1, "qwen3": 1}
-ENGINE_NAMES = {EDGE: "Edge", "kokoro": "Kokoro", "chatterbox": "Chatterbox Turbo", "qwen3": "Qwen3-TTS"}
+LOCAL_ENGINE_CEILINGS = {"kokoro": 1, "chatterbox": 1, "qwen3": 1, "omnivoice": 1}
+ENGINE_NAMES = {EDGE: "Edge", "kokoro": "Kokoro", "chatterbox": "Chatterbox Turbo", "qwen3": "Qwen3-TTS",
+                "omnivoice": "OmniVoice"}
 #: Used when the processor count cannot be read.
 FALLBACK_CPUS = 4
 
