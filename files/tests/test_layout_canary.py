@@ -119,18 +119,24 @@ def test_the_data_locations_did_not_move():
 
 
 def test_the_bundled_reference_recordings_are_where_they_were_and_bit_identical():
+    """v0.8.0 (owner decision 2026-11-13): each cloned engine's own six, in its own folder -- 18, each bit-identical to
+    the hash its engine pins. Qwen3's six are still the original recordings."""
     import hashlib
 
     from shared import release
+    from tts import chatterbox_synth as cbx
+    from tts import omnivoice_runtime as ov
     from tts import qwen3_runtime as rt
 
     expected = {v.reference_sha256 for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE}
+    expected |= {v.source_sha256 for v in cbx.REFERENCE_VOICES.values()}
+    expected |= {v.reference_sha256 for v in ov.OMNIVOICE_VOICES}
     found = set()
     for relative in release.REFERENCE_ASSETS:
         path = REPO_ROOT / relative
         assert path.is_file(), relative
         found.add(hashlib.sha256(path.read_bytes()).hexdigest())
-    assert found == expected and len(found) == 6
+    assert found == expected and len(found) == 18
 
 
 def test_whole_tree_parametrizations_see_exactly_the_application_source():

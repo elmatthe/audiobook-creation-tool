@@ -21,10 +21,14 @@ input is longer than 5 seconds. Derivatives here are therefore a deterministic
 consults. It also normalises loudness itself (to about -27 LUFS), so this module
 must not pre-normalise; doing it twice would be wrong.
 
-**Bundled reference assets.** ``files/Cloned-Voice-Uploads/`` (``voice_registry.REFERENCE_DIRECTORY``) holds
-six distributable WAV references made from the approved curated local MP3s,
-authorized by the maintainer for bundled Chatterbox use. They are strictly
-read-only inputs: this module verifies each one's SHA-256 before use, never writes into that directory,
+**Bundled reference assets.** ``files/Cloned-Voice-Uploads/Chatterbox/`` (``voice_registry.REFERENCE_DIRECTORY``
+plus the engine's own folder) holds Chatterbox's own six WAVs, ``Chatterbox - <Voice>.wav``: the owner's new
+recordings for this engine (owner decision 2026-11-13; 44.1 kHz mono 16-bit, 7.5-10.9 s, each longer than the
+5-second minimum), decoded by the leading-window step below exactly like the earlier 24 kHz files. Their owner-written
+transcripts are checked metadata in ``tts/data/clone_references.json``; Chatterbox Turbo takes no reference text, so
+none is given to the model. The Qwen3 and OmniVoice clones have their own recordings in their own folders. The
+recordings are strictly read-only inputs: this module verifies each one's SHA-256 before use, never writes into the
+reference directory (any engine's folder),
 and puts every derivative and cached conditional under the ignored
 ``files/runtime-data/`` tree. A missing or altered recording degrades to a truthful
 "setup required" status — it never substitutes another voice and never fetches a
@@ -73,7 +77,7 @@ from tts import audio_tail
 from tts import model_assets
 from shared import work_area
 from tts.speech.document import read_source_text
-from tts.voice_registry import REFERENCE_DIRECTORY, label_for, reference_recording_filename
+from tts.voice_registry import REFERENCE_DIRECTORY, REFERENCE_FOLDERS, label_for, reference_recording_filename
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import CHATTERBOX as CHATTERBOX_ROUTE
 
@@ -647,28 +651,31 @@ class ReferenceVoice:
 # The closed set of six (drop §5.7 plus v0.6.5 Phase 2's approved Male 3 and
 # Male 4). These are engine-internal identifiers: they are deliberately NOT
 # VoiceEntry rows on their own, so nothing reaches the GUI dropdown until a
-# phase registers them. The 2026-09-30 post-release cleanup binds the bundled
+# phase registers them. The 2026-09-30 post-release cleanup bound the bundled
 # leading-15-second WAVs; curated MP3 originals remain local-only and untouched.
+# v0.8.0 (owner decision 2026-11-13): the six hashes below bind Chatterbox's OWN
+# new recordings in files/Cloned-Voice-Uploads/Chatterbox/; the earlier shared
+# WAVs are now Qwen3's alone (renamed, bytes unchanged).
 REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-female-1": ReferenceVoice(
         voice_id="chatterbox-female-1",
         source_name=reference_recording_filename("chatterbox", "chatterbox-female-1"),
-        source_sha256="b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4",
+        source_sha256="994b700eb4fa65fff22da7af6c69517afa637921a79e356b43ef414f2b096374",
     ),
     "chatterbox-female-2": ReferenceVoice(
         voice_id="chatterbox-female-2",
         source_name=reference_recording_filename("chatterbox", "chatterbox-female-2"),
-        source_sha256="428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205",
+        source_sha256="a1a6530fb06d8199a25e18224218c2d893b3c9a17f6c20738058a4da7947466e",
     ),
     "chatterbox-male-1": ReferenceVoice(
         voice_id="chatterbox-male-1",
         source_name=reference_recording_filename("chatterbox", "chatterbox-male-1"),
-        source_sha256="45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58",
+        source_sha256="8f1999ded53fefd80a5659cd75ac6d016a0cfbd6031e79dcface454c7b1d875c",
     ),
     "chatterbox-male-2": ReferenceVoice(
         voice_id="chatterbox-male-2",
         source_name=reference_recording_filename("chatterbox", "chatterbox-male-2"),
-        source_sha256="592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355",
+        source_sha256="d8939ad19dc90718efb2fb27251a5aa665c3cc76efa2ed161e6cac739400f69c",
     ),
     # v0.6.5 Phase 2: approved by the maintainer's final listening ruling on
     # 2026-09-20 — the ORIGINAL candidate sample (a separate bounded
@@ -679,7 +686,7 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-male-3": ReferenceVoice(
         voice_id="chatterbox-male-3",
         source_name=reference_recording_filename("chatterbox", "chatterbox-male-3"),
-        source_sha256="4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80",
+        source_sha256="152b8aa13fbf23d5ce73beee1ba348009f9b7b01b6fc838b0ea94ea834f22b8b",
     ),
     # v0.6.5 Phase 2: approved by the maintainer's listening gate (Section 5)
     # on 2026-09-20. The later maintainer-authorized bundling binds the WAV
@@ -687,7 +694,7 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-male-4": ReferenceVoice(
         voice_id="chatterbox-male-4",
         source_name=reference_recording_filename("chatterbox", "chatterbox-male-4"),
-        source_sha256="47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad",
+        source_sha256="9eb5722dee8fc186bcccdfef5b837160a8658374ac3d74106bb969184a96ca42",
     ),
 }
 
@@ -720,8 +727,13 @@ def _runtime_root() -> Path:
 
 
 def protected_uploads_dir() -> Path:
-    """The read-only source recordings. Nothing in this module ever writes here."""
+    """The read-only reference directory (every engine's folder). Nothing in this module ever writes here."""
     return _repo_root().joinpath(*REFERENCE_DIRECTORY)
+
+
+def chatterbox_uploads_dir() -> Path:
+    """Chatterbox's own six recordings: ``files/Cloned-Voice-Uploads/Chatterbox/`` (v0.8.0)."""
+    return protected_uploads_dir() / REFERENCE_FOLDERS["chatterbox"]
 
 
 def reference_clips_dir() -> Path:
@@ -791,7 +803,7 @@ def get_reference_voice(voice_id: str) -> ReferenceVoice:
 
 
 def reference_source_path(voice_id: str) -> Path:
-    return protected_uploads_dir() / get_reference_voice(voice_id).source_name
+    return chatterbox_uploads_dir() / get_reference_voice(voice_id).source_name
 
 
 def sha256_of(path) -> str:
@@ -814,7 +826,7 @@ def resolve_reference(voice_id: str) -> Path:
     if not path.is_file():
         raise ChatterboxUnavailable(
             f"Setup required for {voice.label}: the reference recording "
-            f"'{voice.source_name}' is not present in {protected_uploads_dir()}. "
+            f"'{voice.source_name}' is not present in {chatterbox_uploads_dir()}. "
             "This voice is unavailable on this machine; Edge and Kokoro voices are "
             "unaffected."
         )

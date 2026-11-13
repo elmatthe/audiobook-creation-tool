@@ -145,22 +145,29 @@ def git_head() -> str:
 # References and transcripts
 # --------------------------------------------------------------------------- #
 def reference_snapshot() -> dict[str, dict]:
-    """Path, registered and actual SHA-256, mtime and PCM properties of the six source WAVs."""
+    """Path, registered and actual SHA-256, mtime and PCM properties of the six source WAVs the Qwen clones use.
+
+    v0.8.0 (owner decision 2026-11-13): those are Qwen3's own recordings -- the original v0.6.7 files this evaluation
+    was made with, renamed to ``Qwen3/Qwen3 - <Voice>.wav`` with their bytes unchanged -- not Chatterbox's new ones.
+    ``voice_id`` stays the paired Chatterbox row's id (the key the rows are matched by).
+    """
     import soundfile as sf
 
-    from tts import chatterbox_synth as cs
+    from tts import qwen3_runtime as rt
 
+    clones = {v.reference_name: v for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE}
     state: dict[str, dict] = {}
     for display, voice_id in core.REFERENCE_VOICE_IDS:
-        voice, path = cs.get_reference_voice(voice_id), cs.reference_source_path(voice_id)
+        clone = clones[display]
+        path, registered = rt.reference_path(clone), clone.reference_sha256
         info = {"voice_id": voice_id, "path": path.relative_to(core.REPO_ROOT).as_posix(),
-                "registered_sha256": voice.source_sha256, "exists": path.is_file(), "ok": False}
+                "registered_sha256": registered, "exists": path.is_file(), "ok": False}
         if info["exists"]:
             stat, meta = path.stat(), sf.info(str(path))
             info.update(sha256=core.sha256_file(path), mtime_ns=stat.st_mtime_ns, bytes=stat.st_size,
                         subtype=meta.subtype, channels=meta.channels, samplerate=meta.samplerate,
                         frames=meta.frames, duration_s=round(meta.duration, 6))
-            info["ok"] = (info["sha256"] == voice.source_sha256 and meta.subtype == "PCM_16"
+            info["ok"] = (info["sha256"] == registered and meta.subtype == "PCM_16"
                           and meta.channels == 1 and meta.samplerate == 24000)
         state[display] = info
     return state

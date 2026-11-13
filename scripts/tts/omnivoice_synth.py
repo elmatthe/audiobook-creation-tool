@@ -13,8 +13,10 @@ What happens for one file (``omnivoice_file_to_mp3``, the same shape as ``qwen3_
    prepared text, split into chunks; it never normalizes again (``normalize_text`` is off).
 2. The prepared text is planned into whole-sentence chunks of at most :data:`OMNIVOICE_MAX_CHUNK_CHARS`, never across a
    paragraph or title, each with its exact source span, verified against the text before anything runs.
-3. The voice's reviewed excerpt is made again from the verified recording inside the job folder (never more than 10 s;
-   ``omnivoice_runtime``), with its excerpt transcript and a cache identity that binds every input of the clone prompt.
+3. The voice's own owner-curated recording is verified -- its SHA-256, format, exact length and the 10-second maximum
+   (one hash-bound owner exception; ``omnivoice_runtime``) -- and handed to the worker whole and unchanged, with its
+   owner-written transcript and a cache identity that binds every input of the clone prompt. Nothing is cropped or
+   copied; OmniVoice resamples the reference in memory.
 4. The chunks go to the worker in batches of at most :data:`CHUNKS_PER_WORKER`: each batch is a fresh worker process, so
    no file, however long, accumulates GPU state in one process (upstream issue #199). Cancellation asks politely (a flag
    file) and then, after a short grace period, kills the whole process tree.
@@ -22,7 +24,7 @@ What happens for one file (``omnivoice_file_to_mp3``, the same shape as ``qwen3_
    chunks (the local-engine policy) and encoded **once** to the MP3, published under a temporary name and moved into
    place only when complete. The job folder (which holds the user's text) is always removed.
 
-Nothing falls back: an unavailable engine, model or excerpt raises ``OmniVoiceUnavailable``; a GPU that fails, a worker
+Nothing falls back: an unavailable engine, model or reference raises ``OmniVoiceUnavailable``; a GPU that fails, a worker
 that dies, or a chunk that is wrong fails the file with a plain sentence.
 """
 
@@ -57,8 +59,9 @@ from tts.speech.profiles import OMNIVOICE as OMNIVOICE_ROUTE
 # Constants
 # --------------------------------------------------------------------------- #
 #: OmniVoice is planned in whole sentences up to this many characters. Upstream splits any text whose estimated speech
-#: exceeds ``audio_chunk_threshold`` (30 s) into its own sub-chunks; the six excerpts speak about 12-14 characters a
-#: second, so 300 characters (about 21-26 s) keeps every chunk one upstream generation, under ACT's own plan and pauses.
+#: exceeds ``audio_chunk_threshold`` (30 s) into its own sub-chunks; the six reference speakers speak about 12-14
+#: characters a second, so 300 characters (about 21-26 s) keeps every chunk one upstream generation, under ACT's own
+#: plan and pauses.
 OMNIVOICE_MAX_CHUNK_CHARS = 300
 #: The most chunks one worker process renders before it exits and a fresh one takes over (bounded lifetime: GPU memory
 #: cannot accumulate across a long book). Reloading costs a few seconds per batch; the clone prompt is reused from cache.
@@ -71,8 +74,8 @@ LANGUAGE = "English"
 DTYPE = "float16"
 DEVICE = "cuda"
 #: The pinned generation baseline: ``OmniVoiceGenerationConfig``'s own defaults in omnivoice 0.2.1, written out so a run
-#: states exactly what it used (plan section 3: 32 steps). ``preprocess_prompt`` trims the excerpt's leading and trailing
-#: silence to 100/200 ms and its inner pauses to 200 ms; it never adds audio. Not user controls.
+#: states exactly what it used (plan section 3: 32 steps). ``preprocess_prompt`` trims the reference's leading and
+#: trailing silence to 100/200 ms and its inner pauses to 200 ms, in memory; it never adds audio. Not user controls.
 GENERATION = {
     "num_step": 32, "guidance_scale": 2.0, "t_shift": 0.1, "layer_penalty_factor": 5.0, "position_temperature": 5.0,
     "class_temperature": 0.0, "denoise": True, "preprocess_prompt": True, "postprocess_output": True,
@@ -117,22 +120,25 @@ def batches(chunks: list, size: int = CHUNKS_PER_WORKER) -> list[list]:
     return [chunks[i:i + size] for i in range(0, len(chunks), size)]
 
 
-def build_job(voice: ov.OmniVoiceVoice, spec: ov.ExcerptSpec, chunks: list, *, job_dir: Path, excerpt: dict,
+def build_job(voice: ov.OmniVoiceVoice, spec: ov.ReferenceSpec, chunks: list, *, job_dir: Path, reference: dict,
               model_dir: Path, omnivoice_version: str, prompt_cache: Optional[dict]) -> dict:
-    """Everything one worker needs, as plain data. Pure: touches no disk."""
+    """Everything one worker needs, as plain data. Pure: touches no disk.
+
+    *reference* is :func:`omnivoice_runtime.verify_reference`'s answer: the voice's own recording, its SHA-256, frame
+    count, rate and the most frames it may have. The worker proves the file again before it uses it.
+    """
     return {
         "schema": 1, "kind": "synth", "voice_id": voice.voice_id, "model_dir": str(model_dir),
         "omnivoice_version": omnivoice_version, "language": LANGUAGE, "dtype": DTYPE, "device": DEVICE,
         "out_dir": str(job_dir / "chunks"), "cancel_file": str(job_dir / "cancel"),
         "engine_lock": str(ov.engine_lock_path()),
-        "excerpt": {"wav": excerpt["path"], "frames": excerpt["frames"], "sample_rate": excerpt["sample_rate"],
-                    "pcm_sha256": excerpt["pcm_sha256"]},
+        "reference": {key: reference[key] for key in ("wav", "wav_sha256", "frames", "sample_rate", "max_frames")},
         "ref_text": spec.text, "prompt_cache": prompt_cache, "generation": dict(GENERATION),
         "chunks": [{"index": c.index, "text": c.text, "seed": derive_seed(voice.voice_id, c)} for c in chunks],
     }
 
 
-def prompt_cache_entry(spec: ov.ExcerptSpec, *, model_revision: str, omnivoice_version: str,
+def prompt_cache_entry(spec: ov.ReferenceSpec, *, model_revision: str, omnivoice_version: str,
                        prompts_root: Optional[Path] = None) -> dict:
     key, identity = ov.prompt_identity(spec, model_revision=model_revision, omnivoice_version=omnivoice_version,
                                        preprocess_prompt=GENERATION["preprocess_prompt"], dtype=DTYPE)
@@ -442,7 +448,12 @@ def omnivoice_file_to_mp3(
         if prepared.enabled:
             _local.chunk_source_spans(prepared, chunks)  # every chunk maps back to the decoded source, in order
 
-        spec = ov.excerpt_spec(voice_id)
+        spec = ov.reference_spec(voice_id)
+        try:
+            reference = ov.verify_reference(spec, ov.reference_path(voice))
+        except ov.ReferenceAssetError as exc:
+            raise OmniVoiceUnavailable(f"Setup required for {voice.label}: its reference recording cannot be used "
+                                       f"({exc}).") from exc
         manifest = ov.load_manifest()
         model_revision, version = manifest["model"]["revision"], manifest["engine"]["omnivoice"]
         cache = prompt_cache_entry(spec, model_revision=model_revision, omnivoice_version=version,
@@ -452,14 +463,8 @@ def omnivoice_file_to_mp3(
         cleanup_stale_jobs(jobs_root)
         job_dir = new_job_dir(jobs_root)
         try:
-            excerpt = ov.derive_excerpt(spec, ov.reference_path(voice), job_dir / "excerpt.wav")
-        except ov.ExcerptError as exc:
-            remove_job_dir(job_dir)
-            raise OmniVoiceUnavailable(f"Setup required for {voice.label}: its reference excerpt could not be made "
-                                       f"({exc}).") from exc
-        try:
             log(f"OmniVoice: synthesizing {len(chunks)} chunk(s) in {voice.label} (pipeline revision "
-                f"{PIPELINE_REVISION}; reference excerpt 0-{spec.duration_s:.3f} s, {spec.status}; "
+                f"{PIPELINE_REVISION}; reference {spec.duration_s:.3f} s at {spec.sample_rate} Hz, used whole; "
                 f"{GENERATION['num_step']} steps)...")
             env = ov.worker_environment() if env is None else env
             events: list[dict] = []
@@ -474,7 +479,7 @@ def omnivoice_file_to_mp3(
                     if progress_callback is not None:
                         progress_callback(len(events), len(chunks))
 
-                job = build_job(voice, spec, group, job_dir=job_dir, excerpt=excerpt, model_dir=ov.model_dir(),
+                job = build_job(voice, spec, group, job_dir=job_dir, reference=reference, model_dir=ov.model_dir(),
                                 omnivoice_version=version, prompt_cache=cache)
                 run = run_worker(job, job_dir, name=f"job-{number:03d}", python=py, script=worker, env=env,
                                  cancel_check=cancel_check, log=log, on_chunk=chunk_done, grace_s=grace_s,

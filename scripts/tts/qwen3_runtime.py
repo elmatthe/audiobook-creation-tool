@@ -292,14 +292,16 @@ def bundled_transcripts_path() -> Path:
 
 
 def reference_path(voice: Qwen3Voice) -> Path:
-    """The ONE bundled copy of the recording, shared with the Chatterbox voice of the same speaker.
+    """Qwen3's own bundled copy of the recording: ``files/Cloned-Voice-Uploads/Qwen3/Qwen3 - <Voice>.wav``.
 
-    Its folder and file name come from the registry (``REFERENCE_DIRECTORY`` and the explicit reference table, by stable
-    id), never from a display label.
+    These are the original v0.7.x recordings byte for byte, only renamed from ``Chatterbox - <Voice>.wav`` when each
+    engine got its own references (owner decision 2026-11-13); ``reference_sha256`` and the transcript bundle are
+    unchanged. The folder and file name come from the registry (the explicit reference tables, by stable id), never
+    from a display label.
     """
-    from tts.voice_registry import REFERENCE_DIRECTORY, reference_recording_filename
+    from tts.voice_registry import reference_recording_parts
 
-    return repo_root().joinpath(*REFERENCE_DIRECTORY) / reference_recording_filename("qwen3", voice.voice_id)
+    return repo_root().joinpath(*reference_recording_parts("qwen3", voice.voice_id))
 
 
 # --------------------------------------------------------------------------- #

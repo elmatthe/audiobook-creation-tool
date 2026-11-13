@@ -60,10 +60,10 @@ Availability is owned by ``tts/qwen3_runtime.py`` (platform, isolated environmen
 reference recording and an approved transcript).
 
 **v0.8.0 Phase 2 registered the six OmniVoice voices** (plan section 3): ``OmniVoice - Female 1``/``Female 2``/
-``Male 1``/``Male 2``/``Male 3``/``Male 4``, appended after the Qwen3 block in their own group, each cloned from the
-same bundled recording as its Chatterbox and Qwen3 namesakes but with its own backend (``"omnivoice"``), its own id and
-its own engine. Every earlier row keeps its backend, id, label, group, timing and position. Availability is owned by
-``tts/omnivoice_runtime.py`` (platform, GPU, isolated environment, model files, the recording and its reviewed excerpt).
+``Male 1``/``Male 2``/``Male 3``/``Male 4``, appended after the Qwen3 block in their own group, each with its own
+backend (``"omnivoice"``), its own id, its own engine and (owner decision 2026-11-13) its own recording. Every earlier
+row keeps its backend, id, label, group, timing and position. Availability is owned by ``tts/omnivoice_runtime.py``
+(platform, GPU, isolated environment, model files, the voice's own approved recording and transcript).
 
 **Registered is not the same as available.** A row here says a voice is part of the
 supported configuration. Whether it can actually run on *this* machine is a separate
@@ -75,9 +75,9 @@ removes a voice, substitutes another, or fetches anything.
 **v0.7.0 P02A (owner Q5): identity is ``(backend, voice_id)``; labels and order are cosmetic.**
 ``display_label`` and the position of a row may be edited freely: the dropdown shows the rows in
 ``VOICES`` order exactly as written (engine groups may interleave), and no engine, model, preset
-speaker or reference recording is ever chosen by a label. The six cloned voices' recordings are
-named by the explicit ``VOICE_REFERENCES`` → ``REFERENCE_RECORDINGS`` tables below, so renaming
-"Chatterbox - Female 1" changes no file name. Every visible engine label (Chatterbox and Qwen3 status,
+speaker or reference recording is ever chosen by a label. The cloned voices' recordings are
+named by the explicit ``VOICE_REFERENCES`` → ``REFERENCE_RECORDINGS`` tables below (one recording per
+engine and voice since v0.8.0), so renaming "Chatterbox - Female 1" changes no file name. Every visible engine label (Chatterbox and Qwen3 status,
 setup and error text) is looked up here by stable key. The module checks itself on import and refuses
 an empty, padded, duplicate (NFC-compared) or otherwise ambiguous registry with a message naming the
 stable keys involved, rather than silently taking the first match.
@@ -539,27 +539,44 @@ DEFAULT_VOICE_KEY: tuple[str, str] = ("edge", "en-US-SteffanNeural")
 
 
 # --------------------------------------------------------------------------- #
-# The six bundled reference recordings (v0.7.0 P02A): explicit data, never derived from a label
+# The 18 bundled reference recordings (v0.8.0, owner decision 2026-11-13): explicit data, never derived from a label
 # --------------------------------------------------------------------------- #
-#: Stable reference id -> the fixed basename of its one bundled copy. The ids are the Qwen3 transcript keys
-#: (``qwen3_runtime.Qwen3Voice.reference_name``); the basenames are the v0.6.7 file names, kept byte-for-byte (owner
-#: Q31) even though they read like the Chatterbox labels. Renaming a voice never renames its recording.
-REFERENCE_RECORDINGS: dict[str, str] = {
-    "Female-1": "Chatterbox - Female 1.wav",
-    "Female-2": "Chatterbox - Female 2.wav",
-    "Male-1": "Chatterbox - Male 1.wav",
-    "Male-2": "Chatterbox - Male 2.wav",
-    "Male-3": "Chatterbox - Male 3.wav",
-    "Male-4": "Chatterbox - Male 4.wav",
-}
-
-#: Where the six recordings live, repo-relative (v0.7.0 P03A). The only place either engine looks: there is no
-#: fallback to the pre-v0.7.0 ``files/Chatterbox-Voice-Uploads/`` folder, because every supported install (a fresh
-#: archive, or a git checkout) brings the recordings here itself.
+#: Where the recordings live, repo-relative (v0.7.0 P03A). The only place any engine looks: there is no fallback to the
+#: pre-v0.7.0 ``files/Chatterbox-Voice-Uploads/`` folder or to a loose file at this folder's root, because every
+#: supported install (a fresh archive, or a git checkout) brings the recordings to their engine folders itself.
 REFERENCE_DIRECTORY: tuple[str, ...] = ("files", "Cloned-Voice-Uploads")
 
-#: Which recording a cloned voice is conditioned on, by stable ``(backend, voice_id)``. A Chatterbox voice and the
-#: Qwen3 clone of the same speaker share the recording and nothing else: their engines, ids and models stay separate.
+#: Each cloned engine's own folder inside :data:`REFERENCE_DIRECTORY`. Since v0.8.0 no recording is shared between
+#: engines: every engine is conditioned on its own six files, named for it.
+REFERENCE_FOLDERS: dict[str, str] = {"chatterbox": "Chatterbox", "omnivoice": "OmniVoice", "qwen3": "Qwen3"}
+
+#: ``(backend, stable reference id)`` -> the fixed basename of that engine's own recording. The reference ids are the
+#: Qwen3 transcript keys (``qwen3_runtime.Qwen3Voice.reference_name``). The Qwen3 files are the original v0.6.7/v0.7.x
+#: recordings byte for byte, renamed from ``Chatterbox - <Voice>.wav`` (owner decision 2026-11-13); the Chatterbox and
+#: OmniVoice files are the owner's new recordings for those engines. Renaming a voice never renames its recording.
+REFERENCE_RECORDINGS: dict[tuple[str, str], str] = {
+    ("chatterbox", "Female-1"): "Chatterbox - Female 1.wav",
+    ("chatterbox", "Female-2"): "Chatterbox - Female 2.wav",
+    ("chatterbox", "Male-1"): "Chatterbox - Male 1.wav",
+    ("chatterbox", "Male-2"): "Chatterbox - Male 2.wav",
+    ("chatterbox", "Male-3"): "Chatterbox - Male 3.wav",
+    ("chatterbox", "Male-4"): "Chatterbox - Male 4.wav",
+    ("qwen3", "Female-1"): "Qwen3 - Female 1.wav",
+    ("qwen3", "Female-2"): "Qwen3 - Female 2.wav",
+    ("qwen3", "Male-1"): "Qwen3 - Male 1.wav",
+    ("qwen3", "Male-2"): "Qwen3 - Male 2.wav",
+    ("qwen3", "Male-3"): "Qwen3 - Male 3.wav",
+    ("qwen3", "Male-4"): "Qwen3 - Male 4.wav",
+    ("omnivoice", "Female-1"): "OmniVoice - Female 1.wav",
+    ("omnivoice", "Female-2"): "OmniVoice - Female 2.wav",
+    ("omnivoice", "Male-1"): "OmniVoice - Male 1.wav",
+    ("omnivoice", "Male-2"): "OmniVoice - Male 2.wav",
+    ("omnivoice", "Male-3"): "OmniVoice - Male 3.wav",
+    ("omnivoice", "Male-4"): "OmniVoice - Male 4.wav",
+}
+
+#: Which reference a cloned voice is conditioned on, by stable ``(backend, voice_id)``. The Chatterbox, Qwen3 and
+#: OmniVoice clones of one speaker share only the reference id: each reads its own engine's recording.
 VOICE_REFERENCES: dict[tuple[str, str], str] = {
     ("chatterbox", "chatterbox-female-1"): "Female-1",
     ("chatterbox", "chatterbox-female-2"): "Female-2",
@@ -591,8 +608,13 @@ def reference_id(backend: str, voice_id: str) -> str:
 
 
 def reference_recording_filename(backend: str, voice_id: str) -> str:
-    """The fixed basename of the recording ``backend``/``voice_id`` is cloned from, e.g. ``"Chatterbox - Female 1.wav"``."""
-    return REFERENCE_RECORDINGS[reference_id(backend, voice_id)]
+    """The fixed basename of the recording ``backend``/``voice_id`` is cloned from, e.g. ``"Qwen3 - Female 1.wav"``."""
+    return REFERENCE_RECORDINGS[(backend, reference_id(backend, voice_id))]
+
+
+def reference_recording_parts(backend: str, voice_id: str) -> tuple[str, ...]:
+    """Repo-relative path parts of that recording: the reference folder, the engine's own folder, the basename."""
+    return (*REFERENCE_DIRECTORY, REFERENCE_FOLDERS[backend], reference_recording_filename(backend, voice_id))
 
 
 # --------------------------------------------------------------------------- #
@@ -656,12 +678,18 @@ def registry_problems(voices: list[VoiceEntry]) -> list[str]:
 
 
 def reference_table_problems() -> list[str]:
-    """Contradictions inside the two reference tables themselves (independent of labels and order)."""
-    problems = [f"{backend}/{voice_id}: unknown reference id {ref!r}"
-                for (backend, voice_id), ref in VOICE_REFERENCES.items() if ref not in REFERENCE_RECORDINGS]
+    """Contradictions inside the reference tables themselves (independent of labels and order)."""
+    problems = [f"{backend}/{voice_id}: no {backend} recording for reference id {ref!r}"
+                for (backend, voice_id), ref in VOICE_REFERENCES.items() if (backend, ref) not in REFERENCE_RECORDINGS]
+    for (backend, ref), name in REFERENCE_RECORDINGS.items():
+        folder = REFERENCE_FOLDERS.get(backend)
+        if folder is None:
+            problems.append(f"{backend}/{ref}: the {backend} engine has no reference folder")
+        elif not (name.startswith(f"{folder} - ") and name.endswith(".wav")):
+            problems.append(f"{backend}/{ref}: {name!r} does not name its engine ('{folder} - <voice>.wav')")
     names = list(REFERENCE_RECORDINGS.values())
     if len({n.casefold() for n in names}) != len(names):
-        problems.append("two reference ids name the same recording file")
+        problems.append("two references name the same recording file")
     return problems
 
 

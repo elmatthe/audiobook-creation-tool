@@ -193,15 +193,16 @@ def test_candidate_and_historical_outputs_use_different_subfolders():
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("voice_id,source_name,sha", [
     ("chatterbox-male-3", "Chatterbox - Male 3.wav",
-     "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
+     "152b8aa13fbf23d5ce73beee1ba348009f9b7b01b6fc838b0ea94ea834f22b8b"),
     ("chatterbox-male-4", "Chatterbox - Male 4.wav",
-     "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
+     "9eb5722dee8fc186bcccdfef5b837160a8658374ac3d74106bb969184a96ca42"),
 ])
 def test_the_production_hashes_bind_the_approved_bundled_wavs(
     voice_id, source_name, sha,
 ):
     """The later bundling ruling binds the curated leading-window WAV hashes;
-    voice IDs and labels retain the historical candidate approval."""
+    voice IDs and labels retain the historical candidate approval. v0.8.0
+    (owner decision 2026-11-13): the hashes are Chatterbox's own new recordings."""
     voice = cbx.get_reference_voice(voice_id)
     assert voice.source_name == source_name
     assert voice.source_sha256 == sha

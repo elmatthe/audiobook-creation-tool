@@ -15,13 +15,15 @@ Before anything heavy is imported the worker
 * takes the job's ``engine_lock`` and holds it until it exits, so an install or repair sees an engine in use.
 
 Then it loads the pinned snapshot on the GPU, builds (or reloads, from this app's own identity-checked cache) one voice
-clone prompt from the reviewed excerpt and its excerpt transcript -- so OmniVoice never loads its speech recognizer, which
-is also switched off outright -- and renders each chunk, as given, to its own float WAV. ``normalize_text`` is always
-off: the text arrives already prepared by the app's one speech-preparation pass.
+clone prompt from the voice's own approved recording -- read once, its bytes proved against the approved SHA-256 and
+given to OmniVoice whole at its own rate (OmniVoice resamples it in memory) -- and the owner-written transcript, so
+OmniVoice never loads its speech recognizer, which is also switched off outright; then it renders each chunk, as given,
+to its own float WAV. ``normalize_text`` is always off: the text arrives already prepared by the app's one
+speech-preparation pass.
 
 Terminal events (exactly one per run): ``done``, ``failed``, ``canceled``. Cancellation is a flag file checked before the
 load and before each chunk; the parent also kills the whole process tree if the worker does not stop promptly. Nothing
-falls back: no CPU, no other voice, no full-length reference.
+falls back: no CPU, no other voice, no other recording.
 """
 from __future__ import annotations
 
@@ -44,9 +46,8 @@ GENERATION_KEYS = frozenset({"num_step", "guidance_scale", "t_shift", "layer_pen
                              "class_temperature", "denoise", "preprocess_prompt", "postprocess_output",
                              "audio_chunk_duration", "audio_chunk_threshold", "pad_duration", "fade_duration"})
 SYNTH_KEYS = frozenset({"schema", "kind", "voice_id", "model_dir", "omnivoice_version", "language", "dtype", "device",
-                        "out_dir", "cancel_file", "engine_lock", "excerpt", "ref_text", "prompt_cache", "generation",
+                        "out_dir", "cancel_file", "engine_lock", "reference", "ref_text", "prompt_cache", "generation",
                         "chunks"})
-MAX_EXCERPT_SECONDS = 10
 
 ENGINE_BUSY_MESSAGE = ("The OmniVoice voice engine is in use by another conversion, or is being installed or repaired, "
                        "right now. Try again when that has finished.")
@@ -61,7 +62,7 @@ class NetworkRefused(PermissionError):
 
 
 class SpeechRecognizerRefused(RuntimeError):
-    """OmniVoice tried to load its speech recognizer; the six voices always carry their excerpt transcript."""
+    """OmniVoice tried to load its speech recognizer; the six voices always carry their reference transcript."""
 
 
 def emit(event: dict) -> None:
@@ -170,14 +171,17 @@ def job_problems(job: dict, environ: Optional[dict] = None) -> list[str]:
         problems.append("the model folder has no config.json")
     if not (model / "audio_tokenizer" / "config.json").is_file():
         problems.append("the model folder has no audio_tokenizer (OmniVoice would fetch one)")
-    excerpt = job.get("excerpt") or {}
-    frames, rate = excerpt.get("frames"), excerpt.get("sample_rate")
-    if not Path(str(excerpt.get("wav", ""))).is_file():
-        problems.append("the reference excerpt is missing")
-    if type(frames) is not int or type(rate) is not int or not 0 < frames <= MAX_EXCERPT_SECONDS * rate:
-        problems.append("the reference excerpt is not a whole number of frames inside the first 10 seconds")
+    reference = job.get("reference") if isinstance(job.get("reference"), dict) else {}
+    frames, rate, limit = reference.get("frames"), reference.get("sample_rate"), reference.get("max_frames")
+    if not Path(str(reference.get("wav", ""))).is_file():
+        problems.append("the reference recording is missing")
+    if any(type(v) is not int for v in (frames, rate, limit)) or rate <= 0 or not 0 < frames <= limit:
+        problems.append("the reference recording is not a whole number of frames within its approved length")
+    sha = reference.get("wav_sha256")
+    if not isinstance(sha, str) or len(sha) != 64 or any(ch not in "0123456789abcdef" for ch in sha):
+        problems.append("the reference recording has no approved SHA-256 to be proved against")
     if not isinstance(job.get("ref_text"), str) or not job["ref_text"].strip():
-        problems.append("the excerpt transcript is blank (OmniVoice would load a speech recognizer)")
+        problems.append("the reference transcript is blank (OmniVoice would load a speech recognizer)")
     generation = job.get("generation")
     if not isinstance(generation, dict) or set(generation) - GENERATION_KEYS:
         problems.append("the generation settings name something OmniVoiceGenerationConfig does not have")
@@ -225,24 +229,33 @@ def _is_oom(exc: BaseException) -> bool:
 
 
 def _refuse_speech_recognizer(*_args, **_kwargs):
-    raise SpeechRecognizerRefused("the OmniVoice speech recognizer is never loaded: every voice has its excerpt transcript")
+    raise SpeechRecognizerRefused("the OmniVoice speech recognizer is never loaded: every voice has its reference "
+                                  "transcript")
 
 
-def read_excerpt(job: dict):
-    """The excerpt's frames as a (1, frames) float tensor input, after proving they are the reviewed PCM."""
+def read_reference(job: dict):
+    """The approved recording's frames as a (1, frames) float array and its own rate, proved before use.
+
+    The file is read ONCE: those bytes must hash to the approved SHA-256, and those same bytes must be the plain 16-bit
+    mono PCM WAV of exactly the frame count and rate the job names, within its approved length. Nothing is cropped,
+    resampled or written here; OmniVoice resamples the waveform to its own rate in memory.
+    """
+    import io
     import wave
 
     import numpy as np
 
-    excerpt = job["excerpt"]
-    with wave.open(str(excerpt["wav"]), "rb") as source:
+    reference = job["reference"]
+    data = Path(reference["wav"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != reference["wav_sha256"]:
+        raise RuntimeError("the reference recording is not the approved one")
+    with wave.open(io.BytesIO(data), "rb") as source:
         params = source.getparams()
         pcm = source.readframes(params.nframes)
-    if (params.nchannels, params.sampwidth, params.framerate, params.nframes) != (1, 2, excerpt["sample_rate"],
-                                                                                  excerpt["frames"]):
-        raise RuntimeError("the reference excerpt is not in the format the job names")
-    if hashlib.sha256(pcm).hexdigest() != excerpt["pcm_sha256"]:
-        raise RuntimeError("the reference excerpt is not the reviewed audio")
+    if (params.comptype, params.nchannels, params.sampwidth, params.framerate, params.nframes) != (
+            "NONE", 1, 2, reference["sample_rate"], reference["frames"]) or len(pcm) != params.nframes * 2 \
+            or params.nframes > reference["max_frames"]:
+        raise RuntimeError("the reference recording is not in the format the job names")
     waveform = (np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0)[np.newaxis, :]
     return waveform, params.framerate
 
@@ -328,7 +341,7 @@ def run_synth(job: dict) -> int:
         prompt = load_cached_prompt(job.get("prompt_cache"), VoiceClonePrompt)
         prompt_source = "cache"
         if prompt is None:
-            waveform, rate = read_excerpt(job)
+            waveform, rate = read_reference(job)
             prompt = model.create_voice_clone_prompt(ref_audio=(torch.from_numpy(waveform), rate),
                                                      ref_text=job["ref_text"], preprocess_prompt=config.preprocess_prompt)
             prompt_source = "built"

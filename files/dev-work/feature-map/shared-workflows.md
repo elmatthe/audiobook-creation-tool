@@ -497,7 +497,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 `ACT.SETUP.PACKAGING`
 
 - **Purpose:** defines what a person downloads. The packager runs only on the developer's checkout and is itself excluded from the archive, but its output is the shipped product.
-- **Behaviour:** the Windows archive holds only the Windows launcher, `README.md`, `config.toml`, the git-tracked `scripts/` tree and exactly six named reference WAVs from `files/Cloned-Voice-Uploads`. Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship. `config.toml` must ship with developer mode off, which is checked again in the finished archive. A build refuses uncommitted changes and an existing archive of the same name, checks every member against its source, and publishes all or nothing. The ordinary build produces only the Windows archive.
+- **Behaviour:** the Windows archive holds only the Windows launcher, `README.md`, `config.toml`, the git-tracked `scripts/` tree and exactly 18 named reference WAVs from `files/Cloned-Voice-Uploads` (v0.8.0: six per cloned engine, each in its own `Chatterbox/`, `OmniVoice/` or `Qwen3/` folder). Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship. `config.toml` must ship with developer mode off, which is checked again in the finished archive. A build refuses uncommitted changes and an existing archive of the same name, checks every member against its source, and publishes all or nothing. The ordinary build produces only the Windows archive.
 
 ### macOS launcher
 `ACT.SETUP.MACOS-LAUNCH`

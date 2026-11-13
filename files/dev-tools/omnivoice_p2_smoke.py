@@ -40,7 +40,7 @@ def sha256(path: Path) -> str:
 
 
 def protected() -> dict:
-    """The six recordings and the 28 historical previews, by SHA-256."""
+    """The 18 reference recordings (every engine folder) and the 28 historical previews, by SHA-256."""
     roots = [REPO / "files" / "Cloned-Voice-Uploads", REPO / "files" / "voice-previews"]
     return {str(p.relative_to(REPO)): sha256(p) for root in roots for p in sorted(root.rglob("*.wav"))}
 
@@ -102,12 +102,14 @@ def main(argv=None) -> int:
     for voice_id in args.voice or [v.voice_id for v in ov.OMNIVOICE_VOICES]:
         runs.clear()
         chunk_stats.clear()
-        spec = ov.excerpt_spec(voice_id)
+        spec = ov.reference_spec(voice_id)
         lines: list[str] = []
         mp3 = out / f"{voice_id}-smoke.mp3"
-        entry: dict = {"excerpt": {"end_frame": spec.crop_end_frame, "seconds": spec.duration_s,
-                                   "pcm_sha256": spec.excerpt_pcm_sha256, "wav_sha256": spec.excerpt_wav_sha256,
-                                   "text": spec.text, "text_sha256": spec.text_sha256, "status": spec.status}}
+        entry: dict = {"reference": {"path": str(ov.reference_path(ov.get_voice(voice_id)).relative_to(REPO)),
+                                     "frames": spec.frames, "sample_rate": spec.sample_rate,
+                                     "seconds": round(spec.duration_s, 6), "max_frames": spec.max_frames,
+                                     "wav_sha256": spec.wav_sha256, "text": spec.text,
+                                     "text_sha256": spec.text_sha256}}
         started = time.perf_counter()
         try:
             osy.omnivoice_file_to_mp3(str(source), str(mp3), voice_id, log=lines.append, speech_prep=snapshot,

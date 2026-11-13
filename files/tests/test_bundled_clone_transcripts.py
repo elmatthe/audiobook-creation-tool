@@ -292,11 +292,10 @@ def fresh_base_install(sandbox):  # noqa: F811
     """Empty runtime data, the engine and the Base model, and the six real recordings at the canonical path."""
     install_environment(sandbox)
     install_model(sandbox, "base")
-    refs = sandbox.joinpath(*voice_registry.REFERENCE_DIRECTORY)
-    refs.mkdir(parents=True)
-    for voice in CLONES:
-        shutil.copyfile(REPO_ROOT.joinpath(*voice_registry.REFERENCE_DIRECTORY) / rt.reference_path(voice).name,
-                        refs / rt.reference_path(voice).name)
+    for voice in CLONES:  # Qwen3's own folder (v0.8.0): files/Cloned-Voice-Uploads/Qwen3/Qwen3 - <Voice>.wav
+        parts = voice_registry.reference_recording_parts("qwen3", voice.voice_id)
+        sandbox.joinpath(*parts).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT.joinpath(*parts), sandbox.joinpath(*parts))
     return sandbox
 
 

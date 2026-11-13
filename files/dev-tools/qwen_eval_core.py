@@ -80,8 +80,8 @@ def is_female_preset(display: str) -> bool:
     return " female " in f" {QWEN_PRESET_DESCRIPTIONS.get(display, '').lower()} "
 
 
-# (display name, production Chatterbox voice_id, source file). The reference path and SHA-256
-# are read from chatterbox_synth.REFERENCE_VOICES at run time, never duplicated here.
+# (display name, production Chatterbox voice_id). The Qwen clones' reference path and SHA-256 are read from
+# qwen3_runtime at run time (v0.8.0: Qwen3's own, original recordings), never duplicated here.
 REFERENCE_VOICE_IDS: tuple[tuple[str, str], ...] = (
     ("Female-1", "chatterbox-female-1"),
     ("Female-2", "chatterbox-female-2"),

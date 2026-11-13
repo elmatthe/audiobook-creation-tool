@@ -41,13 +41,11 @@ LAUNCHERS = {
     "MacOS": "Setup_and_Run-audiobook-creation-tool.command",
 }
 ROOT_MEMBERS = {"README.md", "config.toml"}
+#: v0.8.0 (owner decision 2026-11-13): each cloned engine's own six recordings, in its own folder -- 18, one copy each.
 REFERENCE_MEMBERS = {
-    "files/Cloned-Voice-Uploads/Chatterbox - Female 1.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Female 2.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 1.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 2.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 3.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 4.wav",
+    f"files/Cloned-Voice-Uploads/{engine}/{engine} - {voice}.wav"
+    for engine in ("Chatterbox", "OmniVoice", "Qwen3")
+    for voice in ("Female 1", "Female 2", "Male 1", "Male 2", "Male 3", "Male 4")
 }
 LEGACY_REFERENCE_DIR = "files/Chatterbox-Voice-Uploads"
 
@@ -118,10 +116,19 @@ def fake_repo(root: Path, config_text: str = SHIPPABLE_CONFIG) -> Path:
     legacy.mkdir(parents=True)
     for name in REFERENCE_MEMBERS:
         (legacy / Path(name).name).write_bytes((REPO_ROOT / name).read_bytes())
-    for folder in (root / "files/Cloned-Voice-Uploads", legacy):
+    references = root / "files/Cloned-Voice-Uploads"
+    engine_folders = [references / engine for engine in ("Chatterbox", "OmniVoice", "Qwen3")]
+    for folder in (references, legacy, *engine_folders):
         for name in ["Female-1.mp3", "Male-4.mp3", "Extra.wav", "Another.WAV",
                      "derivative.wav", "conditional.pt", "manifest.json"]:
             (folder / name).write_bytes(b"excluded")
+    # v0.8.0: byte-identical copies loose at the reference folder's root (where the v0.7 shared WAVs were), another
+    # engine's file in an engine folder, the owner's upload archive and transcript document: none of them ships.
+    for name in REFERENCE_MEMBERS:
+        (references / Path(name).name).write_bytes((REPO_ROOT / name).read_bytes())
+    (references / "OmniVoice" / "Qwen3 - Female 1.wav").write_bytes(b"another engine's recording")
+    (references / "Cloned-Voice-Uploads.zip").write_bytes(b"PK")
+    (references / "Cloned-Voice-Transcripts-Personally-written-and-owner-approved.md").write_text("t", encoding="utf-8")
     (root / "files/arbitrary.txt").write_text("excluded", encoding="utf-8")
 
     # Everything below is developer or runtime state and must stay behind.
@@ -284,34 +291,39 @@ def test_the_packaged_root_files_are_a_closed_named_set():
 
 def test_reference_assets_are_a_closed_allowlist_matching_production():
     from tts import chatterbox_synth as cbx
-
-    assert len(release.REFERENCE_ASSETS) == 6
-    assert set(release.REFERENCE_ASSETS) == REFERENCE_MEMBERS
+    from tts import clone_references as cr
+    from tts import omnivoice_runtime as ov
     from tts import qwen3_runtime as rt
     from tts import voice_registry as vr
 
-    assert {f"files/Cloned-Voice-Uploads/{v.source_name}"
-            for v in cbx.REFERENCE_VOICES.values()} == REFERENCE_MEMBERS
-    # One authority: the packaged paths are exactly where both engines look.
+    assert len(release.REFERENCE_ASSETS) == len(set(release.REFERENCE_ASSETS)) == 18
+    assert set(release.REFERENCE_ASSETS) == REFERENCE_MEMBERS
+    # One authority: the packaged paths are exactly where the three engines look, six each, none shared.
     assert "/".join(vr.REFERENCE_DIRECTORY) == "files/Cloned-Voice-Uploads"
-    assert {cbx.reference_source_path(v).relative_to(REPO_ROOT).as_posix()
-            for v in cbx.REFERENCE_VOICES} == REFERENCE_MEMBERS
-    assert {rt.reference_path(v).relative_to(REPO_ROOT).as_posix()
-            for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE} == REFERENCE_MEMBERS
+    chatterbox = {cbx.reference_source_path(v).relative_to(REPO_ROOT).as_posix() for v in cbx.REFERENCE_VOICES}
+    qwen3 = {rt.reference_path(v).relative_to(REPO_ROOT).as_posix()
+             for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE}
+    omnivoice = {ov.reference_path(v).relative_to(REPO_ROOT).as_posix() for v in ov.OMNIVOICE_VOICES}
+    assert len(chatterbox) == len(qwen3) == len(omnivoice) == 6 and chatterbox | qwen3 | omnivoice == REFERENCE_MEMBERS
+    assert {"/".join(a.parts) for a in cr.load().values()} == REFERENCE_MEMBERS
     assert not any(LEGACY_REFERENCE_DIR in name for name in release.REFERENCE_ASSETS)
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
 def test_bundled_wav_bytes_and_hashes_match_production(archives, os_name):
     from tts import chatterbox_synth as cbx
+    from tts import clone_references as cr
 
     with zipfile.ZipFile(archives[os_name]) as zf:
         assert zf.testzip() is None
         assert {m for m in zf.namelist() if m.startswith("files/")} == REFERENCE_MEMBERS
-        for voice in cbx.REFERENCE_VOICES.values():
-            member = f"files/Cloned-Voice-Uploads/{voice.source_name}"
+        for asset in cr.load().values():  # all 18, each against the hash its engine is bound to
+            member = "/".join(asset.parts)
             data = zf.read(member)
             assert data == (REPO_ROOT / member).read_bytes()
+            assert hashlib.sha256(data).hexdigest() == asset.wav_sha256
+        for voice in cbx.REFERENCE_VOICES.values():
+            data = zf.read(cbx.reference_source_path(voice.voice_id).relative_to(REPO_ROOT).as_posix())
             assert hashlib.sha256(data).hexdigest() == voice.source_sha256
 
 

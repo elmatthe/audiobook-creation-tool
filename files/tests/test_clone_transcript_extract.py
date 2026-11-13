@@ -309,7 +309,7 @@ def test_an_oversized_store_is_refused_before_it_is_read(fake):
 # --------------------------------------------------------------------------- #
 def test_a_recording_with_the_wrong_bytes_is_refused(fake):
     fake.write()
-    (fake.root / cte.REFS_REL / "Chatterbox - Male 1.wav").write_bytes(b"not the registered recording")
+    (fake.root / cte.REFS_REL / "Qwen3 - Male 1.wav").write_bytes(b"not the registered recording")
     o = fake.run()
     assert_refused(o, "do not match their registered hash")
     row = next(r for r in o.report["recordings"] if r["reference_id"] == "Male-1")
@@ -318,13 +318,13 @@ def test_a_recording_with_the_wrong_bytes_is_refused(fake):
 
 def test_a_missing_recording_is_refused(fake):
     fake.write()
-    (fake.root / cte.REFS_REL / "Chatterbox - Female 2.wav").unlink()
+    (fake.root / cte.REFS_REL / "Qwen3 - Female 2.wav").unlink()
     assert_refused(fake.run(), "do not match their registered hash")
 
 
 def test_a_recording_only_at_the_pre_v070_path_is_not_used(fake):
     fake.write()
-    canonical = fake.root / cte.REFS_REL / "Chatterbox - Male 4.wav"
+    canonical = fake.root / cte.REFS_REL / "Qwen3 - Male 4.wav"
     legacy = fake.root / "files" / "Chatterbox-Voice-Uploads"
     legacy.mkdir()
     (legacy / canonical.name).write_bytes(canonical.read_bytes())
@@ -515,8 +515,9 @@ def test_the_pinned_registry_equals_the_application_registry():
     app = tuple((v.reference_name, v.voice_id, vr.reference_recording_filename("qwen3", v.voice_id), v.reference_sha256)
                 for v in clones)
     assert cte.REGISTRY == app
-    assert {row[3] for row in cte.REGISTRY} == {v.source_sha256 for v in cbx.REFERENCE_VOICES.values()}
-    assert cte.REFS_REL == "/".join(vr.REFERENCE_DIRECTORY)
+    # v0.8.0: Qwen3 keeps the original recordings in its own folder; Chatterbox has new ones of its own
+    assert not {row[3] for row in cte.REGISTRY} & {v.source_sha256 for v in cbx.REFERENCE_VOICES.values()}
+    assert cte.REFS_REL == "/".join((*vr.REFERENCE_DIRECTORY, vr.REFERENCE_FOLDERS["qwen3"]))
     assert cte.MAX_TRANSCRIPT_CHARS == rt.MAX_TRANSCRIPT_CHARS
     assert cte.STORE_SUBPATH == rt.local_transcripts_path().relative_to(rt.runtime_dir().parent).parts
 

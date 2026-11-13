@@ -2,8 +2,9 @@
 
 The real worker needs a 3.3 GB model, a GPU and a second Python environment; these tests need none of them. A stand-in
 script speaks the same ``@@EVENT`` protocol (and misbehaves on request), so the supervising side is exercised with the
-real subprocess, pipe, Job Object and kill machinery: the text it is given (prepared once, never again), the reviewed
-excerpt and transcript it is conditioned on, chunk order across bounded workers, Cancel at every stage, failures,
+real subprocess, pipe, Job Object and kill machinery: the text it is given (prepared once, never again), the voice's
+own approved recording (whole, 44.1 kHz) and owner-written transcript it is conditioned on, chunk order across
+bounded workers, Cancel at every stage, failures,
 no-clobber publication and retry determinism.
 """
 
@@ -48,12 +49,11 @@ def emit(event):
     print("@@EVENT " + json.dumps(event), flush=True)
 
 
-with wave.open(job["excerpt"]["wav"], "rb") as w:
-    excerpt_pcm_sha256 = hashlib.sha256(w.readframes(w.getnframes())).hexdigest()
+reference_sha256 = hashlib.sha256(Path(job["reference"]["wav"]).read_bytes()).hexdigest()
 log = os.environ.get("FAKE_OMNIVOICE_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps({**job, "_excerpt_pcm_sha256": excerpt_pcm_sha256, "_argv": sys.argv[1:],
+        handle.write(json.dumps({**job, "_reference_sha256": reference_sha256, "_argv": sys.argv[1:],
                                  "_isolated": bool(sys.flags.isolated)}) + "\n")
 print("a library banner that is not an event", flush=True)
 if behavior == "exit_early":
@@ -150,7 +150,7 @@ PARAGRAPHS = "\n\n".join(f"Paragraph number {i} says something quite different f
 
 
 # --------------------------------------------------------------------------- #
-# The happy path: the text, the excerpt, the order, the pauses
+# The happy path: the text, the reference, the order, the pauses
 # --------------------------------------------------------------------------- #
 def test_a_conversion_runs_one_worker_assembles_with_the_local_policy_and_cleans_up(fake):
     fake.convert(text=PARAGRAPHS, chunk_pause_ms=700, bitrate="128k")
@@ -164,14 +164,18 @@ def test_a_conversion_runs_one_worker_assembles_with_the_local_policy_and_cleans
     assert any("[omnivoice] a library banner" in line for line in fake.logs)
 
 
-def test_the_worker_is_conditioned_only_on_the_reviewed_excerpt_and_its_own_transcript(fake):
+def test_the_worker_is_conditioned_on_the_voices_own_whole_recording_and_its_owner_transcript(fake):
     fake.convert(voice="omnivoice-female-2")
     (job,) = fake.jobs_seen()
-    spec = ov.load_excerpts()["omnivoice-female-2"]
-    assert job["excerpt"]["frames"] == spec.crop_end_frame <= 10 * RATE
-    assert job["_excerpt_pcm_sha256"] == job["excerpt"]["pcm_sha256"] == spec.excerpt_pcm_sha256
-    assert job["ref_text"] == spec.text != rt.load_bundle()["Female-2"]
-    assert "Cloned-Voice-Uploads" not in json.dumps(job), "the worker never sees the full-length recording"
+    voice, spec = ov.get_voice("omnivoice-female-2"), ov.load_references()["omnivoice-female-2"]
+    assert job["reference"] == {"wav": str(ov.reference_path(voice)), "wav_sha256": voice.reference_sha256,
+                                "frames": 320414, "sample_rate": 44100, "max_frames": 10 * 44100}
+    assert job["_reference_sha256"] == voice.reference_sha256, "the worker read exactly the approved bytes"
+    assert Path(job["reference"]["wav"]).parent.name == "OmniVoice", "never the Chatterbox or Qwen3 recording"
+    assert "excerpt" not in job and not any("excerpt" in line for line in fake.logs), "no second crop, no copy"
+    assert job["ref_text"] == spec.text == ("Vice Chancellor Cloud Legan Barth, his direct superior, the Lord "
+                                            "Chancellor Marquess Joric Reclentos")
+    assert not rt.load_bundle()["Female-2"].startswith(job["ref_text"]), "its own text, not the Qwen3 transcript"
     key, identity = ov.prompt_identity(spec, model_revision=ov.load_manifest()["model"]["revision"],
                                        omnivoice_version="0.2.1", preprocess_prompt=True, dtype="float16")
     assert job["prompt_cache"]["key"] == key and job["prompt_cache"]["identity"] == identity
@@ -180,6 +184,26 @@ def test_the_worker_is_conditioned_only_on_the_reviewed_excerpt_and_its_own_tran
     assert (job["device"], job["dtype"], job["language"], job["omnivoice_version"]) == ("cuda", "float16", "English",
                                                                                          "0.2.1")
     assert job["engine_lock"] == str(ov.engine_lock_path()) and job["_isolated"] is True
+
+
+def test_the_one_longer_reference_reaches_the_worker_with_its_own_exact_limit(fake):
+    """OmniVoice - Male 1 (owner exception, 10.227 s) goes to the worker whole; every other voice is capped at 10 s."""
+    fake.convert(voice="omnivoice-male-1")
+    (job,) = fake.jobs_seen()
+    assert (job["reference"]["frames"], job["reference"]["max_frames"], job["reference"]["sample_rate"]) == (
+        451022, 451022, 44100)
+    assert any("reference 10.227 s at 44100 Hz, used whole" in line for line in fake.logs)
+
+
+def test_a_changed_recording_is_refused_before_any_worker_starts(fake, monkeypatch):
+    changed = fake.tmp / "changed.wav"
+    data = bytearray(ov.reference_path(ov.get_voice("omnivoice-male-3")).read_bytes())
+    data[-10] ^= 0xFF
+    changed.write_bytes(bytes(data))
+    monkeypatch.setattr(ov, "reference_path", lambda voice: changed)
+    with pytest.raises(ov.OmniVoiceUnavailable, match="its reference recording cannot be used"):
+        fake.convert(voice="omnivoice-male-3")
+    assert fake.jobs_seen() == [] and fake.leftovers() == []
 
 
 def test_chunks_are_rendered_by_bounded_workers_and_assembled_in_plan_order(fake):
@@ -347,25 +371,51 @@ def test_the_worker_refuses_a_job_that_could_reach_the_network_or_load_whisper(t
     (model / "audio_tokenizer").mkdir(parents=True)
     (model / "config.json").write_text("{}", encoding="utf-8")
     (model / "audio_tokenizer" / "config.json").write_text("{}", encoding="utf-8")
-    excerpt = tmp_path / "e.wav"
-    with wave.open(str(excerpt), "wb") as out:
-        out.setnchannels(1), out.setsampwidth(2), out.setframerate(RATE), out.writeframes(b"\0\0" * 100)
+    reference = tmp_path / "r.wav"
+    with wave.open(str(reference), "wb") as out:
+        out.setnchannels(1), out.setsampwidth(2), out.setframerate(44100), out.writeframes(b"\0\0" * 100)
+    sha = hashlib.sha256(reference.read_bytes()).hexdigest()
     good = {"schema": 1, "kind": "synth", "voice_id": "omnivoice-male-1", "model_dir": str(model),
             "omnivoice_version": "0.2.1", "language": "English", "dtype": "float16", "device": "cuda",
             "out_dir": str(tmp_path / "o"), "cancel_file": str(tmp_path / "c"), "engine_lock": str(tmp_path / "l"),
-            "excerpt": {"wav": str(excerpt), "frames": 100, "sample_rate": RATE, "pcm_sha256": "0" * 64},
+            "reference": {"wav": str(reference), "wav_sha256": sha, "frames": 100, "sample_rate": 44100,
+                          "max_frames": 441000},
             "ref_text": "Zeth,", "prompt_cache": None, "generation": dict(osy.GENERATION),
             "chunks": [{"index": 0, "text": "Hello.", "seed": 1}]}
     offline = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
     assert w.job_problems(good, offline) == []
     for change, expected in [({"ref_text": " "}, "speech recognizer"), ({"device": "cpu"}, "GPU only"),
                              ({"generation": {"num_step": 32, "asr": True}}, "OmniVoiceGenerationConfig"),
-                             ({"excerpt": {**good["excerpt"], "frames": 10 * RATE + 1}}, "first 10 seconds"),
+                             ({"reference": {**good["reference"], "frames": 441001}}, "approved length"),
+                             ({"reference": {**good["reference"], "wav_sha256": "x"}}, "approved SHA-256"),
+                             ({"reference": {**good["reference"], "wav": str(tmp_path / "gone.wav")}}, "missing"),
+                             ({"reference": None}, "missing"),
                              ({"chunks": []}, "chunks")]:
         assert any(expected in p for p in w.job_problems({**good, **change}, offline)), change
     (model / "audio_tokenizer" / "config.json").unlink()
     assert any("would fetch one" in p for p in w.job_problems(good, offline))
     assert w.job_problems(good, {})[0] == "HF_HUB_OFFLINE is not 1"
+
+
+def test_the_worker_reads_the_reference_once_proves_its_bytes_and_keeps_its_own_rate(tmp_path):
+    from tts import omnivoice_worker as w
+
+    path = tmp_path / "r.wav"
+    samples = (np.sin(np.arange(4410) / 7.0) * 12000).astype("<i2")
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1), out.setsampwidth(2), out.setframerate(44100), out.writeframes(samples.tobytes())
+    ref = {"wav": str(path), "wav_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "frames": 4410,
+           "sample_rate": 44100, "max_frames": 441000}
+    waveform, rate = w.read_reference({"reference": ref})
+    assert rate == 44100 and waveform.shape == (1, 4410) and waveform.dtype == np.float32, "OmniVoice resamples it"
+    assert np.allclose(waveform[0], samples / 32768.0)
+    for change, message in [({"frames": 4409}, "format"), ({"sample_rate": 24000}, "format"),
+                            ({"max_frames": 4409}, "format"), ({"wav_sha256": "0" * 64}, "not the approved one")]:
+        with pytest.raises(RuntimeError, match=message):
+            w.read_reference({"reference": {**ref, **change}})
+    real = ov.verify_reference(ov.load_references()["omnivoice-male-1"], ov.reference_path(ov.get_voice("omnivoice-male-1")))
+    waveform, rate = w.read_reference({"reference": real})
+    assert (waveform.shape, rate) == ((1, 451022), 44100), "the excepted Male 1 recording reaches the model whole"
 
 
 def test_a_cached_prompt_is_loaded_only_when_it_is_this_apps_own_for_exactly_this_identity(tmp_path):

@@ -1,5 +1,37 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Session 2 / Phase 2 correction: PASS — engine-specific clone references; OmniVoice uses the owner's curated WAVs whole (2026-11-13, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action; in the Phase 2 block below, everything about derived
+excerpts, crops, the silence rule and excerpt transcripts is superseded. Decision record: Decisions 2026-11-13 (v0.8.0
+Phase 2 correction). Plan revised narrowly (same file, same five phases).
+
+- **Branch.** `feature/0.8.0-omnivoice-integration` on the accepted Phase 2 commit `d5d1c6c5`; the correction is this
+  checkpoint (SHA in the session report). The owner's 17 tracked deletions and untracked files are untouched and unstaged.
+- **References (18 tracked, `files/Cloned-Voice-Uploads/<Engine>/<Engine> - <Voice>.wav`).** Qwen3: the six originals,
+  `git mv` renames, hashes and `bundled_clone_transcripts.json` byte-identical. Chatterbox and OmniVoice: the owner's new
+  44.1 kHz recordings, byte-identical to the uploaded ZIP. Authority `scripts/tts/data/clone_references.json`
+  (`tts/clone_references.py`) plus per-engine hash pins; OmniVoice also pins its six transcript hashes. OmniVoice
+  conditions on each recording whole (<= 10 s; Male 1 is the one hash-bound exception, 451,022 frames = 10.227 s);
+  prompt-cache identity schema 2. `release.py` ships exactly the 18.
+- **Real smoke (technical, not listening approval).** `files/dev-work/ov-p2/20261113-101502-smoke/report.json`, OmniVoice
+  Male 1 through the production path (`v1`): PASS, 2 chunks in 2 workers (prompt built, then loaded from cache), MP3
+  18.68 s, decoded peak -0.45 dBFS, 0 decoded samples at full scale; Hub cache empty before and after; no job folder left;
+  the 18 references and 28 previews unchanged. The second chunk's raw float output touched 1.0 (2 samples) before
+  assembly: the Phase 2 peak item for Phase 4 still stands.
+- **Tests (focused only; no full gate, no Codex review).** See the session report for the exact files and counts.
+- **Open for the owner / later phases.**
+  1. Session 4 (owner): listen to the six OmniVoice voices on their new references. Flags: both Male 2 recordings end
+     inside a soft breath after "Jaw."; the owner transcripts spell "Joric" where the Qwen3 bundle has "Jorg".
+  2. Phase 4: restamp the verification-gate coverage inventory and map the new modules -- already stale at Phase 2
+     (v0.7.3 M4B files, Phase 2 registry/GUI/speech edits, unmapped OmniVoice modules); this correction adds
+     `release.py`, `chatterbox_synth.py`, `qwen3_runtime.py` (stamps) and `clone_references.py` (unmapped). Plus every
+     Phase 4 item in the Phase 2 block below.
+  3. Stale Phase 2 excerpt prompts remain in `files/runtime-data/omnivoice/prompts/` (schema 1, never matched again;
+     harmless app cache).
+- **Next exact action.** STOP. Session 3 / Phase 3 (the existing optional installer) only after the owner's review and
+  separate authorization.
+
 ## Current checkpoint — v0.8.0 Session 2 / Phase 2: PASS — six OmniVoice voices integrated; silence-safe excerpts; shared speech preparation (2026-11-13, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Plan:

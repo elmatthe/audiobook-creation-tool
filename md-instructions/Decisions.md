@@ -2,6 +2,58 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-13 — v0.8.0 Phase 2 correction: every cloned engine has its own six reference recordings; OmniVoice conditions directly on the owner's curated WAVs (owner decision; implementation decisions by Claude Code)
+
+**Owner decision (2026-11-13, a bounded Phase 2 correction; no new phase, the five-phase roadmap and the single Session 5
+gate are unchanged).** It supersedes the derived-excerpt design in the entry below. The clone references are
+engine-specific: `files/Cloned-Voice-Uploads/<Engine>/<Engine> - <Voice>.wav` for Chatterbox, OmniVoice and Qwen3, six
+each, exactly 18 tracked, none shared between engines and nothing loose at the folder root.
+
+- **Qwen3** keeps the six original v0.7.x production recordings byte for byte: `git mv` from
+  `Chatterbox - <Voice>.wav` to `Qwen3/Qwen3 - <Voice>.wav` (pure renames, SHA-256s unchanged: `b740b9ed…`, `428d3869…`,
+  `45fbfba0…`, `592139a2…`, `4ab6bd67…`, `47eff938…`). `scripts/tts/data/bundled_clone_transcripts.json` is unchanged
+  byte for byte (`dd953523…`); only the path lookup changed. Neither the Qwen3 folder of the owner's ZIP (empty) nor the
+  Qwen3 part of the owner's transcript document is used.
+- **Chatterbox** uses the owner's six new recordings (44.1 kHz mono 16-bit, 7.5-10.9 s; the engine still decodes its own
+  leading 24 kHz window and needs more than 5 s). Chatterbox Turbo takes no reference text, so the owner-written
+  transcripts are checked metadata and never reach the model.
+- **OmniVoice** is conditioned directly on the owner's six curated recordings (44.1 kHz, used whole: no second crop),
+  with the owner-written transcripts as reference text. Ten seconds stays the maximum. **One explicit exception:**
+  `OmniVoice - Male 1.wav`, 451,022 frames at 44,100 Hz (10.227 s), SHA-256 `77533853…`, kept whole so "things." and its
+  natural quiet tail are not cut. It is bound to that hash, frame count and rate (`omnivoice_runtime.DURATION_EXCEPTIONS`)
+  and widens nothing else.
+- The transcripts are the owner's own words ("Cloned-Voice-Transcripts-Personally-written-and-owner-approved.md"): no
+  speech recognizer, no rewriting, and no rule that an OmniVoice text be a prefix of a Qwen3 text.
+
+**Implementation decisions (Claude Code).**
+
+- One declarative authority, `scripts/tts/data/clone_references.json` (loaded by `tts/clone_references.py`): all 18
+  entries with file, SHA-256, PCM format and exact frame count, plus text and text SHA-256 for Chatterbox and OmniVoice
+  (Qwen3's text is `null`: its bundle stays the authority, nothing is duplicated). It is checked whole against the
+  registry, which now names each engine's folder and file explicitly (`voice_registry.REFERENCE_FOLDERS`,
+  `REFERENCE_RECORDINGS[(backend, reference id)]`, `reference_recording_parts`). Each engine still pins its own WAV hashes
+  in code (Qwen3 unchanged, Chatterbox's six new ones, OmniVoice's six new ones plus its six transcript SHA-256s, so an
+  edited transcript fails closed even when its checksum is recomputed).
+- OmniVoice: `verify_reference` reads the recording once (hash, then format and frame count from the same bytes); the
+  worker gets the shipped path and proves the same bytes again before `create_voice_clone_prompt((waveform, 44100),
+  ref_text, preprocess_prompt=True)`. Upstream resamples to its 24 kHz in memory (torchaudio) and trims silences; the file
+  is only read, never copied or cropped. The prompt-cache identity is schema 2 (`act-omnivoice-reference-v3`: WAV SHA-256,
+  frames and rate, transcript SHA-256, model revision, engine version, prompt format, preprocessing flag, dtype), so no
+  Phase 2 excerpt prompt can be reused and a changed WAV or transcript misses the cache. The silence-rule crop code,
+  `data/omnivoice_excerpts.json` and the transcript-prefix rule are removed. The Phase 1 proof and its evidence stay as
+  recorded history.
+- `.gitignore` re-includes each engine folder, then ignores everything in it except its six WAVs (Git cannot re-include a
+  file under an ignored folder). `release.py` ships exactly the 18, one copy each, from its closed allowlist.
+
+**What the owner recordings were checked for (no speech recognizer).** All 12 new files cross-correlate at 0.98-0.9997
+with the original 15-second recordings (the same performances), so each ending was placed on the original timeline
+against the pauses measured in Phase 2: every file starts in quiet, has no clipped samples and ends after a complete word,
+matching its transcript. For the owner's ears: (1) both Male 2 files end inside a soft breath after "Jaw." (about
+-50 dBFS, some 28 dB above the room floor, cut off rather than decayed; the original 15-second file ends at the same
+place); (2) the owner's transcripts spell "Joric Reclentos" where Qwen3's bundle has "Jorg"; (3) the two Female 2 files
+open differently ("His direct superior ..." for Chatterbox, "Vice Chancellor ..." for OmniVoice), as their transcripts
+say. Voice quality and these points remain for the owner's Session 4 listening.
+
 ## 2026-11-13 — v0.8.0 Phase 2: ten seconds is a maximum and every OmniVoice excerpt ends in a natural pause; the engine prepares text once and runs in bounded offline workers (owner decision; implementation decisions by Claude Code)
 
 **Owner decision (2026-11-13, Session 2 kickoff), superseding the plan's exact-10-second crop.** Ten seconds is a

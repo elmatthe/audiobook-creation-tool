@@ -640,6 +640,7 @@ def engine(monkeypatch, tmp_path):
     uploads = tmp_path / "uploads"
     uploads.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
+    monkeypatch.setattr(cbx, "chatterbox_uploads_dir", lambda: uploads)  # the engine folder (v0.8.0)
     monkeypatch.setattr(cbx, "_runtime_root", lambda: tmp_path / "runtime-data")
     monkeypatch.setattr(cbx, "_find_spec", lambda name: object())
     monkeypatch.setattr(cbx, "_AVAILABILITY_MEMO", {}, raising=False)

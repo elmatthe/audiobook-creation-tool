@@ -114,7 +114,7 @@ release candidate). State at this checkpoint:
 - **Clone transcripts ship with the app (v0.7.0 P03C):** the six owner-approved texts are `scripts/tts/data/bundled_clone_transcripts.json` (bundle revision 1, each bound to
   its recording's SHA-256; generated from the approved review file `48f5dbef…` by `files/dev-tools/clone_transcript_bundle.py`). Narration reads only that verified bundle,
   never a local store or `ACT_QWEN3_TRANSCRIPTS`. Since P03D the maintainer workflow is "Developer tools → Reference transcripts...", present only with `[development] developer_mode = true` in `config.toml` (shipped `false`, TOML boolean only, restart to apply); in normal mode its backend steps refuse too, and in developer mode a local text reaches narration only for a clone deliberately selected, bound to voice id + recording and text hashes (`files/runtime-data/qwen3/transcript-selection.json`), failing closed if stale. The previews' Whisper drafts remain provisional.
-- **Reference recordings** are `files/Cloned-Voice-Uploads/Chatterbox - <Female 1 .. Male 4>.wav`, one copy for both engines (moved there at v0.7.0 P03A; the old
+- **Reference recordings** are engine-specific since v0.8.0 (owner decision 2026-11-13): `files/Cloned-Voice-Uploads/<Chatterbox|OmniVoice|Qwen3>/<Engine> - <Female 1 .. Male 4>.wav`, 18 tracked, listed in `scripts/tts/data/clone_references.json`. Qwen3's six are the original v0.7.x recordings byte for byte (renamed from `Chatterbox - <Voice>.wav`, moved to this folder at v0.7.0 P03A; the old
   `files/Chatterbox-Voice-Uploads/` keeps only the owner's ignored MP3 originals and is no longer read).
 - **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
 - **Environment layout (v0.7.0 P04A, adopted in P04C Stage 2):** new Qwen3 installs go to `.venv/engines/qwen3/`, an independent environment held inside `.venv`; an older `.venv-qwen3` is still used while it is the only engine. `shared/venv_layout.py` names what `.venv/engines/` holds, and the main venv's replacement, rollback and recovery (bootstrap) and the data-cleanup `.venv` item already keep it: moved home at the same absolute path, never deleted with an old copy, cleanup refused.
@@ -1117,7 +1117,7 @@ Audiobook-Creation-Tool/
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
     ├── Archives/               ← maintainer-local planning/code archives (gitignored,
     │                             optional, unpackaged, excluded from test collection)
-    ├── Cloned-Voice-Uploads/   ← the six tracked/bundled reference WAVs (v0.7.0 P03A)
+    ├── Cloned-Voice-Uploads/   ← Chatterbox/, OmniVoice/, Qwen3/: 18 tracked/bundled reference WAVs (v0.8.0)
     │                             (derivatives/caches remain in runtime-data)
     ├── Chatterbox-Voice-Uploads/ ← pre-v0.7.0 folder: six ignored local MP3s only, never read
     ├── UI-Tool-Screenshots/     ← current upstream Light/Dark references (14 images,

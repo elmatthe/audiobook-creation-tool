@@ -65,16 +65,37 @@ test-files/
 # same rule as files/test-files/: local fixtures only, never staged.
 files/livid-lady-test-files/
 
-# Bundled clone references (v0.7.0): only the six approved WAVs, by exact name, are
-# tracked; one copy serves both Chatterbox and Qwen3. Anything else placed there stays
-# local. Derivatives/caches use ignored runtime-data/.
+# Bundled clone references (v0.8.0, owner decision 2026-11-13): each cloned engine has
+# its own folder and its own six WAVs, and only those 18, by exact name, are tracked.
+# Git cannot re-include a file inside an ignored folder, so each engine folder is
+# re-included first and then everything in it is ignored again except its six WAVs.
+# Anything else placed anywhere under Cloned-Voice-Uploads/ (loose files at its root,
+# other folders, copies, notes, MP3s) stays local. Derivatives/caches use runtime-data/.
 files/Cloned-Voice-Uploads/*
-!files/Cloned-Voice-Uploads/Chatterbox - Female 1.wav
-!files/Cloned-Voice-Uploads/Chatterbox - Female 2.wav
-!files/Cloned-Voice-Uploads/Chatterbox - Male 1.wav
-!files/Cloned-Voice-Uploads/Chatterbox - Male 2.wav
-!files/Cloned-Voice-Uploads/Chatterbox - Male 3.wav
-!files/Cloned-Voice-Uploads/Chatterbox - Male 4.wav
+!files/Cloned-Voice-Uploads/Chatterbox/
+files/Cloned-Voice-Uploads/Chatterbox/*
+!files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Female 1.wav
+!files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Female 2.wav
+!files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 1.wav
+!files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 2.wav
+!files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 3.wav
+!files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 4.wav
+!files/Cloned-Voice-Uploads/OmniVoice/
+files/Cloned-Voice-Uploads/OmniVoice/*
+!files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Female 1.wav
+!files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Female 2.wav
+!files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 1.wav
+!files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 2.wav
+!files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 3.wav
+!files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 4.wav
+!files/Cloned-Voice-Uploads/Qwen3/
+files/Cloned-Voice-Uploads/Qwen3/*
+!files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Female 1.wav
+!files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Female 2.wav
+!files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 1.wav
+!files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 2.wav
+!files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 3.wav
+!files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 4.wav
 # The pre-v0.7.0 reference folder: the app no longer reads it. It keeps only the
 # owner's curated MP3 source recordings (read-only, local-only) — ignored whole, so
 # a WAV can never be re-added at the old path.

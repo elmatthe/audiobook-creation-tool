@@ -453,7 +453,7 @@ def test_the_job_for_a_preset_names_the_speaker_and_for_a_clone_the_reference_an
     clone = qs.build_job(rt.get_voice("qwen3-male-2"), chunks, job_dir=tmp_path, model_dir=tmp_path / "m",
                          reference_text="the approved words", device="cpu")
     assert clone["mode"] == "clone" and clone["reference_text"] == "the approved words"
-    assert clone["reference_wav"].endswith("Chatterbox - Male 2.wav") and clone["device"] == "cpu" and "speaker" not in clone
+    assert clone["reference_wav"].endswith("Qwen3 - Male 2.wav") and clone["device"] == "cpu" and "speaker" not in clone
 
 
 # --------------------------------------------------------------------------- #

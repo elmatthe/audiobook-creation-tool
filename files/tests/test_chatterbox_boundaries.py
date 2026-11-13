@@ -451,19 +451,22 @@ def _ignored(relative: str) -> bool:
 
 
 @pytest.mark.parametrize("stem", ["Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4"])
-def test_original_mp3_is_ignored_and_bundled_wav_is_not(stem):
-    """v0.7.0 P03A: the six canonical WAVs are re-addable by exact name; everything else in either folder is ignored.
+@pytest.mark.parametrize("backend", ["chatterbox", "omnivoice", "qwen3"])
+def test_original_mp3_is_ignored_and_bundled_wav_is_not(backend, stem):
+    """v0.8.0: each engine's six WAVs are re-addable by exact name in that engine's folder; everything else is ignored.
 
-    (The pre-P03A whitelist named ``Female-1.wav``-style files that never existed, so the real WAVs matched the
-    ignore rule and stayed tracked only because they were already in the index.)
+    (Git cannot re-include a file inside an ignored folder, so the rules re-include each engine folder and then ignore
+    everything in it again except its six WAVs. The pre-P03A whitelist named ``Female-1.wav``-style files that never
+    existed, so the real WAVs matched the ignore rule and stayed tracked only because they were already in the index.)
     """
     from tts import voice_registry as vr
 
-    wav = vr.REFERENCE_RECORDINGS[stem]
-    assert not _ignored(f"files/Cloned-Voice-Uploads/{wav}")
+    folder, wav = vr.REFERENCE_FOLDERS[backend], vr.REFERENCE_RECORDINGS[(backend, stem)]
+    assert not _ignored(f"files/Cloned-Voice-Uploads/{folder}/{wav}")
     for local_only in (f"files/Chatterbox-Voice-Uploads/{stem}.mp3", f"files/Cloned-Voice-Uploads/{stem}.mp3",
                        f"files/Chatterbox-Voice-Uploads/{wav}", f"files/Chatterbox-Voice-Uploads/{stem}.wav",
-                       f"files/Cloned-Voice-Uploads/{stem}.wav"):
+                       f"files/Cloned-Voice-Uploads/{stem}.wav", f"files/Cloned-Voice-Uploads/{wav}",
+                       f"files/Cloned-Voice-Uploads/{folder}/{stem}.mp3", f"files/Cloned-Voice-Uploads/{folder}/{wav}.bak"):
         assert _ignored(local_only), local_only
 
 
@@ -471,6 +474,13 @@ def test_nothing_else_placed_in_the_reference_folder_can_be_staged_by_accident()
     for relative in ("files/Cloned-Voice-Uploads/Extra.wav", "files/Cloned-Voice-Uploads/notes.txt",
                      "files/Cloned-Voice-Uploads/Chatterbox - Female 1.wav.bak",
                      "files/Cloned-Voice-Uploads/sub/Chatterbox - Female 1.wav",
+                     "files/Cloned-Voice-Uploads/Chatterbox/Extra.wav",
+                     "files/Cloned-Voice-Uploads/Chatterbox/sub/Chatterbox - Female 1.wav",
+                     "files/Cloned-Voice-Uploads/OmniVoice/Qwen3 - Female 1.wav",
+                     "files/Cloned-Voice-Uploads/Qwen3/Chatterbox - Female 1.wav",
+                     "files/Cloned-Voice-Uploads/Qwen3/notes.md",
+                     "files/Cloned-Voice-Uploads/Cloned-Voice-Transcripts-Personally-written-and-owner-approved.md",
+                     "files/Cloned-Voice-Uploads/Cloned-Voice-Uploads.zip",
                      "files/Chatterbox-Voice-Uploads/anything.json"):
         assert _ignored(relative), relative
 
@@ -480,7 +490,7 @@ def test_the_runtime_data_tree_holding_derivatives_is_ignored():
     assert "files/runtime-data/" in ignore
 
 
-def test_exactly_six_canonical_wavs_and_no_runtime_data_are_tracked():
+def test_exactly_eighteen_canonical_wavs_and_no_runtime_data_are_tracked():
     import subprocess
     from tts import chatterbox_synth as cbx
 
@@ -488,11 +498,11 @@ def test_exactly_six_canonical_wavs_and_no_runtime_data_are_tracked():
         ["git", "ls-files", "files/Cloned-Voice-Uploads/", "files/Chatterbox-Voice-Uploads/", "files/runtime-data/"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     )
-    expected = {f"files/Cloned-Voice-Uploads/Chatterbox - {stem}.wav" for stem in
-                ["Female 1", "Female 2", "Male 1", "Male 2", "Male 3", "Male 4"]}
-    assert set(tracked.stdout.splitlines()) == expected  # and nothing at the pre-v0.7.0 path
-    assert {f"files/Cloned-Voice-Uploads/{v.source_name}"
-            for v in cbx.REFERENCE_VOICES.values()} == expected
+    expected = {f"files/Cloned-Voice-Uploads/{engine}/{engine} - {stem}.wav" for engine in ("Chatterbox", "OmniVoice", "Qwen3")
+                for stem in ["Female 1", "Female 2", "Male 1", "Male 2", "Male 3", "Male 4"]}
+    assert set(tracked.stdout.splitlines()) == expected  # and nothing loose, nothing at the pre-v0.7.0 path
+    assert {cbx.reference_source_path(v.voice_id).relative_to(REPO_ROOT).as_posix()
+            for v in cbx.REFERENCE_VOICES.values()} == {e for e in expected if "/Chatterbox/" in e}
 
 
 def test_all_bundled_references_have_the_bound_hash_and_canonical_pcm_metadata():
@@ -507,5 +517,7 @@ def test_all_bundled_references_have_the_bound_hash_and_canonical_pcm_metadata()
             assert audio.getcomptype() == "NONE"
             assert audio.getsampwidth() == 2
             assert audio.getnchannels() == 1
-            assert audio.getframerate() == 24000
-            assert audio.getnframes() == 360000
+            # v0.8.0: the owner's new Chatterbox recordings are 44.1 kHz and 7.5-10.9 s long (the engine decodes them to
+            # its own 24 kHz window); Chatterbox needs more than 5 seconds.
+            assert audio.getframerate() == 44100
+            assert cbx.REFERENCE_MIN_SECONDS < audio.getnframes() / audio.getframerate() < cbx.REFERENCE_WINDOW_SECONDS

@@ -273,25 +273,33 @@ def test_the_panel_starts_on_the_default_voice_rather_than_a_stored_one():
 
 
 # --------------------------------------------------------------------------- #
-# 8. v0.7.0 P02A — stable identities and the six fixed reference recordings
+# 8. v0.7.0 P02A — stable identities and the fixed reference recordings (one per engine since v0.8.0)
 # --------------------------------------------------------------------------- #
 UPLOADS = Path(__file__).resolve().parents[2] / "files" / "Cloned-Voice-Uploads"
 
-#: Plan Revision 2, Appendix A, written out literally: stable reference id, fixed basename, the Chatterbox and Qwen3
-#: voices that share it, and the recording's content SHA-256. Nothing here may follow a display label.
+#: Plan Revision 2, Appendix A, written out literally, as changed by the owner's 2026-11-13 decision: stable reference
+#: id; the Chatterbox voice, its OWN new recording and that recording's SHA-256; the Qwen3 voice, its own recording (the
+#: original Appendix A file, renamed, bytes unchanged) and SHA-256. Nothing here may follow a display label. (OmniVoice's
+#: six are pinned in test_clone_references.py.)
 REFERENCES = [
-    ("Female-1", "Chatterbox - Female 1.wav", "chatterbox-female-1", "qwen3-female-1",
-     "b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4"),
-    ("Female-2", "Chatterbox - Female 2.wav", "chatterbox-female-2", "qwen3-female-2",
-     "428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205"),
-    ("Male-1", "Chatterbox - Male 1.wav", "chatterbox-male-1", "qwen3-male-1",
-     "45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58"),
-    ("Male-2", "Chatterbox - Male 2.wav", "chatterbox-male-2", "qwen3-male-2",
-     "592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355"),
-    ("Male-3", "Chatterbox - Male 3.wav", "chatterbox-male-3", "qwen3-male-3",
-     "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
-    ("Male-4", "Chatterbox - Male 4.wav", "chatterbox-male-4", "qwen3-male-4",
-     "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
+    ("Female-1", "chatterbox-female-1", "Chatterbox - Female 1.wav",
+     "994b700eb4fa65fff22da7af6c69517afa637921a79e356b43ef414f2b096374",
+     "qwen3-female-1", "Qwen3 - Female 1.wav", "b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4"),
+    ("Female-2", "chatterbox-female-2", "Chatterbox - Female 2.wav",
+     "a1a6530fb06d8199a25e18224218c2d893b3c9a17f6c20738058a4da7947466e",
+     "qwen3-female-2", "Qwen3 - Female 2.wav", "428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205"),
+    ("Male-1", "chatterbox-male-1", "Chatterbox - Male 1.wav",
+     "8f1999ded53fefd80a5659cd75ac6d016a0cfbd6031e79dcface454c7b1d875c",
+     "qwen3-male-1", "Qwen3 - Male 1.wav", "45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58"),
+    ("Male-2", "chatterbox-male-2", "Chatterbox - Male 2.wav",
+     "d8939ad19dc90718efb2fb27251a5aa665c3cc76efa2ed161e6cac739400f69c",
+     "qwen3-male-2", "Qwen3 - Male 2.wav", "592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355"),
+    ("Male-3", "chatterbox-male-3", "Chatterbox - Male 3.wav",
+     "152b8aa13fbf23d5ce73beee1ba348009f9b7b01b6fc838b0ea94ea834f22b8b",
+     "qwen3-male-3", "Qwen3 - Male 3.wav", "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
+    ("Male-4", "chatterbox-male-4", "Chatterbox - Male 4.wav",
+     "9eb5722dee8fc186bcccdfef5b837160a8658374ac3d74106bb969184a96ca42",
+     "qwen3-male-4", "Qwen3 - Male 4.wav", "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 ]
 
 #: The 28 durable identities in shipped order (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3).
@@ -309,7 +317,7 @@ def reference_bindings() -> list[tuple]:
     from tts import chatterbox_synth as cbx, qwen3_runtime as rt
 
     rows = []
-    for _ref, _name, chatterbox_id, qwen_id, _sha256 in REFERENCES:
+    for _ref, chatterbox_id, _cname, _csha, qwen_id, _qname, _qsha in REFERENCES:
         clone = rt.get_voice(qwen_id)
         twin = cbx.REFERENCE_VOICES[chatterbox_id]
         rows.append((vr.reference_id("chatterbox", chatterbox_id), vr.reference_id("qwen3", qwen_id), clone.reference_name,
@@ -318,7 +326,8 @@ def reference_bindings() -> list[tuple]:
     return rows
 
 
-EXPECTED_BINDINGS = [(ref, ref, ref, name, name, sha, sha, "base", "clone") for ref, name, _c, _q, sha in REFERENCES]
+EXPECTED_BINDINGS = [(ref, ref, ref, cname, qname, csha, qsha, "base", "clone")
+                     for ref, _c, cname, csha, _q, qname, qsha in REFERENCES]
 
 
 def test_the_28_stable_identities_are_exactly_the_shipped_roster():
@@ -328,18 +337,26 @@ def test_the_28_stable_identities_are_exactly_the_shipped_roster():
     assert vr.registry_problems(vr.VOICES) == [] and vr.reference_table_problems() == []
 
 
-def test_the_six_recordings_are_fixed_by_explicit_tables_not_by_labels():
-    assert vr.REFERENCE_RECORDINGS == {ref: name for ref, name, *_ in REFERENCES}
-    assert vr.VOICE_REFERENCES == {**{("chatterbox", c): ref for ref, _n, c, _q, _s in REFERENCES},
-                                   **{("qwen3", q): ref for ref, _n, _c, q, _s in REFERENCES}}
-    assert reference_bindings() == EXPECTED_BINDINGS
-    # the six tracked files are exactly these bytes (recomputed, not copied from the code under test)
-    assert sorted(p.name for p in UPLOADS.glob("*.wav")) == sorted(name for _r, name, *_ in REFERENCES)
-    for _ref, name, chatterbox_id, qwen_id, sha in REFERENCES:
-        from tts import chatterbox_synth as cbx, qwen3_runtime as rt
+def test_the_recordings_are_fixed_by_explicit_tables_not_by_labels():
+    from tts import chatterbox_synth as cbx, omnivoice_runtime as ov, qwen3_runtime as rt
 
-        assert _sha(UPLOADS / name) == sha
-        assert rt.reference_path(rt.get_voice(qwen_id)) == cbx.reference_source_path(chatterbox_id) == UPLOADS / name
+    omni = {ref: f"OmniVoice - {ref.replace('-', ' ')}.wav" for ref, *_ in REFERENCES}
+    assert vr.REFERENCE_RECORDINGS == {**{("chatterbox", ref): cname for ref, _c, cname, *_ in REFERENCES},
+                                       **{("qwen3", ref): qname for ref, *_x, qname, _qs in REFERENCES},
+                                       **{("omnivoice", ref): name for ref, name in omni.items()}}
+    assert vr.VOICE_REFERENCES == {**{("chatterbox", c): ref for ref, c, *_ in REFERENCES},
+                                   **{("qwen3", q): ref for ref, _c, _cn, _cs, q, _qn, _qs in REFERENCES},
+                                   **{("omnivoice", v.voice_id): v.reference_id for v in ov.OMNIVOICE_VOICES}}
+    assert reference_bindings() == EXPECTED_BINDINGS
+    # each engine's tracked files are exactly these bytes (recomputed, not copied from the code under test)
+    assert sorted(p.name for p in (UPLOADS / "Chatterbox").glob("*.wav")) == sorted(r[2] for r in REFERENCES)
+    assert sorted(p.name for p in (UPLOADS / "Qwen3").glob("*.wav")) == sorted(r[5] for r in REFERENCES)
+    assert sorted(p.name for p in (UPLOADS / "OmniVoice").glob("*.wav")) == sorted(omni.values())
+    assert not list(UPLOADS.glob("*.wav")), "nothing loose at the folder's root"
+    for _ref, chatterbox_id, cname, csha, qwen_id, qname, qsha in REFERENCES:
+        assert _sha(UPLOADS / "Chatterbox" / cname) == csha and _sha(UPLOADS / "Qwen3" / qname) == qsha
+        assert cbx.reference_source_path(chatterbox_id) == UPLOADS / "Chatterbox" / cname
+        assert rt.reference_path(rt.get_voice(qwen_id)) == UPLOADS / "Qwen3" / qname
     for backend, voice_id in (("qwen3", "qwen3-aiden"), ("kokoro", "af_heart"), ("edge", "en-US-AriaNeural"),
                               ("qwen3", "chatterbox-female-1"), ("chatterbox", "qwen3-female-1"), ("qwen3", "nobody")):
         with pytest.raises(KeyError):
@@ -368,7 +385,7 @@ def test_qwen3_engine_data_is_unchanged_by_the_label_work():
     assert [(v.voice_id, v.kind, v.model_key, v.speaker, v.reference_name) for v in rt.QWEN3_VOICES] == [
         ("qwen3-aiden", "custom_voice", "customvoice", "Aiden", ""),
         ("qwen3-ryan", "custom_voice", "customvoice", "Ryan", ""),
-        *[(q, "clone", "base", "", ref) for ref, _n, _c, q, _s in REFERENCES]]
+        *[(q, "clone", "base", "", ref) for ref, _c, _cn, _cs, q, _qn, _qs in REFERENCES]]
     assert qwen3_synth.CLONE_GENERATION == {"temperature": 0.70, "subtalker_temperature": 0.80}
     assert qwen3_synth.CLONE_GENERATION_REVISION == 1 and qwen3_synth.CLONE_REFERENCE_TAIL_SILENCE_S == 0.6
 

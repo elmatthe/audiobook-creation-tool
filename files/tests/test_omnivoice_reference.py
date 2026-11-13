@@ -1,10 +1,11 @@
-"""v0.8.0 Phase 2 -- the six OmniVoice voices: identity, the maximum-10-second silence-safe excerpts, readiness.
+"""v0.8.0 Phase 2 -- the six OmniVoice voices: identity, their own owner-curated reference recordings, readiness.
 
-The excerpt rule is the owner's (2026-11-13): an excerpt starts at 0.000 s, ends no later than 10.000 s, inside a natural
-quiet interval after a complete word, never inside a vowel, consonant or sibilant, and never padded or faded. These tests
-hold the six reviewed crops to that rule on the real recordings, drive the rule with synthetic recordings that try to
-break it (a cut-through word, a sibilant tail, a noisy floor, a stop closure, a zero crossing), and prove the originals,
-the full-length transcripts and the 60 historical listening verdicts are untouched. Nothing here loads a model.
+Owner decision 2026-11-13 (the Phase 2 reference correction): each OmniVoice voice is conditioned on its OWN recording,
+``files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - <Voice>.wav``, used whole (no further crop), with the owner-written
+transcript as reference text. Ten seconds stays the maximum; the ONE exception is OmniVoice - Male 1 (about 10.227 s),
+bound to that exact file and frame count. These tests hold the real recordings to that rule, try to widen the
+exception, prove the recordings are only read, and prove the 60 historical listening verdicts and Qwen3's full-length
+transcripts are untouched. Nothing here loads a model.
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ import shutil
 import subprocess
 import sys
 import wave
+from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from shared import optional_setup_protocol as proto
@@ -29,29 +30,20 @@ from tts import voice_registry as vr
 
 pytestmark = pytest.mark.usefixtures("production_writes_refused")
 
-RATE = 24000
 REPO = Path(__file__).resolve().parents[2]
-
-#: The six reviewed crops: end frame (exclusive) at 24 kHz, and the excerpt transcript. Provisional until the owner's
-#: Session 4 review; a change here is a change of a voice and must come with Decisions and Handoff entries.
-REVIEWED = {
-    "omnivoice-female-1": (199440, "It had already been several weeks since I'd gone to town. After we came home, Tanya "
-                                   "and the rest of the servants were quite cross with me,"),
-    "omnivoice-female-2": (176160, "Vice Chancellor Cloud Legan Barth, his direct superior, the Lord Chancellor Marquess "
-                                   "Jorg Reclentos,"),
-    "omnivoice-male-1": (117240, "Zeth, Sun Sun, Balano, truthless of Shinovar,"),
-    "omnivoice-male-2": (198360, "Three carriages rattled down a narrow road, surrounded by a dense, dark wood. This was "
-                                 "the Worm's Whiskers,"),
-    "omnivoice-male-3": (196560, "Klein didn't stand on ceremony and said directly, I wish to borrow the magic wishing "
-                                 "lamp for a day."),
-    "omnivoice-male-4": (218280, "Hello Arthur. The voice drifted to me through a haze, distant and ethereal but "
-                                 "familiar. I was drowsing,"),
+RATE = 44100
+#: The six owner recordings: decoded frame count at 44.1 kHz (exact; the seconds are rounded for people).
+FRAMES = {
+    "omnivoice-female-1": 354241,  # 8.033 s
+    "omnivoice-female-2": 320414,  # 7.266 s
+    "omnivoice-male-1": 451022,    # 10.227 s -- the one owner exception
+    "omnivoice-male-2": 391826,    # 8.885 s
+    "omnivoice-male-3": 327931,    # 7.436 s
+    "omnivoice-male-4": 217055,    # 4.922 s
 }
-#: Phase 1's owner-accepted proof crop for Male 1 (frame 230,760 = 9.615 s). Under the 2026-11-13 silence rule it is a
-#: defect: it ends where "all" runs into the /th/ of "things", about 31 dB above the recording's floor.
-PHASE1_MALE1_END = 230760
-#: Canonical-JSON hashes of records that must never change: the six approved full-length transcripts (v0.7.0 P03C) and
-#: the owner's 60 historical G1 listening verdicts (Plan 01B A4/A5).
+MALE1_SHA256 = "7753385380675913f0b97c5a03ca6d63702dec13c4905d7f014dc45ef7b1ccf7"
+#: Canonical-JSON hashes of records that must never change: the six approved full-length (Qwen3) transcripts (v0.7.0
+#: P03C) and the owner's 60 historical G1 listening verdicts (Plan 01B A4/A5).
 BUNDLE_CANONICAL_SHA256 = "0923858f9c5fc6aaff466f15bdd941e5bbd553c8e0a6b0dfbef232f0a9df5053"
 G1_CANONICAL_SHA256 = "d1148f7275e4f3e5e6393d45138f91d249473c3a51fcdec1f4c2ac5de593a7ef"
 
@@ -62,10 +54,8 @@ def canonical_sha256(path: Path) -> str:
                           .encode("utf-8")).hexdigest()
 
 
-def recording(voice_id: str) -> tuple[bytes, Path]:
-    path = ov.reference_path(ov.get_voice(voice_id))
-    pcm, _params = ov.read_pcm(path)
-    return pcm, path
+def real_reference(voice_id: str) -> Path:
+    return REPO.joinpath(*vr.reference_recording_parts("omnivoice", voice_id))
 
 
 # --------------------------------------------------------------------------- #
@@ -86,13 +76,16 @@ def test_six_distinct_stable_voices_are_appended_after_the_unchanged_28():
 
 
 @pytest.mark.parametrize("voice", ov.OMNIVOICE_VOICES, ids=lambda v: v.voice_id)
-def test_each_voice_is_cloned_from_the_same_recording_as_its_chatterbox_and_qwen3_namesakes(voice):
+def test_each_voice_is_cloned_from_its_own_omnivoice_recording(voice):
     suffix = voice.voice_id.removeprefix("omnivoice-")
-    filename = vr.reference_recording_filename("omnivoice", voice.voice_id)
-    assert filename == vr.reference_recording_filename("chatterbox", f"chatterbox-{suffix}") \
-        == vr.reference_recording_filename("qwen3", f"qwen3-{suffix}") == f"Chatterbox - {suffix.replace('-', ' ').title()}.wav"
+    name = f"OmniVoice - {suffix.replace('-', ' ').title()}.wav"
+    assert vr.reference_recording_filename("omnivoice", voice.voice_id) == name
+    assert ov.reference_path(voice) == REPO / "files" / "Cloned-Voice-Uploads" / "OmniVoice" / name
+    others = {REPO.joinpath(*vr.reference_recording_parts(b, f"{b}-{suffix}")) for b in ("chatterbox", "qwen3")}
+    assert ov.reference_path(voice) not in others
+    assert rt.sha256_file(ov.reference_path(voice)) == voice.reference_sha256
+    assert voice.reference_sha256 not in {rt.sha256_file(p) for p in others}, "never another engine's recording"
     assert vr.reference_id("omnivoice", voice.voice_id) == voice.reference_id
-    assert rt.sha256_file(ov.reference_path(voice)) == ov.recording_sha256(voice.reference_id)
 
 
 def test_a_registry_row_for_an_omnivoice_clone_without_a_recording_is_refused():
@@ -113,188 +106,108 @@ def test_install_and_continue_names_the_component_but_offers_it_only_once_setup_
 
 
 # --------------------------------------------------------------------------- #
-# The six reviewed excerpts on the real recordings
+# The duration rule: at most 10 s, one owner exception bound to one exact file
 # --------------------------------------------------------------------------- #
-def test_the_authority_holds_exactly_the_six_reviewed_crops_and_transcripts():
-    specs = ov.load_excerpts()
-    assert set(specs) == set(REVIEWED)
-    full = rt.load_bundle()
-    for voice_id, (end, text) in REVIEWED.items():
-        spec = specs[voice_id]
-        assert (spec.crop_start_frame, spec.crop_end_frame, spec.sample_rate) == (0, end, RATE)
-        assert spec.duration_s <= ov.MAX_EXCERPT_SECONDS
-        assert spec.text == text and spec.text_sha256 == hashlib.sha256(text.encode("utf-8")).hexdigest()
-        assert full[spec.reference_id].startswith(text) and text != full[spec.reference_id]
-        assert spec.last_word == text.split()[-1] and spec.status == "provisional"
+def test_the_maximum_is_still_ten_seconds_and_there_is_exactly_one_exception():
+    assert ov.MAX_REFERENCE_SECONDS == 10
+    assert ov.DURATION_EXCEPTIONS == {"omnivoice-male-1": (MALE1_SHA256, FRAMES["omnivoice-male-1"], RATE)}
 
 
-@pytest.mark.parametrize("voice_id", sorted(REVIEWED))
-def test_each_crop_is_the_latest_silence_safe_end_within_ten_seconds(voice_id):
-    spec = ov.load_excerpts()[voice_id]
-    pcm, path = recording(voice_id)
-    assert hashlib.sha256(pcm[: spec.crop_end_frame * 2]).hexdigest() == spec.excerpt_pcm_sha256  # independent of derive
-    assert ov.endpoint_problems(pcm, RATE, spec.crop_end_frame) == []
-    end, pause = ov.latest_safe_endpoint(pcm, RATE)
-    assert (end, pause) == (spec.crop_end_frame, (spec.pause_start_frame, spec.pause_end_frame)), "deterministic"
-    # The natural quiet tail after the last word, and the guard before the next sound, both inside the pause.
-    assert spec.crop_end_frame - spec.pause_start_frame >= int(ov.MIN_TAIL_S * RATE)
-    assert spec.pause_end_frame - spec.crop_end_frame >= int(ov.GUARD_S * RATE)
-    analysis = ov.analyse_quiet(pcm, RATE)
-    tail = np.frombuffer(pcm[spec.pause_start_frame * 2: spec.crop_end_frame * 2], dtype="<i2").astype(float) / 32768
-    assert 10 * np.log10(np.mean(tail ** 2) + 1e-12) < analysis.threshold_db
+@pytest.mark.parametrize("voice_id", sorted(FRAMES))
+def test_the_real_references_respect_the_rule(voice_id):
+    spec = ov.load_references()[voice_id]
+    assert (spec.frames, spec.sample_rate, spec.channels, spec.sample_width_bytes) == (FRAMES[voice_id], RATE, 1, 2)
+    with wave.open(str(real_reference(voice_id)), "rb") as w:
+        assert (w.getnframes(), w.getframerate()) == (spec.frames, spec.sample_rate)  # recomputed from the file
+    if voice_id == "omnivoice-male-1":
+        assert spec.frames > 10 * RATE and spec.max_frames == spec.frames == 451022
+        assert round(spec.duration_s, 3) == 10.227
+    else:
+        assert spec.frames <= 10 * RATE and spec.max_frames == 10 * RATE
+    assert ov.duration_problem(spec) is None
 
 
-@pytest.mark.parametrize("voice_id", sorted(REVIEWED))
-def test_a_strict_ten_second_cut_would_end_mid_speech_in_every_recording(voice_id):
-    pcm, _ = recording(voice_id)
-    assert ov.endpoint_problems(pcm, RATE, 10 * RATE) == ["the end (10.000 s) is not inside a natural pause"]
+def test_the_male1_exception_widens_nothing_else():
+    specs = ov.load_references()
+    male1, female1 = specs["omnivoice-male-1"], specs["omnivoice-female-1"]
+    too_long = [
+        replace(male1, wav_sha256="0" * 64),            # another recording for Male 1
+        replace(male1, frames=male1.frames + 1),        # the same file claimed one frame longer
+        replace(female1, frames=male1.frames),          # another voice as long as Male 1
+        replace(female1, frames=male1.frames, wav_sha256=MALE1_SHA256),  # ...even with Male 1's file hash
+        replace(female1, frames=10 * RATE + 1),         # anything a frame over ten seconds
+    ]
+    for spec in too_long:
+        assert spec.frames > spec.max_frames == 10 * spec.sample_rate
+        assert "at most 10 s" in ov.duration_problem(spec), spec
+    assert ov.duration_problem(replace(female1, frames=10 * RATE)) is None, "exactly ten seconds is allowed"
 
 
-def test_the_phase1_male1_proof_crop_fails_the_silence_rule_and_was_replaced():
-    pcm, _ = recording("omnivoice-male-1")
-    assert ov.endpoint_problems(pcm, RATE, PHASE1_MALE1_END) == ["the end (9.615 s) is not inside a natural pause"]
-    x = np.frombuffer(pcm, dtype="<i2").astype(float) / 32768
-    level = 10 * np.log10(np.mean(x[PHASE1_MALE1_END - 480:PHASE1_MALE1_END] ** 2))
-    assert level - ov.analyse_quiet(pcm, RATE).floor_db > 25, "speech, not a quiet interval"
-    assert ov.load_excerpts()["omnivoice-male-1"].crop_end_frame == REVIEWED["omnivoice-male-1"][0] < PHASE1_MALE1_END
+def _edited_list(tmp_path: Path, voice_id: str, **fields) -> Path:
+    from tts import clone_references as cr
 
-
-# --------------------------------------------------------------------------- #
-# The rule against synthetic recordings
-# --------------------------------------------------------------------------- #
-def synth(segments: list[tuple[str, float]], *, floor: float = 0.0003, seed: int = 7) -> bytes:
-    """16-bit mono PCM from ``(kind, seconds)`` pieces: ``speech`` (broadband, loud), ``sibilant`` (high band, softer),
-    ``quiet`` (the recording's noise floor), ``zero`` (one exactly-zero sample, nothing else)."""
-    rng = np.random.default_rng(seed)
-    pieces = []
-    for kind, seconds in segments:
-        n = 1 if kind == "zero" else int(round(seconds * RATE))
-        if kind == "speech":
-            t = np.arange(n) / RATE
-            piece = 0.25 * np.sin(2 * np.pi * 180 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 4 * t)) + rng.normal(0, 0.05, n)
-        elif kind == "sibilant":
-            noise = rng.normal(0, 1, n)
-            piece = 0.06 * (noise - np.convolve(noise, np.ones(3) / 3, mode="same"))
-        elif kind == "zero":
-            piece = np.zeros(1)
-        else:
-            piece = rng.normal(0, floor, n)
-        pieces.append(piece)
-    x = np.clip(np.concatenate(pieces), -0.99, 0.99)
-    return (x * 32767).astype("<i2").tobytes()
-
-
-def at(seconds: float) -> int:
-    return int(round(seconds * RATE))
-
-
-def test_a_word_running_through_ten_seconds_is_never_cut_and_the_earlier_pause_is_used():
-    pcm = synth([("quiet", 1.0), ("speech", 2.0), ("quiet", 0.4), ("speech", 9.6), ("quiet", 1.0)])
-    assert ov.endpoint_problems(pcm, RATE, at(10.0)) == ["the end (10.000 s) is not inside a natural pause"]
-    end, (start, stop) = ov.latest_safe_endpoint(pcm, RATE)
-    assert at(2.99) <= start <= at(3.01) and end == stop - at(ov.GUARD_S) and end < at(3.4)
-
-
-def test_a_sibilant_tail_is_part_of_the_word_and_the_cut_waits_for_the_quiet_after_it():
-    pcm = synth([("quiet", 1.0), ("speech", 1.5), ("sibilant", 0.2), ("quiet", 0.5), ("speech", 8.0), ("quiet", 1.0)])
-    problems = ov.endpoint_problems(pcm, RATE, at(2.65))  # inside the hiss
-    assert problems == ["the end (2.650 s) is not inside a natural pause"]
-    end, (start, _stop) = ov.latest_safe_endpoint(pcm, RATE)
-    assert start >= at(2.69) and end > start
-
-
-def test_background_noise_moves_the_threshold_so_a_real_pause_is_still_found():
-    noisy = synth([("quiet", 1.0), ("speech", 3.0), ("quiet", 0.5), ("speech", 9.0), ("quiet", 1.0)], floor=0.01)
-    analysis = ov.analyse_quiet(noisy, RATE)
-    assert analysis.floor_db > -45, "a floor of about -40 dB, far above the -50 dB an absolute threshold would use"
-    end, (start, _stop) = ov.latest_safe_endpoint(noisy, RATE)
-    assert at(3.99) <= start <= at(4.01) and ov.endpoint_problems(noisy, RATE, end) == []
-
-
-def test_a_stop_closure_or_a_zero_crossing_is_not_a_pause_and_an_earlier_real_pause_wins():
-    pcm = synth([("quiet", 1.0), ("speech", 4.0), ("quiet", 0.5), ("speech", 2.5), ("quiet", 0.08), ("speech", 1.2),
-                 ("zero", 0), ("speech", 4.72), ("quiet", 1.0)])
-    closure, zero = at(8.04), at(1.0 + 4.0 + 0.5 + 2.5 + 0.08 + 1.2)
-    assert ov.endpoint_problems(pcm, RATE, closure) == ["the end (8.040 s) is not inside a natural pause"]
-    assert ov.endpoint_problems(pcm, RATE, zero + 1)[0].endswith("is not inside a natural pause")
-    end, (start, _stop) = ov.latest_safe_endpoint(pcm, RATE)
-    assert at(4.99) <= start <= at(5.01) and end < at(5.5)
-
-
-def test_a_cut_needs_a_quiet_tail_after_the_word_and_a_guard_before_the_next_one():
-    pcm = synth([("quiet", 1.0), ("speech", 3.0), ("quiet", 0.4), ("speech", 9.0), ("quiet", 1.0)])
-    assert ov.endpoint_problems(pcm, RATE, at(4.04))[0].startswith("only ")  # 40 ms after the word
-    assert ov.endpoint_problems(pcm, RATE, at(4.39))[0].startswith("the end is only ")  # 10 ms before the next
-
-
-def test_continuous_speech_has_no_defensible_endpoint():
-    assert ov.latest_safe_endpoint(synth([("quiet", 1.0), ("speech", 14.0)]), RATE) is None
-
-
-# --------------------------------------------------------------------------- #
-# Excerpt transcripts: refused unless they are the approved transcript's own opening words
-# --------------------------------------------------------------------------- #
-FULL = "Zeth, Sun Sun, Balano, truthless of Shinovar, sat atop the highest tower."
-
-
-@pytest.mark.parametrize("excerpt, message", [
-    ("Zeth, Sun Sun, Balano, truthful of Shinovar,", "word 5"),
-    ("Zeth, Sun Sun, Balano, of Shinovar,", "word 5"),
-    ("Zeth, Sun Sun, Balano, truthless of Shinovar, sat", None),
-    ("Zeth, Sun Sun, Balano, truthless of Shinovar, sat atop the highest tower.", "as long as"),
-    ("Zeth, Sun Sun, Balano, truthless of Shino", "last word"),
-    (" Zeth,", "leading or trailing"),
-    ("", "blank"),
-])
-def test_an_excerpt_transcript_must_be_the_approved_opening_words(excerpt, message):
-    if message is None:
-        ov.validate_excerpt_transcript(FULL, excerpt)
-        ov.validate_excerpt_transcript(FULL, "Zeth, Sun Sun, Balano, truthless of Shinovar.")  # only punctuation moves
-        return
-    with pytest.raises(ov.ExcerptError, match=message):
-        ov.validate_excerpt_transcript(FULL, excerpt)
-
-
-def edited_authority(tmp_path: Path, change) -> Path:
-    data = json.loads(ov.excerpts_path().read_text(encoding="utf-8"))
-    change(data)
-    path = tmp_path / "omnivoice_excerpts.json"
+    data = json.loads(cr.manifest_path().read_text(encoding="utf-8"))
+    next(e for e in data["entries"] if e["voice_id"] == voice_id).update(fields)
+    path = tmp_path / "clone_references.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
 
 
-def _set(index: int, **fields):
-    return lambda data: data["entries"][index].update(fields)
+def test_a_list_claiming_more_than_ten_seconds_is_refused(tmp_path):
+    with pytest.raises(ov.ReferenceAssetError, match="at most 10 s"):
+        ov.load_references(_edited_list(tmp_path, "omnivoice-female-2", frames=10 * RATE + 1))
+    with pytest.raises(ov.ReferenceAssetError, match="at most 10 s"):
+        ov.load_references(_edited_list(tmp_path, "omnivoice-male-1", frames=451023))
 
 
-@pytest.mark.parametrize("change, message", [
-    (_set(2, crop_end_frame=240001), "inside the first 10 seconds"),
-    (_set(2, crop_start_frame=1200), "starts at 0.000"),
-    (_set(2, text="Zeth, Sun Sun, Balano, truthless of Shinovar, sat"), "checksum"),
-    (_set(2, original_wav_sha256="0" * 64), "different recording"),
-    (_set(2, reference_id="Male-2"), "not one of the six"),
-    (_set(2, status="approved-by-claude"), "unknown status"),
-    (_set(2, crop_end_frame=117240 + 1150), "natural pause"),
-    (_set(0, last_word="town."), "last word"),
-    (lambda data: data["entries"].pop(), "exactly 6"),
-    (lambda data: data.update(rule="first-10s"), "another rule"),
-    (lambda data: data["entries"][1].update(extra=1), "unexpected fields"),
-])
-def test_a_damaged_or_mismatched_authority_is_refused_whole(tmp_path, change, message):
-    with pytest.raises(ov.ExcerptError, match=message):
-        ov.load_excerpts(edited_authority(tmp_path, change))
+def test_a_damaged_list_makes_the_voice_unavailable_not_substituted(tmp_path, monkeypatch):
+    from tts import clone_references as cr
 
-
-def test_a_transcript_that_does_not_match_the_full_one_is_refused(tmp_path):
-    text = "Zeth, Sun Sun, Balano, truthful of Shinovar,"
-    path = edited_authority(tmp_path, _set(2, text=text, text_sha256=ov.text_sha256(text)))
-    with pytest.raises(ov.ExcerptError, match="word 5"):
-        ov.load_excerpts(path)
+    damaged = _edited_list(tmp_path, "omnivoice-male-3", text="Klein said directly.")
+    monkeypatch.setattr(cr, "manifest_path", lambda: damaged)
+    with pytest.raises(ov.OmniVoiceUnavailable, match="reference list shipped with the app is damaged"):
+        ov.reference_spec("omnivoice-male-3")
+    ok, reason = ov.reference_status(ov.get_voice("omnivoice-male-3"))
+    assert not ok and reason.startswith("Setup required for OmniVoice - Male 3")
 
 
 # --------------------------------------------------------------------------- #
-# The originals, the full transcripts and the historical verdicts are never changed
+# The recordings are verified, never changed, and reach the worker whole
 # --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("voice_id", sorted(FRAMES))
+def test_verifying_a_reference_reads_it_and_never_changes_it(voice_id):
+    voice = ov.get_voice(voice_id)
+    spec = ov.load_references()[voice_id]
+    original = ov.reference_path(voice)
+    before = (original.read_bytes(), os.stat(original).st_mtime_ns)
+    facts = ov.verify_reference(spec, original)
+    assert (original.read_bytes(), os.stat(original).st_mtime_ns) == before
+    assert facts == {"wav": str(original), "wav_sha256": voice.reference_sha256, "frames": FRAMES[voice_id],
+                     "sample_rate": RATE, "max_frames": spec.max_frames}
+    assert hashlib.sha256(before[0]).hexdigest() == spec.wav_sha256
+
+
+def test_a_changed_recording_or_a_wrong_format_is_refused(tmp_path):
+    spec = ov.load_references()["omnivoice-male-3"]
+    copy = tmp_path / "copy.wav"
+    shutil.copyfile(real_reference("omnivoice-male-3"), copy)
+    assert ov.verify_reference(spec, copy)["frames"] == spec.frames
+    with pytest.raises(ov.ReferenceAssetError, match="not in the approved format"):
+        ov.verify_reference(replace(spec, frames=spec.frames - 1), copy)
+    with pytest.raises(ov.ReferenceAssetError, match="not in the approved format"):
+        ov.verify_reference(replace(spec, sample_rate=24000), copy)
+    data = bytearray(copy.read_bytes())
+    data[-10] ^= 0xFF
+    copy.write_bytes(bytes(data))
+    with pytest.raises(ov.ReferenceAssetError, match="not the recording"):
+        ov.verify_reference(spec, copy)
+    with pytest.raises(ov.ReferenceAssetError, match="could not be read"):
+        ov.verify_reference(spec, tmp_path / "missing.wav")
+    other = real_reference("omnivoice-male-4")  # a real, approved recording -- of another voice
+    with pytest.raises(ov.ReferenceAssetError, match="not the recording"):
+        ov.verify_reference(spec, other)
+
+
 def test_the_full_length_transcripts_and_the_sixty_historical_verdicts_are_untouched():
     assert canonical_sha256(rt.bundled_transcripts_path()) == BUNDLE_CANONICAL_SHA256
     g1 = REPO / "files" / "tests" / "golden" / "speech" / "g1-verdicts.json"
@@ -303,62 +216,46 @@ def test_the_full_length_transcripts_and_the_sixty_historical_verdicts_are_untou
     assert len(verdicts) == 60 and not any(v["engine"] == "omnivoice" for v in verdicts)
 
 
-@pytest.mark.parametrize("voice_id", sorted(REVIEWED))
-def test_deriving_an_excerpt_reads_the_original_and_never_changes_it(tmp_path, voice_id):
-    spec = ov.load_excerpts()[voice_id]
-    original = ov.reference_path(ov.get_voice(voice_id))
-    before = (original.read_bytes(), os.stat(original).st_mtime_ns)
-    facts = ov.derive_excerpt(spec, original, tmp_path / "excerpt.wav")  # writes refused anywhere but tmp
-    assert (original.read_bytes(), os.stat(original).st_mtime_ns) == before
-    assert rt.sha256_file(original) == spec.original_wav_sha256 == ov.recording_sha256(spec.reference_id)
-    with wave.open(facts["path"], "rb") as w:
-        assert (w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()) == (1, 2, RATE, spec.crop_end_frame)
-        assert hashlib.sha256(w.readframes(w.getnframes())).hexdigest() == spec.excerpt_pcm_sha256
-    assert rt.sha256_file(Path(facts["path"])) == spec.excerpt_wav_sha256
-    assert facts["frames"] <= ov.MAX_EXCERPT_SECONDS * RATE
-
-
-def test_an_excerpt_is_refused_over_its_original_an_existing_file_or_a_changed_recording(tmp_path):
-    spec = ov.load_excerpts()["omnivoice-male-3"]
-    copy = tmp_path / "copy.wav"
-    shutil.copyfile(ov.reference_path(ov.get_voice("omnivoice-male-3")), copy)
-    with pytest.raises(ov.ExcerptError, match="never written over"):
-        ov.derive_excerpt(spec, copy, copy)
-    (tmp_path / "taken.wav").write_bytes(b"x")
-    with pytest.raises(ov.ExcerptError, match="already exists"):
-        ov.derive_excerpt(spec, copy, tmp_path / "taken.wav")
-    data = bytearray(copy.read_bytes())
-    data[-10] ^= 0xFF
-    copy.write_bytes(bytes(data))
-    with pytest.raises(ov.ExcerptError, match="not the recording"):
-        ov.derive_excerpt(spec, copy, tmp_path / "new.wav")
-    assert not (tmp_path / "new.wav").exists() and not (tmp_path / "new.wav.part").exists()
+def test_the_phase2_excerpt_machinery_is_gone():
+    """The derived-excerpt crop (Phase 2's first design) was replaced by the owner-curated recordings."""
+    for name in ("derive_excerpt", "load_excerpts", "excerpt_spec", "latest_safe_endpoint", "validate_excerpt_transcript"):
+        assert not hasattr(ov, name), name
+    assert not (REPO / "scripts" / "tts" / "data" / "omnivoice_excerpts.json").exists()
 
 
 # --------------------------------------------------------------------------- #
 # The prompt cache identity
 # --------------------------------------------------------------------------- #
 def test_the_prompt_cache_key_moves_with_every_input_that_shapes_the_prompt():
-    from dataclasses import replace
-
-    spec = ov.load_excerpts()["omnivoice-female-1"]
+    spec = ov.load_references()["omnivoice-female-1"]
     base = dict(model_revision="c5fdb5ccb189668d56333f77ba2629f4cd7535f4", omnivoice_version="0.2.1",
                 preprocess_prompt=True, dtype="float16")
     key, fields = ov.prompt_identity(spec, **base)
     assert key == ov.prompt_identity(spec, **base)[0] and len(key) == 64
     variants = [
-        ov.prompt_identity(replace(spec, crop_end_frame=spec.crop_end_frame - 120), **base),
-        ov.prompt_identity(replace(spec, excerpt_pcm_sha256="1" * 64), **base),
-        ov.prompt_identity(replace(spec, text_sha256="2" * 64), **base),
-        ov.prompt_identity(replace(spec, original_wav_sha256="3" * 64), **base),
+        ov.prompt_identity(replace(spec, wav_sha256="3" * 64), **base),       # another recording
+        ov.prompt_identity(replace(spec, text_sha256="2" * 64), **base),      # another transcript
+        ov.prompt_identity(replace(spec, frames=spec.frames - 1), **base),
+        ov.prompt_identity(replace(spec, sample_rate=24000), **base),
+        ov.prompt_identity(replace(spec, voice_id="omnivoice-female-2"), **base),
         ov.prompt_identity(spec, **{**base, "model_revision": "0" * 40}),
         ov.prompt_identity(spec, **{**base, "omnivoice_version": "0.2.2"}),
         ov.prompt_identity(spec, **{**base, "preprocess_prompt": False}),
         ov.prompt_identity(spec, **{**base, "dtype": "float32"}),
     ]
     assert len({key, *(k for k, _ in variants)}) == len(variants) + 1
-    assert fields["crop"] == [0, spec.crop_end_frame, RATE] and fields["silence_rule"] == ov.SILENCE_RULE_VERSION
+    assert fields["schema"] == 2 and fields["reference"] == [spec.frames, RATE]
+    assert fields["preprocessing_version"] == ov.PREPROCESSING_VERSION == "act-omnivoice-reference-v3"
+    assert fields["wav_sha256"] == spec.wav_sha256 and fields["text_sha256"] == spec.text_sha256
     assert ov.prompt_cache_path(spec.voice_id, key).name == f"omnivoice-female-1__{key[:24]}.pt"
+
+
+def test_a_phase2_excerpt_prompt_can_never_be_reused():
+    """A schema-1 (excerpt) identity has other fields and another schema: no new key can equal an old one."""
+    spec = ov.load_references()["omnivoice-male-1"]
+    _key, fields = ov.prompt_identity(spec, model_revision="c" * 40, omnivoice_version="0.2.1", preprocess_prompt=True,
+                                      dtype="float16")
+    assert fields["schema"] != 1 and not {"crop", "excerpt_pcm_sha256", "silence_rule", "original_wav_sha256"} & set(fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -447,8 +344,7 @@ def test_availability_says_why_in_order_and_never_offers_an_install_without_a_gp
     sandbox.make_env()
     sandbox.make_model()
     assert ov.verify_model_files() == []
-    monkeypatch.setattr(ov, "reference_path", lambda voice: REPO / "files" / "Cloned-Voice-Uploads"
-                        / vr.reference_recording_filename("omnivoice", voice.voice_id))
+    monkeypatch.setattr(ov, "reference_path", lambda voice: real_reference(voice.voice_id))
     assert ov.voice_availability("omnivoice-male-1") == (True, "ok")
     assert ov.install_would_help() is False
     assert ov.voice_availability("omnivoice-nobody")[0] is False

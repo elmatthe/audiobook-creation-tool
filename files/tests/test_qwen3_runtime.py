@@ -245,7 +245,7 @@ def test_exactly_eight_voices_with_the_owners_labels_and_model_split():
     assert manifest_voices["customvoice"] | manifest_voices["base"] == {v.voice_id for v in rt.QWEN3_VOICES}
 
 
-def test_clone_reference_hashes_agree_with_the_chatterbox_registry_without_importing_it():
+def test_clone_references_are_qwen3s_own_and_found_without_importing_the_chatterbox_registry():
     from tts import chatterbox_synth as cs
     from tts import voice_registry as vr
 
@@ -258,8 +258,10 @@ def test_clone_reference_hashes_agree_with_the_chatterbox_registry_without_impor
         twins = [cid for (backend, cid), r in vr.VOICE_REFERENCES.items() if backend == "chatterbox" and r == ref]
         assert len(twins) == 1
         twin = cs.REFERENCE_VOICES[twins[0]]
-        # one bundled copy with a fixed basename, bound to the same hash
-        assert (rt.reference_path(voice).name, voice.reference_sha256) == (twin.source_name, twin.source_sha256)
+        # v0.8.0 (owner decision 2026-11-13): each engine has its own recording -- Qwen3 keeps the original file
+        # (renamed into its own folder), Chatterbox has a new one -- so the twins share the reference id only.
+        assert rt.reference_path(voice).name == f"Qwen3 - {ref.replace('-', ' ')}.wav" != twin.source_name
+        assert rt.reference_path(voice).parent.name == "Qwen3" and voice.reference_sha256 != twin.source_sha256
     source = (REPO_ROOT / "scripts" / "tts" / "qwen3_runtime.py").read_text("utf-8")
     assert "chatterbox_synth" not in source.replace("``chatterbox_synth.REFERENCE_VOICES``", "")  # independent
 

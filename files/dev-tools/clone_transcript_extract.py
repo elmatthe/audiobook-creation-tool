@@ -51,7 +51,7 @@ MALE4_PREFIX = "Hello Arthur."  # plan Revision 2 §5.3 step 3
 MANIFEST_NAME = re.compile(r"preservation-(?P<tag>\d{8}-\d{6}-[0-9a-f]{8})\.json")
 RUNTIME_DATA_ORIGINAL = "files/runtime-data"
 STORE_SUBPATH = ("qwen3", "transcripts.json")  # scripts/tts/qwen3_runtime.py local_transcripts_path()
-REFS_REL = "files/Cloned-Voice-Uploads"  # scripts/tts/voice_registry.py REFERENCE_DIRECTORY
+REFS_REL = "files/Cloned-Voice-Uploads/Qwen3"  # voice_registry REFERENCE_DIRECTORY + Qwen3's folder (v0.8.0)
 REVIEW_BASE_REL = "files/dev-work/act070-remediation/private-transcript-review"
 METADATA_BASE_REL = "files/dev-work/act070-remediation/transcript-extraction/metadata"
 ARTIFACT_NAME = "six-clone-transcripts-PRIVATE-REVIEW.json"
@@ -64,21 +64,22 @@ EXIT_PASS, EXIT_REFUSED, EXIT_UNEXPECTED, EXIT_REVIEW_PENDING = 0, 2, 3, 4
 # approval history (approved_by/approved_on) and anything unknown stay behind in the private store.
 KNOWN_FIELDS = frozenset({"text", "approved", "wav_sha256", "text_sha256", "approved_by", "approved_on"})
 
-#: (reference_id, voice_id, recording basename, expected WAV SHA-256) -- plan Revision 2 Appendix A. Pinned here on
+#: (reference_id, voice_id, recording basename, expected WAV SHA-256) -- plan Revision 2 Appendix A; since v0.8.0 the
+#: same bytes are Qwen3's own files, renamed (owner decision 2026-11-13). Pinned here on
 #: purpose (this tool imports nothing from the app); files/tests/test_clone_transcript_extract.py proves it equals
 #: voice_registry, qwen3_runtime and chatterbox_synth.
 REGISTRY: tuple[tuple[str, str, str, str], ...] = (
-    ("Female-1", "qwen3-female-1", "Chatterbox - Female 1.wav",
+    ("Female-1", "qwen3-female-1", "Qwen3 - Female 1.wav",
      "b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4"),
-    ("Female-2", "qwen3-female-2", "Chatterbox - Female 2.wav",
+    ("Female-2", "qwen3-female-2", "Qwen3 - Female 2.wav",
      "428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205"),
-    ("Male-1", "qwen3-male-1", "Chatterbox - Male 1.wav",
+    ("Male-1", "qwen3-male-1", "Qwen3 - Male 1.wav",
      "45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58"),
-    ("Male-2", "qwen3-male-2", "Chatterbox - Male 2.wav",
+    ("Male-2", "qwen3-male-2", "Qwen3 - Male 2.wav",
      "592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355"),
-    ("Male-3", "qwen3-male-3", "Chatterbox - Male 3.wav",
+    ("Male-3", "qwen3-male-3", "Qwen3 - Male 3.wav",
      "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
-    ("Male-4", "qwen3-male-4", "Chatterbox - Male 4.wav",
+    ("Male-4", "qwen3-male-4", "Qwen3 - Male 4.wav",
      "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 )
 

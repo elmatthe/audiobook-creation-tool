@@ -21211,7 +21211,7 @@
         }
       ],
       "contracts": [
-        "The archive holds only the Windows launcher, README.md, config.toml, git-tracked scripts/ and exactly the six named Chatterbox reference WAVs from files/Cloned-Voice-Uploads",
+        "The archive holds only the Windows launcher, README.md, config.toml, git-tracked scripts/ and exactly the 18 named reference WAVs from files/Cloned-Voice-Uploads (six per cloned engine, each in its own engine folder)",
         "Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship",
         "The packaged and committed config.toml ship [development] developer_mode = false, checked again in the finished archive",
         "A build refuses uncommitted changes and occupied destinations, validates every member against its source and publishes all or nothing",

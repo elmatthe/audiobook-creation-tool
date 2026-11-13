@@ -14,10 +14,11 @@ so both archives contain the same ``scripts/`` folder; they differ only in which
 double-click launcher sits at the archive root (``.bat`` vs ``.command``), plus
 ``README.md`` and the committed ``config.toml``. All machine-specific /
 regenerable artifacts (venv, caches, dev assets and runtime data — recreated on
-first run) are excluded. Exactly six named clone reference WAVs ship from
-``files/Cloned-Voice-Uploads/`` (one copy for Chatterbox and Qwen3); nothing from
-the pre-v0.7.0 ``files/Chatterbox-Voice-Uploads/`` folder and no other ``files/``
-content ships.
+first run) are excluded. Exactly 18 named clone reference WAVs ship from
+``files/Cloned-Voice-Uploads/<Engine>/`` (v0.8.0: six per cloned engine, one copy
+each -- Chatterbox, Qwen3 and OmniVoice each have their own); nothing loose at that
+folder's root, nothing from the pre-v0.7.0 ``files/Chatterbox-Voice-Uploads/`` folder
+and no other ``files/`` content ships.
 The version string comes from the single
 source of truth in ``version.py``.
 
@@ -94,14 +95,28 @@ ENTRY_FILES = {
 ROOT_FILES = ("README.md", "config.toml")
 
 # CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
-# extra recordings, derivatives and caches are not distributable assets.
+# extra recordings, transcripts, the owner's upload archive, derivatives and caches
+# are not distributable assets. v0.8.0 (owner decision 2026-11-13): each cloned
+# engine's own six recordings, by exact name, in its own folder.
 REFERENCE_ASSETS = (
-    "files/Cloned-Voice-Uploads/Chatterbox - Female 1.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Female 2.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 1.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 2.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 3.wav",
-    "files/Cloned-Voice-Uploads/Chatterbox - Male 4.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Female 1.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Female 2.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 1.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 2.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 3.wav",
+    "files/Cloned-Voice-Uploads/Chatterbox/Chatterbox - Male 4.wav",
+    "files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Female 1.wav",
+    "files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Female 2.wav",
+    "files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 1.wav",
+    "files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 2.wav",
+    "files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 3.wav",
+    "files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - Male 4.wav",
+    "files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Female 1.wav",
+    "files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Female 2.wav",
+    "files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 1.wav",
+    "files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 2.wav",
+    "files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 3.wav",
+    "files/Cloned-Voice-Uploads/Qwen3/Qwen3 - Male 4.wav",
 )
 
 # Directory names that are excluded wherever they appear in the tree.

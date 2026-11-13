@@ -71,6 +71,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/omnivoice_runtime.py",
     "tts/omnivoice_synth.py",
     "tts/omnivoice_worker.py",
+    # Added by the v0.8.0 Phase 2 correction: the 18 engine-specific clone references' authority. Same reasoning as above.
+    "tts/clone_references.py",
     # Added by the v0.7.1 R2 remediation: what supervises every FFmpeg on the Edge routes. Same reasoning as chatterbox_synth.py above.
     "tts/ffmpeg_watch.py",
     # Added by v0.7.2 Phase 1: how one Edge request answers to Cancel. Same reasoning as chatterbox_synth.py above.

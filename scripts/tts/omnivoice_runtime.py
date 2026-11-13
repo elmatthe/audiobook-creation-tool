@@ -4,15 +4,15 @@ OmniVoice 0.2.1 needs ``transformers>=5.3.0``, which neither the app's ``.venv``
 in its own sibling environment ``.venv-omnivoice`` (plan section 4, Decisions 2026-11-13) inside a supervised worker
 process (``omnivoice_worker.py``); ``omnivoice_synth.py`` is the application-side half. This module only *asks
 questions*: where things live, whether they are present and intact, and what a person should be told when they are not.
-It imports nothing heavy (numpy only inside the silence check), never downloads, and never raises for a missing asset --
-a missing asset is a status with a sentence fit for a non-technical user.
+It imports nothing heavy (no numpy, torch or OmniVoice), never downloads, and never raises for a missing asset -- a
+missing asset is a status with a sentence fit for a non-technical user.
 
-The six voices clone the six bundled recordings the Chatterbox and Qwen3 clones use, but OmniVoice alone is conditioned
-on a **derived excerpt**: the first part of each recording, never more than 10.000 s, ending inside a natural pause
-after a complete word (owner decision 2026-11-13, "maximum-10-second, silence-safe"). The excerpt's crop, its exact PCM
-and its own excerpt-matched transcript are tracked data (``tts/data/omnivoice_excerpts.json``), bound to the
-recording's SHA-256 and to the approved full-length transcript it must be a word-prefix of. The recordings and the full
-transcripts are never changed; the excerpt is made again, from the verified recording, inside each run's own job folder.
+The six voices are conditioned on **their own** owner-curated recordings, ``files/Cloned-Voice-Uploads/OmniVoice/
+OmniVoice - <Voice>.wav``, used whole -- never cropped again -- with the owner-written transcripts as reference text
+(owner decision 2026-11-13; it replaced the Phase 2 derived excerpts). Each recording is pinned here by SHA-256 and
+listed, with its format, exact frame count and transcript, in ``tts/data/clone_references.json``
+(``tts/clone_references``). A reference is at most 10.000 s, except the one owner-approved, hash-bound Male 1 recording
+(:data:`DURATION_EXCEPTIONS`). The recordings are only ever read; the Chatterbox and Qwen3 clones have their own.
 
 Nothing here installs anything. The optional installer (plan Phase 3) will place the environment and the model and
 call :func:`verify_model_files`; a conversion (``omnivoice_synth``) is the only thing that loads the model.
@@ -21,18 +21,19 @@ call :func:`verify_model_files`; a conversion (``omnivoice_synth``) is the only 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
 import sys
 import time
-import unicodedata
 import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 from shared import venv_layout
+from tts import clone_references
 from tts import qwen3_runtime as _qwen3  # the shared, light helpers: hashing, OS-owned locks, GPU probe, PATH scrub
 
 BACKEND = "omnivoice"
@@ -43,10 +44,10 @@ ENGINE_NAME = "OmniVoice"
 
 
 class OmniVoiceUnavailable(RuntimeError):
-    """The OmniVoice engine, its model, or a voice's reference excerpt is not usable right now.
+    """The OmniVoice engine, its model, or a voice's reference recording is not usable right now.
 
     Always carries a message fit to show a non-technical user. Raised instead of falling back to another voice, another
-    engine, the full-length recording, or a transcript-free clone, so no substituted voice is ever produced.
+    engine, another engine's recording, or a transcript-free clone, so no substituted voice is ever produced.
     """
 
 
@@ -56,7 +57,9 @@ class OmniVoiceUnavailable(RuntimeError):
 @dataclass(frozen=True)
 class OmniVoiceVoice:
     voice_id: str
-    reference_id: str  # the stable reference id of the bundled recording (voice_registry.REFERENCE_RECORDINGS)
+    reference_id: str  # the stable reference id (voice_registry.VOICE_REFERENCES)
+    reference_sha256: str  # the voice's OWN recording, as the owner approved it (2026-11-13)
+    text_sha256: str  # the owner-written transcript of that recording (UTF-8), its reference text
 
     @property
     def label(self) -> str:
@@ -66,14 +69,28 @@ class OmniVoiceVoice:
         return label_for(BACKEND, self.voice_id)
 
 
-#: Plan section 3: six new, distinct stable ids, each cloned from the unchanged recording of the same reference id.
+#: Plan section 3: six new, distinct stable ids. Owner decision 2026-11-13: each is cloned from its own owner-curated
+#: recording (44.1 kHz mono 16-bit) with its owner-written transcript, both pinned here by SHA-256 (so neither can change
+#: by editing the reference list alone); the Chatterbox and Qwen3 recordings are other files.
 OMNIVOICE_VOICES: tuple[OmniVoiceVoice, ...] = (
-    OmniVoiceVoice("omnivoice-female-1", "Female-1"),
-    OmniVoiceVoice("omnivoice-female-2", "Female-2"),
-    OmniVoiceVoice("omnivoice-male-1", "Male-1"),
-    OmniVoiceVoice("omnivoice-male-2", "Male-2"),
-    OmniVoiceVoice("omnivoice-male-3", "Male-3"),
-    OmniVoiceVoice("omnivoice-male-4", "Male-4"),
+    OmniVoiceVoice("omnivoice-female-1", "Female-1",
+                   reference_sha256="438329e6c39917b55a6833b0a1244c7375bf17a61580c3dc07b6098743d13249",
+                   text_sha256="a08d518bc256bebaa16be69ab673ec454ffc26e8298e6243e5a4e03617b4bd1b"),
+    OmniVoiceVoice("omnivoice-female-2", "Female-2",
+                   reference_sha256="909a0ea7935385792075771291fd1aa922c22e3a0756fb6210f0b69830141861",
+                   text_sha256="927d8f7e5825034d8e9a04d009176012b682fb9d3da3c42b5372a3f1918ad13f"),
+    OmniVoiceVoice("omnivoice-male-1", "Male-1",
+                   reference_sha256="7753385380675913f0b97c5a03ca6d63702dec13c4905d7f014dc45ef7b1ccf7",
+                   text_sha256="93cb79177664e36fc78babc1ec00a7a00fbb51c7fadd2da647463681f49e69de"),
+    OmniVoiceVoice("omnivoice-male-2", "Male-2",
+                   reference_sha256="0b2918438b877bbe35ff38d590adca2af00e213219588bbc39ad5505f4c5b678",
+                   text_sha256="79d1806d7cf7608f68c614be1661937bba63dae40c36b4829fb4a748d46d0cac"),
+    OmniVoiceVoice("omnivoice-male-3", "Male-3",
+                   reference_sha256="5dc34276f15cb42b9a3a04dc67c6bc1fba1f3511c979c0ea81bc6751aa885b89",
+                   text_sha256="acd64ab91990b19960be28011596368b30f305bc7a08cb9bb9b571e9b598084e"),
+    OmniVoiceVoice("omnivoice-male-4", "Male-4",
+                   reference_sha256="31d7305ce0257a56599607e575679763c49ce3ecd5541d81c6e6b877002d1d3d",
+                   text_sha256="89413cea1f002d79de9ff5811abc893296ba53b6379c06d804cfef7209a7f8c7"),
 )
 _VOICE_BY_ID = {v.voice_id: v for v in OMNIVOICE_VOICES}
 
@@ -86,19 +103,11 @@ def get_voice(voice_id: str) -> OmniVoiceVoice:
             f"Unknown OmniVoice voice '{voice_id}'. Known voices: {', '.join(sorted(_VOICE_BY_ID))}.") from None
 
 
-def recording_sha256(reference_id: str) -> str:
-    """The SHA-256 the bundled recording of *reference_id* was approved at (the registered clone's, one source of it)."""
-    for voice in _qwen3.QWEN3_VOICES:
-        if voice.kind == _qwen3.KIND_CLONE and voice.reference_name == reference_id:
-            return voice.reference_sha256
-    raise OmniVoiceUnavailable(f"{reference_id} is not one of the six bundled reference recordings.")
-
-
 def reference_path(voice: OmniVoiceVoice) -> Path:
-    """The ONE bundled copy of the recording, shared with the Chatterbox and Qwen3 clones (named by the registry)."""
-    from tts.voice_registry import REFERENCE_DIRECTORY, reference_recording_filename
+    """The voice's own recording, ``files/Cloned-Voice-Uploads/OmniVoice/OmniVoice - <Voice>.wav`` (named by the registry)."""
+    from tts.voice_registry import reference_recording_parts
 
-    return repo_root().joinpath(*REFERENCE_DIRECTORY) / reference_recording_filename(BACKEND, voice.voice_id)
+    return repo_root().joinpath(*reference_recording_parts(BACKEND, voice.voice_id))
 
 
 # --------------------------------------------------------------------------- #
@@ -163,10 +172,6 @@ def worker_script() -> Path:
 
 def manifest_path() -> Path:
     return Path(__file__).resolve().with_name("omnivoice_manifest.json")
-
-
-def excerpts_path() -> Path:
-    return Path(__file__).resolve().parent / "data" / "omnivoice_excerpts.json"
 
 
 def refuse_link(folder: Path) -> None:
@@ -466,326 +471,129 @@ def model_status() -> tuple[bool, str]:
 
 
 # --------------------------------------------------------------------------- #
-# The reference excerpts: the maximum-10-second, silence-safe rule
+# The reference recordings: owner-curated, used whole, at most 10 s (one owner exception)
 # --------------------------------------------------------------------------- #
-#: Ten seconds is a MAXIMUM (owner decision 2026-11-13). Nothing after it is ever conditioned on.
-MAX_EXCERPT_SECONDS = 10
-#: How an excerpt is made: the recording's own decoded frames [0, end), unchanged, in a new canonical PCM WAV.
-PREPROCESSING_VERSION = "act-omnivoice-excerpt-v2"
-SILENCE_RULE_VERSION = "act-omnivoice-silence-v1"
-#: The silence rule, fixed and versioned. Energy is the mean square of 20 ms frames every 5 ms. The quiet threshold
-#: adapts to each recording: ``floor + max(6 dB, 20% of (speech - floor))``, where floor and speech are the 5th and 95th
-#: percentiles of its frame energies. A quiet run must last at least 150 ms to count as a natural pause (an English stop
-#: closure is shorter, so a closure inside or between words is never mistaken for one). The cut keeps at least 100 ms of
-#: that pause after the last word, and at least 50 ms of it before whatever sound comes next.
-FRAME_S, HOP_S = 0.020, 0.005
-FLOOR_PERCENTILE, SPEECH_PERCENTILE = 5, 95
-MIN_MARGIN_DB, MARGIN_FRACTION = 6.0, 0.20
-MIN_PAUSE_S, MIN_TAIL_S, GUARD_S = 0.150, 0.100, 0.050
-
-EXCERPT_STATUSES = ("provisional", "approved")
-EXCERPT_TOP_KEYS = frozenset({"schema_version", "rule", "silence_rule", "preprocessing_version", "entries"})
-EXCERPT_ENTRY_KEYS = frozenset({
-    "voice_id", "reference_id", "original_wav_sha256", "sample_rate", "channels", "sample_width_bytes",
-    "original_frames", "crop_start_frame", "crop_end_frame", "excerpt_pcm_sha256", "excerpt_wav_sha256",
-    "pause_start_frame", "pause_end_frame", "last_word", "text", "text_sha256", "status", "note"})
-EXCERPT_MAX_BYTES = 64 * 1024
-_TRAILING_MARKS = ".,;:!?\"'’”)]"
+#: Ten seconds is the normal MAXIMUM for an OmniVoice reference (owner decisions 2026-11-13). Nothing longer is ever
+#: conditioned on, except the one recording in :data:`DURATION_EXCEPTIONS`.
+MAX_REFERENCE_SECONDS = 10
+#: The ONE explicit owner exception (2026-11-13): OmniVoice - Male 1 keeps its whole recording, about 10.227 s, so its
+#: last word ("things.") and the natural quiet after it are not cut. It is bound to that exact file -- its SHA-256, its
+#: decoded frame count and its rate -- and widens nothing else: another file for this voice, or any other voice, is held
+#: to 10 s.
+DURATION_EXCEPTIONS: dict[str, tuple[str, int, int]] = {
+    "omnivoice-male-1": ("7753385380675913f0b97c5a03ca6d63702dec13c4905d7f014dc45ef7b1ccf7", 451022, 44100),
+}
+#: How a reference reaches the model: the verified recording's own frames at its own rate (44.1 kHz for the six owner
+#: recordings), unchanged and uncropped. OmniVoice's ``create_voice_clone_prompt`` resamples it to the model's rate in
+#: memory and, with ``preprocess_prompt``, trims its silences; the file itself is only ever read.
+PREPROCESSING_VERSION = "act-omnivoice-reference-v3"
 
 
-class ExcerptError(ValueError):
-    """The excerpt authority, an excerpt or its transcript is not exactly what was reviewed. The message says what."""
+class ReferenceAssetError(ValueError):
+    """A reference recording, the reference list or a transcript is not exactly what was approved. The message says what."""
 
 
 @dataclass(frozen=True)
-class ExcerptSpec:
+class ReferenceSpec:
+    """What one OmniVoice voice is conditioned on: its own approved recording and its owner-written transcript."""
     voice_id: str
     reference_id: str
-    original_wav_sha256: str
+    wav_sha256: str
     sample_rate: int
     channels: int
     sample_width_bytes: int
-    original_frames: int
-    crop_start_frame: int
-    crop_end_frame: int
-    excerpt_pcm_sha256: str
-    excerpt_wav_sha256: str
-    pause_start_frame: int
-    pause_end_frame: int
-    last_word: str
+    frames: int
     text: str
     text_sha256: str
-    status: str
-    note: str
 
     @property
     def duration_s(self) -> float:
-        return (self.crop_end_frame - self.crop_start_frame) / self.sample_rate
+        return self.frames / self.sample_rate
+
+    @property
+    def max_frames(self) -> int:
+        """The most frames this reference may have: 10 s, or exactly the excepted recording's own length."""
+        if DURATION_EXCEPTIONS.get(self.voice_id) == (self.wav_sha256, self.frames, self.sample_rate):
+            return self.frames
+        return MAX_REFERENCE_SECONDS * self.sample_rate
 
 
 def text_sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return clone_references.text_sha256(text)
 
 
-def transcript_problem(text: object) -> Optional[str]:
-    if not isinstance(text, str) or not text.strip():
-        return "it is blank"
-    if text != text.strip():
-        return "it has leading or trailing spaces"
-    if any(unicodedata.category(ch) == "Cc" for ch in text):
-        return "it has control characters"
-    return None
+def duration_problem(spec: ReferenceSpec) -> Optional[str]:
+    """Why *spec* is too long to condition on, or ``None``."""
+    if 0 < spec.frames <= spec.max_frames:
+        return None
+    return (f"{spec.voice_id}: the recording is {spec.duration_s:.3f} s; an OmniVoice reference is at most "
+            f"{MAX_REFERENCE_SECONDS} s")
 
 
-def validate_excerpt_transcript(full_text: str, excerpt_text: str) -> None:
-    """Refuse an excerpt transcript that is not the approved full transcript's own opening words.
+def load_references(path: Optional[Path] = None) -> dict[str, ReferenceSpec]:
+    """``voice_id -> ReferenceSpec`` for all six voices, from the WHOLE checked reference list (``clone_references``).
 
-    Every word but the last must equal the approved transcript's word at that place exactly; the last may differ only in
-    trailing punctuation. Nothing may be added, changed or left out, and the full-length transcript itself is refused:
-    an excerpt of at most 10 seconds of a 15-second recording cannot be all of it.
+    Each entry must name the voice's own pinned recording (:attr:`OmniVoiceVoice.reference_sha256`) and its pinned
+    owner-written transcript (:attr:`OmniVoiceVoice.text_sha256`; text conditioning needs the exact words), and respect
+    the 10-second maximum (or the one exception, exactly). Nothing here reads a recording; :func:`verify_reference`
+    does, at use.
     """
-    problem = transcript_problem(excerpt_text)
-    if problem:
-        raise ExcerptError(f"the excerpt transcript is unusable: {problem}")
-    full, words = full_text.split(), excerpt_text.split()
-    if len(words) >= len(full):
-        raise ExcerptError("the excerpt transcript is as long as the full-length transcript")
-    for index, word in enumerate(words[:-1]):
-        if word != full[index]:
-            raise ExcerptError(f"word {index + 1} ({word!r}) is not the approved transcript's ({full[index]!r})")
-    last, expected = words[-1], full[len(words) - 1]
-    if last != expected and (not last.rstrip(_TRAILING_MARKS)
-                             or last.rstrip(_TRAILING_MARKS) != expected.rstrip(_TRAILING_MARKS)):
-        raise ExcerptError(f"the last word ({last!r}) is not the approved transcript's ({expected!r})")
-
-
-def _entry(raw: dict, full_texts: dict[str, str]) -> ExcerptSpec:
-    if not isinstance(raw, dict) or set(raw) != EXCERPT_ENTRY_KEYS:
-        raise ExcerptError("an entry has unexpected fields")
-    ints = ("sample_rate", "channels", "sample_width_bytes", "original_frames", "crop_start_frame", "crop_end_frame",
-            "pause_start_frame", "pause_end_frame")
-    if any(type(raw[key]) is not int for key in ints) or any(
-            not isinstance(raw[key], str) for key in EXCERPT_ENTRY_KEYS - set(ints)):
-        raise ExcerptError("an entry field has the wrong type")
-    spec = ExcerptSpec(**raw)
-    voice = _VOICE_BY_ID.get(spec.voice_id)
-    if voice is None or voice.reference_id != spec.reference_id:
-        raise ExcerptError(f"{spec.voice_id}: not one of the six OmniVoice voices with that recording")
-    if spec.original_wav_sha256 != recording_sha256(spec.reference_id):
-        raise ExcerptError(f"{spec.voice_id}: bound to a different recording")
-    for key in ("excerpt_pcm_sha256", "excerpt_wav_sha256", "text_sha256", "original_wav_sha256"):
-        if not _HEX64.fullmatch(getattr(spec, key)):
-            raise ExcerptError(f"{spec.voice_id}: {key} is not a SHA-256")
-    rate = spec.sample_rate
-    if rate <= 0 or spec.channels != 1 or spec.sample_width_bytes != 2:
-        raise ExcerptError(f"{spec.voice_id}: the recording is not the 16-bit mono PCM it was reviewed as")
-    if spec.crop_start_frame != 0:
-        raise ExcerptError(f"{spec.voice_id}: an excerpt starts at 0.000 s")
-    if not 0 < spec.crop_end_frame <= min(MAX_EXCERPT_SECONDS * rate, spec.original_frames):
-        raise ExcerptError(f"{spec.voice_id}: the excerpt must end inside the first {MAX_EXCERPT_SECONDS} seconds")
-    if not (spec.pause_start_frame + int(round(MIN_TAIL_S * rate)) <= spec.crop_end_frame
-            and spec.crop_end_frame + int(round(GUARD_S * rate)) <= spec.pause_end_frame
-            and spec.pause_end_frame - spec.pause_start_frame >= int(round(MIN_PAUSE_S * rate))):
-        raise ExcerptError(f"{spec.voice_id}: the recorded crop does not sit inside its recorded natural pause")
-    problem = transcript_problem(spec.text)
-    if problem:
-        raise ExcerptError(f"{spec.voice_id}: the excerpt transcript is unusable: {problem}")
-    if text_sha256(spec.text) != spec.text_sha256:
-        raise ExcerptError(f"{spec.voice_id}: the excerpt transcript fails its checksum")
-    if spec.text.split()[-1] != spec.last_word:
-        raise ExcerptError(f"{spec.voice_id}: the recorded last word is not the transcript's last word")
-    if spec.reference_id not in full_texts:
-        raise ExcerptError(f"{spec.voice_id}: no approved full-length transcript for {spec.reference_id}")
     try:
-        validate_excerpt_transcript(full_texts[spec.reference_id], spec.text)
-    except ExcerptError as exc:
-        raise ExcerptError(f"{spec.voice_id}: {exc}") from None
-    if spec.status not in EXCERPT_STATUSES:
-        raise ExcerptError(f"{spec.voice_id}: unknown status {spec.status!r}")
-    return spec
-
-
-def load_excerpts(path: Optional[Path] = None, *, full_texts: Optional[dict[str, str]] = None) -> dict[str, ExcerptSpec]:
-    """``voice_id -> ExcerptSpec`` for all six voices, after checking the WHOLE authority (a damaged file is not trusted
-    in part). Each entry is bound to its recording's hash and to the approved full-length transcript it must open."""
-    source = Path(path) if path is not None else excerpts_path()
-    try:
-        if source.stat().st_size > EXCERPT_MAX_BYTES:
-            raise ExcerptError("the excerpt list is too large")
-        data = json.loads(source.read_bytes().decode("utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        if isinstance(exc, ExcerptError):
-            raise
-        raise ExcerptError(f"the excerpt list shipped with the app could not be read ({exc})") from exc
-    if not isinstance(data, dict) or set(data) != EXCERPT_TOP_KEYS or data.get("schema_version") != 1:
-        raise ExcerptError("the excerpt list is not schema version 1")
-    if (data["rule"], data["silence_rule"], data["preprocessing_version"]) != (
-            "maximum-10s-silence-safe", SILENCE_RULE_VERSION, PREPROCESSING_VERSION):
-        raise ExcerptError("the excerpt list was made under another rule")
-    if full_texts is None:
-        try:
-            full_texts = _qwen3.load_bundle()
-        except _qwen3.TranscriptBundleError as exc:
-            raise ExcerptError(str(exc)) from exc
-    entries = data["entries"]
-    if not isinstance(entries, list) or len(entries) != len(OMNIVOICE_VOICES):
-        raise ExcerptError(f"the excerpt list must hold exactly {len(OMNIVOICE_VOICES)} entries")
-    specs: dict[str, ExcerptSpec] = {}
-    for raw in entries:
-        spec = _entry(raw, full_texts)
-        if spec.voice_id in specs:
-            raise ExcerptError(f"two entries for {spec.voice_id}")
-        specs[spec.voice_id] = spec
+        assets = clone_references.load(path)
+    except clone_references.ReferenceManifestError as exc:
+        raise ReferenceAssetError(str(exc)) from exc
+    specs: dict[str, ReferenceSpec] = {}
+    for voice in OMNIVOICE_VOICES:
+        asset = assets[(BACKEND, voice.voice_id)]  # load() proved that every registered clone has exactly one entry
+        if asset.wav_sha256 != voice.reference_sha256:
+            raise ReferenceAssetError(f"{voice.voice_id}: bound to a different recording than the approved one")
+        if asset.text_sha256 != voice.text_sha256:
+            raise ReferenceAssetError(f"{voice.voice_id}: the transcript is not the owner-approved one for its recording")
+        spec = ReferenceSpec(voice.voice_id, asset.reference_id, asset.wav_sha256, asset.sample_rate, asset.channels,
+                             asset.sample_width_bytes, asset.frames, asset.text, asset.text_sha256)
+        problem = duration_problem(spec)
+        if problem:
+            raise ReferenceAssetError(problem)
+        specs[voice.voice_id] = spec
     return specs
 
 
-def excerpt_spec(voice_id: str) -> ExcerptSpec:
+def reference_spec(voice_id: str) -> ReferenceSpec:
     get_voice(voice_id)
     try:
-        return load_excerpts()[voice_id]
-    except ExcerptError as exc:
-        raise OmniVoiceUnavailable(f"The OmniVoice reference excerpts shipped with the app are damaged ({exc}). "
-                                   "Extract a fresh copy of the app to restore them.") from exc
+        return load_references()[voice_id]
+    except ReferenceAssetError as exc:
+        raise OmniVoiceUnavailable(f"The OmniVoice reference list shipped with the app is damaged ({exc}). "
+                                   "Extract a fresh copy of the app to restore it.") from exc
 
 
-def read_pcm(path: Path) -> tuple[bytes, "wave._wave_params"]:
-    """Every frame of a plain PCM WAV, as bytes, and its parameters (stdlib ``wave``: nothing resampled or converted)."""
-    with wave.open(str(path), "rb") as source:
-        params = source.getparams()
-        if params.comptype != "NONE":
-            raise ExcerptError(f"{Path(path).name} is not plain PCM")
-        frames = source.readframes(params.nframes)
-    if len(frames) != params.nframes * params.nchannels * params.sampwidth:
-        raise ExcerptError(f"{Path(path).name} ended before its header said it would")
-    return frames, params
+def verify_reference(spec: ReferenceSpec, path: Path) -> dict:
+    """Read the recording once and prove it is exactly the approved one; return what the worker is given.
 
-
-def derive_excerpt(spec: ExcerptSpec, original: Path, destination: Path) -> dict:
-    """Write the reviewed excerpt of *original* -- its own frames [0, crop_end) -- into the NEW file *destination*.
-
-    The original is only opened for reading and must hash to the approved recording before and after; the frames taken
-    must hash to the reviewed excerpt. Anything else is refused and no excerpt is left behind.
+    Its bytes must hash to the approved SHA-256, and those same bytes must be a plain PCM WAV in the approved format and
+    length, within the duration rule. Nothing is written, cropped or converted: the worker reads the same file and
+    proves the same thing before it builds a prompt.
     """
-    original, destination = Path(original), Path(destination)
-    if venv_layout.same_path(original, destination):
-        raise ExcerptError("an excerpt is never written over its original")
-    if os.path.lexists(destination):
-        raise ExcerptError(f"{destination.name} already exists; an excerpt is only ever written to a new file")
-    if _qwen3.sha256_file(original) != spec.original_wav_sha256:
-        raise ExcerptError(f"{original.name} is not the recording {spec.voice_id} was reviewed against")
-    frames, params = read_pcm(original)
-    if (params.framerate, params.nchannels, params.sampwidth, params.nframes) != (
-            spec.sample_rate, spec.channels, spec.sample_width_bytes, spec.original_frames):
-        raise ExcerptError(f"{original.name} is not in the format it was reviewed in")
-    width = params.nchannels * params.sampwidth
-    pcm = frames[spec.crop_start_frame * width: spec.crop_end_frame * width]
-    if hashlib.sha256(pcm).hexdigest() != spec.excerpt_pcm_sha256:
-        raise ExcerptError(f"the excerpt of {original.name} is not the reviewed audio")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    part = destination.with_name(destination.name + ".part")
+    path = Path(path)
     try:
-        with open(part, "xb") as handle:
-            with wave.open(handle, "wb") as target:
-                target.setnchannels(params.nchannels)
-                target.setsampwidth(params.sampwidth)
-                target.setframerate(params.framerate)
-                target.writeframes(pcm)
-        os.replace(part, destination)
-    finally:
-        part.unlink(missing_ok=True)
-    if _qwen3.sha256_file(original) != spec.original_wav_sha256:
-        raise ExcerptError(f"{original.name} changed while its excerpt was taken")
-    if _qwen3.sha256_file(destination) != spec.excerpt_wav_sha256:
-        destination.unlink(missing_ok=True)
-        raise ExcerptError(f"the excerpt WAV of {original.name} is not the reviewed file")
-    return {"path": str(destination), "frames": spec.crop_end_frame - spec.crop_start_frame,
-            "sample_rate": spec.sample_rate, "pcm_sha256": spec.excerpt_pcm_sha256,
-            "wav_sha256": spec.excerpt_wav_sha256}
-
-
-@dataclass(frozen=True)
-class QuietAnalysis:
-    floor_db: float
-    speech_db: float
-    threshold_db: float
-    pauses: tuple[tuple[int, int], ...]  # every natural pause, [start, end) in sample frames, in time order
-
-
-def analyse_quiet(pcm: bytes, sample_rate: int) -> QuietAnalysis:
-    """The silence rule applied to 16-bit mono PCM: its adaptive threshold and every natural pause (>= 150 ms).
-
-    A pause runs from the first sample after the last sounding frame to the last sample of the last quiet frame.
-    """
-    import numpy as np
-
-    x = np.frombuffer(pcm, dtype="<i2").astype(np.float64) / 32768.0
-    frame, hop = int(round(FRAME_S * sample_rate)), int(round(HOP_S * sample_rate))
-    if x.size < frame:
-        return QuietAnalysis(0.0, 0.0, 0.0, ())
-    count = 1 + (x.size - frame) // hop
-    index = np.arange(frame)[None, :] + hop * np.arange(count)[:, None]
-    energy = 10 * np.log10(np.mean(x[index] ** 2, axis=1) + 1e-12)
-    floor = float(np.percentile(energy, FLOOR_PERCENTILE))
-    speech = float(np.percentile(energy, SPEECH_PERCENTILE))
-    threshold = floor + max(MIN_MARGIN_DB, MARGIN_FRACTION * (speech - floor))
-    quiet = energy < threshold
-    pauses: list[tuple[int, int]] = []
-    start: Optional[int] = None
-    minimum = int(round(MIN_PAUSE_S * sample_rate))
-    for i in range(count + 1):
-        is_quiet = bool(quiet[i]) if i < count else False
-        if is_quiet and start is None:
-            start = i
-        elif not is_quiet and start is not None:
-            first = start * hop
-            last = x.size if i == count else (i - 1) * hop + frame
-            if last - first >= minimum:
-                pauses.append((first, last))
-            start = None
-    return QuietAnalysis(floor, speech, threshold, tuple(pauses))
-
-
-def endpoint_problems(pcm: bytes, sample_rate: int, end_frame: int, *, analysis: Optional[QuietAnalysis] = None) -> list[str]:
-    """Why *end_frame* is not a silence-safe end for an excerpt of this recording; ``[]`` when it is.
-
-    Safe means: within the first 10 seconds, inside a natural pause (>= 150 ms) of the recording, at least 100 ms after
-    the last word ends and at least 50 ms before the next sound (or at the recording's own quiet end). Acoustics only:
-    whether the word before the pause is the transcript's last word is checked separately, against the transcript.
-    """
-    analysis = analysis or analyse_quiet(pcm, sample_rate)
-    problems: list[str] = []
-    if not 0 < end_frame <= MAX_EXCERPT_SECONDS * sample_rate:
-        problems.append(f"the end ({end_frame / sample_rate:.3f} s) is not inside the first {MAX_EXCERPT_SECONDS} s")
-    total = len(pcm) // 2
-    pause = next(((a, b) for a, b in analysis.pauses if a < end_frame <= b), None)
-    if pause is None:
-        problems.append(f"the end ({end_frame / sample_rate:.3f} s) is not inside a natural pause")
-        return problems
-    start, end = pause
-    if end_frame - start < int(round(MIN_TAIL_S * sample_rate)):
-        problems.append(f"only {(end_frame - start) / sample_rate * 1000:.0f} ms of quiet follows the last word")
-    if end != total and end - end_frame < int(round(GUARD_S * sample_rate)):
-        problems.append(f"the end is only {(end - end_frame) / sample_rate * 1000:.0f} ms before the next sound")
-    return problems
-
-
-def latest_safe_endpoint(pcm: bytes, sample_rate: int) -> Optional[tuple[int, tuple[int, int]]]:
-    """The latest silence-safe end within the first 10 seconds and its pause, or ``None`` when there is none.
-
-    Deterministic: inside the latest natural pause that starts at least 100 ms before 10.000 s, the end is 50 ms before
-    the next sound, or 10.000 s itself when the pause runs past it. (Which word ends there is not decided here.)
-    """
-    analysis = analyse_quiet(pcm, sample_rate)
-    limit = MAX_EXCERPT_SECONDS * sample_rate
-    tail, guard = int(round(MIN_TAIL_S * sample_rate)), int(round(GUARD_S * sample_rate))
-    total = len(pcm) // 2
-    for start, end in reversed(analysis.pauses):
-        if start == 0 or start + tail > limit:
-            continue
-        cut = min(end if end == total else end - guard, limit)
-        if not endpoint_problems(pcm, sample_rate, cut, analysis=analysis):
-            return cut, (start, end)
-    return None
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ReferenceAssetError(f"{path.name} could not be read ({exc.strerror or exc})") from exc
+    if hashlib.sha256(data).hexdigest() != spec.wav_sha256:
+        raise ReferenceAssetError(f"{path.name} is not the recording {spec.voice_id} was approved with")
+    try:
+        with wave.open(io.BytesIO(data), "rb") as source:
+            params = source.getparams()
+    except (wave.Error, EOFError) as exc:
+        raise ReferenceAssetError(f"{path.name} is not a plain PCM WAV ({exc})") from exc
+    if params.comptype != "NONE" or (params.framerate, params.nchannels, params.sampwidth, params.nframes) != (
+            spec.sample_rate, spec.channels, spec.sample_width_bytes, spec.frames):
+        raise ReferenceAssetError(f"{path.name} is not in the approved format")
+    problem = duration_problem(spec)
+    if problem:
+        raise ReferenceAssetError(problem)
+    return {"wav": str(path), "wav_sha256": spec.wav_sha256, "frames": spec.frames, "sample_rate": spec.sample_rate,
+            "max_frames": spec.max_frames}
 
 
 # --------------------------------------------------------------------------- #
@@ -793,22 +601,22 @@ def latest_safe_endpoint(pcm: bytes, sample_rate: int) -> Optional[tuple[int, tu
 # --------------------------------------------------------------------------- #
 #: OmniVoice's own ``VoiceClonePrompt`` file format (``omnivoice.models.omnivoice._VOICE_CLONE_PROMPT_FORMAT_VERSION``).
 PROMPT_FORMAT_VERSION = 1
+#: Schema 2 (v0.8.0 reference correction): whole owner recordings. No schema-1 (excerpt) prompt can match it.
+PROMPT_IDENTITY_SCHEMA = 2
 
 
-def prompt_identity(spec: ExcerptSpec, *, model_revision: str, omnivoice_version: str, preprocess_prompt: bool,
+def prompt_identity(spec: ReferenceSpec, *, model_revision: str, omnivoice_version: str, preprocess_prompt: bool,
                     dtype: str) -> tuple[str, dict]:
     """The key a reusable clone prompt is filed under: every input that shapes it, so any change misses the cache.
 
-    Bound: the recording's hash, the excerpt's PCM hash and crop, the preprocessing and silence-rule versions, the
-    excerpt transcript's hash, the model revision, the engine version, the prompt format, the prompt preprocessing
-    flag and the dtype the tokenizer ran in.
+    Bound: the recording's SHA-256, its frame count and rate, the preprocessing version, the transcript's SHA-256, the
+    model revision, the engine version, the prompt format, the prompt preprocessing flag and the dtype the tokenizer ran
+    in. A changed recording or transcript therefore never reuses a prompt made from the old one.
     """
     fields = {
-        "schema": 1, "voice_id": spec.voice_id, "original_wav_sha256": spec.original_wav_sha256,
-        "excerpt_pcm_sha256": spec.excerpt_pcm_sha256,
-        "crop": [spec.crop_start_frame, spec.crop_end_frame, spec.sample_rate],
-        "preprocessing_version": PREPROCESSING_VERSION, "silence_rule": SILENCE_RULE_VERSION,
-        "excerpt_text_sha256": spec.text_sha256, "model_revision": model_revision, "omnivoice": omnivoice_version,
+        "schema": PROMPT_IDENTITY_SCHEMA, "voice_id": spec.voice_id, "wav_sha256": spec.wav_sha256,
+        "reference": [spec.frames, spec.sample_rate], "preprocessing_version": PREPROCESSING_VERSION,
+        "text_sha256": spec.text_sha256, "model_revision": model_revision, "omnivoice": omnivoice_version,
         "prompt_format_version": PROMPT_FORMAT_VERSION, "preprocess_prompt": bool(preprocess_prompt), "dtype": dtype,
     }
     key = hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -823,16 +631,16 @@ def prompt_cache_path(voice_id: str, key: str) -> Path:
 # Reference status and the one question callers ask
 # --------------------------------------------------------------------------- #
 def reference_status(voice: OmniVoiceVoice) -> tuple[bool, str]:
-    """The bundled recording is present and approved, and its excerpt and excerpt transcript are the reviewed ones."""
+    """The voice's own recording is present and is the approved one, and the reference list holding it is intact."""
     path = reference_path(voice)
     if not path.is_file():
         return False, (f"Setup required for {voice.label}: its reference recording '{path.name}' is not present on this "
                        "computer. This voice is unavailable here; every other voice is unaffected.")
     try:
-        spec = excerpt_spec(voice.voice_id)
+        spec = reference_spec(voice.voice_id)
     except OmniVoiceUnavailable as exc:
         return False, f"Setup required for {voice.label}: {exc}"
-    if _qwen3.sha256_file(path) != spec.original_wav_sha256:
+    if _qwen3.sha256_file(path) != spec.wav_sha256:
         return False, (f"The reference recording '{path.name}' does not match the one {voice.label} was approved "
                        "against, so it will not be used. Restore the original file to use this voice.")
     return True, "ok"
@@ -842,7 +650,7 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
     """``(ok, reason)`` -- can this OmniVoice voice run right now? Cheap, never raises, never touches the network.
 
     Order: the platform, the GPU (installing cannot help a computer without one), the environment, the model, then the
-    voice's recording and reviewed excerpt. Every reason names the single next step.
+    voice's own approved recording and transcript. Every reason names the single next step.
     """
     try:
         voice = get_voice(voice_id)

@@ -436,8 +436,8 @@ OMNIVOICE_ENGINE_LABEL = "OmniVoice (Local AI)"
 def omnivoice_status(voice_id: str) -> tuple[bool, str]:
     """The panel's one question to the OmniVoice engine: can this voice run right now?
 
-    Everything that decides it -- the platform, the GPU, the isolated environment, the model files, the recording and its
-    reviewed excerpt -- belongs to ``tts/omnivoice_runtime.py``. Lazy and never raising, like :func:`qwen3_status`, so a
+    Everything that decides it -- the platform, the GPU, the isolated environment, the model files, the voice's own
+    approved recording and transcript -- belongs to ``tts/omnivoice_runtime.py``. Lazy and never raising, like :func:`qwen3_status`, so a
     machine with nothing installed still builds this panel and converts with every other engine.
     """
     try:

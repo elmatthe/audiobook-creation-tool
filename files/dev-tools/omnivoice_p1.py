@@ -863,7 +863,9 @@ def protected_state(root: Path) -> dict:
     return {
         ".venv": fingerprint(root / ".venv"), ".venv/engines/qwen3": fingerprint(root / ".venv" / "engines" / "qwen3"),
         ".venv-qwen3": fingerprint(root / ".venv-qwen3"),
-        "references": {p.name: rt.sha256_file(p) for p in sorted(refs.glob("Chatterbox - *.wav"))},
+        # v0.8.0 reference correction: every engine's own recordings, in their engine folders (Phase 1 ran when the six
+        # shared WAVs sat at this folder's root; its recorded evidence is unchanged).
+        "references": {p.relative_to(refs).as_posix(): rt.sha256_file(p) for p in sorted(refs.rglob("*.wav"))},
         "bundled_transcripts": rt.sha256_file(root / "scripts" / "tts" / "data" / "bundled_clone_transcripts.json"),
         "requirements": {name: rt.sha256_file(root / "scripts" / name)
                          for name in ("requirements.txt", "qwen3-requirements.txt")},
