@@ -1,8 +1,9 @@
-"""optional_setup.py — what the four optional voice components need on this computer, and what acquiring them costs.
+"""optional_setup.py — what the five optional voice components need on this computer, and what acquiring them costs.
 
 v0.7.0 P05A (plan Revision 2 §5.4; owner rulings Q14-Q20, Q32). One planner for the first-run wizard and the in-app
 Install & Continue, GUI-independent and acquisition-free. It answers, before anything is downloaded: which of Kokoro,
-Chatterbox Turbo, Qwen3 CustomVoice and Qwen3 Cloned Voices / Base are ready, missing, damaged, unsupported, busy,
+Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices / Base and (v0.8.0) OmniVoice are ready, missing, damaged,
+unsupported, busy,
 blocked by a bad bundled reference/transcript, or unproved; what each selection would download, reuse, copy, occupy and
 need as temporary headroom; what the always-installed base packages cost on top; and how each figure is known.
 
@@ -34,6 +35,14 @@ P05B Stage 2: the Kokoro, Chatterbox Turbo and spaCy sources are pinned (``tts.m
 exact identities (``manifest``), a present file of another size or content is ``damaged`` (repairable), and the plan
 looks in the pinned commit's folder only -- a moved upstream ``main`` can never change what it reports. Chatterbox's
 ``s3gen.safetensors``, which Turbo never loads, is no longer counted or acquired.
+
+v0.8.0 Phase 3: the fifth component, OmniVoice, is two units -- ``omnivoice-engine`` (the sibling environment
+``.venv-omnivoice`` built offline from the 88 wheels pinned in ``tts/omnivoice_manifest.json``) and ``omnivoice-model``
+(the pinned snapshot, its audio tokenizer included). The engine's readiness is the installer's own receipt
+(``tts.omnivoice_runtime.assess_engine``), judged the way Qwen3's is, never probed by a plan. An environment that
+already holds exactly the pinned set but that no receipt vouches for is planned as an install that downloads nothing:
+the installer proves it and adopts it. The GPU an OmniVoice install needs is a caller fact (``Facts.gpu``), and the
+licence and hardware terms travel with the plan (``disclosures``) so they are shown before anyone agrees.
 """
 
 from __future__ import annotations
@@ -49,9 +58,10 @@ from typing import Callable, Iterable, Mapping, Optional
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from shared.optional_setup_protocol import (APPROXIMATE, BAD_BUNDLE, CHATTERBOX, DAMAGED, EXACT, KOKORO, MANIFEST,
-                                            MISSING, NOT_KNOWN, QWEN3_BASE, QWEN3_CUSTOMVOICE, READY, UNSUPPORTED,
-                                            UNVERIFIED, ZERO, Figure)
+                                            MISSING, NOT_KNOWN, OMNIVOICE, QWEN3_BASE, QWEN3_CUSTOMVOICE, READY,
+                                            UNSUPPORTED, UNVERIFIED, ZERO, Figure)
 from tts import model_assets as assets
+from tts import omnivoice_runtime as ov
 from tts import qwen3_runtime as rt
 from tts import voice_registry
 
@@ -86,6 +96,12 @@ QWEN3_DISK_MARGIN_BYTES = 2 * 10**9
 
 #: Kokoro and Chatterbox run in the app's own environment; their pinned wheels need CPython 3.11 or 3.12 (64-bit).
 LOCAL_ENGINE_PYTHON = ((3, 11), (3, 12))
+
+#: v0.8.0 Phase 3: the two OmniVoice units, and the free space kept in reserve beyond what installing them writes (the
+#: same margin the Qwen3 installer keeps; counted once, and only when something is written).
+OMNIVOICE_ENGINE_UNIT = "omnivoice-engine"
+OMNIVOICE_MODEL_UNIT = "omnivoice-model"
+OMNIVOICE_DISK_MARGIN_BYTES = 2 * 10**9
 
 
 def hf_hub_root() -> Path:
@@ -144,6 +160,19 @@ def qwen_engine_source() -> Optional[str]:
 def qwen_model_source(spec: "rt.ModelSpec") -> str:
     """A Qwen3 model: its repository at the manifest's commit, and the manifest entry that lists every file's hash."""
     return f"{hf_source(spec.repo, spec.revision)}#manifest-sha256:{spec.manifest_sha256()}"
+
+
+def omnivoice_engine_source() -> str:
+    """The OmniVoice environment: the 88 wheels of ``omnivoice_manifest.json``, by the hash of their pins (URL-free:
+    each wheel's URL, size and SHA-256 are in the shipped manifest that hash names)."""
+    return f"wheels:omnivoice_manifest.json@sha256:{ov.packages_sha256()}"
+
+
+def omnivoice_model_source() -> str:
+    """The OmniVoice model: its repository at the pinned commit, and the manifest entry that lists every file's hash
+    (the model card and the tokenizer's licence among them, so a changed licence file is a different source)."""
+    spec = ov.model_spec()
+    return f"{hf_source(spec['repo'], spec['revision'])}#manifest-sha256:{ov.model_manifest_sha256()}"
 
 
 @dataclass
@@ -205,6 +234,9 @@ class Facts:
     probe_hardware: bool = False
     #: The installed version of a distribution in the app's environment, or ``None`` (metadata only, never imported).
     package_version: Callable[[str], Optional[str]] = assets.installed_version
+    #: v0.8.0: whether an NVIDIA GPU was found (``True``), proved absent (``False``) or not asked (``None``). OmniVoice
+    #: needs one; without the answer it is unverified, never installable.
+    gpu: Optional[bool] = None
 
 
 def _health_state(facts: Facts, component: str) -> tuple[str, str]:
@@ -333,6 +365,119 @@ def _qwen_model_units(selected: tuple[str, ...]) -> list[Unit]:
 
 
 # --------------------------------------------------------------------------- #
+# OmniVoice (v0.8.0 Phase 3): the engine by its receipt, the model by its record or its hashes
+# --------------------------------------------------------------------------- #
+OMNIVOICE_ENGINE_LABEL = "OmniVoice voice engine (its own Python packages)"
+OMNIVOICE_MODEL_LABEL = "OmniVoice model and audio tokenizer"
+ADOPT_NOTE = ("An OmniVoice environment holding exactly the pinned packages is already on this computer, but this "
+              "version of the app has not checked it. Installing checks it -- its packages, its isolation, the GPU and "
+              "a model load -- and adopts it: nothing is downloaded, replaced or removed.")
+REBUILD_NOTE = ("Repairing builds a fresh environment from the verified packages. The current folder is not deleted: "
+                "it is moved to files\\runtime-data\\omnivoice\\set-aside for you to remove once the new one works.")
+UNFINISHED_NOTE = ("This app's own earlier install of it did not finish; repairing removes that unfinished environment "
+                   "and builds it again from the verified packages.")
+
+
+def _omnivoice_engine_unit() -> Unit:
+    """The environment as a unit, judged by ``omnivoice_runtime.assess_engine`` (the receipt), never by a probe."""
+    source = omnivoice_engine_source()
+    assessment = ov.assess_engine()
+    environment = Figure(ov.engine_installed_bytes(), APPROXIMATE)
+    if assessment.state == ov.ENGINE_READY:
+        return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], READY, reused=environment,
+                    source=source)
+    if assessment.state == ov.ENGINE_UNVERIFIED:
+        return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], UNVERIFIED, note=assessment.reason,
+                    source=source)
+    if assessment.state == ov.ENGINE_UNCHECKED:  # adopted after a proof: an install that downloads nothing
+        return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], MISSING, reused=environment,
+                    note=ADOPT_NOTE, source=source)
+    fetch, have = ov.wheel_bytes()  # the wheel cache, read (and hashed where unrecorded); never the installer
+    note = {ov.ENGINE_ABSENT: f"{len(ov.wheels())} pinned packages, each checked by size and SHA-256, then installed "
+                              "offline; the downloads are removed once the engine is proved to work",
+            ov.ENGINE_INCOMPLETE: UNFINISHED_NOTE}.get(assessment.state) or f"{assessment.reason} {REBUILD_NOTE}"
+    return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE],
+                MISSING if assessment.state == ov.ENGINE_ABSENT else DAMAGED,
+                download=Figure(fetch, MANIFEST), reused=Figure(have, EXACT), disk=environment,
+                temp=Figure(fetch, MANIFEST), note=note, source=source)
+
+
+def _omnivoice_model_unit() -> Unit:
+    """The pinned snapshot as a unit: ready only when the verification record vouches for every file; otherwise the
+    present files are hashed, so a complete but unrecorded snapshot downloads nothing and is only recorded."""
+    source = omnivoice_model_source()
+    files = ov.model_spec()["files"]
+    states = ov.model_file_states()
+    unverified = [detail for state, detail in states.values() if state == ov.FILE_UNVERIFIED]
+    if unverified:
+        return Unit(OMNIVOICE_MODEL_UNIT, OMNIVOICE_MODEL_LABEL, [OMNIVOICE], UNVERIFIED, note=unverified[0],
+                    source=source)
+
+    def size(names) -> int:
+        return sum(files[name]["size"] for name in names)
+
+    ready = [name for name, (state, _) in states.items() if state == ov.FILE_READY]
+    damaged = [name for name, (state, _) in states.items() if state == ov.FILE_DAMAGED]
+    missing = [name for name, (state, _) in states.items() if state == ov.FILE_MISSING]
+    if not damaged and not missing:
+        if ov.model_recorded():
+            return Unit(OMNIVOICE_MODEL_UNIT, OMNIVOICE_MODEL_LABEL, [OMNIVOICE], READY,
+                        reused=Figure(size(ready), EXACT), source=source)
+        return Unit(OMNIVOICE_MODEL_UNIT, OMNIVOICE_MODEL_LABEL, [OMNIVOICE], MISSING, download=Figure(0, EXACT),
+                    reused=Figure(size(ready), EXACT), source=source,
+                    note="every file is already here and matches its SHA-256; installing records that check "
+                         "(nothing is downloaded)")
+    note = f"{len(damaged) + len(missing)} of {len(files)} files to download (approved sizes)"
+    if damaged:
+        note = f"{states[damaged[0]][1]}; " + note
+    return Unit(OMNIVOICE_MODEL_UNIT, OMNIVOICE_MODEL_LABEL, [OMNIVOICE], DAMAGED if damaged else MISSING,
+                download=Figure(size(damaged + missing), MANIFEST), reused=Figure(size(ready), EXACT),
+                disk=Figure(size(missing), MANIFEST), temp=Figure(size(damaged), MANIFEST), source=source, note=note)
+
+
+def _omnivoice_reference_problem() -> str:
+    """The first problem with the six OmniVoice recordings or their reference list, or ``""`` (hashes six small files).
+    A problem here makes the component a bad bundle: nothing is downloaded or repaired for it, since installing cannot
+    restore a recording."""
+    for voice in ov.OMNIVOICE_VOICES:
+        ok, reason = ov.reference_status(voice)
+        if not ok:
+            return reason
+    return ""
+
+
+def _omnivoice_plan(facts: Facts) -> tuple[tuple[str, str], list[Unit]]:
+    """``((readiness, reason), units)`` for the OmniVoice component, from the real state and the caller's facts."""
+    if not ov.platform_supported():
+        return (UNSUPPORTED, ov.platform_reason()), []
+    if not facts.is_64bit:
+        return (UNSUPPORTED, "OmniVoice needs 64-bit Windows and Python"), []
+    if facts.gpu is False:
+        return (UNSUPPORTED, ov.NO_GPU_MESSAGE), []
+    units = [_omnivoice_engine_unit(), _omnivoice_model_unit()]
+    parts = [u.state for u in units]
+    gpu_reason = ""
+    if facts.gpu is None:
+        parts.append(UNVERIFIED)
+        gpu_reason = ("this computer's graphics card has not been checked yet (OmniVoice needs an NVIDIA GPU); it is "
+                      "checked before anything is downloaded")
+    references = _omnivoice_reference_problem()
+    if references:
+        parts.append(BAD_BUNDLE)
+    if OMNIVOICE in facts.busy:
+        parts.append(proto.BUSY)
+    readiness = proto.combine_readiness(parts)
+    if readiness == BAD_BUNDLE:
+        reason = references
+    elif readiness == proto.BUSY:
+        reason = ("another task is installing OmniVoice or using it for a conversion right now; try again when it has "
+                  "finished")
+    else:
+        reason = next((u.note for u in units if u.state == readiness and u.note), "") or gpu_reason
+    return (readiness, reason), units
+
+
+# --------------------------------------------------------------------------- #
 # The pre-venv units, from manifests and measurements only
 # --------------------------------------------------------------------------- #
 def _estimated_units(selected: tuple[str, ...]) -> list[Unit]:
@@ -371,6 +516,14 @@ def _estimated_units(selected: tuple[str, ...]) -> list[Unit]:
             units.append(Unit(f"qwen3-model:{spec.key}", f"Qwen3 {spec.label} model", [component], MISSING,
                               download=Figure(spec.total_bytes - copy, MANIFEST), local_copy=Figure(copy, MANIFEST),
                               disk=Figure(spec.total_bytes, MANIFEST), source=qwen_model_source(spec)))
+    if OMNIVOICE in selected and ov.platform_supported():
+        wheels, model = ov.wheels_total_bytes(), ov.model_total_bytes()
+        units.append(Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], MISSING,
+                          download=Figure(wheels, MANIFEST), disk=Figure(ov.engine_installed_bytes(), APPROXIMATE),
+                          temp=Figure(wheels, MANIFEST), source=omnivoice_engine_source()))
+        units.append(Unit(OMNIVOICE_MODEL_UNIT, OMNIVOICE_MODEL_LABEL, [OMNIVOICE], MISSING,
+                          download=Figure(model, MANIFEST), disk=Figure(model, MANIFEST),
+                          source=omnivoice_model_source()))
     return units
 
 
@@ -411,7 +564,14 @@ class Plan:
         figures = [getattr(u, name) for u in self.units if u.id in wanted]
         if name == "temp" and any(u.id.startswith("qwen3-") for u in self.units if u.id in wanted):
             figures.append(Figure(QWEN3_DISK_MARGIN_BYTES, EXACT))  # the installer's own margin, once
+        if name == "temp" and any(u.id.startswith("omnivoice-") and _writes(u) for u in self.units if u.id in wanted):
+            figures.append(Figure(OMNIVOICE_DISK_MARGIN_BYTES, EXACT))  # once, and only when something is written
         return proto.add_figures(figures)
+
+
+def _writes(unit: Unit) -> bool:
+    """Whether acquiring *unit* writes anything large (an adoption or a record-only model writes a small file)."""
+    return any(figure.bytes is None or figure.bytes > 0 for figure in (unit.download, unit.disk, unit.temp))
 
 
 def _base_packages() -> dict:
@@ -446,9 +606,20 @@ def _hardware(facts: Facts, context: str) -> dict:
             "Windows 10/11 x64 are qualification targets; other Windows builds and security policies are unproved.",
             "Qwen3 is Windows-only and needs the app's CPython 3.12 (its packages are locked for Windows x64).",
             "Kokoro and Chatterbox need the app's environment on CPython 3.11 or 3.12, 64-bit.",
-            "No speed is promised: every engine also runs on the CPU, more slowly.",
+            "No speed is promised: Kokoro, Chatterbox and Qwen3 also run on the CPU, more slowly.",
+            "OmniVoice is Windows-only and needs an NVIDIA GPU; it does not run on the CPU alone.",
         ],
+        "omnivoice": _omnivoice_hardware(facts, context),
     }
+
+
+def _omnivoice_hardware(facts: Facts, context: str) -> str:
+    if not ov.platform_supported():
+        return ov.platform_reason()
+    found = {True: "An NVIDIA GPU was found on this computer.",
+             False: "No NVIDIA GPU was found on this computer, so OmniVoice cannot be installed here."}
+    checked = found.get(facts.gpu) if context == CONTEXT_MAIN else None
+    return ov.HARDWARE_DISCLOSURE + " " + (checked or "This computer's GPU is checked before anything is downloaded.")
 
 
 _ENGINE = {True: "proved", False: "broken", None: "unproved"}
@@ -487,6 +658,8 @@ def estimate(components: Iterable[str], *, facts: Optional[Facts] = None) -> Pla
     for name in selected:
         if name in proto.QWEN3_MODEL_KEYS and not rt.platform_supported():
             states[name] = (UNSUPPORTED, rt.platform_reason())
+        elif name == OMNIVOICE and not ov.platform_supported():
+            states[name] = (UNSUPPORTED, ov.platform_reason())
         elif not facts.is_64bit:
             states[name] = (UNSUPPORTED, f"{proto.LABELS[name]} needs 64-bit Windows and Python")
         else:
@@ -555,6 +728,10 @@ def plan(components: Iterable[str], *, facts: Optional[Facts] = None) -> Plan:
             else:
                 reason = model.note
             states[name] = (readiness, reason)
+
+    if OMNIVOICE in selected:
+        states[OMNIVOICE], own = _omnivoice_plan(facts)
+        units.extend(own)
     return _assemble(CONTEXT_MAIN, selected, states, units, facts, upper_bound=False)
 
 
@@ -584,6 +761,9 @@ def plan_to_json(plan_: Plan) -> dict:
         "base_packages": _base_packages(),
         "hardware": plan_.hardware,
         "notes": list(plan_.notes),
+        # v0.8.0 Phase 3: the terms a person reads before agreeing (wording, not acquisition terms: the licence files
+        # themselves are pinned by hash in the model's source, so a changed licence is a different source).
+        "disclosures": {OMNIVOICE: ov.disclosure()} if OMNIVOICE in plan_.selected else {},
     }
     data["acquisition_fingerprint"] = proto.acquisition_fingerprint(data)
     data["fingerprint"] = fingerprint(data)

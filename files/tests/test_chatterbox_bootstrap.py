@@ -176,9 +176,11 @@ def test_the_unpinned_predownload_and_warmup_routes_are_gone():
         assert forbidden not in src
 
 
-def test_the_wizard_offers_the_four_choices_in_order_with_the_approved_defaults():
+def test_the_wizard_offers_the_five_choices_in_order_with_the_approved_defaults():
+    # v0.8.0 Phase 3: OmniVoice appended last, unchecked; the four earlier choices keep their order and defaults.
     assert [(c, d) for c, _label, d, _note in bootstrap.OPTIONAL_CHOICES] == [
-        ("kokoro", True), ("chatterbox", False), ("qwen3-customvoice", False), ("qwen3-base", False)]
+        ("kokoro", True), ("chatterbox", False), ("qwen3-customvoice", False), ("qwen3-base", False),
+        ("omnivoice", False)]
 
 
 def test_choosing_is_not_installing_the_panel_is_the_only_install_route():

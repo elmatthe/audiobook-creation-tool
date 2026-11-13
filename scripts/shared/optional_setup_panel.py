@@ -33,15 +33,24 @@ from shared import optional_setup_protocol as proto
 POLL_MS = 120
 
 
+def _open_in_browser(url: str) -> None:
+    import webbrowser
+
+    webbrowser.open(url)
+
+
 class OptionalSetupPanel(ttk.Frame):
     def __init__(self, master, repo_root: Path, components: Iterable[str], *, on_done: Callable[[dict], None],
-                 intro: str = "", run_plan=client.plan, run_install=client.install):
+                 intro: str = "", run_plan=client.plan, run_install=client.install,
+                 open_url: Callable[[str], None] = _open_in_browser):
         super().__init__(master, padding=4)
         self.repo_root = Path(repo_root)
         self.components = proto.canonical_selection(components)
         self.on_done = on_done
         self.intro = intro
         self._run_plan, self._run_install = run_plan, run_install
+        self._open_url = open_url
+        self.terms_window: Optional[tk.Toplevel] = None
         self._queue: "queue.Queue[tuple]" = queue.Queue()
         self._cancel = threading.Event()
         self._plan: Optional[dict] = None
@@ -180,9 +189,52 @@ class OptionalSetupPanel(ttk.Frame):
         self.status.configure(text="Nothing has been downloaded yet. Read the list below, then choose Install "
                                    "Selected Components, or Skip to continue without them.")
         self._set_text(extra + client.disclosure(plan))
-        made = self._set_buttons(("Skip", lambda: self._finish({"state": "skipped"})),
-                                 ("Install Selected Components", self._confirm))
+        specs = [("Skip", lambda: self._finish({"state": "skipped"})),
+                 ("Install Selected Components", self._confirm)]
+        if client.license_disclosure(plan) is not None:  # v0.8.0: OmniVoice's licence texts, before any consent
+            specs.insert(0, ("View licence terms", self.show_terms))
+        made = self._set_buttons(*specs)
         made["Install Selected Components"].configure(default="normal")  # never the Enter-key default
+
+    def show_terms(self) -> None:
+        """A read-only window with the OmniVoice licence summary, the attribution, the hardware terms and a button per
+        licence text (opened in the browser, at its pinned revision). Reading the terms is never a consent."""
+        terms = client.license_disclosure(self._plan) if self._plan is not None else None
+        if terms is None:
+            return
+        if self.terms_window is not None:
+            try:
+                self.terms_window.lift()
+                return
+            except tk.TclError:
+                self.terms_window = None
+        top = tk.Toplevel(self)
+        top.title(terms.get("title") or "Licence terms")
+        top.geometry("640x520")
+        top.minsize(480, 360)
+        self.terms_window = top
+        frame = ttk.Frame(top, padding=12)
+        frame.pack(fill="both", expand=True)
+        buttons = ttk.Frame(frame)
+        buttons.pack(side="bottom", fill="x", pady=(10, 0))
+        for doc in terms.get("documents") or ():
+            row = ttk.Frame(frame)
+            row.pack(side="bottom", fill="x", pady=(4, 0))
+            ttk.Button(row, text="Open", command=lambda url=doc["url"]: self._open_url(url)).pack(side="right")
+            ttk.Label(row, text=doc["title"], wraplength=440, justify="left").pack(side="left", fill="x")
+        body = tk.Text(frame, wrap="word", relief="flat", font=("Segoe UI", 9), height=14)
+        text = "\n\n".join([*(terms.get("summary") or ()), terms.get("attribution") or "",
+                            "Hardware: " + (terms.get("hardware") or "")])
+        body.insert("end", text)
+        body.configure(state="disabled")
+        body.pack(fill="both", expand=True)
+
+        def close() -> None:
+            self.terms_window = None
+            top.destroy()
+
+        ttk.Button(buttons, text="Close", command=close).pack(side="right")
+        top.protocol("WM_DELETE_WINDOW", close)
 
     # ------------------------------------------------------------------ 3. install
     def _confirm(self) -> None:

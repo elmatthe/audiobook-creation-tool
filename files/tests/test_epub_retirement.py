@@ -124,6 +124,8 @@ PRODUCTION_TTS_SOURCES = (
     # v0.7.0 release installer.
     "tts/qwen3_wheels.py",
     "tts/voice_install.py",
+    # v0.8.0 Phase 3: OmniVoice's part of the optional installer (install, adopt, repair, proof, receipt).
+    "tts/omnivoice_setup.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

@@ -93,16 +93,19 @@ def test_a_registry_row_for_an_omnivoice_clone_without_a_recording_is_refused():
     assert any("no reference recording is mapped" in p for p in vr.registry_problems([*vr.VOICES, stray]))
 
 
-def test_install_and_continue_names_the_component_but_offers_it_only_once_setup_knows_it(monkeypatch):
+def test_install_and_continue_names_the_component_and_offers_it_only_when_installing_can_help(monkeypatch):
     assert voice_install.component_for("omnivoice", "omnivoice-male-2") == ov.COMPONENT == "omnivoice"
     assert voice_install.component_for("omnivoice", "omnivoice-unknown") is None
-    monkeypatch.setattr(ov, "install_would_help", lambda: True)
-    assert ov.COMPONENT not in proto.COMPONENTS  # plan Phase 3 adds it to the existing installer
-    assert voice_install.installable("omnivoice", "omnivoice-male-2", "not installed") is None
-    monkeypatch.setattr(proto, "COMPONENTS", (*proto.COMPONENTS, ov.COMPONENT))
+    assert ov.COMPONENT == proto.OMNIVOICE and ov.COMPONENT in proto.COMPONENTS  # v0.8.0 Phase 3: the fifth component
+    asked: list = []
+    monkeypatch.setattr(ov, "install_would_help", lambda voice_id=None: asked.append(voice_id) or True)
     assert voice_install.installable("omnivoice", "omnivoice-male-2", "anything") == "omnivoice"
-    monkeypatch.setattr(ov, "install_would_help", lambda: False)  # no GPU, or everything installed already
+    assert asked == ["omnivoice-male-2"], "the voice's own recording is part of the question"
+    monkeypatch.setattr(ov, "install_would_help", lambda voice_id=None: False)  # no GPU, a bad recording, or ready
     assert voice_install.installable("omnivoice", "omnivoice-male-2", "anything") is None
+    monkeypatch.setattr(proto, "COMPONENTS", tuple(c for c in proto.COMPONENTS if c != ov.COMPONENT))
+    monkeypatch.setattr(ov, "install_would_help", lambda voice_id=None: True)
+    assert voice_install.installable("omnivoice", "omnivoice-male-2", "anything") is None, "unknown to setup: never"
 
 
 # --------------------------------------------------------------------------- #
@@ -270,14 +273,24 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(ov, "runtime_dir", lambda: root / "files" / "runtime-data" / "omnivoice")
     monkeypatch.setattr(ov, "venv_dir", lambda: root / ".venv-omnivoice")
     files = {"config.json": b'{"a": 1}', "audio_tokenizer/config.json": b'{"b": 2}'}
+    pins = [["omnivoice", "0.2.1"], ["torch", "2.8.0+cu128"], ["huggingface_hub", "1.7.2"]]
     manifest = {
         "schema": "act-omnivoice-engine", "version": 1, "engine": {"omnivoice": "0.2.1"},
-        "model": {"repo": "k2-fsa/OmniVoice", "revision": "c" * 40, "load_required": sorted(files),
+        "model": {"repo": "k2-fsa/OmniVoice", "revision": "c" * 40, "url_template": ov.HUB_URL_TEMPLATE,
+                  "load_required": sorted(files),
                   "files": {n: {"size": len(b), "sha256": hashlib.sha256(b).hexdigest()} for n, b in files.items()}},
-        "packages": [["omnivoice", "0.2.1"], ["torch", "2.8.0+cu128"], ["huggingface_hub", "1.7.2"]],
+        "packages": pins,
+        # v0.8.0 Phase 3: every pinned package is also a pinned wheel (URL, size, SHA-256) the installer may fetch.
+        "wheels": [{"name": n, "version": v, "filename": f"{n}-{v}-py3-none-any.whl",
+                    "url": f"https://files.pythonhosted.org/packages/00/{n}-{v}-py3-none-any.whl", "size": 7,
+                    "sha256": hashlib.sha256(n.encode()).hexdigest()} for n, v in pins],
     }
     assert ov.manifest_problems(manifest) == []
     monkeypatch.setattr(ov, "load_manifest", lambda: manifest)
+    base_dir = tmp_path / "base-python"
+    base_dir.mkdir()
+    (base_dir / "python.exe").write_bytes(b"MZ")
+    monkeypatch.setattr(ov, "app_base_python", lambda: base_dir / "python.exe")
 
     class Sandbox:
         def make_env(self, packages=(("omnivoice", "0.2.1"), ("torch", "2.8.0+cu128"), ("huggingface-hub", "1.7.2"),
@@ -287,13 +300,23 @@ def sandbox(tmp_path, monkeypatch):
             (env / "Scripts" / "python.exe").write_bytes(b"")
             (env / "bin").mkdir(exist_ok=True)
             (env / "bin" / "python").write_bytes(b"")
-            (env / "pyvenv.cfg").write_text("home = x\nversion = 3.12.10\n", encoding="utf-8")
+            (env / "pyvenv.cfg").write_text(
+                f"home = {base_dir}\ninclude-system-site-packages = false\nversion = 3.12.10\n"
+                f"executable = {base_dir / 'python.exe'}\ncommand = {base_dir / 'python.exe'} -m venv {env}\n",
+                encoding="utf-8")
             site = ov.site_packages(env)
             if site.exists():
                 shutil.rmtree(site)
             site.mkdir(parents=True)
             for name, version in packages:
                 (site / f"{name.replace('-', '_')}-{version}.dist-info").mkdir()
+
+        def prove(self):
+            """What the installer writes once its proof passed (tts.omnivoice_setup.record_proved)."""
+            from shared import venv_layout
+
+            ov.write_receipt(ov.STAGE_INSTALLED, origin=ov.ORIGIN_INSTALLED,
+                             base=venv_layout.base_identity(ov.venv_dir()), probe={}, probe_ok=True)
 
         def make_model(self):
             for name, data in files.items():
@@ -307,6 +330,9 @@ def sandbox(tmp_path, monkeypatch):
 def test_the_environment_must_hold_exactly_the_pinned_packages(sandbox):
     assert ov.environment_status() == (False, ov.NOT_INSTALLED_MESSAGE)
     sandbox.make_env()
+    # v0.8.0 Phase 3: exactly the pinned set is not enough on its own -- it is unchecked until the installer proves it
+    assert ov.environment_status() == (False, ov.UNCHECKED_MESSAGE)
+    sandbox.prove()
     assert ov.environment_status() == (True, "ok")
     sandbox.make_env(packages=(("omnivoice", "0.2.1"), ("torch", "2.10.0"), ("huggingface-hub", "1.7.2")))
     assert "1 at another version: torch" in ov.environment_status()[1]
@@ -345,6 +371,9 @@ def test_availability_says_why_in_order_and_never_offers_an_install_without_a_gp
     sandbox.make_model()
     assert ov.verify_model_files() == []
     monkeypatch.setattr(ov, "reference_path", lambda voice: real_reference(voice.voice_id))
+    assert ov.voice_availability("omnivoice-male-1") == (False, ov.UNCHECKED_MESSAGE)
+    assert ov.install_would_help("omnivoice-male-1") is True, "an unchecked engine is offered: installing adopts it"
+    sandbox.prove()
     assert ov.voice_availability("omnivoice-male-1") == (True, "ok")
     assert ov.install_would_help() is False
     assert ov.voice_availability("omnivoice-nobody")[0] is False

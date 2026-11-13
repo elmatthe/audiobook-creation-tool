@@ -1,11 +1,12 @@
-"""optional_setup_protocol.py — the four optional voice components, and the bridge to the setup worker that installs them.
+"""optional_setup_protocol.py — the five optional voice components, and the bridge to the setup worker that installs them.
 
 v0.7.0 P05A (plan Revision 2 §5.4; owner rulings Q14-Q20 and Q32). This is the vocabulary every optional-setup caller
 shares -- the first-run wizard, the in-app Install & Continue and the setup worker -- so none of them can disagree about
 what a component is called, what state it is in, what a person agreed to, or what a figure in bytes is worth.
 
-* **Four components, in this order:** Kokoro, Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices / Base. The
-  approved wizard defaults are Kokoro checked and the other three unchecked (Q15). Nothing else may be named.
+* **Five components, in this order:** Kokoro, Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices / Base, and
+  (v0.8.0 Phase 3, appended last) OmniVoice — Six Cloned Voices. The approved wizard defaults are Kokoro checked and the
+  other four unchecked (Q15; plan v0.8.0 §3). Nothing else may be named.
 * **Readiness is structured** (§5.4): ready, missing (installable), damaged (repair required), unsupported, busy, a bad
   reference/transcript bundle, or unverified. Only *missing* can lead to an install and only *damaged* to a repair, each
   under its own consent; unverified is never treated as healthy, broken, or as permission to download.
@@ -52,24 +53,30 @@ from typing import Callable, Iterable, Optional
 from shared import venv_layout
 
 # --------------------------------------------------------------------------- #
-# The four components
+# The five components
 # --------------------------------------------------------------------------- #
 KOKORO = "kokoro"
 CHATTERBOX = "chatterbox"
 QWEN3_CUSTOMVOICE = "qwen3-customvoice"
 QWEN3_BASE = "qwen3-base"
-#: The order the wizard shows them in and every plan lists them in (Q14). Nothing outside this tuple is ever accepted.
-COMPONENTS: tuple[str, ...] = (KOKORO, CHATTERBOX, QWEN3_CUSTOMVOICE, QWEN3_BASE)
+#: v0.8.0 Phase 3: the six OmniVoice cloned voices (``tts.omnivoice_runtime.COMPONENT``; a test pins that they agree).
+OMNIVOICE = "omnivoice"
+#: The order the wizard shows them in and every plan lists them in (Q14; v0.8.0 appends OmniVoice last). Nothing outside
+#: this tuple is ever accepted.
+COMPONENTS: tuple[str, ...] = (KOKORO, CHATTERBOX, QWEN3_CUSTOMVOICE, QWEN3_BASE, OMNIVOICE)
 
 LABELS: dict[str, str] = {
     KOKORO: "Kokoro",
     CHATTERBOX: "Chatterbox Turbo",
     QWEN3_CUSTOMVOICE: "Qwen3 CustomVoice",
     QWEN3_BASE: "Qwen3 Cloned Voices / Base",
+    OMNIVOICE: "OmniVoice — Six Cloned Voices",
 }
 
-#: Owner-approved first-run defaults (Q15). A planning contract only: the wizard itself changes in P06.
-WIZARD_DEFAULTS: dict[str, bool] = {KOKORO: True, CHATTERBOX: False, QWEN3_CUSTOMVOICE: False, QWEN3_BASE: False}
+#: Owner-approved first-run defaults (Q15): Kokoro checked, everything else unchecked -- OmniVoice too (v0.8.0 plan §3:
+#: a several-gigabyte, GPU-only, non-commercially licensed choice is never made for anyone).
+WIZARD_DEFAULTS: dict[str, bool] = {KOKORO: True, CHATTERBOX: False, QWEN3_CUSTOMVOICE: False, QWEN3_BASE: False,
+                                    OMNIVOICE: False}
 
 #: The Qwen3 model each Qwen3 component installs (``tts.qwen3_runtime.MODEL_KEYS``; a test pins that they agree).
 QWEN3_MODEL_KEYS: dict[str, str] = {QWEN3_CUSTOMVOICE: "customvoice", QWEN3_BASE: "base"}

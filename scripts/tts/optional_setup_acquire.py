@@ -39,6 +39,12 @@ stops everything (each child process is ended with its whole tree). A local engi
 load (plan ``engine: broken``) gets nothing downloaded: model files cannot repair packages -- the app's own repair at
 launch does. The report names exactly what was completed; the
 lifecycle then decides, by a fresh plan and health proof, what actually works.
+
+v0.8.0 Phase 3: OmniVoice (``omnivoice-engine``, ``omnivoice-model``) goes through ``tts.omnivoice_setup`` -- the same
+opener and byte budget, its own locks (``setup.lock`` then OmniVoice's ``inference.lock``, no engine running). Its wheels
+and model files may come only from the URLs of the shipped manifest; an existing environment holding exactly the pinned
+set is adopted after a proof and never downloaded again; a broken one is rebuilt only under repair consent, and moved
+aside, never deleted.
 """
 
 from __future__ import annotations
@@ -100,6 +106,10 @@ def expected_source(unit_id: str) -> Optional[str]:
     if unit_id.startswith("qwen3-model:"):
         key = unit_id.split(":", 1)[1]
         return optional_setup.qwen_model_source(rt.model_spec(key)) if key in rt.MODEL_KEYS else None
+    if unit_id == optional_setup.OMNIVOICE_ENGINE_UNIT:
+        return optional_setup.omnivoice_engine_source()
+    if unit_id == optional_setup.OMNIVOICE_MODEL_UNIT:
+        return optional_setup.omnivoice_model_source()
     return None
 
 
@@ -276,8 +286,9 @@ class RealAcquirer:
         # The consent's own figures fix the most this acquisition may download (see the module docstring).
         self.budget = Budget(consent.download_bytes + sum(unit_ceiling(u) for u in consent.unknown_units))
         qwen = [u for u in wanted if u.startswith("qwen3-")]
+        omni = [u for u in wanted if u.startswith("omnivoice-")]
         needed = _known(plan["totals"]["disk"]) + _known(plan["totals"]["temp"]) + (
-            0 if qwen else LOCAL_DISK_MARGIN_BYTES)
+            0 if qwen or omni else LOCAL_DISK_MARGIN_BYTES)  # those installers' own margins are in the plan's temp
         free = self.disk_free(root)
         if free < needed:
             return AcquisitionReport(False, (), f"there is not enough free disk space (about {rt.format_bytes(needed)} "
@@ -299,6 +310,8 @@ class RealAcquirer:
                 self._acquire_local(root, groups, units, done, failures, progress, cancel_check)
             if qwen:
                 self._acquire_qwen(plan, qwen, units, done, failures, progress, cancel_check)
+            if omni:
+                self._acquire_omnivoice(plan, omni, units, done, failures, progress, cancel_check)
         except qwen3_setup.SetupCancelled:
             return AcquisitionReport(False, tuple(done), "cancelled")
         complete = not failures and set(done) == set(wanted)
@@ -468,3 +481,83 @@ class RealAcquirer:
                     done.append(unit_id)
             elif unit_id.split(":", 1)[1] in ok_keys:
                 done.append(unit_id)
+
+    # -- OmniVoice, through tts.omnivoice_setup (v0.8.0 Phase 3) ------------------------------------------------------
+    def _acquire_omnivoice(self, plan, wanted, units, done, failures, progress, cancel_check) -> None:
+        """Adopt, install or repair the engine and fetch the model -- exactly what the plan (made moments ago in this
+        same worker, and covered by the spent consent) said -- then prove the engine and only then record it ready.
+
+        The engine's current state must still be the one planned (adopt or install = missing, repair = damaged), and a
+        repair needs repair consent; otherwise nothing is changed. A proof that shows an existing environment broken is
+        recorded so the next plan offers a repair; any other failure keeps everything as it is (verified downloads
+        included, so a retry fetches nothing twice)."""
+        from tts import omnivoice_runtime as ov
+        from tts import omnivoice_setup as ovs
+
+        label = proto.LABELS[proto.OMNIVOICE]
+        entry = next((c for c in plan["components"] if c["id"] == proto.OMNIVOICE), {})
+        scope = entry.get("consent_scope")
+        engine_unit, model_unit = optional_setup.OMNIVOICE_ENGINE_UNIT, optional_setup.OMNIVOICE_MODEL_UNIT
+        try:
+            lock = ovs.InstallLock()
+            lock.acquire()
+        except (ovs.OmniVoiceSetupError, ov.OmniVoiceUnavailable, rt.Qwen3Unavailable, OSError) as exc:
+            failures.append(f"{label}: {exc}")
+            return
+        mode = None
+        try:
+            assessment = ov.assess_engine()
+            mode = ovs.engine_mode(assessment)
+            if engine_unit in wanted:
+                planned = units[engine_unit]
+                expected_state = {ovs.MODE_ADOPT: proto.MISSING, ovs.MODE_INSTALL: proto.MISSING,
+                                  ovs.MODE_REPAIR: proto.DAMAGED}.get(mode)
+                adopting = planned["disk"]["bytes"] == 0  # an adoption writes no environment; a build always does
+                if expected_state != planned["state"] or (mode == ovs.MODE_ADOPT) != adopting:
+                    raise AcquisitionRefused("the OmniVoice environment changed after the plan was shown; nothing was "
+                                             "changed. Run setup again to see the updated plan")
+                if mode == ovs.MODE_REPAIR and scope != proto.SCOPE_REPAIR:
+                    raise AcquisitionRefused("rebuilding the OmniVoice environment needs a repair, confirmed on its own")
+            elif assessment.state != ov.ENGINE_READY:
+                raise AcquisitionRefused("the OmniVoice engine is not ready and was not part of this confirmation")
+            allowed = [ov.model_url(name) for name in ov.model_spec()["files"]] if model_unit in wanted else []
+            if engine_unit in wanted and mode != ovs.MODE_ADOPT:
+                allowed += [wheel.url for wheel in ov.wheels()]
+            opener = self._opener(allowed)
+            if model_unit in wanted:
+                ovs.acquire_model(opener=opener, progress=progress, cancel_check=cancel_check,
+                                  allow_replace=scope == proto.SCOPE_REPAIR, sleep=self.sleep)
+                done.append(model_unit)
+            if engine_unit in wanted and mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
+                ovs.fetch_wheels(opener=opener, progress=progress, cancel_check=cancel_check, sleep=self.sleep)
+                if mode == ovs.MODE_REPAIR:
+                    if assessment.state == ov.ENGINE_INCOMPLETE:
+                        ovs.remove_unfinished_engine()
+                    else:
+                        moved = ovs.set_aside_engine()
+                        progress({"unit": engine_unit, "step": "install", "done": 0, "total": 0,
+                                  "message": f"The old OmniVoice environment was kept at {rt.shown_path(moved)}"})
+                ovs.build_engine(runner=self._run, progress=progress, cancel_check=cancel_check)
+            if not ov.model_recorded():
+                raise ovs.OmniVoiceSetupError("the OmniVoice model is not verified, so the engine cannot be checked")
+            try:
+                probe = ovs.prove(runner=self._run, progress=progress, cancel_check=cancel_check)
+            except ovs.ProofFailed as exc:
+                if ovs.speaks_against_environment(exc) and ov.assess_engine().state == ov.ENGINE_UNCHECKED:
+                    ovs.record_rejected(str(exc))
+                raise
+            origin = {ovs.MODE_ADOPT: ov.ORIGIN_ADOPTED, ovs.MODE_INSTALL: ov.ORIGIN_INSTALLED,
+                      ovs.MODE_REPAIR: ov.ORIGIN_INSTALLED}.get(mode) if engine_unit in wanted else \
+                ov.read_receipt().get("origin", ov.ORIGIN_INSTALLED)
+            ovs.record_proved(origin, probe)
+            if engine_unit in wanted:
+                if mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
+                    ovs.discard_wheels()
+                done.append(engine_unit)
+        except qwen3_setup.SetupCancelled:
+            raise
+        except (ovs.OmniVoiceSetupError, ov.OmniVoiceUnavailable, AcquisitionRefused, qwen3_setup.SetupError,
+                rt.Qwen3Unavailable, OSError) as exc:
+            failures.append(f"{label}: {exc}")
+        finally:
+            lock.release()

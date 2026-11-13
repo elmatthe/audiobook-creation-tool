@@ -82,8 +82,10 @@ def test_stage2_survivor_is_not_equivalent_when_the_lock_disappears(world, monke
     assert path.exists(), "M20 must be detected because its read-only probe creates a replacement lock"
 
 REPO = Path(__file__).resolve().parents[2]
-ALL = proto.COMPONENTS
 K, C, CV, B = proto.KOKORO, proto.CHATTERBOX, proto.QWEN3_CUSTOMVOICE, proto.QWEN3_BASE
+#: The four components that predate v0.8.0. These tests pin their behaviour, which the fifth (OmniVoice, v0.8.0 Phase 3)
+#: must not change; OmniVoice's own planning, consent and acquisition are proved in test_omnivoice_setup.py.
+ALL = (K, C, CV, B)
 #: The sandbox manifest (test_qwen3_runtime): CustomVoice 58 bytes, Base 62, of which 39 are identical in both.
 CV_BYTES, BASE_BYTES, SHARED_BYTES = 58, 62, 39
 #: v0.7.0: the engine's download is the exact wheel set -- in the sandbox, the two tiny served wheels.
@@ -224,11 +226,13 @@ def fig(nbytes, basis) -> dict:
 # --------------------------------------------------------------------------- #
 # Task A — the component contract
 # --------------------------------------------------------------------------- #
-def test_the_four_components_their_order_labels_and_approved_defaults():
-    assert proto.COMPONENTS == ("kokoro", "chatterbox", "qwen3-customvoice", "qwen3-base")
-    assert [proto.LABELS[c] for c in ALL] == ["Kokoro", "Chatterbox Turbo", "Qwen3 CustomVoice",
-                                              "Qwen3 Cloned Voices / Base"]
-    assert proto.WIZARD_DEFAULTS == {K: True, C: False, CV: False, B: False}
+def test_the_five_components_their_order_labels_and_approved_defaults():
+    # v0.8.0 Phase 3: the four earlier components keep their order, labels and defaults; OmniVoice is appended last,
+    # unchecked by default.
+    assert proto.COMPONENTS == ("kokoro", "chatterbox", "qwen3-customvoice", "qwen3-base", "omnivoice")
+    assert [proto.LABELS[c] for c in proto.COMPONENTS] == ["Kokoro", "Chatterbox Turbo", "Qwen3 CustomVoice",
+                                                           "Qwen3 Cloned Voices / Base", "OmniVoice — Six Cloned Voices"]
+    assert proto.WIZARD_DEFAULTS == {K: True, C: False, CV: False, B: False, proto.OMNIVOICE: False}
     assert tuple(proto.QWEN3_MODEL_KEYS.values()) == rt.MODEL_KEYS  # the runtime's own model keys, not new ones
 
 
@@ -281,7 +285,7 @@ def test_nothing_selected_costs_nothing_but_the_base_packages_are_still_disclose
     data = as_json([])
     assert data["selected"] == [] and data["acquire_units"] == [] and data["units"] == []
     assert data["totals"] == {n: fig(0, proto.EXACT) for n in ("download", "reused", "local_copy", "disk", "temp")}
-    assert [c["id"] for c in data["components"]] == list(ALL)
+    assert [c["id"] for c in data["components"]] == list(proto.COMPONENTS)
     assert all(not c["selected"] and c["readiness"] == proto.UNVERIFIED for c in data["components"])
     base = data["base_packages"]
     assert base["installed"] == fig(1000, proto.APPROXIMATE) and base["download"] == fig(None, proto.UNKNOWN)
@@ -366,7 +370,7 @@ def test_already_healthy_components_acquire_nothing(world, tripwire):
     install_kokoro(world)
     install_chatterbox(world)
     data = as_json(ALL, health=HEALTHY, spacy=True)
-    assert [c["readiness"] for c in data["components"]] == [proto.READY] * 4
+    assert [c["readiness"] for c in data["components"] if c["selected"]] == [proto.READY] * 4
     assert data["acquire_units"] == [] and data["totals"]["download"] == fig(0, proto.EXACT)
     assert unit(data, "kokoro-model")["reused"] == fig(44, proto.EXACT)
     assert tripwire == []
@@ -409,7 +413,7 @@ def test_mixed_states_each_get_their_own_answer_and_only_installable_or_repairab
     install_kokoro(world)
     monkeypatch.setattr(rt, "bundle_status", lambda: (False, "The bundled transcripts are damaged."))
     data = as_json(ALL, health={K: True, C: True}, spacy=True)
-    got = {c["id"]: (c["readiness"], c["consent_scope"]) for c in data["components"]}
+    got = {c["id"]: (c["readiness"], c["consent_scope"]) for c in data["components"] if c["selected"]}
     assert got == {K: (proto.READY, None), C: (proto.MISSING, "install"), CV: (proto.DAMAGED, "repair"),
                    B: (proto.BAD_BUNDLE, None)}
     assert component(data, B)["reason"] == "The bundled transcripts are damaged."
@@ -1059,11 +1063,12 @@ def test_the_worker_runs_in_the_apps_environment_and_acquires_nothing(app):
     assert [e["kind"] for e in run.events] == ["started", "readiness", "plan"] and run.protocol_errors == []
     plan = result["plan"]
     assert plan["context"] == osu.CONTEXT_MAIN
-    got = {c["id"]: c["readiness"] for c in plan["components"]}
+    got = {c["id"]: c["readiness"] for c in plan["components"] if c["selected"]}
     # The copy has no references, no models and a pip-less environment: the real probes prove the Kokoro and
     # Chatterbox packages absent (broken, not "unverified"), nothing is ready and nothing is assumed.
     assert got == {K: proto.DAMAGED, C: proto.BAD_BUNDLE, CV: proto.MISSING, B: proto.BAD_BUNDLE}
-    assert {c["id"]: c["engine"] for c in plan["components"]} == {K: "broken", C: "broken", CV: None, B: None}
+    assert {c["id"]: c["engine"] for c in plan["components"] if c["selected"]} == {K: "broken", C: "broken", CV: None,
+                                                                                     B: None}
     assert tripped(app) == ""  # no network
     probes = started_processes(app)  # the only processes: the two bounded engine probes, in the app's own Python
     head = subprocess.list2cmdline([str(proto.main_console_python(app)), "-E", "-s", "-c"])
@@ -1155,8 +1160,10 @@ def test_negative_control_an_ambient_pythonpath_cannot_choose_the_workers_code(a
 # --------------------------------------------------------------------------- #
 FORBIDDEN_PRE_VENV = ("subprocess", "socket", "ssl", "urllib.request", "http.client", "tkinter", "_tkinter",
                       "threading", "ctypes", "tts.qwen3_setup", "tts.qwen3_process", "shared.bootstrap")
+#: v0.8.0 Phase 3: estimating OmniVoice reads its shipped manifest through ``tts.omnivoice_runtime`` (and its reference
+#: list module), both standard-library only like the rest of this set -- never the installer, torch or OmniVoice.
 ALLOWED_PROJECT = {"shared", "shared.optional_setup_protocol", "shared.spacy_store", "shared.venv_layout", "tts",
-                   "tts.model_assets",
+                   "tts.clone_references", "tts.model_assets", "tts.omnivoice_runtime",
                    "tts.optional_setup", "tts.qwen3_runtime", "tts.voice_registry"}
 PRE_VENV_PROBE = '''\
 import json, sys

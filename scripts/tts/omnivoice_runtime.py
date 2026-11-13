@@ -14,8 +14,17 @@ listed, with its format, exact frame count and transcript, in ``tts/data/clone_r
 (``tts/clone_references``). A reference is at most 10.000 s, except the one owner-approved, hash-bound Male 1 recording
 (:data:`DURATION_EXCEPTIONS`). The recordings are only ever read; the Chatterbox and Qwen3 clones have their own.
 
-Nothing here installs anything. The optional installer (plan Phase 3) will place the environment and the model and
-call :func:`verify_model_files`; a conversion (``omnivoice_synth``) is the only thing that loads the model.
+Nothing here installs anything. The optional installer (``tts.omnivoice_setup``, plan Phase 3) places the environment
+and the model, calls :func:`verify_model_files`, proves the engine loads, and only then writes the install receipt
+(:func:`receipt_path`) that :func:`environment_status` requires; a conversion (``omnivoice_synth``) is the only thing
+that loads the model for narration.
+
+**Readiness of the environment (v0.8.0 Phase 3).** ``.venv-omnivoice`` is used only when this app's installer has
+proved it and recorded that proof: the exact pinned package set, its own isolated interpreter, the base Python it was
+built from unchanged since, and an install-time load proof. An environment holding exactly the pinned set that no
+receipt vouches for -- the Phase 1 qualification instance, or one built by another copy -- is *unchecked*, never ready
+and never broken: the installer adopts it after the same proof, without downloading or replacing anything
+(:func:`assess_engine`).
 """
 
 from __future__ import annotations
@@ -25,6 +34,7 @@ import io
 import json
 import os
 import re
+import stat
 import sys
 import time
 import wave
@@ -166,6 +176,22 @@ def engine_lock_path() -> Path:
     return runtime_dir() / "engine.lock"
 
 
+def receipt_path() -> Path:
+    """The install receipt: written only after the installer proved the environment (and model) work. Beside, never
+    inside, ``.venv-omnivoice``, so a replaced environment can never carry an old receipt with it."""
+    return runtime_dir() / "install-receipt.json"
+
+
+def wheel_cache_dir() -> Path:
+    """Where the installer keeps the verified wheels while it installs (removed after a proved install)."""
+    return runtime_dir() / "cache" / "wheels"
+
+
+def set_aside_root() -> Path:
+    """Where a repair moves an environment it replaces -- kept, never deleted, for the owner to remove."""
+    return runtime_dir() / "set-aside"
+
+
 def worker_script() -> Path:
     return Path(__file__).resolve().with_name("omnivoice_worker.py")
 
@@ -280,6 +306,42 @@ def manifest_problems(data: object) -> list[str]:
         problems.append("a package is pinned twice")
     if (data.get("engine") or {}).get("omnivoice") != "0.2.1":
         problems.append("the engine is not omnivoice 0.2.1")
+    problems += _wheel_problems(data)
+    if model.get("url_template") != HUB_URL_TEMPLATE:
+        problems.append("the model is not fetched from its pinned revision on the Hugging Face Hub")
+    return problems
+
+
+#: The only form a model file is ever fetched in: the pinned repository at the pinned commit.
+HUB_URL_TEMPLATE = "https://huggingface.co/{repo}/resolve/{revision}/{path}"
+#: Where a wheel may come from: PyPI's file host, or PyTorch's own index for its CUDA 12.8 builds.
+WHEEL_HOSTS = ("https://files.pythonhosted.org/packages/", "https://download-r2.pytorch.org/whl/cu128/")
+_WHEEL_NAME = re.compile(r"[A-Za-z0-9_.+-]+\.whl")
+
+
+def _wheel_problems(data: dict) -> list[str]:
+    """The wheels must be exactly the pinned packages, each by name, file name, host, size and SHA-256 (v0.8.0 Phase 3:
+    the installer fetches these and nothing else, so the application never re-resolves a dependency)."""
+    wheels = data.get("wheels")
+    packages = data.get("packages")
+    if not isinstance(wheels, list) or not wheels:
+        return ["the package set has no pinned wheels"]
+    problems: list[str] = []
+    names: set[str] = set()
+    for entry in wheels:
+        if not (isinstance(entry, dict) and isinstance(entry.get("name"), str) and isinstance(entry.get("version"), str)
+                and isinstance(entry.get("filename"), str) and _WHEEL_NAME.fullmatch(entry["filename"])
+                and isinstance(entry.get("url"), str) and entry["url"].startswith(WHEEL_HOSTS)
+                and type(entry.get("size")) is int and entry["size"] > 0
+                and _HEX64.fullmatch(str(entry.get("sha256", "")))):
+            problems.append(f"wheel {entry!r:.80} is not a pinned file (name, file, host, size, SHA-256)")
+            continue
+        names.add(entry["filename"].lower())
+    if len(names) != len(wheels):
+        problems.append("a wheel file is pinned twice")
+    if isinstance(packages, list) and [[w.get("name"), w.get("version")] for w in wheels if isinstance(w, dict)] != \
+            [list(p) for p in packages]:
+        problems.append("the wheels are not exactly the pinned packages, in order")
     return problems
 
 
@@ -306,6 +368,165 @@ def canonical_name(name: str) -> str:
 
 def pinned_packages() -> dict[str, str]:
     return {canonical_name(name): version for name, version in load_manifest()["packages"]}
+
+
+@dataclass(frozen=True)
+class Wheel:
+    name: str
+    version: str
+    filename: str
+    url: str
+    size: int
+    sha256: str
+
+
+def wheels() -> tuple[Wheel, ...]:
+    """The 88 pinned wheels of the environment, in manifest order, each with the one URL it may come from."""
+    return tuple(Wheel(w["name"], w["version"], w["filename"], w["url"], w["size"], w["sha256"])
+                 for w in load_manifest()["wheels"])
+
+
+def wheels_total_bytes() -> int:
+    return sum(w.size for w in wheels())
+
+
+#: The installer's record of the wheels it verified here (``tts.omnivoice_setup`` writes it; reading it is planning).
+WHEEL_RECORD_NAME = "verified.json"
+
+
+def wheel_record_path() -> Path:
+    return wheel_cache_dir() / WHEEL_RECORD_NAME
+
+
+def wheel_record() -> dict:
+    try:
+        data = json.loads(wheel_record_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def regular_file_stat(path: Path) -> Optional[os.stat_result]:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    return info if stat.S_ISREG(info.st_mode) else None
+
+
+def wheel_recorded(wheel: "Wheel", record: dict) -> bool:
+    info = regular_file_stat(wheel_cache_dir() / wheel.filename)
+    return info is not None and info.st_size == wheel.size and \
+        record.get(wheel.filename) == [wheel.size, info.st_mtime_ns, wheel.sha256]
+
+
+def wheel_verified(wheel: "Wheel", record: Optional[dict] = None) -> bool:
+    """Whether *wheel* is here and exactly the pinned file: by the installer's record, or else by hashing a file of the
+    right size (the stronger check only where no record vouches). A link or a folder on the way is never trusted."""
+    record = wheel_record() if record is None else record
+    if venv_layout.unsafe_component(repo_root(), wheel_cache_dir()) is not None:
+        return False
+    if wheel_recorded(wheel, record):
+        return True
+    path = wheel_cache_dir() / wheel.filename
+    info = regular_file_stat(path)
+    if info is None or info.st_size != wheel.size:
+        return False
+    try:
+        return _qwen3.sha256_file(path) == wheel.sha256
+    except OSError:
+        return False
+
+
+def wheel_bytes() -> tuple[int, int]:
+    """``(bytes to download, bytes already verified here)`` for the pinned wheels. Reads, never writes."""
+    record = wheel_record()
+    fetch = have = 0
+    for wheel in wheels():
+        if wheel_verified(wheel, record):
+            have += wheel.size
+        else:
+            fetch += wheel.size
+    return fetch, have
+
+
+def packages_sha256() -> str:
+    """The identity of the pinned package set: every wheel's name, version, file name, size and SHA-256."""
+    rows = [[w.name, w.version, w.filename, w.size, w.sha256] for w in wheels()]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def model_total_bytes() -> int:
+    return sum(f["size"] for f in model_spec()["files"].values())
+
+
+def model_url(name: str) -> str:
+    spec = model_spec()
+    return spec["url_template"].format(repo=spec["repo"], revision=spec["revision"], path=name)
+
+
+#: ``.venv-omnivoice`` once built from the 88 wheels, measured on HOME-PC (2026-11-13): an estimate, never a promise.
+ENGINE_INSTALLED_BYTES_FALLBACK = 8_346_271_361
+
+
+def engine_installed_bytes() -> int:
+    try:
+        value = (load_manifest().get("installed_bytes") or {}).get("environment")
+    except OmniVoiceUnavailable:
+        value = None
+    return value if type(value) is int and value > 0 else ENGINE_INSTALLED_BYTES_FALLBACK
+
+
+# --------------------------------------------------------------------------- #
+# What a person agrees to: the licences and the hardware (shown before anything is downloaded)
+# --------------------------------------------------------------------------- #
+#: The attribution the audio tokenizer's licence (Boson Higgs Audio 2 Community License, section 1.b.i) asks a product
+#: that uses it to display in its user interface or documentation; reproduced as the licence words it.
+TOKENIZER_ATTRIBUTION = ("Built with Higgs Materials licensed from Boson AI USA, Inc., Copyright Boson AI USA, Inc., All "
+                         "Rights Reserved and Meta Llama 3 licensed under the Meta Llama 3 Community License, Copyright "
+                         "Meta Platforms, Inc., All Rights Reserved.")
+
+LICENSE_SUMMARY: tuple[str, ...] = (
+    "The OmniVoice program code (omnivoice 0.2.1) is licensed Apache-2.0.",
+    "The pre-trained OmniVoice model weights are licensed CC-BY-NC: NON-COMMERCIAL use only. The model card does not "
+    "say which version of CC-BY-NC applies. Installing OmniVoice does not give you the right to make commercial "
+    "audiobooks, or to sell or monetise audio made with these voices.",
+    "The audio tokenizer OmniVoice needs is licensed separately, under the Boson Higgs Audio 2 Community License "
+    "(based on the Meta Llama 3 Community License). Among its terms: the Llama 3 Acceptable Use Policy applies; you may "
+    "not use its outputs to improve any other large language model; a product or service with more than 100,000 "
+    "annual active users in the preceding calendar year needs an expanded licence from Boson AI; and distributing it "
+    "requires a copy of the agreement, a Notice file and the attribution below.",
+    "The model card also forbids using the model for unauthorised voice cloning, voice impersonation, fraud or any "
+    "other illegal or unethical purpose.",
+    "This summary is not legal advice and does not replace the licence texts; read them before you install.",
+)
+
+HARDWARE_DISCLOSURE = (
+    "OmniVoice needs Windows and an NVIDIA graphics card (GPU) with a current driver; it does not run on the processor "
+    "alone. It was qualified on one computer: an NVIDIA RTX 5070 with the CUDA 12.8 build of PyTorch, CPython 3.12 and "
+    "its own separate environment. Its speed and the graphics memory it needs on other cards are not promised.")
+
+
+def license_documents() -> list[dict]:
+    """Where each licence can be read (pinned revisions), and the copy kept with the model once it is installed."""
+    try:
+        documents = load_manifest().get("license_documents") or []
+    except OmniVoiceUnavailable:
+        documents = []
+    out = []
+    for doc in documents:
+        if isinstance(doc, dict) and isinstance(doc.get("title"), str) and isinstance(doc.get("url"), str) \
+                and doc["url"].startswith("https://"):
+            local = doc.get("local")
+            out.append({"id": str(doc.get("id", "")), "title": doc["title"], "url": doc["url"],
+                        "local": str(model_dir().joinpath(*local.split("/"))) if isinstance(local, str) else None})
+    return out
+
+
+def disclosure() -> dict:
+    """The licence and hardware terms shown before consent (plan data: wording, never acquisition terms)."""
+    return {"title": "OmniVoice licence terms", "summary": list(LICENSE_SUMMARY), "attribution": TOKENIZER_ATTRIBUTION,
+            "documents": license_documents(), "hardware": HARDWARE_DISCLOSURE}
 
 
 #: Installed by ``python -m venv`` itself, not by the lock; its presence or version says nothing about the engine.
@@ -357,37 +578,181 @@ NO_GPU_MESSAGE = ("The OmniVoice voices need an NVIDIA graphics card (GPU) with 
 INSTALL_ACTION = "Install it from the app's optional voice setup (Install & Continue)"
 NOT_INSTALLED_MESSAGE = ("The OmniVoice voice engine is not installed on this computer. " + INSTALL_ACTION
                          + "; every other voice is unaffected.")
+UNCHECKED_MESSAGE = ("An OmniVoice voice engine is on this computer, but this version of the app has not checked it "
+                     "yet, so it is not used. Install & Continue checks it and adopts it; nothing is downloaded or "
+                     "replaced when it is complete.")
+INCOMPLETE_MESSAGE = "The OmniVoice voice engine was not installed completely. " + INSTALL_ACTION + " to repair it."
+LINKED_MESSAGE = ("The OmniVoice environment is reached through a link to another folder, so the app will not use it. "
+                  "Remove the link (not its target).")
 
 
-def environment_status() -> tuple[bool, str]:
-    """``(ok, reason)`` for ``.venv-omnivoice``: present, not reached through a link, CPython 3.12, and holding exactly
-    the pinned package set. Cheap: a folder listing, no subprocess, no import of the engine."""
-    folder = venv_dir()
-    if not (folder.exists() or folder.is_symlink()):
-        return False, NOT_INSTALLED_MESSAGE
-    if venv_layout.unsafe_component(repo_root(), folder) is not None:
-        return False, ("The OmniVoice environment is reached through a link to another folder, so the app will not "
-                       "use it. Remove the link (not its target).")
-    if not venv_python().is_file():
-        return False, "The OmniVoice voice engine was not installed completely. " + INSTALL_ACTION + " to repair it."
-    config = venv_layout.read_pyvenv_cfg(folder) or {}
-    if not str(config.get("version", config.get("version_info", ""))).startswith("3.12."):
-        return False, ("The OmniVoice environment was not made with Python 3.12, the version it is pinned to. "
-                       + INSTALL_ACTION + " to repair it.")
+# --------------------------------------------------------------------------- #
+# The install receipt (v0.8.0 Phase 3): what makes the environment this app's own, proved
+# --------------------------------------------------------------------------- #
+RECEIPT_SCHEMA = "act-omnivoice-install-receipt"
+RECEIPT_VERSION = 1
+#: Written before the installer creates an environment (so an interruption is known to be the app's own, unfinished),
+#: after a proof succeeded (the only stage that makes the engine ready), or after an existing environment was checked
+#: and proved not to work (so the next plan offers a repair instead of the same check again).
+STAGE_CREATING = "creating"
+STAGE_INSTALLED = "installed"
+STAGE_REJECTED = "rejected"
+ORIGIN_INSTALLED = "installed"  # built by this app's installer from the pinned wheels
+ORIGIN_ADOPTED = "adopted"  # found already holding exactly the pinned set, then proved the same way
+
+
+def read_receipt() -> dict:
+    """The receipt for ``.venv-omnivoice``, or ``{}``: absent, unreadable, a link, of another schema, or written for
+    another folder (a copied receipt never vouches for an environment it was not written for)."""
+    path = receipt_path()
+    if venv_layout.unsafe_component(repo_root(), path) is not None:
+        return {}
     try:
-        pins = pinned_packages()
-    except OmniVoiceUnavailable as exc:
-        return False, str(exc)
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("schema") != RECEIPT_SCHEMA or data.get("version") != RECEIPT_VERSION:
+        return {}
+    if not isinstance(data.get("path"), str) or not venv_layout.same_path(data["path"], venv_dir()):
+        return {}
+    return data
+
+
+def write_receipt(stage: str, **fields) -> dict:
+    """Publish the receipt for ``.venv-omnivoice`` at *stage* (atomically, never through a link)."""
+    if stage not in (STAGE_CREATING, STAGE_INSTALLED, STAGE_REJECTED):
+        raise ValueError(f"unknown receipt stage {stage!r}")
+    record = {"schema": RECEIPT_SCHEMA, "version": RECEIPT_VERSION, "stage": stage,
+              "path": os.path.normpath(os.path.abspath(venv_dir())), "packages_sha256": packages_sha256(),
+              "omnivoice": load_manifest()["engine"]["omnivoice"],
+              "recorded_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **fields}
+    atomic_write_json(receipt_path(), record)
+    return record
+
+
+def clear_receipt() -> None:
+    path = receipt_path()
+    if os.path.lexists(path):
+        _qwen3.remove_entry(path)
+
+
+# --------------------------------------------------------------------------- #
+# The environment: assessed cheaply (a folder listing and two small files; no process, no import)
+# --------------------------------------------------------------------------- #
+ENGINE_READY = "ready"  # proved and recorded by this app's installer, unchanged since
+ENGINE_ABSENT = "absent"  # nothing at .venv-omnivoice
+ENGINE_UNCHECKED = "unchecked"  # exactly the pinned set, built from the app's Python, but no receipt vouches for it
+ENGINE_INCOMPLETE = "incomplete"  # this app's own install of it did not finish
+ENGINE_BROKEN = "broken"  # present, and provably not the pinned engine (or checked and proved not to work)
+ENGINE_UNVERIFIED = "unverified"  # reached through a link, or unreadable: nothing here can vouch for it, or change it
+ENGINE_STATES = (ENGINE_READY, ENGINE_ABSENT, ENGINE_UNCHECKED, ENGINE_INCOMPLETE, ENGINE_BROKEN, ENGINE_UNVERIFIED)
+
+
+@dataclass(frozen=True)
+class EngineAssessment:
+    state: str
+    reason: str  # a sentence fit for a person; "ok" when ready
+
+
+def app_base_python() -> Path:
+    """The base interpreter the app's own ``.venv`` was built from (``sys._base_executable``), as ``python.exe``: the
+    one Python an OmniVoice environment may be built from (the rule ``tts.qwen3_setup`` applies to Qwen3)."""
+    exe = Path(getattr(sys, "_base_executable", "") or sys.executable)
+    if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").is_file():
+        return exe.with_name("python.exe")
+    return exe
+
+
+def structure_problem(folder: Path) -> str:
+    """Why *folder* is not an isolated CPython 3.12 environment at its own place, or ``""``."""
+    folder = Path(folder)
+    if not folder.is_dir():
+        return "it is not a folder"
+    config = venv_layout.read_pyvenv_cfg(folder)
+    if config is None:
+        return "it has no readable pyvenv.cfg"
+    if config.get("include-system-site-packages", "").lower() != "false":
+        return "it is not isolated from the system's packages"
+    if not venv_layout.interpreter(folder).is_file():
+        return "its Python interpreter is missing"
+    command = config.get("command")
+    if command and not os.path.normcase(command.rstrip().rstrip("\\/")).endswith(os.path.normcase(os.path.abspath(folder))):
+        return "it was created in another folder and moved (environments cannot be moved)"
+    if not str(config.get("version", config.get("version_info", ""))).startswith("3.12."):
+        return "it was not made with Python 3.12, the version it is pinned to"
+    if venv_layout.base_identity(folder) is None:
+        return "the Python it was built from is missing"
+    return ""
+
+
+def listing_problem(folder: Path) -> str:
+    """Why the environment's installed distributions are not exactly the pinned set (pip aside), or ``""``."""
+    pins = pinned_packages()
     installed = installed_distributions(folder)
     missing = sorted(name for name in pins if name not in installed)
     wrong = sorted(name for name in pins if name in installed and installed[name] != pins[name])
     extra = sorted(set(installed) - set(pins) - VENV_BOOTSTRAP)
-    if missing or wrong or extra:
-        detail = (f"{len(missing)} missing" if missing else f"{len(wrong)} at another version" if wrong
-                  else f"{len(extra)} not part of it")
-        return False, (f"The OmniVoice environment does not hold its pinned packages ({detail}: "
-                       f"{', '.join((missing or wrong or extra)[:3])}). " + INSTALL_ACTION + " to repair it.")
-    return True, "ok"
+    if not (missing or wrong or extra):
+        return ""
+    detail = (f"{len(missing)} missing" if missing else f"{len(wrong)} at another version" if wrong
+              else f"{len(extra)} not part of it")
+    return f"{detail}: {', '.join((missing or wrong or extra)[:3])}"
+
+
+def assess_engine(*, app_base: Optional[Path] = None) -> EngineAssessment:
+    """What ``.venv-omnivoice`` is, from the folder and the receipt alone. Read-only; never raises.
+
+    Ready only with a receipt of a proved install for this folder, for the current pinned set, and for the base Python
+    it is still built from. An environment holding exactly the pinned set without such a receipt is *unchecked*
+    (adoptable after a proof), never ready and never broken -- but only when it was built from the app's own base
+    Python (*app_base*, default :func:`app_base_python`). Everything else present is broken (a repair builds a fresh
+    one and keeps this folder), or unverified when reached through a link.
+    """
+    folder = venv_dir()
+    try:
+        if venv_layout.unsafe_component(repo_root(), folder) is not None:
+            return EngineAssessment(ENGINE_UNVERIFIED, LINKED_MESSAGE)
+        if not os.path.lexists(folder):
+            return EngineAssessment(ENGINE_ABSENT, NOT_INSTALLED_MESSAGE)
+        receipt = read_receipt()
+        stage = receipt.get("stage")
+        if stage == STAGE_CREATING:
+            return EngineAssessment(ENGINE_INCOMPLETE, INCOMPLETE_MESSAGE)
+        problem = structure_problem(folder)
+        if problem:
+            return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment cannot be used: {problem}. "
+                                                   + INSTALL_ACTION + " to repair it.")
+        listing = listing_problem(folder)
+        if listing:
+            return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment does not hold its pinned packages "
+                                                   f"({listing}). " + INSTALL_ACTION + " to repair it.")
+        base = venv_layout.base_identity(folder)
+        digest = packages_sha256()
+        same = receipt.get("packages_sha256") == digest and receipt.get("base") == base
+        if stage == STAGE_INSTALLED and receipt.get("probe_ok") is True and same:
+            return EngineAssessment(ENGINE_READY, "ok")
+        if stage == STAGE_REJECTED and same:
+            why = str(receipt.get("reason") or "it did not start")[:300]
+            return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment was checked and does not work ({why}). "
+                                                   + INSTALL_ACTION + " to repair it.")
+        expected = app_base_python() if app_base is None else Path(app_base)
+        if not venv_layout.same_path(base["executable"], expected):
+            return EngineAssessment(ENGINE_BROKEN, "The OmniVoice environment was built from another Python than the "
+                                                   "app's own, so it is not used. " + INSTALL_ACTION + " to repair it.")
+        return EngineAssessment(ENGINE_UNCHECKED, UNCHECKED_MESSAGE)
+    except OmniVoiceUnavailable as exc:
+        return EngineAssessment(ENGINE_UNVERIFIED, str(exc))
+    except OSError as exc:
+        return EngineAssessment(ENGINE_UNVERIFIED, f"The OmniVoice environment could not be read ({exc.strerror or exc}).")
+
+
+def environment_status() -> tuple[bool, str]:
+    """``(ok, reason)`` for ``.venv-omnivoice``: ready only when this app's installer proved it and recorded that proof
+    (:func:`assess_engine`). Cheap: a folder listing and two small files, no subprocess, no import of the engine."""
+    assessment = assess_engine()
+    if assessment.state == ENGINE_READY:
+        return True, "ok"
+    return False, assessment.reason
 
 
 BAD_MISSING, BAD_SIZE, BAD_HASH, BAD_CHANGED = ("is missing", "has the wrong size", "does not match its SHA-256",
@@ -436,6 +801,58 @@ def verify_model_files(*, progress: Optional[Callable[[int], None]] = None) -> l
         "verified_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
     return []
+
+
+FILE_READY, FILE_MISSING, FILE_DAMAGED, FILE_UNVERIFIED = "ready", "missing", "damaged", "unverified"
+
+
+def model_folder_problem() -> str:
+    """Why the model folder cannot be trusted at all (a link on the way to it), or ``""``."""
+    folder = model_dir()
+    if venv_layout.unsafe_component(repo_root(), folder) is not None:
+        return "The OmniVoice model folder is reached through a link; the app refuses to use it or write through it."
+    return ""
+
+
+def model_recorded() -> bool:
+    """Whether the verification record vouches for every pinned model file, unchanged since it was hashed."""
+    return model_status()[0]
+
+
+def model_file_states(*, progress: Optional[Callable[[int], None]] = None) -> dict[str, tuple[str, str]]:
+    """``{file: (state, detail)}`` for every pinned model file: ready, missing, damaged (another size or content) or
+    unverified (a link, or unreadable). A valid verification record vouches for every file without hashing; otherwise
+    each present file of the right size is hashed -- the stronger local check, made only where no record vouches."""
+    files = model_spec()["files"]
+    problem = model_folder_problem()
+    if problem:
+        return {name: (FILE_UNVERIFIED, problem) for name in files}
+    if model_recorded():
+        return {name: (FILE_READY, "") for name in files}
+    states: dict[str, tuple[str, str]] = {}
+    for name, want in files.items():
+        path = _model_file(name)
+        if venv_layout.unsafe_component(repo_root(), path) is not None:
+            states[name] = (FILE_UNVERIFIED, f"{name} is reached through a link")
+            continue
+        try:
+            info = os.stat(path)
+        except FileNotFoundError:
+            states[name] = (FILE_MISSING, f"{name} {BAD_MISSING}")
+            continue
+        except OSError as exc:
+            states[name] = (FILE_UNVERIFIED, f"{name} cannot be read ({exc.strerror or exc})")
+            continue
+        if not path.is_file() or info.st_size != want["size"]:
+            states[name] = (FILE_DAMAGED, f"{name} {BAD_SIZE}")
+            continue
+        try:
+            digest = _qwen3.sha256_file(path, progress)
+        except OSError as exc:
+            states[name] = (FILE_UNVERIFIED, f"{name} cannot be read ({exc.strerror or exc})")
+            continue
+        states[name] = (FILE_READY, "") if digest == want["sha256"] else (FILE_DAMAGED, f"{name} {BAD_HASH}")
+    return states
 
 
 def model_status() -> tuple[bool, str]:
@@ -670,9 +1087,21 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
         return False, f"This voice could not be checked on this computer ({exc})."
 
 
-def install_would_help() -> bool:
-    """Whether installing the component could make an unavailable OmniVoice voice usable (Install & Continue)."""
+def install_would_help(voice_id: Optional[str] = None) -> bool:
+    """Whether installing the component could make an unavailable OmniVoice voice usable (Install & Continue).
+
+    Never on another platform or a computer without an NVIDIA GPU; never for a voice whose own approved recording is
+    missing or changed (installing cannot restore a recording); never through a link (installing cannot remove one);
+    and not once the engine and the model are both ready. An unchecked existing engine counts: installing adopts it."""
     if not platform_supported() or detect_gpu() is None:
+        return False
+    if voice_id is not None:
+        try:
+            if not reference_status(get_voice(voice_id))[0]:
+                return False
+        except OmniVoiceUnavailable:
+            return False
+    if assess_engine().state == ENGINE_UNVERIFIED or model_folder_problem():
         return False
     return not (environment_status()[0] and model_status()[0])
 

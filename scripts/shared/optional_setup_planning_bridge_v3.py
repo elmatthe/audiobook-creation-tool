@@ -38,6 +38,10 @@ SOURCES = (
     'tts/qwen3_wheels.py',  # v0.7.0: the planner's exact engine download figure
     'shared/spacy_store.py',  # v0.7.0: tts.model_assets' spaCy English pins and kept-wheel helpers
     'qwen3-artifacts.json', 'qwen3-requirements.txt',
+    # v0.8.0 Phase 3: tts.optional_setup reads OmniVoice's readiness, pins and licence terms (read-only, standard
+    # library only; never the OmniVoice installer). This seam itself still refuses OmniVoice (no reviewed v3 terms).
+    'tts/omnivoice_runtime.py', 'tts/clone_references.py', 'tts/omnivoice_manifest.json',
+    'tts/data/clone_references.json',
 )
 _SOURCE_ROOT = Path(__file__).resolve().parents[1]
 _REPO = _SOURCE_ROOT.parent

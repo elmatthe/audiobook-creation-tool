@@ -3142,8 +3142,8 @@ def fetch_sentence_data(log: SetupLog) -> bool:
     log.line("  Installed and checked.")
     return True
 
-#: The four optional voice choices of the first-run wizard, in the approved order, with the approved defaults
-#: (Kokoro checked, the other three unchecked) and what each one is.
+#: The five optional voice choices of the first-run wizard, in the approved order, with the approved defaults
+#: (Kokoro checked, the other four unchecked) and what each one is. v0.8.0 Phase 3 appends OmniVoice, unchecked.
 OPTIONAL_CHOICES = (
     ("kokoro", "Kokoro voices", True,
      "Natural English voices that run on this computer (CPU or GPU)."),
@@ -3154,6 +3154,10 @@ OPTIONAL_CHOICES = (
     ("qwen3-base", "Qwen3 Cloned Voices (six bundled voices)", False,
      "The six cloned voices that ship with the app - no recording or transcription needed. "
      "Windows only; an NVIDIA GPU is strongly recommended."),
+    ("omnivoice", "OmniVoice — Six Cloned Voices", False,
+     "Six more cloned voices from a separate engine. Windows with an NVIDIA GPU only. NON-COMMERCIAL: the model "
+     "weights are CC-BY-NC and its audio tokenizer has its own licence; the full terms are shown before anything is "
+     "downloaded."),
 )
 
 
@@ -3191,7 +3195,7 @@ def _append_following(log_box, msg: str) -> None:
 
 
 def run_with_gui(skip_kokoro_default: bool = False) -> int:
-    """Show the first-run setup dialog: four optional voice choices, the base install on a worker thread, then the
+    """Show the first-run setup dialog: five optional voice choices, the base install on a worker thread, then the
     review-and-install panel for the chosen voices, then launch the app."""
     import queue
     import tkinter as tk
@@ -3234,8 +3238,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     container.bind("<Configure>", _wrap_to_width)
 
-    # The four approved choices: Kokoro checked, Chatterbox and both Qwen3 choices unchecked (their downloads are
-    # several GB each). Choosing is not consent: nothing optional is downloaded until the review screen's Install.
+    # The five approved choices: Kokoro checked, Chatterbox, both Qwen3 choices and OmniVoice unchecked (their downloads
+    # are several GB each). Choosing is not consent: nothing optional is downloaded until the review screen's Install.
     choices = {component: tk.BooleanVar(value=(default and not (component == "kokoro" and skip_kokoro_default)))
                for component, _label, default, _note in OPTIONAL_CHOICES}
     state = {"started": False, "done": False, "ok": False, "stopping": False}

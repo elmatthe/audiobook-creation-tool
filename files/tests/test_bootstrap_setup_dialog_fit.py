@@ -80,8 +80,10 @@ def test_the_action_buttons_are_still_present():
 
 
 def test_only_kokoro_is_checked_by_default():
-    assert {c: d for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES} == {
-        "kokoro": True, "chatterbox": False, "qwen3-customvoice": False, "qwen3-base": False}
+    # v0.8.0 Phase 3: OmniVoice is appended last, unchecked; the four earlier choices keep their order and defaults.
+    assert [(c, d) for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES] == [
+        ("kokoro", True), ("chatterbox", False), ("qwen3-customvoice", False), ("qwen3-base", False),
+        ("omnivoice", False)]
 
 
 def test_the_window_is_not_merely_made_enormous():

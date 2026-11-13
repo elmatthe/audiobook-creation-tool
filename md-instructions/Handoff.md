@@ -1,5 +1,57 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Session 3 / Phase 3: PASS — OmniVoice is the fifth component of the existing optional installer; the HOME-PC environment was adopted without downloading (2026-11-13, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-13 (v0.8.0 Phase
+3). The plan is unchanged.
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, on the accepted Phase 2 correction `1922eea4`; the Phase 3 commit is
+  this checkpoint (SHA in the session report). The owner's 17 tracked deletions and untracked files are untouched and
+  not staged.
+- **What changed.** `shared/optional_setup_protocol.py` (fifth component `omnivoice`, "OmniVoice — Six Cloned Voices",
+  unchecked), `shared/bootstrap.py` (fifth first-run checkbox and note), `shared/optional_setup_client.py` (licence and
+  hardware block in the review text), `shared/optional_setup_panel.py` ("View licence terms" window),
+  `shared/optional_setup_planning_bridge_v3.py` (the v3 seam's reviewed closure gains the planner's new read-only
+  modules; the seam still refuses OmniVoice), `tts/optional_setup.py` (two units, estimate, GPU fact, margins,
+  `disclosures`), `tts/optional_setup_health.py` (GPU fact, OmniVoice busy locks), `tts/optional_setup_acquire.py`
+  (dispatch, sources), new `tts/omnivoice_setup.py` (install / adopt / repair / proof / receipt),
+  `tts/omnivoice_runtime.py` (receipt, engine assessment, wheel pins and cache reads, licence text),
+  `tts/omnivoice_worker.py` (`probe` job), `tts/omnivoice_manifest.json` (88 wheels by URL/size/SHA-256, model URL
+  form, licence documents), `tts/voice_install.py` (the offer asks about the voice's own recording), two READMEs.
+- **Tests (focused only; no full gate, no Codex review).** Command form `.venv\Scripts\python.exe -I -B -m pytest -q -p
+  no:cacheprovider <files>`.
+  1. New `test_omnivoice_setup.py` (62) + updated `test_omnivoice_gui.py` (19): 81 passed.
+  2. 35 directly affected files (optional setup v2 + v3 non-guarded, authority, artifact/M3, bootstrap window and
+     cancel, first-run close, setup log, Chatterbox bootstrap, Qwen3 offline/GUI, release installer, voice install,
+     OmniVoice reference/synth/speech, EPUB retirement and the source-boundary / dev-work / layout / Plan 3 / Qwen3
+     packaging / repository / gate-contract guards): 2465 passed, 2 skipped, 4 failed -- all inherited (34≠28 roster
+     pin in `test_epub_retirement`; `m4b_nero.py` in `test_layout_canary[m4b]`; the two 0.7.2 version pins).
+  3. The nine guarded modules (v3 planning/supervisor, spaCy consumer, P05B isolation) only run under the gate's
+     basetemp, so through `files/dev-work/verification-gate/verify.py --mode focused --test ...` (not the full gate):
+     `outputs/2026-11-13_120215_focused_a9f3` RESULT PASS, v3-planning 457 passed, v3-supervisor 75 passed. Its
+     coverage-inventory check names the new panel widgets as unmapped (Phase 4 restamp). An earlier run
+     (`..._114907_focused_9ad7`) found 215 v3 failures -- my planner import missing from the seam's closure -- fixed.
+  4. Mutation controls: no-change control PASS; 16 of 16 mutants killed.
+- **Real HOME-PC acceptance** (`files/dev-work/ov-p3/20261113-184640-acceptance/report.json`, ignored; real worker and
+  the real Install & Continue view). S2 omitted (Kokoro alone): no OmniVoice unit. S1 alone: "check and adopt", 0 B
+  download, 0 B disk. S9: unchecked before adoption; no-GPU fact -> unsupported, unchecked GPU -> unverified, neither
+  consentable. S6a: Install & Continue offered. S8: real Cancel during the proof -> cancelled, no receipt, environment
+  unchanged, no process left. The run was then stopped by Claude Code for low system memory (owner chose to resume the
+  remaining steps). S3/S6b adoption: installed, 8.3 s, nothing downloaded, no wheel cache, nothing set aside, `.venv-omnivoice`
+  and the model unchanged, proof on the RTX 5070 (load 1.94 s, 0 network attempts, 1.9 GB VRAM). S4 relaunch: ready,
+  0 B, six voices available, no offer. S5 with Kokoro: both ready. Every protected fingerprint unchanged except the new
+  receipt. One generation smoke (`files/dev-work/ov-p2/20261113-125050-smoke/`): Male 1 PASS, 18.68 s, -0.45 dBFS,
+  prompt from cache, Hub cache empty. Offline and fresh-install/repair paths were exercised with mocks only.
+- **Open for the owner / later phases.**
+  1. Licence wording: the tokenizer licence's threshold is 100,000 *annual* active users (Phase 1's record and the
+     Session 3 brief said monthly); the disclosure uses the licence's words. Whether README/about text should also carry
+     the Boson attribution is a Phase 4 documentation decision.
+  2. Phase 4 (in addition to the items below): map `tts/omnivoice_setup.py` and the licence window in the gate's
+     coverage inventory and restamp this phase's files; every Phase 2 / correction item below still stands.
+  3. A stale probe job file from the memory-stopped run remains in `files/runtime-data/omnivoice/probe/` (2.8 KB,
+     app-owned scratch, never read again).
+- **Next exact action.** STOP. Session 4 / Phase 4 only after the owner's review and separate authorization.
+
 ## Current checkpoint — v0.8.0 Session 2 / Phase 2 correction: PASS — engine-specific clone references; OmniVoice uses the owner's curated WAVs whole (2026-11-13, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action; in the Phase 2 block below, everything about derived

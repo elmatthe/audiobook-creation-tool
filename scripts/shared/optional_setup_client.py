@@ -148,7 +148,9 @@ def disclosure(shown_plan: dict) -> str:
             lines.append(f"{comp['label']}: cannot be installed now ({comp.get('reason') or state}).")
             continue
         verb = "Repair" if state == proto.DAMAGED else "Install"
-        lines.append(f"{comp['label']}: {verb} - download {figure_text(comp.get('download'))}.")
+        download = comp.get("download") or {}
+        cost = "nothing to download" if download.get("bytes") == 0 else f"download {figure_text(download)}"
+        lines.append(f"{comp['label']}: {verb} - {cost}.")
         for unit_id in comp["units"]:
             unit = units.get(unit_id)
             if unit is None or unit_id not in shown_plan.get("acquire_units", ()):
@@ -157,6 +159,8 @@ def disclosure(shown_plan: dict) -> str:
             if unit_id.startswith("kokoro-voice:"):
                 continue  # the nine small voice files are summed in the component line
             lines.append(f"    - {unit['label']}: {figure_text(unit['download'])}{shared}")
+            if unit_id.startswith("omnivoice-") and unit.get("note"):
+                lines.append(f"      {unit['note']}")  # adopt, repair or record-only: what will happen to it
     totals = shown_plan["totals"]
     lines.append("")
     lines.append(f"Total download: {figure_text(totals['download'])}.  Disk space used: {figure_text(totals['disk'])}"
@@ -166,10 +170,42 @@ def disclosure(shown_plan: dict) -> str:
     hardware = shown_plan.get("hardware") or {}
     if any(c["id"].startswith("qwen3") for c in selected(shown_plan)) and hardware.get("qwen3"):
         lines.append(hardware["qwen3"])
+    terms = omnivoice_terms(shown_plan)
+    if terms:
+        lines.append("")
+        lines.extend(terms)
     lines.append("Downloads come only from the pinned sources this version was tested with; every file is checked "
                  "by size and SHA-256. Nothing is downloaded until you choose Install, and Cancel keeps what is "
                  "already working.")
     return "\n".join(lines)
+
+
+def license_disclosure(shown_plan: dict) -> Optional[dict]:
+    """The OmniVoice licence and hardware terms carried by *shown_plan* (v0.8.0 Phase 3), when OmniVoice is chosen and
+    something will be installed or repaired for it; ``None`` otherwise."""
+    terms = (shown_plan.get("disclosures") or {}).get(proto.OMNIVOICE)
+    if not isinstance(terms, dict) or proto.OMNIVOICE not in acquirable(shown_plan):
+        return None
+    return terms
+
+
+def omnivoice_terms(shown_plan: dict) -> list[str]:
+    """The licence, attribution and hardware lines a person reads before agreeing to install OmniVoice."""
+    terms = license_disclosure(shown_plan)
+    if terms is None:
+        return []
+    lines = ["OmniVoice licence terms (please read before installing):"]
+    lines += [f"  * {line}" for line in terms.get("summary") or ()]
+    documents = terms.get("documents") or ()
+    if documents:
+        lines.append("  The licence texts (also under \"View licence terms\" below):")
+        lines += [f"    - {doc['title']}: {doc['url']}" for doc in documents]
+    if terms.get("attribution"):
+        lines.append(f"  {terms['attribution']}")
+    hardware = (shown_plan.get("hardware") or {}).get(proto.OMNIVOICE) or terms.get("hardware")
+    if hardware:
+        lines.append(f"OmniVoice hardware: {hardware}")
+    return lines
 
 
 def result_text(result: dict) -> str:

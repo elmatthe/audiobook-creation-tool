@@ -2,7 +2,7 @@
 
 v0.7.0 release (Install & Continue). Since P05B Stage 2, Kokoro and Chatterbox never download on first use: they load
 only verified local files (``tts.model_assets``). So the TTS panel must know, before it starts a run, whether the
-selected voice's models are on this computer, and if not, which of the four optional components installs them. This
+selected voice's models are on this computer, and if not, which of the five optional components installs them. This
 module answers both, cheaply and without importing an engine. Qwen3 and OmniVoice voices keep their own complete answers
 (``qwen3_runtime.voice_availability``, ``omnivoice_runtime.voice_availability``); this module only names their component.
 """
@@ -79,13 +79,15 @@ def installable(backend: str, voice_id: str, reason: str) -> Optional[str]:
     if backend in ("kokoro", "chatterbox"):
         return component if NOT_INSTALLED in reason else None
     if backend == "omnivoice":
-        # Offered only once the optional setup can install it (v0.8.0 Phase 3 adds the component to the protocol), and
-        # only when installing could help: never on a computer without an NVIDIA GPU, nor once engine and model are ready.
+        # Offered through the existing optional setup (v0.8.0 Phase 3 added the component), and only when installing
+        # could help: never without an NVIDIA GPU, never for a voice whose own recording is missing or changed, never
+        # through a link, nor once engine and model are ready. An unchecked existing engine is offered: installing
+        # adopts it without downloading.
         if component not in proto.COMPONENTS:
             return None
         try:
             from tts import omnivoice_runtime as ov
-            return component if ov.install_would_help() else None
+            return component if ov.install_would_help(voice_id) else None
         except Exception:  # noqa: BLE001
             return None
     # Qwen3: the runtime's own reasons for a missing engine or model.

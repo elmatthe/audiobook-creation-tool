@@ -23,6 +23,11 @@ from test_optional_setup_v3 import model_terms
 
 pytestmark = pytest.mark.usefixtures('production_writes_refused')
 
+#: The components the v3 authority seam covers (no production worker uses it; plan Rev 2 P05B). It predates v0.8.0 and
+#: never acquires OmniVoice -- it fails closed on it (``test_v3_authority_fails_closed_on_omnivoice``); the production
+#: installer (tts.optional_setup_acquire) is the one that installs it.
+V3_COMPONENTS = (proto.KOKORO, proto.CHATTERBOX, proto.QWEN3_CUSTOMVOICE, proto.QWEN3_BASE)
+
 
 def test_prior_disclosure_is_read_only_even_when_the_store_does_not_exist(tmp_path):
     ledger = transfer.TransferLedger(store.ArtifactStore(tmp_path, store.Catalog(model_terms())))
@@ -322,7 +327,7 @@ def test_non_authorizable_states_remain_distinct(authority_world, monkeypatch, r
 def test_native_later_probe_failure_precedes_every_transfer(authority_world):
     from tts import optional_setup_authority as auth
     root, planner, _, calls, _, _ = authority_world
-    confirmation = confirmed(planner, list(proto.COMPONENTS))
+    confirmation = confirmed(planner, list(V3_COMPONENTS))
     original = planner.observer
     checked = 0
 
@@ -511,7 +516,13 @@ def test_replayed_zero_transfer_consent_cannot_be_claimed_twice(authority_world)
     assert result.state == proto.REFUSED and len(calls) == count
 
 
-@pytest.mark.parametrize('component', list(proto.COMPONENTS))
+def test_v3_authority_fails_closed_on_omnivoice(authority_world):
+    _, planner, _, calls, _, _ = authority_world
+    plan = planner.plan([proto.OMNIVOICE])
+    assert plan.terms is None and calls == []  # no terms, so no consent and no transfer through this seam
+
+
+@pytest.mark.parametrize('component', list(V3_COMPONENTS))
 def test_every_component_source_is_independently_checked(authority_world, component):
     _, planner, state, calls, _, _ = authority_world
     if component == proto.KOKORO:

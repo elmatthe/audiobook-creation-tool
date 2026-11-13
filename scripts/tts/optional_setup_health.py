@@ -12,8 +12,10 @@ v0.7.0 P05B Stage 2 (plan Revision 2 §5.4). Runs in the setup worker, before an
   own business, and a plan must not write.
 * **Busy** -- held locks, read without creating a lock file: ``setup.lock`` (an install/repair of this copy, or a repair
   of the app's own environment) makes every chosen component busy; ``inference.lock`` / ``engine.lock`` (a Qwen3
-  conversion, or a Qwen3 engine still running) make the Qwen3 components busy. A lock whose state cannot be read is
-  treated as held.
+  conversion, or a Qwen3 engine still running) make the Qwen3 components busy, and OmniVoice's own pair (v0.8.0) makes
+  OmniVoice busy. A lock whose state cannot be read is treated as held.
+* **GPU** (v0.8.0) -- whether an NVIDIA GPU is present, asked only when OmniVoice is chosen. OmniVoice's engine health
+  is never probed here: like Qwen3's, it is judged from the installer's own record (its receipt).
 """
 
 from __future__ import annotations
@@ -91,7 +93,22 @@ def busy_components(components: Iterable[str]) -> frozenset:
         busy |= chosen
     if lock_held(rt.inference_lock_path()) is not False or lock_held(rt.engine_lock_path()) is not False:
         busy |= chosen & set(_QWEN)
+    if proto.OMNIVOICE in chosen:  # v0.8.0: an OmniVoice conversion, or a worker still running, holds its own locks
+        from tts import omnivoice_runtime as ov
+
+        if lock_held(ov.inference_lock_path()) is not False or lock_held(ov.engine_lock_path()) is not False:
+            busy.add(proto.OMNIVOICE)
     return frozenset(busy)
+
+
+def gpu_present(components: Iterable[str]) -> Optional[bool]:
+    """v0.8.0: whether an NVIDIA GPU is present -- asked (``nvidia-smi``, bounded, once per process) only when OmniVoice,
+    which needs one, is chosen; ``None`` otherwise."""
+    if proto.OMNIVOICE not in set(components):
+        return None
+    from tts import omnivoice_runtime as ov
+
+    return ov.detect_gpu() is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -225,4 +242,5 @@ def facts(root: Path, components: Iterable[str], *, probe_hardware: bool, cancel
     components = tuple(components)
     if health is None:
         health = local_health(root, components, cancel_check=cancel_check, runner=runner)
-    return optional_setup.Facts(health=dict(health), busy=busy_components(components), probe_hardware=probe_hardware)
+    return optional_setup.Facts(health=dict(health), busy=busy_components(components), probe_hardware=probe_hardware,
+                                gpu=gpu_present(components))

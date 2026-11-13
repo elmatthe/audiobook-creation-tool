@@ -2,8 +2,10 @@
 
 Dispatch reads ``VoiceEntry.backend``; the voices route to ``omnivoice_file_to_mp3`` by voice id; the output is named by
 the frozen label; an unavailable voice is reported with the engine's own sentence and refused at Start before a run is
-reserved (Install & Continue is not offered until plan Phase 3 adds the component to the existing setup); Cancel and the
-file-boundary run loop are the ones every local engine uses. **No synthesis runs**: ``tts.omnivoice_synth`` is a stub.
+reserved when installing cannot help (no NVIDIA GPU, a changed recording); otherwise (v0.8.0 Phase 3) the existing
+Install & Continue offers the ``omnivoice`` component, and only an installed-and-rechecked voice starts the frozen run,
+once. Cancel and the file-boundary run loop are the ones every local engine uses. **No synthesis runs**:
+``tts.omnivoice_synth`` is a stub, and the review dialog is a stand-in (nothing is planned, downloaded or installed).
 """
 
 from __future__ import annotations
@@ -133,25 +135,111 @@ def test_choosing_other_engines_asks_the_omnivoice_seam_nothing(make_panel, omni
     assert omni.status_requests == []
 
 
-def test_an_unavailable_voice_is_shown_and_refused_at_start_without_an_install_offer(
+def test_an_unavailable_voice_installing_cannot_help_is_refused_at_start_without_an_install_offer(
         make_panel, output_base, tmp_path, stubs, monkeypatch):
+    """No NVIDIA GPU (or a changed recording): the real ``voice_install.installable`` answers ``None``, so the voice's
+    own sentence is shown and nothing is offered, frozen or reserved (v0.8.0 Phase 3: never a useless install)."""
     from tkinter import messagebox
 
     from tts import omnivoice_runtime as ov
 
-    omni = OmniVoiceStub(available={"omnivoice-male-3": (False, ov.NOT_INSTALLED_MESSAGE)}).install(monkeypatch)
+    omni = OmniVoiceStub(available={"omnivoice-male-3": (False, ov.NO_GPU_MESSAGE)}).install(monkeypatch)
+    monkeypatch.setattr(ov, "detect_gpu", lambda: None)
     asked: list = []
     warnings: list = []
     monkeypatch.setattr(messagebox, "showwarning", lambda title, message, **k: warnings.append((title, message)))
     monkeypatch.setattr(panel_module.output_paths, "reserve_run_directory",
                         lambda *a, **k: pytest.fail("a refused run reserved a directory"))
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", omnivoice_status=omni.status,
-                                  installable=offers(asked), install_dialog=lambda *a: pytest.fail("no installer yet"))
+                                  installable=offers(asked),
+                                  install_dialog=lambda *a: pytest.fail("an install that cannot help was offered"))
     select(panel, "OmniVoice - Male 3")
-    assert panel._voice_available is False and panel.voice_status_var.get() == ov.NOT_INSTALLED_MESSAGE
+    assert panel._voice_available is False and panel.voice_status_var.get() == ov.NO_GPU_MESSAGE
     assert accept(panel) == {}, "no worker was started"
-    assert warnings == [("Voice unavailable", ov.NOT_INSTALLED_MESSAGE)]
+    assert warnings == [("Voice unavailable", ov.NO_GPU_MESSAGE)]
     assert asked == [("omnivoice", None)] and omni.calls == []
+
+
+def _install_offer(monkeypatch, *, outcome: dict, make_available: bool):
+    """A stand-in review dialog: records the offer and, like the real one, makes the voice available only by
+    'installing' it. The real ``voice_install.installable`` decides the offer (installing would help: a GPU is present,
+    the engine is not ready)."""
+    from tts import omnivoice_runtime as ov
+
+    omni = OmniVoiceStub(available={"omnivoice-female-2": (False, ov.UNCHECKED_MESSAGE)}).install(monkeypatch)
+    monkeypatch.setattr(ov, "install_would_help", lambda voice_id=None: True)
+    offered: list = []
+
+    def dialog(panel, component, reason):
+        offered.append((component, reason, len(omni.calls)))
+        if make_available:
+            omni.available["omnivoice-female-2"] = (True, "ok")
+        return dict(outcome)
+
+    return omni, offered, dialog
+
+
+def test_a_skipped_omnivoice_voice_offers_install_and_continue_and_starts_the_frozen_run_once(
+        make_panel, output_base, tmp_path, stubs, monkeypatch):
+    from tkinter import messagebox
+
+    from tts import omnivoice_runtime as ov
+
+    omni, offered, dialog = _install_offer(monkeypatch, outcome={"state": "installed", "verified": ["omnivoice"]},
+                                           make_available=True)
+    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: pytest.fail(f"warned: {a}"))
+    asked: list = []
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", omnivoice_status=omni.status,
+                                  installable=offers(asked), install_dialog=dialog)
+    select(panel, "OmniVoice - Female 2")
+    params = run_attempt(panel)
+    assert asked == [("omnivoice", "omnivoice")]
+    assert offered == [("omnivoice", ov.UNCHECKED_MESSAGE, 0)], "offered once, before anything was synthesised"
+    assert [c["voice_id"] for c in omni.calls] == ["omnivoice-female-2"], "the frozen run started exactly once"
+    assert landed(params) == ["one-OmniVoice - Female 2.mp3"]
+
+
+@pytest.mark.parametrize("outcome", [{}, {"state": "skipped"}, {"state": "cancelled"},
+                                     {"state": "failed", "message": "offline"}])
+def test_closing_skipping_cancelling_or_failing_the_install_never_starts_a_conversion(
+        make_panel, output_base, tmp_path, stubs, monkeypatch, outcome):
+    from tkinter import messagebox
+
+    omni, offered, dialog = _install_offer(monkeypatch, outcome=outcome, make_available=False)
+    said: list = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, message, **k: said.append((title, message)))
+    monkeypatch.setattr(panel_module.output_paths, "reserve_run_directory",
+                        lambda *a, **k: pytest.fail("an abandoned install reserved a directory"))
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", omnivoice_status=omni.status,
+                                  installable=offers([]), install_dialog=dialog)
+    select(panel, "OmniVoice - Female 2")
+    assert accept(panel) == {}
+    assert len(offered) == 1 and omni.calls == []
+    assert said and said[0][0] == "Conversion not started"
+
+
+def test_a_source_changed_during_install_and_continue_is_not_narrated(
+        make_panel, output_base, tmp_path, stubs, monkeypatch):
+    """The run is frozen before the install; a source that changes meanwhile is never silently narrated."""
+    from tkinter import messagebox
+
+    omni, offered, dialog = _install_offer(monkeypatch, outcome={"state": "installed"}, make_available=True)
+    panel, chosen = direct_panel(make_panel, tmp_path, "one.txt", omnivoice_status=omni.status,
+                                 installable=offers([]), install_dialog=None)
+
+    def changing_dialog(panel_, component, reason):
+        result = dialog(panel_, component, reason)
+        for source in chosen:
+            Path(source).write_text("a different book", encoding="utf-8")
+        return result
+
+    panel._install_dialog = changing_dialog
+    said: list = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, message, **k: said.append((title, message)))
+    select(panel, "OmniVoice - Female 2")
+    assert accept(panel) == {}
+    assert len(offered) == 1 and omni.calls == []
+    assert said and "changed or was removed" in said[0][1]
 
 
 def test_a_cancel_mid_file_removes_the_partial_output(make_panel, output_base, tmp_path, stubs, omni):

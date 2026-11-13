@@ -21,6 +21,10 @@ OmniVoice never loads its speech recognizer, which is also switched off outright
 to its own float WAV. ``normalize_text`` is always off: the text arrives already prepared by the app's one
 speech-preparation pass.
 
+A ``probe`` job (v0.8.0 Phase 3) is the optional installer's proof, run under the same guards: the pinned package
+versions, the environment's isolation, an import of the stack, a CUDA kernel and an offline model load -- no audio, no
+reference, nothing written; it ends with one ``probe`` or ``failed`` event.
+
 Terminal events (exactly one per run): ``done``, ``failed``, ``canceled``. Cancellation is a flag file checked before the
 load and before each chunk; the parent also kills the whole process tree if the worker does not stop promptly. Nothing
 falls back: no CPU, no other voice, no other recording.
@@ -48,6 +52,9 @@ GENERATION_KEYS = frozenset({"num_step", "guidance_scale", "t_shift", "layer_pen
 SYNTH_KEYS = frozenset({"schema", "kind", "voice_id", "model_dir", "omnivoice_version", "language", "dtype", "device",
                         "out_dir", "cancel_file", "engine_lock", "reference", "ref_text", "prompt_cache", "generation",
                         "chunks"})
+#: v0.8.0 Phase 3: the installer's proof -- the pinned versions, isolation, the GPU and an offline model load, no audio.
+PROBE_KEYS = frozenset({"schema", "kind", "model_dir", "omnivoice_version", "dtype", "device", "engine_lock",
+                        "packages", "environment", "foreign"})
 
 ENGINE_BUSY_MESSAGE = ("The OmniVoice voice engine is in use by another conversion, or is being installed or repaired, "
                        "right now. Try again when that has finished.")
@@ -157,10 +164,34 @@ def release_engine() -> None:
 # --------------------------------------------------------------------------- #
 # The job
 # --------------------------------------------------------------------------- #
+def probe_problems(job: dict) -> list[str]:
+    """Why a ``probe`` job (v0.8.0 Phase 3: the installer's proof) may not run, checked before anything heavy."""
+    missing = sorted(PROBE_KEYS - set(job))
+    if missing:
+        return [f"missing {', '.join(missing)}"]
+    problems = []
+    model = Path(job["model_dir"])
+    if not (model / "config.json").is_file():
+        problems.append("the model folder has no config.json")
+    if not (model / "audio_tokenizer" / "config.json").is_file():
+        problems.append("the model folder has no audio_tokenizer (OmniVoice would fetch one)")
+    if job.get("device") != "cuda":
+        problems.append("the OmniVoice voices run on the GPU only")
+    packages = job.get("packages")
+    if not isinstance(packages, dict) or not packages or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in packages.items()):
+        problems.append("the pinned package set is not a name-to-version mapping")
+    if not isinstance(job.get("foreign"), list) or not all(isinstance(p, str) for p in job["foreign"]):
+        problems.append("the other environments to stay apart from are not a list of folders")
+    return problems
+
+
 def job_problems(job: dict, environ: Optional[dict] = None) -> list[str]:
     """Why this job may not run here, checked before anything heavy is imported."""
     environ = os.environ if environ is None else environ
     problems = [f"{name} is not {value}" for name, value in REQUIRED_OFFLINE.items() if environ.get(name) != value]
+    if job.get("kind") == "probe" and job.get("schema") == 1:
+        return problems + probe_problems(job)
     if job.get("kind") != "synth" or job.get("schema") != 1:
         return problems + [f"unknown job kind {job.get('kind')!r}"]
     missing = sorted(SYNTH_KEYS - set(job))
@@ -391,6 +422,114 @@ def run_synth(job: dict) -> int:
     return EXIT_OK
 
 
+def _canonical(name: str) -> str:
+    import re
+
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+
+def _within(root: str, candidate: str) -> bool:
+    root_n, cand_n = _norm(root), _norm(candidate)
+    return cand_n == root_n or cand_n.startswith(root_n.rstrip(os.sep) + os.sep)
+
+
+def version_problems(packages: dict) -> list[str]:
+    """Pinned distributions installed here at another version, or missing (read from this interpreter's metadata)."""
+    import importlib.metadata as md
+
+    found = {}
+    for dist in md.distributions():
+        name = dist.metadata["Name"] if dist.metadata is not None else None
+        if name:
+            found[_canonical(name)] = dist.version
+    return [f"{name} is {found.get(name) or 'missing'}, not {version}" for name, version in sorted(packages.items())
+            if found.get(name) != version]
+
+
+def isolation_problems(job: dict) -> list[str]:
+    """What, in this interpreter's own view of itself, shows it reaching the app's ``.venv``, a Qwen3 engine, the user
+    site or any site-packages outside the OmniVoice environment."""
+    import site
+
+    environment = job["environment"]
+    problems = []
+    if _norm(sys.prefix) != _norm(environment):
+        problems.append("sys.prefix is not the OmniVoice environment")
+    if _norm(sys.prefix) == _norm(sys.base_prefix):
+        problems.append("it is not a virtual environment")
+    for entry in sys.path:
+        if not entry:
+            continue
+        if any(_within(other, entry) for other in job["foreign"]):
+            problems.append(f"sys.path reaches another environment: {entry}")
+        elif "site-packages" in entry.lower() and not _within(environment, entry):
+            problems.append(f"sys.path holds a site-packages outside the OmniVoice environment: {entry}")
+    if site.ENABLE_USER_SITE:
+        problems.append("the user site-packages is enabled")
+    return problems
+
+
+def run_probe(job: dict, network: list) -> int:
+    """The installer's proof (v0.8.0 Phase 3): the pinned versions, isolation, an import of the stack, a CUDA kernel and
+    an offline load of the pinned model on the GPU. No audio is generated and nothing is written. Each failure names its
+    stage: ``versions``, ``isolation`` or ``import`` speak against the environment itself; ``gpu`` and ``load`` do not."""
+    started = time.perf_counter()
+    wrong = version_problems(job["packages"])
+    if wrong:
+        emit({"event": "failed", "stage": "versions", "message": "the environment does not hold its pinned packages: "
+              + "; ".join(wrong[:5])})
+        return EXIT_FAILED
+    isolation = isolation_problems(job)
+    if isolation:
+        emit({"event": "failed", "stage": "isolation", "message": "; ".join(isolation[:5])})
+        return EXIT_FAILED
+    try:
+        import torch
+        from omnivoice import OmniVoice, __version__ as omnivoice_version
+    except Exception as exc:  # noqa: BLE001 - an environment whose packages do not import is broken
+        emit({"event": "failed", "stage": "import", "message": f"{type(exc).__name__}: {exc}",
+              "trace": traceback.format_exc()[-1500:]})
+        return EXIT_FAILED
+    if omnivoice_version != job["omnivoice_version"]:
+        emit({"event": "failed", "stage": "versions", "message": f"omnivoice {omnivoice_version} is installed, not the "
+              f"pinned {job['omnivoice_version']}"})
+        return EXIT_FAILED
+    if not _cuda_usable(torch):
+        emit({"event": "failed", "stage": "gpu", "message": "PyTorch reports no usable CUDA GPU", "gpu": False})
+        return EXIT_FAILED
+    try:
+        check = (torch.ones(1024, device="cuda", dtype=torch.float16) * 2).sum().item()
+        torch.cuda.synchronize()
+        if check != 2048:
+            raise RuntimeError(f"a CUDA kernel returned {check}, not 2048")
+    except Exception as exc:  # noqa: BLE001
+        emit({"event": "failed", "stage": "gpu", "message": f"{type(exc).__name__}: {exc}"})
+        return EXIT_FAILED
+    try:
+        load_started = time.perf_counter()
+        model = OmniVoice.from_pretrained(job["model_dir"], device_map="cuda:0", dtype=getattr(torch, job["dtype"]))
+        model.load_asr_model = _refuse_speech_recognizer
+        torch.cuda.synchronize()
+        load_s = round(time.perf_counter() - load_started, 2)
+    except Exception as exc:  # noqa: BLE001
+        emit({"event": "failed", "stage": "load", "message": f"{type(exc).__name__}: {exc}", "oom": _is_oom(exc),
+              "trace": traceback.format_exc()[-1500:]})
+        return EXIT_FAILED
+    props = torch.cuda.get_device_properties(0)
+    memory = _memory(torch)
+    emit({"event": "probe", "versions": _versions(), "device_name": props.name,
+          "total_mib": props.total_memory // 2**20, "load_s": load_s, "sampling_rate": int(model.sampling_rate),
+          "isolation": "ok", "network_attempts": len(network), "wall_s": round(time.perf_counter() - started, 2),
+          **memory})
+    del model
+    torch.cuda.empty_cache()
+    return EXIT_OK
+
+
 def main(argv: list[str]) -> int:
     network: list = []
     install_network_guard(network)
@@ -408,6 +547,8 @@ def main(argv: list[str]) -> int:
         if refusal is not None:
             emit({"event": "failed", "stage": "engine", "message": refusal})
             return EXIT_FAILED
+        if job["kind"] == "probe":
+            return run_probe(job, network)
         return run_synth(job)
     except Exception as exc:  # noqa: BLE001 - the parent must always get a terminal event
         emit({"event": "failed", "stage": "network" if network else "worker", "message": f"{type(exc).__name__}: {exc}",

@@ -2,6 +2,72 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-13 — v0.8.0 Phase 3: OmniVoice is the fifth component of the existing optional installer; an environment is used only with the installer's receipt, and an existing one is adopted after a proof, never rebuilt (implementation decisions by Claude Code)
+
+**What the person sees.** The first-run window and Install & Continue offer five components in the existing order;
+OmniVoice — Six Cloned Voices is appended last and unchecked (`WIZARD_DEFAULTS`); the other four keep their order,
+labels and defaults. No new window, button, launcher or protocol: the v2 request/consent/worker/lifecycle/acquirer path
+carries it, and `voice_install.installable` now offers it through the existing Install & Continue (it was already mapped
+in Phase 2, gated on `COMPONENTS`). The review screen shows the licence and hardware terms before Install, and a
+"View licence terms" button opens a read-only window with a button per licence text at its pinned revision; reading
+them is never a consent.
+
+**Licences, as the pinned files say them (one correction to Phase 1's record).** Code Apache-2.0; weights CC-BY-NC,
+non-commercial, no version stated anywhere; the audio tokenizer under the Boson Higgs Audio 2 Community License (Llama 3
+based). Its section 2 threshold is **100,000 annual active users in the preceding calendar year** -- not "monthly" as the
+Phase 1 entry below and the Session 3 brief said; the shipped manifest's licence text and the disclosure use the
+licence's own words. The disclosure also carries its 1.b.i attribution sentence, its Notice-file and Acceptable Use
+Policy terms, the no-improving-other-LLMs term, and the model card's prohibition of unauthorised cloning. No term found
+blocks the optional download: ACT never redistributes the weights or tokenizer (the person's own consented download
+from the pinned Hub revision), and the attribution is displayed in the install UI. For the owner (not legal advice):
+whether the attribution should also appear in the README/about text is a Phase 4 documentation decision.
+
+**Sources (production, not developer files).** `scripts/tts/omnivoice_manifest.json` now pins the 88 wheels by URL, size
+and SHA-256 (promoted unchanged from Phase 1's verified lock; a test proves equality with the dev manifest) and the
+model's pinned-revision URL form; it ships in the release ZIP like every tracked `scripts/` file, and nothing reads
+`files/dev-tools/` or the Phase 1 wheel folder. Unit sources: `omnivoice-engine` = the wheel pins by hash,
+`omnivoice-model` = repository@commit plus the model manifest hash (the licence files are in it, so a changed licence
+file is a different source and needs a fresh consent). pip installs only the verified local wheels, offline, behind an
+audit hook that refuses network and process starts inside pip.
+
+**Readiness = the installer's receipt (Qwen3's pattern).** `files/runtime-data/omnivoice/install-receipt.json`, beside the
+environment, is written only after the installer's proof passed: the worker's new `probe` job checks the pinned
+versions, isolation from `.venv`/Qwen3/user site, the imports, a CUDA kernel and an offline model load (no audio). The
+receipt binds the folder, the base Python's identity and the pinned-set hash. `environment_status` now requires it, so a
+complete-looking environment that was never proved -- including one interrupted after pip -- is never ready. Plans never
+probe OmniVoice; its GPU presence is a caller fact the worker supplies (`Facts.gpu`, nvidia-smi only when OmniVoice is
+chosen).
+
+**Adoption.** An environment holding exactly the pinned set, isolated, at its own path and built from the app's own base
+Python, with no valid receipt, is *unchecked*: planned as an install that downloads and writes nothing ("check and
+adopt"), which runs only the proof and then writes the receipt (`origin: adopted`). Nothing in it is replaced, nothing is
+downloaded again. A proof that fails at the versions/isolation/import stage records `rejected`, so the next plan offers a
+repair under its own consent instead of the same check; a GPU, memory, timeout, busy-guard or Smart App Control failure
+rejects nothing (Smart App Control's first-load refusal is retried up to 8 times, as for the other engines).
+
+**Repair never deletes what the app did not make.** A broken environment (wrong packages, not isolated, another
+Python, rejected) is moved whole to `files/runtime-data/omnivoice/set-aside/` and a fresh one built; only an environment
+the app's own receipt says it was still creating is removed. A damaged pinned model file is replaced only under repair
+consent and only by its verified download. Missing or changed OmniVoice recordings make the component a bad bundle:
+nothing is downloaded or repaired for it (installing cannot restore a recording), and Install & Continue is not offered
+for that voice.
+
+**Figures.** Fresh install: 6,930,782,369 B download (manifest: 88 wheels 3,663,315,198 + 11 model files 3,267,467,171;
+Phase 1's 6,930,785,458 included the snapshot's two `.gitattributes`, which are not part of the engine), disk about
+11.6 GB (environment 8,346,271,361 B approximate, measured on HOME-PC, plus the model), temporary 3.66 GB of wheels plus a
+2 GB margin (removed after a proved install). An adoption, a ready install and a record-only model are 0 B download, 0 B
+disk and no margin. Partial states count exactly what is present (by record, or by hashing where no record vouches).
+
+**The v3 seam.** The non-production v3 authority still refuses OmniVoice (no reviewed v3 terms; a test pins it). Its
+reviewed source closure (`optional_setup_planning_bridge_v3.SOURCES`) gains only the planner's new read-only
+dependencies (`omnivoice_runtime.py`, `clone_references.py`, the manifest and the reference list), as v0.7.0 did for
+`qwen3_wheels.py`; the planner reads the wheel cache through `omnivoice_runtime`, never the installer module. Its two
+tests that iterated `proto.COMPONENTS` now iterate the four components it covers.
+
+**Locks.** An OmniVoice install holds `setup.lock` (every install/repair of this copy and the app's own repair), then
+OmniVoice's `inference.lock` (held by every OmniVoice conversion), and requires its `engine.lock` free; the proof takes
+OmniVoice's machine-wide model guard. Those OmniVoice locks also make the component busy in a plan.
+
 ## 2026-11-13 — v0.8.0 Phase 2 correction: every cloned engine has its own six reference recordings; OmniVoice conditions directly on the owner's curated WAVs (owner decision; implementation decisions by Claude Code)
 
 **Owner decision (2026-11-13, a bounded Phase 2 correction; no new phase, the five-phase roadmap and the single Session 5
