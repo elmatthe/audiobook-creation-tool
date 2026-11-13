@@ -1,6 +1,6 @@
 # Audiobook Creation Tool — Handoff
 
-## Current checkpoint — v0.7.3 owner PASS; merge and Windows packaging authorized (2026-11-12, Codex, HOME-PC)
+## Current checkpoint — v0.7.3 merged; final Windows packaging source (2026-11-12, Codex, HOME-PC)
 
 This block supersedes historical holds and next-action instructions below.
 Owner-tested application: `a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b` on
@@ -12,14 +12,20 @@ Owner-tested application: `a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b` on
 - Earlier independent focused checks and bounded actual-GUI preflight passed; acceptance report:
   `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`. No full gate, scaling/engine/platform
   qualifications or full-book conversion are to be rerun for this administrative checkpoint.
-- Current action: commit/push only the four acceptance documents, mark PR #15 ready, merge into
-  **master** without deleting the branch, verify application/tests match the tested candidate,
-  commit the README update, then build/audit one Windows ZIP from exact final origin/master.
+- PR #15 is merged into **master** at `c0c626db57444b50e30de836725c6aede78cabaa`;
+  documents-only acceptance closeout `3f94b164467860075ce6e9effdf5fc4577af33ec`.
+  The merged application/tests/config match the owner-tested candidate exactly. Feature branch retained.
+- This README/documentation checkpoint is the final packaging source; resolve its SHA with
+  `git rev-parse HEAD` and require equality with origin/master before building. Clean release worktree:
+  `files/run-temp/rel073`. Build/audit one Windows ZIP using the unchanged release.py, then copy
+  without overwriting to the original checkout's `dist/AudiobookTool-Windows-v0.7.3.zip`.
+  Archive size/member count/SHA-256 and committed-source proof go in the private release evidence
+  and final session report; no later source commit is needed to record the archive's own checksum.
 - **STOP after packaging.** The owner manually creates the v0.7.3 GitHub release and attaches
   the validated ZIP. No tag, release, asset upload or automatic publishing by Codex.
 - Preserve v0.7.2 release/tag/local ZIP, owner changes, models, private source/evidence and existing
   conversion outputs. Release evidence stays under `files/run-temp/m73-release-private`.
-  This documents-only closeout contains no application/test changes; resolve its SHA after committing.
+  This final source checkpoint contains only README/acceptance/handoff/changelog updates.
 
 ## Current Focus
 

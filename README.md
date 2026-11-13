@@ -1,16 +1,16 @@
-# Audiobook Creation Tool v0.7.2
+# Audiobook Creation Tool v0.7.3
 
 A Windows desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
 ## Download / Install
 
-**v0.7.2 is a Windows-focused release.** It is qualified on Windows 11 (HOME-PC) at 100% display scaling. Windows 10, other machines and other display scaling are not separately qualified.
+**v0.7.3 is prepared for manual GitHub publication.** The download below becomes available when the owner publishes the release. Qualification remains Windows 11 (HOME-PC) at 100% display scaling; Windows 10, other machines and other display scaling are not separately qualified.
 
 | Platform | Archive | Double-click after extraction |
 |---|---|---|
-| Windows | [AudiobookTool-Windows-v0.7.2.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.2/AudiobookTool-Windows-v0.7.2.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+| Windows | [AudiobookTool-Windows-v0.7.3.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
 
-macOS and Linux are not qualified or distributed for v0.7.2; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
+macOS and Linux are not qualified or distributed for v0.7.3; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
 
 Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
 
@@ -26,6 +26,16 @@ First run opens a setup window. Choose the voices you want installed on this com
 **Begin Setup** first prepares the app itself: a private Python environment with its packages (about 2.5 GB, needed whatever you choose) and FFmpeg. Edge TTS voices work as soon as that is done. Then a review screen lists exactly what the voices you chose will download, reuse and occupy on disk; nothing is downloaded until you press **Install Selected Components**, and **Skip** opens the app without them. The two Qwen3 choices share one voice engine (about 3.1 GB), downloaded once. Every file comes from a fixed, tested source and is checked before it is used. Later launches open the app directly.
 
 You can add a voice later: in **TTS Audiobook**, choose it and press **Create**. If it is not installed yet, **Install & Continue** shows the same review screen and, once the voice is installed and checked, starts that conversion; Skip or Cancel starts nothing.
+
+## What's new in v0.7.3
+
+- Fixed M4B Converter failures caused by conflicting QuickTime and Nero chapter metadata.
+- When normal chapter validation fails, ACT can recover a separately stored Nero chapter table only when its provenance and timeline are demonstrably valid.
+- Recovery preserves chapter ordering, titles and complete audio coverage.
+- Ordinary correctly structured M4B files retain their existing behavior.
+- Invalid or ambiguous metadata still fails safely.
+
+This focused hotfix retains the v0.7.2 Windows improvements and installation workflow described below.
 
 ## What it can do
 
@@ -74,6 +84,8 @@ Short samples of all 28 voices, each reading the same sentence and named exactly
 ## More information
 
 See the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) for release notes and other versions.
+
+Previous Windows version: [v0.7.2](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.2/AudiobookTool-Windows-v0.7.2.zip), available while v0.7.3 awaits publication.
 
 Detailed project and developer information: [Briefing](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Briefing.md), [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md), [Decisions](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Decisions.md), and [Handoff](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Handoff.md).
 

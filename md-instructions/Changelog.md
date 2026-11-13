@@ -24,8 +24,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Identity is 0.7.3. Focused checks and private real-book/GUI preflight passed. The owner
   reports PASS for the full 33-chapter book and multiple additional audiobook conversions
   using the verified candidate. The earlier old-launcher selection problem is resolved.
-  Merge and Windows packaging are authorized without a repeat full gate or qualifications;
-  GitHub publication remains a manual owner action and has not occurred.
+  PR #15 is merged into master; Windows packaging is authorized without a repeat full gate
+  or qualifications. README now prepares the v0.7.3 download instructions; GitHub publication
+  remains a manual owner action and has not occurred.
   See `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`.
 
 ## v0.7.2 release-readiness history (2026-11-12)

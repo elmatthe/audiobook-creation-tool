@@ -35,6 +35,17 @@ an asset. The owner will publish the validated ZIP. Keep the v0.7.2 release,
 tag and archive unchanged. Merge/packaging source identities and final archive
 facts are recorded after those operations; this document does not claim publication.
 
+## Integration and packaging source
+
+PR #15 is merged into master at `c0c626db57444b50e30de836725c6aede78cabaa`.
+Acceptance closeout `3f94b164467860075ce6e9effdf5fc4577af33ec` changed only the four
+acceptance documents. Merged application, tests and config match the owner-tested
+commit exactly. The subsequent README/documentation commit is the final packaging
+source (resolve HEAD and require it to equal origin/master). The unchanged packager
+builds Windows only; committed README includes the preparatory v0.7.3 download URL.
+Private release audit/session facts record the final archive checksum, size and count.
+No v0.7.3 tag, release or asset upload is performed by this checkpoint.
+
 ## Problem and bounded recovery
 
 The private source has two QuickTime chapter samples and 33 Nero entries. FFprobe's
