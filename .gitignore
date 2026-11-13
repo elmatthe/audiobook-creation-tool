@@ -8,6 +8,9 @@
 # Isolated Qwen3-TTS environment (created by the in-app "Install / repair Qwen3 voices" action; never committed or packaged).
 # Since v0.7.0 P04C it is created inside .venv (.venv/engines/qwen3, covered above); the older location beside it:
 .venv-qwen3/
+# Isolated OmniVoice environment (v0.8.0): a sibling of .venv, never inside it; never committed or packaged
+# (shared/release.py also excludes every .venv-* folder). Its wheels, model and receipts live in files/runtime-data/.
+.venv-omnivoice/
 # The bootstrap's own set-aside environments during a repair (.venv.replaced, .venv.replaced-<n>, .venv.discarded…).
 # They can hold the Qwen3 engine while it is carried across; never committed or packaged.
 /.venv.replaced*/

@@ -1,5 +1,62 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Session 1 / Phase 1: PASS — isolated OmniVoice environment and one real offline clone (2026-11-13, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Plan:
+`files/plans/ACT-v0.8.0-OmniVoice-Integration-Plan-v0.7.3-Baseline.md` (tracked unchanged in this commit, SHA-256
+`d94356073e677b24bcd16b5674a617e520fd7c062a1f5a5a18347836b4a57fa0`). Decision record: Decisions 2026-11-13 (v0.8.0 Phase 1).
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, created from `origin/master` = tag `v0.7.3` =
+  `dbf38f7a06200f2a684753ef72fb701a597ac5ea` (verified by fetch and `ls-remote`). The Phase 1 commit is this
+  checkpoint; its SHA is in the session report (`git rev-parse HEAD`). The owner's 17 tracked deletions and untracked
+  files were carried across the branch switch untouched and are not staged.
+- **Added (developer-only, never shipped):** `files/dev-tools/omnivoice_p1.py` (plan / fetch / create-env / verify-env
+  / excerpt / prove), `omnivoice_p1_worker.py` (runs only in `.venv-omnivoice`; audit-hook network guard),
+  `omnivoice_p1_manifest.json` + `omnivoice_p1_requirements.txt` (the pins), `files/tests/test_omnivoice_phase1.py`,
+  and `.venv-omnivoice/` in `.gitignore`. Nothing under `scripts/` changed; no production behaviour changed.
+- **Pins.** `omnivoice==0.2.1` (Apache-2.0) and 87 dependencies exactly as upstream's own `uv.lock` at tag `0.2.1`
+  (commit `5ba967c4`) resolves them for Windows x64 / CPython 3.12, no extras: `torch`/`torchaudio 2.8.0+cu128`
+  (download-r2.pytorch.org), `transformers 5.3.0`, `accelerate 1.13.0`, `huggingface-hub 1.7.2`, `numpy 2.4.3`; 88 wheels,
+  3,663,315,198 B, each by URL, size and SHA-256. Model `k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4`,
+  13 files, 3,267,470,260 B; its `audio_tokenizer/` is byte-identical to
+  `eustlb/higgs-audio-v2-tokenizer@0e3a9177c2991016b8e5e17d23aa474ee665bef2`, so nothing else is fetched.
+- **Installed with owner consent (ignored, local):** 6,930,785,458 B downloaded and verified into
+  `files/runtime-data/omnivoice/{wheels,models}`; `.venv-omnivoice` (8,346,271,361 B) built from the same CPython
+  3.12.10 base as `.venv` and the Qwen3 engine, then pip installed the lock offline (`--no-index --require-hashes
+  --no-deps --only-binary=:all:`). `verify-env`: identity ok, no isolation problem (sys.path = base stdlib +
+  `.venv-omnivoice` only), `pip check` clean, installed set equal to the lock, 0 network attempts.
+- **Hardware.** RTX 5070 (compute capability 12.0, 12,226 MiB), driver 610.88; torch 2.8.0+cu128 carries sm_120, CUDA
+  12.8, cuDNN 9.10.02; elementwise, fp16 cuBLAS and cuDNN kernels ran; no Smart App Control refusal.
+- **Proof PASS (8/8)** `files/dev-work/ov-p1/20261113-065714-pytest-prove/`: Male-1 original
+  `45fbfba0…0d58` unchanged; excerpt frames 0–230,760 at 24 kHz (9.615 s, owner-accepted shorter whole-word crop,
+  WAV `77a66616…fbe6b`); excerpt transcript "Zeth, Sun Sun, Balano, truthless of Shinovar, sat atop the highest tower
+  in the world and contemplated the end of all" (`3d59126a…2466`, provisional); Whisper not loaded; tokenizer from
+  the snapshot; HF cache empty; 0 network attempts; output `clone.wav` 17.6 s, 24 kHz, RMS -16.9 dBFS, peak -0.2
+  dBFS, SHA-256 `ce31c8ea…3abc`; load 1.62 s, generate 1.74 s; peak GPU 4,651 MiB allocated / 4,760 reserved
+  (nvidia-smi +4,948 MiB). Settings: fp16, cuda:0, seed 20261113, upstream generation defaults (32 steps).
+- **Tests (focused only; no full gate).** `test_omnivoice_phase1.py` 76 passed + 1 opt-in skipped; the opt-in real
+  clone (`ACT_OMNIVOICE_P1_REAL=1 … -k test_real_clone_proof`) 1 passed. Tree/ignore/reference meta-guards over the
+  staged tree (12 modules: source boundary, dev-work isolation, layout canary, repository contract, P05B isolation,
+  Chatterbox boundaries, bundled transcripts, Qwen3 packaging, voice previews, Plan 3 boundaries, bootstrap host, FFmpeg
+  portable): 662 passed, 1 skipped, 1 deselected (its git-fixture test), 4 failed; the two retired-path tests of the
+  gate contract passed. Of the 4: 3 already fail on released `v0.7.3` master and touch no Phase 1 file
+  (`test_repository_contract::test_the_application_version_is_unchanged` and
+  `test_plan3_boundaries::test_the_version_is_untouched` pin 0.7.2; `test_layout_canary` finds `m4b/README.md` missing
+  `m4b_nero.py`); the numba test fails only without `-B` and passes as the gate runs it.
+- **Open for the owner / later phases.**
+  1. The three stale v0.7.3 baseline tests above will fail Session 5's full gate unless corrected (the version pair
+     changes anyway at 0.8.0 in Phase 4; the m4b README entry needs a one-line fix).
+  2. At exactly 10.000 s every one of the six references is mid-speech (energy analysis; no ASR). Male-1's proof used
+     the owner-accepted 9.615 s whole-word crop; the other five crops and all six excerpt transcripts are Phase 2 /
+     Session 4 owner decisions.
+  3. Licences: weights CC-BY-NC (version unstated upstream); audio tokenizer under the Boson Higgs Audio 2 Community
+     Licence (attribution + Notice, AUP, >100k MAU clause, outputs may not train other LLMs). Phase 3 must disclose.
+  4. `.venv-omnivoice` is a Phase 1 qualification instance with no production install record; Phase 3 decides whether
+     to adopt or rebuild it (never delete automatically). The output peaks at -0.2 dBFS (MP3 headroom, Phase 2);
+     repeated-generation VRAM growth (upstream issue #199) is untested.
+- **Next exact action.** STOP. Session 2 / Phase 2 — OmniVoice engine integration, ONLY AFTER the owner's review and
+  authorization. No Phase 2 code, no Codex review, no full gate before then.
+
 ## Current checkpoint — v0.7.3 merged; final Windows packaging source (2026-11-12, Codex, HOME-PC)
 
 This block supersedes historical holds and next-action instructions below.

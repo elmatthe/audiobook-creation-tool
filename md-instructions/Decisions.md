@@ -2,6 +2,44 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-13 — v0.8.0 Phase 1: OmniVoice is qualified in a sibling environment pinned to upstream's own lock; the proof's reference is an owner-accepted shorter whole-word crop (owner rulings recorded by Claude Code)
+
+**Environment.** `.venv-omnivoice` is a sibling of `.venv`, as plan §4 chose: OmniVoice 0.2.1 needs
+`transformers>=5.3.0`, which neither the app's `.venv` (5.2.0) nor the Qwen3 engine (4.57.3) can hold. Its base is the
+CPython 3.12 the app's own `.venv` was built from (`sys._base_executable`), proved to be a base interpreter: the rule
+`tts.qwen3_setup.verified_base_python` applies to the Qwen3 engine. On HOME-PC that is the per-user CPython 3.12.10
+both existing environments use. The portable base Python is not present in this development checkout and was
+deliberately not placed at `files/runtime-data/python`, because the bootstrap treats that path as the app's own base
+and could then want to rebuild the owner's `.venv`. `shared/release.py` already excludes every `.venv-*` folder from
+the ZIP; `.gitignore` now names this one.
+
+**Pins.** Every package version and wheel hash is upstream OmniVoice's own `uv.lock` at tag `0.2.1` (commit
+`5ba967c4d5b0f08244ae856b033eea583d1e4517`), resolved for win32 / CPython 3.12 / x86-64 without extras: 88 wheels,
+including `torch`/`torchaudio 2.8.0+cu128` and `transformers 5.3.0`. That is upstream's tested set; the Qwen3 engine's
+HOME-PC-proven torch 2.10.0 would have been an untested combination, so it was not substituted. Installation reads
+only the verified local wheels (`--no-index --require-hashes --no-deps --only-binary=:all:`). The model is
+`k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4`. Its `audio_tokenizer/` is byte-identical to
+`eustlb/higgs-audio-v2-tokenizer@0e3a9177c2991016b8e5e17d23aa474ee665bef2`, so `OmniVoice.from_pretrained` never
+reaches its Hub fallback and no separate tokenizer acquisition is needed. Licences, as found: code Apache-2.0; weights
+CC-BY-NC per the model card (no version is stated and the Hub metadata names none); tokenizer under the Boson Higgs Audio
+2 Community Licence (Llama-3-based). Phase 3's consent text must carry both; commercial audiobook use is not licensed.
+The owner consented to the 6,930,785,458-byte download on 2026-11-13.
+
+**Proof reference (owner ruling).** At exactly 10.000 s all six references are mid-speech (energy analysis only; no
+speech recognizer). For Male-1 the strict crop would cut the word "things" (its final sibilant lies at about 10.18 to
+10.33 s). The owner chose, for the Session 1 proof only, the shorter whole-word crop ending in the gap before "things":
+frames 0 to 230,760 at 24 kHz (9.615 s), with the excerpt transcript "Zeth, Sun Sun, Balano, truthless of Shinovar, sat
+atop the highest tower in the world and contemplated the end of all". The question put to the owner misstated the
+frame count as 231,360 (9.640 s, which would cut into "things"); 230,760 is the 9.615 s the option named, and is the
+crop used. The transcript stays provisional: the six excerpt crops and transcripts are approved by the owner in Session 4.
+The full-length transcripts and the six recordings are unchanged.
+
+**Proof identity and isolation.** A reusable clone prompt is keyed by the original WAV's SHA-256, the excerpt WAV's
+SHA-256, the crop (start, end, rate), the preprocessing version, the excerpt transcript's SHA-256, the model revision,
+the omnivoice version, the prompt format and the preprocessing flag, so a change to any of them never reuses an old
+prompt. The proof worker sets the Hub's offline switches and an empty app-owned cache, and installs an audit hook that
+refuses every non-loopback name lookup and connection. The real run recorded none and left that cache empty.
+
 ## 2026-11-12 — v0.7.3 owner PASS authorizes merge and Windows packaging, not GitHub publication (owner; recorded by Codex)
 
 The owner accepts application commit `a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b` after
