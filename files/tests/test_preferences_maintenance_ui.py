@@ -1019,6 +1019,6 @@ def test_existing_preferences_behaviour_is_unchanged(fresh_root, tmp_path):
 def test_the_application_version_is_still_unchanged():
     from shared.version import VERSION
 
-    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # v0.8.0 Phase 4 release-candidate identity (v0.7.3 was released; this pin had not moved past 0.7.2).
     # This pins the application version without asserting publication.
-    assert VERSION == "0.7.2"
+    assert VERSION == "0.8.0"

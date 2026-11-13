@@ -3,20 +3,21 @@
   "about": "The one coverage inventory (plan section 7): every ACT feature with its stable id, source, contracts and verification; the reviewed index of every surface static and live discovery finds; a review stamp for every application source file; and the issue ledger behind every planned gap. The feature-map documents in files/dev-work/feature-map/ describe the features in prose and name only their ids; the mapping lives here alone. Routine kinds (behavior, native, media, control, discovery) are what the routine gate runs and must satisfy; release kinds (qualification, owner, planned) stay pending and keep release_ready false. helpers/inventory.py checks this file; restamp a source file only after reviewing its features.",
   "inventory_reviewed": true,
   "review": {
-    "phase": "v0.7.2 Phase 4",
-    "date": "2026-11-07",
+    "phase": "v0.8.0 Phase 4",
+    "date": "2026-11-13",
     "reviewer": "Claude Code (Opus 5.5)",
     "method": [
-      "static AST discovery of controls, dialogs, bindings and tools over the application registry",
-      "live widget trees of an isolated real instance: the shell, six tools, Preferences and four speech-engine states",
-      "source and test reading per tool; every test id resolved against the collected suite at 118058c or by AST",
-      "registered journeys mapped by the layers they really give"
+      "the v0.7.3 Nero recovery and every v0.8.0 Phase 2/3 source change reviewed against the diff since its last stamp and against its features' contracts",
+      "new OmniVoice engine, setup and reference features mapped to their source symbols and to collected tests",
+      "the five licence-window surfaces found by static discovery mapped",
+      "every cited test id resolved against the source by AST and against pytest --collect-only"
     ],
     "limits": [
-      "Windows only, at 100% display scaling (96 DPI)",
-      "optional engines in their isolated, not-installed state",
-      "dialog contents are indexed by their call sites, not opened live",
-      "macOS not reviewed live"
+      "Windows only",
+      "static discovery only for the new surfaces (no live widget tree this phase)",
+      "OmniVoice fresh install and repair exercised with mocks; the real HOME-PC environment was adopted",
+      "owner listening of the OmniVoice voices pending",
+      "macOS not reviewed"
     ]
   },
   "tools": {
@@ -2067,12 +2068,14 @@
             "_edge_preset",
             "_kokoro_preset",
             "_chatterbox_preset",
-            "_qwen3_preset"
+            "_qwen3_preset",
+            "_omnivoice_preset",
+            "OMNIVOICE_GROUP_LABEL"
           ]
         }
       ],
       "contracts": [
-        "The dropdown lists the 28 registered voices in registry order and starts on Edge Male - Steffan; no voice choice is saved.",
+        "The dropdown lists the 34 registered voices in registry order (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3, then the 6 OmniVoice voices appended in their own group in v0.8.0) and starts on Edge Male - Steffan; no voice choice is saved.",
         "A voice's identity is (backend, voice id); its label only names files and selects nothing; an invalid registry (duplicate, empty or padded labels, unknown backend, missing default) refuses to load.",
         "Selecting a voice shows its engine line, its rate or speed control (or none), its notices, and a status line when it cannot run on this computer.",
         "Availability is asked again at Start: a label that names no registered voice is refused ('Voice not recognised') and a voice that cannot run and cannot be installed is refused ('Voice unavailable'); no other voice or engine is substituted."
@@ -2082,7 +2085,8 @@
         "files/tests/test_qwen3_gui.py",
         "files/tests/test_chatterbox_integration.py",
         "files/tests/test_tts_importing.py",
-        "files/tests/test_tts_compact_ui.py"
+        "files/tests/test_tts_compact_ui.py",
+        "files/tests/test_omnivoice_gui.py"
       ],
       "journeys": [
         "tts.edge-replay-direct-file"
@@ -2112,6 +2116,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_tts_compact_ui.py::test_backend_switching_leaves_no_ghost_controls[1920x1009]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_gui.py::test_the_six_voices_are_in_the_dropdown_after_every_earlier_voice"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_voice_labels.py::test_the_34_stable_identities_are_exactly_the_shipped_roster"
           }
         ]
       },
@@ -2382,7 +2394,7 @@
       ],
       "contracts": [
         "The setting (tts.speech_prep, default v1) is read once at Start: the bundled mode table, optional user mode overrides and the bundled and user glossaries are validated and frozen by value; edits during a run or before Retry Failed never reach it.",
-        "With v1, each route rewrites only the classes its engine's cells set to 'expand' (from the owner's G1 verdicts), applies glossary entries with the user's first, and never changes protected spans or 'Title:'/'Author:'/'#' markers.",
+        "With v1, each route rewrites only the classes its engine's cells set to 'expand' (from the owner's G1 verdicts; OmniVoice, added in v0.8.0, has its own route and a provisional all-expand row), applies glossary entries with the user's first, and never changes protected spans or 'Title:'/'Author:'/'#' markers.",
         "Every rewrite is proved to rebuild the source exactly; if a proof fails that file is spoken unchanged and Details says so; a broken user file contributes nothing and one note, never a failed run.",
         "With 'off' the text reaches every engine exactly as decoded and Details says nothing."
       ],
@@ -2392,7 +2404,8 @@
         "files/tests/test_speech_normalize.py",
         "files/tests/test_speech_glossary.py",
         "files/tests/test_speech_document.py",
-        "files/tests/test_speech_g1.py"
+        "files/tests/test_speech_g1.py",
+        "files/tests/test_omnivoice_speech.py"
       ],
       "journeys": [],
       "verification": {
@@ -2425,6 +2438,10 @@
             "kind": "owner",
             "check": "speech-prep-listening",
             "detail": "Listen to numbers, years, dates, times, currency, units and any glossary words as each engine speaks them with speech preparation on."
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_speech.py::test_omnivoice_is_a_fifth_engine_with_its_own_route_and_a_complete_all_expand_row"
           }
         ]
       },
@@ -3720,6 +3737,160 @@
       "exceptions": []
     },
     {
+      "id": "ACT.TTS.ENGINE.OMNIVOICE",
+      "tool": "tts-audiobook",
+      "title": "OmniVoice cloned-voice narration (six voices, v0.8.0)",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/omnivoice_synth.py",
+          "symbols": [
+            "omnivoice_file_to_mp3",
+            "plan_chunks",
+            "derive_seed",
+            "batches",
+            "build_job",
+            "prompt_cache_entry",
+            "run_worker",
+            "WorkerRun",
+            "failure_message",
+            "new_job_dir",
+            "remove_job_dir",
+            "cleanup_stale_jobs",
+            "record_failure",
+            "collect_chunks",
+            "peak_report",
+            "_encoder",
+            "OmniVoiceFailed",
+            "OMNIVOICE_MAX_CHUNK_CHARS",
+            "CHUNKS_PER_WORKER",
+            "GENERATION"
+          ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_worker.py",
+          "symbols": [
+            "main",
+            "run_synth",
+            "job_problems",
+            "install_network_guard",
+            "network_target",
+            "is_loopback",
+            "claim_engine",
+            "release_engine",
+            "read_reference",
+            "load_cached_prompt",
+            "save_prompt",
+            "_refuse_speech_recognizer",
+            "emit",
+            "NetworkRefused",
+            "SpeechRecognizerRefused"
+          ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_runtime.py",
+          "symbols": [
+            "OmniVoiceVoice",
+            "OMNIVOICE_VOICES",
+            "get_voice",
+            "voice_availability",
+            "OmniVoiceUnavailable",
+            "worker_environment",
+            "inference_lease",
+            "platform_supported",
+            "platform_reason",
+            "detect_gpu",
+            "environment_status",
+            "model_status",
+            "worker_script",
+            "venv_python",
+            "jobs_root",
+            "prompts_root"
+          ]
+        },
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "convert_with_omnivoice",
+            "omnivoice_status"
+          ]
+        }
+      ],
+      "contracts": [
+        "Each file is prepared once in the app with the run's frozen speech-preparation snapshot (v1 by default, or off), planned into whole-sentence chunks of at most 300 characters that never cross a paragraph, and the worker speaks exactly that text with OmniVoice's own text normalization off.",
+        "The model runs only in the isolated .venv-omnivoice worker, offline: an audit hook refuses any network access, the Hugging Face hub is never asked and no speech recognizer (Whisper) is loaded; a worker renders at most 48 chunks and a long book uses fresh workers, so GPU memory cannot accumulate over a book; the panel process never imports torch or OmniVoice.",
+        "Chunk audio is read back in plan order, validated, joined with the voice preset's paragraph pause between chunks only, encoded once and published atomically; a failure (load, generation, out of GPU memory, a dead or stalled worker) fails that file with a plain sentence and leaves any existing destination untouched.",
+        "Cancel asks the worker to stop and kills its contained process tree after a short grace period, during inference or the encode, and wins until the instant of the move; no partial MP3 is published and the job folder (which holds the person's text) is always removed.",
+        "No GPU, no installed engine or model, or a changed recording makes only the OmniVoice voices unavailable with one next step; nothing falls back to another voice or engine, and one OmniVoice file converts at a time."
+      ],
+      "selection": [
+        "files/tests/test_omnivoice_synth.py",
+        "files/tests/test_omnivoice_gui.py",
+        "files/tests/test_omnivoice_reference.py",
+        "files/tests/test_omnivoice_speech.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_conversion_runs_one_worker_assembles_with_the_local_policy_and_cleans_up"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_text_is_prepared_once_and_the_worker_speaks_exactly_that"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_chunks_are_rendered_by_bounded_workers_and_assembled_in_plan_order"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_cancel_between_chunks_stops_the_worker_and_publishes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_worker_that_ignores_cancel_is_killed_after_the_grace_period"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_cancel_during_the_encode_leaves_the_destination_alone"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_cancel_at_the_instant_of_publication_still_wins"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_worker_refuses_a_job_that_could_reach_the_network_or_load_whisper"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_the_worker_never_asks_the_hub_never_loads_whisper_and_never_normalizes_again"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_gui.py::test_each_voice_routes_to_the_omnivoice_engine_by_voice_id[omnivoice-male-1-OmniVoice - Male 1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_gui.py::test_a_cancel_mid_file_removes_the_partial_output"
+          },
+          {
+            "kind": "owner",
+            "check": "listen-omnivoice",
+            "detail": "Listen to the Phase 4 OmniVoice pack (track A natural narration and track B normalization challenge for each of the six voices) and approve or reject both tracks per voice."
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
       "id": "ACT.TTS.ENGINE.LOCAL-ONE-WORKER",
       "tool": "tts-audiobook",
       "title": "Local engines convert one file at a time",
@@ -3733,7 +3904,8 @@
         {
           "path": "scripts/tts/worker_limits.py",
           "symbols": [
-            "plan_workers"
+            "plan_workers",
+            "ENGINE_NAMES"
           ]
         },
         {
@@ -3750,7 +3922,7 @@
         }
       ],
       "contracts": [
-        "Whatever the Workers box asks (up to 100), a Kokoro, Chatterbox or Qwen3 run converts exactly one file at a time on any machine.",
+        "Whatever the Workers box asks (up to 100), a Kokoro, Chatterbox, Qwen3 or OmniVoice run converts exactly one file at a time on any machine.",
         "The run log says why: 'Worker limit: <engine> converts one file at a time.'",
         "No concurrency expansion: the per-process Kokoro pipeline and Chatterbox model caches are not reentrant and are never shared by two files at once."
       ],
@@ -3777,6 +3949,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_worker_limits.py::test_local_engines_stay_at_one_file_on_any_machine[100-qwen3-Qwen3-TTS]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_worker_limits.py::test_local_engines_stay_at_one_file_on_any_machine[100-omnivoice-OmniVoice]"
           }
         ]
       },
@@ -3829,18 +4005,26 @@
           "symbols": [
             "_load_model"
           ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_worker.py",
+          "symbols": [
+            "install_network_guard"
+          ]
         }
       ],
       "contracts": [
         "Kokoro and Chatterbox load only the pinned, verified local files; a missing, wrong-size or wrong-hash file is refused with AssetsUnavailable ('Nothing was downloaded') instead of letting the library fetch it.",
         "A Kokoro voice with no pinned file is refused, not fetched; a missing spaCy English model is refused before misaki could pip-install it.",
         "Chatterbox loads from the pinned commit's folder (from_local), never from_pretrained at a moving branch.",
-        "The Qwen3 worker runs with the Hugging Face hub and transformers offline and every cache inside the app folder."
+        "The Qwen3 worker runs with the Hugging Face hub and transformers offline and every cache inside the app folder.",
+        "The OmniVoice worker runs offline: an audit hook refuses any non-loopback network access before anything heavy loads, the hub and transformers are offline with every cache inside the app folder, and no speech recognizer is loaded."
       ],
       "selection": [
         "files/tests/test_optional_setup_acquisition.py",
         "files/tests/test_qwen3_runtime.py",
-        "files/tests/test_chatterbox_engine.py"
+        "files/tests/test_chatterbox_engine.py",
+        "files/tests/test_omnivoice_reference.py"
       ],
       "journeys": [],
       "verification": {
@@ -3868,6 +4052,14 @@
           {
             "kind": "qualification",
             "scenario": "optional-engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_the_worker_closes_the_network_before_anything_heavy_loads"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_the_worker_environment_is_offline_contained_and_unsteered"
           }
         ]
       },
@@ -3907,11 +4099,18 @@
             "environment_status",
             "model_status"
           ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_runtime.py",
+          "symbols": [
+            "voice_availability",
+            "reference_status"
+          ]
         }
       ],
       "contracts": [
         "Each local voice answers (ok, reason) cheaply and deterministically from files on disk: no model load, no download, no write, never an exception.",
-        "Qwen3 checks in a fixed order (platform, engine, model, then reference and transcript for clones) and each reason names one next step.",
+        "Qwen3 and OmniVoice check in a fixed order (platform, engine, model, then the clone's own recording and transcript; OmniVoice also needs an NVIDIA GPU) and each reason names one next step.",
         "A voice whose models are simply not installed maps to its optional component and is offered Install & Continue; anything installing cannot fix (missing reference, unsupported platform, busy engine) is not offered.",
         "One unavailable voice never makes another voice or engine unavailable, and is never swapped for another voice.",
         "Tests state the machine's install state explicitly (installed, or a fresh install), never the machine they run on; simulated readiness is asset health only, never engine qualification."
@@ -3921,7 +4120,8 @@
         "files/tests/test_qwen3_runtime.py",
         "files/tests/test_chatterbox_integration.py",
         "files/tests/test_qwen3_gui.py",
-        "files/tests/test_voice_install_models_status.py"
+        "files/tests/test_voice_install_models_status.py",
+        "files/tests/test_omnivoice_reference.py"
       ],
       "journeys": [],
       "verification": {
@@ -3985,6 +4185,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_qwen3_gui.py::test_a_refused_run_substitutes_no_other_voice_engine_or_model[fresh-install]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_availability_says_why_in_order_and_never_offers_an_install_without_a_gpu"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_a_changed_recording_makes_only_that_voice_unavailable"
           }
         ]
       },
@@ -4032,11 +4240,49 @@
             "snapshot_reference",
             "pad_reference_tail"
           ]
+        },
+        {
+          "path": "scripts/tts/clone_references.py",
+          "symbols": [
+            "ReferenceManifestError",
+            "ReferenceAsset",
+            "manifest_path",
+            "text_sha256",
+            "transcript_problem",
+            "_asset",
+            "load"
+          ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_runtime.py",
+          "symbols": [
+            "reference_path",
+            "ReferenceSpec",
+            "ReferenceAssetError",
+            "load_references",
+            "reference_spec",
+            "verify_reference",
+            "duration_problem",
+            "DURATION_EXCEPTIONS",
+            "MAX_REFERENCE_SECONDS",
+            "prompt_identity",
+            "prompt_cache_path"
+          ]
+        },
+        {
+          "path": "scripts/tts/voice_registry.py",
+          "symbols": [
+            "REFERENCE_FOLDERS",
+            "REFERENCE_RECORDINGS",
+            "reference_recording_parts"
+          ]
         }
       ],
       "contracts": [
+        "Each cloned engine has its own six reference recordings, exactly 18 tracked WAVs in files/Cloned-Voice-Uploads/<Engine>/<Engine> - <Voice>.wav; tts/data/clone_references.json binds each to its SHA-256, format and frame count (and Chatterbox and OmniVoice to the owner-written transcript), and nothing loose sits at the folder's root.",
         "A clone is used only when its bundled reference recording matches its registered SHA-256; a missing or changed recording blocks only that voice and is never replaced by download or by another voice.",
-        "Qwen3 clones narrate with the six owner-approved transcripts shipped with the app; a damaged or missing bundle blocks the clones with 'extract a fresh copy' guidance and never falls back to a local store.",
+        "Qwen3 clones narrate with the six original recordings (byte for byte, only renamed in v0.8.0) and the six owner-approved transcripts shipped with the app; a damaged or missing bundle blocks the clones with 'extract a fresh copy' guidance and never falls back to a local store.",
+        "OmniVoice conditions on its own whole recording (at most 10 s; one hash-bound Male 1 exception of 451,022 frames at 44.1 kHz) with the owner-written transcript; a recording or transcript that is not the approved pair fails closed, and the cached clone prompt is keyed by every input that shapes it.",
         "The protected recordings are never written; derived clips and cached conditionals live only under files/runtime-data and are recomputed when their source, engine or spec changes.",
         "A Qwen3 clone job clones a verified copy of the recording (padded with silence) made inside the job folder, not the original path."
       ],
@@ -4044,7 +4290,9 @@
         "files/tests/test_chatterbox_engine.py",
         "files/tests/test_bundled_clone_transcripts.py",
         "files/tests/test_qwen3_synth.py",
-        "files/tests/test_clone_transcript_bundle.py"
+        "files/tests/test_clone_transcript_bundle.py",
+        "files/tests/test_clone_references.py",
+        "files/tests/test_omnivoice_reference.py"
       ],
       "journeys": [],
       "verification": {
@@ -4068,6 +4316,30 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_qwen3_synth.py::test_a_clone_is_made_from_a_verified_snapshot_not_from_the_pathname"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_clone_references.py::test_the_list_covers_exactly_the_18_registered_clones_each_in_its_own_engine_folder"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_clone_references.py::test_qwen3_keeps_the_six_original_recordings_and_its_unchanged_transcript_bundle"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_clone_references.py::test_chatterbox_is_never_given_a_transcript"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_the_male1_exception_widens_nothing_else"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_a_changed_recording_or_a_wrong_format_is_refused"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_reference.py::test_the_prompt_cache_key_moves_with_every_input_that_shapes_the_prompt"
           }
         ]
       },
@@ -4639,6 +4911,170 @@
       "exceptions": []
     },
     {
+      "id": "ACT.TTS.SETUP.OMNIVOICE",
+      "tool": "tts-audiobook",
+      "title": "Install, adopt or repair the OmniVoice engine (the fifth optional component, v0.8.0)",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/omnivoice_setup.py",
+          "symbols": [
+            "fetch_wheels",
+            "acquire_model",
+            "build_engine",
+            "verified_base_python",
+            "prove",
+            "_prove_once",
+            "proof_job",
+            "record_proved",
+            "record_rejected",
+            "set_aside_engine",
+            "remove_unfinished_engine",
+            "engine_mode",
+            "InstallLock",
+            "discard_wheels",
+            "pip_command",
+            "lock_text",
+            "speaks_against_environment",
+            "OFFLINE_PIP",
+            "OmniVoiceSetupError",
+            "ProofFailed"
+          ]
+        },
+        {
+          "path": "scripts/tts/optional_setup.py",
+          "symbols": [
+            "omnivoice_engine_source",
+            "omnivoice_model_source",
+            "_omnivoice_engine_unit",
+            "_omnivoice_model_unit",
+            "_omnivoice_reference_problem",
+            "_omnivoice_plan",
+            "_omnivoice_hardware"
+          ]
+        },
+        {
+          "path": "scripts/tts/optional_setup_acquire.py",
+          "symbols": [
+            "RealAcquirer._acquire_omnivoice"
+          ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_runtime.py",
+          "symbols": [
+            "assess_engine",
+            "EngineAssessment",
+            "read_receipt",
+            "write_receipt",
+            "clear_receipt",
+            "app_base_python",
+            "structure_problem",
+            "listing_problem",
+            "disclosure",
+            "license_documents",
+            "LICENSE_SUMMARY",
+            "TOKENIZER_ATTRIBUTION",
+            "HARDWARE_DISCLOSURE",
+            "wheels",
+            "wheel_verified",
+            "model_file_states",
+            "verify_model_files",
+            "model_bad_files",
+            "load_manifest",
+            "manifest_problems"
+          ]
+        },
+        {
+          "path": "scripts/tts/omnivoice_worker.py",
+          "symbols": [
+            "run_probe",
+            "probe_problems",
+            "version_problems",
+            "isolation_problems"
+          ]
+        },
+        {
+          "path": "scripts/tts/optional_setup_health.py",
+          "symbols": [
+            "gpu_present"
+          ]
+        }
+      ],
+      "contracts": [
+        "OmniVoice - Six Cloned Voices is the fifth optional component, last and unchecked; the other four keep their order, labels and defaults; it is offered by the existing first-run window and Install & Continue, never by a separate installer, launcher or button.",
+        "Its licence and hardware terms are shown on the review screen before any consent -- Apache-2.0 engine code, CC-BY-NC non-commercial model weights, and the audio tokenizer's Boson Higgs Audio 2 Community License with its attribution, Notice-file and acceptable-use terms and its 100,000 annual active-user threshold -- and a View licence terms window opens each text at its pinned revision; reading them is never a consent.",
+        "A fresh install downloads only the pinned 88 wheels and 11 model files, each by URL, size and SHA-256, within the consented byte budget, builds .venv-omnivoice offline from them, proves it (versions, isolation, imports, a CUDA kernel and an offline model load) and only then writes the install receipt; readiness requires that receipt.",
+        "An environment already holding exactly the pinned set, isolated and built from the app's own Python, is adopted after the same proof without downloading, rebuilding or changing it; a broken one is set aside whole (never deleted) and rebuilt only under repair consent; only an environment this app's own receipt says was unfinished is ever removed.",
+        "No NVIDIA GPU makes it unsupported and an unchecked GPU unverified, and neither can be consented; Cancel at any step records nothing; a GPU, memory, timeout or busy failure rejects nothing, and Smart App Control first-load refusals are retried."
+      ],
+      "selection": [
+        "files/tests/test_omnivoice_setup.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_exactly_five_components_the_four_earlier_unchanged_and_omnivoice_last_and_unchecked"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_the_licence_and_hardware_terms_are_shown_before_any_consent"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_the_review_shows_the_terms_and_reading_them_is_never_a_consent"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_a_fresh_install_fetches_the_pinned_files_builds_offline_proves_and_only_then_records"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_relaunching_after_an_install_downloads_and_runs_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_a_healthy_unreceipted_environment_is_adopted_without_downloading_rebuilding_or_changing_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_a_genuinely_broken_unreceipted_environment_is_not_adopted_and_a_repair_is_offered_then_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_only_an_environment_this_app_left_unfinished_is_ever_removed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_no_gpu_is_unsupported_unchecked_gpu_is_unverified_and_neither_can_be_consented"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_a_cancel_during_the_proof_records_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_the_byte_budget_stops_a_download_larger_than_was_confirmed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_smart_app_control_first_loads_are_retried_and_never_reject"
+          },
+          {
+            "kind": "qualification",
+            "scenario": "fresh-windows"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
       "id": "ACT.TTS.SETUP.PLAN",
       "tool": "tts-audiobook",
       "title": "Optional voice setup plan and disclosure",
@@ -4668,14 +5104,15 @@
         }
       ],
       "contracts": [
-        "For each of the four components (Kokoro, Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Base) the plan states one readiness: ready, missing, damaged, unsupported, busy, bad bundle or unverified; only missing (install) and damaged (repair) plan any acquisition.",
+        "For each of the five components (Kokoro, Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Base and, since v0.8.0, OmniVoice) the plan states one readiness: ready, missing, damaged, unsupported, busy, bad bundle or unverified; only missing (install) and damaged (repair) plan any acquisition, and an OmniVoice environment found without a receipt is planned as a check-and-adopt that downloads nothing.",
         "It lists what would be downloaded, reused, copied, occupied and needed as temporary space, counting shared Qwen3 files once, and says how each figure is known (manifest, approximate, at least, unknown).",
         "Planning is read-only: it writes nothing into the installation and starts no process (except an optional bounded nvidia-smi query).",
         "The pre-venv estimate used by the first-run wizard is a manifest upper bound that proves nothing (every component unverified)."
       ],
       "selection": [
         "files/tests/test_optional_tts_setup.py",
-        "files/tests/test_release_installer.py"
+        "files/tests/test_release_installer.py",
+        "files/tests/test_omnivoice_setup.py"
       ],
       "journeys": [],
       "verification": {
@@ -4695,6 +5132,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_optional_tts_setup.py::test_the_pre_venv_estimate_is_a_manifest_upper_bound_that_proves_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_an_existing_environment_without_a_receipt_is_planned_as_an_adoption_that_downloads_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_planning_writes_nothing_and_asks_no_process_or_network"
           }
         ]
       },
@@ -4863,7 +5308,8 @@
             "lock_held",
             "busy_components",
             "local_health",
-            "facts"
+            "facts",
+            "gpu_present"
           ]
         }
       ],
@@ -4871,11 +5317,13 @@
         "Kokoro and Chatterbox health is proved in a fresh interpreter with the Hugging Face hub offline, bounded in time and cancellable; the answer is tri-state (proved, proved broken, unproved), and a probe that cannot finish is never 'broken'.",
         "A probe is repeated only while Windows Application Control is still evaluating new files, a bounded number of times; any other failure is reported at once.",
         "A component someone else is changing or using (a held lock) is reported busy and nothing is fetched; locks are read without being created.",
-        "A local engine proved broken gets no download; model files cannot repair packages."
+        "A local engine proved broken gets no download; model files cannot repair packages.",
+        "OmniVoice's own locks (a conversion or a running worker) make it busy, and whether an NVIDIA GPU is present is asked only when OmniVoice is chosen; its engine is never probed here, it is judged by the installer's receipt (v0.8.0)."
       ],
       "selection": [
         "files/tests/test_optional_setup_acquisition.py",
-        "files/tests/test_release_installer.py"
+        "files/tests/test_release_installer.py",
+        "files/tests/test_omnivoice_setup.py"
       ],
       "journeys": [],
       "verification": {
@@ -4899,6 +5347,14 @@
           {
             "kind": "qualification",
             "scenario": "fresh-windows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_installs_are_refused_while_omnivoice_is_converting_or_another_install_runs"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_the_worker_asks_for_the_gpu_only_when_omnivoice_is_chosen"
           }
         ]
       },
@@ -5156,7 +5612,10 @@
             "run_quality_suite",
             "run_final_acceptance",
             "judge_final_artifact",
-            "measure_final_artifact"
+            "measure_final_artifact",
+            "_synthesize_omnivoice",
+            "omnivoice_speech_prep",
+            "OMNIVOICE_SAMPLE_BITRATE"
           ]
         },
         {
@@ -5169,7 +5628,7 @@
         }
       ],
       "contracts": [
-        "An ordinary run writes one sample per registered voice (28), each through its own backend; one failing voice is reported and the others continue.",
+        "An ordinary run writes one sample per registered voice (34), each through its own backend; one failing voice is reported and the others continue; an OmniVoice sample goes through the production source-to-MP3 path with the v1 speech-preparation snapshot (v0.8.0).",
         "The final-acceptance judge reports each mechanical failure (incomplete decode, duration mismatch, implausible duration, clipping, pathological silence).",
         "The QA corpus is original text whose identity hash changes whenever any item's wording changes."
       ],
@@ -5177,14 +5636,15 @@
         "files/tests/test_chatterbox_evaluation.py",
         "files/tests/test_final_acceptance_harness.py",
         "files/tests/test_quality_corpus.py",
-        "files/tests/test_chatterbox_candidates.py"
+        "files/tests/test_chatterbox_candidates.py",
+        "files/tests/test_omnivoice_synth.py"
       ],
       "journeys": [],
       "verification": {
         "all_of": [
           {
             "kind": "behavior",
-            "test": "files/tests/test_chatterbox_evaluation.py::test_an_ordinary_run_covers_all_twenty_eight_rows_split_by_backend"
+            "test": "files/tests/test_chatterbox_evaluation.py::test_an_ordinary_run_covers_all_thirty_four_rows_split_by_backend"
           },
           {
             "kind": "behavior",
@@ -5197,6 +5657,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_quality_corpus.py::test_corpus_identity_is_deterministic_and_content_sensitive"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_sample_helper_narrates_an_omnivoice_voice_through_the_production_path_with_v1"
           }
         ]
       },
@@ -8134,7 +8598,7 @@
         }
       ],
       "contracts": [
-        "Chapter starts must be finite, not negative, before the source's end and strictly increasing; anything else makes the book unusable.",
+        "Chapter starts must be finite, not negative, before the source's end and strictly increasing; anything else makes the book unusable unless an independently validated Nero table is recovered (ACT.CONVERTER.NERO-RECOVERY, v0.7.3), which must pass these same rules.",
         "The check applies in both output structures and runs before any run folder is reserved; nothing is sorted, clamped, deduplicated or dropped to make a map pass.",
         "A refused book is reported with its own reason and is not a Retry Failed candidate; the other books still convert.",
         "The refusal says the chapter list is not usable and offers no other mode: both modes refuse it (v0.7.2, ACT72-026)."
@@ -8175,6 +8639,122 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_conversion_plan.py::test_a_malformed_chapter_map_is_refused_in_both_modes_and_the_message_promises_neither[ConversionMode.WHOLE]"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.CONVERTER.NERO-RECOVERY",
+      "tool": "m4b-converter",
+      "title": "Recover an independently validated Nero chapter table (v0.7.3)",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/m4b_nero.py",
+          "symbols": [
+            "read_nero_chapters",
+            "write_recovered_chapters",
+            "_Box",
+            "_boxes",
+            "_one",
+            "_children",
+            "_data"
+          ]
+        },
+        {
+          "path": "scripts/m4b/m4b_probe.py",
+          "symbols": [
+            "_recover_chapters",
+            "SourceReport",
+            "probe_source"
+          ]
+        },
+        {
+          "path": "scripts/m4b/converter/m4b_plan.py",
+          "symbols": [
+            "ItemPlan",
+            "assemble_plan"
+          ]
+        },
+        {
+          "path": "scripts/m4b/m4b_execution.py",
+          "symbols": [
+            "SegmentWork",
+            "_output_args",
+            "_passes",
+            "convert_segment"
+          ]
+        },
+        {
+          "path": "scripts/m4b/converter/m4b_converter.py",
+          "symbols": [
+            "M4BConverterUI._run_conversion"
+          ]
+        }
+      ],
+      "contracts": [
+        "Only a chapter list that strict validation refuses may be recovered, and only from one moov/udta/chpl Nero table tied to the probed QuickTime audio track, which must itself pass the same validator, start at zero and give every chapter a positive sample span; valid lists and chapterless books never open this path.",
+        "Anything ambiguous, corrupt or truncated, a missing or contradictory duration, or more than one audio stream keeps the original rejection, with the reason recovery was refused added to it.",
+        "The original probe answer and the recovery diagnostic are kept, and the recovered timeline is carried through Split and Whole outputs; Whole writes it as navigation without moving the audio payload.",
+        "Cancel after the navigation write publishes nothing, and a failed navigation write leaves the destination and the retry plan intact."
+      ],
+      "selection": [
+        "files/tests/test_m4b_nero_recovery.py",
+        "files/tests/test_m4b_nero_execution.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_recovery.py::test_two_quicktime_entries_and_33_nero_chapters_recover_complete_timeline"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_recovery.py::test_valid_primary_chapters_are_unchanged_without_recovery[agree]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_recovery.py::test_normal_invalid_chapter_list_without_secondary_metadata_stays_invalid"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_recovery.py::test_multiple_audio_streams_are_not_a_trustworthy_recovery_source"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_recovery.py::test_corrupt_chapter_metadata_fails_closed[truncated]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_recovery.py::test_real_ffmpeg_conflict_is_recovered_from_independent_nero_atom"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_execution.py::test_recovered_whole_writes_selected_navigation_and_keeps_audio[MetadataMode.PRESERVE]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_execution.py::test_recovered_split_one_decode_matches_seeks_and_actual_source_samples"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_execution.py::test_cancel_after_recovered_navigation_write_publishes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_nero_execution.py::test_failed_navigation_write_leaves_destination_and_retry_plan_intact"
+          },
+          {
+            "kind": "owner",
+            "check": "nero-full-book",
+            "detail": "The owner's full-book acceptance of the v0.7.3 Nero recovery (files/release-history/ACT-v0.7.3-Owner-Acceptance.md)."
           }
         ]
       },
@@ -19531,12 +20111,13 @@
             "SetupLog",
             "install_path_problem",
             "_append_following",
-            "run_with_gui.append_log"
+            "run_with_gui.append_log",
+            "OPTIONAL_CHOICES"
           ]
         }
       ],
       "contracts": [
-        "The wizard offers four optional voice choices in a fixed order, Kokoro checked and Chatterbox, Qwen3 CustomVoice and Qwen3 Cloned Voices unchecked; choosing is not consent and downloads nothing",
+        "The wizard offers five optional voice choices in a fixed order, Kokoro checked and Chatterbox, Qwen3 CustomVoice, Qwen3 Cloned Voices and OmniVoice (v0.8.0, last) unchecked; choosing is not consent and downloads nothing",
         "Nothing is installed until Begin Setup is pressed; the base install then runs on one worker thread with a live log",
         "The base install is five steps (Python, environment, packages, FFmpeg, English sentence data) and starts no other process of its own; no voice model is downloaded",
         "A folder too deep for Windows is refused before anything is touched",
@@ -19550,7 +20131,8 @@
         "files/tests/test_release_installer.py",
         "files/tests/test_first_run_contract.py",
         "files/tests/test_sentence_data.py",
-        "files/tests/test_setup_log_follow.py"
+        "files/tests/test_setup_log_follow.py",
+        "files/tests/test_omnivoice_setup.py"
       ],
       "journeys": [
         "setup.first-run-refuses-a-folder-too-deep",
@@ -19602,6 +20184,10 @@
           {
             "kind": "native",
             "scenario": "setup.first-run-choices-and-cancel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_the_first_run_window_shows_five_choices_omnivoice_last_unchecked_and_fits"
           }
         ]
       },
@@ -20557,7 +21143,9 @@
             "OptionalSetupPanel._retry",
             "OptionalSetupPanel._set_buttons",
             "OptionalSetupPanel._poll",
-            "OptionalSetupPanel._append"
+            "OptionalSetupPanel._append",
+            "OptionalSetupPanel.show_terms",
+            "_open_in_browser"
           ]
         },
         {
@@ -20575,7 +21163,9 @@
             "needs_install",
             "result_text",
             "progress_text",
-            "SetupUnavailable"
+            "SetupUnavailable",
+            "license_disclosure",
+            "omnivoice_terms"
           ]
         },
         {
@@ -20609,7 +21199,10 @@
             "WorkerRun.cancel",
             "WorkerRun.stop",
             "WorkerRun.wait",
-            "WorkerRun.result"
+            "WorkerRun.result",
+            "COMPONENTS",
+            "WIZARD_DEFAULTS",
+            "OMNIVOICE"
           ]
         }
       ],
@@ -20619,13 +21212,15 @@
         "Skip, Cancel and closing never download anything and keep what already works; Try again makes a new plan and needs a new confirmation",
         "The setup worker runs only in the app's .venv and only if its whole process tree can be contained; a timed-out worker and its children are ended",
         "Each request gets exactly one terminal result, published once and never replaced",
-        "The install log follows new steps while its reader is at the bottom and keeps a reader who scrolled up (wheel or scrollbar) in place"
+        "The install log follows new steps while its reader is at the bottom and keeps a reader who scrolled up (wheel or scrollbar) in place",
+        "When the plan carries licence terms (OmniVoice, v0.8.0), the review shows them before Install and a View licence terms window lists each licence text at its pinned revision; opening or closing it is never a consent"
       ],
       "selection": [
         "files/tests/test_release_installer.py",
         "files/tests/test_optional_tts_setup.py",
         "files/tests/test_optional_setup_acquisition.py",
-        "files/tests/test_setup_log_follow.py"
+        "files/tests/test_setup_log_follow.py",
+        "files/tests/test_omnivoice_setup.py"
       ],
       "journeys": [],
       "verification": {
@@ -20665,6 +21260,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_setup_log_follow.py::test_the_optional_voices_install_log_follows_holds_a_reader_and_resumes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_the_review_shows_the_terms_and_reading_them_is_never_a_consent"
           }
         ]
       },
@@ -22960,6 +23559,11 @@
       "widget:scripts/shared/job_ui.py::SummaryDetailsView._page::Text:@text": "ACT.SHARED.LOG-VIEW",
       "widget:scripts/shared/optional_setup_panel.py::OptionalSetupPanel.__init__::Text:@self.text": "ACT.SETUP.OPTIONAL-VOICES",
       "widget:scripts/shared/optional_setup_panel.py::OptionalSetupPanel._set_buttons::Button:text=label": "ACT.SETUP.OPTIONAL-VOICES",
+      "binding:scripts/shared/optional_setup_panel.py::OptionalSetupPanel.show_terms::protocol:WM_DELETE_WINDOW": "ACT.SETUP.OPTIONAL-VOICES",
+      "widget:scripts/shared/optional_setup_panel.py::OptionalSetupPanel.show_terms::Button:Close": "ACT.SETUP.OPTIONAL-VOICES",
+      "widget:scripts/shared/optional_setup_panel.py::OptionalSetupPanel.show_terms::Button:Open": "ACT.SETUP.OPTIONAL-VOICES",
+      "widget:scripts/shared/optional_setup_panel.py::OptionalSetupPanel.show_terms::Text:@body": "ACT.SETUP.OPTIONAL-VOICES",
+      "widget:scripts/shared/optional_setup_panel.py::OptionalSetupPanel.show_terms::Toplevel:@top": "ACT.SETUP.OPTIONAL-VOICES",
       "widget:scripts/shared/optional_setup_tk_harness_v3.py::TkPlanningHarness._initialize::Button:Install Selected Components": "ACT.SETUP.V3.DISPLAY",
       "widget:scripts/shared/optional_setup_tk_harness_v3.py::TkPlanningHarness._initialize::Button:text=label": "ACT.SETUP.V3.DISPLAY",
       "widget:scripts/shared/optional_setup_tk_harness_v3.py::TkPlanningHarness._initialize::Text:@self.details": "ACT.SETUP.V3.DISPLAY",
@@ -24238,17 +24842,18 @@
     "scripts/launcher.py": "de0c7e32025bb62c2240cba305c9caaaec66cfca9ad9ad6ba816dd86ff913b26",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "df606e340910dbc721b8f0db022411bedbcceb5df48658d1e96497958f44531c",
+    "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
-    "scripts/m4b/converter/m4b_plan.py": "6d2dfa4b399172f0bda4f26ad9853561f52414be5d0eeba7e2bfb645f970ac45",
+    "scripts/m4b/converter/m4b_plan.py": "890d063b6a40a7e54b4828d7e420445ac114f72ee9c0a113fbc5f20c9c2e4770",
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
     "scripts/m4b/m4b_continuous.py": "1be6e837c4e408dea7566131686b5d19111bf4f57640e54ac0f0d9b03c78f94b",
-    "scripts/m4b/m4b_execution.py": "a00877e3e024e1f3b95cca001ad0c3c7caf4dd312755e4a0e6859ceb167ae704",
+    "scripts/m4b/m4b_execution.py": "8a5600626e5846dd1b5bdbb60067ca1cff8023e94adca2c2fa024ab53a5f49ee",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
+    "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
-    "scripts/m4b/m4b_probe.py": "4b87188ab0b04066c8f65f5d516de3054f7cc5a50a4367d1ecba587b71e7075f",
+    "scripts/m4b/m4b_probe.py": "b737ac8e894de05f8c19f706c2fa96da6fe16827b4eaf0f0bc911b20e24d2490",
     "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
@@ -24275,7 +24880,7 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "d26a82ccb9e84ca21c25dea6b6ce1a17b4c18f5867b4ac8d14f0af5988f931b2",
+    "scripts/shared/bootstrap.py": "41a0aa87c0e4aaf9b32a5b218a0eb735363bf79a9f48cf61c480c244a2769b24",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
@@ -24297,12 +24902,12 @@
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
-    "scripts/shared/optional_setup_client.py": "7749824d1c40ac595903d4ebac8339e9000a23daf280bc69fd3bbd8f7e2f898e",
+    "scripts/shared/optional_setup_client.py": "3ab89c262a0bb885cca9dc1dcc43ddac9960d5a4c4786ca27f1e562e3ff507fd",
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
-    "scripts/shared/optional_setup_panel.py": "a8fdabd34e90600528f5f9a1df9a23666d649a6987e868b53a9072714b516ee5",
-    "scripts/shared/optional_setup_planning_bridge_v3.py": "99b22eea9f7df653de65ad1a1ab89b5ca114820626f0763ebc6d227cd85f771d",
-    "scripts/shared/optional_setup_protocol.py": "0d7383dc419eefc25997a051a9269f1b9015ccdde3ff9b48c7a7edd699d3fda4",
+    "scripts/shared/optional_setup_panel.py": "54ba8525c098dd61867f57c37f2b57e4f9d9b1b99ad6c475b80af6bd5143e3cb",
+    "scripts/shared/optional_setup_planning_bridge_v3.py": "fa87ae23b0b8cb86bf67ba98d45cbe8f4043b7ff73028e8323a8dcc33ff036ea",
+    "scripts/shared/optional_setup_protocol.py": "034e48bdd798d88ec42381718d138268a0a1b287444807833a2dcf33e22e5178",
     "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
     "scripts/shared/optional_setup_resource_budget.py": "271a73b61458f77b439f7114ec2063511d14d2fe7fc07b588d48117c7598642b",
     "scripts/shared/optional_setup_supervisor_v3.py": "dce3016d8df5dd0750d25bf84014f1e05ab8190923e23e0a6a46dc663b2304fc",
@@ -24312,34 +24917,39 @@
     "scripts/shared/output_paths.py": "1a027a2d62b6d0f91f04c13fa3c64acb47c2d43b7251c3cdae00fa4400aca2a6",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
-    "scripts/shared/release.py": "6e7e5cf581ce069521adb42f5ccd3cf5f70ea71245389b0271e868da24e1e4e3",
+    "scripts/shared/release.py": "51cb09bf146ffdcbf27c3a0dda67a14ef9bc4ceb687d6c6d67be0524f85152f0",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "16ee5c00e861705ab98612afdfa98fb236f4356eb8c98a47b96d78ed010494bb",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
     "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",
-    "scripts/shared/version.py": "43a29b400a25eb3a98ea236808697404c8d44a3382ed602c4244b602739f2597",
+    "scripts/shared/version.py": "cae8a836bf5363ed00c1fc4a22c149638a1c87b082d330d8691786c6758e2f49",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
     "scripts/tts/audio_tail.py": "d755c5e17d99a31a9b0ba2defd172d5ea3566a55a892ffe792c30a3b5478507a",
     "scripts/tts/batch_convert.py": "40e75a1ed5e592078f5d1badd7ad811f686136bf1905c4d3670492e5d2f89a15",
-    "scripts/tts/chatterbox_synth.py": "71e65dc1d7dfb4570c8febc23af0e4d821872f422457fe104a526f592020f843",
+    "scripts/tts/chatterbox_synth.py": "bc84cc85063895428c226bfb951b199aff01db5df34da1442cd255072f392d49",
+    "scripts/tts/clone_references.py": "5689b426c10557d8d22425c93a62e371f3c35fc254388b4531407003245b4179",
     "scripts/tts/disk_assembly.py": "282c7f689a877cd331a7c99c96cf83d002f09d1594558a66fe247b54cff3bcdd",
     "scripts/tts/edge_failures.py": "6935863a33eb1da68cd0521db5b2c0198b28aeae05b36832322303c281a6e2d5",
     "scripts/tts/edge_requests.py": "236de667f09942ef2cd178fad426e54925c7176a05a7256fc8dcc151d571ac55",
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "7359bc20afa9a7978561e0efd51f375ec2c38601e68c71b5f50de4e2301548f2",
+    "scripts/tts/epub2tts_gui.py": "8f9762e87eea9d9e9ae693fea4f92b06060a6927ee68893db59cf7a4861021c7",
     "scripts/tts/ffmpeg_watch.py": "513279b8ed6999184fd8fac87e01985a15f1592032ecde7e5034243995166601",
-    "scripts/tts/generate_voice_samples.py": "efbf2391b2b68cccc930c163193466e406bad92bd366b33d3b1c42c73ffd0365",
+    "scripts/tts/generate_voice_samples.py": "b59a47057a671e006c3aae750e1186f9310bfd30ae610f05ceae4c2dac47b26e",
     "scripts/tts/kokoro_synth.py": "07595a2dcfe343ebce7ae23d4ec3e5ed9d95fe9f08fd260336a7904869471314",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
-    "scripts/tts/optional_setup.py": "5fb3f6d38acb5af66ae5eca3348c295de772f5bb710bcc9e02bfb572da0b0968",
-    "scripts/tts/optional_setup_acquire.py": "4996e150359bf4966c76feed7a58492821e6afa91cbe094a6984d11faec5ce41",
+    "scripts/tts/omnivoice_runtime.py": "4a540ae303ce14b4028298f4083bcb818227a738928bc116185bc3bc01b9e792",
+    "scripts/tts/omnivoice_setup.py": "f978f4e8ce3f2c0bdd6e2c2879fc3228077281c27bb3b63a9c98b0bc3b94d76b",
+    "scripts/tts/omnivoice_synth.py": "2cef69dde897dea84372813766569dc1e73dfc95ce22668a047b8adeebe82ee0",
+    "scripts/tts/omnivoice_worker.py": "b8ce0ac38e4374354f6a2205a8f50fa00ca0d10b67ce1d2bf96f2bcb028ea7a0",
+    "scripts/tts/optional_setup.py": "71681837f888fb1c548bb93e0a61fdb59d8afe84618c6649a6196f82b39f1dfc",
+    "scripts/tts/optional_setup_acquire.py": "87ce6699bfead8452cfdfe8ace35954abb028baf70f283dda4d41a8ed6955fbf",
     "scripts/tts/optional_setup_authority.py": "c3f10e7ac1113ead6ebdc55e815c2b793c4f071e2d60472d4a5e126646bd9276",
-    "scripts/tts/optional_setup_health.py": "1586c8c451426d12663ad9ff709abb9045d1a2b54000024ac78fd2f2b1f0bfbd",
+    "scripts/tts/optional_setup_health.py": "98de3c5abaaf0f8236d6a1690610c94a4c5f26ebaa00bdabba604489769a07b5",
     "scripts/tts/optional_setup_lifecycle.py": "98de2e70d7ff1f3bb0b1ee912648a58a1fd19229a063ca4eafc8de96b80bf8db",
     "scripts/tts/optional_setup_planning_worker_v3.py": "4111a4c45702c700c80e5a15bbfde54c15b87a169634bf8a902e296743ca5e5b",
     "scripts/tts/optional_setup_readonly_worker_v3.py": "6fa9c0cf53ce267eb70c0a4cf12a17185b07d96b757173e8017ef1a57ffb862a",
@@ -24355,7 +24965,7 @@
     "scripts/tts/qwen3_package_manifest.py": "ecbdbe80aabe6379741bb4070bd1e702fff85775236a31d8760d2bd50955a566",
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
     "scripts/tts/qwen3_process.py": "ad14c28d5586153f9d83809c37375d93259c63b1d198cef992b2d9a6576232c5",
-    "scripts/tts/qwen3_runtime.py": "a092b2d4e527551d53d691f5423c521dd0e1a30ad93fba0977fa39953c6c53ab",
+    "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
     "scripts/tts/qwen3_setup.py": "99d3887374b65319f1391a06f4fad06320ad845cc039af60f47db6b23b784e4e",
     "scripts/tts/qwen3_synth.py": "ef0385c56d5116268d24ae9eea791cdaba5c9249379356daee6cbfbcc5497bdd",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
@@ -24364,15 +24974,15 @@
     "scripts/tts/speech/__init__.py": "46f8f554ac4f4097da70c7e3093d01cd44968de4b5b79b799d9088e9af985837",
     "scripts/tts/speech/classes.py": "abf23a42084e0c3b2427b2c6770c27faa1e4fa34602c3f3b3e6a4490e363411d",
     "scripts/tts/speech/document.py": "e0fa5cc3c9a0cd7350f98e68ebbfae6b2ca7f7cdb60438e45645e574dcabec9c",
-    "scripts/tts/speech/glossary.py": "157f1b8007c33a97dcfbb576d3e7cab01b324913111e797ba1471e8cd821b074",
+    "scripts/tts/speech/glossary.py": "d658707092ffac2a8fbb9d7196467eda4bd280468fecaefc72882335dc2b6866",
     "scripts/tts/speech/integrity.py": "01162b9ea199898af226a0eac3d0909ee2c21bdb5e0cdc705935fe9e819d5948",
     "scripts/tts/speech/normalize.py": "6ede031a246124b017f3af0a5bb35d02922719f7ffefc1e776b0c61cb540ccef",
     "scripts/tts/speech/numbers_en.py": "e8b4ac356ed57653b6c1480c43536f242a532c986baef0f1f9463b027797a909",
     "scripts/tts/speech/pipeline.py": "bf9f5fa72eec994d69eed4429393bae6862ab2db430cbc011ee8bcb56da10752",
-    "scripts/tts/speech/profiles.py": "e9e9fb6cbc36445ac3f1431d084e09b8062ee716d4fe9c85e1befbebda8665f5",
+    "scripts/tts/speech/profiles.py": "c19d5ecab536546738f1f40b080b72605a03cfc393b073bf904755daba7e3914",
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
-    "scripts/tts/voice_install.py": "39168cf1f5e6437fd72f0ad35424cce0caa4c859faf5ee2bdf389f0a51c9b1f9",
-    "scripts/tts/voice_registry.py": "4f62cf28794083d027bf37d14d0e219ee74c60c3faf8a797e675bdfbda9d9e38",
-    "scripts/tts/worker_limits.py": "92c98709469f766d4b1270b7d8a5168a24726fd0de30f043f2340f4f9e417ce8"
+    "scripts/tts/voice_install.py": "0aebc59b519f24ccb6b903151573a5094f7d5783e532d7a2bfef29ce09f08d0e",
+    "scripts/tts/voice_registry.py": "690be4a66faa703fd3bbdc4f4be57973ae0a23932d61ec458f26deb6d441b0c1",
+    "scripts/tts/worker_limits.py": "fb34cd6107e65794fdc3fc8596f5dc50a70312ff03c5e6f1c4052acc2151d80a"
   }
 }

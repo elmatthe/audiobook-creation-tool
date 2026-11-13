@@ -155,11 +155,19 @@ class PreviewError(RuntimeError):
 # --------------------------------------------------------------------------- #
 # Manifest
 # --------------------------------------------------------------------------- #
+#: v0.8.0 Phase 4: the preview gallery is the HISTORICAL collection of the 28 voices of the four engines the owner's
+#: 2026-10-20 decision covered. The six OmniVoice voices (v0.8.0) are registered and selectable but are not part of it:
+#: six new tracked previews need a separate owner authorization (plan section 5, Session 4), so the collection stays
+#: exactly these 28 and an OmniVoice voice is neither listed, pending nor blocked here.
+PREVIEW_BACKENDS = ("edge", "kokoro", "chatterbox", "qwen3")
+
+
 def registry_voices() -> list:
+    """The registry's voices that the preview collection covers (the four pre-v0.8.0 engines), in registry order."""
     sys.path.insert(0, str(SCRIPTS))
     from tts import voice_registry
 
-    return list(voice_registry.VOICES)
+    return [entry for entry in voice_registry.VOICES if entry.backend in PREVIEW_BACKENDS]
 
 
 def rights_for(entry) -> dict:

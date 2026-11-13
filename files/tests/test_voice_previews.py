@@ -54,7 +54,11 @@ def test_the_manifest_lists_exactly_the_28_roster_voices_in_registry_order():
     from tts import voice_registry
 
     ids = [v["voice_id"] for v in manifest()["voices"]]
-    assert ids == [e.voice_id for e in voice_registry.VOICES] and len(ids) == 28
+    assert ids == [e.voice_id for e in vp.registry_voices()] and len(ids) == 28
+    # v0.8.0: the runtime roster is 34; the six OmniVoice voices are not in the historical 28-preview collection, which
+    # is exactly the first 28 registry rows (the four earlier engines), unchanged.
+    assert len(voice_registry.VOICES) == 34 and ids == [e.voice_id for e in voice_registry.VOICES[:28]]
+    assert {e.backend for e in voice_registry.VOICES[28:]} == {"omnivoice"} and not any(i.startswith("omnivoice") for i in ids)
     excluded = ("dylan", "eric", "ono", "serena", "sohee", "uncle", "vivian")
     assert not any(any(name in voice_id for name in excluded) for voice_id in ids)  # rejected presets never appear
 
@@ -603,7 +607,8 @@ def test_sync_adds_a_new_registry_voice_as_blocked_or_pending_never_as_available
     extra = voice_registry.VoiceEntry(backend="qwen3", voice_id="qwen3-new-one", display_label="Qwen3 - New One",
                                       group_label=voice_registry.QWEN3_GROUP_LABEL,
                                       timing_preset=voice_registry._qwen3_preset())
-    monkeypatch.setattr(vp, "registry_voices", lambda: [*voice_registry.VOICES, extra])
+    collection = vp.registry_voices()
+    monkeypatch.setattr(vp, "registry_voices", lambda: [*collection, extra])
     data = vp.sync(manifest())
     new = data["voices"][-1]
     assert new["voice_id"] == "qwen3-new-one" and new["preview"]["status"] == vp.PREVIEW_BLOCKED
@@ -1422,7 +1427,8 @@ def test_the_committed_manifest_already_carries_the_registrys_labels():
     """Negative control for the check above: with the shipped registry, nothing is stale."""
     from tts import voice_registry
 
-    assert [v["label"] for v in manifest()["voices"]] == [e.display_label for e in voice_registry.VOICES]
+    assert [v["label"] for v in manifest()["voices"]] == [e.display_label for e in vp.registry_voices()]
+    assert [e.display_label for e in vp.registry_voices()] == [e.display_label for e in voice_registry.VOICES[:28]]
     assert vp.sync_labels(manifest()) == manifest()  # a label sync of an up-to-date manifest is a no-op
 
 
@@ -1433,7 +1439,8 @@ def test_a_label_sync_refuses_a_roster_or_engine_change_and_leaves_the_data_alon
 
     data = manifest()
     snapshot = json.dumps(data, sort_keys=True)
-    shipped = list(voice_registry.VOICES)
+    shipped = vp.registry_voices()  # the 28-voice collection (v0.8.0: the six OmniVoice voices are not in it)
+    assert len(shipped) == 28 and len(voice_registry.VOICES) == 34
     extra = replace(shipped[0], voice_id="en-US-NewNeural", display_label="Edge - New")
     for voices, expected in ((shipped[:-1], "list different voices"), (shipped + [extra], "list different voices"),
                              ([replace(shipped[5], backend="qwen3")] + shipped[:5] + shipped[6:], "identity change")):

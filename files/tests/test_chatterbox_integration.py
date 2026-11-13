@@ -211,14 +211,15 @@ def module_source(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_registry_now_holds_twenty_eight_voices_and_the_first_twenty_are_unchanged():
+def test_the_registry_now_holds_thirty_four_voices_and_the_first_twenty_are_unchanged():
     """Sixteen at Phase 10; v0.6.5 Phase 2 then removed the two multilingual
     Edge rows entirely (fourteen), then approved the original Male 3 candidate
     and Male 4 (sixteen) — the maintainer's final ruling rejected only the
     bounded pitch-retry variant of Male 3, not the voice itself. Decision B (2026-10-19)
     then added four Kokoro rows inside the Kokoro block (twenty). v0.6.7 CP6 appended the eight Qwen3 rows after
-    them (twenty-eight); the twenty before them are pinned unchanged by the tests below."""
-    assert len(vr.VOICES) == 28
+    them (twenty-eight), and v0.8.0 the six OmniVoice rows after those (thirty-four); the twenty before them are pinned
+    unchanged by the tests below."""
+    assert len(vr.VOICES) == 34
     assert [e.backend for e in vr.VOICES[:20]] == ["edge"] * 5 + ["kokoro"] * 9 + ["chatterbox"] * 6
 
 
@@ -303,26 +304,29 @@ def test_the_default_voice_is_still_steffan():
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
 
 
-def test_the_dropdown_offers_the_fourteen_then_the_six_then_the_eight_qwen3():
+def test_the_dropdown_offers_the_fourteen_then_the_six_then_the_eight_qwen3_then_the_six_omnivoice():
     labels = vr.display_labels()
-    assert len(labels) == 28 == len(set(labels))
+    assert len(labels) == 34 == len(set(labels))
     assert labels[14:20] == [label for _voice_id, label in APPROVED] + [
         "Chatterbox - Male 3", "Chatterbox - Male 4"]
-    assert labels[20:] == ["Qwen3 - Aiden", "Qwen3 - Ryan", "Qwen3 - Female 1", "Qwen3 - Female 2",
-                           "Qwen3 - Male 1", "Qwen3 - Male 2", "Qwen3 - Male 3", "Qwen3 - Male 4"]
+    assert labels[20:28] == ["Qwen3 - Aiden", "Qwen3 - Ryan", "Qwen3 - Female 1", "Qwen3 - Female 2",
+                             "Qwen3 - Male 1", "Qwen3 - Male 2", "Qwen3 - Male 3", "Qwen3 - Male 4"]
+    assert labels[28:] == ["OmniVoice - Female 1", "OmniVoice - Female 2", "OmniVoice - Male 1", "OmniVoice - Male 2",
+                           "OmniVoice - Male 3", "OmniVoice - Male 4"]
 
 
-def test_the_registry_source_declares_exactly_twenty_eight_rows():
+def test_the_registry_source_declares_exactly_thirty_four_rows():
     """An AST count, so a commented-out or duplicated row cannot creep in."""
     tree = ast.parse(module_source(TTS_DIR / "voice_registry.py"))
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 28
+    assert len(rows) == 34
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
     assert backends[:14] == ["edge"] * 5 + ["kokoro"] * 9
     assert backends[14:20] == ["chatterbox"] * 6
-    assert backends[20:] == ["qwen3"] * 8
+    assert backends[20:28] == ["qwen3"] * 8
+    assert backends[28:] == ["omnivoice"] * 6
 
 
 def test_the_registry_imports_no_engine_module():

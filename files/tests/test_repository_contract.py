@@ -330,9 +330,10 @@ def test_the_config_gate_fails_malformed_toml(tmp_path):
 def test_the_application_version_is_unchanged():
     from shared.version import VERSION
 
-    # v0.7.2 release-candidate identity, set with config.toml and the other identity pins at the Phase 8 checkpoint
-    # (ACT72-049; was 0.7.1). This pins application identity; it does not assert publication.
-    assert VERSION == "0.7.2"
+    # v0.8.0 release-candidate identity, set with config.toml and the other identity pins at the v0.8.0 Phase 4
+    # checkpoint (was 0.7.3, released; this pin still said 0.7.2). This pins application identity; it does not assert
+    # publication.
+    assert VERSION == "0.8.0"
 
 
 def test_the_launcher_carries_no_cleanup_behaviour():

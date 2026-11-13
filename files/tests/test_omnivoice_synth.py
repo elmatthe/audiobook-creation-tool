@@ -484,3 +484,49 @@ def test_the_panel_asks_the_omnivoice_seam_and_never_crashes_on_it(monkeypatch):
     monkeypatch.setattr(ov, "voice_availability", broken)
     ok, reason = gui.omnivoice_status("omnivoice-male-4")
     assert not ok and "disk on fire" in reason and "Every other voice is unaffected" in reason
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.0 Phase 4: the manual-listening sample helper's OmniVoice route
+# --------------------------------------------------------------------------- #
+def test_the_sample_helper_narrates_an_omnivoice_voice_through_the_production_path_with_v1(tmp_path, monkeypatch):
+    from tts import generate_voice_samples as gvs
+    from tts.voice_registry import VOICES
+
+    voice = next(v for v in VOICES if v.voice_id == "omnivoice-female-2")
+    calls: list = []
+
+    def fake(source, output, voice_id, **kwargs):
+        calls.append({"source": Path(source), "text": Path(source).read_text(encoding="utf-8"), "output": Path(output),
+                      "voice_id": voice_id, **kwargs})
+        Path(output).write_bytes(b"mp3")
+
+    monkeypatch.setattr(osy, "omnivoice_file_to_mp3", fake)
+    dest = tmp_path / "out" / "OmniVoice Female 2.mp3"
+    dest.parent.mkdir()
+    gvs._synthesize_for_voice(voice, "Built in 1905, restored by 1999.", dest, log=lambda m: None)
+    (call,) = calls
+    assert call["voice_id"] == "omnivoice-female-2" and call["output"] == dest and dest.read_bytes() == b"mp3"
+    assert call["text"] == "Built in 1905, restored by 1999."
+    assert call["source"].parent == dest.parent, "the source text stays inside the output folder, never the system temp"
+    assert not call["source"].exists(), "the source text is removed afterwards"
+    assert (call["chunk_pause_ms"], call["end_silence_ms"], call["bitrate"]) == (700, 0, "192k")
+    snapshot = call["speech_prep"]
+    assert snapshot.enabled and snapshot.setting == SETTING_V1, "a listening sample hears the prepared text, never 'off'"
+    assert snapshot.modes_for("omnivoice") == build_snapshot(SETTING_V1, user_dir=None).modes_for("omnivoice")
+
+
+def test_the_sample_helper_removes_its_source_text_when_the_engine_fails(tmp_path, monkeypatch):
+    from tts import generate_voice_samples as gvs
+    from tts.voice_registry import VOICES
+
+    voice = next(v for v in VOICES if v.voice_id == "omnivoice-male-4")
+
+    def failing(source, output, voice_id, **kwargs):
+        raise ov.OmniVoiceUnavailable("not installed here")
+
+    monkeypatch.setattr(osy, "omnivoice_file_to_mp3", failing)
+    dest = tmp_path / "Male 4.mp3"
+    with pytest.raises(ov.OmniVoiceUnavailable):
+        gvs._synthesize_omnivoice(voice, "Text.", dest, log=lambda m: None)
+    assert not list(tmp_path.iterdir()), "no source text and no MP3 are left behind"

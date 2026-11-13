@@ -1401,7 +1401,7 @@ def test_the_panel_reimplements_no_engine_and_changes_no_timing_default():
     assert batch_convert.PDF_MAX_RETRIES == 2
     assert batch_convert.CHUNK_MAX_RETRIES == 5
     assert batch_convert.INTER_CHUNK_DELAY_SEC == 0.8
-    assert len(vr.VOICES) == 28
+    assert len(vr.VOICES) == 34  # 28 plus the six OmniVoice rows (v0.8.0)
     assert vr.DEFAULT_VOICE_LABEL == vr.display_labels()[0]
 
 

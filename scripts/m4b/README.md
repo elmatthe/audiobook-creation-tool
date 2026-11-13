@@ -11,6 +11,7 @@ Three launcher tiles, one sub-package each, plus the M4B code they share (the mo
 | `m4b_execution.py` | Running one planned segment, and stopping it |
 | `m4b_continuous.py` | The Converter's one-decode split route: a book decoded once, each chapter cut at exact sample positions |
 | `m4b_chapters.py` | Chapter vocabulary |
+| `m4b_nero.py` | The Converter's Nero chapter recovery (v0.7.3): reads one independently stored Nero table only after strict validation refused the primary list, and writes the recovered navigation into a Whole output |
 | `m4b_naming.py` | One chapter title → one safe output filename |
 | `m4b_winaudio.py` | Windows Media Foundation decoding, for what ffmpeg cannot read |
 | `m4b_staging.py` | Private staging and atomic publication (Maker and Metadata Editor) |

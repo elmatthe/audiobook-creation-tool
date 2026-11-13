@@ -1787,7 +1787,7 @@ def test_no_engine_module_changed_and_no_timing_default_moved():
 
     assert vr.DEFAULT_VOICE_LABEL == "Edge Male - Steffan (en-US)"
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
-    assert len(vr.VOICES) == 28
+    assert len(vr.VOICES) == 34  # 28 plus the six OmniVoice rows (v0.8.0)
 
 
 def test_the_panel_reimplements_no_engine():

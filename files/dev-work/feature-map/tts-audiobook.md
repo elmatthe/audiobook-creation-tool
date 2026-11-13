@@ -8,8 +8,8 @@ The TTS Audiobook tool turns PDF and TXT files into one MP3 per file. The person
 chooses a voice, bitrate and worker count (Voice & Audio), and presses Start (Output & Run); progress, failures and the
 engines' own output appear in Activity. Each run writes into its own numbered folder under
 `TTS-Audiobook-Outputs`. A file added directly is narrated by the Edge chapter engine and lands flat; a file found under
-an added folder is narrated by the Edge chunked route and mirrors its folder. Kokoro, Chatterbox and Qwen3 voices use the
-same run, queue and output rules, with their own synthesis (described in the tts-engines section). The panel lives in
+an added folder is narrated by the Edge chunked route and mirrors its folder. Kokoro, Chatterbox, Qwen3 and (v0.8.0)
+OmniVoice voices use the same run, queue and output rules, with their own synthesis (described in the tts-engines section). The panel lives in
 `scripts/tts/epub2tts_gui.py` (`TtsPanel`, `_RunContext`, `RunPublisher`); the Edge routes in
 `scripts/tts/epub2tts_edge/` and `scripts/tts/batch_convert.py`; run safety in `publication.py`, `worker_limits.py`,
 `disk_assembly.py`, `ffmpeg_watch.py`, `edge_requests.py` and `edge_failures.py`; naming in `output_names.py`; text in
@@ -33,8 +33,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Choose a voice; registered is not the same as available
 `ACT.TTS.VOICE`
 
-- **Purpose:** one dropdown for all 28 voices (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3), with an honest answer about
-  whether the chosen one can run on this computer.
+- **Purpose:** one dropdown for all 34 voices (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3 and, appended in their own group
+  in v0.8.0, 6 OmniVoice), with an honest answer about whether the chosen one can run on this computer.
 - **How to reach it:** Voice dropdown in Voice & Audio. It starts on "Edge Male - Steffan (en-US)".
 - **States:** selecting a voice shows its engine line, the one speed or rate control its engine supports (Edge rate,
   Kokoro speed, or none), any notice, and a red status line when it cannot run here. Availability is asked again at
@@ -127,7 +127,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Install a missing voice and continue the same run
 `ACT.TTS.INSTALL-AND-CONTINUE`
 
-- **When it appears:** Start with a Kokoro, Chatterbox or Qwen3 voice whose files are not installed (but could be).
+- **When it appears:** Start with a Kokoro, Chatterbox, Qwen3 or OmniVoice voice whose files are not installed (but
+  could be).
 - **Behaviour:** the run is frozen first; the modal "Install & Continue" window lists exactly what will be downloaded,
   and only its Install Selected Components button installs anything. After a successful install the voice is checked
   again and the same run starts once. Nothing is reserved before that.
@@ -161,7 +162,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 ### Local-engine files in the shared run
 `ACT.TTS.LOCAL-ROUTE`
 
-- **Behaviour:** a Kokoro, Chatterbox or Qwen3 run is the same run as an Edge one; only the synthesis call differs. A
+- **Behaviour:** a Kokoro, Chatterbox, Qwen3 or OmniVoice run is the same run as an Edge one; only the synthesis call
+  differs. A
   PDF goes through the same extractor; a destination that could not be published is refused before any model loads;
   the engine writes to a private scratch file that is then published. One file at a time.
 - **Note:** the engines themselves, their installs and their real synthesis belong to the tts-engines features.
@@ -235,7 +237,8 @@ same run, queue and output rules, with their own synthesis (described in the tts
 - **How to reach it:** no panel control. The `tts.speech_prep` configuration key (`off` or `v1`, default `v1`); optional
   `glossary.user.json` and `modes.user.json` in `files/runtime-data/speech`.
 - **Behaviour:** read and validated once at Start and kept with the run, so edits during a run or before Retry Failed do
-  not reach it. Each engine expands only the classes its table cells allow (set from the owner's G1 listening verdicts);
+  not reach it. Each engine expands only the classes its table cells allow (set from the owner's G1 listening verdicts;
+  OmniVoice, added in v0.8.0, has its own route and a provisional all-expand row awaiting the owner's listening);
   protected spans and `Title:`/`Author:`/`#` markers are never changed. Every rewrite is proved to rebuild the source;
   if a proof fails, that file is spoken unchanged and Detailed says so. A broken user file adds one note and nothing
   else. Detailed shows edit counts, tokens left unchanged and examples with line numbers.
@@ -441,7 +444,7 @@ same run, queue and output rules, with their own synthesis (described in the tts
 
 ## TTS Audiobook: local speech engines and their setup
 
-The TTS Audiobook tool can narrate with three optional local engines besides the online Edge voices: **Kokoro** (nine voices, in the app's own Python environment), **Chatterbox Turbo** (six cloned voices, also in-process) and **Qwen3-TTS** (two preset voices and six cloned voices, in a separate engine environment, one worker process per file). None of them is installed by default. Their models are acquired only through a consented setup: **Install & Continue** in the TTS panel, the **first-run setup** (setup group), or for Qwen3 also the **Install / repair Qwen3 voices** dialog. Once installed they run offline.
+The TTS Audiobook tool can narrate with four optional local engines besides the online Edge voices: **Kokoro** (nine voices, in the app's own Python environment), **Chatterbox Turbo** (six cloned voices, also in-process), **Qwen3-TTS** (two preset voices and six cloned voices, in a separate engine environment, one worker process per file) and, since v0.8.0, **OmniVoice** (six cloned voices, in its own `.venv-omnivoice`, bounded worker processes per file). None of them is installed by default. Their models are acquired only through a consented setup: **Install & Continue** in the TTS panel, the **first-run setup** (setup group), or for Qwen3 also the **Install / repair Qwen3 voices** dialog. Once installed they run offline.
 
 The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qwen3_synth.py` / `qwen3_worker.py` / `qwen3_process.py` / `qwen3_runtime.py`. The setup path is `optional_setup.py` (planner), `optional_setup_acquire.py` (acquirer), `optional_setup_lifecycle.py` and `optional_setup_worker.py` (the setup worker), `optional_setup_health.py` (probes), `model_assets.py` (pinned identities) and, for Qwen3, `qwen3_setup.py`, `qwen3_wheels.py`, `qwen3_package_manifest.py` and `qwen3_install_ui.py`. `voice_install.py` tells the panel whether a voice is installed. The v3 modules (`optional_setup_authority.py`, the `*_v3.py` workers, `qwen3_engine_authority.py`, `qwen3_packages.py`, `spacy_consumer.py`) and the sample harness (`generate_voice_samples.py`, `quality_corpus.py`) are not reachable by users. The TTS panel itself, the Edge engine and the general run workflow belong to tts-core.
 
@@ -495,11 +498,22 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **States and failures:** a lock is either free or held. A refusal is immediate and comes with a sentence such as "being installed or repaired", "being used by a conversion right now", or the machine-busy or permission-denied message, and nothing is started. The operating system releases every lock if its holder crashes.
 - **Differences:** Kokoro and Chatterbox have no lock shared across copies of the app.
 
+### OmniVoice cloned-voice narration (v0.8.0)
+`ACT.TTS.ENGINE.OMNIVOICE`
+
+- **Purpose:** narrates in one of six cloned voices ("OmniVoice - Female 1" to "OmniVoice - Male 4") with the OmniVoice model, each conditioned on its own owner-curated recording and owner-written transcript.
+- **How to reach it:** choose an "OmniVoice - ..." voice and press Start. There is no speed, rate or engine-specific setting.
+- **States:** Windows with an NVIDIA GPU only. Ready when the engine environment (with the installer's receipt), the model and the voice's own recording and transcript check out; otherwise the voices say why, and Install & Continue is offered only where installing would help.
+- **Inputs and outputs:** each file is prepared once in the app with the run's speech-preparation snapshot, then planned into whole-sentence chunks of at most 300 characters that never cross a paragraph. A worker process in `.venv-omnivoice` renders at most 48 chunks and a longer book uses fresh workers, so GPU memory cannot build up over a book. The worker is offline (network refused, no hub, no speech recognizer) and never normalizes the text again. Chunk audio is read back in plan order, checked, joined with the paragraph pause between chunks only, encoded once and moved into place in one step. The job folder under `files/runtime-data/omnivoice/jobs` holds the person's text and is always removed.
+- **Failure, cancel, retry:** a failure names its stage (loading, generating, out of GPU memory, a worker that died or stalled) and leaves any existing output untouched. Cancel asks the worker to stop and kills its process tree after a short grace period, in the middle of a chunk or during the encode; nothing partial is published. A retry renders the same chunks with the same seeds.
+- **Differences:** like Qwen3, it runs out of process in its own environment; unlike Qwen3, a long file is split across bounded workers. Its model weights are non-commercial (CC-BY-NC). The six voices have no preview in the 28-voice preview gallery.
+- **Known limitation:** two different copies of the app can still run Qwen3 and OmniVoice on the GPU at the same time; each engine guards only its own model.
+
 ### Local engines convert one file at a time
 `ACT.TTS.ENGINE.LOCAL-ONE-WORKER`
 
 - **Purpose:** keeps the local engines safe and within memory. Their cached model objects cannot be shared, and a second Qwen3 file would double several gigabytes of GPU or RAM use.
-- **Behaviour:** whatever the Workers box asks (up to 100), a Kokoro, Chatterbox or Qwen3 run converts exactly one file at a time. The run log says "Worker limit: <engine> converts one file at a time."
+- **Behaviour:** whatever the Workers box asks (up to 100), a Kokoro, Chatterbox, Qwen3 or OmniVoice run converts exactly one file at a time. The run log says "Worker limit: <engine> converts one file at a time."
 - **Differences:** Edge runs many files at once, limited by its service ceiling, the processor count and memory.
 
 ### Local engines never download at narration time
@@ -507,6 +521,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 
 - **Purpose:** choosing a voice and pressing Start never downloads anything.
 - **Behaviour:** Kokoro and Chatterbox load only the pinned, verified local files. If one is missing, the wrong size or the wrong checksum, the run is refused and told "Nothing was downloaded" rather than letting the library fetch it. A Kokoro voice with no pinned file is refused. A missing spaCy English model is refused before Kokoro's pronunciation library could install one itself. Chatterbox loads from the pinned commit's folder only. The Qwen3 worker runs with the model hub offline and every cache inside the app folder.
+- **OmniVoice (v0.8.0):** its worker closes the network before anything heavy loads (an audit hook refuses any non-loopback access), runs with the hub and transformers offline and every cache inside the app folder, and never loads a speech recognizer.
 - **Recovery:** Install & Continue or the first-run setup.
 
 ### Installed or missing: local voice availability
@@ -516,10 +531,10 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **How to reach it:** asked when a voice is selected and again at Start. The answer appears as the voice status line.
 - **States:**
   - ready;
-  - not installed, which can be fixed by installing one of four components: Kokoro, Chatterbox, Qwen3 CustomVoice or Qwen3 Base;
+  - not installed, which can be fixed by installing one of five components: Kokoro, Chatterbox, Qwen3 CustomVoice, Qwen3 Base or OmniVoice;
   - damaged or partly installed;
   - unavailable for a reason installing cannot fix, such as a missing recording, an unsupported platform or a busy engine.
-- **Behaviour:** the checks read files only. They load no model, download nothing, write nothing and never raise an error. Qwen3 checks the platform, then the engine, then the model, then the clone's recording and transcript, and each reason names one next step. One unavailable voice never affects another voice or engine, and is never swapped for a different voice.
+- **Behaviour:** the checks read files only. They load no model, download nothing, write nothing and never raise an error. Qwen3 and OmniVoice check the platform, then the engine, then the model, then the clone's recording and transcript (OmniVoice also needs an NVIDIA GPU), and each reason names one next step. One unavailable voice never affects another voice or engine, and is never swapped for a different voice.
 - **Persistence:** Chatterbox remembers its answer per process until the recording's size or time stamp changes.
 - **Differences:** Edge voices are never checked. Kokoro and Chatterbox call any file that is not ready "not installed", while Qwen3 distinguishes missing, partly installed and damaged.
 - **Machine state in tests (v0.7.2 Phase 5):** the panel's Kokoro/Chatterbox check (`voice_install.models_status`) runs unreplaced against real stand-in files in every state (ACT72-057's first half), and the Qwen3 panel tests state the installed and fresh-install machine explicitly instead of reading the machine they run on (ACT72-008). Simulated readiness is asset health, never engine qualification.
@@ -528,9 +543,11 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 `ACT.TTS.VOICE-CLONE-REFERENCES`
 
 - **Purpose:** keeps the cloned voices tied to the exact approved recordings and transcripts that ship with the app.
+- **Layout (v0.8.0):** each cloned engine has its own six recordings, exactly 18 tracked WAVs in `files/Cloned-Voice-Uploads/<Engine>/<Engine> - <Voice>.wav`, listed with their checksums, formats, lengths and (for Chatterbox and OmniVoice) owner-written transcripts in `scripts/tts/data/clone_references.json`. Qwen3 keeps the six original recordings byte for byte (only renamed). Nothing sits loose at the folder's root.
 - **Behaviour:** a recording is used only if it matches its registered checksum. A missing or changed recording blocks only its own voice, and is never replaced by a download or by another voice. Qwen3 clones narrate with the six approved transcripts shipped with the app. A damaged bundle blocks the six clones and tells the user to extract a fresh copy of the app. It never falls back to a local store.
 - **Outputs:** the shipped recordings are never written. Derived clips and cached voice conditioning live under `files/runtime-data` and are rebuilt when their source, engine or settings change. A Qwen3 clone job works from a verified copy of the recording, padded with silence, inside its job folder.
-- **Differences:** Chatterbox and Qwen3 clones share one recording per speaker. Only Qwen3 also needs a transcript.
+- **OmniVoice:** each voice is conditioned on its own whole recording (at most 10 seconds; the one owner exception is Male 1, 10.227 s, bound to its exact checksum and length) with its owner-written transcript. A recording or transcript that is not the approved pair fails closed, and the cached clone prompt is keyed by every input that shapes it, so a changed recording, transcript or model never reuses an old one.
+- **Differences:** since v0.8.0 every cloned engine has its own recordings (earlier, Chatterbox and Qwen3 shared one per speaker). Qwen3 and OmniVoice use a transcript; Chatterbox's is checked metadata only.
 
 ### Install the Kokoro voices
 `ACT.TTS.SETUP.KOKORO`
@@ -588,10 +605,20 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Behaviour:** drafts are made locally and saved unapproved. An approval needs the tick and some text, and is tied to the recording's checksum. Narration keeps using the shipped transcripts unless the developer confirms a choice for a voice.
 - **Persistence:** a local, untracked store and a selection file under `files/runtime-data/qwen3`. Neither ships with the app.
 
+### Install, adopt or repair the OmniVoice engine (v0.8.0)
+`ACT.TTS.SETUP.OMNIVOICE`
+
+- **How to reach it:** tick **OmniVoice — Six Cloned Voices** (the fifth choice, last and unchecked) in the first-run setup, or choose an OmniVoice voice and press Start for Install & Continue. There is no separate installer, button or launcher.
+- **Consent:** the review lists what will be downloaded and the licence and hardware terms (Apache-2.0 code; CC-BY-NC non-commercial model weights; the audio tokenizer's Boson Higgs Audio 2 Community License, its attribution and its 100,000 annual active-user threshold) before Install. **View licence terms** opens each text at its pinned revision; reading them is never a consent.
+- **What is acquired:** the 88 pinned wheels and the 11 model files, each by URL, size and SHA-256 (about 6.9 GB to download, about 11.6 GB on disk). pip installs only those wheels, offline. Success needs a proof in the new environment: pinned versions, isolation, imports, a CUDA kernel and an offline model load. Only then is `files/runtime-data/omnivoice/install-receipt.json` written; readiness requires it.
+- **Adoption:** an environment that already holds exactly the pinned set, isolated and built from the app's own Python, is checked by the same proof and adopted without downloading, rebuilding or changing anything.
+- **Failure, cancel, repair:** Cancel at any step records nothing. A GPU, memory, timeout or busy failure rejects nothing; Smart App Control first-load refusals are retried. A broken environment is set aside whole under `files/runtime-data/omnivoice/set-aside` and rebuilt only under repair consent; only an environment the app's own receipt says it left unfinished is ever removed. No NVIDIA GPU makes the component unsupported.
+- **States:** ready, missing, unchecked (planned as a check-and-adopt that downloads nothing), damaged, unsupported, busy, unverified.
+
 ### Optional voice setup plan and disclosure
 `ACT.TTS.SETUP.PLAN`
 
-- **Purpose:** answers, before anything is downloaded, what each of the four components needs here and what it would cost. This is what Install & Continue and the first-run setup show for review.
+- **Purpose:** answers, before anything is downloaded, what each of the five components needs here and what it would cost. This is what Install & Continue and the first-run setup show for review.
 - **States:** each component is ready, missing, damaged, unsupported, busy, blocked by a bad transcript bundle, or unverified. Only missing (install) and damaged (repair) plan any download.
 - **Outputs:** what would be downloaded, reused, copied, occupied and needed as temporary space. Files shared by the Qwen3 models are counted once. Each figure says how it is known, and unknown is never counted as zero.
 - **Behaviour:** planning writes nothing and starts no process. The first-run estimate is a stated upper bound that proves nothing.
@@ -636,21 +663,21 @@ Scoped wheel consumption, engine-change authority and a disposable spaCy consume
 ### Voice sample and quality harness (developer)
 `ACT.TTS.VOICE-QA-SAMPLES` (not required for release)
 
-A command-line tool that is never imported by the app. It makes one sample per voice for manual listening, plus the Chatterbox evaluations, a quality suite over original test text, and final-acceptance measurements. One failing voice never stops the others.
+A command-line tool that is never imported by the app. It makes one sample per voice for manual listening (34 since v0.8.0), plus the Chatterbox evaluations, a quality suite over original test text, and final-acceptance measurements. One failing voice never stops the others. An OmniVoice sample goes through the production source-to-MP3 path with the `v1` speech-preparation snapshot (v0.8.0 Phase 4).
 
 ### Intentional differences from other tools
 
-- Only Kokoro has a speed control. Chatterbox and Qwen3 have neither speed nor rate.
+- Only Kokoro has a speed control. Chatterbox, Qwen3 and OmniVoice have neither speed nor rate.
 - The local engines are capped at one file at a time. Edge runs many at once.
-- Qwen3 runs out of process in its own environment and can be killed mid-chunk. Kokoro and Chatterbox run in-process and stop between chunks.
+- Qwen3 and OmniVoice run out of process in their own environments and can be killed mid-chunk. Kokoro and Chatterbox run in-process and stop between chunks.
 - Qwen3 has its own install/repair dialog. Kokoro and Chatterbox are installed only through Install & Continue or the first-run setup.
 - Only Kokoro installs a Python package (the spaCy English model) into the app's own environment.
 - Kokoro and Chatterbox report any non-ready model file as "not installed". Qwen3 distinguishes missing, partly installed and damaged.
 
 ### Not verified here
 
-- Real synthesis with installed Kokoro, Chatterbox and Qwen3 models, and real downloads from the pinned sources. These need the optional-engines qualification; routine tests use stand-ins. The `tts.kokoro-local` journey runs only where Kokoro is installed.
+- Real synthesis with installed Kokoro, Chatterbox, Qwen3 and OmniVoice models, and real downloads from the pinned sources. These need the optional-engines qualification; routine tests use stand-ins. The `tts.kokoro-local` journey runs only where Kokoro is installed.
 - Windows Application Control on a fresh machine blocking the first load of new native files (fresh-windows qualification).
-- Listening quality of every local voice (owner).
+- Listening quality of every local voice (owner), including the six OmniVoice voices (the v0.8.0 Phase 4 listening pack, pending the owner).
 - Qwen3 on any platform other than Windows (refused by design), and Chatterbox on Apple MPS.
 - Real GPU memory pressure and machine-wide Qwen3 contention between two Windows users.

@@ -27,6 +27,19 @@ First run opens a setup window. Choose the voices you want installed on this com
 
 You can add a voice later: in **TTS Audiobook**, choose it and press **Create**. If it is not installed yet, **Install & Continue** shows the same review screen and, once the voice is installed and checked, starts that conversion; Skip or Cancel starts nothing.
 
+## In development: v0.8.0 with OmniVoice (not released)
+
+The `feature/0.8.0-omnivoice-integration` branch adds a fifth optional voice engine. **It is not released and there is no v0.8.0 download:** the owner's listening approval, an independent review and the final verification gate are still pending.
+
+- **Six OmniVoice cloned voices:** OmniVoice - Female 1, Female 2, Male 1, Male 2, Male 3 and Male 4, each cloned from its own bundled recording (at most 10 seconds; Male 1's is 10.2 seconds) and the owner's transcript of it. They follow the other voices in TTS Audiobook (34 voices in all). They have no preview samples yet.
+- **A fifth first-run choice, unchecked:** *OmniVoice — Six Cloned Voices* (about 6.9 GB to download and about 11.6 GB on disk, in its own `.venv-omnivoice` environment inside the app folder). It can also be added later with **Install & Continue**. Nothing is downloaded until you press **Install Selected Components**, and the review screen shows the licence terms first (**View licence terms** opens each licence text).
+- **Hardware:** Windows with an NVIDIA graphics card (GPU) only; it does not run on the processor alone. It was tested on one computer (an RTX 5070), where narration used about 2 to 2.5 GB of graphics memory (up to about 4.6 GB the first time each voice is used) and ran several times faster than real time. Other cards are not promised.
+- **Non-commercial:** the OmniVoice model weights are licensed CC-BY-NC, **non-commercial use only**. Installing OmniVoice does not give you the right to make commercial audiobooks or to sell or monetise audio made with these voices. The program code is Apache-2.0. The audio tokenizer it needs has its own licence, the Boson Higgs Audio 2 Community License, based on the Meta Llama 3 Community License: the Llama 3 Acceptable Use Policy applies, its outputs may not be used to improve any other large language model, and a product or service with more than 100,000 annual active users in the preceding calendar year needs an expanded licence from Boson AI. The model card also forbids unauthorised voice cloning, impersonation and fraud. This app never ships the weights or the tokenizer: your own installation downloads them, with their licence files, from one pinned revision. This summary is not legal advice.
+- **Speech preparation:** OmniVoice uses the app's existing speech preparation (`tts.speech_prep`, default `v1`), with every number, date, time, currency, unit, title, Roman-numeral and symbol rule expanded for now, pending the owner's listening review; `off` still reads the text as written.
+- **Nothing changes for the other engines:** Edge, Kokoro, Chatterbox and Qwen3 keep working without OmniVoice and need no new download. Each cloned engine now has its own six bundled recordings (`files/Cloned-Voice-Uploads/Chatterbox`, `Qwen3` and `OmniVoice`); Qwen3 keeps its original recordings unchanged.
+
+Attribution required by the audio tokenizer's licence (section 1.b.i, quoted as the pinned licence words it): "Built with Higgs Materials licensed from Boson AI USA, Inc., Copyright Boson AI USA, Inc., All Rights Reserved and Meta Llama 3 licensed under the Meta Llama 3 Community License, Copyright Meta Platforms, Inc., All Right Reserved".
+
 ## What's new in v0.7.3
 
 - Fixed M4B Converter failures caused by conflicting QuickTime and Nero chapter metadata.

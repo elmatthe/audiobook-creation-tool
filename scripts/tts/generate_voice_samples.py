@@ -162,6 +162,8 @@ def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] =
             qwen3_file_to_mp3(tmp_path, str(dest), voice_id=v.voice_id, log=log)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+    elif v.backend == "omnivoice":
+        _synthesize_omnivoice(v, text, dest, log)
     elif v.backend == "edge":
         import asyncio
 
@@ -173,6 +175,43 @@ def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] =
         asyncio.run(_speak())
     else:
         raise ValueError(f"No sample path for backend {v.backend!r} ({v.voice_id}).")
+
+
+#: The MP3 bitrate a TTS run starts with in the panel (``TtsPanel.bitrate_var``): an OmniVoice sample is the file a
+#: person would get from Create with the defaults.
+OMNIVOICE_SAMPLE_BITRATE = "192k"
+
+
+def omnivoice_speech_prep():
+    """The production default ``v1`` snapshot, built the way the panel builds it at Create (the bundled mode table and
+    glossary plus the person's own glossary and mode files, if any). v0.8.0 Phase 4: an OmniVoice listening sample must
+    hear the prepared text, never the raw ``off`` text the other sample routes still pass (plan section 2)."""
+    from tts.speech.pipeline import SETTING_V1, build_snapshot
+
+    return build_snapshot(SETTING_V1, user_dir=paths.RESOURCES_DIR / "speech")
+
+
+def _synthesize_omnivoice(v, text: str, dest: Path, log: Callable[[str], None] = print, *, speech_prep=None,
+                          bitrate: str = OMNIVOICE_SAMPLE_BITRATE, **seams) -> None:
+    """One OmniVoice sample through the production source-to-MP3 path (v0.8.0 Phase 4).
+
+    ``omnivoice_file_to_mp3`` with the voice's own timing preset (paragraph pause, no closing pause), the panel's
+    default bitrate and the ``v1`` snapshot, from a plain-text source written beside *dest* (inside the output folder,
+    never the system temp folder) and removed afterwards. ``seams`` passes further keyword arguments to the entry point
+    (``cancel_check``, or the ``encoder`` seam) so a QA harness can observe or cancel a run without changing it.
+    """
+    from tts.omnivoice_synth import omnivoice_file_to_mp3
+
+    dest = Path(dest)
+    preset = v.timing_preset
+    source = dest.with_name(dest.stem + ".source.txt")
+    source.write_text(text, encoding="utf-8")
+    try:
+        omnivoice_file_to_mp3(str(source), str(dest), v.voice_id, end_silence_ms=int(preset["end_pause"]),
+                              chunk_pause_ms=int(preset["paragraphpause"]), log=log, bitrate=bitrate,
+                              speech_prep=omnivoice_speech_prep() if speech_prep is None else speech_prep, **seams)
+    finally:
+        source.unlink(missing_ok=True)
 
 
 @dataclass

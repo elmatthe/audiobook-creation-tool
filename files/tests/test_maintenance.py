@@ -1144,9 +1144,9 @@ def test_phase_six_added_no_output_or_tool_behaviour():
 def test_the_application_version_is_still_unchanged():
     from shared.version import VERSION
 
-    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # v0.8.0 Phase 4 release-candidate identity (v0.7.3 was released; this pin had not moved past 0.7.2).
     # This pins the application version without asserting publication.
-    assert VERSION == "0.7.2"
+    assert VERSION == "0.8.0"
 
 
 def test_no_test_in_this_module_measures_the_real_repository():

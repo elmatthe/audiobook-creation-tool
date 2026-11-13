@@ -59,7 +59,8 @@ def _tree(path: Path) -> ast.Module:
 def test_the_backend_literal_admits_chatterbox_and_the_v067_qwen3_backend():
     import typing
 
-    assert set(typing.get_args(voice_registry.BACKEND)) == {"edge", "kokoro", "chatterbox", "qwen3"}
+    # v0.8.0 Phase 2 widened it once more, for OmniVoice; nothing was removed or renamed.
+    assert set(typing.get_args(voice_registry.BACKEND)) == {"edge", "kokoro", "chatterbox", "qwen3", "omnivoice"}
 
 
 def test_a_chatterbox_preset_helper_exists_beside_the_other_two():
@@ -154,7 +155,8 @@ DECISION_B_KOKORO = [
     ("bm_daniel", "Kokoro Male - Daniel (en-UK)", "Kokoro Local AI — British English"),
 ]
 
-#: The complete registry order after v0.6.7 CP6: five Edge, nine Kokoro, six Chatterbox, then eight Qwen3 appended.
+#: The complete registry order: five Edge, nine Kokoro, six Chatterbox, then eight Qwen3 appended (v0.6.7 CP6), then six
+#: OmniVoice appended after every earlier row (v0.8.0 Phase 2).
 REGISTRY_ORDER = [
     "en-US-SteffanNeural", "en-US-AndrewNeural", "en-US-AriaNeural", "en-US-AvaNeural", "en-US-JennyNeural",
     "af_heart", "af_bella", "am_michael", "am_fenrir", "am_puck", "am_onyx", "bf_emma", "bm_george", "bm_daniel",
@@ -162,6 +164,8 @@ REGISTRY_ORDER = [
     "chatterbox-male-3", "chatterbox-male-4",
     "qwen3-aiden", "qwen3-ryan", "qwen3-female-1", "qwen3-female-2",
     "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4",
+    "omnivoice-female-1", "omnivoice-female-2", "omnivoice-male-1", "omnivoice-male-2",
+    "omnivoice-male-3", "omnivoice-male-4",
 ]
 
 
@@ -172,8 +176,9 @@ def _by_id(voice_id):
 def test_the_ten_pre_existing_rows_are_all_still_present_in_their_original_relative_order():
     """Phase 10 appended; v0.6.5 Phase 2 removed two multilingual Edge rows and appended Male 3 and Male 4;
     v0.6.7 Decision B then added four Kokoro rows INSIDE the Kokoro block. None of that displaced, re-ordered or
-    replaced an original row: the ten are identified by voice id, still in their original order."""
-    assert len(voice_registry.VOICES) == 28
+    replaced an original row: the ten are identified by voice id, still in their original order. v0.8.0 appended six
+    OmniVoice rows after all of them (34 in all)."""
+    assert len(voice_registry.VOICES) == 34
     original = [expected[1] for expected in EXPECTED_VOICES]
     assert [v.voice_id for v in voice_registry.VOICES if v.voice_id in original] == original
 
@@ -234,7 +239,8 @@ def test_exactly_six_chatterbox_rows_exist_and_all_sit_after_the_edge_and_kokoro
 def test_the_eight_qwen3_rows_are_appended_after_every_earlier_row_with_the_owners_exact_labels():
     qwen3 = [v for v in voice_registry.VOICES if v.backend == "qwen3"]
     chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
-    assert voice_registry.VOICES[20:] == qwen3 and len(qwen3) == 8
+    assert voice_registry.VOICES[20:28] == qwen3 and len(qwen3) == 8
+    assert {v.backend for v in voice_registry.VOICES[28:]} == {"omnivoice"}  # v0.8.0: appended after the Qwen3 rows
     assert [(v.voice_id, v.display_label) for v in qwen3] == [
         ("qwen3-aiden", "Qwen3 - Aiden"), ("qwen3-ryan", "Qwen3 - Ryan"),
         ("qwen3-female-1", "Qwen3 - Female 1"), ("qwen3-female-2", "Qwen3 - Female 2"),
@@ -260,13 +266,14 @@ def test_the_registry_source_declares_exactly_the_rows_it_should():
     tree = _tree(TTS_DIR / "voice_registry.py")
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 28
+    assert len(rows) == 34
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
     assert backends[:5] == ["edge"] * 5
     assert backends[5:14] == ["kokoro"] * 9
     assert backends[14:20] == ["chatterbox"] * 6
-    assert backends[20:] == ["qwen3"] * 8
+    assert backends[20:28] == ["qwen3"] * 8
+    assert backends[28:] == ["omnivoice"] * 6
 
 
 # --------------------------------------------------------------------------- #
@@ -406,12 +413,13 @@ def test_ordinary_sample_generation_dispatches_on_the_voice_row_backend():
         compared.extend(c.value for c in node.comparators
                         if isinstance(c, ast.Constant) and isinstance(c.value, str))
 
-    assert set(compared) == {"edge", "kokoro", "chatterbox", "qwen3"}, (
-        "ordinary sample dispatch does not test all four backends by name")
+    assert set(compared) == {"edge", "kokoro", "chatterbox", "qwen3", "omnivoice"}, (
+        "ordinary sample dispatch does not test all five backends by name")
 
     body = ast.get_source_segment(src, fn)
     assert "chatterbox_synth" in body, (
         "the ordinary Chatterbox branch does not reach the engine module")
+    assert "_synthesize_omnivoice" in body, "the OmniVoice branch does not reach its production-path route (v0.8.0)"
     assert "edge_tts" in body and "kokoro_synth" in body
     assert "qwen3_synth" in body, "the v0.6.7 Qwen3 branch does not reach its engine module"
 

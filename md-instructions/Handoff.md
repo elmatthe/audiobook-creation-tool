@@ -1,5 +1,72 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Session 4 / Phase 4: PASS WITH OWNER LISTENING PENDING — test debt closed, identity 0.8.0, 12-track OmniVoice listening pack delivered (2026-11-13, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-13 (v0.8.0 Phase 4).
+The plan is unchanged.
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, on the accepted Phase 3 commit `68aa985b`; the Phase 4 commit is this
+  checkpoint (SHA in the session report). The owner's 17 tracked deletions and untracked files are untouched and unstaged.
+- **Status, kept apart.** Implemented: yes (Phases 1-3). Technical acceptance (Phase 4, focused): PASS. Owner listening:
+  PENDING -- none of the 12 tracks is approved. Independent review: not run (Session 5). Full gate: not run (Session 5).
+  Merge, tag, release: not authorized. Identity is now 0.8.0 (`scripts/shared/version.py`, `config.toml`); nothing is
+  published.
+- **Test debt closed (baseline before any change: 48 failed + 1 collection error in 55 focused files).** 35 roster pins now
+  assert the 34-voice runtime roster and five engine families, separately from the 28 historical previews, which stay 28
+  (`files/dev-tools/voice_previews.py` covers the four pre-v0.8.0 engines only; no OmniVoice preview was made). 9
+  current-version pins moved from 0.7.2 to 0.8.0 (historical fixtures untouched). `m4b_nero.py` (v0.7.3) is in the M4B
+  README and the Converter's own module set. `files/dev-tools/speech_ab.py`'s all-native A4 table now names every engine
+  (it raised `KeyError: 'omnivoice'` at collection; the 60 A4 pairs are unchanged). The coverage inventory is reviewed:
+  29 sources restamped after reviewing their diffs, three new features (`ACT.TTS.ENGINE.OMNIVOICE`,
+  `ACT.TTS.SETUP.OMNIVOICE`, `ACT.CONVERTER.NERO-RECOVERY`), 12 features updated, the licence window's five surfaces
+  mapped; `inventory.py check` 0 problems (276 features); every cited test id is collected (0 dead of 1,752).
+- **The numba test.** `test_p05b_isolation::test_numba_compiles_and_writes_only_the_contained_cache` fails only without
+  `-B` (CPython writes its own `__pycache__` beside the probe); under the supported `-I -B` invocation it passes. Not a
+  product defect; no change.
+- **New.** `generate_voice_samples.py` has an OmniVoice route through the production path with an explicit `v1`
+  snapshot (the panel's 192k default, the voice's preset); `files/dev-tools/omnivoice_p4_acceptance.py` makes the pack,
+  the book, cancel, smoke, installer and index runs. README carries a "v0.8.0 in development (not released)" section with
+  the non-commercial terms and the tokenizer licence's attribution; the feature maps describe the new features.
+- **Listening pack (for the owner; NOT approved):**
+  `files/test-for-manual-listen-elmatthe/omnivoice-v0.8.0-phase4/20261113-134001/` (ignored): 12 MP3s
+  (`OmniVoice <Voice> — A Natural.mp3` / `— B Normalization.mp3`), `index.md` (texts, golden expectations, checklist,
+  measurements), `index.html` (players), `report.json`. A = `quality_corpus.DIFFICULT_SHORT` verbatim (51-68 s); B = 11
+  indexed parts from `test_speech_g1.SNIPPETS` + the golden corpus covering all 15 audible classes and the negative
+  controls (151-202 s); HYG proved as text (4/4). All 12 PASS technically; prepared text reached the worker exactly once.
+- **Real-engine checks (RTX 5070, driver 610.88, model `c5fdb5cc`, offline, Hub cache empty before and after).** Book:
+  77 chunks in 2 workers (48 + 29), 15.2 min MP3, complete and in order (`files/dev-work/ov-p4/20261113-134557-book/`).
+  VRAM: allocated flat at 1,945 MiB after every chunk; reserved pool 2.0-2.9 GB, released at worker exit; first prompt
+  build peaks about 4.6 GB. Cancel (`.../20261113-135105-cancel/`): mid-inference returned 1.6 s after Cancel, mid-encode
+  (0.3 s into FFmpeg) 0.02 s, at publication 0.01 s; destination untouched, nothing left. Edge, Kokoro, Chatterbox,
+  Qwen3 smokes PASS. Installer: launch check 0, OmniVoice-alone and all-five plans ready with 0 B, no Install & Continue
+  offer, receipt unchanged. Staged (not published) Windows archive: 187 members, exactly the 18 approved WAVs by SHA-256,
+  no environment, model, cache, test output or private file (`.../20261113-134804-package/`).
+- **Peaks.** The model's own output reaches exactly 1.0 in a few samples of Male 1 (A: 4, B: 4) and Male 3 (A: 1); the
+  16-bit WAV clamps them (no wrap-around); every decoded MP3 has 0 samples at full scale (peaks -0.36 to -2.50 dBFS).
+  No correction applied: no audible defect is demonstrated. Owner to listen at the times in `index.md`.
+- **Tests (focused only; no full gate, no Codex review).** Command form `.venv\Scripts\python.exe -I -B -m pytest -q -p
+  no:cacheprovider <files>`. (1) Baseline, 55 roster/version/M4B/OmniVoice/inventory files, before any change: 3941
+  passed, 48 failed, 2 skipped, 1 collection error. (2) Final, 75 files (that set plus every changed test file, the speech
+  goldens, packaging, developer mode, dev-work isolation, worker limits, the Nero suites and the dev-tool readers): 6051
+  passed, 0 failed, 6 skipped (environmental: no symlink privilege x2, the opt-in real-model test, absent local A4/export
+  folders x2, no colliding runtime-data name). (3) The nine guarded modules through `verify.py --mode focused` (not the
+  full gate): `outputs/2026-11-13_141548_focused_f5a2` RESULT PASS, v3-planning 457 passed, v3-supervisor 75 passed,
+  coverage-inventory PASS. (4) The 24 files that read `md-instructions/` were rerun over these docs (counts in the
+  session report).
+- **Protected state.** 18 references and 28 previews byte-identical; `.venv`, Qwen3 engine and `.venv-omnivoice`
+  unchanged (same 29,714 package files); model record, install receipt and settings unchanged.
+- **Open for the owner.**
+  1. Listen to all 12 tracks and approve or reject A and B for each voice (checklist in `index.md`); every verdict is
+     NOT YET REVIEWED. Silence is not approval.
+  2. Points to judge: Male 1 / Male 3 full-scale samples (times in `index.md`); Male 2's reference ends in a soft breath;
+     "Joric" (owner transcripts) vs "Jorg" (Qwen3 bundle); the kept-as-written tokens (model-native readings).
+  3. The in-app attribution (Phase 3) writes "All Rights Reserved" twice; the licence's own text says "All Right
+     Reserved" the second time. README quotes the licence verbatim; aligning the UI string is the owner's call.
+  4. Shared planner observation: the sentence splitter takes "Apt." for a sentence end, so a chunk boundary can fall
+     inside "Apt. 4B" (avoided in the pack by paragraphing; affects every local engine using the shared planner).
+- **Next exact action.** STOP. The owner listens and decides. Session 5 only after explicit approval of both tracks of all
+  six voices and any corrections.
+
 ## Current checkpoint — v0.8.0 Session 3 / Phase 3: PASS — OmniVoice is the fifth component of the existing optional installer; the HOME-PC environment was adopted without downloading (2026-11-13, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-13 (v0.8.0 Phase

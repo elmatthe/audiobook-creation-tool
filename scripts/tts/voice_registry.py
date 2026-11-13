@@ -488,7 +488,8 @@ VOICES: list[VoiceEntry] = [
         timing_preset=_qwen3_preset(),
     ),
     # ---- v0.8.0 Phase 2: the six OmniVoice voices, ids and labels exactly as plan section 3 specifies ---- #
-    # Each is conditioned only on the reviewed excerpt of its bundled recording (tts/omnivoice_runtime.py).
+    # Each is conditioned on its own whole owner-curated recording, files/Cloned-Voice-Uploads/OmniVoice/ (owner decision
+    # 2026-11-13), with its owner-written transcript (tts/omnivoice_runtime.py).
     VoiceEntry(
         backend="omnivoice",
         voice_id="omnivoice-female-1",

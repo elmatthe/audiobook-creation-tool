@@ -75,7 +75,18 @@ QWEN3_LABELS = [
     "Qwen3 - Male 3",
     "Qwen3 - Male 4",
 ]
-ALL_LABELS = MAINTAINER_LABELS + QWEN3_LABELS
+#: v0.8.0 Phase 2: the six OmniVoice rows, appended after the twenty-eight above (plan section 3), in their own group.
+#: The twenty-eight earlier strings are still pinned verbatim; the runtime roster is now 34 (the 28 historical preview
+#: WAVs are a separate, fixed collection: ``test_voice_previews``).
+OMNIVOICE_LABELS = [
+    "OmniVoice - Female 1",
+    "OmniVoice - Female 2",
+    "OmniVoice - Male 1",
+    "OmniVoice - Male 2",
+    "OmniVoice - Male 3",
+    "OmniVoice - Male 4",
+]
+ALL_LABELS = MAINTAINER_LABELS + QWEN3_LABELS + OMNIVOICE_LABELS
 
 #: The wording each row used before this rename. None of these may survive as a
 #: selectable label, and — because nothing persists a label — none of them needs
@@ -111,6 +122,8 @@ VOICE_IDS = [
 ]
 QWEN3_IDS = ["qwen3-aiden", "qwen3-ryan", "qwen3-female-1", "qwen3-female-2",
              "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"]
+OMNIVOICE_IDS = ["omnivoice-female-1", "omnivoice-female-2", "omnivoice-male-1", "omnivoice-male-2",
+                 "omnivoice-male-3", "omnivoice-male-4"]
 
 BACKENDS = ["edge"] * 5 + ["kokoro"] * 9 + ["chatterbox"] * 6
 
@@ -124,8 +137,9 @@ CHATTERBOX_LABELS = MAINTAINER_LABELS[14:]
 
 def test_the_dropdown_offers_the_maintainers_twenty_strings_in_order_then_the_eight_qwen3_strings():
     assert vr.display_labels()[:20] == MAINTAINER_LABELS  # nothing earlier moved, was renamed or was reordered
-    assert vr.display_labels()[20:] == QWEN3_LABELS
-    assert vr.display_labels() == ALL_LABELS and len(ALL_LABELS) == 28
+    assert vr.display_labels()[20:28] == QWEN3_LABELS
+    assert vr.display_labels()[28:] == OMNIVOICE_LABELS  # v0.8.0: appended after every earlier row
+    assert vr.display_labels() == ALL_LABELS and len(ALL_LABELS) == 34
 
 
 def test_every_label_uses_the_ascii_hyphen_and_no_em_dash():
@@ -136,7 +150,7 @@ def test_every_label_uses_the_ascii_hyphen_and_no_em_dash():
 
 def test_the_labels_are_unique_so_one_never_shadows_another():
     labels = vr.display_labels()
-    assert len(labels) == len(set(labels)) == 28
+    assert len(labels) == len(set(labels)) == 34
 
 
 @pytest.mark.parametrize("label", ALL_LABELS)
@@ -159,13 +173,17 @@ def test_no_former_label_is_offered_any_more(former):
 
 def test_the_backends_are_unchanged():
     assert [entry.backend for entry in vr.VOICES[:20]] == BACKENDS
-    assert [entry.backend for entry in vr.VOICES[20:]] == ["qwen3"] * 8
+    assert [entry.backend for entry in vr.VOICES[20:28]] == ["qwen3"] * 8
+    assert [entry.backend for entry in vr.VOICES[28:]] == ["omnivoice"] * 6
+    assert vr.BACKENDS == ("edge", "kokoro", "chatterbox", "qwen3", "omnivoice")  # five engine families
 
 
 def test_the_voice_ids_are_unchanged_and_still_in_the_same_order():
     assert [entry.voice_id for entry in vr.VOICES[:20]] == VOICE_IDS
-    assert [entry.voice_id for entry in vr.VOICES[20:]] == QWEN3_IDS
+    assert [entry.voice_id for entry in vr.VOICES[20:28]] == QWEN3_IDS
+    assert [entry.voice_id for entry in vr.VOICES[28:]] == OMNIVOICE_IDS
     assert not {i for i in QWEN3_IDS} & {i for i in VOICE_IDS}  # a Qwen3 id never collides with a Chatterbox id
+    assert not set(OMNIVOICE_IDS) & set(VOICE_IDS + QWEN3_IDS)  # nor an OmniVoice id with any earlier one
 
 
 def test_the_timing_presets_are_still_the_approved_values():
@@ -185,11 +203,14 @@ def test_the_timing_presets_are_still_the_approved_values():
         assert by_id[voice_id].timing_preset == vr._kokoro_preset(speed=1.0)
     assert [entry.timing_preset for entry in vr.VOICES[14:20]] == [vr._chatterbox_preset()] * 6
     # The eight Qwen3 rows take the shared local-engine preset unmodified (CP6 Q6: existing narration policy).
-    assert [entry.timing_preset for entry in vr.VOICES[20:]] == [vr._qwen3_preset()] * 8
+    assert [entry.timing_preset for entry in vr.VOICES[20:28]] == [vr._qwen3_preset()] * 8
+    # v0.8.0: the six OmniVoice rows take the same local-engine policy, unmodified (plan section 3: no new tuning).
+    assert [entry.timing_preset for entry in vr.VOICES[28:]] == [vr._omnivoice_preset()] * 6
+    assert vr._omnivoice_preset() == vr._qwen3_preset()
     assert vr._qwen3_preset() == vr._chatterbox_preset() == vr._kokoro_preset(speed=1.0)
     # v0.7.0 P01B (Q1): the local engines' closing pause is 0; the between-chunk pause is unchanged.
     assert vr._qwen3_preset()["paragraphpause"] == "700" and vr._qwen3_preset()["end_pause"] == "0"
-    # v0.7.0 P01C (Q1): the Edge rows too; every voice of all four engines freezes no closing pause.
+    # v0.7.0 P01C (Q1): the Edge rows too; every voice of every engine (five since v0.8.0) freezes no closing pause.
     assert all(entry.timing_preset["end_pause"] == "0" for entry in vr.VOICES)
     assert vr._edge_preset()["end_pause"] == "0" and vr._edge_preset()["chapter_ms"] == "2000"
 
@@ -200,7 +221,9 @@ def test_the_group_labels_are_unchanged_and_are_never_the_voice_name():
     assert groups[5:11] == ["Kokoro Local AI — American English"] * 6
     assert groups[11:14] == ["Kokoro Local AI — British English"] * 3
     assert groups[14:20] == [vr.CHATTERBOX_GROUP_LABEL] * 6
-    assert groups[20:] == [vr.QWEN3_GROUP_LABEL] * 8
+    assert groups[20:28] == [vr.QWEN3_GROUP_LABEL] * 8
+    assert groups[28:] == [vr.OMNIVOICE_GROUP_LABEL] * 6
+    assert len({vr.CHATTERBOX_GROUP_LABEL, vr.QWEN3_GROUP_LABEL, vr.OMNIVOICE_GROUP_LABEL}) == 3
     assert vr.QWEN3_GROUP_LABEL != vr.CHATTERBOX_GROUP_LABEL and "Qwen3" in vr.QWEN3_GROUP_LABEL
     assert not set(groups) & set(vr.display_labels())
 
@@ -302,8 +325,10 @@ REFERENCES = [
      "qwen3-male-4", "Qwen3 - Male 4.wav", "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 ]
 
-#: The 28 durable identities in shipped order (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3).
+#: The 28 durable identities in shipped order (5 Edge, 9 Kokoro, 6 Chatterbox, 8 Qwen3) that the v0.7.0 P02A
+#: relabel/reorder stress registries below are built from; v0.8.0 appends six OmniVoice identities after them.
 SHIPPED_KEYS = [(b, v) for b, v in zip(BACKENDS + ["qwen3"] * 8, VOICE_IDS + QWEN3_IDS)]
+OMNIVOICE_KEYS = [("omnivoice", v) for v in OMNIVOICE_IDS]
 
 
 def _sha(path: Path) -> str:
@@ -330,10 +355,12 @@ EXPECTED_BINDINGS = [(ref, ref, ref, cname, qname, csha, qsha, "base", "clone")
                      for ref, _c, cname, csha, _q, qname, qsha in REFERENCES]
 
 
-def test_the_28_stable_identities_are_exactly_the_shipped_roster():
-    assert [v.key for v in vr.VOICES] == SHIPPED_KEYS and len(set(SHIPPED_KEYS)) == 28
-    assert [b for b, _v in SHIPPED_KEYS].count("edge") == 5 and [b for b, _v in SHIPPED_KEYS].count("kokoro") == 9
-    assert [b for b, _v in SHIPPED_KEYS].count("chatterbox") == 6 and [b for b, _v in SHIPPED_KEYS].count("qwen3") == 8
+def test_the_34_stable_identities_are_exactly_the_shipped_roster():
+    roster = SHIPPED_KEYS + OMNIVOICE_KEYS
+    assert [v.key for v in vr.VOICES] == roster and len(set(roster)) == 34
+    assert [b for b, _v in roster].count("edge") == 5 and [b for b, _v in roster].count("kokoro") == 9
+    assert [b for b, _v in roster].count("chatterbox") == 6 and [b for b, _v in roster].count("qwen3") == 8
+    assert [b for b, _v in roster].count("omnivoice") == 6 and len({b for b, _v in roster}) == 5
     assert vr.registry_problems(vr.VOICES) == [] and vr.reference_table_problems() == []
 
 

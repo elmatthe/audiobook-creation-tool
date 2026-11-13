@@ -86,7 +86,8 @@ def test_the_decision_b_kokoro_voices_are_registered_and_the_qwen3_rows_follow_t
     qwen3 = [v for v in VOICES if v.backend == "qwen3"]
     assert [v.voice_id for v in qwen3] == ["qwen3-aiden", "qwen3-ryan", "qwen3-female-1", "qwen3-female-2",
                                            "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"]
-    assert VOICES[-8:] == qwen3
+    assert VOICES[20:28] == qwen3  # right after the Chatterbox block; v0.8.0 appended six OmniVoice rows after them
+    assert {v.backend for v in VOICES[28:]} == {"omnivoice"} and len(VOICES) == 34
     assert not any(excluded in v.voice_id.lower() for v in VOICES for excluded in (
         "dylan", "eric", "ono", "serena", "sohee", "uncle", "vivian"))
 

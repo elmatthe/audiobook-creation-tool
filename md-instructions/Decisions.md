@@ -2,6 +2,58 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-13 — v0.8.0 Phase 4: the runtime roster is 34 while the preview collection stays the historical 28; the listening pack is made through the production path with the owner's verdicts left pending; identity 0.8.0; no peak correction without an audible defect (implementation decisions by Claude Code)
+
+**Roster versus previews.** Tests that pin the *runtime* registry now assert 34 voices in five engine families (the first
+28 rows still pinned verbatim, the six OmniVoice rows appended in their own group). The preview gallery is a separate,
+fixed historical collection: `files/dev-tools/voice_previews.py` now names its roster explicitly as the voices of the four
+engines the owner's 2026-10-20 decision covered (`PREVIEW_BACKENDS`), so it stays exactly 28 and an OmniVoice voice is
+neither listed, pending nor blocked there. No preview was generated or changed; six new tracked previews need the
+owner's separate authorization. Test names that stated "28" for the runtime roster were renamed to "34" (the one cited by
+the coverage inventory was carried into `coverage.json`); names about the 28 previews were kept.
+
+**Version identity.** `scripts/shared/version.py` and `config.toml` say 0.8.0 (release-candidate identity, not
+publication). Only tests that pin the current version moved (nine pinned 0.7.2, behind the released 0.7.3); historical
+fixtures (`test_verification_coverage`'s `"release": "0.7.2"` exception records) are data and were left alone.
+
+**M4B (v0.7.3).** `m4b_nero.py` is the Converter's own module (read only by `m4b_probe` and `m4b_execution`): it is in the
+M4B README's module map and the structural authority's Converter set, and the inventory gains
+`ACT.CONVERTER.NERO-RECOVERY` after reviewing `a2cc65d`'s diff; no M4B production code changed.
+
+**The numba test.** `test_numba_compiles_and_writes_only_the_contained_cache` asserts nothing was written beside the
+probe source; without `-B` CPython itself writes `__pycache__` there. The canonical invocation (`-I -B`, the gate and
+`guarded_pytest`) passes. Recorded, not changed: the contract assumes `-B` on purpose.
+
+**The listening pack.** Track A is `quality_corpus.DIFFICULT_SHORT` verbatim (the plan's preferred passage; it carries
+real proper names but no fantasy names, and no owner-approved variant exists). Track B is one indexed text of eleven
+spoken parts built only from `test_speech_g1.SNIPPETS` and golden-corpus inputs, verbatim, plus two lines with no golden
+case (initials; a names line using the fantasy names from the owner's own reference transcripts, spelled as the owner
+spells them), each proved unchanged by `v1`. Before any audio, a check proves every item's prepared text appears in order
+in the prepared composite, every corpus line reads exactly as its golden case expects, and every snippet token reads as
+the corpus case for the same token; the expected readings shown to the owner come only from those cases, and
+kept-as-written tokens are labelled model-native. Part seven was split in two because the shared sentence planner takes
+"Apt." for a sentence end and would otherwise have put a chunk boundary inside "Apt. 4B". Every sample goes through
+`generate_voice_samples`' new OmniVoice route, which is `omnivoice_file_to_mp3` with the voice's preset, the panel's
+default 192k and an explicit `v1` snapshot built as the panel builds it; the harness only observes (wrapped worker
+runner, chunk reader and encoder). Generation settings were not changed. Every owner verdict starts NOT YET REVIEWED.
+
+**Peaks.** The model's own output reached exactly 1.0 in 4 + 4 samples of Male 1 and 1 of Male 3 (A); libsndfile clamps
+them in the 16-bit WAV (checked: no wrap-around); decoded MP3s have no sample at full scale and true peaks of -0.2 dBTP
+or lower. A handful of clamped samples is not a demonstrated audible defect, so no OmniVoice gain change and no global
+loudness change was made; the owner is pointed at the exact times.
+
+**Tokenizer attribution.** The Boson licence's section 1.b.i asks a product that uses the Higgs Materials to display its
+attribution on a website, user interface or product documentation; the install UI already does (Phase 3) and the README
+now quotes it as the pinned licence words it. Section 1.b.iii's Notice file applies to distributed copies; ACT never
+distributes the tokenizer (each person's own consented download, licence file included), so the release archive needs
+none. The in-app string writes "All Rights Reserved" where the licence's second occurrence says "All Right Reserved";
+left for the owner. Not legal advice.
+
+**Inventory.** 29 application sources restamped after reviewing each diff since its stamp against its features; new
+features `ACT.TTS.ENGINE.OMNIVOICE` (owner check `listen-omnivoice`), `ACT.TTS.SETUP.OMNIVOICE` (qualification
+`fresh-windows`: real fresh installs and repairs were exercised with mocks only) and `ACT.CONVERTER.NERO-RECOVERY` (owner
+check `nero-full-book`); release kinds stay pending, so nothing claims release readiness.
+
 ## 2026-11-13 — v0.8.0 Phase 3: OmniVoice is the fifth component of the existing optional installer; an environment is used only with the installer's receipt, and an existing one is adopted after a proof, never rebuilt (implementation decisions by Claude Code)
 
 **What the person sees.** The first-run window and Install & Continue offer five components in the existing order;

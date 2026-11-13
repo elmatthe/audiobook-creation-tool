@@ -314,5 +314,7 @@ def test_the_launcher_registry_and_tool_families_are_exactly_as_expected():
                      "m4b/converter/m4b_destinations.py", "m4b/converter/m4b_plan.py",
                      "m4b/m4b_naming.py", "m4b/m4b_winaudio.py",
                      # v0.7.2 Phase 7B: the Converter's one-decode split route (ACT72-012).
-                     "m4b/m4b_continuous.py"}
+                     "m4b/m4b_continuous.py",
+                     # v0.7.3: the Converter's Nero chapter recovery, read by m4b_probe and m4b_execution only.
+                     "m4b/m4b_nero.py"}
     assert set(generic) <= converter_own, sorted(set(generic) - converter_own)

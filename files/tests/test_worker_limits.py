@@ -223,7 +223,7 @@ def test_a_reason_is_never_repeated_when_two_limits_are_equal():
 
 
 @pytest.mark.parametrize("backend,name", [("kokoro", "Kokoro"), ("chatterbox", "Chatterbox Turbo"),
-                                          ("qwen3", "Qwen3-TTS")])
+                                          ("qwen3", "Qwen3-TTS"), ("omnivoice", "OmniVoice")])  # v0.8.0: OmniVoice
 @pytest.mark.parametrize("requested", [1, 2, 8, 100])
 def test_local_engines_stay_at_one_file_on_any_machine(backend, name, requested):
     result = plan(requested, [SHORT] * 10, backend=backend, cpus=64, available_gb=500, total_gb=512)
@@ -232,7 +232,7 @@ def test_local_engines_stay_at_one_file_on_any_machine(backend, name, requested)
         assert result.log_lines()[1] == f"Worker limit: {name} converts one file at a time."
 
 
-@pytest.mark.parametrize("backend", ["kokoro", "chatterbox", "qwen3"])
+@pytest.mark.parametrize("backend", ["kokoro", "chatterbox", "qwen3", "omnivoice"])
 def test_a_local_engine_reads_nothing_to_plan(backend, tmp_path, monkeypatch):
     monkeypatch.setattr(wl, "estimate_text_seconds", lambda *a, **k: pytest.fail("no reason to read a local run's text"))
     monkeypatch.setattr(wl, "memory_info", lambda: pytest.fail("no reason to read memory"))

@@ -100,8 +100,10 @@ def impact(route: str, cls: str) -> dict:
     return {"affects_previously_approved": labels or ["none"], "evidence": evidence or "no approved recording contains it"}
 
 
-#: The A4 baseline: every cell native (the rollout table A4 was planned against), whatever production ships today.
-A4_BASE_TABLE = {engine: {c: "native" for c in classes.RULE_CLASSES} for engine in sorted(set(ROUTE_ENGINE.values()))}
+#: The A4 baseline: every cell native (the rollout table A4 was planned against), whatever production ships today. A
+#: snapshot's cells name every engine the mode table knows, so the table covers them all (v0.8.0 added OmniVoice, for
+#: which A4 plans no pair); only the four A4 routes above are ever paired, so the 60 pairs are unchanged.
+A4_BASE_TABLE = {engine: {c: "native" for c in classes.RULE_CLASSES} for engine in profiles.ENGINE_IDS}
 
 
 def snapshot_for(route: str, cls: str | None) -> SpeechPrepSnapshot | None:

@@ -288,9 +288,9 @@ def test_the_launcher_still_registers_exactly_six_tools():
 def test_the_version_did_not_move():
     from shared import version
 
-    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # v0.8.0 Phase 4 release-candidate identity (v0.7.3 was released; this pin had not moved past 0.7.2).
     # This pins the application version without asserting publication.
-    assert version.VERSION == "0.7.2"
+    assert version.VERSION == "0.8.0"
 
 
 # --------------------------------------------------------------------------- #
@@ -308,7 +308,8 @@ def test_the_four_approved_voices_are_still_registered():
     registry = importlib.import_module("tts.voice_registry")
     chatterbox = [v for v in registry.VOICES if v.backend == "chatterbox"]
     assert len(chatterbox) == 6
-    assert len(registry.VOICES) == 28  # the eight Qwen3 rows (v0.6.7 CP6) sit after these
+    # the eight Qwen3 rows (v0.6.7 CP6) and the six OmniVoice rows (v0.8.0) sit after these
+    assert len(registry.VOICES) == 34
 
 
 def test_the_diagnostic_touched_no_engine_module():

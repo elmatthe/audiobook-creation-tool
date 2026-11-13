@@ -16,6 +16,42 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
+## v0.8.0 OmniVoice integration (in progress, 2026-11-13) — identity 0.8.0 since Phase 4; NOT merged/tagged/published
+
+Branch `feature/0.8.0-omnivoice-integration`, from the released v0.7.3 `master` (`dbf38f7`). Plan:
+`files/plans/ACT-v0.8.0-OmniVoice-Integration-Plan-v0.7.3-Baseline.md` (five phases, one session each; one full gate,
+only in Session 5). Phases 1-3 PASSED; Phase 4 is technically complete and waits for the owner's listening verdicts; see
+the Handoff for the live state.
+
+- **What it adds.** A fifth optional local engine, OmniVoice 0.2.1 (code Apache-2.0; model `k2-fsa/OmniVoice` @
+  `c5fdb5cc`, weights CC-BY-NC, non-commercial; audio tokenizer under the Boson Higgs Audio 2 Community License), with six
+  cloned voices `omnivoice-female-1` ... `omnivoice-male-4` ("OmniVoice - Female 1" ...) appended after the 28 earlier
+  voices in their own group: the runtime roster is 34 voices in five engine families. The 28 historical preview WAVs are a
+  fixed, separate collection (no OmniVoice previews).
+- **Architecture.** `scripts/tts/omnivoice_runtime.py` (identity, readiness by the installer's receipt, references,
+  prompt identity, locks, worker environment), `omnivoice_worker.py` (runs only in the sibling `.venv-omnivoice`; offline
+  by audit hook, no Hub, no speech recognizer, `normalize_text=False`), `omnivoice_synth.py` (prepares text once with the
+  run's `SpeechPrepSnapshot`, 300-character whole-sentence chunks, at most 48 chunks per worker process, the shared
+  assembly/encode/atomic publication, Cancel by flag then process-tree kill), `omnivoice_setup.py` (install, adopt,
+  repair, proof, receipt), `omnivoice_manifest.json` (88 wheels and 11 model files by URL, size, SHA-256). Models,
+  receipt, jobs, prompts and caches live in `files/runtime-data/omnivoice/`; none of it, nor any environment, ships.
+- **References.** Each cloned engine has its own six recordings: exactly 18 tracked WAVs in
+  `files/Cloned-Voice-Uploads/<Engine>/<Engine> - <Voice>.wav`, bound by `scripts/tts/data/clone_references.json`
+  (`tts/clone_references.py`). Qwen3 keeps the six originals byte for byte with its unchanged transcript bundle;
+  OmniVoice conditions on its own whole recording (at most 10 s; Male 1's 10.227 s is the one hash-bound exception) with
+  the owner-written transcript.
+- **Speech preparation.** OmniVoice has its own route, engine scope and a provisional all-`expand` 16-class row in
+  `speech/data/modes.json`; the 60 historical G1 verdicts are unchanged. Production default `v1`; `off` still works.
+- **Setup.** The existing first-run window and Install & Continue offer OmniVoice as the fifth component, last and
+  unchecked, with the licence and hardware terms shown before consent. HOME-PC's environment was adopted (Phase 3)
+  without downloading.
+- **Measured on HOME-PC (RTX 5070, Phase 4).** About 8-10 times faster than real time (a 15.2-minute book in 108 s); 1.9 GB of allocated GPU memory
+  while narrating (flat across a 48-chunk worker), about 2.0-2.9 GB reserved, up to about 4.6 GB the first time a voice's
+  clone prompt is built. Owner listening of the 12-track pack is pending; nothing about voice quality is approved.
+- **Known limitations.** Windows + NVIDIA only; two copies of the app can still run Qwen3 and OmniVoice on one GPU at the
+  same time; the model's own output can reach full scale in a few samples (clamped, not audibly judged yet); fresh
+  installs and repairs were exercised with mocks, the real environment was adopted.
+
 ## v0.7.2 Windows hardening, feature map and verification gate (in progress, 2026-11-05) — identity 0.7.2 since the Phase 8 release-candidate checkpoint (2026-11-10); NOT merged/tagged/published
 
 Branch `feature/0.7.2-windows-hardening-verification` from `origin/master` = `204c33b` (v0.7.1, merged by fast-forward 2026-11-04). Plan: `files/plans/ACT-v0.7.2-Windows-Hardening-Feature-Map-and-Verification-Gate-Implementation-Plan.md` (Phases 0–10; the owner's HALT of 2026-11-05 replaced the continuous run with one phase at a time, each stopping for review; a fresh independent Codex Extra High review and the owner's checks come before any merge).
@@ -1131,6 +1167,8 @@ Both OS zips share code/references and differ only in launcher. No other `files/
 Packaged-asset changes must be committed before building.
 
 ## Current Version
+
+**Current state (2026-11-13, supersedes the paragraph below for status):** v0.7.3 is the released baseline: merged to `master` and tagged `v0.7.3` = `dbf38f7`; its GitHub publication is the owner's manual step (see the Changelog). The v0.8.0 OmniVoice candidate is in progress on `feature/0.8.0-omnivoice-integration` with identity 0.8.0 (section at the top; `Handoff.md`): not merged, tagged or published.
 
 **v0.7.0 is the current published release (2026-11-02):** tag `v0.7.0` = `c0896d8` (= `master`), GitHub
 release with `AudiobookTool-Windows-v0.7.0.zip` (Windows only). **v0.7.1** (Edge multi-file workers) was merged to

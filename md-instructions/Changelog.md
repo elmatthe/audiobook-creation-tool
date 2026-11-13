@@ -13,6 +13,35 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [Unreleased] — v0.8.0 OmniVoice candidate (identity 0.8.0; NOT released; owner listening pending) (2026-11-13)
+
+**Added**
+- **OmniVoice, a fifth optional local engine (Windows, NVIDIA GPU only):** six cloned voices, *OmniVoice - Female 1*,
+  *Female 2*, *Male 1*, *Male 2*, *Male 3* and *Male 4*, after the other voices in TTS Audiobook (34 voices in all). Each
+  is conditioned on its own bundled recording (at most 10 s; Male 1 is 10.2 s by the owner's decision) and the owner's
+  transcript of it. It runs offline in its own `.venv-omnivoice` worker, prepares the text once with the existing speech
+  preparation (default `v1`, all classes expanded for now), uses bounded workers so GPU memory does not build up over a
+  long book, and Cancel stops it mid-chunk or mid-encode without publishing anything. (v0.8.0 Phases 1-2)
+- **A fifth first-run choice, unchecked:** *OmniVoice — Six Cloned Voices*, also offered by Install & Continue. The review
+  screen shows the licence and hardware terms before Install, and **View licence terms** opens each licence text. An
+  existing matching environment is checked and adopted without downloading anything. (v0.8.0 Phase 3)
+- **README:** a "v0.8.0 in development (not released)" section, including the non-commercial terms (OmniVoice weights are
+  CC-BY-NC) and the audio tokenizer licence's attribution. (v0.8.0 Phase 4)
+
+**Changed**
+- Every cloned engine has its own six reference recordings: 18 bundled WAVs in
+  `files/Cloned-Voice-Uploads/<Engine>/`. Qwen3 keeps its original six byte for byte (renamed); Chatterbox uses the owner's
+  new recordings. The release archive carries exactly these 18. (v0.8.0 Phase 2 correction)
+- Application identity is 0.8.0 (`scripts/shared/version.py`, `config.toml`). Nothing is published. (v0.8.0 Phase 4)
+
+**Fixed (tests and tooling only, v0.8.0 Phase 4)**
+- Tests that still pinned 28 voices, four engines or version 0.7.2 now assert the current roster and identity; the 28
+  historical voice previews stay a fixed collection of 28. `m4b_nero.py` is documented in the M4B module map. The speech
+  A/B dev tool no longer fails to load with five engines. The coverage inventory maps the OmniVoice and Nero features.
+
+**Not done yet:** the owner's listening approval of the 12-track OmniVoice pack, the independent review and the one full
+verification gate (Session 5); no merge, tag or release.
+
 ## [Unreleased] — v0.7.3 owner-accepted hotfix; Windows packaging authorized (2026-11-12)
 
 **Fixed**

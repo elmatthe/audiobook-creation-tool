@@ -1820,9 +1820,9 @@ def test_the_foundation_added_no_runtime_dependency(name):
 def test_the_version_is_untouched():
     from shared.version import VERSION
 
-    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # v0.8.0 Phase 4 release-candidate identity (v0.7.3 was released; this pin had not moved past 0.7.2).
     # This pins the application version without asserting publication.
-    assert VERSION == "0.7.2"
+    assert VERSION == "0.8.0"
 
 
 def test_the_root_config_template_remains_absent():

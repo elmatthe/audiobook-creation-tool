@@ -232,9 +232,9 @@ def test_the_ordinary_selection_still_covers_every_registered_voice():
     Phase 10 registered four more (twelve to sixteen); v0.6.5 Phase 2 then
     removed the two multilingual Edge rows (sixteen to fourteen) and later
     approved both Male 3 and Male 4 (fourteen to sixteen). ``_select`` itself
-    is unchanged and its contract is unchanged.
+    is unchanged and its contract is unchanged. v0.6.7 added eight Qwen3 rows and v0.8.0 six OmniVoice rows (34).
     """
-    assert len(gvs._select([])) == len(voice_registry.VOICES) == 28
+    assert len(gvs._select([])) == len(voice_registry.VOICES) == 34
 
 
 def test_the_ordinary_backend_filters_still_work():
@@ -650,7 +650,7 @@ def test_every_historical_evaluation_id_is_still_registered():
     registered_ids = {v.voice_id for v in voice_registry.VOICES if v.backend == "chatterbox"}
     assert set(gvs.CHATTERBOX_EVAL_VOICE_IDS) <= registered_ids
     assert len(registered_ids) == 6
-    assert len(voice_registry.VOICES) == 28
+    assert len(voice_registry.VOICES) == 34
 
 
 def test_running_the_evaluation_registers_nothing(engine):
@@ -690,9 +690,9 @@ def test_no_chatterbox_dispatch_reached_a_conversion_engine(filename):
         f"{filename} references Chatterbox — the engines stay untouched"
 
 
-def test_the_gui_voice_dropdown_offers_the_fourteen_plus_the_six_approved_plus_the_eight_qwen3():
+def test_the_gui_voice_dropdown_offers_the_fourteen_plus_the_six_approved_plus_the_eight_qwen3_plus_six_omnivoice():
     labels = voice_registry.display_labels()
-    assert len(labels) == 28 == len(set(labels))
+    assert len(labels) == 34 == len(set(labels))
 
 
 def test_the_generator_is_the_only_production_file_phase_nine_widened():
@@ -785,6 +785,9 @@ ORDINARY_KOKORO_IDS = ("af_heart", "af_bella", "am_michael", "am_fenrir", "am_pu
 # v0.6.7 CP6: the eight Qwen3 rows come after the Chatterbox block, in registry order.
 ORDINARY_QWEN3_IDS = ("qwen3-aiden", "qwen3-ryan", "qwen3-female-1", "qwen3-female-2",
                       "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4")
+# v0.8.0: the six OmniVoice rows come after the Qwen3 block, in registry order.
+ORDINARY_OMNIVOICE_IDS = ("omnivoice-female-1", "omnivoice-female-2", "omnivoice-male-1", "omnivoice-male-2",
+                          "omnivoice-male-3", "omnivoice-male-4")
 
 
 class _SampleSeams:
@@ -852,6 +855,14 @@ def sample_seams(monkeypatch, tmp_path):
     qwen3_module = types.ModuleType("tts.qwen3_synth")
     qwen3_module.qwen3_file_to_mp3 = _qwen3_file_to_mp3
     monkeypatch.setitem(sys.modules, "tts.qwen3_synth", qwen3_module)
+
+    # v0.8.0: OmniVoice's sample route reaches ``omnivoice_file_to_mp3`` (the production path); never the real engine here.
+    def _omnivoice_file_to_mp3(source_path, output_path, voice_id=None, **kwargs) -> None:
+        seams.record("omnivoice", voice_id, Path(source_path).read_text(encoding="utf-8"), output_path)
+
+    omnivoice_module = types.ModuleType("tts.omnivoice_synth")
+    omnivoice_module.omnivoice_file_to_mp3 = _omnivoice_file_to_mp3
+    monkeypatch.setitem(sys.modules, "tts.omnivoice_synth", omnivoice_module)
     return seams
 
 
@@ -873,14 +884,15 @@ def test_no_chatterbox_voice_is_ever_handed_to_edge_tts(sample_seams, monkeypatc
         assert voice_id not in sample_seams.voices("edge")
 
 
-def test_an_ordinary_run_covers_all_twenty_eight_rows_split_by_backend(sample_seams,
-                                                                      monkeypatch):
+def test_an_ordinary_run_covers_all_thirty_four_rows_split_by_backend(sample_seams,
+                                                                       monkeypatch):
     _main(monkeypatch)
-    assert len(sample_seams.calls) == 28
+    assert len(sample_seams.calls) == 34
     assert len(sample_seams.voices("edge")) == 5
     assert len(sample_seams.voices("kokoro")) == 9
     assert len(sample_seams.voices("chatterbox")) == 6
     assert sample_seams.voices("qwen3") == list(ORDINARY_QWEN3_IDS)
+    assert sample_seams.voices("omnivoice") == list(ORDINARY_OMNIVOICE_IDS)
 
 
 def test_no_backend_reaches_another_backends_synthesis_seam(sample_seams, monkeypatch):
@@ -941,7 +953,7 @@ def test_ordinary_mode_never_calls_the_phase_nine_evaluation(sample_seams, monke
                         lambda *a, **k: called.append("ran") or [])
     _main(monkeypatch)
     assert called == []
-    assert len(sample_seams.calls) == 28
+    assert len(sample_seams.calls) == 34
 
 
 def test_the_evaluation_flag_never_enters_ordinary_dispatch(sample_seams, monkeypatch):
@@ -972,7 +984,7 @@ def test_a_fully_successful_ordinary_run_reports_success(sample_seams, monkeypat
                                                          capsys):
     code = _main(monkeypatch)
     assert code == 0
-    assert "28 ok, 0 failed" in capsys.readouterr().out
+    assert "34 ok, 0 failed" in capsys.readouterr().out
 
 
 def test_edge_and_kokoro_sample_naming_is_unchanged(sample_seams, monkeypatch,

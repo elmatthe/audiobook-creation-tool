@@ -170,6 +170,17 @@ Source: the panel is `scripts/m4b/converter/m4b_converter.py` (`M4BConverterUI`)
 - Chapter starts must be finite, not negative, before the end of the audio and strictly increasing. Otherwise the book is refused at preflight, in either output structure, before any folder exists. Nothing is sorted, clamped or dropped to make a list pass.
 - The Summary gives one sentence; Details names the offending chapter. Not retryable in place; a corrected file needs a new run.
 - The refusal says only that the chapter list is not usable: Whole book refuses the same file, so no mode is offered (ACT72-026, fixed in v0.7.2 Phase 6).
+- Since v0.7.3 a refused list can be replaced by an independently validated Nero table (next section), which must pass these same rules.
+
+### Recover an independently validated Nero chapter table (v0.7.3)
+
+`ACT.CONVERTER.NERO-RECOVERY`
+
+- When strict validation refuses a book's chapter list, the Converter may read one separately stored Nero chapter table (`moov/udta/chpl`) tied to the probed QuickTime audio track. The table must pass the same validator, start at zero and give every chapter a positive sample span. Valid lists and chapterless books never take this path.
+- Anything ambiguous, corrupt or truncated, a missing or contradictory duration, or more than one audio stream keeps the original refusal, and Details adds why recovery was refused.
+- The log says "Using the independently validated Nero chapter table." The original probe answer and the recovery diagnostic are kept. Split and Whole both use the recovered timeline; Whole writes it as chapter navigation without moving the audio payload.
+- Cancel after the navigation write publishes nothing; a failed navigation write leaves the destination and the Retry Failed plan as they were.
+- The module is `scripts/m4b/m4b_nero.py`, read only by the probe and the segment executor.
 
 ### Unreadable or corrupt sources
 
