@@ -1693,6 +1693,12 @@ class M4BConverterUI(ttk.Frame):
                         entry.occurrence_id, f"Examining {entry.path.name}")
                 self._log_q.put(("log", f"  Examining {entry.path.name}…\n"))
                 reports[entry.occurrence_id] = m4b_probe.probe_source(entry.path)
+                recovery = reports[entry.occurrence_id].chapter_recovery
+                if recovery:
+                    if reports[entry.occurrence_id].original_probe is not None:
+                        self._log_q.put(("log", "  Using the independently validated Nero chapter table.\n"))
+                    if reporter is not None:
+                        reporter.technical(f"{entry.path.name}: {recovery}")
                 if options.split:
                     decision = m4b_continuous.qualify(
                         entry.path, reports[entry.occurrence_id], split=True,
@@ -2015,6 +2021,7 @@ class M4BConverterUI(ttk.Frame):
                         # never re-opens the book to recover what its chapters
                         # were called.
                         chapter_titles=item.chapter_titles,
+                        recovered_chapters=item.recovered_chapters,
                     )
 
                     self._log_q.put((

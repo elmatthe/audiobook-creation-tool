@@ -2,6 +2,30 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-12 — v0.7.3 candidate: independently validated Nero chapter recovery (Codex)
+
+The owner explicitly chose application-level recovery for conflicting QuickTime/Nero chapters.
+Normal validation runs first and is unchanged. Only an invalid primary list permits a bounded read
+of exactly one `moov/udta/chpl` v1 table, with a unique sound-track chapter reference to a distinct
+QuickTime text track. The linked sound track must match FFprobe's single audio stream ID. Unsupported,
+truncated, duplicate or ambiguous boxes and malformed UTF-8 fail closed. Nero entries retain stored
+order/titles and pass `validate_chapters`; recovery additionally requires explicit start zero, a
+zero-based audio stream with matching duration, and a positive sample count for each existing cut.
+No timestamps are sorted, dropped, deduplicated or nudged; no new tolerance or dependency is introduced.
+
+`SourceReport.original_probe` retains the contradictory answer and `chapter_recovery` records the
+selection/refusal. Split uses the existing planner/executor. Whole suppresses the contradictory input
+chapter map and writes the frozen recovered spans as ID3 CHAP/CTOC on its private staged MP3 using
+the already pinned Mutagen dependency; tags/artwork and the existing Strip policy remain in force.
+ID3 navigation has its normal millisecond precision; audio boundaries keep the Nero starts. This
+bounded execution integration is necessary so Whole does not copy the map that preflight rejected.
+A bounded preallocated ID3 header prevents moving the audio payload while adding navigation.
+Cancel checks, measurement and no-clobber publication still surround the staged output.
+
+Private owner media/excerpts and local evidence are never tracked or uploaded. Focused tests replace
+the broad gate for this explicitly bounded session. Owner full-book acceptance is mandatory before
+any merge, final release ZIP, tag or publication; candidate identity alone is not a released version.
+
 ---
 
 ## 2026-11-12 — ACT v0.7.2 — owner-approved composite verification acceptance

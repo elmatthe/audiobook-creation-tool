@@ -1,5 +1,29 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.7.3 Nero chapter recovery candidate (2026-11-12, Codex, HOME-PC)
+
+This block supersedes historical next-action/release instructions below. Current origin/master
+at start: `ec79dba358e7a6fa84c90fe44595b9222742a834`; v0.7.2 tag:
+`ff363928226e7f33fac925d86195823cd37d81c2`. Branch: `feature/0.7.3-m4b-chapter-recovery`.
+Isolated worktree: `files/run-temp/m73` inside the owner's unchanged main checkout.
+
+- Narrow recovery implemented; the existing strict validator and ordinary valid-file behavior are unchanged.
+  Independent review findings are fixed and regression-tested. No new dependencies.
+- Requested six existing modules: 331 PASS. New recovery/output modules: 51 PASS.
+  Existing execution/publication plus new output module: 131 PASS. Retry selector: 8 PASS, 71 deselected.
+  Real-book original rejection reproduced; corrected Split/Whole preflight PASS, 33 original Nero chapters,
+  [0, 29277.275011] seconds, 1,291,127,828 contiguous declared audio samples, source SHA unchanged.
+  Three two-second private audio conversions PASS; maximum navigation writes keep audio bytes fixed. Full-book conversion/listening intentionally pending.
+- Manual setup, exact commands, review scope, limitations and remaining acceptance steps:
+  `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`. Private launch/evidence files remain untracked
+  under the owner's main checkout `files/run-temp/m73-private`; they must never enter a PR/package.
+- **STOP after pushing the feature branch and opening a DRAFT PR to master.** Owner must launch the
+  verified candidate and personally test the real full audiobook, then report PASS or FAIL in a later
+  interaction. Only a separate explicit owner acceptance authorizes merge, official ZIP build/audit,
+  tag and publication. No auto-merge. Keep v0.7.2's public release/tag/ZIP untouched.
+- This commit cannot contain its own SHA; resolve it with `git rev-parse HEAD`. Remote push/PR and
+  launch-identity results are reported in the session closeout. Existing v0.8.0 plans and owner data stay intact.
+
 ## Current Focus
 
 ## CURRENT STATE — v0.7.2 merged by owner; Windows packaging checkpoint (2026-11-12, Codex, HOME-PC)
