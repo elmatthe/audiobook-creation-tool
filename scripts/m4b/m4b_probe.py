@@ -20,12 +20,13 @@ the application. This builds the small ``info`` mapping that helper expects out
 of the JSON it already has and asks it — so there is still exactly one place in
 the repository that knows what xHE-AAC requires.
 
-**What this module refuses to do.** It never repairs. A failed process, an
+**What this module refuses to do.** It never normalises a chapter list. A failed process, an
 unparseable payload, a missing duration and a missing audio stream are four
 different answers and stay four different answers; none of them becomes "this
-book has no chapters". It also never *decides* anything: whether a probe is
-usable is ``validate_chapters``' job, and what to do about an ambiguous cover is
-the plan layer's.
+book has no chapters". Usability remains ``validate_chapters``' job. Only after
+that validator refuses a chapter list may a bounded MOV read recover a separate
+Nero table; that table must pass the same validator. The original answer and
+selection diagnostic are retained. An ambiguous cover remains the plan layer's.
 
 Tk-free and widget-free. It runs a subprocess, so it belongs on a worker thread;
 :mod:`m4b_plan` consumes what it returns and touches no process at all.
@@ -34,14 +35,15 @@ Tk-free and widget-free. It runs a subprocess, so it belongs on a worker thread;
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+import struct
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
 from shared import ffmpeg_utils
 from shared import subprocess_utils as sp
 
-from m4b.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
+from m4b.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter, plan_timeline, validate_chapters
 from m4b.converter.m4b_metadata import (
     ArtworkSelectionError,
     AttachedPicture,
@@ -126,6 +128,10 @@ class SourceReport:
     undecodable_xhe: bool = False
     #: The audio stream's own facts from the same read, for the continuous route's eligibility (v0.7.2 Phase 7B).
     stream: AudioStreamFacts | None = None
+    #: Only set after independently recovering a strictly valid Nero table.
+    #: The contradictory FFprobe answer remains available verbatim for diagnosis.
+    original_probe: ChapterProbe | None = None
+    chapter_recovery: str = ""
 
     @property
     def ok(self) -> bool:
@@ -243,6 +249,43 @@ def _failed(detail: str) -> SourceReport:
         probe=ChapterProbe(status=ProbeStatus.PROBE_FAILED, duration=None, detail=detail))
 
 
+def _recover_chapters(path, report: SourceReport, streams: list) -> SourceReport:
+    original = report.probe
+    validation = validate_chapters(original)
+    # Ordinary valid files (including chapterless files) never open this path.
+    if validation.usable or not original.ok or not original.chapters:
+        return report
+    try:
+        from m4b.m4b_nero import read_nero_chapters
+        from m4b.m4b_continuous import chapter_frames
+
+        # A recovered table cannot vouch for a missing/contradictory audio extent.
+        # Exact comparisons only; no duration or timestamp tolerance is invented.
+        audio = [stream for stream in streams if stream.get("codec_type") == "audio"]
+        if (len(audio) != 1 or _number(audio[0].get("start_time")) != 0.0
+                or _number(audio[0].get("duration")) != original.duration):
+            raise ValueError("recovery requires one zero-based audio stream matching source duration")
+        track_id = int(_text(audio[0].get("id")), 0)
+        chapters = read_nero_chapters(path, audio_track_id=track_id)
+        recovered = ChapterProbe(ProbeStatus.OK, original.duration, chapters)
+        verdict = validate_chapters(recovered)
+        if not verdict.chaptered:
+            raise ValueError(f"Nero table failed strict validation: {verdict.detail}")
+        if recovered.chapters[0].start != 0.0:
+            raise ValueError("Nero table does not explicitly cover the source beginning")
+        rate = _integer(audio[0].get("sample_rate"))
+        if rate is None or rate <= 0 or any(
+                chapter_frames(span.start, span.end, rate)[1] == 0
+                for span in plan_timeline(recovered)):
+            raise ValueError("Nero table cannot produce a positive audio sample span for every chapter")
+    except (OSError, ValueError, TypeError, IndexError, struct.error) as exc:
+        return replace(report, chapter_recovery=f"Nero recovery refused: {exc}")
+    return replace(report, probe=recovered, original_probe=original,
+                   chapter_recovery=f"Recovered {len(recovered.chapters)} Nero chapters from "
+                   f"moov/udta/chpl with a separate QuickTime chapter track; "
+                   f"original {validation.reason.value}: {validation.detail}")
+
+
 def probe_source(path, *, runner: Callable[[list[str]], str | bytes] | None = None
                  ) -> SourceReport:
     """Read one source and report what it actually contains.
@@ -335,7 +378,7 @@ def probe_source(path, *, runner: Callable[[list[str]], str | bytes] | None = No
         status = ProbeStatus.OK
         detail = ""
 
-    return SourceReport(
+    report = SourceReport(
         probe=ChapterProbe(
             status=status,
             duration=duration,
@@ -350,6 +393,7 @@ def probe_source(path, *, runner: Callable[[list[str]], str | bytes] | None = No
         undecodable_xhe=undecodable,
         stream=_stream_facts(streams, audio),
     )
+    return _recover_chapters(path, report, streams)
 
 
 def probe_sources(paths, *, runner=None, checkpoint=None):

@@ -13,7 +13,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-## [Unreleased] — v0.7.2 release readiness: the last two review findings closed; NOT merged (2026-11-12)
+## [Unreleased] — v0.7.3 owner-accepted hotfix; Windows packaging authorized (2026-11-12)
+
+**Fixed**
+- **M4B Converter:** if FFprobe's chapter list is invalid and the source proves it has separate
+  QuickTime and Nero chapter representations, recover the independently read Nero table only when
+  it passes the existing strict validator and audio-coverage checks. Normal valid files are unchanged;
+  unsupported, corrupt or ambiguous tables still fail closed. Split keeps every recovered chapter;
+  Whole writes the recovered navigation under the existing metadata options. The original source is untouched.
+- Identity is 0.7.3. Focused checks and private real-book/GUI preflight passed. The owner
+  reports PASS for the full 33-chapter book and multiple additional audiobook conversions
+  using the verified candidate. The earlier old-launcher selection problem is resolved.
+  Merge and Windows packaging are authorized without a repeat full gate or qualifications;
+  GitHub publication remains a manual owner action and has not occurred.
+  See `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`.
+
+## v0.7.2 release-readiness history (2026-11-12)
+
+The following entry records the earlier pre-release checkpoint. The subsequently published
+v0.7.2 release, tag and ZIP are unchanged by the v0.7.3 candidate.
 
 **Fixed**
 - **MP3 Tool, M4B Maker and Metadata Editor: a file that appears in the output folder while a Book is being

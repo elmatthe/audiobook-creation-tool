@@ -2,6 +2,53 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-12 — v0.7.3 owner PASS authorizes merge and Windows packaging, not GitHub publication (owner; recorded by Codex)
+
+The owner accepts application commit `a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b` after
+personally using the verified candidate window, recognizing all 33 recovered Nero chapters,
+completing the full-book GUI conversion and successfully converting multiple additional
+audiobooks to chapterized MP3s. These are owner-reported outcomes, not newly executed
+automated conversions or an unrecorded listening/timing qualification. The earlier failed
+attempt selected the original v0.7.2 launcher; the private verified launch workflow resolved
+that selection problem without another production fix. Bounded GUI preflight and private
+runtime checks independently proved the intended worker imports/configuration and plan.
+
+The recorded narrow automated evidence and this manual acceptance suffice for this hotfix.
+The owner explicitly waives a repeat full gate, M4B scaling benchmark and unrelated
+qualifications; no historical gate result changes and no new full-gate PASS is claimed.
+Authorized now: documentation-only acceptance closeout on PR #15's feature branch, ready
+and merge PR #15 into master, commit the v0.7.3 README/download instructions, build and
+audit the Windows ZIP from final committed origin/master. Application and tests remain
+identical to the owner-tested candidate. No extra PR, history rewrite or branch deletion.
+
+Publication is a separate manual owner action: Codex must not create the v0.7.3 tag/release,
+upload an asset or enable publishing. The new README download URL is preparatory until
+that publication. Preserve the v0.7.2 release/tag/archive and all owner data/evidence.
+
+## 2026-11-12 — v0.7.3 candidate: independently validated Nero chapter recovery (Codex)
+
+The owner explicitly chose application-level recovery for conflicting QuickTime/Nero chapters.
+Normal validation runs first and is unchanged. Only an invalid primary list permits a bounded read
+of exactly one `moov/udta/chpl` v1 table, with a unique sound-track chapter reference to a distinct
+QuickTime text track. The linked sound track must match FFprobe's single audio stream ID. Unsupported,
+truncated, duplicate or ambiguous boxes and malformed UTF-8 fail closed. Nero entries retain stored
+order/titles and pass `validate_chapters`; recovery additionally requires explicit start zero, a
+zero-based audio stream with matching duration, and a positive sample count for each existing cut.
+No timestamps are sorted, dropped, deduplicated or nudged; no new tolerance or dependency is introduced.
+
+`SourceReport.original_probe` retains the contradictory answer and `chapter_recovery` records the
+selection/refusal. Split uses the existing planner/executor. Whole suppresses the contradictory input
+chapter map and writes the frozen recovered spans as ID3 CHAP/CTOC on its private staged MP3 using
+the already pinned Mutagen dependency; tags/artwork and the existing Strip policy remain in force.
+ID3 navigation has its normal millisecond precision; audio boundaries keep the Nero starts. This
+bounded execution integration is necessary so Whole does not copy the map that preflight rejected.
+A bounded preallocated ID3 header prevents moving the audio payload while adding navigation.
+Cancel checks, measurement and no-clobber publication still surround the staged output.
+
+Private owner media/excerpts and local evidence are never tracked or uploaded. Focused tests replace
+the broad gate for this explicitly bounded session. Owner full-book acceptance is mandatory before
+any merge, final release ZIP, tag or publication; candidate identity alone is not a released version.
+
 ---
 
 ## 2026-11-12 — ACT v0.7.2 — owner-approved composite verification acceptance

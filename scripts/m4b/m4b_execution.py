@@ -65,6 +65,7 @@ from shared import output_paths
 from shared import subprocess_utils as sp
 
 from m4b import m4b_commands
+from m4b.m4b_chapters import ChapterSpan
 from m4b.converter import m4b_metadata
 from m4b.converter.m4b_metadata import AttachedPicture, MetadataMode
 
@@ -162,6 +163,7 @@ class SegmentWork:
     #: audio pass changes; the cover pass and everything after it are the
     #: seeking route's.
     continuous_decode: bool = False
+    recovered_chapters: tuple[ChapterSpan, ...] = ()
 
     @property
     def fragment(self) -> bool:
@@ -456,7 +458,7 @@ def _output_args(work: SegmentWork, *, chapters: bool = True) -> list[str]:
     keep = m4b_metadata.retains_chapters(work.metadata_mode, split=work.fragment)
     args = m4b_metadata.metadata_args(
         work.tags,
-        keep_chapters=keep,
+        keep_chapters=keep and not work.recovered_chapters,
         chapter_titles=work.chapter_titles,
     )
     # The pin follows *anything* that lands in an ID3 tag, which since the
@@ -471,6 +473,11 @@ def _output_args(work: SegmentWork, *, chapters: bool = True) -> list[str]:
     if work.tags or keep:
         args = list(args) + ["-id3v2_version", "3"]
     args = list(args)
+    if keep and work.recovered_chapters:
+        # Nero has at most 255 titles of 255 UTF-8 bytes. Reserve room for
+        # their UTF-16 ID3 CHAP frames so adding navigation never moves the
+        # large audio payload in an uncancellable tag-writing operation.
+        args += ["-metadata_header_padding", str(256 * 1024)]
     if not chapters:
         # The PCM route owns the chapter map, because the book moves to input 1
         # once the audio is a pipe. Leaving this pair in as well would put two
@@ -514,7 +521,7 @@ def _passes(work: SegmentWork, *, ffmpeg: str, staged_final: Path,
             metadata_source=work.source,
             attached_picture=None if keep is None else keep.stream_index,
             keep_chapters=m4b_metadata.retains_chapters(
-                work.metadata_mode, split=work.fragment),
+                work.metadata_mode, split=work.fragment) and not work.recovered_chapters,
         )),)
 
     if not work.fragment:
@@ -766,6 +773,17 @@ def convert_segment(
         # measurement (a child of its own, seconds on a long book) is back.
         if cancelled():
             return stopped()
+        if work.recovered_chapters and m4b_metadata.retains_chapters(
+                work.metadata_mode, split=work.fragment):
+            from m4b.m4b_nero import write_recovered_chapters
+
+            try:
+                write_recovered_chapters(staged_final, work.recovered_chapters)
+            except Exception as exc:
+                return refuse("The recovered chapter table could not be written.",
+                              f"{type(exc).__name__}: {exc}")
+            if cancelled():
+                return stopped()
         measured = measure(staged_final)
         if cancelled():
             return stopped()

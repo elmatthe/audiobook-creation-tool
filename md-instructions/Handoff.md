@@ -1,5 +1,26 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.7.3 owner PASS; merge and Windows packaging authorized (2026-11-12, Codex, HOME-PC)
+
+This block supersedes historical holds and next-action instructions below.
+Owner-tested application: `a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b` on
+`feature/0.7.3-m4b-chapter-recovery`; starting master `ec79dba358e7a6fa84c90fe44595b9222742a834`.
+
+- **Owner-reported PASS:** verified candidate window; all 33 recovered Nero chapters recognized;
+  full-book GUI conversion and multiple additional normal audiobook conversions succeeded.
+  Prior old-launcher selection resolved. No new production fix or unrecorded listening/timing claim.
+- Earlier independent focused checks and bounded actual-GUI preflight passed; acceptance report:
+  `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`. No full gate, scaling/engine/platform
+  qualifications or full-book conversion are to be rerun for this administrative checkpoint.
+- Current action: commit/push only the four acceptance documents, mark PR #15 ready, merge into
+  **master** without deleting the branch, verify application/tests match the tested candidate,
+  commit the README update, then build/audit one Windows ZIP from exact final origin/master.
+- **STOP after packaging.** The owner manually creates the v0.7.3 GitHub release and attaches
+  the validated ZIP. No tag, release, asset upload or automatic publishing by Codex.
+- Preserve v0.7.2 release/tag/local ZIP, owner changes, models, private source/evidence and existing
+  conversion outputs. Release evidence stays under `files/run-temp/m73-release-private`.
+  This documents-only closeout contains no application/test changes; resolve its SHA after committing.
+
 ## Current Focus
 
 ## CURRENT STATE — v0.7.2 merged by owner; Windows packaging checkpoint (2026-11-12, Codex, HOME-PC)

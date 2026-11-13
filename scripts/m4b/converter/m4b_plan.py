@@ -50,7 +50,7 @@ from shared.importing import ImportRoot
 from shared.output_paths import assert_not_input
 
 from m4b.converter import m4b_destinations
-from m4b.m4b_chapters import ChapterUsability, plan_timeline, validate_chapters
+from m4b.m4b_chapters import ChapterSpan, ChapterUsability, plan_timeline, validate_chapters
 from m4b.converter.m4b_metadata import BOOK_FIELDS, AttachedPicture, MetadataMode, SourceTags
 from m4b.m4b_naming import segment_filename
 from m4b.m4b_probe import SourceReport
@@ -186,6 +186,9 @@ class ItemPlan:
     #: scan, or ``None`` for the seeking route. Never re-derived after Start, so a
     #: retry takes the same route with a fresh decoder.
     continuous: object | None = None
+    #: Recovered Whole navigation, replacing the contradictory input map.
+    #: Empty for ordinary books and split fragments, which keep existing policy.
+    recovered_chapters: tuple[ChapterSpan, ...] = ()
 
     @property
     def total_segments(self) -> int:
@@ -368,7 +371,8 @@ def assemble_plan(
         if validation.usability is ChapterUsability.UNUSABLE:
             reason = validation.reason.value if validation.reason else "unusable"
             failures.append(_failure(
-                entry, reason, validation.message, validation.detail))
+                entry, reason, validation.message,
+                validation.detail + (f"; {report.chapter_recovery}" if report.chapter_recovery else "")))
             continue
 
         # Several embedded covers is not a chapter defect, so it gets its own
@@ -464,6 +468,9 @@ def assemble_plan(
             chapter_titles=(() if (options.split and chaptered) else
                             tuple(chapter.title for chapter in report.probe.chapters)),
             continuous=decoded_once,
+            recovered_chapters=(plan_timeline(report.probe)
+                                if report.original_probe is not None
+                                and not (options.split and chaptered) else ()),
             segments=tuple(
                 SegmentPlan(
                     order=order,
