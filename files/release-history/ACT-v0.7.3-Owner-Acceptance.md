@@ -1,13 +1,39 @@
-# ACT v0.7.3 candidate — awaiting owner audiobook acceptance
+# ACT v0.7.3 — owner acceptance PASS; merge and Windows packaging authorized
 
 2026-11-12, HOME-PC. Base `origin/master`: `ec79dba358e7a6fa84c90fe44595b9222742a834`.
 Branch: `feature/0.7.3-m4b-chapter-recovery`. Candidate identity: 0.7.3.
 Resolve the exact candidate commit with `git rev-parse HEAD` in the hotfix worktree;
 the local verified launcher records and enforces the committed identity.
 
-**Stop at the draft PR.** Full-book owner acceptance is pending. No merge, auto-merge,
-tag, final release ZIP or publication is authorized at this checkpoint. The public
-v0.7.2 release, tag and archive remain unchanged; README still advertises v0.7.2.
+## Owner acceptance and authority (2026-11-12)
+
+**Owner-reported PASS**, on application commit
+`a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b`, using the verified window
+`ACT v0.7.3 CANDIDATE | a2cc65d`. The owner confirms the previously failing real
+book was recognized through all 33 recovered Nero chapters and its full GUI
+conversion succeeded. Multiple additional audiobooks also converted successfully
+to chapterized MP3 files. These are the owner's results, separate from the earlier
+independent automated evidence below; no new timing or listening checks are claimed.
+
+The earlier failed owner attempt used the original v0.7.2 setup launcher. That
+launch-selection problem was resolved through the verified candidate workflow;
+no additional production fix was needed. Subsequent bounded native GUI preflight
+verified worker module paths, identical probe/planner reports, 33 valid spans,
+the recovery message and isolated outputs, then cancelled before encoding.
+Nine private runtime guard tests passed. Private evidence remains untracked.
+
+The owner explicitly authorizes administrative closeout, merging PR #15 into
+**master**, updating README for v0.7.3, and building/auditing the Windows ZIP.
+The recorded focused automated checks and manual acceptance are sufficient for
+this narrow hotfix; **no new full verification gate or qualification is required**.
+Codex must not repeat the full-book conversion. No application/test changes belong
+in this closeout. Windows 11 HOME-PC is qualified; Windows 10 is not separately
+qualified, and macOS/Linux remain unqualified for this release.
+
+**GitHub publication stays manual.** Do not create a v0.7.3 tag/release or upload
+an asset. The owner will publish the validated ZIP. Keep the v0.7.2 release,
+tag and archive unchanged. Merge/packaging source identities and final archive
+facts are recorded after those operations; this document does not claim publication.
 
 ## Problem and bounded recovery
 
@@ -92,9 +118,13 @@ and `29275.275011` passed. Each decodes to 88,200 stereo frames at 44.1 kHz; cor
 against an independent short seek with decoder priming were 0.999636, 0.999667 and
 0.999833. Non-silent content, timing, retained artwork and title tags were checked.
 Excerpts, source hash, titles and full probe evidence remain local and untracked.
-These checks do not claim a full-book conversion, decode or human listening verdict.
+These automated checks do not claim an independent full-book conversion, decode or
+human listening verdict. Full-book GUI conversion is accepted on the owner's report above.
 
-## Owner launch and acceptance
+## Recorded owner launch and acceptance procedure
+
+The procedure below is retained as the tested workflow, not a request to repeat the
+completed owner test. The owner's PASS above supersedes the earlier acceptance hold.
 
 From the **original HOME-PC repository root**, run in PowerShell:
 
@@ -119,9 +149,10 @@ Run options start from ACT's existing defaults: select the usual options at conv
 3. Confirm successful completion and 33 outputs with correct numbering and titles.
 4. Listen across first, middle and final chapter endings/beginnings for missing or duplicated audio.
 5. Verify the original M4B SHA-256 against the local baseline; optionally try a normal book.
-6. Report **PASS or FAIL** in the next interaction. Keep the draft PR unmerged until explicit acceptance.
+6. The owner has now reported **PASS** and explicitly authorized merge and Windows packaging.
 
 Limitations: narrowly recognized MOV/chpl v1 layouts only; uncertain provenance remains rejected.
 Whole ID3 navigation uses normal millisecond precision; audio cuts keep Nero starts through the
 existing sample calculation. No full gate, GUI journey suite, scaling/engine/low-memory/fresh-Windows
-qualification or full-book conversion was run. Official packaging and publication are deferred.
+qualification was run for v0.7.3. Codex did not repeat the full-book conversion.
+Windows packaging is authorized; GitHub publication is reserved for the owner.

@@ -13,7 +13,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-## [Unreleased] — v0.7.3 candidate; awaiting owner audiobook acceptance (2026-11-12)
+## [Unreleased] — v0.7.3 owner-accepted hotfix; Windows packaging authorized (2026-11-12)
 
 **Fixed**
 - **M4B Converter:** if FFprobe's chapter list is invalid and the source proves it has separate
@@ -21,8 +21,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   it passes the existing strict validator and audio-coverage checks. Normal valid files are unchanged;
   unsupported, corrupt or ambiguous tables still fail closed. Split keeps every recovered chapter;
   Whole writes the recovered navigation under the existing metadata options. The original source is untouched.
-- Candidate identity is 0.7.3. Focused checks and private real-book preflight passed;
-  full-book owner acceptance is pending. Nothing merged, tagged, packaged or published.
+- Identity is 0.7.3. Focused checks and private real-book/GUI preflight passed. The owner
+  reports PASS for the full 33-chapter book and multiple additional audiobook conversions
+  using the verified candidate. The earlier old-launcher selection problem is resolved.
+  Merge and Windows packaging are authorized without a repeat full gate or qualifications;
+  GitHub publication remains a manual owner action and has not occurred.
   See `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`.
 
 ## v0.7.2 release-readiness history (2026-11-12)

@@ -2,6 +2,29 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-12 — v0.7.3 owner PASS authorizes merge and Windows packaging, not GitHub publication (owner; recorded by Codex)
+
+The owner accepts application commit `a2cc65d3f498b5d5fd886c0c01c8780d1e1d6d3b` after
+personally using the verified candidate window, recognizing all 33 recovered Nero chapters,
+completing the full-book GUI conversion and successfully converting multiple additional
+audiobooks to chapterized MP3s. These are owner-reported outcomes, not newly executed
+automated conversions or an unrecorded listening/timing qualification. The earlier failed
+attempt selected the original v0.7.2 launcher; the private verified launch workflow resolved
+that selection problem without another production fix. Bounded GUI preflight and private
+runtime checks independently proved the intended worker imports/configuration and plan.
+
+The recorded narrow automated evidence and this manual acceptance suffice for this hotfix.
+The owner explicitly waives a repeat full gate, M4B scaling benchmark and unrelated
+qualifications; no historical gate result changes and no new full-gate PASS is claimed.
+Authorized now: documentation-only acceptance closeout on PR #15's feature branch, ready
+and merge PR #15 into master, commit the v0.7.3 README/download instructions, build and
+audit the Windows ZIP from final committed origin/master. Application and tests remain
+identical to the owner-tested candidate. No extra PR, history rewrite or branch deletion.
+
+Publication is a separate manual owner action: Codex must not create the v0.7.3 tag/release,
+upload an asset or enable publishing. The new README download URL is preparatory until
+that publication. Preserve the v0.7.2 release/tag/archive and all owner data/evidence.
+
 ## 2026-11-12 — v0.7.3 candidate: independently validated Nero chapter recovery (Codex)
 
 The owner explicitly chose application-level recovery for conflicting QuickTime/Nero chapters.
