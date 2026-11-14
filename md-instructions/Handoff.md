@@ -1,5 +1,49 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Windows release PUBLISHED: master fast-forwarded, ZIP built and audited, tag `v0.8.0`, GitHub release with the verified asset (2026-11-14, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. It records, as verified facts, the steps the block
+below lists as "Next". This commit changes only this file (not packaged), so the tagged source and the archive are
+unchanged by it. The original full gate `2026-11-14_113416_full_c8e8` stays a FAIL; the release rests on the owner's
+maintainer exception (Decisions 2026-11-14; `files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`).
+
+- **Integration.** Release-documentation commit `d1701e987f106ce00f557f267a6761c5370f5968` on
+  `feature/0.8.0-omnivoice-integration` (parent `ee426fd`), pushed. `origin/master` rechecked immediately before:
+  `dbf38f7`, an ancestor, 0 behind and 17 ahead. Integrated by a plain, non-force fast-forward push of `d1701e9` to
+  `master` (branch not protected; no PR, merge commit, rebase, squash or rewrite); every feature commit is in
+  `master`. Program code, config, references, previews and tests are unchanged between `ee426fd` and `d1701e9` except
+  the README pin in `test_long_paths.py` and its `coverage.json` id. Local `master` moved by compare-and-swap from the
+  stale `c0896d8` to `d1701e9`, then the checkout switched to it between identical commits (no file rewritten).
+- **Archive.** `dist/AudiobookTool-Windows-v0.8.0.zip` (the destination did not exist before) built by the unchanged
+  `scripts/shared/release.py` from source commit `d1701e9` with no dirty packaged path: **12,473,203 bytes, SHA-256
+  `e6b6929b356c7358ef788d430f73f4c4949c9d049afee40f7ab112e9f8b75b22`**, 188 members. No macOS v0.8.0 archive was built;
+  the older archives in `dist/` are untouched.
+- **Audit (read-only, script in the session scratchpad).** CRC of every member; no duplicate, absolute or parent
+  paths; members are exactly the committed scope (README.md, config.toml, the `.bat` launcher with CRLF and mode
+  0755, the tracked `scripts/` minus the two developer-only scripts, and exactly 18 reference WAVs, six each for
+  Chatterbox, OmniVoice and Qwen3); every member equals its blob at `d1701e9` (WAVs byte-exact, text after CRLF->LF);
+  README is the v0.8.0 release README with one v0.8.0 Windows link; `config.toml` version 0.8.0 and
+  `developer_mode = false`; `version.py` 0.8.0; no environment, cache, runtime state, developer evidence, model weight,
+  wheel, binary, media, key or secrets file; a test extraction into the scratchpad reproduced the 188 members. (The
+  first `version.py` check was an audit-script error: its pattern missed the CRLF the packager ships, as in v0.7.3's
+  asset; rechecked with a CRLF-tolerant pattern.) The 28 preview WAVs are unchanged since v0.7.3. No installation,
+  first run or model load.
+- **Tag.** Annotated `v0.8.0` (tag object `0a3653e`) -> `d1701e9`, pushed; no existing tag moved (`v0.7.3` = `dbf38f7`,
+  `v0.7.2` = `ff36392`, `v0.7.0` = `c0896d8`).
+- **Release.** "v0.8.0 — Audiobook Creation Tool", published 2026-11-14T22:01:09Z, Latest, not draft or prerelease:
+  https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.8.0 with the one asset
+  https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip.
+  Downloaded anonymously into a fresh folder: HTTP 200, 12,473,203 bytes, SHA-256 equal to the audited file and to
+  GitHub's asset digest. The notes cover the features, OmniVoice's GPU and licence restrictions, the qualification
+  scope, the maintainer-accepted evidence with its exceptions, and macOS pending. Older releases and their assets
+  are unchanged (v0.7.3's asset digest `3c42e318...0543946` as before).
+- **Preserved.** The owner's 17 tracked deletions and untracked files (`.ai/`, `files/plans/archived-plans/`,
+  `files/run-temp/`, `scripts/project-status.py`) were never staged; environments, models, approved audio and old
+  evidence untouched; no scratch or drive-root folder cleaned.
+- **Still not qualified:** see the block below and the acceptance record. macOS v0.8.0: not supported or published.
+- **Next action.** None for Windows v0.8.0. The next session is macOS work on the owner's Apple Silicon MacBook, under
+  a separate plan; it starts from `master` (tag `v0.8.0`).
+
 ## Current checkpoint — v0.8.0 Windows release: the owner accepts the combined verification evidence; release documentation committed; master integration, ZIP, tag and publication follow in this session (2026-11-14, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (v0.8.0
