@@ -1,16 +1,16 @@
-# Audiobook Creation Tool v0.7.3
+# Audiobook Creation Tool v0.8.0
 
 A Windows desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
 ## Download / Install
 
-**v0.7.3 is prepared for manual GitHub publication.** The download below becomes available when the owner publishes the release. Qualification remains Windows 11 (HOME-PC) at 100% display scaling; Windows 10, other machines and other display scaling are not separately qualified.
+**v0.8.0 is the current Windows release.** Qualification is limited to Windows 11 on one computer (the developer's HOME-PC) at 100% display scaling; Windows 10, other computers, other display scaling and the configurations listed under [Release verification and what is not yet qualified](#release-verification-and-what-is-not-yet-qualified) are not separately qualified.
 
 | Platform | Archive | Double-click after extraction |
 |---|---|---|
-| Windows | [AudiobookTool-Windows-v0.7.3.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+| Windows | [AudiobookTool-Windows-v0.8.0.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
 
-macOS and Linux are not qualified or distributed for v0.7.3; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
+macOS v0.8.0 is not yet supported or published, and Linux is not qualified or distributed; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
 
 Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
 
@@ -22,14 +22,14 @@ Why it matters: the app keeps its own Python environments inside its folder, and
 
 How long the path of the app's folder may be (the folder that contains `Setup_and_Run-audiobook-creation-tool.bat`; `C:\AudiobookTool` is 16 characters; Windows counts a few characters, such as emoji, as two):
 
-| Windows setting | The app with the Edge, Kokoro, Chatterbox and Qwen3 voices | Also with the OmniVoice voices (v0.8.0, in development) |
+| Windows setting | The app with the Edge, Kokoro, Chatterbox and Qwen3 voices | Also with the OmniVoice voices (v0.8.0) |
 |---|---|---|
 | Default Windows (long paths off) | 87 characters or fewer | 83 characters or fewer |
 | "Enable Win32 long paths" switched on | 123 characters or fewer | 119 characters or fewer |
 
-These are this app's own limits, enforced by its setup; they are not general Windows limits. They were worked out from the measured depth of the deepest files in two real installations, and automated tests check the rule at each exact limit. What has been installed and run for real is narrower: for v0.8.0 so far, one Windows 11 computer with long paths switched on, in folders of 89 and 102 characters. No installation has yet been run for real on a computer with long paths off, or in a folder exactly at one of these limits. (v0.7.3 accepts up to 131 characters with long paths on; 123 is the corrected limit from v0.8.0.) Setup checks the folder before it downloads the app's packages or any voice, and tells you what to do if the folder is too deep. (Only the app's own Python, about 46 MB, may already have been fetched into the folder by then.)
+These are this app's own limits, enforced by its setup; they are not general Windows limits. They were worked out from the measured depth of the deepest files in two real installations, and automated tests check the rule at each exact limit. What has been installed and run for real is narrower: for v0.8.0, one Windows 11 computer with long paths switched on, in folders of 89 and 102 characters. No installation has yet been run for real on a computer with long paths off, or in a folder exactly at one of these limits. (v0.7.3 accepts up to 131 characters with long paths on; 123 is the corrected limit from v0.8.0.) Setup checks the folder before it downloads the app's packages or any voice, and tells you what to do if the folder is too deep. (Only the app's own Python, about 46 MB, may already have been fetched into the folder by then.)
 
-**Optional: Windows long paths.** Windows has a setting called "Enable Win32 long paths" that allows longer paths for programs that support them. It does not guarantee that every Python package or program library works at any length, which is why the limits above still apply. From v0.8.0 (in development), where switching it on would be enough, the first-run setup window offers to do it for you: Windows asks for an administrator's approval first, setup never changes the setting silently, and setup checks that long paths really work before it installs anything. This offer has not yet been tried for real on a computer where the setting is off: the approval prompt and the change itself were tested only with the Windows setting simulated, and they remain to be checked on such a computer before v0.8.0 is released. To change the setting yourself:
+**Optional: Windows long paths.** Windows has a setting called "Enable Win32 long paths" that allows longer paths for programs that support them. It does not guarantee that every Python package or program library works at any length, which is why the limits above still apply. From v0.8.0, where switching it on would be enough, the first-run setup window offers to do it for you: Windows asks for an administrator's approval first, setup never changes the setting silently, and setup checks that long paths really work before it installs anything. This offer has not yet been tried for real on a computer where the setting is off: the approval prompt and the change itself were tested only with the Windows setting simulated. v0.8.0 was released without that check (see [Release verification and what is not yet qualified](#release-verification-and-what-is-not-yet-qualified)); the short folder above avoids the question entirely. To change the setting yourself:
 
 - **Group Policy** (may need administrator permission; not available on Windows Home, and it may be locked on a computer managed by an organisation): open the Local Group Policy Editor (`gpedit.msc`) → Computer Configuration → Administrative Templates → System → Filesystem → **Enable Win32 long paths** → **Enabled**.
 - **Registry (advanced, for information only):** under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem`, the value `LongPathsEnabled` (DWORD) set to `1`. Changing the registry needs the appropriate permissions; do it only if you are comfortable administering Windows.
@@ -46,25 +46,39 @@ First run opens a setup window. Choose the voices you want installed on this com
 | Chatterbox Turbo | Unchecked | Expressive local voices from the six bundled recordings (about 3 GB) |
 | Qwen3 CustomVoice | Unchecked | The Aiden and Ryan voices (about 4.5 GB, plus the shared Qwen3 engine) |
 | Qwen3 Cloned Voices | Unchecked | The six bundled cloned voices (about 3.9 GB, plus the shared Qwen3 engine) |
+| OmniVoice — Six Cloned Voices | Unchecked | Six cloned voices; NVIDIA graphics card only; **non-commercial** model weights (about 6.9 GB to download, about 11.6 GB on disk; see [OmniVoice](#whats-new-in-v080-omnivoice)) |
 
 **Begin Setup** first prepares the app itself: a private Python environment with its packages (about 2.5 GB, needed whatever you choose) and FFmpeg. Edge TTS voices work as soon as that is done. Then a review screen lists exactly what the voices you chose will download, reuse and occupy on disk; nothing is downloaded until you press **Install Selected Components**, and **Skip** opens the app without them. The two Qwen3 choices share one voice engine (about 3.1 GB), downloaded once. Every file comes from a fixed, tested source and is checked before it is used. Later launches open the app directly.
 
 You can add a voice later: in **TTS Audiobook**, choose it and press **Create**. If it is not installed yet, **Install & Continue** shows the same review screen and, once the voice is installed and checked, starts that conversion; Skip or Cancel starts nothing.
 
-## In development: v0.8.0 with OmniVoice (not released)
+## What's new in v0.8.0: OmniVoice
 
-The `feature/0.8.0-omnivoice-integration` branch adds a fifth optional voice engine. **It is not released and there is no v0.8.0 download:** the owner has listened to and approved all 12 OmniVoice listening tracks (two for each of the six voices); an independent review and the final verification gate are still pending.
+v0.8.0 adds a fifth optional voice engine. The app now has **34 registered voices across five engines**: Edge TTS 5, Kokoro 9, Chatterbox 6, Qwen3 8 and OmniVoice 6. The owner listened to and approved all 12 OmniVoice listening tracks (two for each of the six voices).
 
-- **Six OmniVoice cloned voices:** OmniVoice - Female 1, Female 2, Male 1, Male 2, Male 3 and Male 4, each cloned from its own bundled recording (at most 10 seconds; Male 1's is 10.2 seconds) and the owner's transcript of it. They follow the other voices in TTS Audiobook (34 voices in all). They have no preview samples yet.
+- **Six OmniVoice cloned voices:** OmniVoice - Female 1, Female 2, Male 1, Male 2, Male 3 and Male 4, each cloned from its own bundled recording (at most 10 seconds; Male 1's is 10.2 seconds) and the owner's transcript of it. They follow the other voices in TTS Audiobook. They have no preview samples yet.
 - **A fifth first-run choice, unchecked:** *OmniVoice — Six Cloned Voices* (about 6.9 GB to download and about 11.6 GB on disk, in its own environment, `.venv/engines/omnivoice`, held inside the app's one `.venv` folder beside the Qwen3 engine; each of the three keeps its own Python packages). It can also be added later with **Install & Continue**. Nothing is downloaded until you press **Install Selected Components**, and the review screen shows the licence terms first (**View licence terms** opens each licence text).
 - **Hardware:** Windows with an NVIDIA graphics card (GPU) only; it does not run on the processor alone. It was tested on one computer (an RTX 5070), where narration used about 2 to 2.5 GB of graphics memory (up to about 4.6 GB the first time each voice is used) and ran several times faster than real time. Other cards are not promised.
 - **Non-commercial:** the OmniVoice model weights are licensed CC-BY-NC, **non-commercial use only**. Installing OmniVoice does not give you the right to make commercial audiobooks or to sell or monetise audio made with these voices. The program code is Apache-2.0. The audio tokenizer it needs has its own licence, the Boson Higgs Audio 2 Community License, based on the Meta Llama 3 Community License: the Llama 3 Acceptable Use Policy applies, its outputs may not be used to improve any other large language model, and a product or service with more than 100,000 annual active users in the preceding calendar year needs an expanded licence from Boson AI. The model card also forbids unauthorised voice cloning, impersonation and fraud. This app never ships the weights or the tokenizer: your own installation downloads them, with their licence files, from one pinned revision. This summary is not legal advice.
 - **Speech preparation:** OmniVoice uses the app's existing speech preparation (`tts.speech_prep`, default `v1`), with every number, date, time, currency, unit, title, Roman-numeral and symbol rule expanded, as heard in the listening tracks the owner approved; `off` still reads the text as written.
 - **Nothing changes for the other engines:** Edge, Kokoro, Chatterbox and Qwen3 keep working without OmniVoice and need no new download. Each cloned engine now has its own six bundled recordings (`files/Cloned-Voice-Uploads/Chatterbox`, `Qwen3` and `OmniVoice`); Qwen3 keeps its original recordings unchanged.
+- **Also in v0.8.0:** one `.venv` folder holds the app's environment and both optional engines; the app's path limit with Windows long paths on is corrected to 123 characters (was 131); setup can offer to switch on Windows long paths with your approval; a damaged engine is recognised and offered a repair. See the [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md) for the full list.
 
 Attribution required by the audio tokenizer's licence (section 1.b.i, quoted as the pinned licence words it): "Built with Higgs Materials licensed from Boson AI USA, Inc., Copyright Boson AI USA, Inc., All Rights Reserved and Meta Llama 3 licensed under the Meta Llama 3 Community License, Copyright Meta Platforms, Inc., All Right Reserved".
 
-## What's new in v0.7.3
+## Release verification and what is not yet qualified
+
+v0.8.0's one full automated verification run **failed** on five out-of-date checks in the test and verification tools (no fault in the app was found). Those five were corrected and their focused checks passed. The owner accepted the combined evidence (the passing parts of that full run, the corrected focused checks, an independent code review whose three findings were fixed, real installations in disposable copies on HOME-PC and the owner's approval of the 12 OmniVoice listening tracks) for this Windows release, and decided not to repeat the full run. The details are in [`files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`](https://github.com/elmatthe/audiobook-creation-tool/blob/master/files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md).
+
+Not yet qualified for v0.8.0:
+
+- Setup's offer to switch on Windows long paths, for real, on a computer where the setting is off (approving or declining Windows' administrator prompt, the "restart Windows" step), and an installation on a computer with long paths off or in a folder exactly at a limit.
+- A standard (non-administrator) Windows account, or a computer managed by an organisation that blocks the change.
+- Windows 10, other computers and display scaling other than 100%.
+- OmniVoice on any graphics card other than the one RTX 5070 it was tested on.
+- A complete first-time installation of all five voice choices from this exact release (it was run on earlier v0.8.0 code; the later steps were rerun on the final code in disposable copies).
+
+## Earlier: v0.7.3
 
 - Fixed M4B Converter failures caused by conflicting QuickTime and Nero chapter metadata.
 - When normal chapter validation fails, ACT can recover a separately stored Nero chapter table only when its provenance and timeline are demonstrably valid.
@@ -72,11 +86,11 @@ Attribution required by the audio tokenizer's licence (section 1.b.i, quoted as 
 - Ordinary correctly structured M4B files retain their existing behavior.
 - Invalid or ambiguous metadata still fails safely.
 
-This focused hotfix retains the v0.7.2 Windows improvements and installation workflow described below.
+That focused hotfix retained the v0.7.2 Windows improvements and installation workflow, which v0.8.0 keeps.
 
 ## What it can do
 
-- **TTS Audiobook:** turn PDF or TXT files into MP3 narration using online Edge TTS or optional local Kokoro, Chatterbox and (Windows) Qwen3 voices.
+- **TTS Audiobook:** turn PDF or TXT files into MP3 narration using online Edge TTS or optional local Kokoro, Chatterbox, (Windows) Qwen3 and (Windows with an NVIDIA graphics card) OmniVoice voices.
 - **M4B Converter:** convert M4B to one MP3 per book or split MP3s by chapter, with metadata options.
 - **MP3 Tool:** write tags to track copies, combine tracks into one MP3 per Book, and add or trim time at track ends.
 - **M4B Maker:** build chaptered M4B audiobooks from MP3s with cover art, metadata and series tags.
@@ -110,19 +124,20 @@ Eight local voices: **Qwen3 - Aiden** and **Qwen3 - Ryan** (CustomVoice) and **Q
 
 ## Voice samples
 
-Short samples of all 28 voices, each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/README.md) folder of this repository on GitHub. They are not part of the download.
+Short samples of all 28 voices from before v0.8.0, each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/README.md) folder of this repository on GitHub. The six OmniVoice voices have no preview samples yet. The samples are not part of the download.
 
 ## Requirements
 
 - Windows (64-bit), with space for the Python environment, outputs and any voice models. Qualification is limited to Windows 11 at 100% display scaling as described above; Windows 10 is not separately qualified.
-- On Windows the app is portable: everything it needs stays inside its folder and nothing is installed on the computer. On the first run, setup asks before downloading the app's own Python 3.12 (a standalone build, about 46 MB, checked against a fixed SHA-256) into `files\runtime-data\python`; it does not use or change any Python already on the computer, needs no administrator rights and leaves PATH and file associations alone. FFmpeg is the app's own verified copy in `files\bin` (about 250 MB, also checked before use) unless a working FFmpeg is already on the computer. The Python packages come from a fixed list in which every package has one version and a SHA-256 (`scripts\requirements-lock-windows-py312.txt`); the downloaded packages are kept in `files\runtime-data\python-packages` (about 500 MB), so a repair needs no internet, and pip's cache stays in the folder too. The Edge voices' English sentence data (about 4.3 MB from NLTK's data repository, also checked) is downloaded during setup, or, if it is missing later, only after you agree when you start an Edge narration; it is kept in `files\runtime-data\nltk_data`. Deleting the folder removes everything the app set up.
-- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (all four choices together download about 14.8 GB and use about 18 GB).
+- On Windows the app is portable: everything it needs stays inside its folder and nothing is installed on the computer. On the first run, setup asks before downloading the app's own Python 3.12 (a standalone build, about 46 MB, checked against a fixed SHA-256) into `files\runtime-data\python`; it does not use or change any Python already on the computer, needs no administrator rights and leaves PATH and file associations alone. FFmpeg is the app's own verified copy in `files\bin` (about 250 MB, also checked before use) unless a working FFmpeg is already on the computer. The Python packages come from a fixed list in which every package has one version and a SHA-256 (`scripts\requirements-lock-windows-py312.txt`); the downloaded packages are kept in `files\runtime-data\python-packages` (about 500 MB), so a repair needs no internet, and pip's cache stays in the folder too. The Edge voices' English sentence data (about 4.3 MB from NLTK's data repository, also checked) is downloaded during setup, or, if it is missing later, only after you agree when you start an Edge narration; it is kept in `files\runtime-data\nltk_data`. Deleting the folder removes everything the app set up. (The optional offer to switch on Windows long paths is the one step that changes a Windows setting, and only with an administrator's approval.)
+- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (the first four choices together download about 14.8 GB and use about 18 GB; OmniVoice adds about 6.9 GB to download and about 11.6 GB on disk).
+- OmniVoice only: an NVIDIA graphics card (tested on an RTX 5070, about 2 to 2.5 GB of graphics memory while narrating, up to about 4.6 GB the first time each voice is used).
 
 ## More information
 
 See the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) for release notes and other versions.
 
-Previous Windows version: [v0.7.2](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.2/AudiobookTool-Windows-v0.7.2.zip), available while v0.7.3 awaits publication.
+Previous Windows version: [v0.7.3](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip).
 
 Detailed project and developer information: [Briefing](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Briefing.md), [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md), [Decisions](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Decisions.md), and [Handoff](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Handoff.md).
 

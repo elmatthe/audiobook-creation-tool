@@ -16,13 +16,20 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
-## v0.8.0 OmniVoice integration (in progress, 2026-11-13) — identity 0.8.0 since Phase 4; NOT merged/tagged/published
+## v0.8.0 OmniVoice integration — released for Windows 2026-11-14 on maintainer-accepted verification evidence; macOS v0.8.0 not supported or published
 
 Branch `feature/0.8.0-omnivoice-integration`, from the released v0.7.3 `master` (`dbf38f7`). Plan:
 `files/plans/ACT-v0.8.0-OmniVoice-Integration-Plan-v0.7.3-Baseline.md` (five phases, one session each; one full gate,
 only in Session 5). Phases 1-3 PASSED; Phase 4 is technically complete and the owner has approved all 12 listening
 tracks (the owner's statement, recorded 2026-11-14); see the Handoff for the live state.
 
+- **Windows release (2026-11-14, owner decision).** v0.8.0 is released for Windows only, as
+  `AudiobookTool-Windows-v0.8.0.zip` under tag `v0.8.0`, on a maintainer release exception: the owner accepted the
+  combined evidence (the passing stages of the FAILED full gate `c8e8` on `c583d78`, the F1-F5 focused PASS of
+  `ee426fd`, R1-R3, the 12 approved listening tracks) without a new full gate. Qualified: Windows 11 HOME-PC at 100%
+  scaling. Open: the real long-path switch-on and long paths off, other Windows versions, computers, scaling and GPUs,
+  and the full five-component first run on the final code. macOS v0.8.0 is not supported or published. Record:
+  `files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`.
 - **What it adds.** A fifth optional local engine, OmniVoice 0.2.1 (code Apache-2.0; model `k2-fsa/OmniVoice` @
   `c5fdb5cc`, weights CC-BY-NC, non-commercial; audio tokenizer under the Boson Higgs Audio 2 Community License), with six
   cloned voices `omnivoice-female-1` ... `omnivoice-male-4` ("OmniVoice - Female 1" ...) appended after the 28 earlier
@@ -73,8 +80,8 @@ tracks (the owner's statement, recorded 2026-11-14); see the Handoff for the liv
   the recovery scenarios were run on HOME-PC only, in disposable copies (2026-11-13; the rebuild of both engines after
   the whole `.venv` was removed was completed on the final program code on 2026-11-14; evidence outside the repo: see
   Handoff); the long-path change itself has never been made for real and no installation has been run with long paths
-  off (HOME-PC has long paths on, and its setting is never changed by tests): an external Windows qualification item
-  before any release.
+  off (HOME-PC has long paths on, and its setting is never changed by tests): an external Windows qualification item,
+  still open: the owner released v0.8.0 for Windows without it (2026-11-14).
 
 ## v0.7.2 Windows hardening, feature map and verification gate (in progress, 2026-11-05) — identity 0.7.2 since the Phase 8 release-candidate checkpoint (2026-11-10); NOT merged/tagged/published
 
@@ -1191,6 +1198,12 @@ Both OS zips share code/references and differ only in launcher. No other `files/
 Packaged-asset changes must be committed before building.
 
 ## Current Version
+
+**Current state (2026-11-14, supersedes the paragraphs below for status):** v0.8.0 is the current
+Windows release: tag `v0.8.0` on the release commit (resolve with `git rev-parse v0.8.0^{commit}`), GitHub release
+"v0.8.0 — Audiobook Creation Tool" with `AudiobookTool-Windows-v0.8.0.zip` (Windows only), on the owner's maintainer
+release exception (top section). v0.7.3 (tag `v0.7.3` = `dbf38f7`) was published by the owner on 2026-11-12 and is now
+the previous Windows release. macOS v0.8.0 is not supported or published; the latest macOS build stays v0.6.6.
 
 **Current state (2026-11-13, supersedes the paragraph below for status):** v0.7.3 is the released baseline: merged to `master` and tagged `v0.7.3` = `dbf38f7`; its GitHub publication is the owner's manual step (see the Changelog). The v0.8.0 OmniVoice candidate is in progress on `feature/0.8.0-omnivoice-integration` with identity 0.8.0 (section at the top; `Handoff.md`): not merged, tagged or published.
 

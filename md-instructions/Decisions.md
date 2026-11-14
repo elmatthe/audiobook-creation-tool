@@ -2,6 +2,34 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-14 — v0.8.0 Windows release: the owner accepts the combined verification evidence as a maintainer release exception; no new full gate; the original full gate stays FAIL; macOS deferred (owner decision; release mechanics by Claude Code)
+
+**Owner decision (2026-11-14).** Accept, for the Windows v0.8.0 release, the combined evidence: the passing stages of
+the one canonical full gate `2026-11-14_113416_full_c8e8` on `c583d78` (15,942 of 16,009 tests passed, 2 failed, 65
+skipped; 54 of 56 journeys; four failing checks, all verification pins that predated v0.8.0's additions), the F1-F5
+remediation `ee426fd` with its focused checks (PASS), the independent Codex review's R1-R3 remediation (`c583d78`)
+and the owner's approval of all 12 OmniVoice listening tracks. Do not rerun the full gate. Integrate into `master`,
+build and audit the Windows ZIP, tag `v0.8.0`, publish the release. Defer macOS.
+
+- **An exception, not a PASS.** It replaces, for this release only, the earlier requirements of a passing full gate on
+  the final tree and an external Windows qualification before release. The run `c8e8` is a FAIL and is recorded as
+  one everywhere; nothing claims the corrected tree passed a full gate.
+- **What stays open, said where a user reads it.** The README's "Release verification and what is not yet qualified"
+  section, the acceptance record and the release notes list the unqualified configurations: the real long-path
+  switch-on (UAC prompt, restart, standard and managed accounts), long paths off, folders exactly at a limit, Windows
+  10, other computers and scaling, other GPUs for OmniVoice, and the full five-component first run on the final code.
+- **The README pin follows the release, it is not dropped.** `test_long_paths.py` held "there is no v0.8.0 download"
+  as a pre-release guard. It now requires the opposite facts that matter after release: exactly one v0.8.0 Windows
+  download link, no macOS v0.8.0 archive, the sentence that the switch-on was released untested on a real machine, and
+  the long-path items in the open list. The test is renamed accordingly and `coverage.json` cites the new id; four
+  README mutations and a no-change control prove the new assertions.
+- **Release mechanics.** Integration is a fast-forward of `master` (`master` was an ancestor; no rebase, squash, force
+  or rewrite; `master` is not protected). The archive is built by the unchanged packager from the exact commit the tag
+  names. The tag is never moved; facts known only after publication (archive SHA-256, release URL) go into a later
+  commit that changes only `Handoff.md`, which is not packaged, so the tagged source and the archive stay identical.
+
+Signed: the owner (release decision, 2026-11-14); recorded by Claude Code.
+
 ## 2026-11-14 — v0.8.0 Phase 5 gate failure remediation (F1-F5): five stale verification pins are brought up to v0.8.0 with no program change; the long-path probe is the one approved pip call site outside the policy modules, pinned whole; the OmniVoice real-clone opt-in skip has its own exact rule; a dead coverage id is replaced by every collected parameter (owner instruction; implementation decisions by Claude Code)
 
 **Owner instruction (2026-11-14).** Fix exactly F1-F5 of the failed canonical full gate

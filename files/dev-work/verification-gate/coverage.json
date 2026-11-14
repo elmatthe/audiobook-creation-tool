@@ -22101,7 +22101,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_does_not_announce_a_release"
+            "test": "files/tests/test_long_paths.py::test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_names_the_open_items_of_the_release"
           },
           {
             "kind": "behavior",

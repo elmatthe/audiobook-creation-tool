@@ -13,7 +13,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-## [Unreleased] — v0.8.0 OmniVoice candidate (identity 0.8.0; NOT released; owner listening approved; review and gate pending) (2026-11-13)
+## [0.8.0] - 2026-11-14 — OmniVoice; Windows release on maintainer-accepted verification evidence (macOS pending)
+
+**Release (Windows only, 2026-11-14).** `AudiobookTool-Windows-v0.8.0.zip`, tag `v0.8.0`. The one canonical
+full gate (`2026-11-14_113416_full_c8e8` on `c583d78`) FAILED on five verification pins that predated v0.8.0's
+additions, with no product defect; they were fixed in `ee426fd` and their focused checks passed. The owner accepted
+the combined evidence for this Windows release as a maintainer exception and decided not to rerun the full gate
+(`files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`). Qualified: Windows 11 (HOME-PC) at 100% display
+scaling. Not qualified: the Windows long-path switch-on on a computer where the setting is off, installations with
+long paths off or exactly at a limit, Windows 10, other computers, scaling and GPUs, and the full five-component first
+run on the final code. macOS v0.8.0 is not supported or published.
 
 **Added**
 - **OmniVoice, a fifth optional local engine (Windows, NVIDIA GPU only):** six cloned voices, *OmniVoice - Female 1*,
@@ -38,14 +47,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   measured and enforced, says apart from them what was installed for real (one Windows 11 computer with long paths
   on, folders of 89 and 102 characters), and says that the switch-on itself has not yet been tried on a computer
   where the setting is off (2026-11-14).
-- **README:** a "v0.8.0 in development (not released)" section, including the non-commercial terms (OmniVoice weights are
+- **README:** a v0.8.0 section, including the non-commercial terms (OmniVoice weights are
   CC-BY-NC) and the audio tokenizer licence's attribution. (v0.8.0 Phase 4)
 
 **Changed**
 - Every cloned engine has its own six reference recordings: 18 bundled WAVs in
   `files/Cloned-Voice-Uploads/<Engine>/`. Qwen3 keeps its original six byte for byte (renamed); Chatterbox uses the owner's
   new recordings. The release archive carries exactly these 18. (v0.8.0 Phase 2 correction)
-- Application identity is 0.8.0 (`scripts/shared/version.py`, `config.toml`). Nothing is published. (v0.8.0 Phase 4)
+- Application identity is 0.8.0 (`scripts/shared/version.py`, `config.toml`). (v0.8.0 Phase 4)
 - **One `.venv` folder, three independent environments (owner decision 2026-11-13, unified `.venv` layout):** the
   OmniVoice engine is installed at `.venv\engines\omnivoice`, inside the app's own `.venv` beside the Qwen3 engine
   (`.venv\engines\qwen3`). Each of the three keeps its own Python packages; nothing is merged. Earlier builds of this
@@ -118,11 +127,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 **Full verification gate:** run once, on `c583d78` (`2026-11-14_113416_full_c8e8`): FAIL; its five findings are
 fixed (see Verification only above).
 
-**Not done yet:** a passing full verification gate on the corrected tree (Session 5); the Windows long-path
-switch-on tried for real on a computer where the setting is off, and a real installation with long paths off (an
-external Windows qualification); no merge, tag or release.
+**Not done, released without by the owner's decision (2026-11-14):** a passing full verification gate on the
+corrected tree; the Windows long-path switch-on tried for real on a computer where the setting is off, and a
+real installation with long paths off (an external Windows qualification). See Release above.
 
-## [Unreleased] — v0.7.3 owner-accepted hotfix; Windows packaging authorized (2026-11-12)
+## [0.7.3] - 2026-11-12 — owner-accepted hotfix (Windows)
 
 **Fixed**
 - **M4B Converter:** if FFprobe's chapter list is invalid and the source proves it has separate
@@ -135,7 +144,9 @@ external Windows qualification); no merge, tag or release.
   using the verified candidate. The earlier old-launcher selection problem is resolved.
   PR #15 is merged into master; Windows packaging is authorized without a repeat full gate
   or qualifications. README now prepares the v0.7.3 download instructions; GitHub publication
-  remains a manual owner action and has not occurred.
+  remains a manual owner action and has not occurred. (Later the same day the owner published the GitHub
+  release "v0.7.3 - Audiobook Creation Tool" with `AudiobookTool-Windows-v0.7.3.zip`; tag `v0.7.3` =
+  `dbf38f7`.)
   See `files/release-history/ACT-v0.7.3-Owner-Acceptance.md`.
 
 ## v0.7.2 release-readiness history (2026-11-12)

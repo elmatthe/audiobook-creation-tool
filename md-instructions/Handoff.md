@@ -1,5 +1,39 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Windows release: the owner accepts the combined verification evidence; release documentation committed; master integration, ZIP, tag and publication follow in this session (2026-11-14, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (v0.8.0
+Windows release exception). Acceptance record: `files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`.
+
+- **Owner decision (2026-11-14).** The combined Windows evidence is accepted for release: the passing stages of the
+  one canonical full gate `2026-11-14_113416_full_c8e8` on `c583d78` (which FAILED and stays a FAIL), the F1-F5
+  remediation `ee426fd` with its focused checks (PASS), the Codex review's R1-R3 remediation and the owner's approval
+  of the 12 OmniVoice listening tracks. No new full gate. Integrate into `master`, build and audit the Windows ZIP, tag
+  `v0.8.0`, publish the GitHub release. macOS is deferred to a separate session; no macOS v0.8.0 asset.
+- **This commit.** On `feature/0.8.0-omnivoice-integration`, from `ee426fd` (equal to its remote; `origin/master`
+  `dbf38f7` is its ancestor, 0 behind and 16 ahead before this commit). It changes `README.md` (v0.8.0 is the current
+  Windows release with its download link; OmniVoice in the first-run table; a "Release verification and what is not
+  yet qualified" section; v0.7.3 kept as history), the README assertions of `files/tests/test_long_paths.py` (the
+  pre-release pin "there is no v0.8.0 download" became "links the download and lists the open long-path items"; that
+  test is renamed and its one id in `coverage.json` follows), the new acceptance record and the four documents. No
+  program code, model file, dependency pin, reference WAV or preview changed. The owner's 17 tracked deletions and
+  untracked files are untouched and unstaged. No AI trailer.
+- **Verification (focused only; no full gate, journeys, qualification, installation or model load).**
+  `test_long_paths.py`, `test_release_packaging.py` and `test_epub_retirement.py` over the release README: 419 passed.
+  Negative controls on the changed README assertions: four README mutations (download link, the long-paths-off item,
+  "released without that check", a macOS v0.8.0 archive) each failed the intended test; the unchanged control passed;
+  the README was restored byte for byte. The 27 test files that read the four documents or the README or `git grep`/list the tracked tree (the 25 of Phase 5 with `test_long_paths.py`, `test_epub_retirement.py`, `test_layout_canary.py`, `test_voice_previews.py`, `test_verification_coverage.py` and the required `test_application_source_boundary.py`), run on these documents before this sentence was added: focused gate `2026-11-14_154957_focused_6f8d` on HEAD `ee426fd` with these changes in the working tree, PASS in 531 s, 2,021 passed (2,011 ordinary, 10 guarded), 0 failed, 0 skipped, tree unchanged. Coverage-inventory as the full gate computes it (the `c8e8` collection with `test_long_paths.py` collected again): 0 problems, 0 dead of 1,965 behaviour ids.
+- **Next (this session, in order).** Recheck `origin/master`; fast-forward it to this commit only if it is still an
+  ancestor (no rebase, squash, force or history rewrite); build `dist/AudiobookTool-Windows-v0.8.0.zip` from that
+  exact commit with the unchanged `scripts/shared/release.py`; audit it; tag `v0.8.0` on that commit; publish "v0.8.0
+  — Audiobook Creation Tool" with the ZIP. The outcome is recorded in a closeout block above this one, in a later
+  commit that changes only this file; until that block exists none of these steps is recorded as done.
+- **Not qualified for v0.8.0 (open):** the real Windows long-path switch-on on a computer where the setting is off (Windows' administrator
+  prompt approved and declined, "restart Windows", a standard account, a managed computer); a real installation with
+  long paths off or in a folder exactly at a limit; Windows 10, other computers and display scaling other than 100%;
+  OmniVoice on any GPU other than the RTX 5070; the first-run window with all five components from start to end, and
+  the real downloads, on the final program code (last run on `8e4caa5`); macOS (v0.8.0 not supported or published).
+
 ## Current checkpoint — v0.8.0 Phase 5: the one canonical full gate FAILED (`2026-11-14_113416_full_c8e8` on `c583d78`); its five verification findings F1-F5 are fixed and their focused checks PASS; the corrected tree has NOT passed a new full gate (2026-11-14, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (Phase 5

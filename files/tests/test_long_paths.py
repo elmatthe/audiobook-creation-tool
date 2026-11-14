@@ -983,7 +983,7 @@ def section() -> str:
 def test_the_readme_has_the_path_length_section_under_download_install_before_the_first_run_instructions():
     assert README.count(lp.README_SECTION) == 1
     assert README.index("## Download / Install") < README.index("### " + lp.README_SECTION) \
-        < README.index("First run opens a setup window") < README.index("## In development: v0.8.0")
+        < README.index("First run opens a setup window") < README.index("## What's new in v0.8.0")
 
 
 def test_the_readme_states_the_limits_the_installer_enforces_for_both_windows_configurations():
@@ -1022,11 +1022,19 @@ def test_the_readme_recommends_a_short_folder_first_and_explains_the_optional_se
     # the real change through Windows' approval prompt is still an open qualification item, and the README says so
     assert "has not yet been tried for real on a computer where the setting is off" in text
     assert "tested only with the Windows setting simulated" in text
+    assert "v0.8.0 was released without that check" in text
 
 
-def test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_does_not_announce_a_release():
+def test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_names_the_open_items_of_the_release():
     lowered = README.lower()
     for command in ("reg add", "reg.exe add", "set-itemproperty", "new-itemproperty", ".reg file", "regedit /s"):
         assert command not in lowered, command
-    assert "there is no v0.8.0 download" in README and "v0.8.0, in development" in section()
-    assert "AudiobookTool-Windows-v0.8.0" not in README
+    # v0.8.0 is released for Windows (owner decision 2026-11-14) with the long-path items still unqualified: the README
+    # links the download and lists those items, and still announces no macOS v0.8.0
+    assert "v0.8.0 is the current Windows release" in README and "(v0.8.0)" in section()
+    assert "in development" not in section() and "there is no v0.8.0 download" not in README
+    assert README.count("releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip") == 1
+    assert "AudiobookTool-MacOS-v0.8.0" not in README and "macOS v0.8.0 is not yet supported or published" in README
+    open_items = README[README.index("## Release verification and what is not yet qualified"):]
+    open_items = open_items[:open_items.index("\n## ", 1)]
+    assert "on a computer where the setting is off" in open_items and "with long paths off" in open_items
