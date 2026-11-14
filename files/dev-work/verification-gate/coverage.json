@@ -3,20 +3,23 @@
   "about": "The one coverage inventory (plan section 7): every ACT feature with its stable id, source, contracts and verification; the reviewed index of every surface static and live discovery finds; a review stamp for every application source file; and the issue ledger behind every planned gap. The feature-map documents in files/dev-work/feature-map/ describe the features in prose and name only their ids; the mapping lives here alone. Routine kinds (behavior, native, media, control, discovery) are what the routine gate runs and must satisfy; release kinds (qualification, owner, planned) stay pending and keep release_ready false. helpers/inventory.py checks this file; restamp a source file only after reviewing its features.",
   "inventory_reviewed": true,
   "review": {
-    "phase": "v0.8.0 Phase 4",
+    "phase": "v0.8.0 unified .venv layout (after Phase 4, before Session 5)",
     "date": "2026-11-13",
-    "reviewer": "Claude Code (Opus 5.5)",
+    "reviewer": "Claude Code (Fable 5.2)",
     "method": [
-      "the v0.7.3 Nero recovery and every v0.8.0 Phase 2/3 source change reviewed against the diff since its last stamp and against its features' contracts",
-      "new OmniVoice engine, setup and reference features mapped to their source symbols and to collected tests",
-      "the five licence-window surfaces found by static discovery mapped",
-      "every cited test id resolved against the source by AST and against pytest --collect-only"
+      "every source file changed since 0aa1f19 reviewed against its diff and against its features' contracts",
+      "contracts that named the sibling .venv-omnivoice rewritten for .venv/engines/omnivoice; the sibling's handling, the depth rule, the two-engine lease and the damaged-engine record added as contracts",
+      "new symbols mapped and files/tests/test_omnivoice_layout.py added to the selections of the features it proves",
+      "every cited test id resolved against the source by AST and against pytest --collect-only",
+      "42 negative controls (one textual mutant each) killed by the cited tests, with a passing no-change control",
+      "the Windows long-path feature (shared/long_paths.py, its first-run page and the fresh-process proof) reviewed as new source: every symbol mapped, its three buttons mapped as static surfaces, the feature map extended"
     ],
     "limits": [
       "Windows only",
-      "static discovery only for the new surfaces (no live widget tree this phase)",
-      "OmniVoice fresh install and repair exercised with mocks; the real HOME-PC environment was adopted",
+      "static discovery only (no new surface; no live widget tree this pass)",
+      "the real install, migration, repair and recovery were exercised on HOME-PC and in disposable copies (files/dev-work/ov-nest and the owner's acceptance folder), outside the routine gate",
       "owner listening of the OmniVoice voices pending",
+      "the final full gate and the independent review are still to come",
       "macOS not reviewed"
     ]
   },
@@ -3769,7 +3772,8 @@
             "OmniVoiceFailed",
             "OMNIVOICE_MAX_CHUNK_CHARS",
             "CHUNKS_PER_WORKER",
-            "GENERATION"
+            "GENERATION",
+            "REPAIR_OFFERED_NOTE"
           ]
         },
         {
@@ -3789,7 +3793,8 @@
             "_refuse_speech_recognizer",
             "emit",
             "NetworkRefused",
-            "SpeechRecognizerRefused"
+            "SpeechRecognizerRefused",
+            "isolation_problems"
           ]
         },
         {
@@ -3810,7 +3815,9 @@
             "worker_script",
             "venv_python",
             "jobs_root",
-            "prompts_root"
+            "prompts_root",
+            "reject_ready_engine",
+            "failure_needs_rebuild"
           ]
         },
         {
@@ -3823,16 +3830,18 @@
       ],
       "contracts": [
         "Each file is prepared once in the app with the run's frozen speech-preparation snapshot (v1 by default, or off), planned into whole-sentence chunks of at most 300 characters that never cross a paragraph, and the worker speaks exactly that text with OmniVoice's own text normalization off.",
-        "The model runs only in the isolated .venv-omnivoice worker, offline: an audit hook refuses any network access, the Hugging Face hub is never asked and no speech recognizer (Whisper) is loaded; a worker renders at most 48 chunks and a long book uses fresh workers, so GPU memory cannot accumulate over a book; the panel process never imports torch or OmniVoice.",
+        "The model runs only in the isolated .venv/engines/omnivoice worker, offline: its own nested paths are its own although they lie inside the app's environment, while the parent's packages, the Qwen3 engine and any sibling environment on its path fail its isolation; an audit hook refuses any network access, the Hugging Face hub is never asked and no speech recognizer (Whisper) is loaded; a worker renders at most 48 chunks and a long book uses fresh workers, so GPU memory cannot accumulate over a book; the panel process never imports torch or OmniVoice.",
         "Chunk audio is read back in plan order, validated, joined with the voice preset's paragraph pause between chunks only, encoded once and published atomically; a failure (load, generation, out of GPU memory, a dead or stalled worker) fails that file with a plain sentence and leaves any existing destination untouched.",
         "Cancel asks the worker to stop and kills its contained process tree after a short grace period, during inference or the encode, and wins until the instant of the move; no partial MP3 is published and the job folder (which holds the person's text) is always removed.",
-        "No GPU, no installed engine or model, or a changed recording makes only the OmniVoice voices unavailable with one next step; nothing falls back to another voice or engine, and one OmniVoice file converts at a time."
+        "No GPU, no installed engine or model, or a changed recording makes only the OmniVoice voices unavailable with one next step; nothing falls back to another voice or engine, and one OmniVoice file converts at a time.",
+        "A worker whose packages do not import fails that file, has the engine recorded as damaged and says the one next step (start again and choose Install & Continue); no other failure condemns the engine."
       ],
       "selection": [
         "files/tests/test_omnivoice_synth.py",
         "files/tests/test_omnivoice_gui.py",
         "files/tests/test_omnivoice_reference.py",
-        "files/tests/test_omnivoice_speech.py"
+        "files/tests/test_omnivoice_speech.py",
+        "files/tests/test_omnivoice_layout.py"
       ],
       "journeys": [],
       "verification": {
@@ -3885,6 +3894,26 @@
             "kind": "owner",
             "check": "listen-omnivoice",
             "detail": "Listen to the Phase 4 OmniVoice pack (track A natural narration and track B normalization challenge for each of the six voices) and approve or reject both tracks per voice."
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_nested_environment_s_own_paths_are_its_own_although_they_lie_inside_the_parent"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_engine_built_from_the_parent_s_interpreter_or_running_elsewhere_fails_its_isolation"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_worker_s_search_path_keeps_its_own_folder_and_drops_the_parent_s_and_qwen3_s"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_which_worker_failures_condemn_the_environment"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_worker_whose_packages_do_not_import_has_the_engine_recorded_as_damaged_and_says_how_to_repair"
           }
         ]
       },
@@ -4769,7 +4798,8 @@
         "The engine is created at .venv/engines/qwen3 directly from the verified base CPython 3.12, never from the app's own interpreter; an older .venv-qwen3 is used while it is the only engine and is never installed into, rebuilt or deleted.",
         "Every package is the reviewed manifest's exact wheel (89), fetched and hash-verified once, then installed offline with --no-index --require-hashes --only-binary; pip never reaches an index.",
         "The install is recorded only after the worker's probe imports the whole stack; a failed pip or probe is an incomplete install, with downloaded wheels kept for the retry.",
-        "The engine is ready only with its interpreter, a live base Python, a recorded probe and matching requirements; otherwise the status says to rebuild."
+        "The engine is ready only with its interpreter, a live base Python, a recorded probe and matching requirements; otherwise the status says to rebuild.",
+        "The worker's probe imports the name every conversion imports (Qwen3TTSModel from qwen_tts), so a package folder that lost its own files -- which Python still imports as an empty namespace -- fails the check and 'Check and repair' rebuilds the engine instead of answering that nothing needs repair"
       ],
       "selection": [
         "files/tests/test_qwen3_setup.py",
@@ -4777,7 +4807,8 @@
         "files/tests/test_qwen3_runtime.py",
         "files/tests/test_qwen3_package_manifest.py",
         "files/tests/test_qwen3_environment_layout.py",
-        "files/tests/test_qwen3_nested_adoption.py"
+        "files/tests/test_qwen3_nested_adoption.py",
+        "files/tests/test_qwen3_worker.py"
       ],
       "journeys": [],
       "verification": {
@@ -4805,6 +4836,10 @@
           {
             "kind": "qualification",
             "scenario": "optional-engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_worker.py::test_probe_reports_a_package_that_lost_its_own_files_as_an_import_failure"
           }
         ]
       },
@@ -4943,7 +4978,13 @@
             "speaks_against_environment",
             "OFFLINE_PIP",
             "OmniVoiceSetupError",
-            "ProofFailed"
+            "ProofFailed",
+            "retire_legacy",
+            "parent_problem",
+            "build_problem",
+            "foreign_environments",
+            "_same_file",
+            "_rename_whole"
           ]
         },
         {
@@ -4986,7 +5027,21 @@
             "verify_model_files",
             "model_bad_files",
             "load_manifest",
-            "manifest_problems"
+            "manifest_problems",
+            "venv_dir",
+            "nested_venv_dir",
+            "legacy_venv_dir",
+            "parent_venv_dir",
+            "receipt_path",
+            "legacy_receipt_path",
+            "read_legacy_receipt",
+            "assess_legacy",
+            "LegacyAssessment",
+            "legacy_leftover_note",
+            "install_depth_problem",
+            "windows_long_paths_enabled",
+            "reject_ready_engine",
+            "failure_needs_rebuild"
           ]
         },
         {
@@ -5003,17 +5058,28 @@
           "symbols": [
             "gpu_present"
           ]
+        },
+        {
+          "path": "scripts/shared/venv_layout.py",
+          "symbols": [
+            "omnivoice_layouts",
+            "EngineLayouts"
+          ]
         }
       ],
       "contracts": [
         "OmniVoice - Six Cloned Voices is the fifth optional component, last and unchecked; the other four keep their order, labels and defaults; it is offered by the existing first-run window and Install & Continue, never by a separate installer, launcher or button.",
         "Its licence and hardware terms are shown on the review screen before any consent -- Apache-2.0 engine code, CC-BY-NC non-commercial model weights, and the audio tokenizer's Boson Higgs Audio 2 Community License with its attribution, Notice-file and acceptable-use terms and its 100,000 annual active-user threshold -- and a View licence terms window opens each text at its pinned revision; reading them is never a consent.",
-        "A fresh install downloads only the pinned 88 wheels and 11 model files, each by URL, size and SHA-256, within the consented byte budget, builds .venv-omnivoice offline from them, proves it (versions, isolation, imports, a CUDA kernel and an offline model load) and only then writes the install receipt; readiness requires that receipt.",
-        "An environment already holding exactly the pinned set, isolated and built from the app's own Python, is adopted after the same proof without downloading, rebuilding or changing it; a broken one is set aside whole (never deleted) and rebuilt only under repair consent; only an environment this app's own receipt says was unfinished is ever removed.",
-        "No NVIDIA GPU makes it unsupported and an unchecked GPU unverified, and neither can be consented; Cancel at any step records nothing; a GPU, memory, timeout or busy failure rejects nothing, and Smart App Control first-load refusals are retried."
+        "A fresh install downloads only the pinned 88 wheels and 11 model files, each by URL, size and SHA-256, within the consented byte budget, builds .venv/engines/omnivoice offline from them at its final path inside the app's own environment (from the app's base Python, never the parent's interpreter), proves it (versions, isolation, imports, a CUDA kernel and an offline model load) and only then writes the engine receipt (engine-receipt.json, version 2, bound to that path, the base Python and the package lock); readiness requires that receipt.",
+        "A nested environment already holding exactly the pinned set, isolated and built from the app's own Python, is adopted after the same proof without downloading, rebuilding or changing it; a broken one is set aside whole (never deleted) and rebuilt only under repair consent; only an environment this app's own receipt says was unfinished is ever removed.",
+        "No NVIDIA GPU makes it unsupported and an unchecked GPU unverified, and neither can be consented; Cancel at any step records nothing; a GPU, memory, timeout or busy failure rejects nothing, and Smart App Control first-load refusals are retried.",
+        "An earlier sibling .venv-omnivoice is recognised and named, and never used, adopted, repaired, moved into place or deleted; its version-1 receipt never vouches for the nested engine. The nested engine is built again and proved first; only then is the sibling moved whole, with its old receipt and a note, to files/runtime-data/omnivoice/set-aside. A failure, cancel or interruption before that, a link, or a sibling that cannot be moved leaves it exactly where it was, and the install still stands.",
+        "The engine is never built into an app environment that is missing, linked or half repaired, nor in a copy so deep that its deepest native library would pass Windows' 259-character loader limit; that refusal is for this component alone and is made before anything is downloaded.",
+        "An engine the receipt calls ready that turns out damaged -- its packages do not import during a conversion, or its re-proof fails that way -- is recorded as rejected, so the next plan offers its repair; a GPU, memory, generation, isolation or Smart App Control failure records nothing."
       ],
       "selection": [
-        "files/tests/test_omnivoice_setup.py"
+        "files/tests/test_omnivoice_setup.py",
+        "files/tests/test_omnivoice_layout.py"
       ],
       "journeys": [],
       "verification": {
@@ -5069,6 +5135,90 @@
           {
             "kind": "qualification",
             "scenario": "fresh-windows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_two_locations_are_exact_and_only_the_nested_one_is_ever_the_runtime_path"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_nested_receipt_is_another_file_and_version_than_the_sibling_s_and_both_are_outside_the_parent"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_fresh_install_builds_the_nested_environment_at_its_final_path_from_the_base_python"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_copy_of_the_app_too_deep_for_the_nested_engine_is_refused_for_this_component_alone"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_sibling_s_states_are_told_apart_and_none_of_them_is_ever_ready"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_healthy_sibling_is_rebuilt_at_the_nested_path_from_cached_wheels_and_then_retired_whole"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_interrupted_migration_leaves_the_sibling_untouched_and_the_retry_finishes_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_sibling_that_cannot_be_moved_stays_whole_and_unused_and_the_new_engine_still_stands"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_sibling_is_never_retired_before_the_nested_engine_is_proved"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_broken_nested_engine_is_never_preferred_over_or_hidden_behind_a_healthy_sibling"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_copied_stale_or_foreign_receipt_never_vouches_for_the_nested_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_with_the_whole_parent_gone_stale_receipts_outside_it_authorise_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_omnivoice_only_repair_changes_nothing_of_qwen3_or_of_the_app_s_own_packages"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_set_aside_folder_that_is_a_link_keeps_the_sibling_and_never_fails_the_finished_install"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_leftover_note_promises_only_what_happens"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_install_lock_that_cannot_open_a_later_lock_gives_back_the_ones_it_took"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keeps_it_and_builds_a_fresh_one"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_offered"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_engine_built_through_another_spelling_of_the_same_base_python_is_accepted"
           }
         ]
       },
@@ -20506,23 +20656,26 @@
             "is_link",
             "assess_child",
             "base_identity",
-            "qwen3_layouts"
+            "qwen3_layouts",
+            "omnivoice_layouts"
           ]
         }
       ],
       "contracts": [
         "A repair runs from a base interpreter (never the venv's own) and rebuilds only the Python environment and its packages; it never runs full setup and never installs FFmpeg itself",
         "The old .venv is renamed aside and put back if the new one fails to build, install, import or launch",
-        "A voice engine held under .venv/engines is carried to the new environment at the same path and never deleted",
+        "Every voice engine held under .venv/engines (Qwen3 and OmniVoice, and any entry the app does not know) is carried to the new environment at the same path, byte for byte, and never deleted: on success, on a failed build or failed packages, on a refused carry, and after an interruption at any step",
         "An interrupted repair is finished first on the next start before anything else touches the environment",
         "After a repair the launch never asks for a second repair; a still-running environment whose repair failed opens with a notice",
-        "What setup says about FFmpeg is what it does: the environment rebuild never touches FFmpeg, and the launch that follows a repair run checks it and repairs it like every launch; the --repair-venv help and repair_venv's docstring say exactly that."
+        "What setup says about FFmpeg is what it does: the environment rebuild never touches FFmpeg, and the launch that follows a repair run checks it and repairs it like every launch; the --repair-venv help and repair_venv's docstring say exactly that.",
+        "A .venv folder that is present but holds no Python interpreter is replaced like any environment that cannot run -- set aside, rebuilt, its engines carried home byte for byte -- by first-run setup and by the repair alike; it is never kept as it is, and it comes back whole when the rebuild fails"
       ],
       "selection": [
         "files/tests/test_venv_recovery.py",
         "files/tests/test_venv_integrity.py",
         "files/tests/test_qwen3_lifecycle_locks.py",
-        "files/tests/test_setup_help_text.py"
+        "files/tests/test_setup_help_text.py",
+        "files/tests/test_omnivoice_layout.py"
       ],
       "journeys": [],
       "verification": {
@@ -20570,6 +20723,54 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_setup_help_text.py::test_the_repair_venv_docstring_no_longer_says_a_launch_never_installs_ffmpeg"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_repair_brings_both_engines_home_to_their_own_paths_byte_identical"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_repair_with_only_one_engine_installed_keeps_it_and_invents_no_other"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_if_the_engines_cannot_be_carried_home_the_old_folder_is_kept_with_both_never_deleted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_rollback_never_deletes_a_candidate_holding_an_engine_it_cannot_take_back"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_interrupted_with_the_parent_set_aside_the_next_launch_puts_it_back_with_both_engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_interrupted_after_the_candidate_was_created_but_before_commit"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_interrupted_rollback_is_finished_on_the_next_launch_without_losing_an_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_unknown_entry_under_engines_is_protected_exactly_like_a_known_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_junction_planted_as_the_omnivoice_engine_is_carried_as_a_link_and_never_followed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_folder_that_lost_its_interpreter_is_replaced_and_both_engines_come_home"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_folder_without_an_interpreter_that_cannot_be_rebuilt_is_put_back_with_both_engines"
           }
         ]
       },
@@ -21427,7 +21628,8 @@
           "path": "scripts/shared/bootstrap.py",
           "symbols": [
             "install_path_problem",
-            "windows_long_paths_enabled"
+            "windows_long_paths_enabled",
+            "app_path_limits"
           ]
         },
         {
@@ -21444,13 +21646,14 @@
         }
       ],
       "contracts": [
-        "Setup and repair refuse an app folder too deep for Windows before anything is installed, with one clear instruction; the limit depends on whether Windows long-path support is on and no Windows setting is changed",
+        "Setup and repair refuse an app folder too deep for Windows before anything is installed, with one clear instruction; the limit depends on whether Windows long-path support is on (87 characters off, 123 on -- the deepest native library of every environment held in .venv, Qwen3's included) and the rule itself changes no Windows setting; its refusal names the long-path way only where that would be enough",
         "When the bundled espeak-ng-data path is too long for eSpeak NG's buffer it is linked (never copied) under a short project-owned root that fits",
         "An installation that already fits is left completely alone, and when no short root can be used the failure stays truthful"
       ],
       "selection": [
         "files/tests/test_release_installer.py",
-        "files/tests/test_espeak_data.py"
+        "files/tests/test_espeak_data.py",
+        "files/tests/test_long_paths.py"
       ],
       "journeys": [],
       "verification": {
@@ -21474,6 +21677,176 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_espeak_data.py::test_when_no_candidate_can_be_used_the_failure_stays_truthful"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_tested_limits_are_the_ones_the_installer_enforces_and_one_set_of_numbers"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_folder_too_long_even_with_long_paths_is_told_to_move_and_never_offered_the_change"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_depth_rule_is_asked_first_and_its_refusal_is_never_softened_by_the_probe"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.SETUP.LONG-PATHS.ENABLE",
+      "tool": "setup",
+      "title": "Optional Windows long-path enablement with consent, and the fresh-process proof that it works",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/shared/long_paths.py",
+          "symbols": [
+            "read_setting",
+            "assess",
+            "Assessment",
+            "Limits",
+            "limits_from",
+            "enable",
+            "EnableResult",
+            "system_reg_exe",
+            "elevated_parameters",
+            "_run_elevated",
+            "verify_runtime",
+            "ProbeResult",
+            "_spawn_probe",
+            "_probe",
+            "path_of_length",
+            "offer_text",
+            "ChoicePage",
+            "_change_and_prove"
+          ]
+        },
+        {
+          "path": "scripts/shared/bootstrap.py",
+          "symbols": [
+            "long_path_runtime_problem",
+            "prove_long_paths",
+            "relaunch_setup"
+          ]
+        }
+      ],
+      "contracts": [
+        "The long-path setting is read with a read-only handle; on, off, absent and unreadable are told apart, and a setting that cannot be read is never changed",
+        "The app's real folder length is compared with the tested limits for both Windows configurations (app 87/123, OmniVoice 83/119); a change is offered only where the setting is off and switching it on would be enough -- a folder too long even then is told to move and is still refused afterwards",
+        "The first-run window shows the two ways forward (move the app, recommended; or switch long paths on) instead of the welcome page, says the change is system-wide, needs an administrator and may need a restart, and changes nothing unless the person presses the second; where only OmniVoice is too deep the question comes when OmniVoice is chosen and setup can go on without it",
+        "The elevated helper is Windows' own reg.exe from the system directory Windows reports, started through Windows' consent prompt with one constant command line that sets only LongPathsEnabled to 1; nothing can be passed into it, setup itself stays unelevated, and it is started at most once per request",
+        "A declined or cancelled prompt, a standard account with no administrator, elevation blocked by policy, a failed registry write and a value put back by a managed computer each come back as a sentence, with nothing retried, nothing else changed and both ways still open",
+        "A registry value of 1 is not proof: a fresh process must have long paths, write and read a file, install a package with pip and load a native library at the installation's real depth; setup and repair refuse before touching anything when that fails, say 'restart Windows' when the value is on but not yet applied, and after a successful change setup starts again in a new process and passes the same rules",
+        "The README's path-length section states the limits the installer enforces, recommends a short folder first, documents the manual Group Policy and registry ways, and gives no command or script that changes the setting"
+      ],
+      "selection": [
+        "files/tests/test_long_paths.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_elevated_command_is_one_constant_and_nothing_can_be_passed_into_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_reg_exe_comes_from_the_system_directory_windows_reports_never_from_path_or_the_environment"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_setting_that_is_already_on_is_reported_and_nothing_is_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_an_approved_change_runs_exactly_the_constant_command_once_and_is_read_back"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_setting_that_cannot_be_read_or_a_missing_reg_exe_is_never_changed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_real_elevated_runner_is_shut_for_the_whole_suite"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_proof_asks_a_new_process_at_the_installation_s_real_depth_and_removes_what_it_made"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_value_of_1_that_new_processes_do_not_have_yet_means_restart_windows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_setting_that_reads_off_again_is_not_a_restart_question"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_real_probe_writes_installs_and_loads_at_the_asked_depth_in_its_own_folder"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_folder_that_needs_long_paths_is_proved_at_the_installation_s_depth_before_setup_goes_on"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_setup_and_repair_stop_before_touching_anything_when_long_paths_do_not_really_work"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_folder_too_deep_for_default_windows_is_shown_the_two_ways_forward_before_anything_else"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_where_a_change_could_not_help_or_is_not_needed_the_welcome_page_is_shown_and_nothing_is_offered"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_declined_denied_or_failed_change_leaves_setup_where_it_was_and_both_ways_open"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_change_that_reads_back_and_works_in_a_new_process_restarts_setup_in_a_new_process"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_change_that_reads_back_but_does_not_work_yet_asks_for_a_restart_and_goes_no_further"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_where_only_omnivoice_is_too_deep_the_question_comes_when_omnivoice_is_chosen_and_setup_can_go_on_without_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_readme_states_the_limits_the_installer_enforces_for_both_windows_configurations"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_does_not_announce_a_release"
           }
         ]
       },
@@ -21482,7 +21855,7 @@
     {
       "id": "ACT.SETUP.ENGINE-LEASE",
       "tool": "setup",
-      "title": "Engine lease: environment changes never race a Qwen3 install, conversion or worker",
+      "title": "Engine lease: environment changes never race a Qwen3 or OmniVoice install, conversion or worker",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -21499,7 +21872,11 @@
             "FileLock",
             "FileLock.acquire",
             "Refused",
-            "runtime_dir"
+            "runtime_dir",
+            "EnvironmentLease",
+            "EnvironmentLease.take",
+            "EnvironmentLease.release",
+            "omnivoice_runtime_dir"
           ]
         },
         {
@@ -21511,14 +21888,15 @@
         }
       ],
       "contracts": [
-        "Before setup recovery or an environment repair changes .venv, all three Qwen3 locks (setup, inference, engine) are taken in one order, or none",
-        "A busy lock is an immediate refusal that changes nothing and says what is running",
+        "Before setup recovery or an environment repair changes .venv, every lock of both held engines is taken in one order -- Qwen3's setup, inference and engine locks, then OmniVoice's inference and engine locks -- or none",
+        "A busy lock is an immediate refusal that changes nothing and says what is running; setup.lock, which every optional install holds, names no engine; locks that cannot even be checked are a refusal too",
         "The lease is held through the whole replacement, including a rollback, and released in reverse order even when the work raises",
         "A holder that dies releases its locks; another copy's machine-wide GPU guard does not block this copy"
       ],
       "selection": [
         "files/tests/test_qwen3_lifecycle_locks.py",
-        "files/tests/test_cleanup_engine_lease.py"
+        "files/tests/test_cleanup_engine_lease.py",
+        "files/tests/test_omnivoice_layout.py"
       ],
       "journeys": [],
       "verification": {
@@ -21542,6 +21920,30 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_qwen3_lifecycle_locks.py::test_the_machine_guard_of_another_copy_does_not_block_this_copy_s_repair"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_lease_is_qwen3_s_three_locks_then_omnivoice_s_two_all_or_none"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_repair_is_refused_while_the_omnivoice_engine_is_in_use_and_nothing_is_changed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_setup_and_first_run_recovery_hold_the_same_two_engine_lease"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_an_omnivoice_install_and_a_parent_repair_exclude_each_other_in_both_orders"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_setup_lock_sentence_names_no_engine_and_a_refused_repair_says_what_is_true"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_locks_that_cannot_even_be_checked_refuse_a_repair_with_nothing_changed"
           }
         ]
       },
@@ -21729,7 +22131,7 @@
       "contracts": [
         "Every target is re-derived from its fixed asset id and re-checked for containment, protection, type and links immediately before removal",
         "A target swapped for a link is refused; a link inside a target is removed as a link and never followed",
-        "A .venv holding a separately installed voice engine is refused and not offered; items a Qwen3 user can reach are removed only under the engine lease",
+        "A .venv holding a separately installed voice engine is refused and not offered; items a Qwen3 or OmniVoice user can reach are removed only under the lease of both engines",
         "Nothing is removed if the requesting app does not exit in time, and the request is consumed before the first deletion so it can never run twice",
         "The helper never runs on a virtual environment or on any interpreter inside the app folder except the app's own base Python, which no cleanup target contains"
       ],
@@ -21737,7 +22139,8 @@
         "files/tests/test_maintenance.py",
         "files/tests/test_cleanup_worker.py",
         "files/tests/test_cleanup_state.py",
-        "files/tests/test_cleanup_engine_lease.py"
+        "files/tests/test_cleanup_engine_lease.py",
+        "files/tests/test_omnivoice_layout.py"
       ],
       "journeys": [
         "setup.clear-downloaded-data"
@@ -21775,6 +22178,10 @@
           {
             "kind": "native",
             "scenario": "setup.clear-downloaded-data"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_cleanup_coordinator_holds_the_same_lease_and_names_the_engine_that_is_busy"
           }
         ]
       },
@@ -23620,7 +24027,10 @@
       "widget:scripts/tts/qwen3_install_ui.py::build_dialog::Toplevel:@win": "ACT.TTS.SETUP.QWEN3",
       "binding:scripts/artwork/cover_resizer.py::build_replacement_dialog::bind:<Return>": "ACT.COVER.REPLACE.CONFIRM",
       "binding:scripts/artwork/cover_resizer.py::build_replacement_dialog::bind:<KP_Enter>": "ACT.COVER.REPLACE.CONFIRM",
-      "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Skip MP3s already in this run": "ACT.TTS.RESUME"
+      "widget:scripts/tts/epub2tts_gui.py::TtsPanel.__init__::Checkbutton:Skip MP3s already in this run": "ACT.TTS.RESUME",
+      "widget:scripts/shared/long_paths.py::ChoicePage.__init__::Button:text=self.text['enable_button']": "ACT.SETUP.LONG-PATHS.ENABLE",
+      "widget:scripts/shared/long_paths.py::ChoicePage.__init__::Button:text=self.text['move_button']": "ACT.SETUP.LONG-PATHS.ENABLE",
+      "widget:scripts/shared/long_paths.py::ChoicePage.__init__::Button:text=self.text['skip_button']": "ACT.SETUP.LONG-PATHS.ENABLE"
     },
     "live": {
       "cover": {
@@ -24880,14 +25290,14 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "41a0aa87c0e4aaf9b32a5b218a0eb735363bf79a9f48cf61c480c244a2769b24",
+    "scripts/shared/bootstrap.py": "6ef0485e4229f30ad1a63f5d906b8dd5908b3027dc998aa3c36217fd3dad3759",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
-    "scripts/shared/cleanup_worker.py": "71fc131a1bc0d3ff0c2432c08f482ba4d00bb070f7e516636f9a2963455464f5",
+    "scripts/shared/cleanup_worker.py": "97eec2be66062b7ae56bc2ed2a2d967e2deb7ab10041609f1906b1f4ed1919ca",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
     "scripts/shared/config.py": "b7fff5244ee6d4fee482d44d392852907d4d125007f4f0f7ad6af9f314ce441e",
-    "scripts/shared/engine_lease.py": "83275e9f1d377889d421278706e979ea53501e2eb674a6175d267ddcab70557d",
+    "scripts/shared/engine_lease.py": "115683703f56744ef5d37930d53fdca5f263783438a0c78c8d9b37d09f56ad57",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
     "scripts/shared/ffmpeg_health.py": "228a91e033f200177f9365402e3986f03ce5169fce0b20321c3d61396dbc3562",
     "scripts/shared/ffmpeg_portable.py": "81de60172b1157f5284aefde0e4499ada50cd338ad14f4096f7ab7a874e80a15",
@@ -24898,7 +25308,8 @@
     "scripts/shared/job_control.py": "8588b897891596224272f95bd474f048b4b2cbdece4890c8673d653878e55387",
     "scripts/shared/job_ui.py": "3a8a58d0a936e8930f3fd4653db25755c7f2ac66c0e23c5a9ea37e1384e0a51b",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
-    "scripts/shared/maintenance.py": "b801ffa6d4d2fd04b218ad70da8353185df01f9c0d1c0557fe2ae1f38f64e0f1",
+    "scripts/shared/long_paths.py": "285638bbb99c835f4bfcc9ddc4a620e22c9d24110310adfcbd57d3aebb5758bc",
+    "scripts/shared/maintenance.py": "a30c9f2f7fa472b30eccdda55d8e05703c91ef921cc2fedaa417b61e994399a6",
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
@@ -24917,13 +25328,13 @@
     "scripts/shared/output_paths.py": "1a027a2d62b6d0f91f04c13fa3c64acb47c2d43b7251c3cdae00fa4400aca2a6",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
-    "scripts/shared/release.py": "51cb09bf146ffdcbf27c3a0dda67a14ef9bc4ceb687d6c6d67be0524f85152f0",
+    "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "16ee5c00e861705ab98612afdfa98fb236f4356eb8c98a47b96d78ed010494bb",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
     "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
-    "scripts/shared/venv_layout.py": "672e13fb1628a3f8a0a0056a55c3d7be4c9798ccc5d9f5532cb1c415b70a8ef8",
+    "scripts/shared/venv_layout.py": "bd32dbfb036d7ca91dd54d27efbca55bdc049fb543f89269a6cd2bedfe62aa84",
     "scripts/shared/version.py": "cae8a836bf5363ed00c1fc4a22c149638a1c87b082d330d8691786c6758e2f49",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
@@ -24942,12 +25353,12 @@
     "scripts/tts/generate_voice_samples.py": "b59a47057a671e006c3aae750e1186f9310bfd30ae610f05ceae4c2dac47b26e",
     "scripts/tts/kokoro_synth.py": "07595a2dcfe343ebce7ae23d4ec3e5ed9d95fe9f08fd260336a7904869471314",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
-    "scripts/tts/omnivoice_runtime.py": "4a540ae303ce14b4028298f4083bcb818227a738928bc116185bc3bc01b9e792",
-    "scripts/tts/omnivoice_setup.py": "f978f4e8ce3f2c0bdd6e2c2879fc3228077281c27bb3b63a9c98b0bc3b94d76b",
-    "scripts/tts/omnivoice_synth.py": "2cef69dde897dea84372813766569dc1e73dfc95ce22668a047b8adeebe82ee0",
-    "scripts/tts/omnivoice_worker.py": "b8ce0ac38e4374354f6a2205a8f50fa00ca0d10b67ce1d2bf96f2bcb028ea7a0",
-    "scripts/tts/optional_setup.py": "71681837f888fb1c548bb93e0a61fdb59d8afe84618c6649a6196f82b39f1dfc",
-    "scripts/tts/optional_setup_acquire.py": "87ce6699bfead8452cfdfe8ace35954abb028baf70f283dda4d41a8ed6955fbf",
+    "scripts/tts/omnivoice_runtime.py": "23ad4278ab7a7bf897f1c7cee1063dcf9a33e6573de1a7ec07a009cb65a3f889",
+    "scripts/tts/omnivoice_setup.py": "07d2350c8d671bdac8ac47d49a489e6984288a3ebf0342e08abbe29002c93f65",
+    "scripts/tts/omnivoice_synth.py": "31eff7df36661865b76bfb1d68ac6f72982bf920a2bc82824c6ad81b21f465bd",
+    "scripts/tts/omnivoice_worker.py": "1eb76ec6414589399fda840e9ea7f6b408d041c8f302ff51a372a9241992cb6f",
+    "scripts/tts/optional_setup.py": "4ae85e77b0f5c6aa42e1aba6c03efae59396b98dc25dafe6c6135a4a7fb8022e",
+    "scripts/tts/optional_setup_acquire.py": "98125a5a85e7c6a2e6120042fa6f57ee4073b3e13966963a24a3335cc95c3cfc",
     "scripts/tts/optional_setup_authority.py": "c3f10e7ac1113ead6ebdc55e815c2b793c4f071e2d60472d4a5e126646bd9276",
     "scripts/tts/optional_setup_health.py": "98de3c5abaaf0f8236d6a1690610c94a4c5f26ebaa00bdabba604489769a07b5",
     "scripts/tts/optional_setup_lifecycle.py": "98de2e70d7ff1f3bb0b1ee912648a58a1fd19229a063ca4eafc8de96b80bf8db",
@@ -24969,7 +25380,7 @@
     "scripts/tts/qwen3_setup.py": "99d3887374b65319f1391a06f4fad06320ad845cc039af60f47db6b23b784e4e",
     "scripts/tts/qwen3_synth.py": "ef0385c56d5116268d24ae9eea791cdaba5c9249379356daee6cbfbcc5497bdd",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
-    "scripts/tts/qwen3_worker.py": "f51741e69b3a0bb79cbc80e6ee831f09edb82ab77adfa0873e181cd963aeb936",
+    "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",
     "scripts/tts/spacy_consumer.py": "4531483832fcb8bcedcf523ca91b57475bded8429de720673318ee0dd7528768",
     "scripts/tts/speech/__init__.py": "46f8f554ac4f4097da70c7e3093d01cd44968de4b5b79b799d9088e9af985837",
     "scripts/tts/speech/classes.py": "abf23a42084e0c3b2427b2c6770c27faa1e4fa34602c3f3b3e6a4490e363411d",

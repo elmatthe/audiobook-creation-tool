@@ -1,5 +1,74 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 unified `.venv` layout, recovery acceptance, verified path limits and optional long paths: PASS, with three items NOT RUN named below (2026-11-13, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-13 (v0.8.0 unified
+`.venv` layout). The plan's section 4 carries the superseding layout decision; its Phase 1-4 history is unchanged.
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, from the Phase 4 commit `0aa1f190`. This work: `8e4caa5` (the
+  layout), `b18720c` and `e0002e8` (a damaged OmniVoice engine is recorded and repaired), `191bd87` (an app environment
+  without its interpreter), `e6c2509` (path limits, README section, optional long paths), `06d52f7` (Qwen3's check),
+  then the closing documents (SHAs in the session report). The owner's 17 tracked deletions and untracked files are
+  untouched and unstaged. No AI trailer.
+- **Status, kept apart.** Implemented: yes. Focused tests and real acceptance in disposable copies: PASS. Owner
+  listening: PENDING, unchanged (the 12 tracks, references, transcripts and tuning were not touched). Independent
+  review: one read-only agent pass on `8e4caa5` only; Codex not started. Full gate: not run (Session 5). Merge, tag,
+  release: not authorized.
+- **Layout.** One top-level `.venv` holds three independent environments: the app's own, `.venv/engines/qwen3` and
+  `.venv/engines/omnivoice`. Nothing is merged; each engine keeps its interpreter, packages, receipt, model and locks.
+  A root-level `.venv-omnivoice` is never used at run time.
+- **HOME-PC was migrated by the supported install.** The nested engine was built from the same 88 hash-locked wheels
+  (0 bytes downloaded; the wheels were first copied into the installer's own cache, a disclosed manual step), proved on
+  the RTX 5070 and recorded (`engine-receipt.json`, version 2). Only then was the sibling moved, whole and never
+  deleted, to `files/runtime-data/omnivoice/set-aside/legacy-venv-omnivoice-20261114T015337Z-82e10f` (43,296 files,
+  8.35 GB, byte-identical before and after; its version-1 receipt beside it). Qwen3's engine, the app environment,
+  models, settings, the 18 references, 28 previews and 12 listening MP3s are unchanged. Two real OmniVoice MP3s were
+  made afterwards, outside the repository.
+- **Real acceptance (disposable copies built with the real packager, isolated profile; program version in brackets).**
+  1 healthy restart PASS. 2 app package damage PASS (launcher repair 102 s). 3 Repair App Environment PASS. 4 app
+  interpreter damage: `pyvenv.cfg` PASS; `python.exe` deleted FAILED on `e0002e8`, fixed, PASS on `191bd87`.
+  5 repair killed mid-install PASS (next start restored, then repaired). 6 failed replacement PASS (previous
+  environment back byte-identical; the online retry fetched the missing file and repaired). 7 OmniVoice-only damage PASS
+  (recorded at the failed conversion, repaired by Install & Continue). 8 Qwen3-only damage: contained PASS; Qwen3's own
+  Check and repair FAILED on `e6c2509` (it found nothing), fixed, PASS on `06d52f7` (engine rebuilt, same audio).
+  9 whole `.venv` removed: launcher route, first-run setup, app and Edge/Kokoro narration PASS, engines truthfully
+  "not installed" with their models kept; rebuilding the two engines in that state NOT RUN (below). 10 cold first run
+  with all five components PASS [`8e4caa5`] (21.7 GB disclosed, 23.4 GB received, 42 minutes). 11 installation
+  cancelled mid-download PASS (nothing claimed ready, verified wheels kept; a hard kill mid-pip on the migration copy
+  too). 12 repair requested while OmniVoice narrated PASS (refused, nothing changed, six MP3s finished). In every
+  scenario the engines not under test were byte-identical afterwards.
+- **Four defects the acceptance found, all fixed with a test and a negative control.** A damaged OmniVoice engine stayed
+  "ready" and offered no repair; a conversion's own import failure was not recognised as damage; an app environment
+  whose `python.exe` was gone could never be set up again (in v0.7.3 too); Qwen3's Check and repair said "nothing needs
+  repair" for a package that had lost its files (in v0.7.3 too).
+- **Path limits, measured on two real installs.** App folder path: 87 characters as Windows comes, 123 with long paths
+  on (was 131: Qwen3's deepest library was not allowed for); with OmniVoice 83 / 119. README has a new section,
+  "Important: Windows Installation Path Length". Where long paths would be enough, the first-run window offers to
+  switch them on through Windows' own consent prompt (`shared/long_paths.py`), and setup proves in a fresh process
+  that they work before installing anything. HOME-PC's setting (on) was read only, never written.
+- **NOT RUN, plainly.** (1) Rebuilding Qwen3 and OmniVoice after scenario 9: Claude Code stopped a background command
+  because the computer was critically low on memory (34.2 of 36.6 GB committed while OmniVoice narrated beside the
+  app; 26 GB is committed at rest), so no further model-loading work was started. Each engine's rebuild from nothing
+  did pass for real elsewhere today (7, 8, 10). (2) The long-path change itself: never made for real. Every refusal
+  path is proved with an injected runner, and the page, the proof and setup's restart were run for real with only the
+  registry value simulated. (3) The full gate and Codex review (Session 5).
+- **Tests.** Affected suites 1,910 passed, 1 skipped; `files/tests/test_long_paths.py` 88 tests; 42 of 42 negative
+  controls killed with a passing control; coverage inventory 0 problems, 277 features. The focused gate's result is in
+  the session report and the note under this block.
+- **Evidence (outside the repository, kept for the owner).**
+  `C:\Users\ematthew\Desktop\Apps\Coding\ACT-v0.8.0-Fresh-Install-Acceptance\run01-261113`: `evidence\` (one JSON per
+  step, `home-pc\` for the migration), `harness\` (the drivers), `dist\` (the test ZIPs), `c1\` (cold copy, now without
+  engines), `m1\` (migration copy), `removed\c1-venv-221015` (the `.venv` taken out in scenario 9). Nothing there is
+  deleted automatically.
+- **For the owner.** Cleanup of the set-aside folder (8.3 GB), the acceptance run folder and the copies is yours. The
+  refusal shown when a repair meets a busy engine ends with a sentence about package files that does not apply there
+  (wording only, not changed). The acceptance drivers press the app's own buttons in-process; only the launcher,
+  its Python question and window closing were driven from outside. The cold run was made on `8e4caa5` and the copy
+  then received the later program files.
+- **Next action.** STOP. Codex review can begin on the pushed branch tip. Then Session 5 as planned (independent
+  review, the one full gate, owner listening). To finish scenario 9, free some memory and run first-run setup or
+  Install & Continue for Qwen3 and OmniVoice in `c1`.
+
 ## Current checkpoint — v0.8.0 Session 4 / Phase 4: PASS WITH OWNER LISTENING PENDING — test debt closed, identity 0.8.0, 12-track OmniVoice listening pack delivered (2026-11-13, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-13 (v0.8.0 Phase 4).

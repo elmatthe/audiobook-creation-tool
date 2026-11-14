@@ -19,12 +19,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - **OmniVoice, a fifth optional local engine (Windows, NVIDIA GPU only):** six cloned voices, *OmniVoice - Female 1*,
   *Female 2*, *Male 1*, *Male 2*, *Male 3* and *Male 4*, after the other voices in TTS Audiobook (34 voices in all). Each
   is conditioned on its own bundled recording (at most 10 s; Male 1 is 10.2 s by the owner's decision) and the owner's
-  transcript of it. It runs offline in its own `.venv-omnivoice` worker, prepares the text once with the existing speech
+  transcript of it. It runs offline in its own worker environment (`.venv\engines\omnivoice`; see Changed), prepares the
+  text once with the existing speech
   preparation (default `v1`, all classes expanded for now), uses bounded workers so GPU memory does not build up over a
   long book, and Cancel stops it mid-chunk or mid-encode without publishing anything. (v0.8.0 Phases 1-2)
 - **A fifth first-run choice, unchecked:** *OmniVoice — Six Cloned Voices*, also offered by Install & Continue. The review
   screen shows the licence and hardware terms before Install, and **View licence terms** opens each licence text. An
   existing matching environment is checked and adopted without downloading anything. (v0.8.0 Phase 3)
+- **Windows path length: a clear README section and an optional long-path step in first-run setup (owner requirement
+  2026-11-13).** The README's new "Important: Windows Installation Path Length" section recommends a short folder
+  (`C:\AudiobookTool`), gives the app's tested limits and explains Windows' "Enable Win32 long paths" setting and how to
+  change it by hand. Where the app's folder is too deep for Windows as it comes but would fit with that setting on, the
+  first-run window now shows the two ways forward before anything else: move the app (recommended), or switch long
+  paths on. The setting is changed only if that button is pressed and Windows' own permission prompt is approved
+  (Windows' own registry tool makes the one change; setup is never run as administrator). Setup then checks in a new
+  process that long paths really work, says "restart Windows" if they do not yet, and otherwise starts again and
+  continues. Declining, cancelling or a managed computer's refusal changes nothing.
 - **README:** a "v0.8.0 in development (not released)" section, including the non-commercial terms (OmniVoice weights are
   CC-BY-NC) and the audio tokenizer licence's attribution. (v0.8.0 Phase 4)
 
@@ -33,6 +43,43 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `files/Cloned-Voice-Uploads/<Engine>/`. Qwen3 keeps its original six byte for byte (renamed); Chatterbox uses the owner's
   new recordings. The release archive carries exactly these 18. (v0.8.0 Phase 2 correction)
 - Application identity is 0.8.0 (`scripts/shared/version.py`, `config.toml`). Nothing is published. (v0.8.0 Phase 4)
+- **One `.venv` folder, three independent environments (owner decision 2026-11-13, unified `.venv` layout):** the
+  OmniVoice engine is installed at `.venv\engines\omnivoice`, inside the app's own `.venv` beside the Qwen3 engine
+  (`.venv\engines\qwen3`). Each of the three keeps its own Python packages; nothing is merged. Earlier builds of this
+  unreleased version installed OmniVoice beside `.venv`, as `.venv-omnivoice`. This version never uses that folder:
+  Install & Continue builds the engine again in its new place from the same pinned packages (a model already on the
+  computer is reused), checks it there, and only then moves the old folder, whole and never deleted, to
+  `files\runtime-data\omnivoice\set-aside`. If anything fails or is cancelled first, the old folder stays exactly where
+  it was.
+- Repairing the app's own environment waits for OmniVoice as it does for Qwen3 (it is refused while either is
+  converting or being installed) and carries both engines across unchanged.
+- OmniVoice is not installed in a copy of the app whose folder path is too long for Windows to load the engine from
+  inside `.venv` (more than 119 characters, or 83 where Windows long paths are off); it says so before downloading
+  anything, and every other voice is unaffected.
+- **The app's folder-path limit with Windows long paths on is 123 characters (was 131).** Measured on two real
+  installs, Qwen3's deepest program library sits 132 characters below the app's folder since the engine moved inside
+  `.venv` (v0.7.0), which the old limit did not allow for: a folder of 128 to 131 characters was accepted although that
+  library could not have loaded there. The limit with long paths off stays 87. A copy already installed in a folder of
+  124 to 131 characters still starts; its next repair or setup asks for a shorter folder.
+- Wherever setup or a repair depends on Windows long paths (a folder longer than 87 characters), it first checks in a
+  new process that long paths really work there, and stops with a plain instruction if they do not.
+- A "folder too long" refusal now also names the long-path way where that would be enough, and says so where it would
+  not.
+
+**Fixed (v0.8.0 unified `.venv` layout)**
+- An OmniVoice engine whose files were damaged after it was installed stayed "ready": every conversion failed and no
+  repair was offered. The failed conversion now records the damage, the voices say why they are unavailable, and
+  Install & Continue repairs the engine (the damaged environment is kept aside, never deleted).
+- A repair or cleanup refused because voices were being installed said "Qwen3" whichever voices they were; it now
+  names no engine.
+- An app environment whose own `python.exe` had been deleted (the `.venv` folder still there) could not be set up
+  again: setup kept the folder, had nothing to run and failed on every start. It is now replaced like any environment
+  that cannot run: set aside, rebuilt, and the Qwen3 and OmniVoice engines inside it are carried into the new one
+  unchanged. (Found during the recovery acceptance on a disposable copy; the behaviour predates v0.8.0.)
+- Qwen3's **Check and repair** answered "Everything checks out" for an engine whose package had lost its own files,
+  while every Qwen3 conversion failed and pointed back at Check and repair. Its check now imports what a conversion
+  imports, finds the damage and rebuilds the engine. (Found during the recovery acceptance; the behaviour predates
+  v0.8.0.)
 
 **Fixed (tests and tooling only, v0.8.0 Phase 4)**
 - Tests that still pinned 28 voices, four engines or version 0.7.2 now assert the current roster and identity; the 28

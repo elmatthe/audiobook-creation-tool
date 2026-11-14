@@ -29,7 +29,8 @@ the Handoff for the live state.
   voices in their own group: the runtime roster is 34 voices in five engine families. The 28 historical preview WAVs are a
   fixed, separate collection (no OmniVoice previews).
 - **Architecture.** `scripts/tts/omnivoice_runtime.py` (identity, readiness by the installer's receipt, references,
-  prompt identity, locks, worker environment), `omnivoice_worker.py` (runs only in the sibling `.venv-omnivoice`; offline
+  prompt identity, locks, worker environment), `omnivoice_worker.py` (runs only in `.venv/engines/omnivoice`, held inside the app's `.venv` beside Qwen3 since the
+  owner's unified-layout decision of 2026-11-13; an earlier sibling `.venv-omnivoice` is never used; offline
   by audit hook, no Hub, no speech recognizer, `normalize_text=False`), `omnivoice_synth.py` (prepares text once with the
   run's `SpeechPrepSnapshot`, 300-character whole-sentence chunks, at most 48 chunks per worker process, the shared
   assembly/encode/atomic publication, Cancel by flag then process-tree kill), `omnivoice_setup.py` (install, adopt,
@@ -44,13 +45,19 @@ the Handoff for the live state.
   `speech/data/modes.json`; the 60 historical G1 verdicts are unchanged. Production default `v1`; `off` still works.
 - **Setup.** The existing first-run window and Install & Continue offer OmniVoice as the fifth component, last and
   unchecked, with the licence and hardware terms shown before consent. HOME-PC's environment was adopted (Phase 3)
-  without downloading.
+  without downloading, then rebuilt at `.venv/engines/omnivoice` from the same verified wheels, with its sibling set
+  aside whole under `files/runtime-data/omnivoice/set-aside` (unified layout, 2026-11-13). A too-deep app folder is
+  refused before any download: 87 characters for the app (123 with Windows long paths on), 83 / 119 with OmniVoice.
+  Where long paths would be enough, the first-run window offers to switch them on through Windows' own consent
+  prompt and proves in a fresh process that they work (`shared/long_paths.py`); README has the manual way.
 - **Measured on HOME-PC (RTX 5070, Phase 4).** About 8-10 times faster than real time (a 15.2-minute book in 108 s); 1.9 GB of allocated GPU memory
   while narrating (flat across a 48-chunk worker), about 2.0-2.9 GB reserved, up to about 4.6 GB the first time a voice's
   clone prompt is built. Owner listening of the 12-track pack is pending; nothing about voice quality is approved.
 - **Known limitations.** Windows + NVIDIA only; two copies of the app can still run Qwen3 and OmniVoice on one GPU at the
-  same time; the model's own output can reach full scale in a few samples (clamped, not audibly judged yet); fresh
-  installs and repairs were exercised with mocks, the real environment was adopted.
+  same time; the model's own output can reach full scale in a few samples (clamped, not audibly judged yet); a real
+  cold install of all five components, the migration and the recovery scenarios were run on HOME-PC only, in
+  disposable copies (2026-11-13, evidence outside the repo: see Handoff); the long-path change itself has never been
+  made for real (HOME-PC has long paths on, and its setting is never changed by tests).
 
 ## v0.7.2 Windows hardening, feature map and verification gate (in progress, 2026-11-05) — identity 0.7.2 since the Phase 8 release-candidate checkpoint (2026-11-10); NOT merged/tagged/published
 

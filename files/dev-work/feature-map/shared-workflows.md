@@ -349,6 +349,18 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Purpose:** stop a deeply nested extraction from producing a half-built install whose voice engines fail later with cryptic errors.
 - **Behaviour:** setup and repair measure the app folder's path against a limit that depends on whether Windows long-path support is on. A folder that is too long is refused with the folder shown and a shorter example; nothing is installed and no Windows setting is changed. Separately, when eSpeak NG's bundled data path is too long for its fixed buffer, the data is linked (never copied) under a short project-owned root. An installation that already fits is left alone, and when no short root can be used the error says so.
 
+### Optional Windows long paths, with consent, and the proof that they work
+`ACT.SETUP.LONG-PATHS.ENABLE`
+
+- **Purpose:** where the app's folder is too deep for Windows as it comes but would fit with "Enable Win32 long paths" on, give the person the choice, and never treat the registry value as proof.
+- **How to reach it:** automatic, in the first-run setup window (`shared/long_paths.py`, shown by `bootstrap.run_with_gui`). When the app itself is too deep (88 to 123 characters with long paths off) the path-length page is shown instead of the welcome page. When only OmniVoice is too deep (84 to 87) it is shown once OmniVoice is ticked and Begin Setup is pressed, with **Continue without OmniVoice**.
+- **Choices:** **A. Close - I will move the app** (recommended; nothing changes) and **B. Switch on Windows long paths...** The page says the change is for the whole computer, needs an administrator's approval and may need a restart. A folder too long even with long paths (over 123; over 119 for OmniVoice) is never offered the change: the depth check refuses it and says that switching long paths on would not be enough.
+- **The change:** only on that button. Windows' own `reg.exe`, found through the system directory Windows reports, is started through Windows' consent prompt with one constant command line that sets `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled` to 1. Setup stays unelevated; nothing of the app runs elevated; nothing can be passed into the command. The value is read (read only) before and after.
+- **States and failures:** already on (nothing run); prompt declined or closed; no administrator or elevation blocked by policy; the registry tool failing; the value put back (a managed computer). Each is a sentence on the page, nothing is retried, nothing else is changed, and both choices stay open.
+- **Proof:** a fresh process of the app's base Python must report long paths, write and read a file, install a generated package with pip and load a native library at the installation's real depth, inside its own `files/runtime-data/long-path-check-<id>` folder (removed afterwards; the only thing it deletes). Setup and repair run this before touching anything whenever the folder needs long paths. On success after a change, setup starts again in a new process (Windows applies the setting per process) and passes the same depth check. If the value reads on but new processes do not have it, the answer is "restart Windows" and nothing is installed.
+- **Manual way:** README, "Important: Windows Installation Path Length" (Group Policy and the registry value; no script).
+- **Not exercised for real:** the elevated write itself. HOME-PC has long paths on and its setting is never changed by tests; every test injects the elevated runner.
+
 ### Hash-locked dependencies and the verified package store
 `ACT.SETUP.DEPENDENCY-LOCK`
 

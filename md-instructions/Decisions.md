@@ -2,6 +2,132 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice lives at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used and is set aside only after the nested engine is proved; verified path limits and an optional, consent-based Windows long-path change (owner decisions; implementation decisions by Claude Code)
+
+**Owner decision.** The root-level `.venv-omnivoice` layout of Phases 1-4 is superseded. The app has ONE top-level
+`.venv` holding three independent Python environments: the app's own (`.venv/`), Qwen3 (`.venv/engines/qwen3/`) and
+OmniVoice (`.venv/engines/omnivoice/`). Each engine keeps its own interpreter, pinned packages, receipt, model identity
+and lifecycle locks; no package set is combined. The portable base Python, model weights, wheel stores, FFmpeg, receipts
+and settings stay where they were. This replaces plan section 4's sibling choice and the "Environment" paragraph of the
+Phase 1 entry below; both are kept as history.
+
+**One runtime path (implementation).** `omnivoice_runtime.venv_dir()` is always the nested path. *Not chosen:* keeping a
+healthy sibling in use until it is migrated (what P04C did for `.venv-qwen3`). The only way back into the optional setup
+after first run is Install & Continue, which is offered only for a voice that is unavailable, so a sibling that kept
+working would never be migrated; and the owner's instruction is that no runtime path depends on the old folder. The
+consequence, stated plainly: on a copy that has only the sibling, the OmniVoice voices are unavailable from the first
+start of this version until Install & Continue is pressed once. Until the new engine is proved, nothing of the sibling
+is changed. Only HOME-PC and disposable test copies ever had one (v0.8.0 is unreleased).
+
+**A rebuild, never a move.** A Windows environment is not relocatable, so the nested engine is created at its final
+path from the app's base Python (`-I -m venv`, never the parent's interpreter) and the same 88 hash-locked wheels,
+offline, then proved (versions, isolation, imports, CUDA kernel, offline model load). The model is reused where it is.
+The old receipt is never copied: the nested engine's receipt is another file and version (`engine-receipt.json`,
+version 2, bound to the nested path, the base Python's identity and the package lock); `install-receipt.json`
+(version 1) is never rewritten and never vouches. Wheels are reused only from the installer's own cache, where each is
+checked against the lock again.
+
+**Retirement.** After the proof is recorded, still under the install lock, the sibling is renamed whole into
+`files/runtime-data/omnivoice/set-aside/legacy-venv-omnivoice-<UTC>-<id>/`, its version-1 receipt is moved beside it,
+and `retired.json` and `RETIRED-READ-ME.txt` say what it is, that it is not runnable there, and how to delete or restore
+it. Never deleted, never copied; a link, a stray file or a folder that cannot be moved is left exactly where it is and
+the install still stands. Nothing moves a leftover sibling while the engine stays ready (no install runs), so the note
+shown for it promises only that. *Not chosen:* a retired name at the app's root (shorter paths, but a second `.venv-*`
+folder beside `.venv`, against the decision); deleting it; adopting it.
+
+**Depth.** The nested engine's deepest native library is 135 characters below the app folder (the sibling's was 127)
+and Windows' loader refuses anything past 259 even with long paths enabled. `omnivoice_runtime.install_depth_problem`
+therefore refuses this one component, before any download, where the app folder is longer than 119 characters (83
+where long paths are off). `bootstrap`'s own rule was then measured too and its long-path limit corrected (below).
+
+**The app-environment repair.** The transaction already carried the whole `engines/` folder in one rename and never
+deleted a folder holding an engine; no deletion path changed. `shared/engine_lease.EnvironmentLease` now takes Qwen3's
+three locks and then OmniVoice's two (its installs already take the shared `setup.lock` first), all or none, for the
+repair, first-run recovery, the cleanup helper and the data-clearing coordinator. `setup.lock` is held by every
+optional install, so its sentence names no engine. Locks that cannot even be checked are a refusal.
+`omnivoice_setup.parent_problem` refuses to build into an app environment that is missing, linked or half repaired.
+
+**A damaged engine is recorded (found during acceptance, fixed).** On a real test copy, with one file deleted inside a
+package, the listing and the receipt still said "ready", every conversion failed and nothing offered a repair. A
+conversion whose worker cannot import the engine's packages now records that in the receipt
+(`reject_ready_engine`), as the installer does when a re-proof fails that way; the engine is then "broken", the voices
+say why, and Install & Continue offers the ordinary repair (the damaged environment is set aside whole and a fresh one
+is built and proved). GPU, memory, generation, isolation and Smart App Control failures record nothing. *Not chosen:*
+checking every package file on each readiness question (the planner must write nothing and stay cheap).
+
+**An app environment that lost its interpreter is replaced (found during acceptance, fixed in `191bd87`).** On a real
+test copy with `.venv\Scripts\python.exe` deleted, the launcher took the first-run route and setup *kept* the folder
+("absent"), had nothing to run and failed on every start, with both engines inside the folder a person would then
+delete. The behaviour is in the released v0.7.3 too. `_create_validated_venv` now treats a folder that is present
+without an interpreter like a repairable one: set aside, rebuilt, engines carried home, put back whole if the rebuild
+fails. Both callers already hold the two-engine lease.
+
+**Qwen3's Check and repair sees a package that lost its own files (found during acceptance, fixed in `06d52f7`).** On
+the same test copy, with `qwen_tts\__init__.py` deleted, every Qwen3 conversion failed and pointed at "Check and
+repair", which answered "Everything checks out": its probe ran `import qwen_tts`, and a package folder without its
+`__init__` still imports as an empty namespace. The probe now imports the name a conversion imports. This is the one
+change to Qwen3's code in this work, one line, and the behaviour is in the released v0.7.3 too. *Not done:* recording a
+damaged Qwen3 engine at the moment a conversion fails, as OmniVoice now does; Qwen3 keeps its own dialog for that, and
+its message already names it.
+
+**Path limits, verified by measurement (owner requirement: use verified values).** Measured on HOME-PC and on a cold
+install made by the first-run window (identical): below the app's folder, the deepest native library is 120 characters
+in `.venv`, 132 in `.venv/engines/qwen3` and 136 in `.venv/engines/omnivoice`; the deepest file is 155, 165 and 169;
+the base Python, the models and FFmpeg are shallower. `bootstrap.DEEPEST_NATIVE_LIBRARY_CHARS` was 128, right while
+Qwen3 was a sibling folder and not raised when the engine moved inside `.venv` (v0.7.0 P04C): a folder of 128 to 131
+characters with long paths on was accepted although Qwen3's deepest library could not have loaded there. It is now
+136 (132 + the usual margin), so the app's limit with long paths on is **123** (was 131). The other three limits were
+already safe and are unchanged: **87** for the app with long paths off, **83 / 119** for OmniVoice. *Consequence:* a
+copy in a folder of 124 to 131 characters with long paths on still starts, but its next repair or setup is refused
+with the "move it" instruction. No such copy is known. *Not chosen:* a separate Qwen3-only rule (Qwen3 has no depth
+check of its own; the app-wide rule is documented as covering every environment in `.venv`).
+
+**Optional Windows long paths (owner requirement).** `shared/long_paths.py`, standard library only.
+*Offer.* Only where the setting reads off and switching it on would be enough: the first-run window then shows a
+path-length page instead of the welcome page (move the app, recommended; or switch long paths on). Where only OmniVoice
+is too deep (84 to 87) the page appears when OmniVoice is chosen, with "Continue without OmniVoice". A folder too long
+even with long paths is never offered the change. A setting that cannot be read is never changed (it could not be read
+back).
+*The elevated helper is Windows' own `reg.exe`.* It is found through `GetSystemDirectoryW` (never PATH or an
+environment variable) and started through the ordinary consent prompt (`ShellExecuteExW`, verb `runas`) with one
+constant command line that sets `LongPathsEnabled` to 1. *Not chosen:* an elevated Python or PowerShell helper of the
+app's own. The app's folder is writable by the person's account, so any script in it that is run elevated is a way for
+an ordinary process to gain administrator rights; with `reg.exe` nothing of the app, and nothing that can be edited,
+runs elevated, and nothing can be passed into the command. The prompt therefore names "Registry Console Tool", which
+the page says in advance. Setup itself is never elevated.
+*A value of 1 is not proof.* After the change, and before every first-run setup or repair in a folder that needs long
+paths, a fresh process of the app's base Python must report long paths, write and read a file, install a generated
+package with pip and load a native library at the installation's real depth. Windows applies the setting per process,
+so after a successful change setup starts again in a new process, which then passes the unchanged depth rule; a value
+that reads on while new processes do not have it is answered "restart Windows", and nothing is installed.
+*Limits of the evidence.* The elevated write itself was never run: HOME-PC has long paths on, its setting must not be
+changed by tests, and approving a consent prompt is a person's act. Every refusal path (declined, no administrator,
+blocked by policy, registry failure, value put back) is proved with an injected runner; the probe, the read-only
+detection, the page and the setup continuation were run for real in disposable copies.
+
+**Independent review (a read-only agent, on `8e4caa5`).** No critical finding; fixed in `b18720c`: a linked set-aside
+folder no longer turns a finished install into a reported failure; the leftover note; `InstallLock` gives back what it
+took when a later lock file cannot be opened; the neutral `setup.lock` wording; uncheckable locks; the base interpreter
+compared by file identity where its spelling differs (mapped or substituted drive).
+
+**Not changed.** Dependency versions, generation settings, voice registrations, normalization, reference recordings,
+transcripts, model weights, the 12 approved listening tracks, Qwen3's code apart from the one probe line above, and
+the release packaging rules (the archive
+still carries no environment and exactly the 18 reference WAVs).
+
+**For the owner.** (1) The set-aside folder on HOME-PC (8.3 GB) and the disposable acceptance copies are kept; removing
+them is the owner's decision. (2) The kept tree has paths longer than 260 characters; its note says how to delete it if
+Explorer refuses. (3) Qwen3's installer still compares the base interpreter by spelling only (unchanged code); a copy on
+a mapped drive may refuse to build it. (4) A sibling that could not be moved is not retried until OmniVoice is
+installed or repaired again. (5) The app's limit with long paths on is now 123, not 131 (above). (6) The long-path
+change has not been made once for real: before release it should be tried by a person on a computer where long paths
+are off (approve the prompt, see setup restart and continue; decline it; try a standard account). (7) HOME-PC's folder
+is 102 characters and the acceptance copies 89: both depend on long paths being on, as they are on HOME-PC.
+(8) After scenario 9 (the whole `.venv` removed) the app was recovered for real, but rebuilding the two engines in that
+state was not run: the computer was critically low on memory and no further model-loading work was started. (9) The
+refusal shown when a repair meets a busy engine ends with a sentence about package files that does not apply there;
+wording only, left for the owner.
+
 ## 2026-11-13 — v0.8.0 Phase 4: the runtime roster is 34 while the preview collection stays the historical 28; the listening pack is made through the production path with the owner's verdicts left pending; identity 0.8.0; no peak correction without an audible defect (implementation decisions by Claude Code)
 
 **Roster versus previews.** Tests that pin the *runtime* registry now assert 34 voices in five engine families (the first
