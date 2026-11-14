@@ -53,8 +53,13 @@ This block supersedes the blocks below for status and next action. Decision reco
   path is proved with an injected runner, and the page, the proof and setup's restart were run for real with only the
   registry value simulated. (3) The full gate and Codex review (Session 5).
 - **Tests.** Affected suites 1,910 passed, 1 skipped; `files/tests/test_long_paths.py` 88 tests; 42 of 42 negative
-  controls killed with a passing control; coverage inventory 0 problems, 277 features. The focused gate's result is in
-  the session report and the note under this block.
+  controls killed with a passing control; coverage inventory 0 problems, 277 features. Focused gate on `67d9d6e`
+  (the nine guarded modules and eleven affected ones, 1,153 tests): first run FAIL with 1,152 passed, the one
+  failure a Tk start-up error in an untouched guarded module (`test_optional_setup_confirmation_v3`: Tk could not
+  read the base Python's `init.tcl`); that module alone then PASS (90 of 90); the complete selection again PASS,
+  1,153 of 1,153. Evidence: `files/dev-work/verification-gate/outputs/2026-11-13_221702_focused_1f66`,
+  `2026-11-13_224628_focused_0167` and `2026-11-13_225427_focused_a925`. HOME-PC afterwards: all five components
+  ready, nothing to download, protected files identical to before the work.
 - **Evidence (outside the repository, kept for the owner).**
   `C:\Users\ematthew\Desktop\Apps\Coding\ACT-v0.8.0-Fresh-Install-Acceptance\run01-261113`: `evidence\` (one JSON per
   step, `home-pc\` for the migration), `harness\` (the drivers), `dist\` (the test ZIPs), `c1\` (cold copy, now without
