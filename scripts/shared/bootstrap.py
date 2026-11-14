@@ -1252,6 +1252,8 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
 #: The deepest native library (.dll/.pyd) the app's environments hold, measured below the app's folder on HOME-PC
 #: (v0.7.0: 120 characters in .venv) plus a margin. Windows' DLL loader refuses a longer path even when long paths are
 #: enabled, which surfaces as "DLL load failed ... The filename or extension is too long" deep inside an engine.
+#: (The OmniVoice engine, held deeper at .venv/engines/omnivoice since v0.8.0, has its own stricter limit, applied only
+#: to its own install: ``tts.omnivoice_runtime.install_depth_problem``.)
 DEEPEST_NATIVE_LIBRARY_CHARS = 128
 #: The deepest file of any kind (165 characters, in .venv/engines/qwen3) plus a margin: the limit for every file when
 #: Windows long-path support is switched off (its default on many computers).
@@ -1645,7 +1647,7 @@ def _qwen3_lock_dir() -> Path:
     return engine_lease.runtime_dir(VENV_DIR.parent)
 
 
-def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.Lease], Optional[str]]:
+def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.EnvironmentLease], Optional[str]]:
     """Before ANY change to the environment: the right to move what it holds, or will hold, under ``engines/``.
 
     (lease, refusal). v0.7.0 P04C. P04B proved that a running engine does not stop its parent being renamed aside
@@ -1659,15 +1661,22 @@ def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.
     first is what stops a repair setting the parent aside under a first install that has just begun -- and stops a
     first install starting under a repair. A copy whose only engine is the legacy ``.venv-qwen3`` is leased the same
     way, so a repair also waits for that engine's conversion to finish rather than racing a new install.
+
+    v0.8.0: the OmniVoice engine is held in the same folder (``.venv/engines/omnivoice``), so the lease is every lock
+    of BOTH engines (``engine_lease.EnvironmentLease``): Qwen3's three -- whose ``setup.lock`` OmniVoice's installer
+    takes first too -- then OmniVoice's own ``inference.lock`` and ``engine.lock``. A running OmniVoice conversion or
+    worker therefore refuses a repair exactly as a Qwen3 one does.
     """
-    lease = engine_lease.Lease(_qwen3_lock_dir(), root=VENV_DIR.parent)
+    lease = engine_lease.EnvironmentLease(VENV_DIR.parent)
     try:
         lease.take()
     except engine_lease.Refused as refused:
-        log.line(f"  [!!] The Qwen3 voice engine of this copy is in use or being installed, so the environment was "
+        name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
+        log.line(f"  [!!] The {name} voice engine of this copy is in use or being installed, so the environment was "
                  f"not touched: {refused}")
         return None, f"{refused_prefix} {refused}"
-    log.line("  The Qwen3 voice engine is not in use or being installed; it is held still until this is finished.")
+    log.line("  The Qwen3 and OmniVoice voice engines are not in use or being installed; they are held still until "
+             "this is finished.")
     return lease, None
 
 

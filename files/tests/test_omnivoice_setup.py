@@ -494,12 +494,15 @@ def test_links_make_it_unverified_and_nothing_is_written_through_them(omni, tmp_
     if sys.platform == "win32":  # a junction needs no privilege, so this never skips on Windows
         import _winapi
 
+        ov.venv_dir().parent.mkdir(parents=True, exist_ok=True)  # .venv/engines, inside the app's own environment
         _winapi.CreateJunction(str(outside), str(ov.venv_dir()))
     else:
+        ov.venv_dir().parent.mkdir(parents=True, exist_ok=True)
         os.symlink(outside, ov.venv_dir(), target_is_directory=True)
     data = omni.plan()
     assert component(data, OV)["readiness"] == proto.UNVERIFIED and data["acquire_units"] == []
     assert ov.install_would_help() is False
+    assert list(outside.iterdir()) == []  # nothing was written through it
 
 
 def test_the_worker_asks_for_the_gpu_only_when_omnivoice_is_chosen(omni, monkeypatch):

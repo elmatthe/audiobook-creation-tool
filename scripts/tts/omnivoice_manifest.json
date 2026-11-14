@@ -1,7 +1,7 @@
 {
  "schema": "act-omnivoice-engine",
  "version": 1,
- "purpose": "What the six OmniVoice voices run on (ACT v0.8.0, plan section 4): the pinned wheel set of .venv-omnivoice, each by URL, size and SHA-256, and the pinned model snapshot. The optional-voice installer acquires exactly these, and only under the person's consent (v0.8.0 Phase 3); the application also reads it to decide readiness. Qualified in Phase 1 (Decisions 2026-11-13); the package set is upstream OmniVoice's own uv.lock at tag 0.2.1 for win_amd64 / CPython 3.12, without extras.",
+ "purpose": "What the six OmniVoice voices run on (ACT v0.8.0, plan section 4): the pinned wheel set of the engine's own environment (.venv/engines/omnivoice), each by URL, size and SHA-256, and the pinned model snapshot. The optional-voice installer acquires exactly these, and only under the person's consent (v0.8.0 Phase 3); the application also reads it to decide readiness. Qualified in Phase 1 (Decisions 2026-11-13); the package set is upstream OmniVoice's own uv.lock at tag 0.2.1 for win_amd64 / CPython 3.12, without extras.",
  "engine": {
   "omnivoice": "0.2.1",
   "python": "3.12",
@@ -1158,6 +1158,6 @@
  ],
  "installed_bytes": {
   "environment": 8346271361,
-  "basis": "approximate: .venv-omnivoice as built from these 88 wheels, measured on HOME-PC 2026-11-13"
+  "basis": "approximate: the environment as built from these 88 wheels, measured on HOME-PC 2026-11-13"
  }
 }

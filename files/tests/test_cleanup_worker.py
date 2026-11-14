@@ -41,7 +41,9 @@ COORDINATOR_MODULES = ("__init__.py", "maintenance.py", "cleanup_state.py",
                        "cleanup_worker.py", "venv_layout.py", "engine_lease.py")
 #: The lease's lock files, relative to a root (``shared.engine_lease``).
 LEASE_LOCK_FILES = frozenset(f"files/runtime-data/qwen3/{name}"
-                             for name in ("setup.lock", "inference.lock", "engine.lock"))
+                             for name in ("setup.lock", "inference.lock", "engine.lock")) | frozenset(
+    # v0.8.0: OmniVoice is held in the same .venv, so the lease also takes its two (EnvironmentLease).
+    f"files/runtime-data/omnivoice/{name}" for name in ("inference.lock", "engine.lock"))
 
 
 # --------------------------------------------------------------------------- #

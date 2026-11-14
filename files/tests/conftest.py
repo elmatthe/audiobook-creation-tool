@@ -847,6 +847,8 @@ def _no_production_state_writes():
 PRODUCTION_WRITE_ROOTS = (
     REPO_ROOT / ".venv",
     REPO_ROOT / ".venv-qwen3",
+    # v0.8.0: the earlier OmniVoice sibling (the nested engine, .venv/engines/omnivoice, is under .venv above).
+    REPO_ROOT / ".venv-omnivoice",
     REPO_ROOT / "files" / "runtime-data",
     *sorted((REPO_ROOT / "files").glob("runtime-data.act67-preserved-*")),
     REPO_ROOT / "files" / "Cloned-Voice-Uploads",

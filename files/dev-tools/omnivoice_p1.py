@@ -19,6 +19,11 @@ It qualifies, on this computer, what ``files/dev-tools/omnivoice_p1_manifest.jso
                   a fixed short narration, one WAV. Everything it writes goes to one ignored evidence folder.
 
 Run it with the app's own interpreter (``.venv\\Scripts\\python.exe files/dev-tools/omnivoice_p1.py ...``).
+
+Superseded location (owner decision 2026-11-13, unified ``.venv`` layout): the application's OmniVoice engine now lives
+at ``.venv/engines/omnivoice``, built by the production installer (``tts.omnivoice_setup``), and the app never uses,
+adopts or repairs a ``.venv-omnivoice`` beside ``.venv``. This tool is kept unchanged as the Phase 1 qualification
+record: it still names the sibling it qualified, which the app only ever sets aside.
 """
 
 from __future__ import annotations

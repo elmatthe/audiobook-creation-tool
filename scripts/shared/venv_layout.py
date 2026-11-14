@@ -15,6 +15,10 @@ The rules it encodes:
   ``command``), and match a recorded base-interpreter identity. Missing, changed or unrecorded evidence is
   *unverified*, never healthy. Identity is necessary, not sufficient: the engine's own import probe is still needed.
 * **The two Qwen3 locations are named exactly.** Nothing is searched for; when both are present, neither is chosen.
+* **So are the two OmniVoice locations** (v0.8.0, owner decision 2026-11-13: one ``.venv`` holding three independent
+  environments). ``.venv/engines/omnivoice`` is the only place the OmniVoice engine is installed or run from
+  (``tts.omnivoice_runtime.venv_dir``); the earlier ``.venv-omnivoice`` beside the parent is never a runtime target --
+  it is only recognised so that a proved replacement can retire it, kept, to a set-aside folder.
 
 Read-only and standard-library only, because the bootstrap (a base interpreter) and the cleanup coordinator (a
 non-venv interpreter) both import it. It removes and renames nothing; the bootstrap owns those transactions.
@@ -34,6 +38,10 @@ ENGINES_DIRNAME = "engines"
 #: The two Qwen3 locations, relative to the repository root. New installs go to the nested (canonical) one only.
 LEGACY_QWEN3 = ".venv-qwen3"
 NESTED_QWEN3 = ".venv/engines/qwen3"  # canonical since P04C Stage 2
+#: The two OmniVoice locations (v0.8.0). Only the nested one is ever installed into or run from; the sibling is where
+#: the first v0.8.0 development builds put it, and is only ever retired (moved aside, kept), never used or deleted.
+LEGACY_OMNIVOICE = ".venv-omnivoice"
+NESTED_OMNIVOICE = ".venv/engines/omnivoice"  # canonical (owner decision 2026-11-13, unified .venv layout)
 
 IDENTITY_OK = "identity-ok"
 UNVERIFIED = "unverified"
@@ -220,10 +228,10 @@ def assess_child(env, *, final_path, root, parent=None, recorded_base: Optional[
 
 
 # --------------------------------------------------------------------------- #
-# The two Qwen3 locations
+# The two locations of each separately installed engine
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
-class Qwen3Layouts:
+class EngineLayouts:
     legacy: Optional[Path]
     nested: Optional[Path]
 
@@ -232,18 +240,35 @@ class Qwen3Layouts:
         return self.legacy is not None and self.nested is not None
 
 
-def qwen3_layouts(repo_root) -> Qwen3Layouts:
-    """Which of the two exact Qwen3 locations have something at them (anything, even a link or a stray file).
+#: The name this had while Qwen3 was the only engine held in the parent (v0.7.0 P04A).
+Qwen3Layouts = EngineLayouts
 
-    No other name is recognised and nothing is searched for. Presence is not health and never a reason to remove the
-    other one: when both are present that is a decision to report, not to take.
-    """
+
+def _layouts(repo_root, legacy: str, nested: str) -> EngineLayouts:
     root = Path(os.path.abspath(str(repo_root)))
     found = []
-    for relative in (LEGACY_QWEN3, NESTED_QWEN3):
+    for relative in (legacy, nested):
         path = root.joinpath(*relative.split("/"))
         try:
             found.append(path if os.path.lexists(path) else None)
         except OSError:
             found.append(path)
-    return Qwen3Layouts(legacy=found[0], nested=found[1])
+    return EngineLayouts(legacy=found[0], nested=found[1])
+
+
+def qwen3_layouts(repo_root) -> EngineLayouts:
+    """Which of the two exact Qwen3 locations have something at them (anything, even a link or a stray file).
+
+    No other name is recognised and nothing is searched for. Presence is not health and never a reason to remove the
+    other one: when both are present that is a decision to report, not to take.
+    """
+    return _layouts(repo_root, LEGACY_QWEN3, NESTED_QWEN3)
+
+
+def omnivoice_layouts(repo_root) -> EngineLayouts:
+    """Which of the two exact OmniVoice locations have something at them (anything, even a link or a stray file).
+
+    The same rule as :func:`qwen3_layouts`: two exact names, no search, and presence is not health. Unlike Qwen3's,
+    the sibling is never used -- what is at the nested path is the only thing ever judged or run.
+    """
+    return _layouts(repo_root, LEGACY_OMNIVOICE, NESTED_OMNIVOICE)

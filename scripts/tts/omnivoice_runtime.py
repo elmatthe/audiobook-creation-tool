@@ -1,11 +1,22 @@
 """omnivoice_runtime.py — what the six OmniVoice voices need on this computer, and whether it is there.
 
 OmniVoice 0.2.1 needs ``transformers>=5.3.0``, which neither the app's ``.venv`` nor the Qwen3 engine can hold, so it runs
-in its own sibling environment ``.venv-omnivoice`` (plan section 4, Decisions 2026-11-13) inside a supervised worker
-process (``omnivoice_worker.py``); ``omnivoice_synth.py`` is the application-side half. This module only *asks
-questions*: where things live, whether they are present and intact, and what a person should be told when they are not.
-It imports nothing heavy (no numpy, torch or OmniVoice), never downloads, and never raises for a missing asset -- a
-missing asset is a status with a sentence fit for a non-technical user.
+in its own independent environment inside a supervised worker process (``omnivoice_worker.py``); ``omnivoice_synth.py``
+is the application-side half. This module only *asks questions*: where things live, whether they are present and
+intact, and what a person should be told when they are not. It imports nothing heavy (no numpy, torch or OmniVoice),
+never downloads, and never raises for a missing asset -- a missing asset is a status with a sentence fit for a
+non-technical user.
+
+**Where the environment is (owner decision 2026-11-13, unified ``.venv`` layout; it supersedes the sibling of plan
+section 4).** One place only: ``.venv/engines/omnivoice`` (:func:`venv_dir`), an environment of its own -- its own
+interpreter, built directly from the app's base Python, never from the parent's -- held inside the app's ``.venv``
+beside Qwen3's, and protected through the parent's repairs by the same mechanism (``shared.venv_layout``,
+``shared.engine_lease``). Nothing is ever installed into or run from anywhere else. The earlier sibling
+``.venv-omnivoice`` (:func:`legacy_venv_dir`) is only *recognised* (:func:`assess_legacy`): it is never a runtime
+target, never adopted and never moved to the new path -- a Windows environment cannot be relocated -- so the engine is
+built again at the nested path from the pinned wheels, proved, and only then is the sibling retired, whole, to a
+set-aside folder (``tts.omnivoice_setup.retire_legacy``). Its old receipt (:func:`legacy_receipt_path`) is another file
+than the nested engine's (:func:`receipt_path`) and is never rewritten, so it can never vouch for the new one.
 
 The six voices are conditioned on **their own** owner-curated recordings, ``files/Cloned-Voice-Uploads/OmniVoice/
 OmniVoice - <Voice>.wav``, used whole -- never cropped again -- with the owner-written transcripts as reference text
@@ -19,11 +30,11 @@ and the model, calls :func:`verify_model_files`, proves the engine loads, and on
 (:func:`receipt_path`) that :func:`environment_status` requires; a conversion (``omnivoice_synth``) is the only thing
 that loads the model for narration.
 
-**Readiness of the environment (v0.8.0 Phase 3).** ``.venv-omnivoice`` is used only when this app's installer has
+**Readiness of the environment (v0.8.0 Phase 3).** The environment is used only when this app's installer has
 proved it and recorded that proof: the exact pinned package set, its own isolated interpreter, the base Python it was
-built from unchanged since, and an install-time load proof. An environment holding exactly the pinned set that no
-receipt vouches for -- the Phase 1 qualification instance, or one built by another copy -- is *unchecked*, never ready
-and never broken: the installer adopts it after the same proof, without downloading or replacing anything
+built from unchanged since, and an install-time load proof. An environment at the nested path holding exactly the
+pinned set that no receipt vouches for -- one whose proof was interrupted -- is *unchecked*, never ready and never
+broken: the installer adopts it after the same proof, without downloading or replacing anything
 (:func:`assess_engine`).
 """
 
@@ -132,9 +143,33 @@ def runtime_dir() -> Path:
     return repo_root() / "files" / "runtime-data" / "omnivoice"
 
 
+def parent_venv_dir() -> Path:
+    """The application's own environment, ``.venv``, which holds the engine's (and Qwen3's)."""
+    return repo_root() / ".venv"
+
+
+def nested_venv_dir() -> Path:
+    """``.venv/engines/omnivoice``: where the engine is installed, always. An independent environment of its own."""
+    return repo_root().joinpath(*venv_layout.NESTED_OMNIVOICE.split("/"))
+
+
+def legacy_venv_dir() -> Path:
+    """``.venv-omnivoice``: where the first v0.8.0 development builds installed the engine. Never used, never installed
+    into, never deleted; only recognised (:func:`assess_legacy`) and, once the nested engine is proved, retired."""
+    return repo_root() / venv_layout.LEGACY_OMNIVOICE
+
+
 def venv_dir() -> Path:
-    """``.venv-omnivoice``: the sibling environment (never inside ``.venv``, so the app's repair never moves it)."""
-    return repo_root() / ".venv-omnivoice"
+    """The engine environment the app uses: ``.venv/engines/omnivoice``, whatever state it is in.
+
+    The one runtime path. Nothing chooses between it and the earlier sibling: a damaged engine here is reported as
+    damaged, never hidden behind (or replaced at run time by) ``.venv-omnivoice``."""
+    return nested_venv_dir()
+
+
+def shown_path(folder: Path) -> str:
+    """*folder* relative to the app's folder, the way a person would type it (``.venv\\engines\\omnivoice``)."""
+    return _qwen3.shown_path(folder)
 
 
 def venv_python() -> Path:
@@ -177,8 +212,14 @@ def engine_lock_path() -> Path:
 
 
 def receipt_path() -> Path:
-    """The install receipt: written only after the installer proved the environment (and model) work. Beside, never
-    inside, ``.venv-omnivoice``, so a replaced environment can never carry an old receipt with it."""
+    """The nested engine's install receipt: written only after the installer proved the environment (and model) work.
+    Outside the parent ``.venv``, so a repair that replaces the parent neither loses it nor carries a stale one in."""
+    return runtime_dir() / "engine-receipt.json"
+
+
+def legacy_receipt_path() -> Path:
+    """The receipt the earlier sibling ``.venv-omnivoice`` was recorded with (receipt version 1). Only ever read, to say
+    what that folder was; it is retired together with the folder and never vouches for the nested engine."""
     return runtime_dir() / "install-receipt.json"
 
 
@@ -188,7 +229,9 @@ def wheel_cache_dir() -> Path:
 
 
 def set_aside_root() -> Path:
-    """Where a repair moves an environment it replaces -- kept, never deleted, for the owner to remove."""
+    """Where a repair moves an environment it replaces, and where a retired ``.venv-omnivoice`` is kept -- never
+    deleted, for the owner to remove. Nothing is ever run from here: an environment moved off its own path is not an
+    environment any more (``venv_layout.assess_child``)."""
     return runtime_dir() / "set-aside"
 
 
@@ -465,7 +508,7 @@ def model_url(name: str) -> str:
     return spec["url_template"].format(repo=spec["repo"], revision=spec["revision"], path=name)
 
 
-#: ``.venv-omnivoice`` once built from the 88 wheels, measured on HOME-PC (2026-11-13): an estimate, never a promise.
+#: The environment once built from the 88 wheels, measured on HOME-PC (2026-11-13): an estimate, never a promise.
 ENGINE_INSTALLED_BYTES_FALLBACK = 8_346_271_361
 
 
@@ -584,13 +627,78 @@ UNCHECKED_MESSAGE = ("An OmniVoice voice engine is on this computer, but this ve
 INCOMPLETE_MESSAGE = "The OmniVoice voice engine was not installed completely. " + INSTALL_ACTION + " to repair it."
 LINKED_MESSAGE = ("The OmniVoice environment is reached through a link to another folder, so the app will not use it. "
                   "Remove the link (not its target).")
+#: Nothing at the nested path, an earlier environment beside the app's: said instead of "not installed", because the
+#: person did install it. Installing builds it again where it now belongs; nothing of the old one is reused or deleted.
+LEGACY_MOVE_MESSAGE = ("The OmniVoice voice engine on this computer is in a folder this version of the app no longer "
+                       "uses (.venv-omnivoice). " + INSTALL_ACTION + ": it is built again inside the app's own "
+                       "environment (.venv\\engines\\omnivoice) from its pinned packages and checked there; the model "
+                       "already on this computer is reused. Only once the new engine works is the old folder moved "
+                       "to files\\runtime-data\\omnivoice\\set-aside -- kept, never deleted.")
+#: Appended when the nested engine is present but not usable and the earlier sibling is still there: it is said, never
+#: silently preferred and never silently ignored.
+LEGACY_NOT_USED_NOTE = (" (The earlier environment in .venv-omnivoice is not used in its place; it is kept as it is "
+                        "until the new one works.)")
+LEGACY_LEFTOVER_NOTE = ("The earlier OmniVoice environment in .venv-omnivoice is no longer used. It is moved to "
+                        "files\\runtime-data\\omnivoice\\set-aside (kept, never deleted) the next time OmniVoice is "
+                        "installed or repaired; you may also move or delete that folder yourself.")
+
+
+# --------------------------------------------------------------------------- #
+# How deep the app's folder may be for this engine (Windows path limits)
+# --------------------------------------------------------------------------- #
+#: The longest path Windows' loader accepts for a native library, long-path support or not.
+WINDOWS_MAX_PATH = 259
+#: The deepest native library (.dll/.pyd) of the environment at ``.venv/engines/omnivoice``, below the app's folder
+#: with its separator (135 + 1: scikit-learn's deepest extension; measured on HOME-PC 2026-11-13), plus a margin.
+DEEPEST_NATIVE_LIBRARY_CHARS = 140
+#: The deepest file of any kind there (168 + 1) plus a margin: the limit for every file while Windows long-path
+#: support is off, when pip could not even write it.
+DEEPEST_FILE_CHARS = 176
+
+
+def windows_long_paths_enabled() -> Optional[bool]:
+    """Whether Windows long-path support is on (``None``: not Windows, or it could not be read). Never changes it."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
+            return winreg.QueryValueEx(key, "LongPathsEnabled")[0] == 1
+    except OSError:
+        return None
+
+
+def install_depth_problem(root: Optional[Path] = None, *, long_paths: Optional[bool] = None) -> str:
+    """Why the OmniVoice engine cannot be installed in a copy of the app this deep, or ``""``.
+
+    The engine is held inside ``.venv`` (``.venv/engines/omnivoice``), so its files sit deeper than the app's own and
+    need a shorter app folder than ``bootstrap.install_path_problem`` asks for. Checked before anything is downloaded,
+    so a too-deep copy is told once, plainly, instead of getting an engine whose libraries Windows refuses to load.
+    Only this engine's install is refused; the app and every other voice are unaffected."""
+    if sys.platform != "win32":
+        return ""
+    root = Path(repo_root() if root is None else root)
+    length = len(str(root))
+    enabled = windows_long_paths_enabled() if long_paths is None else long_paths
+    limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY_CHARS if enabled else DEEPEST_FILE_CHARS)
+    if length <= limit:
+        return ""
+    return (f"The OmniVoice voice engine cannot be installed in this copy of the app: the app's folder path is "
+            f"{length} characters long and OmniVoice needs {limit} or fewer here, or Windows could not load its files. "
+            "Nothing was installed. Move the whole app folder somewhere shorter (for example C:\\Audiobook Creation "
+            "Tool), start it from there, and install OmniVoice again. Every other voice is unaffected.")
 
 
 # --------------------------------------------------------------------------- #
 # The install receipt (v0.8.0 Phase 3): what makes the environment this app's own, proved
 # --------------------------------------------------------------------------- #
 RECEIPT_SCHEMA = "act-omnivoice-install-receipt"
-RECEIPT_VERSION = 1
+#: Version 2 names the nested path (``.venv/engines/omnivoice``) and lives in :func:`receipt_path`. Version 1 was
+#: written for the sibling ``.venv-omnivoice`` into :func:`legacy_receipt_path`; it is read only by
+#: :func:`read_legacy_receipt` and can never make the nested engine ready (another file, another version, another path).
+RECEIPT_VERSION = 2
+LEGACY_RECEIPT_VERSION = 1
 #: Written before the installer creates an environment (so an interruption is known to be the app's own, unfinished),
 #: after a proof succeeded (the only stage that makes the engine ready), or after an existing environment was checked
 #: and proved not to work (so the next plan offers a repair instead of the same check again).
@@ -601,25 +709,34 @@ ORIGIN_INSTALLED = "installed"  # built by this app's installer from the pinned 
 ORIGIN_ADOPTED = "adopted"  # found already holding exactly the pinned set, then proved the same way
 
 
-def read_receipt() -> dict:
-    """The receipt for ``.venv-omnivoice``, or ``{}``: absent, unreadable, a link, of another schema, or written for
-    another folder (a copied receipt never vouches for an environment it was not written for)."""
-    path = receipt_path()
+def _read_receipt_file(path: Path, version: int, folder: Path) -> dict:
     if venv_layout.unsafe_component(repo_root(), path) is not None:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if not isinstance(data, dict) or data.get("schema") != RECEIPT_SCHEMA or data.get("version") != RECEIPT_VERSION:
+    if not isinstance(data, dict) or data.get("schema") != RECEIPT_SCHEMA or data.get("version") != version:
         return {}
-    if not isinstance(data.get("path"), str) or not venv_layout.same_path(data["path"], venv_dir()):
+    if not isinstance(data.get("path"), str) or not venv_layout.same_path(data["path"], folder):
         return {}
     return data
 
 
+def read_receipt() -> dict:
+    """The receipt for the nested engine, or ``{}``: absent, unreadable, a link, of another schema or version, or
+    written for another folder (a copied or stale receipt never vouches for an environment it was not written for --
+    a receipt of the earlier sibling, or of another copy of the app, least of all)."""
+    return _read_receipt_file(receipt_path(), RECEIPT_VERSION, nested_venv_dir())
+
+
+def read_legacy_receipt() -> dict:
+    """What the earlier sibling ``.venv-omnivoice`` was recorded with, or ``{}``. Evidence about that folder only."""
+    return _read_receipt_file(legacy_receipt_path(), LEGACY_RECEIPT_VERSION, legacy_venv_dir())
+
+
 def write_receipt(stage: str, **fields) -> dict:
-    """Publish the receipt for ``.venv-omnivoice`` at *stage* (atomically, never through a link)."""
+    """Publish the receipt for the nested engine at *stage* (atomically, never through a link)."""
     if stage not in (STAGE_CREATING, STAGE_INSTALLED, STAGE_REJECTED):
         raise ValueError(f"unknown receipt stage {stage!r}")
     record = {"schema": RECEIPT_SCHEMA, "version": RECEIPT_VERSION, "stage": stage,
@@ -640,7 +757,7 @@ def clear_receipt() -> None:
 # The environment: assessed cheaply (a folder listing and two small files; no process, no import)
 # --------------------------------------------------------------------------- #
 ENGINE_READY = "ready"  # proved and recorded by this app's installer, unchanged since
-ENGINE_ABSENT = "absent"  # nothing at .venv-omnivoice
+ENGINE_ABSENT = "absent"  # nothing at .venv/engines/omnivoice (whatever is, or is not, at the earlier sibling)
 ENGINE_UNCHECKED = "unchecked"  # exactly the pinned set, built from the app's Python, but no receipt vouches for it
 ENGINE_INCOMPLETE = "incomplete"  # this app's own install of it did not finish
 ENGINE_BROKEN = "broken"  # present, and provably not the pinned engine (or checked and proved not to work)
@@ -663,8 +780,11 @@ def app_base_python() -> Path:
     return exe
 
 
-def structure_problem(folder: Path) -> str:
-    """Why *folder* is not an isolated CPython 3.12 environment at its own place, or ``""``."""
+def structure_problem(folder: Path, *, parent: Optional[Path] = None) -> str:
+    """Why *folder* is not an isolated CPython 3.12 environment at its own place, or ``""``.
+
+    *parent* is the environment it is held in, when there is one: an engine built from that environment's interpreter
+    is not independent (the parent's repair would break it), so it is refused."""
     folder = Path(folder)
     if not folder.is_dir():
         return "it is not a folder"
@@ -675,6 +795,9 @@ def structure_problem(folder: Path) -> str:
         return "it is not isolated from the system's packages"
     if not venv_layout.interpreter(folder).is_file():
         return "its Python interpreter is missing"
+    if parent is not None and any(config.get(key) and venv_layout.is_within(parent, config[key])
+                                  for key in ("home", "executable")):
+        return "it was built from the app's own environment instead of the app's base Python"
     command = config.get("command")
     if command and not os.path.normcase(command.rstrip().rstrip("\\/")).endswith(os.path.normcase(os.path.abspath(folder))):
         return "it was created in another folder and moved (environments cannot be moved)"
@@ -699,26 +822,108 @@ def listing_problem(folder: Path) -> str:
     return f"{detail}: {', '.join((missing or wrong or extra)[:3])}"
 
 
+LEGACY_ABSENT = "absent"  # nothing at .venv-omnivoice
+LEGACY_LINK = "link"  # a link or junction, or reached through one: never read into, never moved
+LEGACY_OCCUPIED = "occupied"  # something is there that is not an environment folder: never touched
+LEGACY_HEALTHY = "healthy"  # the pinned engine, as the earlier build's own receipt recorded it
+LEGACY_UNVERIFIED = "unverified"  # the pinned engine by its listing, but no receipt vouches for it
+LEGACY_BROKEN = "broken"  # an environment folder that is not the pinned engine
+LEGACY_STATES = (LEGACY_ABSENT, LEGACY_LINK, LEGACY_OCCUPIED, LEGACY_HEALTHY, LEGACY_UNVERIFIED, LEGACY_BROKEN)
+
+
+@dataclass(frozen=True)
+class LegacyAssessment:
+    """What is at the earlier sibling ``.venv-omnivoice``. It is never used in any state; the state only decides what is
+    said about it and whether it is something this app may move aside once the nested engine is proved."""
+    state: str
+    reason: str
+
+    @property
+    def present(self) -> bool:
+        return self.state != LEGACY_ABSENT
+
+    @property
+    def retirable(self) -> bool:
+        """A real environment folder at exactly that path, reached through no link: the only thing ever moved aside."""
+        return self.state in (LEGACY_HEALTHY, LEGACY_UNVERIFIED, LEGACY_BROKEN)
+
+
+def assess_legacy() -> LegacyAssessment:
+    """What the earlier sibling ``.venv-omnivoice`` is, from the folder and its own old receipt. Read-only; never
+    raises; never the answer to "can OmniVoice run" (:func:`assess_engine` is, about the nested path alone)."""
+    folder = legacy_venv_dir()
+    try:
+        linked = venv_layout.unsafe_component(repo_root(), folder)
+        if linked is not None:
+            return LegacyAssessment(LEGACY_LINK, f"{venv_layout.LEGACY_OMNIVOICE} is a link, or is reached through "
+                                                 "one; it is left exactly as it is")
+        if not os.path.lexists(folder):
+            return LegacyAssessment(LEGACY_ABSENT, "there is no earlier environment")
+        if not folder.is_dir() or venv_layout.read_pyvenv_cfg(folder) is None:
+            return LegacyAssessment(LEGACY_OCCUPIED, f"{venv_layout.LEGACY_OMNIVOICE} is not a Python environment; it "
+                                                     "is left exactly as it is")
+        problem = structure_problem(folder) or listing_problem(folder)
+        if problem:
+            return LegacyAssessment(LEGACY_BROKEN, f"the earlier environment is not the pinned engine ({problem})")
+        receipt = read_legacy_receipt()
+        if receipt.get("stage") == STAGE_INSTALLED and receipt.get("probe_ok") is True \
+                and receipt.get("packages_sha256") == packages_sha256() \
+                and receipt.get("base") == venv_layout.base_identity(folder):
+            return LegacyAssessment(LEGACY_HEALTHY, "the earlier environment is complete and was proved where it is")
+        return LegacyAssessment(LEGACY_UNVERIFIED, "the earlier environment holds the pinned packages, but nothing "
+                                                   "records that it was proved")
+    except OmniVoiceUnavailable as exc:
+        return LegacyAssessment(LEGACY_OCCUPIED, str(exc))
+    except OSError as exc:
+        return LegacyAssessment(LEGACY_LINK, f"{venv_layout.LEGACY_OMNIVOICE} could not be read "
+                                             f"({exc.strerror or exc}); it is left exactly as it is")
+
+
+def legacy_leftover_note() -> str:
+    """What to say about an earlier sibling still present beside a nested engine that is ready, or ``""``."""
+    return LEGACY_LEFTOVER_NOTE if assess_legacy().retirable else ""
+
+
 def assess_engine(*, app_base: Optional[Path] = None) -> EngineAssessment:
-    """What ``.venv-omnivoice`` is, from the folder and the receipt alone. Read-only; never raises.
+    """What ``.venv/engines/omnivoice`` is, from the folder and the receipt alone. Read-only; never raises.
 
     Ready only with a receipt of a proved install for this folder, for the current pinned set, and for the base Python
     it is still built from. An environment holding exactly the pinned set without such a receipt is *unchecked*
     (adoptable after a proof), never ready and never broken -- but only when it was built from the app's own base
     Python (*app_base*, default :func:`app_base_python`). Everything else present is broken (a repair builds a fresh
     one and keeps this folder), or unverified when reached through a link.
+
+    Only the nested path is judged. An earlier sibling ``.venv-omnivoice`` changes the *words* -- it is named, so a
+    damaged engine here is never quietly preferred over, or hidden behind, a healthy one there -- and never the state.
     """
-    folder = venv_dir()
+    assessment = _assess_nested(app_base)
+    if assessment.state == ENGINE_READY:
+        return assessment
+    try:
+        legacy = assess_legacy()
+    except Exception:  # noqa: BLE001 - the sibling is commentary; it never stops the nested engine being judged
+        return assessment
+    if not legacy.retirable:  # nothing there, or a link or a stray entry this app says nothing about and never touches
+        return assessment
+    if assessment.state == ENGINE_ABSENT:
+        if assessment.reason == NOT_INSTALLED_MESSAGE:
+            return EngineAssessment(ENGINE_ABSENT, LEGACY_MOVE_MESSAGE)
+        return assessment
+    return EngineAssessment(assessment.state, assessment.reason + LEGACY_NOT_USED_NOTE)
+
+
+def _assess_nested(app_base: Optional[Path]) -> EngineAssessment:
+    folder = nested_venv_dir()
     try:
         if venv_layout.unsafe_component(repo_root(), folder) is not None:
             return EngineAssessment(ENGINE_UNVERIFIED, LINKED_MESSAGE)
         if not os.path.lexists(folder):
-            return EngineAssessment(ENGINE_ABSENT, NOT_INSTALLED_MESSAGE)
+            return EngineAssessment(ENGINE_ABSENT, install_depth_problem() or NOT_INSTALLED_MESSAGE)
         receipt = read_receipt()
         stage = receipt.get("stage")
         if stage == STAGE_CREATING:
             return EngineAssessment(ENGINE_INCOMPLETE, INCOMPLETE_MESSAGE)
-        problem = structure_problem(folder)
+        problem = structure_problem(folder, parent=parent_venv_dir())
         if problem:
             return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment cannot be used: {problem}. "
                                                    + INSTALL_ACTION + " to repair it.")
@@ -747,7 +952,7 @@ def assess_engine(*, app_base: Optional[Path] = None) -> EngineAssessment:
 
 
 def environment_status() -> tuple[bool, str]:
-    """``(ok, reason)`` for ``.venv-omnivoice``: ready only when this app's installer proved it and recorded that proof
+    """``(ok, reason)`` for the nested engine: ready only when this app's installer proved it and recorded that proof
     (:func:`assess_engine`). Cheap: a folder listing and two small files, no subprocess, no import of the engine."""
     assessment = assess_engine()
     if assessment.state == ENGINE_READY:
@@ -1101,9 +1306,12 @@ def install_would_help(voice_id: Optional[str] = None) -> bool:
                 return False
         except OmniVoiceUnavailable:
             return False
-    if assess_engine().state == ENGINE_UNVERIFIED or model_folder_problem():
+    assessment = assess_engine()
+    if assessment.state == ENGINE_UNVERIFIED or model_folder_problem():
         return False
-    return not (environment_status()[0] and model_status()[0])
+    if assessment.state != ENGINE_READY and install_depth_problem():
+        return False  # the app's folder is too deep for this engine: installing cannot help until it is moved
+    return not (assessment.state == ENGINE_READY and model_status()[0])
 
 
 # --------------------------------------------------------------------------- #

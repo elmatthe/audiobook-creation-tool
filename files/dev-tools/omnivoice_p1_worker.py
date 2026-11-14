@@ -1,5 +1,8 @@
 """omnivoice_p1_worker.py -- runs ONLY inside ``.venv-omnivoice`` (ACT v0.8.0 Phase 1, developer only).
 
+(Phase 1 qualification record. Since the owner decision of 2026-11-13 the application's engine lives at
+``.venv/engines/omnivoice`` and its worker is ``scripts/tts/omnivoice_worker.py``; the app never uses the sibling.)
+
     <.venv-omnivoice\\Scripts\\python.exe> -I omnivoice_p1_worker.py <job.json>
 
 Started by ``omnivoice_p1.py``. Before anything heavy is imported it installs an audit hook that refuses every network

@@ -263,25 +263,31 @@ def _problem_message(problems: list[str]) -> str:
 
 
 def hold_engine_still(repo_root, note):
-    """``(lease, None)`` holding this copy's Qwen3 engine lease, or ``(None, problem)``.
+    """``(lease, None)`` holding this copy's engine lease, or ``(None, problem)``.
 
     v0.7.0 P04C. A first Qwen3 install creates ``.venv/engines/qwen3`` while it
     holds ``setup.lock``, and a conversion or a worker reads the models while it
     holds ``inference.lock`` or ``engine.lock``. Holding all three means none of
-    them is running and none can start until :meth:`engine_lease.Lease.release`.
+    them is running and none can start until the lease is released.
     Never waits: busy, denied or a linked lock folder is an immediate refusal.
+
+    v0.8.0: OmniVoice is held in the same ``.venv`` (``.venv/engines/omnivoice``),
+    so the lease is :class:`engine_lease.EnvironmentLease` -- Qwen3's three locks,
+    whose ``setup.lock`` an OmniVoice install takes first too, then OmniVoice's
+    own ``inference.lock`` and ``engine.lock``.
     """
     root = maintenance.absolute(repo_root)
-    lease = engine_lease.Lease(engine_lease.runtime_dir(root), root=root)
+    lease = engine_lease.EnvironmentLease(root)
     try:
         lease.take()
     except engine_lease.Refused as refused:
-        note(f"left alone — the Qwen3 voices of this copy are in use or uncheckable: {refused}")
-        if refused.reason == engine_lease.BUSY and refused.lock in engine_lease.BUSY_MESSAGES:
-            return None, maintenance.engine_in_use_problem(engine_lease.BUSY_MESSAGES[refused.lock])
+        name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
+        note(f"left alone — the {name} voices of this copy are in use or uncheckable: {refused}")
+        if refused.reason == engine_lease.BUSY and refused.busy_sentence:
+            return None, maintenance.engine_in_use_problem(refused.busy_sentence)
         return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM
     except OSError as exc:                         # the lock folder itself could not be made
-        note(f"left alone — the Qwen3 locks could not be checked: {exc.strerror or exc}")
+        note(f"left alone — the voice engines' locks could not be checked: {exc.strerror or exc}")
         return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM
     return lease, None
 

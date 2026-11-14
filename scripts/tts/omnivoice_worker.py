@@ -1,8 +1,8 @@
-"""omnivoice_worker.py — the OmniVoice worker. Runs ONLY inside ``.venv-omnivoice``, never in the application's interpreter.
+"""omnivoice_worker.py — the OmniVoice worker. Runs ONLY inside ``.venv/engines/omnivoice``, never in the app's own interpreter.
 
 ``omnivoice_synth`` writes a job file and starts, for at most a bounded batch of one file's chunks::
 
-    <.venv-omnivoice python> -I omnivoice_worker.py <job.json>
+    <.venv/engines/omnivoice python> -I omnivoice_worker.py <job.json>
 
 then reads ``@@EVENT <json>`` lines from stdout. Everything else the libraries print is ignored by the reader.
 
@@ -452,7 +452,12 @@ def version_problems(packages: dict) -> list[str]:
 
 def isolation_problems(job: dict) -> list[str]:
     """What, in this interpreter's own view of itself, shows it reaching the app's ``.venv``, a Qwen3 engine, the user
-    site or any site-packages outside the OmniVoice environment."""
+    site or any site-packages outside the OmniVoice environment.
+
+    The environment is held INSIDE the app's ``.venv`` (``.venv/engines/omnivoice``, v0.8.0), so a path inside the
+    environment itself is its own even though it also lies inside that parent; everything else of the parent (its
+    ``Lib/site-packages`` above all) is another environment. Its base interpreter must be outside every one of them:
+    an engine built from the parent's interpreter would not be independent of it."""
     import site
 
     environment = job["environment"]
@@ -461,12 +466,14 @@ def isolation_problems(job: dict) -> list[str]:
         problems.append("sys.prefix is not the OmniVoice environment")
     if _norm(sys.prefix) == _norm(sys.base_prefix):
         problems.append("it is not a virtual environment")
+    if any(_within(other, sys.base_prefix) for other in job["foreign"]):
+        problems.append("it was built from another environment's interpreter, not the app's base Python")
     for entry in sys.path:
-        if not entry:
+        if not entry or _within(environment, entry):
             continue
         if any(_within(other, entry) for other in job["foreign"]):
             problems.append(f"sys.path reaches another environment: {entry}")
-        elif "site-packages" in entry.lower() and not _within(environment, entry):
+        elif "site-packages" in entry.lower():
             problems.append(f"sys.path holds a site-packages outside the OmniVoice environment: {entry}")
     if site.ENABLE_USER_SITE:
         problems.append("the user site-packages is enabled")

@@ -1,7 +1,7 @@
 """omnivoice_synth.py — OmniVoice conversion for ACT: prepare the text once, supervise bounded workers, assemble, encode once.
 
 The application-side half of the OmniVoice engine (plan section 4). The model runs in ``omnivoice_worker.py`` inside the
-isolated ``.venv-omnivoice``; this module imports numpy and soundfile (application dependencies) and nothing of torch or
+engine's own environment (``.venv/engines/omnivoice``); this module imports numpy and soundfile (application dependencies) and nothing of torch or
 OmniVoice, so the GUI process never loads the model stack. It reuses the Qwen3 engine's engine-neutral parts -- the
 verified sentence planner and its source spans, the local-engine assembly, the shared final-tail policy, the one encode
 and the atomic publication, and the Job Object process containment -- and keeps its own words, limits and supervision.

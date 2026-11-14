@@ -121,13 +121,15 @@ REFERENCE_ASSETS = (
 
 # Directory names that are excluded wherever they appear in the tree.
 # Every Python environment lives at the repository root, outside the ``scripts/`` tree the packager walks, so none
-# can be reached in the first place: the app's ``.venv``, with the optional Qwen3-TTS engine held inside it at
-# ``.venv/engines/qwen3`` (canonical since v0.7.0 P04C), the older ``.venv-qwen3`` beside it (v0.6.7 CP6, still used
-# where it is the only engine), the bootstrap's set-aside ``.venv.replaced*``/``.venv.discarded*`` during a repair,
-# and the owner's preserved ``*.act67-preserved-*`` copies. They are named here too -- exactly, or by the prefixes
-# below -- so that a copy force-committed under ``scripts/`` or a future widening of the walk can never package a
-# multi-gigabyte environment by accident.
-EXCLUDED_DIR_NAMES = {".venv", ".venv-qwen3", "__pycache__", ".pytest_cache"}
+# can be reached in the first place: the app's ``.venv``, with the two optional engines held inside it -- Qwen3-TTS at
+# ``.venv/engines/qwen3`` (canonical since v0.7.0 P04C) and OmniVoice at ``.venv/engines/omnivoice`` (v0.8.0, owner
+# decision 2026-11-13: one ``.venv`` holding three independent environments) -- the older ``.venv-qwen3`` beside it
+# (v0.6.7 CP6, still used where it is the only engine), the earlier ``.venv-omnivoice`` beside it (never used; only
+# retired), the bootstrap's set-aside ``.venv.replaced*``/``.venv.discarded*`` during a repair, and the owner's
+# preserved ``*.act67-preserved-*`` copies. They are named here too -- exactly, or by the prefixes below -- so that a
+# copy force-committed under ``scripts/`` or a future widening of the walk can never package a multi-gigabyte
+# environment by accident.
+EXCLUDED_DIR_NAMES = {".venv", ".venv-qwen3", ".venv-omnivoice", "__pycache__", ".pytest_cache"}
 # Directory-name prefixes excluded wherever they appear: ``.venv.replaced``, ``.venv.discarded-…``,
 # ``.venv-qwen3.act67-preserved-…`` and the like.
 EXCLUDED_DIR_PREFIXES = (".venv.", ".venv-")

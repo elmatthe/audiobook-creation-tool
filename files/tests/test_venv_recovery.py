@@ -1736,12 +1736,14 @@ def _protected(env) -> dict[str, str]:
 
     The engine's three lock files are here too, empty, as on any copy that has installed it: since v0.7.0 P04C a
     repair locks them (``shared.engine_lease``), and locking must neither change them nor add anything beside them.
+    So are OmniVoice's two (v0.8.0: it is held in the same ``.venv``, so a repair takes them as well).
     """
     data = env.tmp / "files" / "runtime-data"
     for relative, payload in (("models/qwen3/base/model.safetensors", b"model" * 512),
                               ("qwen3/transcript-selection.json", b'{"schema": 1, "voices": {}}'),
                               ("qwen3/cache/hf/blob", b"cache"),
                               ("qwen3/setup.lock", b""), ("qwen3/inference.lock", b""), ("qwen3/engine.lock", b""),
+                              ("omnivoice/inference.lock", b""), ("omnivoice/engine.lock", b""),
                               ("settings.json", b"{}"),
                               ("logs/session.log", b"log")):
         target = data / relative

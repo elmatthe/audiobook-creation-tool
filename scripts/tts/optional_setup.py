@@ -36,13 +36,20 @@ exact identities (``manifest``), a present file of another size or content is ``
 looks in the pinned commit's folder only -- a moved upstream ``main`` can never change what it reports. Chatterbox's
 ``s3gen.safetensors``, which Turbo never loads, is no longer counted or acquired.
 
-v0.8.0 Phase 3: the fifth component, OmniVoice, is two units -- ``omnivoice-engine`` (the sibling environment
-``.venv-omnivoice`` built offline from the 88 wheels pinned in ``tts/omnivoice_manifest.json``) and ``omnivoice-model``
-(the pinned snapshot, its audio tokenizer included). The engine's readiness is the installer's own receipt
-(``tts.omnivoice_runtime.assess_engine``), judged the way Qwen3's is, never probed by a plan. An environment that
-already holds exactly the pinned set but that no receipt vouches for is planned as an install that downloads nothing:
-the installer proves it and adopts it. The GPU an OmniVoice install needs is a caller fact (``Facts.gpu``), and the
-licence and hardware terms travel with the plan (``disclosures``) so they are shown before anyone agrees.
+v0.8.0 Phase 3: the fifth component, OmniVoice, is two units -- ``omnivoice-engine`` (the engine's own environment
+``.venv/engines/omnivoice``, built offline from the 88 wheels pinned in ``tts/omnivoice_manifest.json``) and
+``omnivoice-model`` (the pinned snapshot, its audio tokenizer included). The engine's readiness is the installer's own
+receipt (``tts.omnivoice_runtime.assess_engine``), judged the way Qwen3's is, never probed by a plan. An environment
+there that already holds exactly the pinned set but that no receipt vouches for is planned as an install that
+downloads nothing: the installer proves it and adopts it. The GPU an OmniVoice install needs is a caller fact
+(``Facts.gpu``), and the licence and hardware terms travel with the plan (``disclosures``) so they are shown before
+anyone agrees.
+
+Unified ``.venv`` layout (owner decision 2026-11-13): only the nested path is ever planned. An earlier sibling
+``.venv-omnivoice`` is never adopted and never counted as installed; the engine unit says it is built again at the
+nested path and that the sibling is moved aside (kept) only after the new engine is proved
+(``omnivoice_runtime.LEGACY_MOVE_MESSAGE``). A copy of the app too deep for Windows to load the nested engine is
+unsupported for this component alone (``omnivoice_runtime.install_depth_problem``).
 """
 
 from __future__ import annotations
@@ -376,26 +383,43 @@ REBUILD_NOTE = ("Repairing builds a fresh environment from the verified packages
                 "it is moved to files\\runtime-data\\omnivoice\\set-aside for you to remove once the new one works.")
 UNFINISHED_NOTE = ("This app's own earlier install of it did not finish; repairing removes that unfinished environment "
                    "and builds it again from the verified packages.")
+#: Nothing at the nested path, an earlier environment beside the app's (``.venv-omnivoice``): built again where it now
+#: belongs, the old folder moved aside -- kept -- only once the new engine is proved.
+MOVE_NOTE = ("OmniVoice was installed in a folder this version no longer uses (.venv-omnivoice). Installing builds its "
+             "environment again inside the app's own (.venv\\engines\\omnivoice) from the pinned packages, each checked "
+             "by size and SHA-256 and installed offline, and proves it there. Only then is the old folder moved to "
+             "files\\runtime-data\\omnivoice\\set-aside -- kept, never deleted; if anything fails, it stays exactly "
+             "where it is.")
+LEGACY_KEPT_NOTE = (" The earlier environment in .venv-omnivoice is not used; it is moved to files\\runtime-data\\"
+                    "omnivoice\\set-aside (kept, never deleted) only once the new one is proved.")
 
 
 def _omnivoice_engine_unit() -> Unit:
-    """The environment as a unit, judged by ``omnivoice_runtime.assess_engine`` (the receipt), never by a probe."""
+    """The environment as a unit, judged by ``omnivoice_runtime.assess_engine`` (the receipt), never by a probe.
+
+    Only the nested path is planned. An earlier sibling is never adopted: it changes the note, never the state."""
     source = omnivoice_engine_source()
     assessment = ov.assess_engine()
     environment = Figure(ov.engine_installed_bytes(), APPROXIMATE)
     if assessment.state == ov.ENGINE_READY:
         return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], READY, reused=environment,
-                    source=source)
+                    note=ov.legacy_leftover_note(), source=source)
     if assessment.state == ov.ENGINE_UNVERIFIED:
         return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], UNVERIFIED, note=assessment.reason,
                     source=source)
+    legacy = ov.assess_legacy().retirable
     if assessment.state == ov.ENGINE_UNCHECKED:  # adopted after a proof: an install that downloads nothing
         return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE], MISSING, reused=environment,
-                    note=ADOPT_NOTE, source=source)
+                    note=ADOPT_NOTE + (LEGACY_KEPT_NOTE if legacy else ""), source=source)
     fetch, have = ov.wheel_bytes()  # the wheel cache, read (and hashed where unrecorded); never the installer
-    note = {ov.ENGINE_ABSENT: f"{len(ov.wheels())} pinned packages, each checked by size and SHA-256, then installed "
-                              "offline; the downloads are removed once the engine is proved to work",
-            ov.ENGINE_INCOMPLETE: UNFINISHED_NOTE}.get(assessment.state) or f"{assessment.reason} {REBUILD_NOTE}"
+    fresh = (f"{len(ov.wheels())} pinned packages, each checked by size and SHA-256, then installed offline; the "
+             "downloads are removed once the engine is proved to work")
+    if assessment.state == ov.ENGINE_ABSENT:
+        note = MOVE_NOTE if legacy else fresh
+    elif assessment.state == ov.ENGINE_INCOMPLETE:
+        note = UNFINISHED_NOTE + (LEGACY_KEPT_NOTE if legacy else "")
+    else:  # the reason already names an earlier sibling that is not used (omnivoice_runtime.LEGACY_NOT_USED_NOTE)
+        note = f"{assessment.reason} {REBUILD_NOTE}"
     return Unit(OMNIVOICE_ENGINE_UNIT, OMNIVOICE_ENGINE_LABEL, [OMNIVOICE],
                 MISSING if assessment.state == ov.ENGINE_ABSENT else DAMAGED,
                 download=Figure(fetch, MANIFEST), reused=Figure(have, EXACT), disk=environment,
@@ -454,6 +478,10 @@ def _omnivoice_plan(facts: Facts) -> tuple[tuple[str, str], list[Unit]]:
         return (UNSUPPORTED, "OmniVoice needs 64-bit Windows and Python"), []
     if facts.gpu is False:
         return (UNSUPPORTED, ov.NO_GPU_MESSAGE), []
+    if ov.assess_engine().state != ov.ENGINE_READY:
+        too_deep = ov.install_depth_problem()  # only an engine not yet proved here: one that works is never refused
+        if too_deep:
+            return (UNSUPPORTED, too_deep), []
     units = [_omnivoice_engine_unit(), _omnivoice_model_unit()]
     parts = [u.state for u in units]
     gpu_reason = ""

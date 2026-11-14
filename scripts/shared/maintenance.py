@@ -103,6 +103,7 @@ class AssetDefinition:
     #: True when a Qwen3 install, conversion or worker of this copy may be using
     #: the target while cleanup runs (v0.7.0 P04C): the coordinator takes the
     #: copy's engine lease before re-authorizing it and holds it until done.
+    #: v0.8.0: that lease also covers OmniVoice, held in the same ``.venv``.
     requires_engine_lease: bool = False
 
 
@@ -214,9 +215,9 @@ ENGINE_IN_USE_SUFFIX = (
     "This item was left alone, so nothing in it was removed. Let that finish, or "
     "close the app that is using it, then clear this item again."
 )
-#: Why one was left alone when the Qwen3 locks could not be checked at all.
+#: Why one was left alone when the engines' locks (Qwen3's, or since v0.8.0 OmniVoice's) could not be checked at all.
 ENGINE_UNCHECKABLE_PROBLEM = (
-    "The cleanup helper could not check whether the Qwen3 voices are in use, so "
+    "The cleanup helper could not check whether the Qwen3 or OmniVoice voices are in use, so "
     "this item was left alone. Nothing in it was removed."
 )
 

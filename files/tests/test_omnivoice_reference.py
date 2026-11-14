@@ -271,7 +271,10 @@ def sandbox(tmp_path, monkeypatch):
     (root / "files").mkdir(parents=True)
     monkeypatch.setattr(ov, "repo_root", lambda: root)
     monkeypatch.setattr(ov, "runtime_dir", lambda: root / "files" / "runtime-data" / "omnivoice")
-    monkeypatch.setattr(ov, "venv_dir", lambda: root / ".venv-omnivoice")
+    # The one environment path is derived from the root (.venv/engines/omnivoice, the unified layout); a too-deep
+    # temporary folder must not turn "not installed" into "this folder is too deep" (that rule has its own tests).
+    monkeypatch.setattr(ov, "install_depth_problem", lambda *a, **k: "")
+    assert ov.venv_dir() == root / ".venv" / "engines" / "omnivoice"
     files = {"config.json": b'{"a": 1}', "audio_tokenizer/config.json": b'{"b": 2}'}
     pins = [["omnivoice", "0.2.1"], ["torch", "2.8.0+cu128"], ["huggingface_hub", "1.7.2"]]
     manifest = {

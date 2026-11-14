@@ -520,6 +520,12 @@ class RealAcquirer:
                     raise AcquisitionRefused("rebuilding the OmniVoice environment needs a repair, confirmed on its own")
             elif assessment.state != ov.ENGINE_READY:
                 raise AcquisitionRefused("the OmniVoice engine is not ready and was not part of this confirmation")
+            if engine_unit in wanted and mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
+                # The engine is built inside the app's own .venv: if that cannot happen here (the parent is missing,
+                # linked or half-way through a repair, or this copy is too deep), say so before anything is fetched.
+                blocked = ovs.build_problem()
+                if blocked:
+                    raise ovs.OmniVoiceSetupError(blocked)
             allowed = [ov.model_url(name) for name in ov.model_spec()["files"]] if model_unit in wanted else []
             if engine_unit in wanted and mode != ovs.MODE_ADOPT:
                 allowed += [wheel.url for wheel in ov.wheels()]
@@ -554,6 +560,18 @@ class RealAcquirer:
                 if mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
                     ovs.discard_wheels()
                 done.append(engine_unit)
+            # Unified .venv layout (owner decision 2026-11-13): an earlier sibling .venv-omnivoice is retired only
+            # here -- the nested engine is proved and recorded, still under the install lock -- and is moved, whole,
+            # to set-aside, never deleted. Failing to move it undoes nothing: it is not used either way, and it is said.
+            try:
+                retired = ovs.retire_legacy()
+            except (ovs.OmniVoiceSetupError, OSError) as exc:
+                progress({"unit": engine_unit, "step": "install", "done": 0, "total": 0, "message": str(exc)[:400]})
+            else:
+                if retired is not None:
+                    progress({"unit": engine_unit, "step": "install", "done": 0, "total": 0,
+                              "message": "The earlier OmniVoice environment (.venv-omnivoice) is no longer used; it "
+                                         f"was kept at {rt.shown_path(retired)}"})
         except qwen3_setup.SetupCancelled:
             raise
         except (ovs.OmniVoiceSetupError, ov.OmniVoiceUnavailable, AcquisitionRefused, qwen3_setup.SetupError,

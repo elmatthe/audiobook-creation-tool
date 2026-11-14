@@ -616,8 +616,12 @@ def test_with_nothing_held_a_repair_still_takes_the_whole_lease_and_still_works(
     monkeypatch.setattr(el.Lease, "take", spy)
     ok, message = bootstrap.repair_venv(_Log(), headless=True)
     assert ok is True and not keepsake.exists() and (env.venv / "candidate.txt").exists()
-    assert taken == [list(el.ORDER)]
+    # Qwen3's three, then OmniVoice's two (v0.8.0: both engines are held in this .venv -- el.EnvironmentLease)
+    assert taken == [list(el.ORDER), list(el.OMNIVOICE_ORDER)]
     assert sorted(p.name for p in lock_dir(env).iterdir()) == sorted(el.ORDER)  # the three lock files and nothing else
+    omnivoice = el.omnivoice_runtime_dir(env.tmp)
+    assert sorted(p.name for p in omnivoice.iterdir()) == sorted(el.OMNIVOICE_ORDER)  # its two, and nothing else
+    assert all((omnivoice / name).stat().st_size == 0 for name in el.OMNIVOICE_ORDER)
     assert all((lock_dir(env) / name).stat().st_size == 0 for name in el.ORDER)
     assert free(lock_dir(env)) == ALL_FREE  # and all three given back
 

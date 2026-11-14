@@ -21,6 +21,13 @@ there is no stale-lock case. The machine-wide ``MachineGuard`` is deliberately n
 of the app to one model on the GPU at a time and protects no file of this copy, and every user of this copy's
 engine already holds ``inference.lock`` or ``engine.lock``.
 
+**Two engines since v0.8.0.** OmniVoice is held in the same parent, at ``.venv/engines/omnivoice`` (owner decision
+2026-11-13), so moving the parent moves it too. Its installer takes the same ``setup.lock`` first
+(``tts.omnivoice_setup.InstallLock``), and its conversions and its worker hold their own ``inference.lock`` and
+``engine.lock`` in ``files/runtime-data/omnivoice/``. :class:`EnvironmentLease` is the right to move the parent: Qwen3's
+three, then OmniVoice's two, all or none. It is taken whether or not either engine is installed, for the reason
+``setup.lock`` is: an install may be about to create its folder.
+
 Standard library only: the bootstrap runs it on a base interpreter before any environment exists, and the worker
 runs in the engine's own environment. Taking a lock creates its (empty) file; nothing else is written or removed.
 """
@@ -53,10 +60,27 @@ NOTHING_CHANGED = ("Nothing was changed. Let it finish, or cancel it and close t
 UNAVAILABLE_MESSAGE = ("The app could not check whether the Qwen3 voices are in use ({detail}), so the environment "
                        "was left exactly as it was. Nothing was changed.")
 
+QWEN3 = "qwen3"
+OMNIVOICE = "omnivoice"
+#: OmniVoice's own two locks, in its own runtime folder, taken after Qwen3's three. Its installs and repairs are
+#: already covered by ``setup.lock`` above, which ``tts.omnivoice_setup.InstallLock`` takes first.
+OMNIVOICE_ORDER = (INFERENCE_LOCK, ENGINE_LOCK)
+OMNIVOICE_BUSY_MESSAGES = {
+    INFERENCE_LOCK: "An OmniVoice conversion or engine check is running right now.",
+    ENGINE_LOCK: "The OmniVoice voice engine is still running (a conversion that has not stopped yet).",
+}
+OMNIVOICE_UNAVAILABLE_MESSAGE = ("The app could not check whether the OmniVoice voices are in use ({detail}), so the "
+                                 "environment was left exactly as it was. Nothing was changed.")
+
 
 def runtime_dir(repo_root) -> Path:
     """``files/runtime-data/qwen3/`` of the copy of the app at *repo_root* (``tts.qwen3_runtime.runtime_dir``)."""
     return Path(repo_root) / "files" / "runtime-data" / "qwen3"
+
+
+def omnivoice_runtime_dir(repo_root) -> Path:
+    """``files/runtime-data/omnivoice/`` of the copy at *repo_root* (``tts.omnivoice_runtime.runtime_dir``)."""
+    return Path(repo_root) / "files" / "runtime-data" / "omnivoice"
 
 
 class FileLock:
@@ -112,31 +136,42 @@ class FileLock:
 
 class Refused(Exception):
     """The lease was not granted. ``lock`` names the lock that refused (``None`` when the folder itself was unusable),
-    ``reason`` is :data:`BUSY` or :data:`UNAVAILABLE`, and the message is fit to show a non-technical user."""
+    ``reason`` is :data:`BUSY` or :data:`UNAVAILABLE`, ``engine`` says whose lock it was (:data:`QWEN3` or
+    :data:`OMNIVOICE`), ``busy_sentence`` is that lock's own sentence when it was busy (else ``None``), and the message
+    is fit to show a non-technical user."""
 
-    def __init__(self, message: str, *, lock: Optional[str], reason: str) -> None:
+    def __init__(self, message: str, *, lock: Optional[str], reason: str, engine: str = QWEN3,
+                 busy_sentence: Optional[str] = None) -> None:
         super().__init__(message)
         self.lock = lock
         self.reason = reason
+        self.engine = engine
+        self.busy_sentence = busy_sentence
 
 
 class Lease:
-    """All three locks of one copy's engine, or none of them.
+    """All the locks of one engine of one copy, or none of them (by default Qwen3's three).
 
     *folder* is that copy's ``files/runtime-data/qwen3``; *root* is the copy's own folder, which bounds where the lock
     folder may be reached from. A link anywhere between them is refused rather than followed: the locks must be the
-    files the engine's users lock, not a redirect.
+    files the engine's users lock, not a redirect. *order*, *messages*, *unavailable* and *engine* name another engine's
+    locks and words (OmniVoice's, through :class:`EnvironmentLease`).
     """
 
-    def __init__(self, folder, *, root) -> None:
+    def __init__(self, folder, *, root, order: tuple[str, ...] = ORDER, messages: Optional[dict] = None,
+                 unavailable: str = UNAVAILABLE_MESSAGE, engine: str = QWEN3) -> None:
         self.folder = Path(folder)
         self.root = Path(root)
-        self._locks = [FileLock(self.folder / name) for name in ORDER]
+        self.order = tuple(order)
+        self.messages = BUSY_MESSAGES if messages is None else messages
+        self.unavailable = unavailable
+        self.engine = engine
+        self._locks = [FileLock(self.folder / name) for name in self.order]
         self.taken: list[str] = []
 
     @property
     def held(self) -> bool:
-        return len(self.taken) == len(ORDER)
+        return len(self.taken) == len(self.order)
 
     def take(self) -> None:
         """All three, in :data:`ORDER`, or raise :class:`Refused` holding none. (Not named ``acquire``: the bootstrap's
@@ -146,21 +181,23 @@ class Lease:
         try:
             linked = venv_layout.unsafe_component(self.root, self.folder)
             if linked is not None:
-                raise Refused(UNAVAILABLE_MESSAGE.format(detail=f"{linked.name} is a link or lies outside the app "
-                                                                "folder"), lock=None, reason=UNAVAILABLE)
+                raise Refused(self.unavailable.format(detail=f"{linked.name} is a link or lies outside the app "
+                                                             "folder"), lock=None, reason=UNAVAILABLE,
+                              engine=self.engine)
             self.folder.mkdir(parents=True, exist_ok=True)
             linked = venv_layout.unsafe_component(self.root, self.folder)  # nothing appeared behind it meanwhile
             if linked is not None:
-                raise Refused(UNAVAILABLE_MESSAGE.format(detail=f"{linked.name} is a link"), lock=None,
-                              reason=UNAVAILABLE)
-            for name, lock in zip(ORDER, self._locks):
+                raise Refused(self.unavailable.format(detail=f"{linked.name} is a link"), lock=None,
+                              reason=UNAVAILABLE, engine=self.engine)
+            for name, lock in zip(self.order, self._locks):
                 try:
                     got = lock.acquire()
                 except OSError as exc:
-                    raise Refused(UNAVAILABLE_MESSAGE.format(detail=f"{name}: {exc.strerror or exc}"), lock=name,
-                                  reason=UNAVAILABLE) from exc
+                    raise Refused(self.unavailable.format(detail=f"{name}: {exc.strerror or exc}"), lock=name,
+                                  reason=UNAVAILABLE, engine=self.engine) from exc
                 if not got:
-                    raise Refused(f"{BUSY_MESSAGES[name]} {NOTHING_CHANGED}", lock=name, reason=BUSY)
+                    raise Refused(f"{self.messages[name]} {NOTHING_CHANGED}", lock=name, reason=BUSY,
+                                  engine=self.engine, busy_sentence=self.messages[name])
                 self.taken.append(name)
         except BaseException:
             self.release()
@@ -172,6 +209,54 @@ class Lease:
         self.taken.clear()
 
     def __enter__(self) -> "Lease":
+        self.take()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+
+class EnvironmentLease:
+    """The right to move one copy's ``.venv``: every lock of every engine held in it, or none of them.
+
+    Qwen3's three (:data:`ORDER`, which begin with the ``setup.lock`` every install and repair of this copy takes),
+    then OmniVoice's two (:data:`OMNIVOICE_ORDER`). Never waits; a refusal by either engine releases everything
+    already taken, in reverse, and is that engine's own :class:`Refused`. *root* is the copy's own folder.
+    """
+
+    def __init__(self, root) -> None:
+        self.root = Path(root)
+        self._leases = (
+            Lease(runtime_dir(self.root), root=self.root),
+            Lease(omnivoice_runtime_dir(self.root), root=self.root, order=OMNIVOICE_ORDER,
+                  messages=OMNIVOICE_BUSY_MESSAGES, unavailable=OMNIVOICE_UNAVAILABLE_MESSAGE, engine=OMNIVOICE),
+        )
+
+    @property
+    def held(self) -> bool:
+        return all(lease.held for lease in self._leases)
+
+    @property
+    def taken(self) -> list[tuple[str, str]]:
+        """``(engine, lock)`` for every lock held, in the order taken."""
+        return [(lease.engine, name) for lease in self._leases for name in lease.taken]
+
+    def take(self) -> None:
+        """Both engines' locks, or raise :class:`Refused` holding none."""
+        if self.held:
+            return
+        try:
+            for lease in self._leases:
+                lease.take()
+        except BaseException:
+            self.release()
+            raise
+
+    def release(self) -> None:
+        for lease in reversed(self._leases):
+            lease.release()
+
+    def __enter__(self) -> "EnvironmentLease":
         self.take()
         return self
 
