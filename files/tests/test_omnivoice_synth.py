@@ -65,9 +65,9 @@ if behavior == "malformed":
 if behavior == "no_gpu":
     emit({"event": "failed", "stage": "load", "message": "PyTorch reports no usable CUDA GPU", "gpu": False})
     sys.exit(2)
-if behavior == "import_error":
-    emit({"event": "failed", "stage": "import", "message": plan.get("message", "ImportError: cannot import name "
-          "'OmniVoice' from 'omnivoice' (unknown location)")})
+if behavior == "import_error":  # as the real worker reports a package that does not import during a conversion
+    emit({"event": "failed", "stage": plan.get("stage", "worker"), "message": plan.get("message", "ImportError: cannot "
+          "import name 'OmniVoice' from 'omnivoice' (unknown location)")})
     sys.exit(2)
 out = Path(job["out_dir"])
 out.mkdir(parents=True, exist_ok=True)
@@ -370,7 +370,14 @@ def test_a_worker_whose_packages_do_not_import_has_the_engine_recorded_as_damage
         fake.convert(plan={"behavior": "import_error"})
     assert recorded == ["ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)"]
     assert str(failed.value).endswith(osy.REPAIR_OFFERED_NOTE) and "Install & Continue" in str(failed.value)
-    assert "failed while starting the voice engine: ImportError" in str(failed.value)
+    assert "failed while running: ImportError" in str(failed.value)
+    with pytest.raises(osy.OmniVoiceFailed, match="failed while starting the voice engine: ModuleNotFoundError") as failed:
+        fake.convert(plan={"behavior": "import_error", "stage": "import", "message": "ModuleNotFoundError: No module "
+                                                                                     "named 'torch'"})
+    assert recorded[-1].startswith("ModuleNotFoundError") and str(failed.value).endswith(osy.REPAIR_OFFERED_NOTE)
+    with pytest.raises(osy.OmniVoiceFailed, match="failed while running: RuntimeError"):
+        fake.convert(plan={"behavior": "import_error", "message": "RuntimeError: something else entirely"})
+    assert len(recorded) == 2, "a worker failure that is not an import failure condemns nothing"
 
     answer["recorded"] = False  # the engine was not this app's ready one (or the record could not be written)
     with pytest.raises(osy.OmniVoiceFailed) as failed:

@@ -1215,7 +1215,14 @@ def test_which_worker_failures_condemn_the_environment():
     assert ov.failure_needs_rebuild({"stage": "import", "message": "ImportError: cannot import name 'OmniVoice'"})
     assert ov.failure_needs_rebuild({"stage": "import", "message": "ModuleNotFoundError: No module named 'torch._C'"})
     assert ov.failure_needs_rebuild({"stage": "versions", "message": "torch 2.7.0 is installed, not the pinned 2.8.0"})
-    for terminal in ({"stage": "import", "message": "ImportError: DLL load failed while importing _C: An Application "
+    # what the real worker sent for a deleted omnivoice/__init__.py during a conversion (test copy M1, 2026-11-13)
+    assert ov.failure_needs_rebuild({"stage": "worker", "message": "ImportError: cannot import name 'OmniVoice' from "
+                                                                   "'omnivoice' (unknown location)"})
+    assert ov.failure_needs_rebuild({"stage": "worker", "message": "ModuleNotFoundError: No module named 'torchaudio'"})
+    for terminal in ({"stage": "worker", "message": "RuntimeError: an import of nothing"},
+                     {"stage": "worker", "message": "ImportError: DLL load failed: An Application Control policy has "
+                                                    "blocked this file."},
+                     {"stage": "generate", "message": "ImportError: raised while generating, not while starting"},{"stage": "import", "message": "ImportError: DLL load failed while importing _C: An Application "
                                                      "Control policy has blocked this file."},
                      {"stage": "isolation", "message": "sys.path holds another environment"},
                      {"stage": "load", "message": "CUDA out of memory", "oom": True},

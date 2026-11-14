@@ -767,8 +767,16 @@ REBUILD_STAGES = frozenset({"versions", "import"})
 
 
 def failure_needs_rebuild(terminal: dict) -> bool:
-    """Whether a worker's ``failed`` event says the engine's installed files are damaged, so only a rebuild can help."""
-    return terminal.get("stage") in REBUILD_STAGES and APPLICATION_CONTROL_MARK not in str(terminal.get("message") or "")
+    """Whether a worker's ``failed`` event says the engine's installed files are damaged, so only a rebuild can help.
+
+    A conversion imports the engine's packages outside the probe's guarded import, so a package that does not import
+    arrives from the worker's last-resort handler as stage ``worker`` with the exception's own name first (measured on
+    the real engine: ``ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)``)."""
+    message = str(terminal.get("message") or "")
+    if APPLICATION_CONTROL_MARK in message:
+        return False
+    stage = terminal.get("stage")
+    return stage in REBUILD_STAGES or (stage == "worker" and message.startswith(("ImportError", "ModuleNotFoundError")))
 
 
 def reject_ready_engine(reason: str) -> bool:
