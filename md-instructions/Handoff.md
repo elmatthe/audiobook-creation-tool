@@ -1,5 +1,89 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 unified `.venv` recovery acceptance closeout: scenario 9 completed on the final program code, PASS; the real Windows long-path switch-on stays an external qualification item (2026-11-14, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (recovery
+acceptance closeout). It closes item (1) of the "NOT RUN" list in the block below; items (2) and (3) stay open.
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, on `6c3e908`. This closeout changes `README.md`, the README
+  assertions in `files/tests/test_long_paths.py` and the four documents; no program code (SHA in the session report).
+  `README.md` is the only packaged file it changes. The owner's 17 tracked deletions and untracked files are
+  untouched and unstaged. No AI trailer.
+- **Status, kept apart.** Implemented: yes. Focused tests and real acceptance in disposable copies: PASS, scenario 9
+  now complete. Owner listening: APPROVED, all 12 tracks, by the owner's statement of 2026-11-14 (this supersedes
+  "PENDING" in the blocks below; nothing about the tracks was changed). Independent review: Codex not started. Full
+  gate: not run (Session 5). Merge, tag, release: not authorized.
+- **Memory first.** 26.5 of 36.6 GB committed before the first rebuild (10.0 GB headroom), 24.7 before the second
+  (11.8 GB); no restart pending; nothing closed, killed or reconfigured. Each model-loading step ran alone, behind a
+  headroom check. Sampled twice a second during the narrations: each Qwen3 narration held commit at 34.2 to 35.0 GB
+  for 15 to 20 seconds, with a peak of 36.0 GB (10.6 GB above rest). Windows enlarged its own page file meanwhile
+  (commit limit 40.7 instead of 36.6 GB), so headroom read 4.7 GB or more; OmniVoice peaked at 32.1 GB (4.5 GB left)
+  and Chatterbox at 32.5 GB (4.0 GB left). Nothing was stopped for memory.
+- **Scenario 9, completed in the retained copy `c1`.** Its 188 packaged files are byte-identical to the archive built
+  from `67d9d6e`, and no packaged path differs at `6c3e908`. The app environment recovered on 2026-11-13 was left as it
+  was. Each engine was installed by the installer's own route (plan, disclosure, explicit consent, contained worker),
+  one after the other:
+  - *Qwen3* at `.venv/engines/qwen3`: 3,074,017,943 bytes of its 89 hash-locked packages downloaded and checked (no
+    verified wheel store existed anywhere), both models reused (9.06 GB), engine start check passed; 426 s.
+  - *OmniVoice* at `.venv/engines/omnivoice`: HOME-PC's 88 verified Phase 1 wheels were copied into the copy's
+    installer cache (a disclosed manual step, as for the migration; the source was only read), then installed
+    offline: 0 bytes downloaded, 3.66 GB of wheels and the 3.27 GB model reused, GPU proof passed (isolated, no
+    network attempt); 131 s.
+- **Verified afterwards (read-only, `c1-s09r-verify-3-final`, 0 failed checks).** Three different `python.exe`, each
+  with its own prefix, all built from the copy's own Python 3.12.15, nothing of another environment on any `sys.path`;
+  every pinned package at its pinned version (the app's 170 locked packages and its separately pinned English model,
+  Qwen3's 89, OmniVoice's 88; only `pip` beyond them); OmniVoice's `engine-receipt.json` (version 2) and Qwen3's
+  record in `state.json` bound to the nested paths, the base Python and the pinned package identities; every file of
+  the three models equal to its pinned SHA-256; the planner reports all five components ready, 0 bytes to download.
+- **Healthy relaunch.** The real `.bat`, offline: the app window in 3.6 s, no setup step, no install; both engines
+  byte-identical before and after, the app environment, models, caches and settings unchanged.
+- **Bounded smoke (offline, two sentences, one voice at a time).** Qwen3 - Aiden, Qwen3 - Female 1 and OmniVoice -
+  Female 1: each MP3 byte-identical (SHA-256) to the same voice's file from the cold install. Kokoro - Heart and
+  Chatterbox - Female 1: succeeded (12.3 s and 13.0 s of audio); those two engines do not repeat byte for byte, so
+  there is nothing to compare. Edge narrated on this program code on 2026-11-13 (`c1-s09-narrate`). After everything
+  both engines were still byte-identical to how they were built.
+- **Isolation.** The real profile's pip cache and NLTK data were unchanged at each of the 14 isolated steps. HOME-PC:
+  the three environments, models, receipts, settings, wheel store, set-aside folder and the protected sets (18
+  references `8aed5f6ac06bfd76`, 28 previews `2da4f5a576de1c3d`, 12 listening MP3s `b92c183bca54ad69`) are identical
+  before and after. The retained evidence (287 files), the harness, `removed\`, `m1\`, `dist\` and `src-old\` are
+  unchanged; this session only added files (`evidence\*s09r*`, `harness\s09r_*.py`, five folders under `out\`) and
+  appended to `evidence\steps.jsonl`, whose earlier bytes are unchanged.
+- **The cold select-all run is carried forward, not repeated.** It was made on `8e4caa5`. On the final program code,
+  for real: the first-run window's base setup with the long-path proof (2026-11-13), the Qwen3 engine's download and
+  build, the OmniVoice engine's build from verified wheels, all three models re-hashed, readiness of all five, a
+  narration from every engine family. Not repeated on the final code: the first-run window with all five components
+  chosen from start to end, and the real downloads of the models, of the OmniVoice wheels (last on `191bd87`) and of
+  the app's own Python, packages and FFmpeg. The code that fetches them is unchanged since `8e4caa5`; the table is in
+  the Decisions entry.
+- **Long paths.** HOME-PC's `LongPathsEnabled` was read (1) and never written; the elevated helper was not run. The
+  real switch-on (approve, decline, standard account, managed computer, "restart Windows") and a real installation
+  with long paths off are an external Windows qualification item, for a person on a computer where the setting is
+  off. README now gives the limits as measured and enforced, and says separately what was installed for real.
+- **Tests (focused only; no full gate, no Codex review).** Command form `.venv\Scripts\python.exe -I -B -m pytest -q
+  -p no:cacheprovider <files>`. (1) `files/tests/test_long_paths.py` over the corrected README: 88 passed. (2) Negative
+  controls for the new README assertions: five mutations of the README each fail their test, two unchanged controls
+  pass, and the README was restored byte for byte. (3) The 24 test files that read `md-instructions/`, with
+  `test_long_paths.py`, `test_layout_canary.py`, `test_voice_previews.py`, `test_verification_coverage.py` and the
+  required guard `test_application_source_boundary.py` (29 files), over these documents: 1,928 passed, 0 failed, 37
+  skipped (every skip is the macOS-only geometry check). (4) `inventory.py check`: 0 problems, 277 features. The gate
+  was not run in any mode: no program file changed.
+- **Evidence (outside the repository, kept for the owner).** The acceptance run folder named in the block below
+  (`ACT-v0.8.0-Fresh-Install-Acceptance\run01-261113`): `evidence\` files named
+  `*s09r*` (`home-pc\home-s09r-state-*` for HOME-PC), the new read-only drivers `harness\s09r_*.py`, the five MP3s
+  under `out\c1-s09r-smoke-*`. `c1` now holds all three environments (13.8 GB more than before). Nothing there is
+  deleted automatically.
+- **For the owner.** (1) Cleanup of `c1`, `m1`, `removed\` and the set-aside folders stays yours. (2) Chatterbox's
+  first narration in a fresh app environment lets numba write 40 cache files into
+  `.venv\Lib\site-packages\librosa\util\__pycache__` (HOME-PC's own `.venv` has had them since October; Qwen3 and
+  OmniVoice keep theirs under `files\runtime-data`). No package file changes; recorded, not changed. (3) Before
+  Session 5's gate and qualification runs, leave room for Qwen3: a narration needs about 11 GB of commit, and with
+  26 GB committed at rest this computer comes within 0.5 to 2.4 GB of its usual commit limit while it runs (the level
+  at which a background command was stopped on 2026-11-13). (4) The first verifier run reported one failure that was
+  the verifier's own rule (it did not know the app's separately pinned English model); the record is kept beside the
+  corrected runs.
+- **Next action.** STOP for the owner's review. Codex is not started. Then Session 5 as planned (independent review,
+  the one full gate), and the external Windows long-path qualification before any release.
+
 ## Current checkpoint — v0.8.0 unified `.venv` layout, recovery acceptance, verified path limits and optional long paths: PASS, with three items NOT RUN named below (2026-11-13, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-13 (v0.8.0 unified

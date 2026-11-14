@@ -2,6 +2,107 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-14 — v0.8.0 unified `.venv` recovery acceptance closeout: scenario 9 is completed in the retained copy on the final program code; the cold select-all run is carried forward, not repeated; the real Windows long-path switch-on is an external qualification item; README gives enforced limits apart from what was really installed (owner instructions; implementation decisions by Claude Code)
+
+**Owner instruction (2026-11-14).** Complete only the gaps the 2026-11-13 acceptance left: the rebuild of both engines
+after scenario 9, an honest mapping of the cold run to the final tree, the long-path limitation recorded, the README
+corrected. No Phase 5, no Codex, no full gate, no change to HOME-PC's long-path setting, no new large installation,
+nothing done under unsafe memory pressure.
+
+**Owner listening is approved (the owner's statement).** All 12 OmniVoice listening tracks (A Natural and B
+Normalization for each of the six voices) are approved. It is recorded on the owner's word of 2026-11-14; README,
+Briefing and Changelog no longer call it pending. No track, reference, transcript or setting was touched, and no
+verdict was written into the listening pack by an agent.
+
+**Scenario 9 is finished where it stopped, not started again.** The retained copy `c1` was used as it stood: the app
+environment recovered on 2026-11-13, no engines, the models kept. Before anything ran, its 188 packaged files were
+shown byte-identical to the archive built from `67d9d6e`, and no packaged path differs at `6c3e908`, so "the final
+program code" is a checked statement, not an assumption. *Not chosen:* a fresh copy or a second cold install (the
+owner's instruction, and 23.4 GB).
+
+**Each engine by the installer's own route, one after the other.** `optional_setup_client.plan`, the disclosure,
+`consent_for` and `install` in the contained worker: what the setup panel calls, driven by the acceptance harness.
+Commit headroom was read before each model-loading step (floor 8 GB; 11 GB for the last two narrations).
+- *Qwen3 was downloaded.* No verified wheel store for it exists on this computer (the installer removes its download
+  cache after a success), so its 89 hash-locked packages were fetched from the pinned sources: 3,074,017,943 bytes, each
+  checked by size and SHA-256. Both models (9.06 GB) were reused.
+- *OmniVoice was not.* HOME-PC still holds the 88 verified wheels of the Phase 1 qualification (3,663,315,198 bytes).
+  They were copied, never linked, with the source only read, into the copy's installer cache; each was checked against
+  the copy's own manifest before it was copied, and the installer checked each again. The install then ran with the
+  network closed: 0 bytes downloaded. It is the same disclosed manual step as the HOME-PC migration. *Not chosen:*
+  downloading them again (3.66 GB for no new proof: that download ran for real on `191bd87` in scenario 7, and its
+  code is unchanged since).
+
+**What was verified, and how.** Read-only, each environment asked through its own interpreter. Three different
+`python.exe` (three file identities), each with its own prefix, each built from the copy's app-local Python 3.12.15,
+no entry of another environment on any `sys.path`, no system site packages. Every pinned package present at its
+pinned version: the app's 170 locked packages and the separately pinned English model, Qwen3's 89, OmniVoice's 88,
+with only `pip` beyond them. OmniVoice's `engine-receipt.json` (version 2, written by this install) names the nested
+path, the base Python, the pinned package identity and the pinned model identity, and records an isolated proof with
+no network attempt; Qwen3's record in `state.json` names the nested path, stage `installed` and the pinned
+requirements identity. Every file of the OmniVoice model and of both Qwen3 models equals its pinned SHA-256. The
+planner reports all five components ready with nothing to download. The real launcher, started offline, opened the
+app in 3.6 s with no setup step, and both engines were byte-identical before and after it.
+
+**The app environment and unrelated files.** The app environment's listing (53,439 files) is identical before the
+rebuilds, after them and after the relaunch. The models, the package store, the app-local Python, the earlier
+set-aside folder and the references are unchanged throughout. What changed is what the installs and the narrations
+write: the two engines, their two receipts, the seeded wheels (removed by the installer once the engine was proved),
+the settings file, Chatterbox's reference manifest, the copy's own logs, setup records and caches under
+`files\runtime-data`, and 40 numba cache files (below).
+
+**Bounded smoke.** Five two-sentence narrations, offline, one voice at a time: Qwen3 - Aiden, Qwen3 - Female 1,
+OmniVoice - Female 1, Kokoro - Heart, Chatterbox - Female 1. The three Qwen3 and OmniVoice MP3s are byte-identical
+to the same voices' files from the cold install, which is the strongest statement available that the rebuilt engines
+are the same engines. Kokoro and Chatterbox do not repeat byte for byte between runs (three Kokoro runs, three
+hashes), so they are judged by success, duration and level only. No long GPU run was made.
+
+**The cold select-all run is carried forward by named evidence, never restated as new.** It ran once, on `8e4caa5`
+(`c1-cold-select-all`, 2026-11-13 19:25 to 20:07: 21.7 GB disclosed, 23.4 GB received). Between `8e4caa5` and
+`6c3e908`, `scripts/` changed in ten files (lock wording, the damaged-engine record, the interpreter-less
+environment, the path limits and long-path offer, Qwen3's probe line); no source list, manifest, hash or download
+routine changed, and the launcher and `config.toml` did not change.
+
+| Claim of the cold run on `8e4caa5` | On the final program code |
+|---|---|
+| The first-run window with all five components chosen, from start to end | **Not repeated.** The window was driven for the base setup only (scenario 9, 2026-11-13), where the new long-path proof ran for real; the two engines were installed through the client the window calls, not by pressing its buttons. |
+| Real downloads from the pinned sources | **In part.** Qwen3's engine wheels: downloaded today (3.07 GB) and on `06d52f7` (scenario 8). OmniVoice's wheels: last downloaded on `191bd87` (scenario 7), today taken from the verified store. Kokoro, the English model, Chatterbox, both Qwen3 models, the OmniVoice model, the app's Python, packages, FFmpeg and NLTK data: downloaded on `8e4caa5` only (one package file again in scenario 6); carried by unchanged code, and every model file was hashed again today. |
+| All five components installed and ready | **Verified today** (planner, receipts, pins, model hashes). |
+| Every engine family narrates | **Verified.** Qwen3 (both models), OmniVoice, Kokoro and Chatterbox today; Edge on 2026-11-13 on the same program files. |
+| The app starts from the launcher with nothing more to install | **Verified today**, offline. |
+| Disclosed sizes equal what is fetched; the 42 minutes | Qwen3's engine only (3.1 GB disclosed, 3,074,017,943 bytes fetched); the rest by the focused tests. The time was not measured again. |
+
+**Windows long paths: an external qualification item.** HOME-PC's `LongPathsEnabled` was read (1) and not written, and
+the elevated helper was not run: the owner's rule, and unchanged from 2026-11-13. What exists is every refusal path
+with an injected runner and the page, the proof and setup's restart run for real with only the registry value
+simulated; those records are untouched. What does not exist, and cannot be made on this computer: the consent prompt
+approved for real, declined for real, a standard account, a computer managed by policy, the "restart Windows" answer,
+and an installation run with long paths off (at any length, and at the limits of 87 and 83). It is recorded as a
+qualification item for a person on a Windows computer where the setting is off, before any release.
+
+**README (and the test that holds it).** The path-length section said "tested limits". The limits are measured (the
+deepest files of two real installations) and enforced by setup, and the rule is tested at each exact limit; what was
+installed for real is narrower: one Windows 11 computer with long paths on, folders of 89 and 102 characters. README
+now says both, says that the switch-on has not been tried on a computer where the setting is off, and no longer calls
+the owner's listening pending. `test_long_paths.py` pins the new sentences and refuses "tested limits"; five mutations
+of the README are each caught, with a passing control.
+
+**Memory, measured.** At rest 25 to 26.5 GB of 36.6 GB were committed. Commit was read before and after each
+install, not sampled during it. During the narrations it was sampled twice a second: each Qwen3 narration held it at
+34.2 to 35.0 GB for 15 to 20 seconds with a peak of 36.0 GB, 10.6 GB above rest and more than the 6 to 7 GB allowed
+for. Windows enlarged its own page file meanwhile (the commit limit read 40.7 GB instead of 36.6; nothing was
+configured), so headroom read 4.7 GB or more; against the usual limit the same commit would have left 0.5 to 2.4 GB,
+the level at which a background command was stopped on 2026-11-13. OmniVoice peaked at 32.1 GB and Chatterbox at
+32.5 GB. Nothing was stopped. *Consequence for Session 5:* a Qwen3 narration on this computer needs about 11 GB of
+commit headroom, not 8.
+
+**Found, not changed.** (1) Chatterbox's first narration in a fresh app environment lets numba write its cache (40
+files, 2.2 MB) into `.venv\Lib\site-packages\librosa\util\__pycache__`; HOME-PC's own `.venv` has held the same files
+since October, and no package file changes. Qwen3 and OmniVoice direct numba's cache into `files\runtime-data`. A
+candidate for the same treatment later; outside this closeout. (2) The first run of the session's verifier reported
+one failure of its own making (it did not know the app's separately pinned English model); the record is kept and the
+corrected runs follow it.
+
 ## 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice lives at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used and is set aside only after the nested engine is proved; verified path limits and an optional, consent-based Windows long-path change (owner decisions; implementation decisions by Claude Code)
 
 **Owner decision.** The root-level `.venv-omnivoice` layout of Phases 1-4 is superseded. The app has ONE top-level

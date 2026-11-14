@@ -740,7 +740,12 @@ def test_the_readme_states_the_limits_the_installer_enforces_for_both_windows_co
         in text
     assert f"| \"Enable Win32 long paths\" switched on | {APP.long_paths} characters or fewer | " \
            f"{OMNI.long_paths} characters or fewer |" in text
-    assert "this app's own tested limits" in text and "not general Windows limits" in text
+    assert "this app's own limits, enforced by its setup" in text and "not general Windows limits" in text
+    # the limits are measured and enforced; what was installed and run for real is narrower and is said apart
+    assert "tested limits" not in text
+    assert "measured depth of the deepest files in two real installations" in text
+    assert "one Windows 11 computer with long paths switched on, in folders of 89 and 102 characters" in text
+    assert "No installation has yet been run for real on a computer with long paths off" in text
     assert "checks the folder before it downloads the app's packages or any voice" in text
     assert "Only the app's own Python, about 46 MB, may already have been fetched" in text
 
@@ -760,6 +765,9 @@ def test_the_readme_recommends_a_short_folder_first_and_explains_the_optional_se
     assert "Do not move an app folder that is already set up" in text and "extract a fresh copy" in text
     assert "existing `.venv` folder by hand" in text
     assert "never changes the setting silently" in text
+    # the real change through Windows' approval prompt is still an open qualification item, and the README says so
+    assert "has not yet been tried for real on a computer where the setting is off" in text
+    assert "tested only with the Windows setting simulated" in text
 
 
 def test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_does_not_announce_a_release():

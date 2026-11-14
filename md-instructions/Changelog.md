@@ -13,7 +13,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-## [Unreleased] — v0.8.0 OmniVoice candidate (identity 0.8.0; NOT released; owner listening pending) (2026-11-13)
+## [Unreleased] — v0.8.0 OmniVoice candidate (identity 0.8.0; NOT released; owner listening approved; review and gate pending) (2026-11-13)
 
 **Added**
 - **OmniVoice, a fifth optional local engine (Windows, NVIDIA GPU only):** six cloned voices, *OmniVoice - Female 1*,
@@ -28,13 +28,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   existing matching environment is checked and adopted without downloading anything. (v0.8.0 Phase 3)
 - **Windows path length: a clear README section and an optional long-path step in first-run setup (owner requirement
   2026-11-13).** The README's new "Important: Windows Installation Path Length" section recommends a short folder
-  (`C:\AudiobookTool`), gives the app's tested limits and explains Windows' "Enable Win32 long paths" setting and how to
+  (`C:\AudiobookTool`), gives the limits the app enforces and explains Windows' "Enable Win32 long paths" setting and how to
   change it by hand. Where the app's folder is too deep for Windows as it comes but would fit with that setting on, the
   first-run window now shows the two ways forward before anything else: move the app (recommended), or switch long
   paths on. The setting is changed only if that button is pressed and Windows' own permission prompt is approved
   (Windows' own registry tool makes the one change; setup is never run as administrator). Setup then checks in a new
   process that long paths really work, says "restart Windows" if they do not yet, and otherwise starts again and
-  continues. Declining, cancelling or a managed computer's refusal changes nothing.
+  continues. Declining, cancelling or a managed computer's refusal changes nothing. The README gives the limits as
+  measured and enforced, says apart from them what was installed for real (one Windows 11 computer with long paths
+  on, folders of 89 and 102 characters), and says that the switch-on itself has not yet been tried on a computer
+  where the setting is off (2026-11-14).
 - **README:** a "v0.8.0 in development (not released)" section, including the non-commercial terms (OmniVoice weights are
   CC-BY-NC) and the audio tokenizer licence's attribution. (v0.8.0 Phase 4)
 
@@ -86,8 +89,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   historical voice previews stay a fixed collection of 28. `m4b_nero.py` is documented in the M4B module map. The speech
   A/B dev tool no longer fails to load with five engines. The coverage inventory maps the OmniVoice and Nero features.
 
-**Not done yet:** the owner's listening approval of the 12-track OmniVoice pack, the independent review and the one full
-verification gate (Session 5); no merge, tag or release.
+**Owner listening:** the owner approved all 12 tracks of the OmniVoice listening pack (the owner's statement, recorded
+2026-11-14).
+
+**Not done yet:** the independent review and the one full verification gate (Session 5); the Windows long-path
+switch-on tried for real on a computer where the setting is off, and a real installation with long paths off (an
+external Windows qualification); no merge, tag or release.
 
 ## [Unreleased] — v0.7.3 owner-accepted hotfix; Windows packaging authorized (2026-11-12)
 

@@ -20,8 +20,8 @@
 
 Branch `feature/0.8.0-omnivoice-integration`, from the released v0.7.3 `master` (`dbf38f7`). Plan:
 `files/plans/ACT-v0.8.0-OmniVoice-Integration-Plan-v0.7.3-Baseline.md` (five phases, one session each; one full gate,
-only in Session 5). Phases 1-3 PASSED; Phase 4 is technically complete and waits for the owner's listening verdicts; see
-the Handoff for the live state.
+only in Session 5). Phases 1-3 PASSED; Phase 4 is technically complete and the owner has approved all 12 listening
+tracks (the owner's statement, recorded 2026-11-14); see the Handoff for the live state.
 
 - **What it adds.** A fifth optional local engine, OmniVoice 0.2.1 (code Apache-2.0; model `k2-fsa/OmniVoice` @
   `c5fdb5cc`, weights CC-BY-NC, non-commercial; audio tokenizer under the Boson Higgs Audio 2 Community License), with six
@@ -52,12 +52,16 @@ the Handoff for the live state.
   prompt and proves in a fresh process that they work (`shared/long_paths.py`); README has the manual way.
 - **Measured on HOME-PC (RTX 5070, Phase 4).** About 8-10 times faster than real time (a 15.2-minute book in 108 s); 1.9 GB of allocated GPU memory
   while narrating (flat across a 48-chunk worker), about 2.0-2.9 GB reserved, up to about 4.6 GB the first time a voice's
-  clone prompt is built. Owner listening of the 12-track pack is pending; nothing about voice quality is approved.
+  clone prompt is built. The owner listened to the 12-track pack and approved all 12 tracks (the owner's statement,
+  recorded 2026-11-14).
 - **Known limitations.** Windows + NVIDIA only; two copies of the app can still run Qwen3 and OmniVoice on one GPU at the
-  same time; the model's own output can reach full scale in a few samples (clamped, not audibly judged yet); a real
-  cold install of all five components, the migration and the recovery scenarios were run on HOME-PC only, in
-  disposable copies (2026-11-13, evidence outside the repo: see Handoff); the long-path change itself has never been
-  made for real (HOME-PC has long paths on, and its setting is never changed by tests).
+  same time; the model's own output can reach full scale in a few samples (clamped; the tracks that contain them are
+  among the 12 the owner approved); a real cold install of all five components (once, on `8e4caa5`), the migration and
+  the recovery scenarios were run on HOME-PC only, in disposable copies (2026-11-13; the rebuild of both engines after
+  the whole `.venv` was removed was completed on the final program code on 2026-11-14; evidence outside the repo: see
+  Handoff); the long-path change itself has never been made for real and no installation has been run with long paths
+  off (HOME-PC has long paths on, and its setting is never changed by tests): an external Windows qualification item
+  before any release.
 
 ## v0.7.2 Windows hardening, feature map and verification gate (in progress, 2026-11-05) — identity 0.7.2 since the Phase 8 release-candidate checkpoint (2026-11-10); NOT merged/tagged/published
 
