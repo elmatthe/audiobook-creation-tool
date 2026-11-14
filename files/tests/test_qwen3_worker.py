@@ -295,6 +295,29 @@ def test_probe_reports_a_broken_install_as_an_import_failure(monkeypatch, capsys
     assert failed["event"] == "failed" and failed["stage"] == "import"
 
 
+def test_probe_reports_a_package_that_lost_its_own_files_as_an_import_failure(tmp_path, monkeypatch, capsys):
+    """v0.8.0 (found on a real test copy): with ``qwen_tts/__init__.py`` deleted the folder still imports, as an empty
+    namespace, so ``import qwen_tts`` alone passed and "Check and repair" said nothing needed repair while every
+    conversion failed on ``from qwen_tts import Qwen3TTSModel``. The probe imports that same name."""
+    for name in ("soundfile", "transformers"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    install_fakes(monkeypatch, cuda=True)
+    damaged = tmp_path / "site-packages"
+    (damaged / "qwen_tts" / "core").mkdir(parents=True)  # the package folder is there; its __init__.py is not
+    (damaged / "qwen_tts" / "core" / "models.py").write_text("X = 1\n", encoding="utf-8")
+    monkeypatch.delitem(sys.modules, "qwen_tts")
+    monkeypatch.syspath_prepend(str(damaged))
+    import importlib
+
+    importlib.invalidate_caches()
+    assert importlib.import_module("qwen_tts").__file__ is None, "Python itself still imports the damaged folder"
+    monkeypatch.delitem(sys.modules, "qwen_tts")
+    assert worker.run_probe({"kind": "probe"}) == worker.EXIT_FAILED
+    failed = events(capsys)[-1]
+    assert failed["event"] == "failed" and failed["stage"] == "import"
+    assert "Qwen3TTSModel" in failed["message"] and failed["message"].startswith("ImportError")
+
+
 def test_main_validates_its_arguments_and_always_ends_with_a_terminal_event(tmp_path, monkeypatch, capsys):
     assert worker.main(["worker"]) == 64
     capsys.readouterr()

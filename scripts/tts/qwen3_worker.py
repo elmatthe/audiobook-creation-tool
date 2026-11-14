@@ -229,7 +229,11 @@ def run_probe(job: dict) -> int:
     try:
         import torch
 
-        import qwen_tts  # noqa: F401 - the import itself is the check
+        # The name every conversion imports, not just the package: a package folder that lost its own files still
+        # "imports" (Python makes an empty namespace of it), so ``import qwen_tts`` alone called a damaged engine
+        # healthy and "Check and repair" answered "nothing needs repair" while every conversion failed (found on a
+        # real test copy, 2026-11-13).
+        from qwen_tts import Qwen3TTSModel  # noqa: F401 - the import itself is the check
         import soundfile  # noqa: F401
         import transformers  # noqa: F401
     except Exception as exc:  # noqa: BLE001
