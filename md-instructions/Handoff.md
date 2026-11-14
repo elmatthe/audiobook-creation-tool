@@ -1,5 +1,61 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS compatibility Phase 0: research, architecture and the implementation roadmap committed for owner review; nothing implemented (2026-11-14, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released and recorded below.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`.
+  - It was created from `master` = `origin/master` = `9554bc8`, which is the `v0.8.0` release commit `d1701e9` plus one Handoff-only commit.
+  - It was created with `git switch -c` at that same commit. `git status --porcelain` was byte-identical before and after, so no working-tree file was rewritten.
+  - The commit that adds this block changes documents only: the new plan and this block.
+- **Repository (transferred from HOME-PC as a ZIP).**
+  - `git fsck` is clean.
+  - Remote identity is confirmed by `git ls-remote` and `git fetch origin --no-prune`.
+  - The Windows git config was inherited: `core.filemode=false`, `core.symlinks=false`, `core.ignorecase=true` (APFS here is case-insensitive).
+  - The `.command` lost its executable bit on disk; the index keeps `100755`.
+  - 221 tracked text files are CRLF in the working tree.
+  - Four prunable worktree records point at Windows paths. They were not pruned.
+  - The owner's 17 tracked deletions and untracked files were never staged: `.ai/`, `files/plans/archived-plans/`, `files/release-history/ACT-v0.8.0-HOME-PC-Cleanup.md`, `files/run-temp/`, `scripts/project-status.py`.
+  - All 18 clone references match their SHA-256 and git blobs, and the transcript hashes match.
+  - No `.venv`, FFmpeg binary or model came across.
+- **Machine (sanitized).**
+  - MacBook Pro: Apple M4 Pro (10 performance + 4 efficiency CPU cores, 20-core GPU, Metal 4), 24 GB unified memory.
+  - macOS 27.0.1, native arm64, no Rosetta.
+  - Homebrew is present (Python 3.12.13 with Tk 9.0.3; FFmpeg 9.0.1), and so are the Xcode Command Line Tools.
+  - Private detail is kept only in the ignored `files/dev-work/macos-compat-p0/`.
+- **Deliverable.** `files/plans/ACT-v0.8.0-MacOS-Compatibility-and-Verification-Implementation-Plan.md`:
+  - 21 sections;
+  - gap index MAC-001 to MAC-042;
+  - owner decisions D1 to D16;
+  - phases P1A, P1B, P2, P3A, P3B, P4A, P4B, P5, P6, P7, one fresh session each, with a STOP after each.
+- **Key findings.**
+  1. **Wheels.** Every pinned version in the three Windows lock sets (app 170, Qwen3 89, OmniVoice 88) has a CPython 3.12 macOS arm64 or pure-Python wheel on PyPI. The 3 pure sdists are built the same way as on Windows.
+  2. **Launcher.** The macOS launcher depends on Homebrew, which it installs through an unpinned remote script, and on unhashed pins. The plan recommends the app-owned python-build-standalone 3.12.15+20261009 aarch64, the same pin as Windows. On macOS it brings Tk 9.0.4, while Windows has Tk 8.6.15, so a bounded Tk 9 port is planned.
+  3. **Windows-only plumbing** needs POSIX designs:
+     - process containment and a parent-death lifeline;
+     - the engine mutex;
+     - the Qwen3 installer's directory-pinning authority, which fails closed off Windows;
+     - the free-memory reader;
+     - case-folding;
+     - Cmd+Q.
+  4. **Engines.** Nothing is proven on this Mac yet.
+     - Edge, and Kokoro on the CPU, are plausible.
+     - Chatterbox on the CPU is plausible, but ACT would pick MPS today; the plan changes that.
+     - Qwen3: CPU float32 is plausible and reported on an M4; MPS is reported wrong.
+     - OmniVoice: upstream documents MPS, but the M4 reports conflict and the CPU is slow. An owner-gated feasibility experiment (P4A) comes before any integration.
+  5. **Gate.** The gate has no `darwin` skip policy, so no macOS gate result can be trusted until P1B adds one.
+- **Verification.** Documents only.
+  - The plan was cross-checked against the source: all six tools, five engine families, 34 voices and 18 references; every gap and decision ID resolves; no private path or name appears.
+  - Phase 0 boundaries held: no test, gate, installation, environment, download, model load or synthesis was run.
+- **Open owner decisions before P1A.**
+  - D1: base Python.
+  - D2: launcher without Homebrew.
+  - D3: FFmpeg source.
+  - D4: checkout hygiene, including `chmod +x` of the `.command` and a clean LF worktree for packaging and the gate.
+  - D5: network access for lock generation and first-run tests.
+  - D16 (release strategy, recommended v0.8.1 with both assets from one commit) is decided later.
+- **Next action.** The owner reviews the plan, records D1 to D5, and authorizes P1A in a fresh Claude Code session. Do not begin P1A without that authorization.
+
 ## Current checkpoint — v0.8.0 Windows release PUBLISHED: master fast-forwarded, ZIP built and audited, tag `v0.8.0`, GitHub release with the verified asset (2026-11-14, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. It records, as verified facts, the steps the block
