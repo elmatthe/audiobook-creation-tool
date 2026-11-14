@@ -14,6 +14,30 @@ macOS and Linux are not qualified or distributed for v0.7.3; the latest macOS bu
 
 Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
 
+### Important: Windows Installation Path Length
+
+**Extract the whole app into a short folder, for example `C:\AudiobookTool`.** This is the recommended way to install: it works without changing any Windows setting, as long as you are allowed to create a folder there.
+
+Why it matters: the app keeps its own Python environments inside its folder, and the Qwen3 and OmniVoice voice engines sit many folders deep inside them. Windows limits how long a file's full path may be. If the app's own folder already has a long path (for example a folder inside several other folders on the Desktop or in a synced cloud folder), those engines cannot be installed or loaded.
+
+How long the path of the app's folder may be (the folder that contains `Setup_and_Run-audiobook-creation-tool.bat`; `C:\AudiobookTool` is 16 characters):
+
+| Windows setting | The app with the Edge, Kokoro, Chatterbox and Qwen3 voices | Also with the OmniVoice voices (v0.8.0, in development) |
+|---|---|---|
+| Default Windows (long paths off) | 87 characters or fewer | 83 characters or fewer |
+| "Enable Win32 long paths" switched on | 123 characters or fewer | 119 characters or fewer |
+
+These are this app's own tested limits, enforced by its setup. They are not general Windows limits. (v0.7.3 accepts up to 131 characters with long paths on; 123 is the corrected limit from v0.8.0.) Setup checks the folder before it downloads the app's packages or any voice, and tells you what to do if the folder is too deep. (Only the app's own Python, about 46 MB, may already have been fetched into the folder by then.)
+
+**Optional: Windows long paths.** Windows has a setting called "Enable Win32 long paths" that allows longer paths for programs that support them. It does not guarantee that every Python package or program library works at any length, which is why the limits above still apply. From v0.8.0 (in development), where switching it on would be enough, the first-run setup window offers to do it for you: Windows asks for an administrator's approval first, setup never changes the setting silently, and setup checks that long paths really work before it installs anything. To change the setting yourself:
+
+- **Group Policy** (may need administrator permission; not available on Windows Home, and it may be locked on a computer managed by an organisation): open the Local Group Policy Editor (`gpedit.msc`) → Computer Configuration → Administrative Templates → System → Filesystem → **Enable Win32 long paths** → **Enabled**.
+- **Registry (advanced, for information only):** under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem`, the value `LongPathsEnabled` (DWORD) set to `1`. Changing the registry needs the appropriate permissions; do it only if you are comfortable administering Windows.
+
+Restart Windows after changing the setting, before relying on it.
+
+**Do not move an app folder that is already set up.** The Python environments inside it remember their full paths, so a moved copy can stop working. To use a shorter location, extract a fresh copy of the download there and run `Setup_and_Run-audiobook-creation-tool.bat` in it; do not move or copy an existing `.venv` folder by hand.
+
 First run opens a setup window. Choose the voices you want installed on this computer:
 
 | Choice | Default | What it adds |

@@ -688,10 +688,18 @@ def install_depth_problem(root: Optional[Path] = None, *, long_paths: Optional[b
     limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY_CHARS if enabled else DEEPEST_FILE_CHARS)
     if length <= limit:
         return ""
+    with_long_paths = WINDOWS_MAX_PATH - DEEPEST_NATIVE_LIBRARY_CHARS
+    other_way = ""
+    if not enabled and length <= with_long_paths:
+        # Windows long paths are off (or could not be read) and would be enough here. The first-run window offers the
+        # change itself (shared.long_paths); everywhere else the person is pointed at the manual way.
+        other_way = (" Or switch on Windows long paths (README.md: \"Important: Windows Installation Path Length\"), "
+                     f"restart Windows and install OmniVoice again: this folder is then within its limit of "
+                     f"{with_long_paths}.")
     return (f"The OmniVoice voice engine cannot be installed in this copy of the app: the app's folder path is "
             f"{length} characters long and OmniVoice needs {limit} or fewer here, or Windows could not load its files. "
-            "Nothing was installed. Move the whole app folder somewhere shorter (for example C:\\Audiobook Creation "
-            "Tool), start it from there, and install OmniVoice again. Every other voice is unaffected.")
+            "Nothing was installed. Move the whole app folder somewhere shorter (for example C:\\AudiobookTool), "
+            "start it from there, and install OmniVoice again." + other_way + " Every other voice is unaffected.")
 
 
 # --------------------------------------------------------------------------- #

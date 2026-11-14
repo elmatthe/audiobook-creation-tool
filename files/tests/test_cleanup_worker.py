@@ -856,7 +856,10 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     ``files/runtime-data/ffmpeg-staging`` — never the installed build — and
     (v0.7.0) ``nltk_store.py`` clears its own staging and set-aside folders
     (``.staging-*`` / ``.replaced-*``) under ``files/runtime-data/nltk_data``,
-    never a path that came from the cleanup catalog. That last part is what the
+    never a path that came from the cleanup catalog. (v0.8.0)
+    ``long_paths.py`` removes the one probe folder it made a moment earlier
+    (``files/runtime-data/long-path-check-<id>``) when it checks that Windows
+    long paths work, and nothing else. That last part is what the
     two assertions below actually pin; being on this list is not permission to
     delete a catalog target.
 
@@ -869,7 +872,8 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     same two assertions.
     """
     shared = REPO_ROOT / "scripts" / "shared"
-    allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py", "nltk_store.py", "work_area.py"}
+    allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py", "nltk_store.py", "work_area.py",
+                      "long_paths.py"}
     allowed_rmdir = {"cleanup_worker.py", "work_area.py"}
     for path in sorted(shared.glob("*.py")):
         source = path.read_text(encoding="utf-8")

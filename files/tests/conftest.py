@@ -569,6 +569,32 @@ def _no_real_qwen3_install(monkeypatch):
                         f"AudiobookCreationTool-Qwen3-TEST-{os.getpid()}")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_long_path_change(monkeypatch):
+    """No test may raise Windows' elevation prompt, write the long-path setting, or run the real long-path probe.
+
+    ``shared.long_paths`` can ask Windows (through its consent prompt) to switch "Enable Win32 long paths" on for the
+    whole computer. Under test that door is shut where it cannot be argued with: the one function that calls
+    ``ShellExecuteExW`` fails loudly, so a test that reaches it without injecting ``run_elevated=`` never shows a
+    prompt and can never change this computer's setting. The fresh-process probe -- a real subprocess that writes
+    under the app's ``files/runtime-data`` -- is answered "works" unless a test injects ``spawn=`` or restores the
+    real one for a folder of its own, so the suites that drive setup and repair from this (deep) checkout neither
+    spawn it nor write into the working copy.
+    """
+    import importlib
+
+    long_paths = importlib.import_module("shared.long_paths")
+
+    def _refuse(*args, **kwargs):
+        raise AssertionError(
+            "a test reached shared.long_paths._run_elevated: that raises a real Windows elevation prompt and can "
+            "change this computer's long-path setting. Pass run_elevated= to long_paths.enable (see test_long_paths.py).")
+
+    monkeypatch.setattr(long_paths, "_run_elevated", _refuse)
+    monkeypatch.setattr(long_paths, "_spawn_probe", lambda python, base, file_chars, native_chars, timeout_s: {
+        "process_long_paths": True, "file": {"ok": True}, "pip": {"ok": True}, "native": {"ok": True}, "stub": True})
+
+
 DEVELOPER_CONFIG = "[development]\ndeveloper_mode = true\n"
 
 

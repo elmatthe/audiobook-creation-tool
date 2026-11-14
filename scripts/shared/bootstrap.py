@@ -93,6 +93,8 @@ from shared import base_packages  # noqa: E402
 from shared import nltk_store  # noqa: E402
 # v0.7.0 acceptance D1/D3: whose Python the venv runs on, whether its packages are whole, a requested repair. Stdlib.
 from shared import venv_integrity  # noqa: E402
+# v0.8.0: Windows long-path support against this folder's depth -- read, offer, change with consent, prove. Stdlib.
+from shared import long_paths  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -1249,12 +1251,15 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
 # ===========================================================================
 #  Install-folder depth (Windows path-length limits)
 # ===========================================================================
-#: The deepest native library (.dll/.pyd) the app's environments hold, measured below the app's folder on HOME-PC
-#: (v0.7.0: 120 characters in .venv) plus a margin. Windows' DLL loader refuses a longer path even when long paths are
-#: enabled, which surfaces as "DLL load failed ... The filename or extension is too long" deep inside an engine.
-#: (The OmniVoice engine, held deeper at .venv/engines/omnivoice since v0.8.0, has its own stricter limit, applied only
-#: to its own install: ``tts.omnivoice_runtime.install_depth_problem``.)
-DEEPEST_NATIVE_LIBRARY_CHARS = 128
+#: The deepest native library (.dll/.pyd) the app's environments hold, measured below the app's folder with its
+#: separator, plus a margin. Windows' DLL loader refuses a longer path even when long paths are enabled, which surfaces
+#: as "DLL load failed ... The filename or extension is too long" deep inside an engine. Measured 2026-11-13 on HOME-PC
+#: and on a cold install made by the first-run window: 120 in .venv itself and 132 in .venv/engines/qwen3
+#: (scikit-learn's deepest extension). The earlier 128 was right while Qwen3 was a sibling folder (124 there) and was
+#: not raised when the engine moved inside .venv (v0.7.0 P04C), so a folder of 128-131 characters was accepted although
+#: that library could not have loaded in it. (The OmniVoice engine, deeper again at .venv/engines/omnivoice, has its
+#: own stricter limit, applied only to its own install: ``tts.omnivoice_runtime.install_depth_problem``.)
+DEEPEST_NATIVE_LIBRARY_CHARS = 136
 #: The deepest file of any kind (165 characters, in .venv/engines/qwen3) plus a margin: the limit for every file when
 #: Windows long-path support is switched off (its default on many computers).
 DEEPEST_FILE_CHARS = 172
@@ -1273,6 +1278,11 @@ def windows_long_paths_enabled() -> Optional[bool]:
         return None
 
 
+#: Read here because ``install_path_problem`` has a parameter named ``long_paths`` (kept: callers pass it by name).
+LONG_PATHS_README_SECTION = long_paths.README_SECTION
+SHORT_FOLDER_EXAMPLE = long_paths.SHORT_FOLDER_EXAMPLE
+
+
 def install_path_problem(root: Optional[Path] = None, *, long_paths: Optional[bool] = None) -> str:
     """A sentence for the person when this copy of the app sits too deep for Windows to load it, else ``""``.
 
@@ -1287,10 +1297,65 @@ def install_path_problem(root: Optional[Path] = None, *, long_paths: Optional[bo
     limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY_CHARS if enabled else DEEPEST_FILE_CHARS)
     if length <= limit:
         return ""
+    with_long_paths = WINDOWS_MAX_PATH - DEEPEST_NATIVE_LIBRARY_CHARS
+    if enabled:
+        other_way = ""
+    elif length <= with_long_paths:
+        # The first-run window offers this itself (shared.long_paths); a repair, or a setting that could not be
+        # read, gets the manual way.
+        other_way = (" Or switch on Windows long paths (README.md: \"" + LONG_PATHS_README_SECTION + "\"), restart "
+                     f"Windows and start the app again: this folder is then within the limit of {with_long_paths}.")
+    else:
+        other_way = (f" Switching on Windows long paths would not be enough here (the limit is then {with_long_paths} "
+                     "characters).")
     return (f"This copy of the app is in a folder whose path is too long for Windows ({length} characters; it must be "
             f"{limit} or fewer here), so its voice engines could not load. Nothing was installed. Move the whole "
-            "\"Audiobook Creation Tool\" folder somewhere shorter, for example C:\\Audiobook Creation Tool or "
-            "directly in Downloads, and start the app from its new place.\n\nFolder: " + str(root))
+            "\"Audiobook Creation Tool\" folder somewhere shorter, for example " + SHORT_FOLDER_EXAMPLE
+            + " or directly in Downloads, and start the app from its new place." + other_way + "\n\nFolder: "
+            + str(root))
+
+
+def app_path_limits() -> "long_paths.Limits":
+    """The longest path this copy's folder may have, as Windows comes and with long paths on (the two depth rules)."""
+    return long_paths.limits_from(DEEPEST_NATIVE_LIBRARY_CHARS, DEEPEST_FILE_CHARS)
+
+
+def prove_long_paths(root: Optional[Path] = None) -> "long_paths.ProbeResult":
+    """Prove, in a fresh process of the interpreter running setup, that this folder's depth really works."""
+    return long_paths.verify_runtime(
+        Path(REPO_ROOT if root is None else root),
+        deepest_file=max(DEEPEST_FILE_CHARS, long_paths.OMNIVOICE_DEEPEST_FILE_CHARS),
+        deepest_native=DEEPEST_NATIVE_LIBRARY_CHARS)
+
+
+def long_path_runtime_problem(log=None, root: Optional[Path] = None) -> str:
+    """Why setup cannot go on in a folder that depends on Windows long paths, else ``""``.
+
+    Asked only after :func:`install_path_problem` accepted the folder, and only where the folder is deeper than Windows
+    allows without long paths -- that is, where the depth rule passed *because* the setting reads "on". A registry
+    value is not proof: Windows applies it per process, an organisation's policy can put it back, and a setting
+    switched on moments ago may need a restart. So a new process is asked whether it has long paths, and it writes a
+    file, installs a package and loads a native library as deep as the installation goes (:mod:`shared.long_paths`).
+    Anything short of that is a refusal before anything is installed -- never a way round the depth rule."""
+    if not IS_WINDOWS:
+        return ""
+    root = Path(REPO_ROOT if root is None else root)
+    if len(str(root)) <= WINDOWS_MAX_PATH - DEEPEST_FILE_CHARS:
+        return ""  # nothing here can pass Windows' ordinary limit: long paths are not needed
+    result = prove_long_paths(root)
+    if log is not None:
+        log.line("Windows long paths (this folder needs them): " + ("checked in a new process and working."
+                                                                    if result.ok else "NOT working. " + result.message))
+    return "" if result.ok else result.message
+
+
+def relaunch_setup() -> int:
+    """Start first-run setup again in a NEW process and wait for it; its exit code becomes this one's.
+
+    Used once, right after the person switched Windows long paths on from the setup window: Windows applies that
+    setting per process, so the process that asked for the change can never see it. The launcher is still waiting on
+    this process, so nothing about how setup ends changes."""
+    return subprocess.call([sys.executable, str(_THIS), *sys.argv[1:]], cwd=str(REPO_ROOT))
 
 
 def _hidden() -> dict:
@@ -2307,7 +2372,7 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     see :data:`EXIT_VENV_REPAIR_REQUIRED`.
     """
     log.line("Repairing the Python environment (packages only — no other setup)…")
-    too_deep = install_path_problem()
+    too_deep = install_path_problem() or long_path_runtime_problem(log)
     if too_deep:
         log.line(too_deep)
         return False, too_deep
@@ -3040,7 +3105,7 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
     aborting. Returns ``(success, final_message)``.
     """
     total = BASE_SETUP_STEPS
-    too_deep = install_path_problem()
+    too_deep = install_path_problem() or long_path_runtime_problem(log)
     if too_deep:
         log.line(too_deep)
         return False, too_deep
@@ -3315,7 +3380,45 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     ttk.Button(btn_row, text="Cancel", command=root.destroy).pack(side="right", padx=(8, 0))
     begin_btn = ttk.Button(btn_row, text="Begin Setup")
     begin_btn.pack(side="right")
-    intro.pack(fill="both", expand=True)
+
+    # ---- Path-length page (Windows, v0.8.0) --------------------------------
+    # Shown INSTEAD of the welcome page when this folder is too deep for Windows as it is set up and switching long
+    # paths on would be enough; and, for a folder where only OmniVoice is too deep, when OmniVoice is chosen. It offers
+    # the two ways forward (move the app -- recommended -- or switch long paths on with Windows' own approval prompt)
+    # and never changes anything unasked. A folder too deep even with long paths is not offered a change that could
+    # not work: run_setup refuses it as before. Nothing here goes round install_path_problem: after a change that
+    # reads back and works in a fresh process, setup starts again in a new process and passes the same rules.
+    path_check = long_paths.assess(REPO_ROOT, app_path_limits()) if IS_WINDOWS else None
+
+    def show_path_page(*, omnivoice_only: bool) -> None:
+        def working() -> None:
+            state["relaunch"] = True
+            root.destroy()
+
+        def without_omnivoice() -> None:
+            choices["omnivoice"].set(False)
+            page.pack_forget()
+            intro.pack(fill="both", expand=True)
+            begin()
+
+        try:
+            import ctypes
+            window = int(ctypes.windll.user32.GetParent(root.winfo_id()) or 0)
+        except Exception:  # noqa: BLE001 - the prompt then simply has no owner window
+            window = 0
+        page = long_paths.ChoicePage(container, path_check, on_close=root.destroy, on_working=working,
+                                     on_skip=without_omnivoice if omnivoice_only else None, verify=prove_long_paths,
+                                     window=window, wrapped=_wrapped, log=LOG.line)
+        LOG.line(f"This folder's path is {path_check.length} characters and Windows long paths are off: showing the "
+                 "two ways forward (" + ("OmniVoice only" if omnivoice_only else "the app") + ").")
+        intro.pack_forget()
+        page.pack(fill="both", expand=True)
+        _wrap_to_width()
+
+    if path_check is not None and path_check.app_offer:
+        show_path_page(omnivoice_only=False)
+    else:
+        intro.pack(fill="both", expand=True)
 
     # ---- Progress view ----------------------------------------------------
     progress_frame = ttk.Frame(container)
@@ -3367,6 +3470,12 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     def begin() -> None:
         if state["started"]:
+            return
+        if (path_check is not None and path_check.omnivoice_offer and choices["omnivoice"].get()
+                and not state.get("path_asked")):
+            # The app fits here as Windows is set up; OmniVoice alone does not. Asked once, before anything starts.
+            state["path_asked"] = True
+            show_path_page(omnivoice_only=True)
             return
         state["started"] = True
         selection[:] = [c for c, *_rest in OPTIONAL_CHOICES if choices[c].get()]
@@ -3449,6 +3558,11 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     root.after(120, poll)
     root.mainloop()
+    if state.get("relaunch"):
+        LOG.line("Windows long paths were switched on and work in a new process; setup starts again in a new process "
+                 "so that it uses the setting.")
+        LOG.close()
+        return relaunch_setup()
     LOG.close()
     return setup_exit_code(started=state["started"], done=state["done"],
                            ok=state["ok"])
