@@ -65,6 +65,10 @@ if behavior == "malformed":
 if behavior == "no_gpu":
     emit({"event": "failed", "stage": "load", "message": "PyTorch reports no usable CUDA GPU", "gpu": False})
     sys.exit(2)
+if behavior == "import_error":
+    emit({"event": "failed", "stage": "import", "message": plan.get("message", "ImportError: cannot import name "
+          "'OmniVoice' from 'omnivoice' (unknown location)")})
+    sys.exit(2)
 out = Path(job["out_dir"])
 out.mkdir(parents=True, exist_ok=True)
 emit({"event": "loaded", "device": "cuda:0", "device_name": "Fake GPU", "load_s": 0.01, "prompt": "built",
@@ -349,6 +353,38 @@ def test_a_failed_file_says_why_publishes_nothing_and_keeps_an_existing_output(f
         fake.convert(text=PARAGRAPHS, plan=plan)
     assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
     assert (fake.jobs / "last-failure.txt").is_file(), "the diagnostic, without the job text"
+
+
+def test_a_worker_whose_packages_do_not_import_has_the_engine_recorded_as_damaged_and_says_how_to_repair(fake, monkeypatch):
+    """Unified .venv layout acceptance, 2026-11-13: on a real copy with one package file deleted the engine stayed
+    "ready", every conversion failed and nothing offered a repair. The conversion now records such a failure."""
+    recorded: list[str] = []
+    answer = {"recorded": True}
+
+    def reject(reason):
+        recorded.append(reason)
+        return answer["recorded"]
+
+    monkeypatch.setattr(ov, "reject_ready_engine", reject)
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(plan={"behavior": "import_error"})
+    assert recorded == ["ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)"]
+    assert str(failed.value).endswith(osy.REPAIR_OFFERED_NOTE) and "Install & Continue" in str(failed.value)
+    assert "failed while starting the voice engine: ImportError" in str(failed.value)
+
+    answer["recorded"] = False  # the engine was not this app's ready one (or the record could not be written)
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(plan={"behavior": "import_error"})
+    assert osy.REPAIR_OFFERED_NOTE not in str(failed.value) and "look damaged" in str(failed.value)
+
+    del recorded[:]
+    for plan in ({"behavior": "fail", "at": 0, "message": "RuntimeError: kaboom"}, {"behavior": "no_gpu"},
+                 {"behavior": "fail", "at": 0, "message": "CUDA out of memory", "oom": True}, {"behavior": "exit_early"},
+                 {"behavior": "import_error", "message": "ImportError: DLL load failed while importing _C: An "
+                                                         "Application Control policy has blocked this file."}):
+        with pytest.raises(osy.OmniVoiceFailed):
+            fake.convert(plan=plan)
+    assert recorded == [], "a GPU, memory, generation or Smart App Control failure never condemns the environment"
 
 
 def test_an_unavailable_voice_stops_before_anything_is_prepared_or_started(fake):

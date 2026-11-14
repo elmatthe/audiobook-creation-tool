@@ -288,8 +288,14 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
     return WorkerRun(terminal=terminal, chunk_events=chunk_events, loaded=loaded, returncode=returncode)
 
 
-def failure_message(terminal: dict) -> str:
-    """A user-fit sentence for a worker ``failed`` event."""
+#: Said once a damaged engine has been recorded as such (``ov.reject_ready_engine``): the repair is now really offered.
+REPAIR_OFFERED_NOTE = (" The engine's installed files are damaged. Start the conversion again and choose Install & "
+                       "Continue: the app keeps the damaged environment aside and builds and checks a fresh one.")
+
+
+def failure_message(terminal: dict, *, repair_offered: bool = False) -> str:
+    """A user-fit sentence for a worker ``failed`` event. *repair_offered*: the engine was just recorded as damaged, so
+    the next Create offers its repair -- said in place of the general hint."""
     stage = terminal.get("stage")
     detail = str(terminal.get("message") or "no further detail")
     if stage in ("engine", "job"):
@@ -303,7 +309,9 @@ def failure_message(terminal: dict) -> str:
              "import": "starting the voice engine", "network": "starting (it tried to use the network)",
              "worker": "running"}.get(stage, "running")
     message = f"The OmniVoice voice engine failed while {where}: {detail}"
-    if stage == "import" or detail.startswith(("ImportError", "ModuleNotFoundError")):
+    if repair_offered:
+        message += REPAIR_OFFERED_NOTE
+    elif stage == "import" or detail.startswith(("ImportError", "ModuleNotFoundError")):
         message += " The engine's installed packages look damaged; repair it from the optional voice setup."
     return message
 
@@ -487,7 +495,11 @@ def omnivoice_file_to_mp3(
                 if run.terminal["event"] == "canceled":
                     raise ConversionCancelled("Conversion cancelled by user.")
                 if run.terminal["event"] == "failed":
-                    raise OmniVoiceFailed(failure_message(run.terminal))
+                    # A failure that only a rebuild can mend is recorded, so the engine stops being called ready and
+                    # the repair is offered (this conversion holds inference.lock: no installer is changing it).
+                    damaged = (ov.failure_needs_rebuild(run.terminal)
+                               and ov.reject_ready_engine(str(run.terminal.get("message") or run.terminal.get("stage"))))
+                    raise OmniVoiceFailed(failure_message(run.terminal, repair_offered=damaged))
                 if sorted(int(e["index"]) for e in run.chunk_events) != [c.index for c in group]:
                     raise OmniVoiceFailed(f"The OmniVoice voice engine rendered other chunks than it was given "
                                           f"(batch {number} of {len(groups)}).")

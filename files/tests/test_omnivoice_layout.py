@@ -1139,3 +1139,199 @@ def test_the_worker_s_search_path_keeps_its_own_folder_and_drops_the_parent_s_an
     environment = ov.worker_environment({"PATH": os.pathsep.join(entries), "VIRTUAL_ENV": str(parent)})
     kept = environment["PATH"].split(os.pathsep)
     assert kept == [str(nested / "Scripts"), system] and "VIRTUAL_ENV" not in environment
+
+
+# =========================================================================== #
+# 7. Found by the independent review and on the real test copies (2026-11-13)
+# =========================================================================== #
+def test_a_set_aside_folder_that_is_a_link_keeps_the_sibling_and_never_fails_the_finished_install(omni, tmp_path):
+    """The engine is built, proved and recorded before the sibling is touched; a set-aside folder the app refuses to
+    use (a junction to another drive) must leave the sibling where it is and the install a success, said plainly."""
+    import _winapi
+
+    legacy = make_legacy(omni)
+    omni.model()
+    cache_wheels()
+    before = omni.tree(legacy)
+    elsewhere = tmp_path / "another-drive"
+    elsewhere.mkdir()
+    ov.set_aside_root().parent.mkdir(parents=True, exist_ok=True)
+    _winapi.CreateJunction(str(elsewhere), str(ov.set_aside_root()))
+    said: list[str] = []
+    shown = omni.plan()
+    report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: said.append(str(p.get("message"))),
+                                     cancel_check=lambda: False)
+    assert report.completed, report.detail
+    assert ov.assess_engine().state == ov.ENGINE_READY and ov.read_receipt()["stage"] == ov.STAGE_INSTALLED
+    assert omni.tree(legacy) == before and ov.legacy_receipt_path().is_file(), "the sibling and its receipt stay put"
+    assert list(elsewhere.iterdir()) == [], "nothing is written through the link"
+    assert any("was not moved aside" in line and "nothing was deleted" in line for line in said), said
+    assert unit(omni.plan(), ENGINE)["note"] == ov.LEGACY_LEFTOVER_NOTE
+
+
+def test_the_leftover_note_promises_only_what_happens(omni):
+    """Nothing moves a leftover sibling while the engine stays ready (no install runs), so the note must not say that
+    it will be moved "the next time"; it says the folder is unused and may be removed by hand."""
+    note = ov.LEGACY_LEFTOVER_NOTE
+    assert "no longer used" in note and "You may move or delete that folder yourself" in note
+    assert "the next time" not in note and "is moved to" not in note
+    make_legacy(omni)
+    omni.env()
+    omni.model()
+    omni.receipt()
+    data = omni.plan()
+    assert component(data, OV)["readiness"] == proto.READY and data["acquire_units"] == []  # so no acquirer will run
+
+
+def test_an_install_lock_that_cannot_open_a_later_lock_gives_back_the_ones_it_took(omni, monkeypatch):
+    """A lock that RAISES (a lock file that cannot be opened) is not a lock that answers "busy": whatever was already
+    taken must be released, or this copy looks busy to every install, repair and cleanup until the worker exits."""
+    real = rt.FileLock.acquire
+
+    def acquire(self):
+        if self.path == ov.inference_lock_path():
+            raise PermissionError(13, "Access is denied")
+        return real(self)
+
+    monkeypatch.setattr(rt.FileLock, "acquire", acquire)
+    lock = ovs.InstallLock()
+    with pytest.raises(PermissionError):
+        lock.acquire()
+    lock.release()  # a no-op: nothing is recorded as held
+    monkeypatch.setattr(rt.FileLock, "acquire", real)
+    other = rt.FileLock(rt.setup_lock_path())
+    try:
+        assert other.acquire(), "setup.lock was left held by the failed acquisition"
+    finally:
+        other.release()
+    with ovs.InstallLock():
+        pass
+    lease = el.EnvironmentLease(omni.root)
+    lease.take()
+    lease.release()
+
+
+def test_which_worker_failures_condemn_the_environment():
+    assert ov.failure_needs_rebuild({"stage": "import", "message": "ImportError: cannot import name 'OmniVoice'"})
+    assert ov.failure_needs_rebuild({"stage": "import", "message": "ModuleNotFoundError: No module named 'torch._C'"})
+    assert ov.failure_needs_rebuild({"stage": "versions", "message": "torch 2.7.0 is installed, not the pinned 2.8.0"})
+    for terminal in ({"stage": "import", "message": "ImportError: DLL load failed while importing _C: An Application "
+                                                     "Control policy has blocked this file."},
+                     {"stage": "isolation", "message": "sys.path holds another environment"},
+                     {"stage": "load", "message": "CUDA out of memory", "oom": True},
+                     {"stage": "load", "message": "PyTorch reports no usable CUDA GPU", "gpu": False},
+                     {"stage": "generate", "message": "RuntimeError: kaboom"}, {"stage": "job", "message": "refused"},
+                     {"stage": "engine", "message": "busy"}, {"stage": "network", "message": "socket.connect"}, {}):
+        assert not ov.failure_needs_rebuild(terminal), terminal
+
+
+def test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keeps_it_and_builds_a_fresh_one(omni):
+    """S/V on the nested engine. The listing and the receipt cannot see a deleted file inside a package; the
+    conversion that meets it records it, and the ordinary repair then sets the damaged environment aside whole."""
+    nested = omni.env()
+    omni.model()
+    assert ov.reject_ready_engine("ImportError: x") is False, "an engine no receipt calls ready is never rejected"
+    assert ov.read_receipt() == {} and ov.assess_engine().state == ov.ENGINE_UNCHECKED
+    omni.receipt()
+    assert ov.assess_engine().state == ov.ENGINE_READY and ov.voice_availability("omnivoice-male-1") == (True, "ok")
+
+    assert ov.reject_ready_engine("ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)")
+    receipt = ov.read_receipt()
+    assert receipt["stage"] == ov.STAGE_REJECTED and receipt["rejected_at"] == "conversion"
+    state = ov.assess_engine()
+    assert state.state == ov.ENGINE_BROKEN and "cannot import name 'OmniVoice'" in state.reason
+    assert ov.INSTALL_ACTION in state.reason and "to repair it" in state.reason
+    ok, why = ov.voice_availability("omnivoice-male-1")
+    assert ok is False and why == state.reason and ov.install_would_help()
+    assert ov.reject_ready_engine("again") is False and ov.read_receipt() == receipt  # only a READY engine, only once
+
+    data = omni.plan()
+    entry = component(data, OV)
+    assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
+    cache_wheels()
+    damaged = omni.tree(nested)
+    shown = omni.plan()
+    report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=lambda: False)
+    assert report.completed, report.detail
+    assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_READY, "ok") and omni.fetched() == []
+    kept = [p for p in ov.set_aside_root().iterdir() if not p.name.startswith(ovs.RETIRED_PREFIX)]
+    assert len(kept) == 1 and omni.tree(kept[0]) == damaged, "the damaged environment is kept whole, never deleted"
+
+
+def test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_offered(omni):
+    """The engine is ready, only the model has to be fetched again, and the proof that follows shows the engine's own
+    packages no longer import: that is recorded (it used to be recorded only for a never-checked environment)."""
+    omni.env()
+    omni.model(record=False)
+    omni.receipt()
+    assert ov.assess_engine().state == ov.ENGINE_READY
+    shown = omni.plan()
+    assert shown["acquire_units"] == [MODEL]
+    omni.runner.probe_failure = ("import", "ImportError: DLL load failed while importing _C")
+    report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=lambda: False)
+    assert not report.completed
+    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.assess_engine().state == ov.ENGINE_BROKEN
+    entry = component(omni.plan(), OV)
+    assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
+
+    omni.receipt()  # ready again: a failure that says nothing about the environment condemns nothing
+    ov.model_record_path().unlink()
+    omni.runner.probe_failure = ("gpu", "PyTorch reports no usable CUDA GPU")
+    shown = omni.plan()
+    assert shown["acquire_units"] == [MODEL]
+    report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=lambda: False)
+    assert not report.completed
+    assert ov.read_receipt()["stage"] == ov.STAGE_INSTALLED and ov.assess_engine().state == ov.ENGINE_READY
+
+
+def test_the_setup_lock_sentence_names_no_engine_and_a_refused_repair_says_what_is_true(env, monkeypatch):
+    """``setup.lock`` is held by every optional install of this copy (Kokoro, Chatterbox, Qwen3, OmniVoice): saying
+    "Qwen3" while OmniVoice is being installed was false."""
+    sentence = el.BUSY_MESSAGES[el.SETUP_LOCK]
+    assert "Qwen3" not in sentence and "OmniVoice" not in sentence and "installed or repaired" in sentence
+    _existing_venv(env)
+    log = _Log()
+    with held_elsewhere(el.runtime_dir(env.tmp) / el.SETUP_LOCK):
+        ok, message = bootstrap.repair_venv(log, headless=True)
+    assert ok is False and sentence in message and el.NOTHING_CHANGED in message
+    refusal = "\n".join(line for line in log.lines if "[!!]" in line)
+    assert "Voices of this copy are being installed or repaired" in refusal
+    assert "Qwen3 voice engine" not in refusal and "OmniVoice voice engine" not in refusal
+    log = _Log()
+    with held_elsewhere(el.omnivoice_runtime_dir(env.tmp) / el.ENGINE_LOCK):
+        ok, message = bootstrap.repair_venv(log, headless=True)
+    assert ok is False and any("The OmniVoice voice engine of this copy is in use" in line for line in log.lines)
+
+
+def test_locks_that_cannot_even_be_checked_refuse_a_repair_with_nothing_changed(env, monkeypatch):
+    """A lock folder that cannot be made is not permission to go on (there are two such folders now)."""
+    _existing_venv(env)
+    before = _tree(env.venv)
+
+    def refuse(self):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(el.EnvironmentLease, "take", refuse)
+    log = _Log()
+    ok, message = bootstrap.repair_venv(log, headless=True)
+    assert ok is False and "could not check whether the Qwen3 or OmniVoice voices are in use" in message
+    assert "Nothing was changed" in message and _tree(env.venv) == before
+    assert not any(p.name.startswith(".venv.") for p in env.tmp.iterdir())
+
+
+def test_an_engine_built_through_another_spelling_of_the_same_base_python_is_accepted(tmp_path):
+    """``venv`` records the base interpreter by its real path; a copy reached through a mapped or substituted drive
+    names the same file by another spelling. Same file: accepted. Another file: refused."""
+    base = tmp_path / "python" / "python.exe"
+    base.parent.mkdir()
+    base.write_bytes(b"base interpreter")
+    other = tmp_path / "other" / "python.exe"
+    other.parent.mkdir()
+    other.write_bytes(b"base interpreter")
+    link = tmp_path / "drive"
+    import _winapi
+
+    _winapi.CreateJunction(str(base.parent), str(link))
+    assert ovs._same_file(base, base) and ovs._same_file(str(base).upper(), base)
+    assert ovs._same_file(link / "python.exe", base), "one file, two spellings"
+    assert not ovs._same_file(other, base) and not ovs._same_file(tmp_path / "missing.exe", base)

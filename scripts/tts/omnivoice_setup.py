@@ -224,20 +224,24 @@ class InstallLock:
         if not self._setup.acquire():
             raise OmniVoiceSetupError("Another install or repair of this copy of the app is running (or the app's own "
                                       "environment is being repaired). Wait for it to finish; nothing was changed.")
-        if not self._inference.acquire():
-            self._setup.release()
-            raise OmniVoiceSetupError("The OmniVoice voices are being used by a conversion right now. Let it finish, or "
-                                      "cancel it, before installing; nothing was changed.")
-        engine = rt.FileLock(ov.engine_lock_path())
         try:
-            free = engine.acquire()
-        finally:
-            engine.release()
-        if not free:
+            if not self._inference.acquire():
+                raise OmniVoiceSetupError("The OmniVoice voices are being used by a conversion right now. Let it "
+                                          "finish, or cancel it, before installing; nothing was changed.")
+            engine = rt.FileLock(ov.engine_lock_path())
+            try:
+                free = engine.acquire()
+            finally:
+                engine.release()
+            if not free:
+                raise OmniVoiceSetupError("The OmniVoice voice engine is still running (a conversion that has not "
+                                          "stopped yet). Close the app and try again; nothing was changed.")
+        except BaseException:
+            # Refused, or a lock file that could not even be opened: whatever was taken is given back, so a failed
+            # acquisition never leaves this copy looking busy to the next install, repair or cleanup.
             self._inference.release()
             self._setup.release()
-            raise OmniVoiceSetupError("The OmniVoice voice engine is still running (a conversion that has not stopped "
-                                      "yet). Close the app and try again; nothing was changed.")
+            raise
         self._held = True
 
     def release(self) -> None:
@@ -374,6 +378,8 @@ A Python environment cannot be used from another place than the one it was creat
 "{name}" in here is NOT a working environment while it is here. It is kept only so nothing of yours is lost.
 
 You may delete this whole folder to give its disk space back (about {size}).
+Some files in it have very long names. If Windows says a path is too long when you delete it, first move the folder
+"{name}" to the top of the drive and give it a short name (for example "x"), then delete it there.
 To put it back exactly as it was, move "{name}" back to the app's folder (and "install-receipt.json", if present,
 back to files\\runtime-data\\omnivoice\\); the app still will not use it.
 """
@@ -397,10 +403,15 @@ def retire_legacy() -> Optional[Path]:
     folder = ov.legacy_venv_dir()
     if venv_layout.unsafe_component(ov.repo_root(), folder) is not None or venv_layout.is_link(folder):
         return None
-    root = ov.ensure_runtime_dir(ov.set_aside_root())
-    container = root / f"{RETIRED_PREFIX}{_stamp()}"
-    _require_inside(root, container)
-    ov.ensure_runtime_dir(container)
+    try:
+        root = ov.ensure_runtime_dir(ov.set_aside_root())
+        container = root / f"{RETIRED_PREFIX}{_stamp()}"
+        _require_inside(root, container)
+        ov.ensure_runtime_dir(container)
+    except ov.OmniVoiceUnavailable as exc:  # the set-aside folder is a link, or cannot be made
+        raise OmniVoiceSetupError(f"The earlier OmniVoice environment ({venv_layout.LEGACY_OMNIVOICE}) was not moved "
+                                  f"aside: {exc} It was left where it is, it is not used, and nothing was "
+                                  "deleted.") from exc
     target = container / folder.name
     _require_inside(container, target)
     size = _tree_bytes(folder)
@@ -433,7 +444,7 @@ def retire_legacy() -> Optional[Path]:
         (container / RETIRED_NOTE_NAME).write_text(RETIRED_NOTE.format(
             original=record["original_path"], nested=record["replaced_by"], moved_utc=moved_utc, name=folder.name,
             size=rt.format_bytes(size)), encoding="utf-8")
-    except OSError:
+    except (OSError, ov.OmniVoiceUnavailable):
         pass  # the label is a courtesy; the environment is already safely kept
     return container
 
@@ -555,6 +566,17 @@ def _tail(lines: list[str], count: int = 4) -> str:
     return " ".join(line.strip() for line in lines[-count:] if line.strip())
 
 
+def _same_file(first, second) -> bool:
+    """Whether two paths name one file: the same spelling, or -- where ``venv`` wrote the REAL path of an interpreter
+    that the app reaches through a mapped or substituted drive -- the same file on disk."""
+    if venv_layout.same_path(first, second):
+        return True
+    try:
+        return os.path.samefile(first, second)
+    except (OSError, ValueError):
+        return False
+
+
 def build_engine(*, runner, progress: Progress, cancel_check: CancelCheck) -> None:
     """Create ``.venv/engines/omnivoice`` from the app's base Python and install the verified wheels into it, offline.
 
@@ -598,7 +620,7 @@ def build_engine(*, runner, progress: Progress, cancel_check: CancelCheck) -> No
         raise OmniVoiceSetupError("OmniVoice's Python environment could not be created. " + _tail(tail))
     built = venv_layout.read_pyvenv_cfg(folder) or {}
     if not venv_layout.same_path(built.get("home", ""), base.parent) or \
-            not venv_layout.same_path(built.get("executable") or base, base):
+            not _same_file(built.get("executable") or base, base):
         raise OmniVoiceSetupError("OmniVoice's Python environment was not built from the app's own Python, so it is not "
                                   "used.")
     if venv_layout.unsafe_component(ov.repo_root(), folder) is not None:  # nothing was swapped in behind the build

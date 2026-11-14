@@ -631,16 +631,20 @@ LINKED_MESSAGE = ("The OmniVoice environment is reached through a link to anothe
 #: person did install it. Installing builds it again where it now belongs; nothing of the old one is reused or deleted.
 LEGACY_MOVE_MESSAGE = ("The OmniVoice voice engine on this computer is in a folder this version of the app no longer "
                        "uses (.venv-omnivoice). " + INSTALL_ACTION + ": it is built again inside the app's own "
-                       "environment (.venv\\engines\\omnivoice) from its pinned packages and checked there; the model "
-                       "already on this computer is reused. Only once the new engine works is the old folder moved "
-                       "to files\\runtime-data\\omnivoice\\set-aside -- kept, never deleted.")
+                       "environment (.venv\\engines\\omnivoice) from its pinned packages and checked there; a model "
+                       "that is already on this computer is reused. Only once the new engine works is the old folder "
+                       "moved to files\\runtime-data\\omnivoice\\set-aside -- kept, never deleted.")
 #: Appended when the nested engine is present but not usable and the earlier sibling is still there: it is said, never
 #: silently preferred and never silently ignored.
 LEGACY_NOT_USED_NOTE = (" (The earlier environment in .venv-omnivoice is not used in its place; it is kept as it is "
                         "until the new one works.)")
-LEGACY_LEFTOVER_NOTE = ("The earlier OmniVoice environment in .venv-omnivoice is no longer used. It is moved to "
-                        "files\\runtime-data\\omnivoice\\set-aside (kept, never deleted) the next time OmniVoice is "
-                        "installed or repaired; you may also move or delete that folder yourself.")
+#: A sibling still beside a nested engine that is ready (it could not be moved when the engine was proved, or it was put
+#: back by hand). It promises only what is true: nothing moves it while the engine stays ready -- the acquirer runs
+#: only when something has to be installed or repaired, and tries the move again then.
+LEGACY_LEFTOVER_NOTE = ("The earlier OmniVoice environment in .venv-omnivoice is no longer used by the app and is still "
+                        "in the app's folder (about 8 GB). You may move or delete that folder yourself; the app will "
+                        "not use it, and moves it to files\\runtime-data\\omnivoice\\set-aside itself only if "
+                        "OmniVoice ever has to be installed or repaired again.")
 
 
 # --------------------------------------------------------------------------- #
@@ -751,6 +755,39 @@ def clear_receipt() -> None:
     path = receipt_path()
     if os.path.lexists(path):
         _qwen3.remove_entry(path)
+
+
+#: Windows' Smart App Control refuses the first load of a new native library with this phrase; a rebuild cannot change
+#: that, so it never counts against the environment (the same mark the installer's own proof excludes).
+APPLICATION_CONTROL_MARK = "Application Control policy"
+#: Worker failure stages that mean the environment's own files are wrong: it does not hold its pinned packages, or they
+#: do not import. (Not ``isolation``, which the launching process's surroundings can cause, nor anything about the GPU,
+#: its memory, the model or the job.)
+REBUILD_STAGES = frozenset({"versions", "import"})
+
+
+def failure_needs_rebuild(terminal: dict) -> bool:
+    """Whether a worker's ``failed`` event says the engine's installed files are damaged, so only a rebuild can help."""
+    return terminal.get("stage") in REBUILD_STAGES and APPLICATION_CONTROL_MARK not in str(terminal.get("message") or "")
+
+
+def reject_ready_engine(reason: str) -> bool:
+    """Record that the engine the receipt calls ready failed at use in a way only a rebuild can mend. True if recorded.
+
+    Found on the real nested engine (2026-11-13): with one package file deleted, the folder listing and the receipt
+    still said "ready", every conversion failed, and nothing offered a repair. The conversion that meets such a failure
+    (:func:`failure_needs_rebuild`) records it here -- it holds ``inference.lock``, so no installer is changing the
+    engine -- and the next look therefore says *broken*, the voices say why, and Install & Continue offers the repair
+    (the damaged environment is set aside whole, never deleted, and a fresh one is built and proved). Only a READY
+    engine is ever rejected this way; never raises."""
+    try:
+        if _assess_nested(None).state != ENGINE_READY:
+            return False
+        write_receipt(STAGE_REJECTED, base=venv_layout.base_identity(venv_dir()), reason=str(reason)[:300],
+                      rejected_at="conversion")
+        return True
+    except (OSError, ValueError, OmniVoiceUnavailable):
+        return False
 
 
 # --------------------------------------------------------------------------- #

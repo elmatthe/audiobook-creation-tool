@@ -549,7 +549,10 @@ class RealAcquirer:
             try:
                 probe = ovs.prove(runner=self._run, progress=progress, cancel_check=cancel_check)
             except ovs.ProofFailed as exc:
-                if ovs.speaks_against_environment(exc) and ov.assess_engine().state == ov.ENGINE_UNCHECKED:
+                # An existing environment that the proof shows broken -- one never checked before, or one the receipt
+                # still called ready -- is recorded as such, so the next plan offers its repair.
+                if ovs.speaks_against_environment(exc) and \
+                        ov.assess_engine().state in (ov.ENGINE_UNCHECKED, ov.ENGINE_READY):
                     ovs.record_rejected(str(exc))
                 raise
             origin = {ovs.MODE_ADOPT: ov.ORIGIN_ADOPTED, ovs.MODE_INSTALL: ov.ORIGIN_INSTALLED,
@@ -565,7 +568,7 @@ class RealAcquirer:
             # to set-aside, never deleted. Failing to move it undoes nothing: it is not used either way, and it is said.
             try:
                 retired = ovs.retire_legacy()
-            except (ovs.OmniVoiceSetupError, OSError) as exc:
+            except (ovs.OmniVoiceSetupError, ov.OmniVoiceUnavailable, OSError) as exc:
                 progress({"unit": engine_unit, "step": "install", "done": 0, "total": 0, "message": str(exc)[:400]})
             else:
                 if retired is not None:

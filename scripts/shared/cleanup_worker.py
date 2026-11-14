@@ -281,8 +281,11 @@ def hold_engine_still(repo_root, note):
     try:
         lease.take()
     except engine_lease.Refused as refused:
-        name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
-        note(f"left alone — the {name} voices of this copy are in use or uncheckable: {refused}")
+        if refused.lock == engine_lease.SETUP_LOCK:    # every optional install holds it, whichever voices it is for
+            note(f"left alone — voices of this copy are being installed or repaired: {refused}")
+        else:
+            name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
+            note(f"left alone — the {name} voices of this copy are in use or uncheckable: {refused}")
         if refused.reason == engine_lease.BUSY and refused.busy_sentence:
             return None, maintenance.engine_in_use_problem(refused.busy_sentence)
         return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM

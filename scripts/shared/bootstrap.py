@@ -1671,10 +1671,22 @@ def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.
     try:
         lease.take()
     except engine_lease.Refused as refused:
-        name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
-        log.line(f"  [!!] The {name} voice engine of this copy is in use or being installed, so the environment was "
-                 f"not touched: {refused}")
+        if refused.lock == engine_lease.SETUP_LOCK:  # held by every optional install, whichever voices it is for
+            who = "Voices of this copy are being installed or repaired"
+        else:
+            name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
+            who = f"The {name} voice engine of this copy is in use"
+        log.line(f"  [!!] {who}, so the environment was not touched: {refused}")
         return None, f"{refused_prefix} {refused}"
+    except OSError as exc:
+        # A lock folder that cannot even be made is not permission to go on: nothing can vouch that the engines are
+        # idle, so the environment is left exactly as it is (v0.8.0: there are two such folders now).
+        lease.release()
+        detail = exc.strerror or str(exc)
+        log.line(f"  [!!] The voice engines' locks could not be checked ({detail}), so the environment was not "
+                 "touched.")
+        return None, (f"{refused_prefix} The app could not check whether the Qwen3 or OmniVoice voices are in use "
+                      f"({detail}), so the environment was left exactly as it was. Nothing was changed.")
     log.line("  The Qwen3 and OmniVoice voice engines are not in use or being installed; they are held still until "
              "this is finished.")
     return lease, None

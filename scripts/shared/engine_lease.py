@@ -51,8 +51,10 @@ BUSY = "busy"
 UNAVAILABLE = "unavailable"
 
 #: What to tell a person when each lock is held by someone else. Every one ends the same way: nothing was changed.
+#: ``setup.lock`` is the one lock EVERY optional install or repair of this copy holds (Kokoro, Chatterbox, Qwen3 and,
+#: since v0.8.0, OmniVoice), so its sentence names no engine: saying "Qwen3" during an OmniVoice install was false.
 BUSY_MESSAGES = {
-    SETUP_LOCK: "The Qwen3 voices are being installed or repaired right now.",
+    SETUP_LOCK: "Voices of this copy of the app are being installed or repaired right now.",
     INFERENCE_LOCK: "A Qwen3 conversion, transcription or model check is running right now.",
     ENGINE_LOCK: "The Qwen3 voice engine is still running (a conversion that has not stopped yet).",
 }
