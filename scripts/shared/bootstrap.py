@@ -2065,8 +2065,16 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog, headless: bool,
         health = assess_venv_health(
             require_tk=not headless,
             compatible_base_available=is_full_feature_python(base_ver))
-        if health.state == VENV_REPAIRABLE:
-            log.line(f"  Replacing the existing environment: {health.detail}")
+        if health.state in (VENV_REPAIRABLE, VENV_ABSENT):
+            # ABSENT *with the folder present* means it holds no interpreter (its python.exe was deleted or
+            # quarantined, or an earlier creation was cut short): nothing in it can run, so it is replaced exactly
+            # like a repairable one -- set aside, never deleted, and whatever it holds under engines/ is carried
+            # into its replacement. It used to be "kept", which left setup with no interpreter to probe and the
+            # same failure ("cannot import ssl after a recreate") on every start, with both voice engines inside
+            # a folder the person would then be tempted to delete (found on a real test copy, 2026-11-13).
+            detail = health.detail if health.state == VENV_REPAIRABLE else \
+                "the environment folder is there but it has no Python interpreter."
+            log.line(f"  Replacing the existing environment: {detail}")
             txn.aside = _move_venv_aside(log)
             if txn.aside is None and VENV_DIR.exists():
                 # The environment that must be replaced is still in the way.

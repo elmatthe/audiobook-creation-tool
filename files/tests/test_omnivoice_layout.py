@@ -786,6 +786,48 @@ def test_a_repair_brings_both_engines_home_to_their_own_paths_byte_identical(env
     assert "Qwen3 and OmniVoice voice engines are not in use" in log.text
 
 
+@pytest.mark.parametrize("route", ["first-run setup", "repair"])
+def test_a_parent_folder_that_lost_its_interpreter_is_replaced_and_both_engines_come_home(env, monkeypatch, route):
+    """U (the parent's own interpreter). ``.venv`` is there, both engines are in it, and ``Scripts\\python.exe`` is
+    gone: the launcher takes the first-run route. Setup used to *keep* that folder ("absent"), find no interpreter to
+    probe and fail on every start; it is now set aside like any environment that cannot run, a new one is built, and
+    the engines are carried into it byte for byte."""
+    keepsake = _existing_venv(env)
+    bootstrap.venv_python().unlink()  # the interpreter is gone; everything else, engines included, is still there
+    qwen3, omnivoice = both_engines(env.venv)
+    protected = _protected(env)
+    _successful_repair_fakes(monkeypatch)
+    assert bootstrap.assess_venv_health().state == bootstrap.VENV_ABSENT and env.venv.is_dir()
+    log = _Log()
+
+    if route == "repair":
+        ok, message = bootstrap.repair_venv(log)
+        assert ok is True, message
+    else:  # what run_setup does for the environment itself, owning the transaction
+        assert bootstrap._create_validated_venv(["py", "-3.12"], log, headless=True) is True
+
+    assert "Replacing the existing environment" in log.text and "no Python interpreter" in log.text
+    assert "Keeping the existing environment" not in log.text
+    assert not keepsake.exists() and (env.venv / "candidate.txt").exists() and bootstrap.venv_python().is_file()
+    assert engines_of(env.venv) == (qwen3, omnivoice)
+    assert venv_layout.held_entries(env.venv) == ("omnivoice", "qwen3")
+    assert not bootstrap._venv_aside_path().exists() and not bootstrap._venv_discard_path().exists()
+    assert _protected_after(env) == protected
+
+
+def test_a_parent_folder_without_an_interpreter_that_cannot_be_rebuilt_is_put_back_with_both_engines(env, monkeypatch):
+    """The same start, but the new environment cannot be created: the old folder comes back whole, engines included."""
+    keepsake = _existing_venv(env)
+    bootstrap.venv_python().unlink()
+    qwen3, omnivoice = both_engines(env.venv)
+    _successful_repair_fakes(monkeypatch)
+    _creates_venv(monkeypatch, ok=False)
+    log = _Log()
+    assert bootstrap._create_validated_venv(["py", "-3.12"], log, headless=True) is False
+    assert keepsake.exists() and engines_of(env.venv) == (qwen3, omnivoice)
+    assert not bootstrap._venv_aside_path().exists()
+
+
 @pytest.mark.parametrize("only", [QWEN3, NESTED])
 def test_a_repair_with_only_one_engine_installed_keeps_it_and_invents_no_other(env, monkeypatch, only):
     """I."""
