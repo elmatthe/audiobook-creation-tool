@@ -20,7 +20,7 @@ Extract the whole archive into an ordinary folder you can write to (for example 
 
 Why it matters: the app keeps its own Python environments inside its folder, and the Qwen3 and OmniVoice voice engines sit many folders deep inside them. Windows limits how long a file's full path may be. If the app's own folder already has a long path (for example a folder inside several other folders on the Desktop or in a synced cloud folder), those engines cannot be installed or loaded.
 
-How long the path of the app's folder may be (the folder that contains `Setup_and_Run-audiobook-creation-tool.bat`; `C:\AudiobookTool` is 16 characters):
+How long the path of the app's folder may be (the folder that contains `Setup_and_Run-audiobook-creation-tool.bat`; `C:\AudiobookTool` is 16 characters; Windows counts a few characters, such as emoji, as two):
 
 | Windows setting | The app with the Edge, Kokoro, Chatterbox and Qwen3 voices | Also with the OmniVoice voices (v0.8.0, in development) |
 |---|---|---|

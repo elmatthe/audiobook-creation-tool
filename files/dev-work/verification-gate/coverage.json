@@ -3794,7 +3794,9 @@
             "emit",
             "NetworkRefused",
             "SpeechRecognizerRefused",
-            "isolation_problems"
+            "isolation_problems",
+            "import_failure",
+            "_caused_by"
           ]
         },
         {
@@ -3834,7 +3836,7 @@
         "Chunk audio is read back in plan order, validated, joined with the voice preset's paragraph pause between chunks only, encoded once and published atomically; a failure (load, generation, out of GPU memory, a dead or stalled worker) fails that file with a plain sentence and leaves any existing destination untouched.",
         "Cancel asks the worker to stop and kills its contained process tree after a short grace period, during inference or the encode, and wins until the instant of the move; no partial MP3 is published and the job folder (which holds the person's text) is always removed.",
         "No GPU, no installed engine or model, or a changed recording makes only the OmniVoice voices unavailable with one next step; nothing falls back to another voice or engine, and one OmniVoice file converts at a time.",
-        "A worker whose packages do not import fails that file, has the engine recorded as damaged and says the one next step (start again and choose Install & Continue); no other failure condemns the engine."
+        "A worker whose packages do not import fails that file, has the engine recorded as damaged and says the one next step (start again and choose Install & Continue); its startup imports are classified where they fail, so a native library Windows will not load (an OSError) counts, while running out of memory there, Smart App Control, the network guard and every later failure condemn nothing."
       ],
       "selection": [
         "files/tests/test_omnivoice_synth.py",
@@ -3914,6 +3916,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_omnivoice_synth.py::test_a_worker_whose_packages_do_not_import_has_the_engine_recorded_as_damaged_and_says_how_to_repair"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_native_library_that_will_not_load_at_conversion_is_recorded_and_publishes_nothing"
           }
         ]
       },
@@ -21646,7 +21660,7 @@
         }
       ],
       "contracts": [
-        "Setup and repair refuse an app folder too deep for Windows before anything is installed, with one clear instruction; the limit depends on whether Windows long-path support is on (87 characters off, 123 on -- the deepest native library of every environment held in .venv, Qwen3's included) and the rule itself changes no Windows setting; its refusal names the long-path way only where that would be enough",
+        "Setup and repair refuse an app folder too deep for Windows before anything is installed, with one clear instruction; the limit depends on whether Windows long-path support is on (87 characters off, 123 on -- the deepest native library of every environment held in .venv, Qwen3's included), lengths are counted as Windows counts them (UTF-16 units, so a character beyond the Basic Multilingual Plane counts twice), and the rule itself changes no Windows setting; its refusal names the long-path way only where that would be enough",
         "When the bundled espeak-ng-data path is too long for eSpeak NG's buffer it is linked (never copied) under a short project-owned root that fits",
         "An installation that already fits is left completely alone, and when no short root can be used the failure stays truthful"
       ],
@@ -21708,6 +21722,7 @@
         {
           "path": "scripts/shared/long_paths.py",
           "symbols": [
+            "windows_length",
             "read_setting",
             "assess",
             "Assessment",
@@ -21739,7 +21754,7 @@
       ],
       "contracts": [
         "The long-path setting is read with a read-only handle; on, off, absent and unreadable are told apart, and a setting that cannot be read is never changed",
-        "The app's real folder length is compared with the tested limits for both Windows configurations (app 87/123, OmniVoice 83/119); a change is offered only where the setting is off and switching it on would be enough -- a folder too long even then is told to move and is still refused afterwards",
+        "The app's real folder length, in Windows' UTF-16 units, is compared with the enforced limits for both Windows configurations (app 87/123, OmniVoice 83/119), as are the fresh-process proof's depths; a change is offered only where the setting is off and switching it on would be enough -- a folder too long even then is told to move and is still refused afterwards",
         "The first-run window shows the two ways forward (move the app, recommended; or switch long paths on) instead of the welcome page, says the change is system-wide, needs an administrator and may need a restart, and changes nothing unless the person presses the second; where only OmniVoice is too deep the question comes when OmniVoice is chosen and setup can go on without it",
         "The elevated helper is Windows' own reg.exe from the system directory Windows reports, started through Windows' consent prompt with one constant command line that sets only LongPathsEnabled to 1; nothing can be passed into it, setup itself stays unelevated, and it is started at most once per request",
         "A declined or cancelled prompt, a standard account with no administrator, elevation blocked by policy, a failed registry write and a value put back by a managed computer each come back as a sentence, with nothing retried, nothing else changed and both ways still open",
@@ -21847,6 +21862,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_long_paths.py::test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_does_not_announce_a_release"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_fresh_process_proof_is_asked_at_depths_counted_in_the_same_unit"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_negative_control_the_old_stand_in_is_refused_before_it_writes_below_a_synthetic_root"
           }
         ]
       },
@@ -25290,7 +25317,7 @@
     "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "6ef0485e4229f30ad1a63f5d906b8dd5908b3027dc998aa3c36217fd3dad3759",
+    "scripts/shared/bootstrap.py": "ae05f587e819362f2567c45722fcc3d01d418a459362245765bd5d6f466d640b",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
@@ -25308,7 +25335,7 @@
     "scripts/shared/job_control.py": "8588b897891596224272f95bd474f048b4b2cbdece4890c8673d653878e55387",
     "scripts/shared/job_ui.py": "3a8a58d0a936e8930f3fd4653db25755c7f2ac66c0e23c5a9ea37e1384e0a51b",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
-    "scripts/shared/long_paths.py": "285638bbb99c835f4bfcc9ddc4a620e22c9d24110310adfcbd57d3aebb5758bc",
+    "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/maintenance.py": "a30c9f2f7fa472b30eccdda55d8e05703c91ef921cc2fedaa417b61e994399a6",
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
@@ -25353,10 +25380,10 @@
     "scripts/tts/generate_voice_samples.py": "b59a47057a671e006c3aae750e1186f9310bfd30ae610f05ceae4c2dac47b26e",
     "scripts/tts/kokoro_synth.py": "07595a2dcfe343ebce7ae23d4ec3e5ed9d95fe9f08fd260336a7904869471314",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
-    "scripts/tts/omnivoice_runtime.py": "23ad4278ab7a7bf897f1c7cee1063dcf9a33e6573de1a7ec07a009cb65a3f889",
+    "scripts/tts/omnivoice_runtime.py": "cbe53184ea26ee688153ae7c7dcda9494163ff2ec28650a406470f4dfc3a0a3f",
     "scripts/tts/omnivoice_setup.py": "07d2350c8d671bdac8ac47d49a489e6984288a3ebf0342e08abbe29002c93f65",
-    "scripts/tts/omnivoice_synth.py": "31eff7df36661865b76bfb1d68ac6f72982bf920a2bc82824c6ad81b21f465bd",
-    "scripts/tts/omnivoice_worker.py": "1eb76ec6414589399fda840e9ea7f6b408d041c8f302ff51a372a9241992cb6f",
+    "scripts/tts/omnivoice_synth.py": "32695ffe0e9cdb09b21d531978e9faa16c71bdcf320c687cc7a5dda2781a2d42",
+    "scripts/tts/omnivoice_worker.py": "0ad000cfea5d6a1aabfa71aa1ccf4b5d3425b321d97ed217776845001db2b4d6",
     "scripts/tts/optional_setup.py": "4ae85e77b0f5c6aa42e1aba6c03efae59396b98dc25dafe6c6135a4a7fb8022e",
     "scripts/tts/optional_setup_acquire.py": "98125a5a85e7c6a2e6120042fa6f57ee4073b3e13966963a24a3335cc95c3cfc",
     "scripts/tts/optional_setup_authority.py": "c3f10e7ac1113ead6ebdc55e815c2b793c4f071e2d60472d4a5e126646bd9276",

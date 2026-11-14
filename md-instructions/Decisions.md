@@ -2,6 +2,59 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-14 — v0.8.0 independent review remediation (R1-R3): a conversion's startup imports are classified where they fail; every Windows path length is counted in UTF-16 units; the long-path tests never write outside their own scratch (owner instruction; implementation decisions by Claude Code)
+
+**Owner instruction (2026-11-14).** Fix exactly R1, R2 and R3 of the independent Codex review of `feca89f`
+(`files/dev-work/act080-independent-feca89f-20261114/Independent-Review.md`, kept unchanged), each with positive and
+negative controls; no new phase, no redesign, no canonical full gate, no new Codex review, no change to HOME-PC's
+long-path setting, no real elevation, no model download.
+
+**R1: classify by where the failure happened, not by the exception's kind.** The conversion worker now wraps its
+startup imports (NumPy, soundfile, PyTorch, OmniVoice) and reports what they raise through one function,
+`omnivoice_worker.import_failure`, as stage `import`, as the installer's probe already did. A native library Windows
+will not load arrives from PyTorch's loader as `OSError` (`ctypes.WinError`: 193 damaged image, 126 missing), which
+`failure_needs_rebuild` never recognised at stage `worker`; at stage `import` it now reaches the existing rejection
+(`reject_ready_engine`) and the ordinary Install & Continue repair. `failure_needs_rebuild` itself is unchanged.
+- *Not every OSError there is damage.* Windows' own memory refusals while a library loads (`MemoryError`, or WinError 8,
+  14 or 1455 "The paging file is too small", which PyTorch's CUDA libraries meet near the commit limit, a condition
+  recorded on HOME-PC) are stage `memory`: never a rebuild, and the person is told to close programs and try again.
+  Rebuilding a healthy 8 GB engine for a memory shortage would have been the opposite mistake.
+- *Smart App Control* keeps stage `import` with Windows' words; the existing mark excludes it, and the "packages look
+  damaged" hint is no longer added to its message.
+- *The network guard* is re-raised from the imports (also when a library wraps it), so `main` still reports stage
+  `network`.
+- *The probe uses the same function.* Its import step already reported stage `import`; it now also tells memory and
+  the network guard apart, so a proof that ran out of memory no longer condemns a freshly built engine. *Not chosen:*
+  a second, probe-only rule (two answers to one question), or treating every `OSError` as damage (the review's warning).
+- An `OSError` outside the imports (model load, generation) keeps its own stage and condemns nothing, as before.
+
+**R2: one helper, `shared.long_paths.windows_length`, for every Windows path length.** Windows limits paths in UTF-16
+units; Python's `len()` counts code points, so a character beyond the Basic Multilingual Plane (an emoji in a user or
+folder name) counted once instead of twice. The helper is used by the app's folder check (`install_path_problem`),
+OmniVoice's (`install_depth_problem`), the assessment behind the long-path offer and its page, the decision whether the
+fresh-process proof is needed, the proof's depths, the probe's exact-length paths and the lengths it reports. The four
+limits are unchanged (87/123, 83/119): no new measurement was made or needed, only the unit corrected.
+`tts/output_names.py` already counted UTF-16 units and was left alone; the gate's journeys build ASCII-only paths.
+Standard library only, pure arithmetic, importable everywhere. `omnivoice_runtime` imports it inside
+`install_depth_problem`, not at the top: that module is on the pre-venv planning path, which a guard keeps free of
+process and thread modules, and the pre-venv estimate never asks for a depth (the first focused run caught the
+top-level import). *Not chosen:* a copy of the helper elsewhere (two definitions), or moving it to `venv_layout`
+(`long_paths` must also run alone as the fresh-process probe script, which cannot import `shared`).
+
+**R3: synthetic paths are strings; real files only in the test's own scratch.** `test_long_paths.py` arms the suite's
+`write_tripwire` for the whole module over every synthetic root it can build (`synthetic_folder`, `C:\aaa...`, with and
+without U+1F4DA), so a write there is refused before it happens and fails the test. The probe stand-in touches no
+filesystem for a synthetic root and, inside the test's `tmp_path`, first checks that its folder is there. A negative
+control points the old stand-in at the old synthetic roots and at one no run can have made: refused, nothing created.
+*Not chosen:* broader permissions, links, or a "guard off" mutant (it would really write at the drive root).
+The two folders an earlier unrestricted run left at the drive root on HOME-PC (2026-11-13 21:21:59, empty
+`files\runtime-data` inside) are reported to the owner and left untouched.
+
+**Test-execution blockers in the review were its context, not the code.** Run from the repository on HOME-PC with the
+suite's usual scratch, the review's 14 Tcl/Tk errors do not occur (the app environment's Tcl initialises; the review's
+sandbox could not read it), the depth-policy failures do not occur (the review's archived checkout was deliberately
+deep), and the two real pip probes pass (WinError 206 came from that depth). Nothing was weakened to get there.
+
 ## 2026-11-14 — v0.8.0 unified `.venv` recovery acceptance closeout: scenario 9 is completed in the retained copy on the final program code; the cold select-all run is carried forward, not repeated; the real Windows long-path switch-on is an external qualification item; README gives enforced limits apart from what was really installed (owner instructions; implementation decisions by Claude Code)
 
 **Owner instruction (2026-11-14).** Complete only the gaps the 2026-11-13 acceptance left: the rebuild of both engines

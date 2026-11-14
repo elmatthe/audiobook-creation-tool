@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 import wave
@@ -135,9 +136,10 @@ def fake(tmp_path, monkeypatch):
             kwargs.setdefault("event_timeout_s", 60.0)
             kwargs.setdefault("availability", lambda v: (True, "ok"))
             kwargs.setdefault("encoder", fake_encoder)
+            kwargs.setdefault("script", script)  # R1: the real worker beside a stand-in stack (stack_worker) instead
             return osy.omnivoice_file_to_mp3(
                 str(source), str(tmp_path / name), voice, log=self.logs.append, python=Path(sys.executable),
-                script=script, jobs_root=jobs, prompts_root=prompts, env=env, **kwargs)
+                jobs_root=jobs, prompts_root=prompts, env=env, **kwargs)
 
         def jobs_seen(self) -> list[dict]:
             if not log.exists():
@@ -392,6 +394,328 @@ def test_a_worker_whose_packages_do_not_import_has_the_engine_recorded_as_damage
         with pytest.raises(osy.OmniVoiceFailed):
             fake.convert(plan=plan)
     assert recorded == [], "a GPU, memory, generation or Smart App Control failure never condemns the environment"
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.0 independent review R1: the REAL worker's startup imports, classified where they fail
+# --------------------------------------------------------------------------- #
+#: Stand-ins for PyTorch and OmniVoice, loaded by a copy of the REAL worker (:func:`stack_worker`): nothing heavy is
+#: ever imported and no real library is touched. ``ACT_FAKE_STACK`` says where they fail and how. PyTorch's own Windows
+#: loader reports a library it cannot load with ``ctypes.WinError``: an ``OSError`` carrying the Windows error number.
+FAKE_TORCH = r'''
+import json, os, socket
+
+PLAN = json.loads(os.environ.get("ACT_FAKE_STACK", "{}"))
+
+
+def fail(plan=PLAN):
+    kind, text = plan["kind"], plan.get("text", "")
+    if kind == "oserror":
+        error = OSError(None, text, None, plan["winerror"])  # what ctypes.WinError(code) builds on Windows
+        if getattr(error, "winerror", None) != plan["winerror"]:
+            error.winerror = plan["winerror"]  # elsewhere OSError has no such member
+        raise error
+    if kind == "importerror":
+        raise ImportError(text)
+    if kind == "modulenotfound":
+        raise ModuleNotFoundError(text)
+    if kind == "memoryerror":
+        raise MemoryError()
+    if kind == "runtimeerror":
+        raise RuntimeError(text)
+    if kind == "network":  # a library that reaches for the network while it is imported
+        socket.getaddrinfo("download.pytorch.org", 443)
+    if kind == "wrapped-network":  # ... and one that wraps what it met, as lazy importers do
+        try:
+            socket.getaddrinfo("download.pytorch.org", 443)
+        except Exception as exc:
+            raise RuntimeError("Failed to import a submodule because of the following error") from exc
+    raise AssertionError(f"unknown failure {kind!r}")
+
+
+if PLAN.get("at") == "torch":
+    fail()
+
+float16 = "float16"
+
+
+class _Properties:
+    name, total_memory = "Stand-in GPU", 12 * 2**30
+
+
+class cuda:
+    is_available = staticmethod(lambda: PLAN.get("gpu", True))
+    device_count = staticmethod(lambda: 1 if PLAN.get("gpu", True) else 0)
+    synchronize = staticmethod(lambda: None)
+    manual_seed_all = staticmethod(lambda seed: None)
+    memory_allocated = memory_reserved = max_memory_allocated = max_memory_reserved = staticmethod(lambda i=0: 0)
+    get_device_properties = staticmethod(lambda i: _Properties())
+
+
+def manual_seed(seed):
+    pass
+
+
+def from_numpy(array):
+    return array
+'''
+FAKE_OMNIVOICE = r'''
+import torch
+
+if torch.PLAN.get("at") == "omnivoice":
+    torch.fail()
+
+__version__ = "0.2.1"
+
+
+class OmniVoiceGenerationConfig:
+    def __init__(self, **settings):
+        self.preprocess_prompt = settings.get("preprocess_prompt", True)
+
+
+class VoiceClonePrompt:
+    def __init__(self, ref_text):
+        self.ref_text = ref_text
+
+
+class OmniVoice:
+    sampling_rate = 24000
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        if torch.PLAN.get("at") == "load":
+            torch.fail()
+        return cls()
+
+    def create_voice_clone_prompt(self, ref_audio, ref_text, preprocess_prompt):
+        return VoiceClonePrompt(ref_text)
+
+    def generate(self, **kwargs):
+        if torch.PLAN.get("at") == "generate":
+            torch.fail()
+        import numpy as np
+        return [np.full(2400, 0.01, dtype="float32")]
+'''
+#: ``-I`` (as production starts the worker) does not put the script's own folder on ``sys.path`` (Python 3.11+), so the
+#: launcher puts the stand-ins there explicitly -- otherwise the app environment's real PyTorch would be imported.
+STACK_LAUNCHER = r'''
+import os, runpy, sys
+STACK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stack")
+sys.path.insert(0, STACK)
+sys.argv[0] = os.path.join(STACK, "omnivoice_worker.py")
+runpy.run_path(sys.argv[0], run_name="__main__")
+'''
+OFFLINE = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+DLL_193 = {"at": "torch", "kind": "oserror", "winerror": 193,
+           "text": 'Error loading "torch\\lib\\torch_cpu.dll" or one of its dependencies.'}
+DLL_126 = {"at": "torch", "kind": "oserror", "winerror": 126,
+           "text": 'The specified module could not be found. Error loading "torch\\lib\\c10.dll" or one of its '
+                   'dependencies.'}
+PAGING_1455 = {"at": "torch", "kind": "oserror", "winerror": 1455,
+               "text": 'The paging file is too small for this operation to complete. Error loading '
+                       '"torch\\lib\\cudnn64_9.dll" or one of its dependencies.'}
+SAC_4551 = {"at": "torch", "kind": "oserror", "winerror": 4551,
+            "text": "An Application Control policy has blocked this file."}
+NETWORK_AT_IMPORT = {"at": "torch", "kind": "network"}
+
+
+def stack_worker(folder: Path) -> Path:
+    """A byte-for-byte copy of the REAL worker beside the stand-in stack; returns the launcher to start it with."""
+    from tts import omnivoice_worker
+
+    stack = folder / "stack"
+    stack.mkdir(parents=True, exist_ok=True)
+    (stack / "omnivoice_worker.py").write_bytes(Path(omnivoice_worker.__file__).read_bytes())
+    for name, source in (("torch", FAKE_TORCH), ("omnivoice", FAKE_OMNIVOICE)):
+        (stack / name).mkdir(exist_ok=True)
+        (stack / name / "__init__.py").write_text(source, encoding="utf-8")
+    launcher = folder / "launch_worker.py"
+    launcher.write_text(STACK_LAUNCHER, encoding="utf-8")
+    return launcher
+
+
+def synth_job(folder: Path) -> dict:
+    """A well-formed synth job (``job_problems`` finds nothing) whose every file lives in *folder*."""
+    model = folder / "model"
+    (model / "audio_tokenizer").mkdir(parents=True, exist_ok=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "audio_tokenizer" / "config.json").write_text("{}", encoding="utf-8")
+    reference = folder / "r.wav"
+    with wave.open(str(reference), "wb") as out:
+        out.setnchannels(1), out.setsampwidth(2), out.setframerate(44100), out.writeframes(b"\0\0" * 100)
+    return {"schema": 1, "kind": "synth", "voice_id": "omnivoice-male-1", "model_dir": str(model),
+            "omnivoice_version": "0.2.1", "language": "English", "dtype": "float16", "device": "cuda",
+            "out_dir": str(folder / "chunks"), "cancel_file": str(folder / "cancel"),
+            "engine_lock": str(folder / "engine.lock"),
+            "reference": {"wav": str(reference), "wav_sha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
+                          "frames": 100, "sample_rate": 44100, "max_frames": 441000},
+            "ref_text": "Zeth,", "prompt_cache": None, "generation": dict(osy.GENERATION),
+            "chunks": [{"index": 0, "text": "Hello.", "seed": 1}]}
+
+
+def probe_job(folder: Path) -> dict:
+    """A well-formed installer ``probe`` job for this very interpreter's environment (it passes the version and
+    isolation checks, so the run reaches the imports)."""
+    from importlib import metadata
+
+    job = synth_job(folder)
+    return {"schema": 1, "kind": "probe", "model_dir": job["model_dir"], "omnivoice_version": "0.2.1",
+            "dtype": "float16", "device": "cuda", "engine_lock": job["engine_lock"],
+            "packages": {"numpy": metadata.version("numpy")}, "environment": sys.prefix, "foreign": []}
+
+
+def run_stack_worker(folder: Path, plan: dict, *, offline: bool = True, cancel: bool = False,
+                     hold_lock: bool = False, probe: bool = False) -> tuple[int, list[dict]]:
+    """Start the real worker (through :func:`stack_worker`) in a fresh ``-I`` interpreter; its exit code and events."""
+    launcher, job = stack_worker(folder), (probe_job(folder) if probe else synth_job(folder))
+    job_path = folder / "job.json"
+    job_path.write_text(json.dumps(job), encoding="utf-8")
+    if cancel:
+        Path(job["cancel_file"]).write_text("cancel", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k.upper() not in OFFLINE}
+    env.update(OFFLINE if offline else {})
+    env["ACT_FAKE_STACK"] = json.dumps(plan)
+    lock = rt.FileLock(Path(job["engine_lock"])) if hold_lock else None
+    try:
+        if lock is not None:
+            assert lock.acquire()
+        done = subprocess.run([sys.executable, "-I", str(launcher), str(job_path)], capture_output=True, text=True,
+                              env=env, cwd=str(folder), timeout=120,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    finally:
+        if lock is not None:
+            lock.release()
+    events = [json.loads(line[len("@@EVENT "):]) for line in done.stdout.splitlines() if line.startswith("@@EVENT ")]
+    return done.returncode, events
+
+
+def test_the_stand_in_stack_lets_the_real_worker_render_so_its_failures_are_not_for_a_wrong_reason(tmp_path):
+    """The positive control for the R1 matrix below: with nothing failing, the real worker loads the stand-ins (never
+    the app's real PyTorch), renders its chunk and ends ``done``."""
+    code, events = run_stack_worker(tmp_path, {})
+    assert code == 0 and [e["event"] for e in events] == ["loaded", "chunk", "done"], events
+    assert events[0]["device_name"] == "Stand-in GPU" and (tmp_path / "chunks" / "chunk-0001.wav").is_file()
+
+
+@pytest.mark.parametrize("plan, stage, kind, condemns", [
+    (DLL_193, "import", "OSError", True),         # the independent review's reproduction: a damaged torch_cpu.dll
+    (DLL_126, "import", "OSError", True),         # a native library missing from the package
+    ({"at": "omnivoice", "kind": "importerror", "text": "cannot import name 'OmniVoice' from 'omnivoice'"},
+     "import", "ImportError", True),
+    ({"at": "torch", "kind": "modulenotfound", "text": "No module named 'torch._C'"}, "import", "ModuleNotFoundError",
+     True),
+    ({"at": "omnivoice", "kind": "runtimeerror", "text": "a dependency of OmniVoice failed to initialise"},
+     "import", "RuntimeError", True),
+    (PAGING_1455, "memory", "OSError", False),    # Windows' commit limit while loading a CUDA library: not the files
+    ({"at": "torch", "kind": "memoryerror"}, "memory", "MemoryError", False),
+    (SAC_4551, "import", "OSError", False),       # Smart App Control: Windows' own refusal, which a rebuild cannot change
+    (NETWORK_AT_IMPORT, "network", "NetworkRefused", False),
+    ({"at": "omnivoice", "kind": "wrapped-network"}, "network", "RuntimeError", False),
+], ids=["dll-193", "dll-126", "importerror", "modulenotfound", "init-runtimeerror", "paging-1455", "memoryerror",
+        "smart-app-control", "network", "wrapped-network"])
+def test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened(tmp_path, plan, stage, kind,
+                                                                                         condemns):
+    """R1: a conversion's startup imports are classified as the installer's probe classifies its own -- by stage, not
+    by the exception's kind -- so a native library Windows will not load (an ``OSError``) reaches the rebuild decision,
+    while running out of memory, Smart App Control and the network guard never do. The original exception's type opens
+    the message, its Windows error number travels with it and a bounded traceback is kept."""
+    code, events = run_stack_worker(tmp_path, plan)
+    assert code == 2 and len(events) == 1, events
+    event = events[0]
+    assert (event["event"], event["stage"]) == ("failed", stage), event
+    assert event["message"].split(":", 1)[0] == kind, event["message"]
+    if "winerror" in plan:
+        assert event["winerror"] == plan["winerror"]
+        if sys.platform == "win32":
+            assert f"[WinError {plan['winerror']}]" in event["message"]
+    if stage in ("import", "memory"):
+        trace = event["trace"]
+        assert 0 < len(trace) <= 1500 and trace.strip().splitlines()[-1].startswith(kind), trace[-300:]
+    assert ov.failure_needs_rebuild(event) is condemns
+    assert not (tmp_path / "chunks").exists(), "nothing was rendered"
+
+
+@pytest.mark.parametrize("plan, options, terminal, stage", [
+    ({"at": "load", "kind": "oserror", "winerror": 126, "text": "The specified module could not be found."}, {},
+     "failed", "load"),
+    ({"at": "generate", "kind": "oserror", "winerror": 5, "text": "Access is denied."}, {}, "failed", "generate"),
+    ({"at": "generate", "kind": "runtimeerror", "text": "CUDA out of memory. Tried to allocate 2.00 GiB"}, {},
+     "failed", "generate"),
+    ({"gpu": False}, {}, "failed", "load"),
+    ({}, {"cancel": True}, "canceled", None),
+    ({}, {"hold_lock": True}, "failed", "engine"),
+    ({}, {"offline": False}, "failed", "job"),
+], ids=["load-oserror", "generate-oserror", "cuda-oom", "no-gpu", "cancel", "busy-engine", "job-refused"])
+def test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine(tmp_path, plan, options,
+                                                                                    terminal, stage):
+    """R1's exclusions, on the real worker: an ``OSError`` while the model loads or speech is generated, CUDA out of
+    memory, no usable GPU, a cancellation, a busy engine and a refused job each keep their own answer."""
+    code, events = run_stack_worker(tmp_path, plan, **options)
+    event = events[-1]
+    assert event["event"] == terminal and event.get("stage") == stage, events
+    assert code == (130 if terminal == "canceled" else 2)
+    if plan.get("kind") == "runtimeerror":
+        assert event["oom"] is True
+    if plan.get("gpu") is False:
+        assert event["gpu"] is False
+    assert not ov.failure_needs_rebuild(event), event
+
+
+@pytest.mark.parametrize("plan, stage, damaging", [
+    (DLL_193, "import", True),
+    (PAGING_1455, "memory", False),
+    (SAC_4551, "import", False),              # the installer retries it, then does not hold it against the files
+    (NETWORK_AT_IMPORT, "network", False),
+    ({}, "gpu", False),                       # past the imports: the stand-in has no CUDA kernel to run
+], ids=["dll-193", "paging-1455", "smart-app-control", "network", "past-the-imports"])
+def test_the_installer_s_proof_classifies_its_imports_with_the_same_rule(tmp_path, plan, stage, damaging):
+    """R1, the probe side: the installer's proof (``run_probe``) uses the same ``import_failure`` as a conversion, so
+    running out of memory or the network guard no longer condemns a freshly built engine, while a library Windows will
+    not load still does."""
+    from tts import omnivoice_setup as ovs
+
+    code, events = run_stack_worker(tmp_path, plan, probe=True)
+    (event,) = events
+    assert code == 2 and (event["event"], event["stage"]) == ("failed", stage), event
+    refused = ovs.ProofFailed(f"The OmniVoice voice engine did not pass its check: {event['message']}", stage=stage)
+    assert ovs.speaks_against_environment(refused) is damaging
+
+
+def test_a_native_library_that_will_not_load_at_conversion_is_recorded_and_publishes_nothing(fake, monkeypatch,
+                                                                                            tmp_path):
+    """R1 end to end: the conversion path with the REAL worker, whose PyTorch library fails to load as Windows' loader
+    fails it (``OSError``, WinError 193). The engine is recorded as damaged, the person is told the repair is offered,
+    and no MP3 is published -- an existing one is left alone. Out of memory, Smart App Control and the network guard
+    fail the file too, with their own sentence, and record nothing."""
+    model = tmp_path / "model"
+    (model / "audio_tokenizer").mkdir(parents=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "audio_tokenizer" / "config.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(ov, "model_dir", lambda: model)
+    for name, value in OFFLINE.items():
+        monkeypatch.setenv(name, value)
+    recorded: list[str] = []
+    monkeypatch.setattr(ov, "reject_ready_engine", lambda reason: recorded.append(reason) or True)
+    launcher = stack_worker(tmp_path / "real-worker")
+    destination = fake.tmp / "story.mp3"
+    destination.write_bytes(b"THE OWNER'S EARLIER FILE")
+
+    monkeypatch.setenv("ACT_FAKE_STACK", json.dumps(DLL_193))
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(text=PARAGRAPHS, script=launcher)
+    assert len(recorded) == 1 and recorded[0].startswith("OSError") and "torch_cpu.dll" in recorded[0]
+    assert "failed while starting the voice engine: OSError" in str(failed.value)
+    assert str(failed.value).endswith(osy.REPAIR_OFFERED_NOTE)
+
+    for plan, words in ((PAGING_1455, "did not have enough memory"), (SAC_4551, "Application Control policy"),
+                        (NETWORK_AT_IMPORT, "tried to use the network")):
+        monkeypatch.setenv("ACT_FAKE_STACK", json.dumps(plan))
+        with pytest.raises(osy.OmniVoiceFailed, match=words) as failed:
+            fake.convert(text=PARAGRAPHS, script=launcher)
+        assert osy.REPAIR_OFFERED_NOTE not in str(failed.value) and "look damaged" not in str(failed.value)
+    assert len(recorded) == 1, "only the damaged library condemned the engine"
+    assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
+    assert sorted(p.name for p in fake.tmp.glob("story*")) == ["story.mp3", "story.txt"], "no partial output"
 
 
 def test_an_unavailable_voice_stops_before_anything_is_prepared_or_started(fake):

@@ -13,10 +13,19 @@ door for every test; these tests inject the elevated runner and the registry rea
   a failing or reverted registry write -- comes back as a sentence with nothing retried and nothing else changed;
 * a registry value of 1 is not proof: setup goes on only after a fresh process shows that long paths work, says
   "restart Windows" when they do not yet, and starts again in a new process after a successful change;
-* the README's path-length section says what the code enforces.
+* the README's path-length section says what the code enforces;
+* (v0.8.0 independent review R2) every length is counted as Windows counts it, in UTF-16 units: a folder holding a
+  character beyond the Basic Multilingual Plane (U+1F4DA) is refused where Python's ``len()`` would have let it pass,
+  at all four limits, in the offers, the messages and the fresh-process proof's depths.
+
+Containment (v0.8.0 independent review R3). The decision tests use **synthetic** Windows paths
+(:func:`synthetic_folder`, e.g. ``C:\\aaa...``): strings only, never created. Every write-capable filesystem operation
+on any of them is refused before it happens for the whole module (``write_tripwire``), and the probe stand-in given a
+synthetic root touches no filesystem at all. Only the tests that need real files use one, the test's own ``tmp_path``
+(pytest's fixture-owned scratch), and their stand-in checks that it writes nowhere else.
 
 The first-run window is the real one (``run_with_gui``), run as a Toplevel of the suite's interpreter as
-``test_first_run_setup_close.py`` does. The probe itself runs for real once, in the test's own folder.
+``test_first_run_setup_close.py`` does. The probe itself runs for real, in the test's own folder.
 """
 
 from __future__ import annotations
@@ -53,10 +62,52 @@ README = (REPO / "README.md").read_text(encoding="utf-8")
 APP = lp.limits_from(bootstrap.DEEPEST_NATIVE_LIBRARY_CHARS, bootstrap.DEEPEST_FILE_CHARS)
 OMNI = lp.OMNIVOICE_LIMITS
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows long paths exist on Windows only")
+#: A character beyond the Basic Multilingual Plane: one Python code point, two UTF-16 units (two Windows "characters").
+BOOK = "\U0001f4da"
+WIDE_COUNTS = (0, 1, 2, 4, 8)
 
 
-def folder(length: int) -> str:
-    return "C:\\" + "a" * (length - 3)
+def utf16(text: str) -> int:
+    """The test's own, independent count of Windows units (never the code under test's)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def synthetic_folder(length: int, wide: int = 0) -> str:
+    """A SYNTHETIC Windows folder path *length* UTF-16 units long, ending in *wide* copies of :data:`BOOK`.
+
+    A string for the decision logic only: it is never created, and every write under it is refused (see
+    :func:`synthetic_roots_are_never_written`). Tests that need real files use their own ``tmp_path``."""
+    path = "C:\\" + "a" * (length - 3 - 2 * wide) + BOOK * wide
+    assert utf16(path) == length and len(path) == length - wide, (length, wide)
+    return path
+
+
+#: Every synthetic root this module can build. Armed for every test: a write under any of them is refused BEFORE it
+#: happens (and fails the test), so no test here can create or remove anything at the root of a drive.
+SYNTHETIC_ROOTS = tuple(Path(synthetic_folder(n, k)) for k in WIDE_COUNTS for n in range(4 + 2 * k, 301))
+
+
+class SyntheticWriteGuard:
+    """What :func:`synthetic_roots_are_never_written` yields. Only the negative control sets ``expect_refusal``."""
+
+    expect_refusal = False
+
+
+@pytest.fixture(autouse=True)
+def synthetic_roots_are_never_written():
+    """R3: refuse, at the write itself, any filesystem write under a synthetic root, and fail the test if one was even
+    attempted. (The original ``proof`` stand-in made real folders below ``C:\\aaa...`` and left their parents behind.)
+    A test that deliberately attempts one (the negative control) says so, and must then have been refused."""
+    import write_tripwire
+
+    guard = SyntheticWriteGuard()
+    with write_tripwire.armed(SYNTHETIC_ROOTS) as attempts:
+        yield guard
+    if guard.expect_refusal:
+        assert attempts, "the negative control's write below a synthetic root was not refused"
+    elif attempts:
+        pytest.fail("this test attempted to write below a synthetic root (refused before anything changed): "
+                    + "; ".join(f"{event} {path}" for event, path in attempts[:5]))
 
 
 # --------------------------------------------------------------------------- the limits themselves
@@ -94,30 +145,30 @@ def test_the_tested_limits_are_the_ones_the_installer_enforces_and_one_set_of_nu
 ])
 def test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries(
         length, enabled, app_fits, omnivoice_fits, app_offer, omnivoice_offer):
-    found = lp.assess(folder(length), APP, enabled=enabled)
-    assert found.length == length and found.folder == folder(length)
+    found = lp.assess(synthetic_folder(length), APP, enabled=enabled)
+    assert found.length == length and found.folder == synthetic_folder(length)
     assert (found.app_fits, found.omnivoice_fits) == (app_fits, omnivoice_fits)
     assert (found.app_offer, found.omnivoice_offer) == (app_offer, omnivoice_offer)
     assert found.needs_long_paths is (length > APP.default)
     # the offer never contradicts the depth rules: it exists only where the rule refuses now and accepts with long paths
     if app_offer:
-        assert bootstrap.install_path_problem(folder(length), long_paths=False)
-        assert bootstrap.install_path_problem(folder(length), long_paths=True) == ""
+        assert bootstrap.install_path_problem(synthetic_folder(length), long_paths=False)
+        assert bootstrap.install_path_problem(synthetic_folder(length), long_paths=True) == ""
     if omnivoice_offer:
-        assert ov.install_depth_problem(folder(length), long_paths=False)
-        assert ov.install_depth_problem(folder(length), long_paths=True) == ""
+        assert ov.install_depth_problem(synthetic_folder(length), long_paths=False)
+        assert ov.install_depth_problem(synthetic_folder(length), long_paths=True) == ""
 
 
 def test_a_folder_too_long_even_with_long_paths_is_told_to_move_and_never_offered_the_change(monkeypatch):
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
-    too_long = folder(APP.long_paths + 1)
+    too_long = synthetic_folder(APP.long_paths + 1)
     message = bootstrap.install_path_problem(too_long, long_paths=False)
     assert "would not be enough" in message and lp.SHORT_FOLDER_EXAMPLE in message
     assert "Or switch on Windows long paths" not in message
     assert not lp.assess(too_long, APP, enabled=False).app_offer
     # ...and it is still refused once long paths ARE on: enabling them is never a way round the rule
     assert bootstrap.install_path_problem(too_long, long_paths=True)
-    within = bootstrap.install_path_problem(folder(APP.long_paths), long_paths=False)
+    within = bootstrap.install_path_problem(synthetic_folder(APP.long_paths), long_paths=False)
     assert "Or switch on Windows long paths" in within and lp.README_SECTION in within
     assert "would not be enough" not in within
     assert "long paths" not in bootstrap.install_path_problem(too_long, long_paths=True).lower().replace(
@@ -125,10 +176,120 @@ def test_a_folder_too_long_even_with_long_paths_is_told_to_move_and_never_offere
 
 
 def test_the_omnivoice_refusal_names_the_manual_way_only_where_it_would_help():
-    helped = ov.install_depth_problem(folder(OMNI.default + 1), long_paths=False)
+    helped = ov.install_depth_problem(synthetic_folder(OMNI.default + 1), long_paths=False)
     assert "Or switch on Windows long paths" in helped and lp.README_SECTION in helped and str(OMNI.long_paths) in helped
-    assert "Or switch on" not in ov.install_depth_problem(folder(OMNI.long_paths + 1), long_paths=False)
-    assert "Or switch on" not in ov.install_depth_problem(folder(OMNI.long_paths + 1), long_paths=True)
+    assert "Or switch on" not in ov.install_depth_problem(synthetic_folder(OMNI.long_paths + 1), long_paths=False)
+    assert "Or switch on" not in ov.install_depth_problem(synthetic_folder(OMNI.long_paths + 1), long_paths=True)
+
+
+# --------------------------------------------------------------------------- R2: lengths as Windows counts them
+@pytest.fixture
+def as_windows(monkeypatch):
+    """The depth rules answer only on Windows; these pure checks are given the setting, so nothing is read."""
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    monkeypatch.setattr(ov.sys, "platform", "win32")
+
+
+def test_a_path_is_measured_in_utf16_units_the_unit_of_every_windows_limit():
+    assert lp.windows_length("C:\\AudiobookTool") == len("C:\\AudiobookTool") == 16
+    assert lp.windows_length("C:\\Users\\Zoë\\中文") == len("C:\\Users\\Zoë\\中文"), "the BMP: one unit each"
+    assert (len("C:\\" + BOOK), lp.windows_length("C:\\" + BOOK)) == (4, 5), "beyond it: two units"
+    assert lp.windows_length("C:\\" + BOOK * 8 + "\\x") == 3 + 16 + 2
+    assert lp.windows_length(Path("C:/books") / BOOK) == utf16(str(Path("C:/books") / BOOK))
+    assert lp.windows_length("C:\\a\udc80") == 5, "an unpaired surrogate (an undecodable name) is one unit, no error"
+    assert bootstrap._windows_length is lp.windows_length, "setup counts with the same one helper"
+
+
+LIMITS = [("app", False, 87), ("app", True, 123), ("omnivoice", False, 83), ("omnivoice", True, 119)]
+
+
+def depth_rule(engine: str):
+    return bootstrap.install_path_problem if engine == "app" else ov.install_depth_problem
+
+
+@pytest.mark.parametrize("engine, enabled, limit", LIMITS, ids=["app-87", "app-123", "omnivoice-83", "omnivoice-119"])
+def test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length(as_windows, engine, enabled, limit):
+    """R2: the four documented limits are unchanged, and are limits in Windows units. ASCII at the boundary passes and
+    one past it is refused, as before; a folder whose code points would sit AT the limit while its UTF-16 units are
+    past it -- one, two, four or eight U+1F4DA -- is refused with its real Windows length; the same characters exactly
+    at the limit in Windows units still pass (no over-refusal)."""
+    assert limit == getattr(APP if engine == "app" else OMNI, "long_paths" if enabled else "default")
+    rule = depth_rule(engine)
+    assert rule(synthetic_folder(limit), long_paths=enabled) == ""
+    assert rule(synthetic_folder(limit + 1), long_paths=enabled)
+    for wide in (1, 2, 4, 8):
+        at = synthetic_folder(limit, wide)
+        assert rule(at, long_paths=enabled) == "", f"{wide} x U+1F4DA exactly at {limit} units"
+        over = synthetic_folder(limit + wide, wide)
+        assert len(over) == limit and utf16(over) == limit + wide, "Python's count would have accepted it"
+        message = rule(over, long_paths=enabled)
+        assert message, f"{wide} x U+1F4DA passed at {limit + wide} Windows units"
+        said = f"({limit + wide} characters;" if engine == "app" else f"path is {limit + wide} characters long"
+        assert said in message and f"{limit} or fewer" in message, message
+        for path, fits in ((at, True), (over, False)):
+            found = lp.assess(path, APP, enabled=enabled)
+            assert found.length == utf16(path)
+            assert (found.app_fits if engine == "app" else found.omnivoice_fits) is fits
+
+
+@pytest.mark.parametrize("length, wide, app_offer, omnivoice_offer", [
+    (APP.default, 1, False, True),            # 87 units: the app fits; only OmniVoice would need long paths
+    (APP.default + 1, 1, True, False),        # len() 87 would have fitted; 88 units needs long paths, and they help
+    (APP.long_paths, 4, True, False),         # 123 units: long paths would still be enough
+    (APP.long_paths + 1, 1, False, False),    # len() 123 would have been offered; 124 units: no change can help
+    (OMNI.default + 1, 1, False, True),       # 84 units (len() 83): only OmniVoice, and long paths would help it
+    (OMNI.long_paths + 1, 1, True, False),    # 120 units (len() 119): the app is offered; OmniVoice not even then
+], ids=["87-omnivoice-only", "88-app", "123-app", "124-nothing", "84-omnivoice-only", "120-app-only"])
+def test_the_long_path_offer_is_made_only_where_it_could_help_counted_as_windows_counts(
+        as_windows, length, wide, app_offer, omnivoice_offer):
+    path = synthetic_folder(length, wide)
+    found = lp.assess(path, APP, enabled=False)
+    assert found.length == length and (found.app_offer, found.omnivoice_offer) == (app_offer, omnivoice_offer)
+    assert found.needs_long_paths is (length > APP.default)
+    if app_offer:   # the offer never contradicts the depth rule, in the same unit
+        assert bootstrap.install_path_problem(path, long_paths=False)
+        assert bootstrap.install_path_problem(path, long_paths=True) == ""
+    if omnivoice_offer:
+        assert ov.install_depth_problem(path, long_paths=False)
+        assert ov.install_depth_problem(path, long_paths=True) == ""
+    if length > APP.long_paths:
+        message = bootstrap.install_path_problem(path, long_paths=False)
+        assert "would not be enough" in message and "Or switch on" not in message
+    page = lp.offer_text(found, omnivoice_only=omnivoice_offer)
+    assert f"whose path is {length} characters long" in page["body"], "the page states the Windows length"
+
+
+def test_the_fresh_process_proof_is_asked_at_depths_counted_in_the_same_unit(as_windows, monkeypatch):
+    """R2: where code points say "no long paths needed" but Windows units say otherwise, the fresh-process proof is
+    asked, at depths measured in Windows units; ASCII exactly at the ordinary limit is never probed."""
+    asked = []
+
+    def spawn(python, base, file_chars, native_chars, timeout_s):
+        asked.append((base, file_chars, native_chars))  # a stand-in: it touches no filesystem
+        return dict(WORKS)
+
+    monkeypatch.setattr(lp, "_spawn_probe", spawn)
+    assert bootstrap.long_path_runtime_problem(Lines(), synthetic_folder(APP.default)) == "" and asked == []
+    wide = synthetic_folder(APP.default + 2, 2)
+    assert len(wide) == APP.default, "within the ordinary limit by Python's count: the proof used to be skipped"
+    assert bootstrap.long_path_runtime_problem(Lines(), wide) == ""
+    (base, file_chars, native_chars), = asked
+    deepest = max(bootstrap.DEEPEST_FILE_CHARS, ov.DEEPEST_FILE_CHARS)
+    units = APP.default + 2
+    assert (file_chars, native_chars) == (units + deepest, units + bootstrap.DEEPEST_NATIVE_LIBRARY_CHARS)
+    assert base.startswith(wide) and not os.path.lexists(base)
+
+
+def test_a_wide_folder_is_not_waved_through_the_proof_by_a_code_point_count():
+    """R2: 83 code points but 87 Windows units: with the installation's deepest file (176) that is past 259, so long
+    paths are needed -- and a new process without them is a refusal, not a pass."""
+    root = synthetic_folder(87, 4)
+    assert len(root) + 176 <= lp.WINDOWS_MAX_PATH < utf16(root) + 176
+    result, seen = proof(root, dict(WORKS, process_long_paths=False), setting=False)
+    assert not result.ok and not result.restart_needed and "not switched on" in result.message
+    (_python, _base, file_chars, native_chars), = seen
+    assert (file_chars, native_chars) == (87 + 176, 87 + 136)
+    assert (result.facts["file_chars"], result.facts["native_chars"]) == (file_chars, native_chars)
 
 
 # --------------------------------------------------------------------------- reading the setting
@@ -294,28 +455,35 @@ def test_the_real_elevated_runner_is_shut_for_the_whole_suite(on_windows):
 WORKS = {"process_long_paths": True, "file": {"ok": True}, "pip": {"ok": True}, "native": {"ok": True}}
 
 
-def proof(tmp_path, facts, *, setting=True, deepest_file=176, deepest_native=136, root=None):
+def proof(root, facts, *, scratch=None, setting=True, deepest_file=176, deepest_native=136):
+    """``verify_runtime`` on *root* with a stand-in for the fresh-process probe; the result and what it was asked.
+
+    R3: *root* is SYNTHETIC unless *scratch* -- the test's own ``tmp_path`` -- is given. A synthetic root gets a
+    stand-in that touches no filesystem at all (and the module's tripwire refuses any write under it). Only inside
+    *scratch* does the stand-in leave what an interrupted real probe leaves (its folder and a file), and it first
+    checks that this folder really is inside that scratch."""
     seen = []
 
     def spawn(python, base, file_chars, native_chars, timeout_s):
         seen.append((python, base, file_chars, native_chars))
-        Path(base).mkdir(parents=True)            # what a real probe leaves when it is interrupted
-        (Path(base) / "left-behind.txt").write_text("x", encoding="utf-8")
+        if scratch is not None:
+            assert Path(base).resolve().is_relative_to(Path(scratch).resolve()), f"{base} is outside {scratch}"
+            Path(base).mkdir(parents=True)            # what a real probe leaves when it is interrupted
+            (Path(base) / "left-behind.txt").write_text("x", encoding="utf-8")
         return facts
 
-    root = root or tmp_path
     result = lp.verify_runtime(root, deepest_file=deepest_file, deepest_native=deepest_native, python="base-python",
                                spawn=spawn, read=lambda: setting)
     return result, seen
 
 
 def test_the_proof_asks_a_new_process_at_the_installation_s_real_depth_and_removes_what_it_made(tmp_path):
-    result, seen = proof(tmp_path, dict(WORKS))
+    result, seen = proof(tmp_path, dict(WORKS), scratch=tmp_path)
     assert result.ok and not result.restart_needed
     (python, base, file_chars, native_chars), = seen
     assert python == "base-python"
     assert Path(base).parent == tmp_path / "files" / "runtime-data" and Path(base).name.startswith(lp.PROBE_PREFIX)
-    assert (file_chars, native_chars) == (len(str(tmp_path)) + 176, len(str(tmp_path)) + 136)
+    assert (file_chars, native_chars) == (utf16(str(tmp_path)) + 176, utf16(str(tmp_path)) + 136)
     assert list((tmp_path / "files" / "runtime-data").iterdir()) == [], "its own folder is removed again"
 
 
@@ -326,9 +494,70 @@ def test_the_proof_removes_only_the_one_folder_it_made(tmp_path):
     earlier.mkdir(parents=True)
     (earlier / "somebody-elses.txt").write_text("keep", encoding="utf-8")
     (data / "settings.json").write_text("{}", encoding="utf-8")
-    result, _seen = proof(tmp_path, dict(WORKS))
+    result, _seen = proof(tmp_path, dict(WORKS), scratch=tmp_path)
     assert result.ok and (earlier / "somebody-elses.txt").read_text(encoding="utf-8") == "keep"
     assert sorted(entry.name for entry in data.iterdir()) == [lp.PROBE_PREFIX + "earlier0", "settings.json"]
+
+
+class Interrupted(BaseException):
+    """The person closing setup while the check runs (not an ``Exception``: nothing on the way may swallow it)."""
+
+
+def test_an_interrupted_or_failed_probe_has_its_one_folder_removed_and_nothing_else(tmp_path):
+    """The failure and interruption paths: whatever ends the probe early, ``verify_runtime`` removes the folder it
+    made, keeps everything else, and lets the interruption through."""
+    data = tmp_path / "files" / "runtime-data"
+    data.mkdir(parents=True)
+    (data / "settings.json").write_text("{}", encoding="utf-8")
+    for ending in (Interrupted(), RuntimeError("the check crashed")):
+        made = []
+
+        def spawn(python, base, file_chars, native_chars, timeout_s):
+            assert Path(base).resolve().is_relative_to(tmp_path.resolve())
+            Path(base).mkdir(parents=True)
+            (Path(base) / "half-written.txt").write_text("x", encoding="utf-8")
+            made.append(base)
+            raise ending
+
+        with pytest.raises(type(ending)):
+            lp.verify_runtime(tmp_path, deepest_file=176, deepest_native=136, python="p", spawn=spawn,
+                              read=lambda: True)
+        assert len(made) == 1 and not os.path.lexists(made[0])
+        assert sorted(entry.name for entry in data.iterdir()) == ["settings.json"]
+
+
+def old_stand_in(asked: list):
+    """The probe stand-in as it was before R3: it made the probe's folder wherever ``verify_runtime`` put it."""
+    def spawn(python, base, file_chars, native_chars, timeout_s):
+        asked.append(base)
+        Path(base).mkdir(parents=True)
+        (Path(base) / "left-behind.txt").write_text("x", encoding="utf-8")
+        return dict(WORKS)
+    return spawn
+
+
+@pytest.mark.parametrize("length, wide", [(100, 0), (60, 0), (150, 1)])
+def test_negative_control_the_old_stand_in_is_refused_before_it_writes_below_a_synthetic_root(
+        synthetic_roots_are_never_written, tmp_path, length, wide):
+    """R3's negative control. The stand-in as it was, pointed at the synthetic roots the old tests used (100 and 60
+    characters) and at one no earlier run can have made, is refused by this module's guard BEFORE anything is
+    created; the guard records the attempt (checked when the test ends). The same stand-in in the test's own scratch
+    -- the no-change control -- writes, and ``verify_runtime`` removes exactly the folder it made."""
+    root = synthetic_folder(length, wide)
+    existed = os.path.lexists(root)  # read only: leftovers of earlier runs are never touched, let alone removed
+    synthetic_roots_are_never_written.expect_refusal = True
+    asked: list = []
+    with pytest.raises(PermissionError, match="write tripwire"):
+        lp.verify_runtime(root, deepest_file=176, deepest_native=136, python="p", spawn=old_stand_in(asked),
+                          read=lambda: True)
+    assert len(asked) == 1 and Path(asked[0]).is_relative_to(Path(root))
+    assert not os.path.lexists(asked[0]) and os.path.lexists(root) is existed, "nothing was created or removed"
+
+    asked.clear()
+    result = lp.verify_runtime(tmp_path, deepest_file=176, deepest_native=136, python="p", spawn=old_stand_in(asked),
+                               read=lambda: True)
+    assert result.ok and Path(asked[0]).parent == tmp_path / "files" / "runtime-data"
+    assert list((tmp_path / "files" / "runtime-data").iterdir()) == []
 
 
 def test_a_probe_that_made_nothing_leaves_nothing_to_remove_and_nothing_is_attempted(tmp_path, monkeypatch):
@@ -339,18 +568,18 @@ def test_a_probe_that_made_nothing_leaves_nothing_to_remove_and_nothing_is_attem
     assert result.ok and not (tmp_path / "files").exists()
 
 
-def test_a_value_of_1_that_new_processes_do_not_have_yet_means_restart_windows(tmp_path):
+def test_a_value_of_1_that_new_processes_do_not_have_yet_means_restart_windows():
     facts = dict(WORKS, process_long_paths=False, file={"ok": False, "error": "FileNotFoundError"})
-    result, _seen = proof(tmp_path, facts, setting=True, root=folder(100))
+    result, _seen = proof(synthetic_folder(100), facts, setting=True)
     assert not result.ok and result.restart_needed
     assert result.message == lp.RESTART_MESSAGE and "Restart Windows" in result.message
     assert "Nothing was installed" in result.message
 
 
-def test_a_setting_that_reads_off_again_is_not_a_restart_question(tmp_path):
+def test_a_setting_that_reads_off_again_is_not_a_restart_question():
     """A managed computer put it back: the new process has no long paths and the value reads off."""
     facts = dict(WORKS, process_long_paths=False, file={"ok": False})
-    result, _seen = proof(tmp_path, facts, setting=False, root=folder(100))
+    result, _seen = proof(synthetic_folder(100), facts, setting=False)
     assert not result.ok and not result.restart_needed
     assert "not switched on" in result.message and lp.SHORT_FOLDER_EXAMPLE in result.message
 
@@ -360,22 +589,22 @@ def test_a_setting_that_reads_off_again_is_not_a_restart_question(tmp_path):
     ("pip", "a package could not be installed"),
     ("native", "a program library could not be loaded"),
 ])
-def test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup(tmp_path, broken, words):
+def test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup(broken, words):
     facts = dict(WORKS)
     facts[broken] = {"ok": False, "error": "WinError 206"}
-    result, _seen = proof(tmp_path, facts, root=folder(100))
+    result, _seen = proof(synthetic_folder(100), facts)
     assert not result.ok and words in result.message and "WinError 206" in result.message
     assert "Nothing was installed" in result.message
 
 
-def test_a_probe_that_cannot_run_or_answer_is_a_refusal_not_a_pass(tmp_path):
-    result, _seen = proof(tmp_path, {"error": "the check gave no answer (exit 1)"}, root=folder(100))
+def test_a_probe_that_cannot_run_or_answer_is_a_refusal_not_a_pass():
+    result, _seen = proof(synthetic_folder(100), {"error": "the check gave no answer (exit 1)"})
     assert not result.ok and "could not check" in result.message
 
 
-def test_where_the_depth_stays_within_windows_ordinary_limit_long_paths_are_not_demanded(tmp_path):
+def test_where_the_depth_stays_within_windows_ordinary_limit_long_paths_are_not_demanded():
     facts = dict(WORKS, process_long_paths=False)
-    result, _seen = proof(tmp_path, facts, setting=False, root=folder(60), deepest_file=172)
+    result, _seen = proof(synthetic_folder(60), facts, setting=False, deepest_file=172)
     assert result.ok, "60 + 172 is within 259: nothing here needs long paths"
 
 
@@ -385,7 +614,7 @@ def test_the_real_probe_writes_installs_and_loads_at_the_asked_depth_in_its_own_
     exact path length. Past Windows' ordinary limit the file and the package need long paths in THIS process and must
     say so truthfully either way; a native library is only asked for within the limit, where it must load."""
     base = str(tmp_path / "p")
-    within = min(lp.WINDOWS_MAX_PATH, len(base) + 110)
+    within = min(lp.WINDOWS_MAX_PATH, utf16(base) + 110)
     facts = lp._probe(base, within, within)
     assert facts["file"] == {"ok": True, "chars": within}
     assert facts["pip"] == {"ok": True, "chars": within}, facts["pip"]
@@ -401,9 +630,22 @@ def test_the_real_probe_writes_installs_and_loads_at_the_asked_depth_in_its_own_
 
 
 @windows_only
+def test_the_real_probe_measures_a_folder_with_wide_characters_in_windows_units(tmp_path):
+    """R2, for real: below a folder whose name holds two U+1F4DA, the probe's file, package and native library are made
+    at exactly the asked depth in Windows units, and it reports that depth -- in the test's own folder."""
+    base = str(tmp_path / ("w" + BOOK * 2))
+    within = min(lp.WINDOWS_MAX_PATH, utf16(base) + 110)
+    facts = lp._probe(base, within, within)
+    assert facts["file"] == {"ok": True, "chars": within}, facts["file"]
+    assert facts["pip"] == {"ok": True, "chars": within}, facts["pip"]
+    assert facts["native"]["ok"] is True and facts["native"]["chars"] == within, facts["native"]
+    assert not os.path.exists(base), "the probe removes its own folder"
+
+
+@windows_only
 def test_the_probe_runs_as_a_program_in_a_new_process_and_prints_its_facts(tmp_path):
     base = str(tmp_path / "q")
-    within = min(lp.WINDOWS_MAX_PATH, len(base) + 110)
+    within = min(lp.WINDOWS_MAX_PATH, utf16(base) + 110)
     done = subprocess.run([sys.executable, "-I", "-B", lp.__file__, "--probe", base, str(within), str(within)],
                           capture_output=True, text=True, timeout=240)
     assert done.returncode == 0, done.stderr
@@ -422,6 +664,16 @@ def test_a_probe_path_is_exactly_as_long_as_asked(total):
     assert all(0 < len(part) <= 100 for part in made[len(base) + 1:].split("\\")[:-1])
 
 
+@pytest.mark.parametrize("wide", [1, 3])
+@pytest.mark.parametrize("total", [40, 141, 142, 260, 300])
+def test_a_probe_path_below_a_wide_folder_is_exactly_as_long_as_asked_in_windows_units(total, wide):
+    """R2: the fresh-process probe builds its paths to the asked depth in the same unit the limits use."""
+    base = "C:\\some\\b" + BOOK * wide
+    made = lp.path_of_length(base, total, "leaf.pyd")
+    shortest = utf16(base) + 1 + len("leaf.pyd")
+    assert utf16(made) == max(total, shortest) and made.startswith(base + os.sep) and made.endswith("leaf.pyd")
+
+
 # --------------------------------------------------------------------------- setup and repair: the preflight
 class Lines:
     def __init__(self):
@@ -434,9 +686,9 @@ class Lines:
 def test_a_folder_that_does_not_need_long_paths_is_never_probed(monkeypatch):
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
     monkeypatch.setattr(lp, "_spawn_probe", lambda *a: pytest.fail("probed a folder that needs no long paths"))
-    assert bootstrap.long_path_runtime_problem(Lines(), folder(APP.default)) == ""
+    assert bootstrap.long_path_runtime_problem(Lines(), synthetic_folder(APP.default)) == ""
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
-    assert bootstrap.long_path_runtime_problem(Lines(), folder(120)) == ""
+    assert bootstrap.long_path_runtime_problem(Lines(), synthetic_folder(120)) == ""
 
 
 def test_a_folder_that_needs_long_paths_is_proved_at_the_installation_s_depth_before_setup_goes_on(monkeypatch):
@@ -449,10 +701,10 @@ def test_a_folder_that_needs_long_paths_is_proved_at_the_installation_s_depth_be
 
     monkeypatch.setattr(lp, "_spawn_probe", spawn)
     log = Lines()
-    deep = folder(APP.default + 1)
+    deep = synthetic_folder(APP.default + 1)
     assert bootstrap.long_path_runtime_problem(log, deep) == ""
-    assert asked == [(sys.executable, len(deep) + max(bootstrap.DEEPEST_FILE_CHARS, ov.DEEPEST_FILE_CHARS),
-                      len(deep) + bootstrap.DEEPEST_NATIVE_LIBRARY_CHARS)]
+    assert asked == [(sys.executable, utf16(deep) + max(bootstrap.DEEPEST_FILE_CHARS, ov.DEEPEST_FILE_CHARS),
+                      utf16(deep) + bootstrap.DEEPEST_NATIVE_LIBRARY_CHARS)]
     assert any("checked in a new process and working" in line for line in log.lines)
 
 
@@ -460,7 +712,7 @@ def test_setup_and_repair_stop_before_touching_anything_when_long_paths_do_not_r
     """The registry says "on", the depth rule therefore passes, and a new process cannot use long paths: both setup
     and repair refuse with the restart sentence, before the engine lease, before any environment is touched."""
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
-    monkeypatch.setattr(bootstrap, "REPO_ROOT", Path(folder(100)))
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", Path(synthetic_folder(100)))
     monkeypatch.setattr(bootstrap, "windows_long_paths_enabled", lambda: True)
     monkeypatch.setattr(lp, "read_setting", lambda: True)
     monkeypatch.setattr(lp, "_spawn_probe", lambda *a: dict(WORKS, process_long_paths=False, file={"ok": False}))
@@ -475,7 +727,7 @@ def test_setup_and_repair_stop_before_touching_anything_when_long_paths_do_not_r
 
 def test_the_depth_rule_is_asked_first_and_its_refusal_is_never_softened_by_the_probe(monkeypatch):
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
-    monkeypatch.setattr(bootstrap, "REPO_ROOT", Path(folder(APP.long_paths + 1)))
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", Path(synthetic_folder(APP.long_paths + 1)))
     monkeypatch.setattr(bootstrap, "windows_long_paths_enabled", lambda: True)
     monkeypatch.setattr(lp, "_spawn_probe", lambda *a: pytest.fail("the probe was asked about a refused folder"))
     monkeypatch.setattr(bootstrap, "_take_engine_lease", lambda *a, **k: pytest.fail("setup went ahead"))
@@ -504,7 +756,7 @@ def window_at(monkeypatch, tk_root, setup_log, native_theme):
         real_assess = lp.assess
         seen = {"setup": [], "relaunch": 0, "changes": 0, "proofs": 0, "exit": None}
         monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
-        monkeypatch.setattr(lp, "assess", lambda root, app, **k: real_assess(folder(length), app, enabled=enabled))
+        monkeypatch.setattr(lp, "assess", lambda root, app, **k: real_assess(synthetic_folder(length), app, enabled=enabled))
 
         def fake_enable(*, window=0):
             seen["changes"] += 1
@@ -545,7 +797,7 @@ def test_a_folder_too_deep_for_default_windows_is_shown_the_two_ways_forward_bef
 
     seen = window_at(100, False, script)
     text = shown["text"]
-    assert "too long for Windows as it is set up" in text and "100 characters" in text and folder(100) in text
+    assert "too long for Windows as it is set up" in text and "100 characters" in text and synthetic_folder(100) in text
     assert f"{APP.default} characters or fewer" in text and f"limit of {APP.long_paths}" in text
     assert "A. Move the app to a shorter folder (recommended)" in text and lp.SHORT_FOLDER_EXAMPLE in text
     assert "B. Switch on Windows long paths" in text and "for the whole computer" in text
@@ -741,6 +993,8 @@ def test_the_readme_states_the_limits_the_installer_enforces_for_both_windows_co
     assert f"| \"Enable Win32 long paths\" switched on | {APP.long_paths} characters or fewer | " \
            f"{OMNI.long_paths} characters or fewer |" in text
     assert "this app's own limits, enforced by its setup" in text and "not general Windows limits" in text
+    # R2: the limits are in Windows' own units, and the README says so in words a person can use
+    assert "Windows counts a few characters, such as emoji, as two" in text
     # the limits are measured and enforced; what was installed and run for real is narrower and is said apart
     assert "tested limits" not in text
     assert "measured depth of the deepest files in two real installations" in text

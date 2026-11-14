@@ -1,5 +1,81 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 independent review remediation (R1-R3): all three fixed with positive and negative controls, focused tests PASS; READY for the one canonical Windows full gate, which was NOT run (2026-11-14, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (independent
+review remediation R1-R3). The review itself, `files/dev-work/act080-independent-feca89f-20261114/Independent-Review.md`
+(ignored evidence, FAIL on `feca89f`), is kept unchanged.
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, from `feca89f` (remote checked unchanged before the push; master
+  `dbf38f7` untouched). One commit: five program files, three test files, `coverage.json`, README and the four
+  documents (SHA in the session report). The owner's 17 tracked deletions and untracked files are untouched and
+  unstaged. No AI trailer.
+- **Status, kept apart.** R1, R2, R3: fixed, PASS (focused). Independent review: done (Codex, FAIL on `feca89f`,
+  findings now remediated; no new review started, none requested). Full gate: NOT run (reserved for the next
+  authorized checkpoint). External Windows long-path qualification: still open. Merge, tag, release: not authorized.
+- **R1 (high).** `omnivoice_worker.run_synth` now classifies its startup imports through `import_failure` (the same
+  function `run_probe` uses): a native library Windows will not load (`OSError`, e.g. WinError 193/126) is stage
+  `import`, so the existing `failure_needs_rebuild` / `reject_ready_engine` / Install & Continue repair applies.
+  `MemoryError` or WinError 8/14/1455 there is stage `memory` (never a rebuild; sentence "close other programs and try
+  again"); Smart App Control stays excluded by its mark (and no longer gets the "packages look damaged" hint); the
+  network guard is re-raised, also when wrapped, so it stays stage `network`. Before/after with the review's own
+  method (`files/run-temp/r13/repro_r1.py`): WinError 193 at `import torch` went `stage=worker`, still ready, no repair
+  on `feca89f`; now `stage=import`, broken, repair offered; memory, Smart App Control and model-load controls stay
+  ready on both.
+- **R2 (medium).** One helper, `shared.long_paths.windows_length` (UTF-16 units, standard library, pure), in
+  `bootstrap.install_path_problem`, `long_path_runtime_problem`, `omnivoice_runtime.install_depth_problem`,
+  `long_paths.assess` (offers and the page), `verify_runtime` (proof need and depths), `path_of_length` and the probe's
+  reported lengths. Limits unchanged: 87/123, 83/119. Before/after (`repro_r2.py`): on `feca89f` one U+1F4DA past each
+  limit and eight (95/131/91/127 units) were accepted, a UTF-16-90 folder skipped the fresh-process proof and a
+  120-unit probe path came out at 123; now all refused / proved / exact, and the same characters exactly at each limit
+  are still accepted.
+- **R3 (medium).** `test_long_paths.py`: synthetic paths (`synthetic_folder`) are strings only; the whole module arms
+  `write_tripwire` over every synthetic root it can build, the probe stand-in is filesystem-free for them and checks
+  its folder is inside `tmp_path` otherwise; a negative control shows the old stand-in refused before anything is
+  created; an interruption test shows `verify_runtime` removes only its own folder.
+- **Controls (on the final code).** 15 mutants, each restored byte-identically and each killed: the worker as on
+  `feca89f`; `OSError` not classified; memory counted as damage; the network guard not re-raised; the probe keeping its
+  old rule; the helper and each of six call sites back to `len()`; the README's units clause removed; the exact-boundary
+  off-by-one; the pre-R3 stand-in (refused by the guard, nothing created). The no-change control passed
+  (`files/run-temp/r13/mutants-final.json`). A "guard off" mutant was deliberately not run: it would really write at the
+  drive root.
+- **Tests (focused only; command form `.venv\Scripts\python.exe -I -B -m pytest -q -p no:cacheprovider <files>`, the
+  suite's usual scratch).** (1) The 45 test files that import a changed module, with
+  `test_application_source_boundary.py`, `test_verification_coverage.py` and `test_cleanup_worker.py` (48 files):
+  2,923 passed, 0 failed, 2 skipped (this account cannot create symbolic links; pre-existing). Its first run failed one
+  guard, `test_the_pre_venv_planning_path_is_standard_library_only_and_process_free`: a top-level import made the
+  pre-venv planner load `shared.long_paths` (and `subprocess`, `threading`); the import now sits inside
+  `install_depth_problem`, which the pre-venv estimate never calls, and the unchanged guard passes. (2)
+  `test_long_paths.py` alone: 116 passed (88 before). (3) The 25 files that read the four documents, with
+  `test_long_paths.py`, `test_layout_canary.py`, `test_voice_previews.py`, `test_verification_coverage.py` and
+  `test_application_source_boundary.py`, over these documents (30 files): 1,981 passed, 0 failed, 37 skipped (every skip is the macOS-only geometry
+  check). (4) `inventory.py check`: 0 problems, 277
+  features (the five program files restamped after review; the new symbols mapped; six new tests named in their
+  features). (5) The two guarded groups, run as the gate's `run_group` runs them (its config, `guarded_pytest.py`,
+  `stage4d2d-`/`stage4d2b-` basetemps under `files/dev-work/p05b-stage4c`, no gate mode), because `omnivoice_runtime` is
+  in the v3 planning seam's reviewed `SOURCES` closure: v3-supervisor 75 passed; v3-planning 456 passed and 1 failed
+  on the first run (`test_decline_never_resurrects_final_intention[window-close]`: Tcl could not read its own
+  `init.tcl` at `tk.Tk()`, in unchanged harness code), then 457 passed on the rerun; 0 unintended writes, processes or
+  network refusals both times (`verify-261114160756r13`, `verify-261114163708r13`). Run directly with pytest those v3
+  modules fail by design ("owned Stage-4D2D fixture required"). New R1 tests run the REAL worker in a fresh `-I` interpreter beside stand-in `torch`/`omnivoice`
+  packages: a positive control renders, then ten startup-import failures, seven later failures (load/generate OSError,
+  CUDA out of memory, no GPU, cancel, busy engine, refused job), five probe cases, the conversion end to end (no MP3,
+  existing output untouched) and the nested engine's READY -> BROKEN -> repair-offered transition.
+- **Codex's execution blockers.** Context, not code: here the app environment's Tcl initialises (14 GUI errors were
+  the review sandbox's), the layout tests pass from the real checkout with the suite's usual scratch (the 49 failures
+  were the archived checkout's deliberate depth), and both real pip/native probes pass, the wide-name one included
+  (WinError 206 was that depth). Nothing BLOCKED.
+- **HOME-PC.** Nothing installed, downloaded, elevated or written to the registry; `LongPathsEnabled` read only by the
+  existing read-only test. Protected state, checked read-only at the end: the 18 references and 28 previews are
+  blob-identical to HEAD, the 12 listening MP3s equal their pack report's SHA-256, none of the 203,512 entries under
+  `.venv` (all three environments), `files/runtime-data` (both models, receipts, the set-aside folder, settings) or
+  `config.toml` was modified during the session, and the Codex evidence folder is untouched. The two folders an earlier unrestricted run of
+  the old tests left at the drive root (`C:\` + 97 and 57 `a`, each holding an empty `files\runtime-data`, created
+  2026-11-13 21:21:59) are left exactly as they are for the owner to remove; no test run since created anything there.
+- **Next action.** STOP for ChatGPT/owner review. Then, if accepted, the one canonical full gate
+  (`.venv\Scripts\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows`) on this
+  commit, with Qwen3-level commit headroom first; the external long-path qualification stays required before release.
+
 ## Current checkpoint — v0.8.0 unified `.venv` recovery acceptance closeout: scenario 9 completed on the final program code, PASS; the real Windows long-path switch-on stays an external qualification item (2026-11-14, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (recovery

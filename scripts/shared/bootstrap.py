@@ -1281,6 +1281,8 @@ def windows_long_paths_enabled() -> Optional[bool]:
 #: Read here because ``install_path_problem`` has a parameter named ``long_paths`` (kept: callers pass it by name).
 LONG_PATHS_README_SECTION = long_paths.README_SECTION
 SHORT_FOLDER_EXAMPLE = long_paths.SHORT_FOLDER_EXAMPLE
+#: A folder's length as Windows counts it, in UTF-16 units (v0.8.0 independent review R2): never ``len()``.
+_windows_length = long_paths.windows_length
 
 
 def install_path_problem(root: Optional[Path] = None, *, long_paths: Optional[bool] = None) -> str:
@@ -1292,7 +1294,7 @@ def install_path_problem(root: Optional[Path] = None, *, long_paths: Optional[bo
     if not IS_WINDOWS:
         return ""
     root = Path(REPO_ROOT if root is None else root)
-    length = len(str(root))
+    length = _windows_length(str(root))
     enabled = windows_long_paths_enabled() if long_paths is None else long_paths
     limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY_CHARS if enabled else DEEPEST_FILE_CHARS)
     if length <= limit:
@@ -1340,7 +1342,7 @@ def long_path_runtime_problem(log=None, root: Optional[Path] = None) -> str:
     if not IS_WINDOWS:
         return ""
     root = Path(REPO_ROOT if root is None else root)
-    if len(str(root)) <= WINDOWS_MAX_PATH - DEEPEST_FILE_CHARS:
+    if _windows_length(str(root)) <= WINDOWS_MAX_PATH - DEEPEST_FILE_CHARS:
         return ""  # nothing here can pass Windows' ordinary limit: long paths are not needed
     result = prove_long_paths(root)
     if log is not None:

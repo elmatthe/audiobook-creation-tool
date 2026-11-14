@@ -305,13 +305,17 @@ def failure_message(terminal: dict, *, repair_offered: bool = False) -> str:
                 f"again. ({detail})")
     if terminal.get("gpu") is False:
         return ov.NO_GPU_MESSAGE
+    if stage == "memory":
+        return ("The OmniVoice voice engine could not start because Windows did not have enough memory to load it. "
+                f"Close other programs and try again; the engine itself is unchanged. ({detail})")
     where = {"load": "loading the model and the voice", "generate": "generating speech",
              "import": "starting the voice engine", "network": "starting (it tried to use the network)",
              "worker": "running"}.get(stage, "running")
     message = f"The OmniVoice voice engine failed while {where}: {detail}"
     if repair_offered:
         message += REPAIR_OFFERED_NOTE
-    elif stage == "import" or detail.startswith(("ImportError", "ModuleNotFoundError")):
+    elif (stage == "import" or detail.startswith(("ImportError", "ModuleNotFoundError"))) \
+            and ov.APPLICATION_CONTROL_MARK not in detail:  # Smart App Control's refusal is not damage
         message += " The engine's installed packages look damaged; repair it from the optional voice setup."
     return message
 

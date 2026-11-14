@@ -683,7 +683,12 @@ def install_depth_problem(root: Optional[Path] = None, *, long_paths: Optional[b
     if sys.platform != "win32":
         return ""
     root = Path(repo_root() if root is None else root)
-    length = len(str(root))
+    # Imported here, not at the top: this module is on the pre-venv planning path, which must stay free of process and
+    # thread modules (test_optional_tts_setup), and shared.long_paths brings both. The pre-venv estimate never asks
+    # for a depth; whoever does is past that point.
+    from shared.long_paths import windows_length
+
+    length = windows_length(str(root))  # UTF-16 units, as Windows counts (independent review R2)
     enabled = windows_long_paths_enabled() if long_paths is None else long_paths
     limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY_CHARS if enabled else DEEPEST_FILE_CHARS)
     if length <= limit:
@@ -770,16 +775,20 @@ def clear_receipt() -> None:
 APPLICATION_CONTROL_MARK = "Application Control policy"
 #: Worker failure stages that mean the environment's own files are wrong: it does not hold its pinned packages, or they
 #: do not import. (Not ``isolation``, which the launching process's surroundings can cause, nor anything about the GPU,
-#: its memory, the model or the job.)
+#: its memory, the computer's memory -- stage ``memory`` --, the model or the job.)
 REBUILD_STAGES = frozenset({"versions", "import"})
 
 
 def failure_needs_rebuild(terminal: dict) -> bool:
     """Whether a worker's ``failed`` event says the engine's installed files are damaged, so only a rebuild can help.
 
-    A conversion imports the engine's packages outside the probe's guarded import, so a package that does not import
-    arrives from the worker's last-resort handler as stage ``worker`` with the exception's own name first (measured on
-    the real engine: ``ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)``)."""
+    Since the v0.8.0 independent review (R1) a conversion's startup imports are classified by the worker itself, as the
+    probe's are (``omnivoice_worker.import_failure``): whatever they raise -- ``ImportError``, ``ModuleNotFoundError``,
+    or the ``OSError`` with which Windows refuses a damaged native library -- arrives as stage ``import``; running out of
+    memory there arrives as stage ``memory`` and condemns nothing. Before that, such a failure reached the worker's
+    last-resort handler as stage ``worker`` with the exception's own name first (measured on the real engine:
+    ``ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)``), which is still recognised;
+    an ``OSError`` there is not, because outside the imports it can mean anything."""
     message = str(terminal.get("message") or "")
     if APPLICATION_CONTROL_MARK in message:
         return False

@@ -89,10 +89,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   historical voice previews stay a fixed collection of 28. `m4b_nero.py` is documented in the M4B module map. The speech
   A/B dev tool no longer fails to load with five engines. The coverage inventory maps the OmniVoice and Nero features.
 
+**Fixed (v0.8.0 independent review remediation, 2026-11-14)**
+- An OmniVoice engine with a damaged or missing program library (for example a PyTorch DLL Windows refuses to load)
+  stayed "ready": each conversion failed, but the damage was never recorded and no repair was offered, because Windows
+  reports such a library as an `OSError`, not an import error. The engine now records it, says why its voices are
+  unavailable, and Install & Continue offers the repair. Running out of memory while the engine starts says so ("close
+  other programs and try again") and is never mistaken for damage; Smart App Control and the network guard are not
+  either. (Independent review R1)
+- A folder name holding characters such as emoji was measured shorter than Windows measures it, so a folder slightly
+  too long could pass the path-length checks before a download. Every path-length check, the long-path offer, its
+  message and the long-path proof now count as Windows does. The limits themselves are unchanged. (Independent review R2)
+- Tests only: the long-path tests no longer create folders at the root of drive C: (an earlier run left two empty
+  folders there on the development computer; they are reported, not removed). (Independent review R3)
+
 **Owner listening:** the owner approved all 12 tracks of the OmniVoice listening pack (the owner's statement, recorded
 2026-11-14).
 
-**Not done yet:** the independent review and the one full verification gate (Session 5); the Windows long-path
+**Independent review:** done (Codex, 2026-11-14): three findings, R1-R3, fixed the same day (see Fixed above).
+
+**Not done yet:** the one full verification gate (Session 5); the Windows long-path
 switch-on tried for real on a computer where the setting is off, and a real installation with long paths off (an
 external Windows qualification); no merge, tag or release.
 

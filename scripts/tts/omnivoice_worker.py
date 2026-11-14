@@ -259,6 +259,49 @@ def _is_oom(exc: BaseException) -> bool:
     return "out of memory" in str(exc).lower()
 
 
+#: Windows error numbers with which a library load says the COMPUTER is short of memory, not that a file is wrong:
+#: ERROR_NOT_ENOUGH_MEMORY, ERROR_OUTOFMEMORY and ERROR_COMMITMENT_LIMIT ("The paging file is too small for this
+#: operation to complete", which PyTorch's CUDA libraries meet when Windows' commit charge is near its limit).
+MEMORY_WINERRORS = frozenset({8, 14, 1455})
+
+
+def _caused_by(exc: BaseException, kind: type) -> bool:
+    """Whether *exc*, or anything it was raised from or while handling, is a *kind* (a library may wrap the cause)."""
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, kind):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def import_failure(exc: BaseException) -> dict:
+    """The terminal event for a failure raised while the worker imports its stack (NumPy, soundfile, PyTorch, OmniVoice).
+
+    Stage ``import`` -- the engine's own installed files do not import -- for a missing or broken module and for a
+    native library Windows will not load. That last one arrives as ``OSError`` (PyTorch's own loader raises
+    ``ctypes.WinError``: ``[WinError 193]`` for a damaged image, ``[WinError 126]`` for a missing one), not as
+    ``ImportError``, so the exception's kind alone cannot be the test: WHERE it was raised is (v0.8.0 independent
+    review R1). Two things raised there say nothing against the files and are told apart:
+
+    * the computer ran out of memory while loading a library (``MemoryError``, or an ``OSError`` carrying one of
+      :data:`MEMORY_WINERRORS`): stage ``memory``, so a rebuild is never offered for it;
+    * Smart App Control's refusal keeps stage ``import`` with Windows' own words, which
+      ``omnivoice_runtime.failure_needs_rebuild`` excludes (as the installer's proof does).
+
+    The network guard's refusal is never classified here: the callers re-raise it, and :func:`main` reports it as stage
+    ``network``. The original exception's type opens the message; a bounded traceback goes with it."""
+    winerror = getattr(exc, "winerror", None)
+    memory = isinstance(exc, MemoryError) or (isinstance(winerror, int) and winerror in MEMORY_WINERRORS)
+    event = {"event": "failed", "stage": "memory" if memory else "import", "message": f"{type(exc).__name__}: {exc}",
+             "trace": traceback.format_exc()[-1500:]}
+    if isinstance(winerror, int):
+        event["winerror"] = winerror
+    return event
+
+
 def _refuse_speech_recognizer(*_args, **_kwargs):
     raise SpeechRecognizerRefused("the OmniVoice speech recognizer is never loaded: every voice has its reference "
                                   "transcript")
@@ -342,10 +385,16 @@ def save_prompt(prompt, cache: dict) -> None:
 
 
 def run_synth(job: dict) -> int:
-    import numpy as np
-    import soundfile as sf
-    import torch
-    from omnivoice import OmniVoice, OmniVoiceGenerationConfig, VoiceClonePrompt, __version__ as omnivoice_version
+    try:
+        import numpy as np
+        import soundfile as sf
+        import torch
+        from omnivoice import OmniVoice, OmniVoiceGenerationConfig, VoiceClonePrompt, __version__ as omnivoice_version
+    except Exception as exc:  # noqa: BLE001 - only these imports: what they raise is about the installed stack
+        if _caused_by(exc, NetworkRefused):
+            raise  # the network guard, not the files: main() reports it as stage "network"
+        emit(import_failure(exc))
+        return EXIT_FAILED
 
     started = time.perf_counter()
     out_dir = Path(job["out_dir"])
@@ -483,7 +532,8 @@ def isolation_problems(job: dict) -> list[str]:
 def run_probe(job: dict, network: list) -> int:
     """The installer's proof (v0.8.0 Phase 3): the pinned versions, isolation, an import of the stack, a CUDA kernel and
     an offline load of the pinned model on the GPU. No audio is generated and nothing is written. Each failure names its
-    stage: ``versions``, ``isolation`` or ``import`` speak against the environment itself; ``gpu`` and ``load`` do not."""
+    stage: ``versions``, ``isolation`` or ``import`` speak against the environment itself; ``gpu``, ``load`` and
+    ``memory`` (the computer ran out of memory while a library loaded: :func:`import_failure`) do not."""
     started = time.perf_counter()
     wrong = version_problems(job["packages"])
     if wrong:
@@ -498,8 +548,9 @@ def run_probe(job: dict, network: list) -> int:
         import torch
         from omnivoice import OmniVoice, __version__ as omnivoice_version
     except Exception as exc:  # noqa: BLE001 - an environment whose packages do not import is broken
-        emit({"event": "failed", "stage": "import", "message": f"{type(exc).__name__}: {exc}",
-              "trace": traceback.format_exc()[-1500:]})
+        if _caused_by(exc, NetworkRefused):
+            raise  # the network guard, not the files (the same rule as a conversion's imports)
+        emit(import_failure(exc))
         return EXIT_FAILED
     if omnivoice_version != job["omnivoice_version"]:
         emit({"event": "failed", "stage": "versions", "message": f"omnivoice {omnivoice_version} is installed, not the "

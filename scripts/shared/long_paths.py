@@ -9,6 +9,7 @@ below the app's folder, so how long the *folder's own path* may be depends on th
 
 This module is the one place that
 
+* counts a path's length as Windows does, in UTF-16 units (:func:`windows_length`), for every limit below;
 * reads the setting, read only (:func:`read_setting`);
 * compares the app's real folder with both limits (:func:`assess`) and says whether switching the setting on would
   help -- a folder too long even then is never offered a change that cannot work;
@@ -68,6 +69,20 @@ SHORT_FOLDER_EXAMPLE = "C:\\AudiobookTool"
 
 
 # --------------------------------------------------------------------------- #
+# How long a path is, as Windows counts it
+# --------------------------------------------------------------------------- #
+def windows_length(path) -> int:
+    """The length of *path* as Windows measures it: in UTF-16 code units (WCHARs), the unit of every limit here.
+
+    Python's ``len()`` counts code points, which is the same number only while every character lies in the Basic
+    Multilingual Plane. A character beyond it -- an emoji such as U+1F4DA in an account or folder name -- is ONE code
+    point but TWO UTF-16 units, so ``len()`` let such a folder pass a limit Windows then enforces (v0.8.0 independent
+    review R2). Every path-length decision in setup, the OmniVoice install and the long-path proof uses this one count.
+    Pure arithmetic: the same answer on any system, nothing is read from disk (a lone surrogate counts as one unit)."""
+    return len(os.fspath(path).encode("utf-16-le", "surrogatepass")) // 2
+
+
+# --------------------------------------------------------------------------- #
 # Reading the setting (read only)
 # --------------------------------------------------------------------------- #
 def _winreg():
@@ -113,7 +128,8 @@ OMNIVOICE_LIMITS = limits_from(OMNIVOICE_DEEPEST_NATIVE_LIBRARY_CHARS, OMNIVOICE
 
 @dataclass(frozen=True)
 class Assessment:
-    """The app's folder (``length`` characters) against the limits of the app and of the OmniVoice engine."""
+    """The app's folder (``length`` characters, counted as Windows does: :func:`windows_length`) against the limits of
+    the app and of the OmniVoice engine."""
 
     folder: str
     length: int
@@ -155,8 +171,8 @@ class Assessment:
 
 def assess(root, app: Limits, *, enabled: object = "read", omnivoice: Limits = OMNIVOICE_LIMITS) -> Assessment:
     folder = str(root)
-    return Assessment(folder=folder, length=len(folder), enabled=read_setting() if enabled == "read" else enabled,
-                      app=app, omnivoice=omnivoice)
+    return Assessment(folder=folder, length=windows_length(folder),
+                      enabled=read_setting() if enabled == "read" else enabled, app=app, omnivoice=omnivoice)
 
 
 # --------------------------------------------------------------------------- #
@@ -307,9 +323,9 @@ MOVE_ADVICE = (f"Or move the whole app folder somewhere shorter, for example {SH
 
 
 def path_of_length(base: str, total: int, leaf: str) -> str:
-    """A path below *base* ending in *leaf* that is exactly *total* characters long (the shortest one when *total* is
-    smaller than that), made of folders of at most 100 characters."""
-    spare = total - len(base) - 1 - len(leaf)
+    """A path below *base* ending in *leaf* that is exactly *total* Windows units long (:func:`windows_length`; the
+    shortest one when *total* is smaller than that), made of ASCII folders of at most 100 characters."""
+    spare = total - windows_length(base) - 1 - windows_length(leaf)
     if spare <= 0:
         return os.path.join(base, leaf)
     if spare == 1:
@@ -368,7 +384,7 @@ def verify_runtime(root, *, deepest_file: int, deepest_native: int, python: Opti
     read = read or read_setting
     root = str(root)
     base = os.path.join(root, "files", "runtime-data", PROBE_PREFIX + uuid.uuid4().hex[:8])
-    file_chars, native_chars = len(root) + deepest_file, len(root) + deepest_native
+    file_chars, native_chars = windows_length(root) + deepest_file, windows_length(root) + deepest_native
     try:
         facts = spawn(python or sys.executable, base, file_chars, native_chars, timeout_s)
     finally:
@@ -458,9 +474,9 @@ def _probe(base: str, file_chars: int, native_chars: int) -> dict:
             handle.write("long path probe")
         with open(target, encoding="utf-8") as handle:
             read_back = handle.read()
-        facts["file"] = {"ok": read_back == "long path probe", "chars": len(target)}
+        facts["file"] = {"ok": read_back == "long path probe", "chars": windows_length(target)}
     except OSError as exc:
-        facts["file"] = {"ok": False, "chars": len(target), "error": f"{type(exc).__name__}: {exc}"[:300]}
+        facts["file"] = {"ok": False, "chars": windows_length(target), "error": f"{type(exc).__name__}: {exc}"[:300]}
 
     into = os.path.join(base, "t")
     installed = path_of_length(into, file_chars, "m.py")
@@ -472,11 +488,11 @@ def _probe(base: str, file_chars: int, native_chars: int) -> dict:
                                                 "--target", into, wheel],
                               capture_output=True, text=True, timeout=180,
                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        facts["pip"] = {"ok": done.returncode == 0 and os.path.isfile(installed), "chars": len(installed)}
+        facts["pip"] = {"ok": done.returncode == 0 and os.path.isfile(installed), "chars": windows_length(installed)}
         if not facts["pip"]["ok"]:
             facts["pip"]["error"] = f"pip exit {done.returncode}: {(done.stderr or done.stdout).strip()[-240:]}"
     except (OSError, subprocess.TimeoutExpired) as exc:
-        facts["pip"] = {"ok": False, "chars": len(installed), "error": f"{type(exc).__name__}: {exc}"[:300]}
+        facts["pip"] = {"ok": False, "chars": windows_length(installed), "error": f"{type(exc).__name__}: {exc}"[:300]}
 
     try:
         source = _native_source()
@@ -489,7 +505,7 @@ def _probe(base: str, file_chars: int, native_chars: int) -> dict:
         kernel32 = ctypes.WinDLL("kernel32")
         kernel32.FreeLibrary.argtypes = [ctypes.c_void_p]
         kernel32.FreeLibrary(handle)
-        facts["native"] = {"ok": True, "chars": len(library), "library": os.path.basename(source)}
+        facts["native"] = {"ok": True, "chars": windows_length(library), "library": os.path.basename(source)}
     except OSError as exc:
         facts["native"] = {"ok": False, "chars": native_chars, "error": f"{type(exc).__name__}: {exc}"[:300]}
     _remove_tree(base)

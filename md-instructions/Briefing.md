@@ -50,6 +50,13 @@ tracks (the owner's statement, recorded 2026-11-14); see the Handoff for the liv
   refused before any download: 87 characters for the app (123 with Windows long paths on), 83 / 119 with OmniVoice.
   Where long paths would be enough, the first-run window offers to switch them on through Windows' own consent
   prompt and proves in a fresh process that they work (`shared/long_paths.py`); README has the manual way.
+- **Independent review (Codex, 2026-11-14) and its remediation.** The review of `feca89f` failed three findings, all
+  fixed the same day with positive and negative controls: R1, a conversion's startup imports are classified where
+  they fail (`omnivoice_worker.import_failure`, shared with the installer's proof), so a native library Windows will
+  not load (an `OSError`) now records the engine as damaged and offers the repair, while running out of memory, Smart
+  App Control and the network guard never do; R2, every Windows path length is counted in UTF-16 units by one helper,
+  `shared.long_paths.windows_length` (limits unchanged); R3, the long-path tests never write outside their own scratch.
+  See the Handoff and Decisions 2026-11-14.
 - **Measured on HOME-PC (RTX 5070, Phase 4).** About 8-10 times faster than real time (a 15.2-minute book in 108 s); 1.9 GB of allocated GPU memory
   while narrating (flat across a 48-chunk worker), about 2.0-2.9 GB reserved, up to about 4.6 GB the first time a voice's
   clone prompt is built. The owner listened to the 12-track pack and approved all 12 tracks (the owner's statement,

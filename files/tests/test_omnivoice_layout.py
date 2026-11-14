@@ -46,6 +46,7 @@ from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 from test_omnivoice_setup import (ENGINE, MODEL, MODEL_FILES, OV, PINS, WHEELS, FakeGuard, FakeRunner,  # noqa: F401
                                   Omni, make_env, omni)
+from test_omnivoice_synth import DLL_193, NETWORK_AT_IMPORT, PAGING_1455, SAC_4551, run_stack_worker
 from test_optional_tts_setup import (component, probes_are_explicit, sandbox, tiny_assets, tripwire, unit,  # noqa: F401
                                      world)
 from test_qwen3_runtime import install_environment as install_qwen3
@@ -1261,7 +1262,16 @@ def test_which_worker_failures_condemn_the_environment():
     assert ov.failure_needs_rebuild({"stage": "worker", "message": "ImportError: cannot import name 'OmniVoice' from "
                                                                    "'omnivoice' (unknown location)"})
     assert ov.failure_needs_rebuild({"stage": "worker", "message": "ModuleNotFoundError: No module named 'torchaudio'"})
+    # v0.8.0 independent review R1: a native library Windows will not load, met by a conversion's startup imports
+    assert ov.failure_needs_rebuild({"stage": "import", "winerror": 193, "message": "OSError: [WinError 193] Error "
+                                     "loading \"torch\\lib\\torch_cpu.dll\" or one of its dependencies."})
     for terminal in ({"stage": "worker", "message": "RuntimeError: an import of nothing"},
+                     {"stage": "worker", "message": "OSError: [WinError 193] outside the imports it says nothing"},
+                     {"stage": "memory", "winerror": 1455, "message": "OSError: [WinError 1455] The paging file is "
+                                                                       "too small for this operation to complete."},
+                     {"stage": "memory", "message": "MemoryError: "},
+                     {"stage": "import", "winerror": 4551, "message": "OSError: [WinError 4551] An Application "
+                                                                     "Control policy has blocked this file."},
                      {"stage": "worker", "message": "ImportError: DLL load failed: An Application Control policy has "
                                                     "blocked this file."},
                      {"stage": "generate", "message": "ImportError: raised while generating, not while starting"},{"stage": "import", "message": "ImportError: DLL load failed while importing _C: An Application "
@@ -1305,6 +1315,36 @@ def test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keep
     assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_READY, "ok") and omni.fetched() == []
     kept = [p for p in ov.set_aside_root().iterdir() if not p.name.startswith(ovs.RETIRED_PREFIX)]
     assert len(kept) == 1 and omni.tree(kept[0]) == damaged, "the damaged environment is kept whole, never deleted"
+
+
+def test_a_native_library_the_real_worker_cannot_load_makes_the_ready_engine_broken_and_offers_the_repair(
+        omni, tmp_path):
+    """v0.8.0 independent review R1 on the nested engine. Before the fix the real worker sent stage ``worker`` with an
+    ``OSError`` for a damaged PyTorch library, the receipt was not rejected and the engine stayed READY with no repair.
+    Now the real worker's terminal (a stand-in stack; nothing loads Torch or touches a library) is stage ``import``: the
+    ready receipt is rejected, the engine says BROKEN with the library's own words, and Install & Continue offers the
+    repair. Running out of memory, Smart App Control and the network guard leave the same ready engine untouched."""
+    omni.env()
+    omni.model()
+    omni.receipt()
+    ready = ov.read_receipt()
+    assert ov.assess_engine().state == ov.ENGINE_READY and not ov.install_would_help("omnivoice-male-1")
+
+    for number, plan in enumerate((PAGING_1455, SAC_4551, NETWORK_AT_IMPORT)):
+        code, events = run_stack_worker(tmp_path / f"excluded-{number}", plan)
+        assert code == 2 and not ov.failure_needs_rebuild(events[-1]), events
+        assert ov.read_receipt() == ready and ov.assess_engine().state == ov.ENGINE_READY
+
+    code, events = run_stack_worker(tmp_path / "damaged", DLL_193)
+    (terminal,) = events
+    assert code == 2 and terminal["stage"] == "import" and terminal["message"].startswith("OSError")
+    assert ov.failure_needs_rebuild(terminal)
+    assert ov.reject_ready_engine(str(terminal["message"]))  # exactly what the conversion does (omnivoice_synth)
+    state = ov.assess_engine()
+    assert state.state == ov.ENGINE_BROKEN and "torch_cpu.dll" in state.reason and ov.INSTALL_ACTION in state.reason
+    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.install_would_help("omnivoice-male-1")
+    entry = component(omni.plan(), OV)
+    assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
 
 
 def test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_offered(omni):
