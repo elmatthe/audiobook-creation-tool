@@ -176,20 +176,41 @@ def test_the_commands_check_every_hash_and_the_installs_never_reach_an_index(tmp
     assert {"--no-deps", "--force-reinstall"} <= set(forced)
 
 
+#: The one literal pip command outside the three policy modules, by module and enclosing function: the long-path check's probe
+#: (v0.8.0), which installs a wheel it has just written into its own folder. Approved for that one use, pinned whole below.
+LONG_PATH_PROBE_PIP = ("shared/long_paths.py", "_pip_command")
+
+
+def _literal_pip_sites(tree: ast.AST) -> list[str]:
+    """The enclosing function (``<module>`` at the top level) of every list or tuple literal holding ``"-m", "pip"``."""
+    sites: list[str] = []
+
+    def visit(node: ast.AST, where: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            where = node.name
+        if isinstance(node, (ast.List, ast.Tuple)):
+            strings = [e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if any(a == "-m" and b == "pip" for a, b in zip(strings, strings[1:])):
+                sites.append(where)
+        for child in ast.iter_child_nodes(node):
+            visit(child, where)
+
+    visit(tree, "<module>")
+    return sites
+
+
 def test_pip_is_never_upgraded_and_no_shipped_module_builds_an_unmanaged_pip_command():
     source = (SCRIPTS / "shared" / "bootstrap.py").read_text(encoding="utf-8")
     assert '"--upgrade", "pip"' not in source and "install --upgrade pip" not in source
-    # Every literal pip invocation in shipped code lives where its policy is pinned and tested.
+    # Every literal pip invocation in shipped code lives where its policy is pinned and tested: the three policy modules,
+    # and one approved call site elsewhere (the long-path probe), held by function so a second literal beside it fails too.
     allowed = {"shared/base_packages.py", "shared/spacy_store.py", "shared/bootstrap.py"}
-    found = set()
+    elsewhere = []
     for path in application_python_files():  # the one definition of the shipped source
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.List, ast.Tuple)):
-                strings = [e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
-                if any(a == "-m" and b == "pip" for a, b in zip(strings, strings[1:])):
-                    found.add(path.relative_to(SCRIPTS).as_posix())
-    assert found <= allowed, found - allowed
+        relative = path.relative_to(SCRIPTS).as_posix()
+        if relative not in allowed:
+            elsewhere += [(relative, where) for where in _literal_pip_sites(ast.parse(path.read_text(encoding="utf-8")))]
+    assert elsewhere == [LONG_PATH_PROBE_PIP], elsewhere
     # bootstrap's only literal is venv_pip(); every bootstrap pip command passes the policy environment.
     tree = ast.parse(source)
     for node in ast.walk(tree):
@@ -208,6 +229,53 @@ def test_the_other_pip_users_keep_their_own_contained_policy():
     source = inspect.getsource(qwen3_packages._pip_command)
     for flag in ("'--isolated'", "'--no-cache-dir'", "'--no-index'", "'--require-hashes'"):
         assert flag in source, flag
+
+
+def test_the_long_path_probe_installs_only_its_own_wheel_offline_into_its_own_folder():
+    """The approved exception above (v0.8.0): the long-path check proves a package installs as deep as the installation goes
+    by installing, with this interpreter's own pip, a one-module wheel it has just written, into its own probe folder (made
+    and removed by ``verify_runtime``; pinned in test_long_paths). Pinned whole, so another flag, index, upgrade, target,
+    environment or caller is a new decision rather than this exception."""
+    import source_probe
+
+    relative = "shared/long_paths.py"
+    # The interpreter in isolated mode (-I: no PYTHON* variables, no user site), its own pip or the bundled copy, nothing more.
+    builder = source_probe.function(relative, "_pip_command")
+    lists = sorted((node for node in ast.walk(builder) if isinstance(node, ast.List)), key=lambda node: node.lineno)
+    assert [ast.unparse(node) for node in lists] == [
+        "[sys.executable, '-I', '-m', 'pip']", "[sys.executable, '-I', str(bundled[-1] / 'pip')]"]
+    # The probe is the builder's only caller, here or anywhere in shipped code.
+    probe = source_probe.function(relative, "_probe")
+
+    def uses(tree: ast.AST) -> list:
+        return [node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "_pip_command"]
+
+    assert len(uses(source_probe.module(relative))) == len(uses(probe)) == 1
+    for path in application_python_files():
+        if path.relative_to(SCRIPTS).as_posix() == relative:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            assert not (isinstance(node, ast.ImportFrom) and (node.module or "").endswith("long_paths")
+                        and {alias.name for alias in node.names} & {"_pip_command", "*"}), path
+            assert not (isinstance(node, ast.Attribute) and node.attr == "_pip_command"
+                        and ast.unparse(node.value).endswith("long_paths")), path
+    # Exactly this install: offline (--no-index, --no-deps, a local wheel file), no PIP_* variable or user configuration
+    # (--isolated), no cache, nothing compiled, no upgrade, into the probe's own folder and nowhere else (--target).
+    (command,) = [node for node in ast.walk(probe) if isinstance(node, ast.BinOp) and ast.unparse(node.left) == "_pip_command()"]
+    assert isinstance(command.op, ast.Add) and isinstance(command.right, ast.List)
+    assert [item.value if isinstance(item, ast.Constant) else ast.unparse(item) for item in command.right.elts] == [
+        "install", "--isolated", "--no-index", "--no-deps", "--no-compile", "--no-cache-dir", "--disable-pip-version-check",
+        "--quiet", "--target", "into", "wheel"]
+    assigned = {ast.unparse(node.targets[0]): ast.unparse(node.value) for node in ast.walk(probe)
+                if isinstance(node, ast.Assign) and len(node.targets) == 1}
+    assert assigned["into"] == "os.path.join(base, 't')"
+    assert assigned["wheel"] == "os.path.join(base, 'actlongpathprobe-0-py3-none-any.whl')"
+    assert "_wheel(wheel, os.path.relpath(installed, into).replace(os.sep, '/'))" in ast.unparse(probe), "the wheel is its own"
+    # Run once, as written: the command alone, bounded, no shell and no environment handed in.
+    (run,) = [node for node in ast.walk(probe) if isinstance(node, ast.Call) and node.args and node.args[0] is command]
+    assert ast.unparse(run.func) == "subprocess.run" and len(run.args) == 1
+    keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in run.keywords}
+    assert sorted(keywords) == ["capture_output", "creationflags", "text", "timeout"] and keywords["timeout"] == "180", keywords
 
 
 def _run_pip(*args, env):

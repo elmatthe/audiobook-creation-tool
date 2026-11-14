@@ -57,6 +57,12 @@ tracks (the owner's statement, recorded 2026-11-14); see the Handoff for the liv
   App Control and the network guard never do; R2, every Windows path length is counted in UTF-16 units by one helper,
   `shared.long_paths.windows_length` (limits unchanged); R3, the long-path tests never write outside their own scratch.
   See the Handoff and Decisions 2026-11-14.
+- **Phase 5 full gate (2026-11-14) and its remediation.** The one authorized full gate on `c583d78`
+  (`2026-11-14_113416_full_c8e8`) FAILED on five stale verification pins, no product defect: the setup journeys' four
+  choices and old path depth (F1), the pip guard's call sites (F2), the cancel guard's three local routes (F3), an
+  unregistered opt-in skip (F4) and 17 bare parametrized test ids in `coverage.json` (F5). All five were fixed in the
+  gate and tests only, with focused checks; the corrected tree has not passed a new full gate. See the Handoff and
+  Decisions 2026-11-14.
 - **Measured on HOME-PC (RTX 5070, Phase 4).** About 8-10 times faster than real time (a 15.2-minute book in 108 s); 1.9 GB of allocated GPU memory
   while narrating (flat across a 48-chunk worker), about 2.0-2.9 GB reserved, up to about 4.6 GB the first time a voice's
   clone prompt is built. The owner listened to the 12-track pack and approved all 12 tracks (the owner's statement,

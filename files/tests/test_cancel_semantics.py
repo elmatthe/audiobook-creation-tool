@@ -729,14 +729,20 @@ def test_the_panel_hands_every_route_a_check_the_latch_can_be_found_from():
     taken = [node for node in ast.walk(source_probe.module("tts/epub2tts_gui.py"))
              if isinstance(node, ast.Assign) and ast.unparse(node.targets[0]) == "self.cancel_check"]
     assert [ast.unparse(node.value) for node in taken] == ["self.controller.cancel_check"]
-    routes = {"convert_with_kokoro", "convert_with_chatterbox", "convert_with_qwen3", "convert_with_edge_engine",
-              "batch_convert.convert_single_pdf"}
+    # The four local engines (OmniVoice the fourth, v0.8.0), each publishing through _convert_with_local_engine, and Edge's two.
+    local = {"convert_with_kokoro", "convert_with_chatterbox", "convert_with_qwen3", "convert_with_omnivoice"}
+    routes = local | {"convert_with_edge_engine", "batch_convert.convert_single_pdf"}
+    panel = source_probe.module("tts/epub2tts_gui.py")
     dispatched = {ast.unparse(node.func): [ast.unparse(argument) for argument in node.args]
-                  for node in ast.walk(source_probe.module("tts/epub2tts_gui.py"))
+                  for node in ast.walk(panel)
                   if isinstance(node, ast.Call) and ast.unparse(node.func) in routes}
     assert set(dispatched) == routes
     for route, arguments in dispatched.items():
         assert "self.cancel_check" in arguments, f"{route} is not handed the run's own check: {arguments}"
+    publishing = {function.name for function in ast.walk(panel) if isinstance(function, ast.FunctionDef)
+                  and any(isinstance(node, ast.Call) and ast.unparse(node.func) == "_convert_with_local_engine"
+                          for node in ast.walk(function))}
+    assert publishing == local, "a local engine route was added or lost: decide what it does on Cancel"
     published = 0
     local_routes = 0
     for relative in ("tts/epub2tts_gui.py", "tts/batch_convert.py", "tts/epub2tts_edge/runner.py"):
@@ -754,7 +760,7 @@ def test_the_panel_hands_every_route_a_check_the_latch_can_be_found_from():
             elif callee == "_convert_with_local_engine":
                 local_routes += 1
                 assert ast.unparse(node.args[-1]) == "cancel_check", f"{relative}:{node.lineno}: publishes without the boundary"
-    assert (published, local_routes) == (4, 3), "a publication call was added or lost: decide what it does on Cancel"
+    assert (published, local_routes) == (4, len(local)), "a publication call was added or lost: decide what it does on Cancel"
 
 
 # --------------------------------------------------------------------------- the Edge request loop

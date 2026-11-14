@@ -1,5 +1,101 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — v0.8.0 Phase 5: the one canonical full gate FAILED (`2026-11-14_113416_full_c8e8` on `c583d78`); its five verification findings F1-F5 are fixed and their focused checks PASS; the corrected tree has NOT passed a new full gate (2026-11-14, Claude Code, HOME-PC)
+
+This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (Phase 5
+gate failure remediation F1-F5). The failed run's evidence,
+`files/dev-work/verification-gate/outputs/2026-11-14_113416_full_c8e8/` (ignored), is kept unchanged. It is a FAIL
+and stays one.
+
+- **Branch.** `feature/0.8.0-omnivoice-integration`, from `c583d78` (remote checked unchanged before the push; master
+  `dbf38f7` untouched). One commit: `files/tests/test_base_packages.py`, `files/tests/test_cancel_semantics.py`, the
+  gate's `verification.json`, `coverage.json`, `journeys/setup.py` and `adapters/windows/setup_launcher.py`, and the
+  four documents (SHA in the session report). No file under `scripts/` changed. The owner's 17 tracked deletions and
+  untracked files are untouched and unstaged. No AI trailer.
+- **Status, kept apart.** The one authorized full gate on `c583d78`: FAIL, not rerun. F1-F5: fixed in the gate and
+  tests only; focused checks PASS. A new full gate on the corrected tree: NOT run (needs a separate authorization).
+  External Windows long-path qualification: still open. Merge, tag, release: not authorized.
+- **The failed gate (historical evidence, as it is).** `c583d78`, tree `fd9819be...e035e1e`, unchanged during the run;
+  7,094 s, exit 1. 16,009 tests: 15,942 passed (15,410 ordinary, 457 + 75 guarded), 2 failed, 65 skipped; 54 of 56
+  journeys passed. Policy, source identity, partition, both guarded groups, dependencies, documents, document names,
+  configuration, process ownership, error mode, cleanup, inventory, coverage (266 of 266 mapped), self-tests and the
+  tree check passed. Four checks failed, all on verification pins that predate v0.8.0's additions; no product defect:
+  acceptance (F1), pytest (F2, F3), skips (F4), coverage-inventory (F5).
+- **F1 (acceptance; `journeys/setup.py`).** `setup.first-run-refuses-a-folder-too-deep` and
+  `setup.first-run-choices-and-cancel` expected v0.7.2's four choices and a deepest native library of 128 (limit 131;
+  production's is 136, limit 123). `CHOICES` now holds the five approved choices, *OmniVoice — Six Cloned Voices* fifth
+  and off, as the journey's own expectation; the count, the defaults and "a real click changes one choice and no
+  other" (`[False, True, False, False, False]`) follow it. The journey's path constants are gone:
+  `adapters/windows/setup_launcher.py` records the copy's own `bootstrap.app_path_limits()` (87 and 123) and its
+  folder length from `long_paths.windows_length` (UTF-16 units), and the journey checks that length against its own
+  UTF-16 count. Refusal (exit 1, nothing installed but setup's log) and Cancel (exit 2, nothing created) are checked
+  as before.
+- **F2 (pytest; `test_base_packages.py`).** The pip guard now holds every literal `-m pip` outside the three policy
+  modules by module and function, and allows exactly one: `shared/long_paths.py::_pip_command`, the long-path
+  probe's. New `test_the_long_path_probe_installs_only_its_own_wheel_offline_into_its_own_folder` pins that exception
+  whole: the interpreter in `-I` mode (its own pip, or the bundled copy), the probe as the builder's only caller in
+  shipped code, the exact arguments (`install --isolated --no-index --no-deps --no-compile --no-cache-dir
+  --disable-pip-version-check --quiet --target <probe>/t <probe>/<its own wheel>`), the target and the wheel inside the
+  probe's folder, and the `subprocess.run` keywords (no environment handed in, no shell, 180 s). `long_paths.py` is
+  unchanged. Run for real through production's `_spawn_probe` under a hostile pip configuration file and `PIP_*`
+  variables (an index, an extra index and find-links on a local listener, `PIP_TARGET` elsewhere, `PIP_UPGRADE` on): it
+  installed at 239 characters, made 0 connections, wrote nothing outside its folder and removed it; the control, an
+  ordinary pip given the same file, reached the listener 6 times. Measured on pip 26.2.2: `--isolated` ignores `PIP_*`
+  variables and the user configuration but still reads `PIP_CONFIG_FILE` and the site and global files; that is the
+  contained policy the spaCy and Qwen3 pip users already pin, and the run above shows the probe consults no index or
+  find-links location even so.
+- **F3 (pytest; `test_cancel_semantics.py`).** `test_the_panel_hands_every_route_a_check_the_latch_can_be_found_from`
+  now names the four local routes (`convert_with_omnivoice` the fourth): each is dispatched with `self.cancel_check`
+  itself, the functions publishing through `_convert_with_local_engine` are exactly those four (each passing
+  `cancel_check` last), and the counts are 4 publication calls and 4 local routes. Cancellation code unchanged: Cancel
+  stays immediate and the publication boundary is as it was.
+- **F4 (skips; `verification.json`).** A sixth `skip_policy.win32` rule, `omnivoice-real-clone-opt-in`: the exact,
+  anchored reason of `files/tests/test_omnivoice_phase1.py::test_real_clone_proof` (the only test that gives it),
+  budget 1, with a `why`. The gate matches skips by reason, so any other reason, the same one with anything before or
+  after it, or a second skip with it fails. The skip proves nothing: the real clone remains the Phase 1 opt-in run and
+  the release-pending owner and qualification items. `ACT_OMNIVOICE_P1_REAL` was never set; no model was loaded.
+- **F5 (coverage-inventory; `coverage.json`).** The 17 bare names of parametrized tests (2 in
+  `ACT.TTS.ENGINE.OMNIVOICE`, 2 in `ACT.TTS.SETUP.OMNIVOICE`, 4 in `ACT.SETUP.VENV-REPAIR`, 8 in
+  `ACT.SETUP.LONG-PATHS.ENABLE`, 1 in `ACT.SETUP.ENGINE-LEASE`) are each replaced in place by every collected parameter
+  id of that test: 83 ids, taken from the failed run's own collection. No obligation removed; no id invented.
+- **Verification (focused only).** (1) Focused gate `2026-11-14_143108_focused_ecef`
+  (`.venv\Scripts\python.exe -u files/dev-work/verification-gate/verify.py --mode focused --platform windows --label
+  p5r-f1f5`, 20 `--test` selections and the two `--journey`s): PASS in 46 s; 71 passed, 0 failed, 0 skipped; journeys
+  2 of 2 PASS (25 and 32 checks); policy, skips, coverage-inventory and tree PASS. Selection: the two failed tests,
+  the new pin, the other pip users' policy, six cancel and publication controls, OmniVoice's publication route,
+  `test_verification_coverage.py`, the real-policy readers in `test_native_acceptance.py`, `test_verify_guarded.py`
+  and `test_verification_gate_contract.py` (the gate's own skip-budget self-test among them), and the required
+  `test_application_source_boundary.py`. (2) Coverage-inventory as the full gate computes it, with an exact
+  collection (the failed run's 16,009 ids with the five affected modules collected again: 16,010): 0 problems, 0 dead
+  of 1,965 behaviour ids; control: `c583d78`'s `coverage.json` against the same collection gives exactly the 17. (3)
+  The failed run's 65 recorded skips replayed through the gate's own judge: the old policy gives exactly the original
+  failure, the new one none; five negative controls refused. (4) Mutation controls on a private copy of the tree
+  (the working tree never written; production files' SHA-256 checked unchanged): the no-change control passed 4 of 4
+  with no skip, and 17 mutants were each failed by their named test for the intended reason (an unauthorized pip
+  literal in another module, a second one in `long_paths.py`, one inlined in the probe; the probe upgrading, using an
+  index, taking dependencies, losing `--isolated`, installing outside its folder or without a target, or handed an
+  environment; the builder losing `-I`, gaining a second caller, or imported elsewhere; OmniVoice's dispatch wrapping
+  the check, publishing without the boundary, or dropped; a fifth local route). The first control run caught a bug
+  in the new pin (it read `ast.walk`'s order as source order), fixed before these results. (5) Every test file that reads the four documents or `git grep`s or lists the tracked tree (25 files), run on these
+  documents before this sentence and the protected-state sentence were added: focused gate
+  `2026-11-14_143511_focused_0da8`, PASS in 487 s, 1,866 passed (1,856 ordinary, 10 guarded), 0 failed, 0 skipped.
+- **Not rerun, by instruction.** The full gate, the passing ordinary tests as a suite, the 54 passing journeys, the
+  guarded groups and the other passing stages. Their PASS above is `c8e8`'s evidence for `c583d78`, not a PASS of the
+  corrected tree; `--status --require-current` on `c8e8` describes `c583d78`'s tree and is not current acceptance.
+- **HOME-PC.** Nothing installed, downloaded, elevated or written to the registry; no model loaded. Protected state, checked read-only at the end
+  (`files/run-temp/r13/protected.py`, since the session began): the 18 references and 28 previews are blob-identical
+  to HEAD, the 12 listening MP3s equal their pack report's SHA-256, and none of the 203,512 entries under `.venv`,
+  `files/runtime-data` or `config.toml` was modified; the failed run's evidence and the Codex review folder were only
+  read.
+  The failed run's scratch (`%TEMP%\act-gate\1df8`, 11.7 GB), earlier scratch folders and the two drive-root folders
+  are left as they were.
+- **Evidence (untracked).** `files/run-temp/p5r/`: `mutate.py` and `mutants.json`/`mutants.log`, `probe_offline.py`
+  and `f2-probe-offline.txt`, `check_skip_policy.py` and `f4-skip-policy.txt`, `resolve_dead_ids.py`,
+  `check_coverage_ids.py` and `f5-coverage-inventory.txt`, `collect-affected.txt`, `protected.json`.
+- **Next action.** STOP for ChatGPT/owner review. Then, only with a separate authorization, one new canonical full
+  gate (`.venv\Scripts\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows`) on this
+  commit, with Qwen3-level commit headroom first. The external long-path qualification stays required before release.
+
 ## Current checkpoint — v0.8.0 independent review remediation (R1-R3): all three fixed with positive and negative controls, focused tests PASS; READY for the one canonical Windows full gate, which was NOT run (2026-11-14, Claude Code, HOME-PC)
 
 This block supersedes the blocks below for status and next action. Decision record: Decisions 2026-11-14 (independent

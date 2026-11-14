@@ -3919,11 +3919,71 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened"
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[dll-193]"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine"
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[dll-126]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[importerror]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[modulenotfound]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[init-runtimeerror]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[paging-1455]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[memoryerror]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[smart-app-control]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[network]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_failure_of_the_real_worker_s_startup_imports_is_named_by_where_it_happened[wrapped-network]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[load-oserror]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[generate-oserror]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[cuda-oom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[no-gpu]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[cancel]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[busy-engine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_failures_past_the_imports_keep_their_own_stage_and_never_condemn_the_engine[job-refused]"
           },
           {
             "kind": "behavior",
@@ -5164,7 +5224,15 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair"
+            "test": "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair[no parent-missing or incomplete]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair[pending repair-did not finish]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair[pending repair, numbered-did not finish]"
           },
           {
             "kind": "behavior",
@@ -5184,7 +5252,15 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness"
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness[pip]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness[proof]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness[proof cancelled]"
           },
           {
             "kind": "behavior",
@@ -20744,11 +20820,31 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_a_repair_with_only_one_engine_installed_keeps_it_and_invents_no_other"
+            "test": "files/tests/test_omnivoice_layout.py::test_a_repair_with_only_one_engine_installed_keeps_it_and_invents_no_other[only0]"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines"
+            "test": "files/tests/test_omnivoice_layout.py::test_a_repair_with_only_one_engine_installed_keeps_it_and_invents_no_other[only1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines[the replacement cannot be created-could not be rebuilt]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines[the replacement has no ssl-could not be rebuilt]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines[the packages do not install-could not be installed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines[the packages do not import-could not be imported]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_failed_repair_restores_the_previous_environment_with_both_engines[the rebuilt environment cannot launch-still not usable]"
           },
           {
             "kind": "behavior",
@@ -20764,7 +20860,11 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_interrupted_after_the_candidate_was_created_but_before_commit"
+            "test": "files/tests/test_omnivoice_layout.py::test_interrupted_after_the_candidate_was_created_but_before_commit[False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_interrupted_after_the_candidate_was_created_but_before_commit[True]"
           },
           {
             "kind": "behavior",
@@ -20780,7 +20880,11 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_folder_that_lost_its_interpreter_is_replaced_and_both_engines_come_home"
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_folder_that_lost_its_interpreter_is_replaced_and_both_engines_come_home[first-run setup]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_folder_that_lost_its_interpreter_is_replaced_and_both_engines_come_home[repair]"
           },
           {
             "kind": "behavior",
@@ -21769,11 +21873,87 @@
         "all_of": [
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart"
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart[registry0-True]"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries"
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart[registry1-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart[registry2-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart[registry3-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart[registry4-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_setting_is_read_with_a_read_only_handle_and_on_off_absent_unreadable_are_told_apart[registry5-None]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[83-False-True-True-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[84-False-True-False-False-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[87-False-True-False-False-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[88-False-False-False-True-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[119-False-False-False-True-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[120-False-False-False-True-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[123-False-False-False-True-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[124-False-False-False-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[200-False-False-False-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[88-True-True-True-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[119-True-True-True-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[120-True-True-False-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[123-True-True-False-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[124-True-False-False-False-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[88-None-False-False-False-False]"
           },
           {
             "kind": "behavior",
@@ -21793,7 +21973,35 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was"
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome0-cancelled-declined or closed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome1-denied-administrator]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome2-denied-organisation]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome3-denied-administrator]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome4-failed-reported an error]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome5-not-changed-put it back]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome6-failed-did not finish]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_every_refusal_is_a_sentence_with_nothing_retried_and_the_setting_left_as_it_was[outcome7-failed-could not start]"
           },
           {
             "kind": "behavior",
@@ -21817,7 +22025,15 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup"
+            "test": "files/tests/test_long_paths.py::test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup[file-a file could not be written]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup[pip-a package could not be installed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_long_paths_that_are_on_but_do_not_work_for_files_packages_or_libraries_stop_setup[native-a program library could not be loaded]"
           },
           {
             "kind": "behavior",
@@ -21837,11 +22053,35 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_where_a_change_could_not_help_or_is_not_needed_the_welcome_page_is_shown_and_nothing_is_offered"
+            "test": "files/tests/test_long_paths.py::test_where_a_change_could_not_help_or_is_not_needed_the_welcome_page_is_shown_and_nothing_is_offered[124-False]"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_a_declined_denied_or_failed_change_leaves_setup_where_it_was_and_both_ways_open"
+            "test": "files/tests/test_long_paths.py::test_where_a_change_could_not_help_or_is_not_needed_the_welcome_page_is_shown_and_nothing_is_offered[87-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_where_a_change_could_not_help_or_is_not_needed_the_welcome_page_is_shown_and_nothing_is_offered[100-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_where_a_change_could_not_help_or_is_not_needed_the_welcome_page_is_shown_and_nothing_is_offered[100-None]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_declined_denied_or_failed_change_leaves_setup_where_it_was_and_both_ways_open[cancelled-The Windows permission prompt was declined or closed, so nothing was changed.]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_declined_denied_or_failed_change_leaves_setup_where_it_was_and_both_ways_open[denied-Windows did not allow the change (error 5): it needs an administrator's approval.]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_declined_denied_or_failed_change_leaves_setup_where_it_was_and_both_ways_open[not-changed-The change was made, but Windows still shows the setting as off]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_a_declined_denied_or_failed_change_leaves_setup_where_it_was_and_both_ways_open[failed-Windows' registry tool reported an error (1) and the setting is still off.]"
           },
           {
             "kind": "behavior",
@@ -21865,7 +22105,19 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length"
+            "test": "files/tests/test_long_paths.py::test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length[app-87]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length[app-123]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length[omnivoice-83]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_at_each_of_the_four_limits_a_wide_character_never_buys_extra_length[omnivoice-119]"
           },
           {
             "kind": "behavior",
@@ -21873,7 +22125,15 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_long_paths.py::test_negative_control_the_old_stand_in_is_refused_before_it_writes_below_a_synthetic_root"
+            "test": "files/tests/test_long_paths.py::test_negative_control_the_old_stand_in_is_refused_before_it_writes_below_a_synthetic_root[100-0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_negative_control_the_old_stand_in_is_refused_before_it_writes_below_a_synthetic_root[60-0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_long_paths.py::test_negative_control_the_old_stand_in_is_refused_before_it_writes_below_a_synthetic_root[150-1]"
           }
         ]
       },
@@ -21954,7 +22214,11 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_repair_is_refused_while_the_omnivoice_engine_is_in_use_and_nothing_is_changed"
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_repair_is_refused_while_the_omnivoice_engine_is_in_use_and_nothing_is_changed[inference.lock]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_layout.py::test_a_parent_repair_is_refused_while_the_omnivoice_engine_is_in_use_and_nothing_is_changed[engine.lock]"
           },
           {
             "kind": "behavior",

@@ -194,6 +194,12 @@
         "id": "empty-parameter-set",
         "pattern": "^got empty parameter set for ",
         "max": 1
+      },
+      {
+        "id": "omnivoice-real-clone-opt-in",
+        "pattern": "^loads the multi-gigabyte model; set ACT_OMNIVOICE_P1_REAL=1 where it is installed$",
+        "max": 1,
+        "why": "v0.8.0: the one routine skip of files/tests/test_omnivoice_phase1.py::test_real_clone_proof, the only test with this reason. It loads the multi-gigabyte OmniVoice model and runs only with ACT_OMNIVOICE_P1_REAL=1 on a computer where the engine is installed; the routine gate never sets it. This skip is evidence of nothing: the real clone is proven only by that opt-in run (Phase 1, recorded in the Handoff) and by the release qualification and owner listening that coverage.json lists as release-pending for OmniVoice."
       }
     ]
   },

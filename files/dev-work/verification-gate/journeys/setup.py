@@ -8,8 +8,8 @@ runner's own before-and-after digest of the real ``files/runtime-data`` holds ev
   * ``setup.first-run-refuses-a-folder-too-deep``: the real first-run window with the real ``run_setup``. The copy sits in a folder
     whose path is too long for Windows, which is the product's own reason to refuse, so the failure is real and nothing is scripted:
     Begin Setup, the native "Setup did not complete" box, Open log folder, Close, exit status 1, and nothing installed.
-  * ``setup.first-run-choices-and-cancel``: the four voice choices as the window really shows them, a choice changed by a real click,
-    the window at its smallest size, then Cancel: exit status 2 and nothing created.
+  * ``setup.first-run-choices-and-cancel``: the five voice choices as the window really shows them (OmniVoice the fifth since v0.8.0),
+    a choice changed by a real click, the window at its smallest size, then Cancel: exit status 2 and nothing created.
   * ``setup.clear-downloaded-data``: Preferences, the real dialog and its confirmation by real clicks; the application closes itself;
     the real helper process deletes exactly what was ticked, in the copy; the next launch shows the result once.
 
@@ -33,11 +33,17 @@ REPO_ROOT = GATE_DIR.parents[2]
 SETUP_LAUNCHER = GATE_DIR / "adapters" / "windows" / "setup_launcher.py"
 ROOT_FILES = ("config.toml", "README.md", "Setup_and_Run-audiobook-creation-tool.bat")
 SETUP_TITLE = "Audiobook Creation Tool — Setup"
-#: What bootstrap.install_path_problem allows: Windows' 259 less the deepest file a full installation holds.
-WINDOWS_MAX_PATH, DEEPEST_NATIVE_LIBRARY, DEEPEST_FILE = 259, 128, 172
-#: The first-run window's four choices, in order, with the defaults the owner approved.
+#: The first-run window's five choices, in order, with the defaults the owner approved: Kokoro on, the rest off. OmniVoice is the
+#: fifth (v0.8.0), off. Kept here on purpose, not read from bootstrap: this is what the window must show, checked against what it does.
+#: (The path limits, by contrast, come from the copy's own bootstrap.app_path_limits() through the launcher's record.)
 CHOICES = (("Kokoro voices", True), ("Chatterbox Turbo voices", False), ("Qwen3 CustomVoice voices (Aiden, Ryan)", False),
-           ("Qwen3 Cloned Voices (six bundled voices)", False))
+           ("Qwen3 Cloned Voices (six bundled voices)", False), ("OmniVoice — Six Cloned Voices", False))
+
+
+def windows_units(path: Path) -> int:
+    """A path's length as Windows counts it (UTF-16 code units: a character beyond U+FFFF counts twice), worked out here
+    independently of the application's own long_paths.windows_length, which the launcher records."""
+    return len(str(path).encode("utf-16-le")) // 2
 
 
 # --------------------------------------------------------------------------- #
@@ -150,21 +156,25 @@ def clean_exit(context: Context, facts: dict, *, label: str, status: int) -> Non
                   "native failure box, Open log folder, Close; exit status 1 and nothing installed")
 def first_run_refusal(context: Context) -> None:
     report = context.report
-    # 150 characters: refused whether or not Windows long paths are on (limits 131 and 87), and short enough that the copy's own
-    # deepest file (54 more) still fits below 259.
+    # 150 characters: refused whether or not Windows long paths are on (the app's limits are 123 and 87 since v0.8.0), and short
+    # enough that the copy's own deepest file (54 more) still fits below 259.
     base = context.work / "too-deep"
     copy = make_copy(base / ("x" * max(1, 150 - len(str(base)) - len("\\app") - 1)) / "app")
     before = listing(copy)
     session, record = start_setup(context, copy, "setup")
     started = wait_until(lambda: next((item for item in read_record(record) if item["kind"] == "started"), None), 10, "the launcher's record")
     report.equal("the window under test is setting up the copy and nothing else", Path(started["app_root"]), copy)
-    limit = WINDOWS_MAX_PATH - (DEEPEST_NATIVE_LIBRARY if started["long_paths"] else DEEPEST_FILE)
-    report.check("the copy's folder path really is too long here", len(str(copy)) > limit, {"length": len(str(copy)), "limit": limit})
+    length = started["path_length"]
+    report.equal("the copy's folder length, counted in Windows units by the application and here", length, windows_units(copy))
+    limits = started["limits"]
+    limit = limits["long_paths"] if started["long_paths"] else limits["default"]
+    report.check("the copy's folder path really is too long here, and would be either way", length > max(limits.values()),
+                 {"length": length, "limits": limits, "long_paths": started["long_paths"], "limit": limit})
 
     report.equal("the window is the setup window", session.client.call("window")["title"], SETUP_TITLE)
     boxes = shown(session, cls="TCheckbutton")
-    report.check("the four voice choices, in order", len(boxes) == 4 and all(box["text"].startswith(label)
-                                                                            for box, (label, _default) in zip(boxes, CHOICES)),
+    report.check("the five voice choices, in order", len(boxes) == len(CHOICES) and all(box["text"].startswith(label)
+                                                                                       for box, (label, _default) in zip(boxes, CHOICES)),
                  [box["text"] for box in boxes])
     session.screenshot("first-run-intro")
     click(session, one(session, "TButton", "Begin Setup"))
@@ -172,7 +182,7 @@ def first_run_refusal(context: Context) -> None:
     said = session.answer_dialog("OK", title="Setup did not complete", timeout=60)
     body = " ".join(said["body"])
     report.check("the failure box gives the real reason", "too long for Windows" in body and "Nothing was installed" in body, body[:400])
-    report.check("and the real figures", f"({len(str(copy))} characters; it must be {limit} or fewer here)" in body, body[:400])
+    report.check("and the real figures", f"({length} characters; it must be {limit} or fewer here)" in body, body[:400])
 
     open_log = wait_for(session, "TButton", "Open log folder")
     close = one(session, "TButton", "Close")
@@ -206,7 +216,7 @@ def first_run_refusal(context: Context) -> None:
 
 
 @scenario("setup.first-run-choices-and-cancel", tool="setup", layers=("native", "visual"), tier="geometry", budget=240,
-          summary="The real first-run window's four voice choices and their defaults, one changed by a real click, every control on screen "
+          summary="The real first-run window's five voice choices and their defaults, one changed by a real click, every control on screen "
                   "at the window's smallest size, then Cancel: exit status 2 and nothing created")
 def first_run_cancel(context: Context) -> None:
     report = context.report
@@ -219,7 +229,7 @@ def first_run_cancel(context: Context) -> None:
         return [(box["text"], bool(box.get("selected"))) for box in shown(session, cls="TCheckbutton")]
 
     found = choices()
-    report.equal("four choices", len(found), 4)
+    report.equal("five choices", len(found), len(CHOICES))
     for (label, default), (text, selected) in zip(CHOICES, found):
         report.check(f"{label}: offered with its approved default ({'on' if default else 'off'})",
                      text.startswith(label) and selected is default, (text, selected))
@@ -230,7 +240,8 @@ def first_run_cancel(context: Context) -> None:
     wait_until(lambda: choices()[1][1] is True, 5, "the Chatterbox choice to be ticked")
     click(session, one(session, "TCheckbutton", CHOICES[0][0], prefix=True))
     wait_until(lambda: choices()[0][1] is False, 5, "the Kokoro choice to be cleared")
-    report.equal("a real click changes one choice and no other", [selected for _text, selected in choices()], [False, True, False, False])
+    report.equal("a real click changes one choice and no other", [selected for _text, selected in choices()],
+                 [False, True, False, False, False])
 
     for size in ((660, 600), (760, 680)):
         native.resize_client(session.hwnd, *size)

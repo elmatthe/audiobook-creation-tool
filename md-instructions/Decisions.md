@@ -2,6 +2,39 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-14 — v0.8.0 Phase 5 gate failure remediation (F1-F5): five stale verification pins are brought up to v0.8.0 with no program change; the long-path probe is the one approved pip call site outside the policy modules, pinned whole; the OmniVoice real-clone opt-in skip has its own exact rule; a dead coverage id is replaced by every collected parameter (owner instruction; implementation decisions by Claude Code)
+
+**Owner instruction (2026-11-14).** Fix exactly F1-F5 of the failed canonical full gate
+`2026-11-14_113416_full_c8e8` on `c583d78` with the smallest focused checks; no full gate, no rerun of passing tests,
+journeys or stages, no model loading, no production change unless a defect is established; record the failure as a
+failure and stop before any new full gate.
+
+- **F1: the journey keeps its own expectation of the choices and takes the path limits from production.** The five
+  choices and their defaults are what the window must show (owner-approved), so they stay written in the journey;
+  reading `bootstrap.OPTIONAL_CHOICES` would make the check agree with any change. The path limits are the refusal's
+  own arithmetic, not a promise to check independently, so the journey now takes them from the disposable copy's
+  `bootstrap.app_path_limits()` through the setup launcher's record (the copy under test, not this checkout), and
+  counts the folder's UTF-16 length itself to cross-check `long_paths.windows_length`.
+- **F2: one approved call site, held by function and pinned whole; production unchanged.** Allowing the module would
+  let a second pip literal in `long_paths.py` through, so the guard names `shared/long_paths.py::_pip_command` and the
+  new test pins the builder, its one caller and the exact command. Measured, not assumed: pip 26.2.2's `--isolated`
+  still reads `PIP_CONFIG_FILE` and the site and global configuration files. That is the posture the spaCy and Qwen3
+  pip users already have and pin; under a hostile configuration the probe reached no index or find-links location.
+  Changing the probe's environment would be a production change beyond the authorized scope with no established
+  defect, so it is recorded here, not made.
+- **F3: the route inventory is held by name as well as by count.** The structural guard names the four local routes
+  and requires the set of functions that publish through `_convert_with_local_engine` to be exactly those, so adding
+  or losing a route fails with "decide what it does on Cancel", as the count alone did before. Production unchanged.
+- **F4: an exact reason, a budget of 1, and a written justification.** The gate's skip schema matches reasons only, so
+  the rule cannot name the test id; its anchored pattern equals the one reason only `test_real_clone_proof` gives today
+  (`git grep`), and a second skip with it exceeds the budget. A routine skip is never qualification evidence: the rule's
+  `why` says so, and coverage keeps OmniVoice's owner and qualification items release-pending.
+- **F5: every collected parameter, not one representative.** A bare name meant the whole test, so each is replaced by
+  all of that test's collected parameter ids (83 for 17). coverage.json elsewhere cites some parametrized tests in
+  full and some by a subset; none of these 17 had chosen a subset, so none is narrowed now.
+
+Signed: Claude Code (implementation decisions), on the owner's instruction of 2026-11-14.
+
 ## 2026-11-14 — v0.8.0 independent review remediation (R1-R3): a conversion's startup imports are classified where they fail; every Windows path length is counted in UTF-16 units; the long-path tests never write outside their own scratch (owner instruction; implementation decisions by Claude Code)
 
 **Owner instruction (2026-11-14).** Fix exactly R1, R2 and R3 of the independent Codex review of `feca89f`

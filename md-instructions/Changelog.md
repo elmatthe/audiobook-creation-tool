@@ -102,12 +102,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Tests only: the long-path tests no longer create folders at the root of drive C: (an earlier run left two empty
   folders there on the development computer; they are reported, not removed). (Independent review R3)
 
+**Verification only (v0.8.0 Phase 5 gate remediation, 2026-11-14; no program change)**
+- The one canonical full gate on `c583d78` (`2026-11-14_113416_full_c8e8`) FAILED on five verification pins that
+  predated v0.8.0's additions, with no product defect. Fixed in the gate and tests only: the first-run journeys expect
+  the five choices (OmniVoice fifth, off) and take the path limits from the application (F1); the pip guard approves
+  the long-path probe's one pip call and pins it whole (F2); the cancel guard names OmniVoice's route (F3); the
+  OmniVoice real-clone opt-in skip has its own exact rule (F4); 17 coverage ids name real parametrized tests (F5).
+  Focused checks pass; a new full gate has not been run.
+
 **Owner listening:** the owner approved all 12 tracks of the OmniVoice listening pack (the owner's statement, recorded
 2026-11-14).
 
 **Independent review:** done (Codex, 2026-11-14): three findings, R1-R3, fixed the same day (see Fixed above).
 
-**Not done yet:** the one full verification gate (Session 5); the Windows long-path
+**Full verification gate:** run once, on `c583d78` (`2026-11-14_113416_full_c8e8`): FAIL; its five findings are
+fixed (see Verification only above).
+
+**Not done yet:** a passing full verification gate on the corrected tree (Session 5); the Windows long-path
 switch-on tried for real on a computer where the setting is off, and a real installation with long paths off (an
 external Windows qualification); no merge, tag or release.
 

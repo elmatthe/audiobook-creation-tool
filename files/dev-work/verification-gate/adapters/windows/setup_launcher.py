@@ -40,12 +40,16 @@ def main() -> int:
         with open(record, "a", encoding="utf-8") as sink:
             sink.write(json.dumps({"kind": kind, "at": time.monotonic(), **facts}) + "\n")
 
-    from shared import bootstrap
+    from shared import bootstrap, long_paths
 
     if Path(bootstrap.REPO_ROOT).resolve() != app_root.resolve() or app_root.resolve() == REPO_ROOT.resolve():
         raise SystemExit(f"refused: setup would run on {bootstrap.REPO_ROOT}, not the disposable copy {app_root}")
+    # The copy's own figures, from the production source the refusal itself uses: its folder's length counted as Windows
+    # counts it (UTF-16 units) and the app's two limits (bootstrap.app_path_limits), so no journey keeps a copy of them.
+    limits = bootstrap.app_path_limits()
     note("started", app_root=str(bootstrap.REPO_ROOT), venv=str(bootstrap.VENV_DIR), logs=str(bootstrap.LOGS_DIR),
-         path_length=len(str(bootstrap.REPO_ROOT)), long_paths=bootstrap.windows_long_paths_enabled())
+         path_length=long_paths.windows_length(str(bootstrap.REPO_ROOT)), long_paths=bootstrap.windows_long_paths_enabled(),
+         limits={"default": limits.default, "long_paths": limits.long_paths})
 
     bootstrap._open_folder = lambda path: note("open-folder", path=str(path))
     os.startfile = lambda *args, **kwargs: note("startfile", args=[str(item) for item in args])
