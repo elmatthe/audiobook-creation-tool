@@ -29,6 +29,7 @@ from __future__ import annotations
 import errno
 import os
 import re
+import secrets
 import stat
 import sys
 import tempfile
@@ -979,6 +980,13 @@ def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
 
     The caller owns the returned path and must remove it if the operation does
     not reach its replacement boundary.
+
+    On macOS and Linux (v0.8.x P1B) the file is created the way ``mkstemp``
+    creates one -- a new random name, exclusively, never through a link -- but
+    with mode 0o666, so the user's umask decides its permissions as for any new
+    file. ``mkstemp``'s 0o600 is for private scratch; this file becomes the
+    output, and every Converter MP3 was readable by its owner only (measured on
+    macOS 27). Windows is unchanged.
     """
     source = Path(source)
     directory = source.parent
@@ -992,12 +1000,13 @@ def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
             "the folder holding this image is a link, which is not written through",
             f"{directory} is a symlink or junction",
         )
+    prefix = f"{TEMP_SIBLING_PREFIX}{source.stem}-"
+    suffix = suffix if suffix is not None else source.suffix
     try:
-        handle, name = tempfile.mkstemp(
-            prefix=f"{TEMP_SIBLING_PREFIX}{source.stem}-",
-            suffix=suffix if suffix is not None else source.suffix,
-            dir=str(directory),
-        )
+        if os.name == "nt":
+            handle, name = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=str(directory))
+        else:
+            handle, name = _create_for_the_user(directory, prefix, suffix)
     except OSError as exc:
         raise OutputPathError(
             f"a temporary file could not be created next to {source.name}",
@@ -1005,6 +1014,18 @@ def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
         ) from exc
     os.close(handle)
     return Path(name)
+
+
+def _create_for_the_user(directory: Path, prefix: str, suffix: str) -> tuple[int, str]:
+    """POSIX: a new, exclusively created file with a random name, opened with mode 0o666 (the umask applies)."""
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    for _attempt in range(100):
+        name = os.path.join(str(directory), f"{prefix}{secrets.token_hex(5)}{suffix}")
+        try:
+            return os.open(name, flags, 0o666), name
+        except FileExistsError:
+            continue
+    raise FileExistsError(errno.EEXIST, "no free temporary name after 100 attempts", str(directory))
 
 
 def discard_temporary(path) -> bool:
@@ -1048,6 +1069,8 @@ def atomic_replace(temporary: Path, target: Path) -> None:
             "the target is a link, which is not replaced",
             f"{target} is a symlink or junction",
         )
+    if os.name != "nt":
+        _carry_permissions(target, temporary)
     try:
         os.replace(temporary, target)
     except OSError as exc:
@@ -1055,6 +1078,16 @@ def atomic_replace(temporary: Path, target: Path) -> None:
             f"{target.name} could not be replaced",
             f"{type(exc).__name__}: {exc}",
         ) from exc
+
+
+def _carry_permissions(target: Path, temporary: Path) -> None:
+    """POSIX (v0.8.x P1B): a file replaced in place keeps its permission bits, as an edit in place would. With no file
+    there yet, the new file keeps the umask's mode. Best effort: a refusal leaves the replacement itself unaffected."""
+    try:
+        mode = stat.S_IMODE(os.stat(target, follow_symlinks=False).st_mode)
+        os.chmod(temporary, mode)
+    except OSError:
+        pass
 
 
 class DestinationOccupied(OutputPathError):

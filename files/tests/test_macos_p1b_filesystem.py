@@ -11,6 +11,8 @@ created in pytest's temporary folder with ``hdiutil`` and attached ``-nobrowse``
 * Disk full: a real MP3 Tool run whose output is on a full volume fails as a retryable failure; nothing is published,
   no staged or temporary file is left in the run folder, and the sources are untouched.
 * A read-only output folder: publication is refused, nothing is left behind.
+* Permissions: a new output gets the mode any new file of the user gets (the umask decides; ``mkstemp``'s private
+  0o600 made every Converter MP3 owner-only), and a file replaced in place keeps its own permission bits.
 * NFD and NFC names: on APFS the two spellings are one name, so a no-clobber publication to the other spelling of a
   taken name is refused (never a replacement); an imported NFD source is read and published under the planned name.
 * Two copies of the app reserving runs in one output folder at once never get the same run folder.
@@ -125,6 +127,32 @@ def test_on_apfs_the_other_unicode_spelling_of_a_taken_name_is_refused_not_repla
         output_paths.publish_new(temporary, tmp_path / unicodedata.normalize("NFD", "Café.mp3"))
     assert taken.read_bytes() == b"first"
     assert temporary.exists()
+
+
+def _mode(path: Path) -> int:
+    return os.stat(path).st_mode & 0o777
+
+
+def test_a_new_output_gets_the_mode_any_new_file_of_the_user_gets(tmp_path):
+    ordinary = tmp_path / "ordinary.mp3"
+    ordinary.write_bytes(b"made the ordinary way")
+    temporary = output_paths.temporary_sibling(tmp_path / "Book.mp3")
+    assert temporary.name.startswith(output_paths.TEMP_SIBLING_PREFIX) and temporary.suffix == ".mp3"
+    temporary.write_bytes(b"\xff\xfb an output")
+    output_paths.publish_new(temporary, tmp_path / "Book.mp3")
+    assert _mode(tmp_path / "Book.mp3") == _mode(ordinary), "the umask decides, as for any new file"
+    assert _mode(tmp_path / "Book.mp3") & 0o044, "readable beyond its owner under the usual umask"
+
+
+def test_a_file_replaced_in_place_keeps_its_own_permission_bits(tmp_path):
+    original = tmp_path / "cover.jpg"
+    original.write_bytes(b"the original")
+    original.chmod(0o640)
+    temporary = output_paths.temporary_sibling(original)
+    temporary.write_bytes(b"the replacement")
+    output_paths.atomic_replace(temporary, original)
+    assert original.read_bytes() == b"the replacement" and _mode(original) == 0o640
+    assert [p.name for p in tmp_path.iterdir()] == ["cover.jpg"]
 
 
 def test_a_read_only_output_folder_refuses_publication_and_keeps_nothing(tmp_path):

@@ -210,8 +210,8 @@
       {
         "id": "native-macos-p1b",
         "pattern": "^(native\\ macOS\\ only\\ \\(P1B\\):\\ Aqua\\ Tk\\ 9\\ shell,\\ POSIX\\ containment\\ and\\ macOS\\ filesystem\\ checks)$",
-        "max": 60,
-        "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (15), test_macos_p1b_gui_containment.py (13), test_macos_p1b_filesystem.py (8: exFAT and APFS disk images, read-only and full volumes, two app copies, the measured descriptor peak), test_macos_p1b_mainthread.py (1: MAC-032) and test_macos_p1b_publication_cancel.py (8: CX-8). The same files' Windows controls run on Windows, and test_macos_p1b_gate.py (16) runs everywhere."
+        "max": 62,
+        "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (15), test_macos_p1b_gui_containment.py (13), test_macos_p1b_filesystem.py (10: exFAT and APFS disk images, read-only and full volumes, output permissions, two app copies, the measured descriptor peak), test_macos_p1b_mainthread.py (1: MAC-032) and test_macos_p1b_publication_cancel.py (8: CX-8). The same files' Windows controls run on Windows, and test_macos_p1b_gate.py (16) runs everywhere."
       },
       {
         "id": "macos-xhe-owner-fixture",
@@ -261,7 +261,7 @@
         "id": "work-area-recovery-windows-only",
         "max": 36,
         "pattern": "^(recovering\\ another\\ process's\\ files\\ is\\ proved\\ on\\ Windows\\ only)$",
-        "why": "Recovery of another process's work area is proved on Windows only. On macOS the optional D11b counterpart (shared/work_area.py on the P1A start-time reader) is not implemented in P1B; the gap is recorded in coverage.json's issue ledger, not hidden."
+        "why": "Recovery of another process's work area is proved on Windows only. On macOS the optional D11b counterpart (shared/work_area.py on the P1A start-time reader) is not implemented in P1B; the gap is open issue ACT72-076 in coverage.json's ledger, not hidden."
       },
       {
         "id": "qwen3-windows-only",
