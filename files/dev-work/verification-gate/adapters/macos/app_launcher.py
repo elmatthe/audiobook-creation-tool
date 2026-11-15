@@ -12,7 +12,11 @@ Recording grant (D9). Each is named in the journey's evidence:
     Every act is scheduled on Tk's thread and answered at once, as a real click is.
   * **Dialog stand-ins.** ``tkinter.filedialog`` and ``tkinter.messagebox`` are replaced by stand-ins that wait, in a
     nested Tk loop exactly as a modal dialog does, for the session to answer them, and return what the native dialog
-    would. The native NSOpenPanel and NSAlert themselves are owner-manual (darwin_map class b).
+    would. Each records the options the application passed (title, file types, initial folder, multiple), which is the
+    contract the native panel is given. With ``native_dialogs`` in the config they are left native instead, and
+    ``native_ui.NativeWatcher`` reads, pictures and answers the real NSOpenPanel and NSAlert (P1B closeout).
+  * **Pictures.** The ``capture`` op images the application's own window through the window server (``native_ui``,
+    no Screen Recording grant needed for a process's own window) and records Tk's audit of it (``layout_audit``).
   * **The Tk thread audit (MAC-032).** The window's Tcl interpreter is wrapped before any widget exists, so every Tk call
     from a thread other than the main thread is recorded (``tk-thread-audit.jsonl``) with the thread and the call. A
     journey whose run makes one fails.
@@ -51,6 +55,8 @@ def _load(name: str, path: Path):
 # The portable launcher reads sys.argv[1] at import and puts the application's scripts/ on sys.path.
 base = _load("act_portable_app_launcher", WINDOWS / "app_launcher.py")
 windows_channel = _load("act_windows_channel", WINDOWS / "channel.py")
+native_ui = _load("act_native_ui", HERE / "native_ui.py")
+layout_audit = _load("act_layout_audit", HERE / "layout_audit.py")
 CONFIG = base._load_config()
 WORK = Path(CONFIG["runtime_dir"]).parent
 
@@ -186,10 +192,13 @@ def _message_stand_in(kind: str):
 
 
 def _install_dialog_stand_ins() -> None:
-    for kind in ("askopenfilename", "askopenfilenames", "asksaveasfilename", "askdirectory"):
-        setattr(filedialog, kind, _file_stand_in(kind))
-    for kind in _MESSAGE_BUTTONS:
-        setattr(messagebox, kind, _message_stand_in(kind))
+    native = set(CONFIG.get("native_dialogs") or ())
+    if "file" not in native:
+        for kind in ("askopenfilename", "askopenfilenames", "asksaveasfilename", "askdirectory"):
+            setattr(filedialog, kind, _file_stand_in(kind))
+    if "message" not in native:
+        for kind in _MESSAGE_BUTTONS:
+            setattr(messagebox, kind, _message_stand_in(kind))
 
 
 # --------------------------------------------------------------------------------------------------------------- #
@@ -202,6 +211,9 @@ _KEYS = {"return": "Return", "enter": "Return", "tab": "Tab", "escape": "Escape"
          "right": "Right", "home": "Home", "end": "End", "delete": "Delete", "backspace": "BackSpace", "space": "space",
          "f24": "F24", "next": "Next", "prior": "Prior", "pagedown": "Next", "pageup": "Prior"}
 _INVOKABLE = frozenset({"TButton", "Button", "TCheckbutton", "Checkbutton", "TRadiobutton", "Radiobutton"})
+
+
+_WATCHER = None
 
 
 class MacChannel(windows_channel.Channel):
@@ -315,7 +327,8 @@ class MacChannel(windows_channel.Channel):
                 target.event_generate(sequence)
             else:
                 target.event_generate("<KeyPress>", keysym=keysym)
-                target.event_generate("<KeyRelease>", keysym=keysym)
+                if target.winfo_exists():  # the press may have closed its window (Escape on a dialog): nothing to release
+                    target.event_generate("<KeyRelease>", keysym=keysym)
 
         self.root.after(0, press)
         return {"ok": True, "keysym": keysym}
@@ -402,6 +415,33 @@ class MacChannel(windows_channel.Channel):
         ANSWERS[number] = request.get("answer")
         _append("dialogs.jsonl", {"answered": number, "answer": request.get("answer")})
         entry["flag"].set(1)
+        return {"ok": True}
+
+    def _op_capture(self, request: dict) -> dict:
+        """One of the application's own windows, imaged by the window server, with Tk's audit of it at that moment."""
+        top = self.root.nametowidget(request.get("toplevel") or ".")
+        top.update_idletasks()
+        title, size = str(top.wm_title()), (top.winfo_width(), top.winfo_height())
+        from shared import appearance
+
+        facts = {"ok": True, "toplevel": str(top), "title": title, "content_points": list(size),
+                 "screen_recording_granted": native_ui.screen_recording_granted(),
+                 "current_tool": getattr(self.resolve(None), "current_key", None)}
+        window = native_ui.window_for(title, size)
+        if window is None:
+            return {**facts, "captured": False, "why": f"no visible AppKit window is titled {title!r}"}
+        shot = native_ui.capture(window["number"], Path(request["path"]))
+        return {**facts, **shot, "window": native_ui.plain(window), "layout": layout_audit.audit(top),
+                "appearance": {"app": appearance.get_appearance(), "native": window["appearance"]}}
+
+    def _op_native_expect(self, request: dict) -> dict:
+        """What the next native panels are to be answered with (in order). Started here, on the main thread, after Tk made NSApp."""
+        global _WATCHER
+        if not CONFIG.get("native_dialogs"):
+            return {"ok": False, "refused": "this instance was started with dialog stand-ins, not native dialogs"}
+        if _WATCHER is None:
+            _WATCHER = native_ui.NativeWatcher(WORK / "native-dialogs.jsonl", Path(CONFIG["pictures_dir"]), str(self.root.wm_title()))
+        _WATCHER.expect(list(request.get("items") or []))
         return {"ok": True}
 
     def _op_audit(self, request: dict) -> dict:

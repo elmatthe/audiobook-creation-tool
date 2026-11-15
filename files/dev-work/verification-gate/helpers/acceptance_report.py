@@ -204,6 +204,19 @@ def report_lines(judgement: Judgement) -> list[str]:
 DARWIN_CLASSES = ("automated", "owner-manual", "not-applicable")
 #: Only a test of the Windows input harness itself may be NOT APPLICABLE ON MACOS (plan 14.3 class c).
 DARWIN_NA_REASONS = ("windows-input-harness",)
+#: P1B closeout (owner's revised acceptance, 2026-11-15): what an automated counterpart's PASS must show, named per scenario in
+#: ``darwin_map[...]["evidence"]``. No owner signature stands in for any of them.
+#:   journey-checks    the Windows judge's rules for its tier (checks, inputs, action logs, fixtures, digested outputs, clean
+#:                     exits) plus the Tk thread audit;
+#:   real-screenshots  at least one picture of the real window, each captured by the window server at this run's SHA, a
+#:                     decodable PNG of the recorded size, and PASS on helpers/visual_review.py (recomputed here);
+#:   dialog-contract   every file or folder dialog it answered recorded the options the application gave the panel (title,
+#:                     and file types for an open panel). These are in-process stand-ins: the real NSOpenPanel and NSAlert
+#:                     are proved by the darwin scenario ``macos-native-dialogs``, never by this.
+DARWIN_EVIDENCE = ("journey-checks", "real-screenshots", "dialog-contract")
+#: How each verdict reads in the requirement vocabulary of the revised acceptance.
+REQUIREMENT_LABELS = {"PASS": "AUTOMATED PASS", "FAIL": "AUTOMATED FAIL", "BLOCKED": "BLOCKED", "NOT RUN": "NOT RUN",
+                      "NOT APPLICABLE": "NOT APPLICABLE — JUSTIFIED"}
 
 
 def darwin_map_problems(darwin_map: dict | None, required: list[str], optional: list[str]) -> list[str]:
@@ -227,6 +240,15 @@ def darwin_map_problems(darwin_map: dict | None, required: list[str], optional: 
             continue
         if kind == "automated" and entry.get("journey") != scenario_id and not entry.get("tests"):
             problems.append(f"{scenario_id}: an automated counterpart names neither its journey nor its tests")
+        if kind == "automated" and entry.get("manual"):
+            problems.append(f"{scenario_id}: an automated counterpart may not wait on an owner's signed record (P1B closeout); "
+                            f"name the evidence its PASS needs instead")
+        if kind == "automated" and not entry.get("pending_phase"):
+            evidence = entry.get("evidence")
+            if not isinstance(evidence, list) or "journey-checks" not in evidence:
+                problems.append(f"{scenario_id}: an automated counterpart names no evidence list with journey-checks")
+            elif set(evidence) - set(DARWIN_EVIDENCE):
+                problems.append(f"{scenario_id}: unknown evidence {sorted(set(evidence) - set(DARWIN_EVIDENCE))}")
         if kind == "owner-manual" and not entry.get("checklist"):
             problems.append(f"{scenario_id}: an owner-manual counterpart names no checklist item")
         if kind == "not-applicable" and (entry.get("reason_id") not in DARWIN_NA_REASONS or not scenario_id.startswith("control.")):
@@ -249,23 +271,84 @@ def _manual_evidence(evidence_dir: Path | None, item: str, sha: str | None) -> s
     return None
 
 
-def _darwin_evidence_problems(entry: dict, evidence_root: Path) -> list[str]:
-    """What a macOS automated counterpart's PASS must show. No picture is required: there is no Screen Recording grant (D9) and
-    pictures are the owner's visual check; everything else is the Windows rule, plus the Tk thread audit."""
+def _actions(evidence_root: Path, entry: dict) -> list[dict]:
+    found = []
+    for session in entry.get("sessions", []) or ["app"]:
+        path = Path(evidence_root) / entry["id"] / f"{session}-actions.jsonl"
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                found.append(json.loads(line))
+            except ValueError:
+                continue
+    return found
+
+
+def _screenshot_problems(entry: dict, evidence_root: Path, sha: str | None) -> list[str]:
+    """Each picture re-judged from its own files: captured, of this run's SHA, and PASS on the visual review."""
+    from helpers import visual_review
+
+    shots = entry.get("screenshots", [])
+    if not shots:
+        return ["it has no picture of the real window"]
+    problems = []
+    for shot in shots:
+        png = Path(evidence_root) / Path(shot.get("path", "missing"))
+        record = visual_review.load_record(png)
+        if record is None:
+            problems.append(f"screenshot {shot.get('path')} has no provenance record")
+            continue
+        if not record.get("captured"):
+            problems.append(f"screenshot {shot.get('path')} was not captured: {record.get('why')}")
+            continue
+        if not sha or record.get("sha") != sha:
+            problems.append(f"screenshot {shot.get('path')} is of {str(record.get('sha'))[:12]}, this run is of {str(sha)[:12]}")
+        verdict = visual_review.review(png, record)
+        if verdict["status"] != "PASS":
+            problems.append(f"screenshot {shot.get('path')} review {verdict['status']}: {verdict['reason'][:300]}")
+    return problems
+
+
+def _dialog_contract_problems(entry: dict, evidence_root: Path) -> list[str]:
+    answered = [item for item in _actions(evidence_root, entry)
+                if item.get("kind") == "input" and item.get("action") in ("file dialog", "folder dialog")]
+    if not answered:
+        return ["it names dialog-contract and answered no file or folder dialog"]
+    problems = []
+    for item in answered:
+        options = item.get("options")
+        if not isinstance(options, dict) or not str(options.get("title", "")).strip():
+            problems.append(f"the {item.get('dialog_kind')} dialog {item.get('title')!r} recorded no options from the application")
+        elif item.get("dialog_kind") in ("askopenfilename", "askopenfilenames") and not str(options.get("filetypes", "")).strip("()[] "):
+            problems.append(f"the open dialog {item.get('title')!r} was given no file types")
+    return problems
+
+
+def _darwin_evidence_problems(entry: dict, evidence_root: Path, requirements=("journey-checks",), sha: str | None = None) -> list[str]:
+    """What a macOS automated counterpart's PASS must show: the evidence its map entry names (DARWIN_EVIDENCE), plus the Tk
+    thread audit. Without ``real-screenshots`` the picture rule is the Windows one minus the picture (a control scenario)."""
     problems = [line for line in scenario_evidence_problems({**entry, "screenshots": []}, evidence_root)
                 if not line.startswith("it has no screenshot")]
     for facts in entry.get("notes", {}).get("exits", []):
         if facts.get("tk_off_thread"):
             problems.append(f"a worker thread called Tk: {facts['tk_off_thread'][:3]}")
+    if "real-screenshots" in requirements:
+        problems += _screenshot_problems(entry, evidence_root, sha)
+    if "dialog-contract" in requirements:
+        problems += _dialog_contract_problems(entry, evidence_root)
     return problems
 
 
 def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: list[str], optional: list[str], evidence_root: Path,
                  returncode: int | None, ended: str, darwin_map: dict, manual_evidence: Path | None, sha: str | None,
                  required_tools: list[str] = (), whole_set: bool = False) -> Judgement:
-    """The verdict on one macOS acceptance stage. Three counts -- automated counterparts PASS/FAIL, owner-manual items verified
-    present (signed for this SHA), not-applicable items with their reason ids -- and FAIL on any unmapped scenario, failed
-    counterpart or manual item without signed evidence; a required scenario not yet runnable is NOT RUN. Never a blanket
+    """The verdict on one macOS acceptance stage. Counts -- automated counterparts PASS/FAIL, owner-manual items (a class no
+    scenario uses since the P1B closeout) verified present, not-applicable items with their reason ids -- and FAIL on any
+    unmapped scenario, failed counterpart or counterpart without the evidence its map entry names (real pictures at this SHA
+    that pass review, the dialog contract; see DARWIN_EVIDENCE); a required scenario not yet runnable is NOT RUN. Never a blanket
     NOT APPLICABLE. The report itself is held to the Windows judge's rules: this run's token, the registered set equal to the
     policy's, nothing reported twice or unselected, a finished report from a runner that exited 0, and on a whole-set run
     every required tool with a passing journey (or journeys mapped to a later phase, which are NOT RUN, never a pass)."""
@@ -331,7 +414,7 @@ def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: 
             continue
         status, reason = entry.get("status"), entry.get("reason", "")
         if status == "PASS":
-            found = _darwin_evidence_problems(entry, Path(evidence_root))
+            found = _darwin_evidence_problems(entry, Path(evidence_root), mapping.get("evidence") or ("journey-checks",), sha)
             if found:
                 status, reason = "FAIL", "; ".join(found)
         if status not in STATUSES or status == "NOT APPLICABLE":
@@ -344,7 +427,12 @@ def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: 
             counts["manual verified"] += 1
         verdicts.append({"id": scenario_id, "verdict": status, "reason": reason, "tool": entry.get("tool"), "tier": entry.get("tier"),
                          "layers": entry.get("layers", []), "seconds": entry.get("seconds"), "inputs": entry.get("native_inputs"),
-                         "checks": len(entry.get("checks", [])), "outputs": len(entry.get("outputs", [])), "notes": entry.get("notes", {})})
+                         "checks": len(entry.get("checks", [])), "outputs": len(entry.get("outputs", [])), "notes": entry.get("notes", {}),
+                         "evidence": list(mapping.get("evidence") or ()), "screenshots": len(entry.get("screenshots", []))})
+    for item in verdicts:
+        mapping = darwin_map.get(item["id"], {})
+        item["requirement"] = ("NOT RUN — LATER PHASE" if mapping.get("pending_phase") and item["verdict"] == "NOT RUN"
+                               else REQUIREMENT_LABELS.get(item["verdict"], item["verdict"]))
     before, after = report.get("runtime_before"), report.get("runtime_after")
     if not before or before != after:
         problems.append(f"the real runtime data or the default output folder changed during the run: {before} -> {after}")
@@ -364,4 +452,5 @@ def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: 
     status = _worst(statuses) if statuses else "NOT RUN"
     bad = [f"{item['id']}: {item['verdict']}: {str(item.get('reason', ''))[:200]}" for item in verdicts if item["verdict"] in ("FAIL", "BLOCKED", "NOT RUN")]
     detail = "; ".join([", ".join(f"{count} {name}" for name, count in counts.items() if count), *problems, *bad[:12]])
-    return Judgement(status, detail, verdicts, problems, [])
+    candidates = [{"scenario": entry.get("id"), **shot} for entry in entries for shot in entry.get("screenshots", [])]
+    return Judgement(status, detail, verdicts, problems, candidates)

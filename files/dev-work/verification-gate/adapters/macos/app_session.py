@@ -3,8 +3,11 @@
 The same verbs as ``adapters/windows/app_session.py``, so the journeys run unchanged, done the only honest way this
 programme has on macOS: the application's own observation channel acts through Tk (``invoke``, generated events, the
 widgets' own values), and the file, folder and message dialogs are in-process stand-ins the session answers. What that
-does not exercise -- the native NSOpenPanel and NSAlert, real pointer and keyboard input, the Dock, the menu bar, Finder,
-the pixels -- is owner-manual (darwin_map class b) and never claimed here.
+does not exercise -- the native NSOpenPanel and NSAlert, real pointer and keyboard input, the Dock, the menu bar, Finder --
+is never claimed here. Since the P1B closeout the pixels are: ``screenshot`` images the application's own window through
+the window server (no Screen Recording grant is needed for a process's own window), with Tk's audit of that moment and a
+provenance record (source SHA, tool, appearance, size, state) beside it; a session started with ``native_dialogs`` leaves
+the real NSOpenPanel and NSAlert in place and answers them through ``expect_native`` (adapters/macos/native_ui.py).
 
 From outside the process, as on Windows: the application starts in its own process group; its exit status is the
 interpreter's own; every child it starts is recorded the moment it starts (pid, kernel start time, group), so an orphan
@@ -32,8 +35,25 @@ for _path in (str(GATE_DIR), str(REPO_ROOT / "scripts" / "shared")):
 
 import child_ownership  # noqa: E402  (stdlib only: the kernel start-time reader)
 
+from helpers import visual_review  # noqa: E402
+
 from . import containment  # noqa: E402
 from . import native_input as native  # noqa: E402
+
+_SOURCE: dict = {}
+
+
+def source_identity() -> dict:
+    """What a picture is of: the checkout's HEAD and whether the application or the gate differ from it (read once)."""
+    if not _SOURCE:
+        def git(*args):
+            done = subprocess.run(["git", "-C", str(REPO_ROOT), "--no-optional-locks", *args], capture_output=True, text=True)
+            return done.stdout.strip() if done.returncode == 0 else ""
+
+        dirty = git("status", "--porcelain=v1", "--", "scripts", "files/dev-work/verification-gate", ":!files/dev-work/verification-gate/outputs")
+        _SOURCE.update(sha=git("rev-parse", "HEAD") or None, branch=git("rev-parse", "--abbrev-ref", "HEAD") or None,
+                       dirty=bool(dirty), dirty_paths=dirty.splitlines()[:40])
+    return dict(_SOURCE)
 
 STARTUP_SECONDS = 90
 ORPHAN_GRACE_SECONDS = 1.5
@@ -137,7 +157,7 @@ class AppSession:
         self.script = script or HERE / "app_launcher.py"
         self.config = dict(config or {})
         self.actions = evidence / f"{name}-actions.jsonl"
-        self.screenshots = evidence / "screenshots"
+        self.screenshots = self.evidence / "screenshots"
         self.shots: list[dict] = []
         self.proc: subprocess.Popen | None = None
         self.job = _Job(self)
@@ -161,7 +181,8 @@ class AppSession:
         temp = self.work / "t"
         temp.mkdir(exist_ok=True)
         channel_file = self.work / f"{self.name}-channel.json"
-        config = {"channel_file": str(channel_file), "runtime_dir": str(self.work / "runtime"), **self.config}
+        config = {"channel_file": str(channel_file), "runtime_dir": str(self.work / "runtime"), "pictures_dir": str(self.screenshots),
+                  **self.config}
         config_path = self.work / f"{self.name}-config.json"
         config_path.write_text(json.dumps(config, indent=1), encoding="utf-8")
         env = dict(os.environ)
@@ -421,7 +442,8 @@ class AppSession:
         if not result.get("ok"):
             raise native.InputRefused(f"{dialog['title']!r}: {result.get('refused')}")
         self.input_count += 1
-        self._action(action, title=dialog["title"], dialog_kind=dialog["kind"], answer=answer, stand_in=True, **facts)
+        self._action(action, title=dialog["title"], dialog_kind=dialog["kind"], answer=answer, stand_in=True,
+                     options=dialog.get("options", {}), **facts)
         wait_until(lambda: all(item["id"] != dialog["id"] for item in self.pending_dialogs()), 15, "the dialog to close")
 
     def file_dialog(self, paths: list[Path] | Path, *, title: str | None = None) -> None:
@@ -446,14 +468,58 @@ class AppSession:
         self._answer(dialog, wanted, "answer dialog", button=wanted, body=body)
         return {"title": dialog["title"], "body": body}
 
+    # -- native dialogs (a session started with config native_dialogs) ------------------------------ #
+    def expect_native(self, *items: dict) -> None:
+        """The next native panels, in order: ``{"kind": "open"|"save"|"alert", "respond": "cancel"|"return"|"escape",
+        "capture": picture name or None}``. Answered inside the application by ``native_ui.NativeWatcher``."""
+        answer = self.client.call("native_expect", items=list(items))
+        if not answer.get("ok"):
+            raise native.InputRefused(f"native dialogs: {answer.get('refused')}")
+
+    def native_events(self) -> list[dict]:
+        path = self.work / "native-dialogs.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
     # -- evidence ----------------------------------------------------------------------------------- #
-    def screenshot(self, name: str, *, window: int | None = None) -> str:
-        """No Screen Recording grant (D9): nothing is captured; the window's Tk geometry is recorded instead, and the
-        picture itself is the owner's visual check."""
-        entry = {"name": f"{name}.png", "captured": False, "session": self.name,
-                 "tk": self.client.call("window") if self.client is not None else {}}
+    def screenshot(self, name: str, *, window=None, tool: str | None = None, state: str | None = None) -> str:
+        """The application's own window as the window server shows it, with its provenance and review beside it.
+
+        ``window`` names a top-level the way ``windows_of`` does; a stand-in dialog has no window of its own, so its
+        picture is of the window behind it and says so (``subject``). A picture that could not be taken is recorded with
+        ``captured`` false and why: never a pass (``helpers/visual_review.py``)."""
+        self.screenshots.mkdir(parents=True, exist_ok=True)
+        path = self.screenshots / f"{name}.png"
+        toplevel, subject = ".", "window"
+        if isinstance(window, str) and ":dialog:" in window:
+            subject = "window behind an in-process stand-in dialog"
+        elif isinstance(window, str) and ":" in window:
+            toplevel = window.split(":", 1)[1]
+        record = {"name": path.name, "session": self.name, "scenario": self.evidence.name, "state": state or name,
+                  "subject": subject, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **source_identity()}
+        if self.client is None:
+            record.update(captured=False, why="the application is not running")
+        else:
+            try:
+                answer = self.client.call("capture", path=str(path), toplevel=toplevel)
+            except ChannelError as exc:
+                answer = {"captured": False, "why": str(exc)}
+            record.update({key: value for key, value in answer.items() if key != "ok"})
+            record["tool"] = tool or answer.get("current_tool")
+            record["viewport"] = answer.get("content_points")
+        if record.get("captured") and path.is_file():
+            record["sha256"] = visual_review.sha256(path)
+        else:
+            record["captured"] = False
+        record["review"] = visual_review.review(path, record)
+        path.with_suffix(".json").write_text(json.dumps(record, indent=1, default=str), encoding="utf-8")
+        entry = {"name": path.name, "captured": bool(record["captured"]), "sidecar": path.with_suffix(".json").name,
+                 "review": record["review"]["status"], "tool": record.get("tool"), "state": record["state"],
+                 "appearance": (record.get("appearance") or {}).get("app"), "viewport": record.get("viewport"),
+                 "sha": record.get("sha"), "session": self.name}
         self.shots.append(entry)
-        self._log("screenshot", **entry)
+        self._log("screenshot", **entry, reason=record["review"].get("reason"))
         return entry["name"]
 
     def _log(self, kind: str, **facts) -> None:

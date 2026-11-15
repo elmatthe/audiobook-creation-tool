@@ -2,9 +2,10 @@
 
 Pure tests of the policy and the judgement, on every platform: the real ``verification.json`` maps every acceptance
 scenario exactly once on macOS and its skip policies are exact; and negative controls show that an unmapped scenario,
-a malformed entry, a counterpart that passed without evidence, a manual item without the owner's signed record for the
-candidate SHA, a required scenario not yet runnable, an unknown skip reason and a skip count over its limit each keep
-the darwin stage from passing. Windows' judgement and its policy are untouched (asserted below).
+a malformed entry, a counterpart that passed without evidence, an automated counterpart that waits on an owner's signed
+record (no longer allowed since the owner's P1B closeout instruction of 2026-11-15), a required scenario not yet
+runnable, an unknown skip reason and a skip count over its limit each keep the darwin stage from passing. The pictures and
+the dialog contract are in test_macos_p1b_closeout_gate.py. Windows' judgement and its policy are untouched.
 """
 
 from __future__ import annotations
@@ -72,7 +73,9 @@ def test_fresh_macos_is_a_darwin_scenario_and_windows_keeps_its_frozen_set():
     verify = load_gate("act_verify_p1b_gate")
 
     assert verify.SCENARIO_NAMES == ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows")
-    assert set(POLICY["darwin_scenarios"]) == set(verify.DARWIN_SCENARIO_NAMES) == {"fresh-macos"}
+    assert set(POLICY["darwin_scenarios"]) == set(verify.DARWIN_SCENARIO_NAMES) == {
+        "fresh-macos", "macos-native-dialogs", "macos-visual", "macos-kx10"}
+    assert "runner" not in POLICY["darwin_scenarios"]["fresh-macos"], "REAL CLEAN stays the owner's run of the procedure (P7c)"
     assert (REPO_ROOT / POLICY["darwin_scenarios"]["fresh-macos"]["procedure"]).is_file()
 
 
@@ -125,8 +128,7 @@ def _entry(sid: str, **extra) -> dict:
 def _judge(tmp_path, entries, *, wanted=None, signed=(), darwin_map=None, runtime_after=None, report_extra=None,
            returncode=0, required_tools=(), whole_set=False):
     darwin_map = darwin_map or {
-        "mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine",
-                                       "manual": ["macos-checklist:native-dialogs"]},
+        "mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine", "evidence": ["journey-checks"]},
         "tts.edge-replay-direct-file": {"class": "automated", "journey": "tts.edge-replay-direct-file", "pending_phase": "P2"},
         "control.real-click-reaches-the-target": {"class": "not-applicable", "reason_id": "windows-input-harness"},
     }
@@ -148,28 +150,31 @@ def _judge(tmp_path, entries, *, wanted=None, signed=(), darwin_map=None, runtim
 
 
 def test_a_required_scenario_pending_its_phase_keeps_the_stage_from_passing(tmp_path):
-    judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")], signed=["macos-checklist:native-dialogs"])
+    judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")])
     verdicts = {item["id"]: item["verdict"] for item in judged.scenarios}
     assert verdicts == {"mp3.write-id3-then-combine": "PASS", "tts.edge-replay-direct-file": "NOT RUN",
                         "control.real-click-reaches-the-target": "NOT APPLICABLE"}
     assert judged.status == "NOT RUN"
 
 
-def test_only_a_complete_map_with_signed_evidence_passes(tmp_path):
+def test_only_a_complete_map_with_its_evidence_passes(tmp_path):
     darwin_map = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine",
-                                                 "manual": ["macos-checklist:native-dialogs"]},
+                                                 "evidence": ["journey-checks"]},
                   "control.real-click-reaches-the-target": {"class": "not-applicable", "reason_id": "windows-input-harness"}}
-    judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")], signed=["macos-checklist:native-dialogs"],
-                    darwin_map=darwin_map)
+    judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")], darwin_map=darwin_map)
     assert judged.status == "PASS", judged.detail
     assert "1 automated PASS" in judged.detail and "1 not applicable" in judged.detail
+    labels = {item["id"]: item["requirement"] for item in judged.scenarios}
+    assert labels == {"mp3.write-id3-then-combine": "AUTOMATED PASS",
+                      "control.real-click-reaches-the-target": "NOT APPLICABLE — JUSTIFIED"}
 
 
-def test_a_manual_item_without_the_owners_signed_record_for_this_sha_fails(tmp_path):
+def test_an_automated_counterpart_may_not_wait_on_an_owner_signature(tmp_path):
+    """P1B closeout: no fabricated or real owner signature stands in for an automated check; the map itself is refused."""
     darwin_map = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine",
-                                                 "manual": ["macos-checklist:native-dialogs"]}}
-    judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")], darwin_map=darwin_map)
-    assert judged.status == "FAIL" and "no signed owner evidence" in judged.detail
+                                                 "evidence": ["journey-checks"], "manual": ["macos-checklist:native-dialogs"]}}
+    judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")], signed=["macos-checklist:native-dialogs"], darwin_map=darwin_map)
+    assert judged.status == "FAIL" and "may not wait on an owner's signed record" in judged.detail
 
 
 @pytest.mark.parametrize("damage", ["no checks", "failed check", "worker thread called Tk", "status says N/A"])
@@ -183,17 +188,19 @@ def test_a_counterpart_that_passed_without_its_evidence_fails(tmp_path, damage):
         entry["notes"] = {"exits": [{"exit_status": 0, "orphans": [], "windows_after": [], "tk_off_thread": [{"call": "call"}]}]}
     else:
         entry["status"] = "NOT APPLICABLE"
-    darwin_map = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine"}}
+    darwin_map = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine",
+                                                 "evidence": ["journey-checks"]}}
     assert _judge(tmp_path, [entry], darwin_map=darwin_map).status == "FAIL"
 
 
 def test_a_run_that_changed_the_real_runtime_data_fails(tmp_path):
-    darwin_map = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine"}}
+    darwin_map = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine",
+                                                 "evidence": ["journey-checks"]}}
     judged = _judge(tmp_path, [_entry("mp3.write-id3-then-combine")], darwin_map=darwin_map, runtime_after={"x": 2})
     assert judged.status == "FAIL"
 
 
-_ONE = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine"}}
+_ONE = {"mp3.write-id3-then-combine": {"class": "automated", "journey": "mp3.write-id3-then-combine", "evidence": ["journey-checks"]}}
 
 
 @pytest.mark.parametrize("damage, words", [

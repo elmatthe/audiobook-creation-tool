@@ -394,9 +394,10 @@ def test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_applicat
     assert verdict["status"] == "BLOCKED" and verdict["scenario"] == scenario and verdict["checks"] == []
     assert outcome.check("cleanup")["status"] == "PASS"
     assert outcome.results["qualification"]["satisfied"] == []
-    # v0.8.x P1B: the qualification set a run reports pending is its own platform's (macOS: fresh-macos only).
+    # v0.8.x P1B: the qualification set a run reports pending is its own platform's (macOS: fresh-macos and, since the P1B
+    # closeout, the three darwin scenarios with runners; never a Windows one).
     assert scenario in outcome.results["qualification"]["pending"] if sys.platform != "darwin" \
-        else outcome.results["qualification"]["pending"] == ["fresh-macos"]
+        else outcome.results["qualification"]["pending"] == ["fresh-macos", "macos-native-dialogs", "macos-visual", "macos-kx10"]
     assert sorted(path.name for path in (outcome.directory / "qualification").iterdir()) == ["runs.json", "verdict.json"]
 
 
@@ -1578,7 +1579,7 @@ def _with_runner(tree, script=None, *, required=("mp3.journey",), tools=("mp3-to
     policy = tree.policy()
     policy["acceptance"] = {"required_tools": list(tools), "required_scenarios": list(required), "optional_scenarios": [], "journey_routes": {},
                             # v0.8.x P1B: the macOS gate judges by its darwin map; Windows never reads it.
-                            "darwin_map": {item: {"class": "automated", "journey": item} for item in required}}
+                            "darwin_map": {item: {"class": "automated", "journey": item, "evidence": ["journey-checks"]} for item in required}}
     policy["stages"]["acceptance"] = {"timeout_seconds": 60, "stall_seconds": 6}
     policy.update(policy_overrides)
     tree.write_policy(policy)

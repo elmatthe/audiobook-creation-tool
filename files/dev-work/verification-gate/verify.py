@@ -8,6 +8,7 @@ Run it with the project environment's interpreter, from any directory:
     ... --mode changed --base origin/master
     ... --mode qualification --scenario m4b-scaling
     ... --status files/dev-work/verification-gate/outputs/<run> [--require-current]
+    ... --evidence [--test ID] [--journey ID] [--scenario NAME] [--evidence-root DIR]
 
 What a mode means (plan §6):
 
@@ -18,6 +19,10 @@ What a mode means (plan §6):
                  config, the collection partition, the coverage inventory and the gate's own self-tests. The routine gate. Requirements
                  owned by later phases are listed as NOT RUN in every result: this is not full acceptance and not release readiness
                  until they exist and pass.
+  --evidence     not a run: incremental-verification bookkeeping over the runs already recorded (helpers/evidence_ledger.py).
+                 Which earlier results still describe this tree, which a change invalidated and why, and the focused commands
+                 that would rerun exactly those. With no item named, the darwin P1B requirement ledger (darwin_p1b). Never a
+                 canonical PASS: it prints EVIDENCE, never RESULT.
   qualification  one named expensive scenario, run on its own and never by a routine mode: m4b-scaling (v0.7.2 Phase 7B,
                  scaling/qualify.py, about three hours) and, since Phase 8, edge-low-memory, optional-engines and fresh-windows
                  (qualification/). A scenario that needs the network runs only with the --network policy it declares and is
@@ -77,7 +82,7 @@ REPO_ROOT = GATE_DIR.parents[2]
 _on_path = str(GATE_DIR) in sys.path
 if not _on_path:
     sys.path.insert(0, str(GATE_DIR))
-from helpers import acceptance_report, coverage_model, pytest_reports, runstore, scratch as scratch_store, selection as selection_rules, winproc  # noqa: E402
+from helpers import acceptance_report, coverage_model, evidence_ledger, pytest_reports, runstore, scratch as scratch_store, selection as selection_rules, winproc  # noqa: E402
 from helpers import inventory as inventory_tools  # noqa: E402
 
 if not _on_path:
@@ -133,7 +138,7 @@ SCENARIO_NAMES = ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-w
 #: v0.8.x P1B (plan 14.3, D9b): the macOS qualification set. fresh-macos is mandatory and has no runner yet (its automation is
 #: optional): it reports NOT RUN until the owner's signed run of qualification/fresh_macos_procedure.md exists. Windows' frozen
 #: set above is unchanged, so a Windows run never lists a macOS scenario as pending.
-DARWIN_SCENARIO_NAMES = ("fresh-macos",)
+DARWIN_SCENARIO_NAMES = ("fresh-macos", "macos-native-dialogs", "macos-visual", "macos-kx10")
 #: Where the owner's signed macOS manual evidence lives, one folder per candidate SHA (ignored; never committed).
 DARWIN_MANUAL_EVIDENCE = REPO_ROOT / "files" / "dev-work" / "macos-acceptance" / "evidence"
 
@@ -894,6 +899,11 @@ class GateRun:
             "cwd": os.getcwd(), "repo_root": str(REPO_ROOT), "error_mode": self.established,
             "utc_offset": time.strftime("%z"), "environment": self.environment, "identity": self.identity_start,
         })
+        # Every file this run sees, as a git blob: what lets --evidence tell later which of this run's results a change reaches.
+        try:
+            runstore.write_json_atomic(self.directory / evidence_ledger.FILES_NAME, evidence_ledger.blob_map(REPO_ROOT))
+        except (OSError, RuntimeError) as exc:
+            self.record.log(f"no file record for incremental evidence: {exc}")
 
     def preflight(self) -> bool:
         wanted = self.args.platform
@@ -966,10 +976,12 @@ class GateRun:
                 self.check(f"scenario:{name}", "BLOCKED", f"{name} is a macOS scenario")
                 return
             scenario = self.policy["darwin_scenarios"][name]
-            self.check(f"scenario:{name}", "NOT RUN", f"no runner (its automation is optional, D9b): satisfied only by the owner's "
-                                                      f"signed run of {scenario['procedure']}; {scenario['detail']}")
-            return
-        scenario = self.policy["scenarios"][name]
+            if not scenario.get("runner"):
+                self.check(f"scenario:{name}", "NOT RUN", f"no runner (its automation is optional, D9b): satisfied only by the owner's "
+                                                          f"signed run of {scenario['procedure']}; {scenario['detail']}")
+                return
+        else:
+            scenario = self.policy["scenarios"][name]
         runner = scenario.get("runner")
         if not runner:
             self.check(f"scenario:{name}", "NOT RUN", f"not implemented yet; Phase {scenario['phase']} owns it: {scenario['detail']}")
@@ -1262,8 +1274,27 @@ class GateRun:
                             "scenarios": self.acceptance.scenarios, **result.record()})
         (self.directory / "acceptance-report.md").write_text("\n".join(acceptance_report.report_lines(self.acceptance)) + "\n",
                                                               encoding="utf-8", newline="\n")
+        runstore.write_json_atomic(self.reports() / evidence_ledger.VERDICTS_NAME,
+                                   [{key: item.get(key) for key in ("id", "verdict", "requirement", "reason")} for item in self.acceptance.scenarios])
+        if sys.platform == "darwin" and self.acceptance.candidates:
+            self.write_contact_sheet(evidence)
         self.check("acceptance", self.acceptance.status, self.acceptance.detail, exit_status=result.returncode, seconds=round(result.seconds, 3))
         self.check_visual_candidates()
+
+    def write_contact_sheet(self, evidence: Path) -> None:
+        """Every picture of this run's journeys, indexed with its provenance and its review (P1B closeout)."""
+        from helpers import visual_review
+
+        entries = []
+        for item in self.acceptance.candidates:
+            png = evidence / item["path"]
+            record = visual_review.load_record(png) or {}
+            entries.append({"path": item["path"], "record": record, "review": visual_review.review(png, record) if record else {}})
+        try:
+            sheet = visual_review.contact_sheet(entries, evidence, title=f"Pictures of {self.record.run_id}")
+            self.record.log(f"contact sheet: {sheet}")
+        except Exception as exc:  # noqa: BLE001 - the index is a convenience; the judgement above already read every picture
+            self.record.log(f"contact sheet not written: {type(exc).__name__}: {exc}")
 
     def check_visual_candidates(self) -> None:
         """Pictures are candidates until the owner approves them. A normal run lists them for review and never writes the approved list."""
@@ -1931,6 +1962,106 @@ def _status_command(args) -> int:
     return code
 
 
+def _evidence_command(args) -> int:
+    """The incremental-evidence ledger (helpers/evidence_ledger.py). Prints EVIDENCE, never RESULT: it is not a gate run."""
+    policy = load_policy()
+    roots = [OUTPUTS_ROOT, *[Path(item) if Path(item).is_absolute() else REPO_ROOT / item for item in (args.evidence_root or [])]]
+    runs, skipped = evidence_ledger.load_runs(REPO_ROOT, roots)
+    current = evidence_ledger.blob_map(REPO_ROOT)
+    head = evidence_ledger._git(REPO_ROOT, "rev-parse", "HEAD").strip()
+    environment = environment_identity()
+    sys.path.insert(0, str(GATE_DIR))
+    import acceptance_runner
+
+    registry = acceptance_runner.load_scenarios()
+    tools = {sid: scenario.tool for sid, scenario in registry.items()}
+    requirements: list[dict] = []
+    tests, journeys, scenarios = list(args.test or []), list(args.journey or []), [args.scenario] if args.scenario else []
+    if not (tests or journeys or scenarios):
+        block = policy.get("darwin_p1b", {})
+        darwin = policy.get("acceptance", {}).get("darwin_map", {})
+        for requirement in block.get("requirements", []):
+            requirements.append(requirement)
+            if requirement["kind"] == "journeys":
+                journeys += [sid for sid, entry in darwin.items() if entry.get("class") == "automated" and not entry.get("pending_phase")]
+            elif requirement["kind"] == "tests":
+                tests += requirement["tests"]
+            elif requirement["kind"] == "scenario":
+                scenarios.append(requirement["scenario"])
+    tests, journeys, scenarios = (list(dict.fromkeys(group)) for group in (tests, journeys, scenarios))
+    items = evidence_ledger.build_items(REPO_ROOT, policy, tests=tests, journeys=journeys, scenarios=scenarios, journey_tools=tools)
+    entries = {(item.kind, item.id): evidence_ledger.assess(item, runs, current, head, environment, policy) for item in items}
+    print(f"incremental evidence at HEAD {head[:12]} ({len(runs)} recorded runs read; {len(skipped)} not admissible: unfinished, "
+          "unsealed or altered)")
+    for entry in entries.values():
+        print(f"  {entry['status']:<31} {entry['kind']:<8} {entry['item']}  -- {entry['why']}")
+        for path in entry.get("changed", [])[:5]:
+            print(f"{'':44}changed: {path}")
+    verdicts = [entry["status"] for entry in entries.values()]
+    if requirements:
+        print("\nP1B requirements (verification.json darwin_p1b):")
+        verdicts = []
+        for requirement in requirements:
+            kind = requirement["kind"]
+            if kind == "journeys":
+                status = evidence_ledger.worst(entries[("journey", sid)]["status"] for sid in journeys)
+            elif kind == "tests":
+                status = evidence_ledger.worst(entries[("test", test)]["status"] for test in requirement["tests"])
+            elif kind == "scenario":
+                status = entries[("scenario", requirement["scenario"])]["status"]
+            elif kind == "owner-visual":
+                status = _owner_visual_status(policy, current)
+            elif kind == "blocked-permission":
+                status = f"BLOCKED - needs {requirement['permission']}"
+            elif kind == "later-phase":
+                status = f"NOT RUN - LATER PHASE ({requirement['phase']})"
+            else:
+                status = "NOT APPLICABLE - JUSTIFIED"
+            label = {"PASS (current)": "AUTOMATED PASS", "PREVIOUSLY PASS - NOT AFFECTED": "AUTOMATED PASS (carried)",
+                     "FAIL": "AUTOMATED FAIL"}.get(status, status)
+            verdicts.append(label)
+            print(f"  {label:<40} {requirement['id']}: {requirement['what'][:110]}")
+    plan = evidence_ledger.rerun_plan(list(entries.values()), "macos" if sys.platform == "darwin" else "windows")
+    if plan:
+        print("\nTo rerun exactly what is not current:")
+        for line in plan:
+            print(f"  {line}")
+    if any(verdict.startswith(("FAIL", "AUTOMATED FAIL")) for verdict in verdicts):
+        outcome, code = "FAIL", runstore.EXIT_FAIL
+    elif any(verdict.startswith("BLOCKED") for verdict in verdicts):
+        outcome, code = "BLOCKED", runstore.EXIT_BLOCKED
+    elif any(verdict.startswith(("NEEDS RERUN", "NOT RUN -", "NOT RUN")) and not verdict.startswith("NOT RUN - LATER") for verdict in verdicts):
+        outcome, code = "INCOMPLETE", runstore.EXIT_NOT_RUN
+    else:
+        outcome, code = "COMPLETE", runstore.EXIT_PASS
+    print(f"\nEVIDENCE: {outcome} (incremental bookkeeping; not a canonical gate PASS -- the final release gate runs in full on the "
+          "finalized SHA on both platforms)")
+    return code
+
+
+def _owner_visual_status(policy: dict, current: dict) -> str:
+    """The owner's reported visual acceptance carries while the application's code is the code they looked at."""
+    pattern = policy.get("darwin_p1b", {}).get("owner_visual_record", "")
+    found = sorted((REPO_ROOT / "files" / "dev-work" / "macos-acceptance" / "evidence").glob("*/owner-visual-acceptance.json"))
+    for path in reversed(found):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        sha = record.get("code_sha") or record.get("sha")
+        if not sha or path.parent.name != record.get("sha"):
+            continue
+        try:
+            then = evidence_ledger.blob_map_at(REPO_ROOT, sha)
+        except RuntimeError:
+            return f"NOT RUN - the owner's record names {str(sha)[:12]}, which this repository does not have"
+        moved = [p for p in evidence_ledger.changed_between(then, current) if p.startswith(("scripts/", "config.toml"))]
+        if moved:
+            return f"NEEDS RE-REVIEW - {len(moved)} application file(s) changed since the owner looked at {sha[:12]}"
+        return f"OWNER VISUAL ACCEPTANCE (reported at {sha[:12]}; application unchanged since)"
+    return f"NOT RUN - no owner visual record ({pattern})"
+
+
 class _OnceOnly(argparse.Action):
     """A single-value option. Given twice, argparse would let the last win in silence, so --platform macos --platform windows
     would step around the platform refusal and --status <missing> --status <good> would read PASS. Empty is never a value."""
@@ -1986,7 +2117,21 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--status", action=_OnceOnly, metavar="RUN_DIR", help="read a run back instead of starting one")
     parser.add_argument("--require-current", action="store_true", help="with --status: a PASS must describe the current source and environment")
     parser.add_argument("--audit-scratch", action="store_true", help="report who owns each scratch folder; removes nothing")
+    parser.add_argument("--evidence", action="store_true", help="incremental evidence bookkeeping over recorded runs; runs nothing")
+    parser.add_argument("--evidence-root", action="append", metavar="DIR",
+                        help="with --evidence: also read the runs below this outputs folder (another worktree of this repository)")
     args = parser.parse_args(argv)
+    if args.evidence:
+        if args.mode or args.status or args.audit_scratch:
+            parser.error("--evidence stands alone (with --test, --journey, --scenario, --evidence-root)")
+        if args.test:
+            try:
+                args.test = [selection_rules.parse_selector(raw).split("::", 1)[0] for raw in args.test]
+            except selection_rules.SelectorError as exc:
+                parser.error(str(exc))
+        return args
+    if args.evidence_root:
+        parser.error("--evidence-root goes with --evidence")
     if args.audit_scratch:
         if args.mode or args.status or args.require_current:
             parser.error("--audit-scratch stands alone")
@@ -2041,6 +2186,8 @@ def main(argv: list[str] | None = None) -> int:
         return runstore.EXIT_PASS
     if args.status:
         return _status_command(args)
+    if args.evidence:
+        return _evidence_command(args)
     return _execute_run(args, list(sys.argv if argv is None else argv), established)
 
 

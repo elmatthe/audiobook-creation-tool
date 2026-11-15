@@ -59,7 +59,8 @@ def test_a_real_combine_under_continuous_resizing_makes_no_tk_call_off_the_main_
 
     import launcher
     import test_ffmpeg_cancel as cx
-    from shared import config, ffmpeg_utils, output_paths
+    from output_guard import real_output_locations_refused, require_isolated_output_base
+    from shared import config, ffmpeg_utils
     from shared import settings as app_settings
     from tk_gate import open_tk_root
 
@@ -81,60 +82,64 @@ def test_a_real_combine_under_continuous_resizing_makes_no_tk_call_off_the_main_
     app_settings.set("output_base_directory", str(outputs))
     app_settings.set("last_tool", "mp3_tool")
     config.invalidate()  # the process's cached snapshot may predate this test (one pytest process runs many files)
-    # Fail closed: the run must publish into this test's own folder, never the real default output location.
-    assert output_paths.resolve_output_base() == outputs, output_paths.resolve_output_base()
+    # Fail closed: the run must publish into this test's own folder, never the real default output location. Checked
+    # against the snapshot as it now stands (output_guard does not refresh it), after the invalidation, before the run.
+    require_isolated_output_base(outputs)
     monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: tuple(str(t) for t in tracks))
 
     off_thread: list = []
     root = open_tk_root(tk)
     root.tk = ThreadCheckingTk(root.tk, off_thread)  # before any widget exists, so every widget shares it
     try:
-        app = launcher.LauncherApp(root)
-        app.select_tool("mp3_tool")
-        for _ in range(10):
+        # And while it runs, nothing in this process may write into the real default output folder or Downloads.
+        with real_output_locations_refused():
+            app = launcher.LauncherApp(root)
+            app.select_tool("mp3_tool")
+            for _ in range(10):
+                root.update()
+            panel = app.containers["mp3_tool"].winfo_children()[0]
+            panel.btn_add_files.invoke()
+            deadline = time.monotonic() + 60
+            while panel.track_list.size() < 3 and time.monotonic() < deadline:
+                root.update()
+                time.sleep(0.01)
+            assert panel.track_list.size() == 3
+            album = next(row for key, row in panel.surface._rows.items()
+                         if str(getattr(key, "value", getattr(key, "name", key))).lower() == "album")
+            album.shared_entry.focus_force()
+            album.shared_entry.delete(0, "end")
+            for character in "Stress":
+                album.shared_entry.event_generate("<KeyPress>", keysym=character)
+                album.shared_entry.event_generate("<KeyRelease>", keysym=character)
             root.update()
-        panel = app.containers["mp3_tool"].winfo_children()[0]
-        panel.btn_add_files.invoke()
-        deadline = time.monotonic() + 60
-        while panel.track_list.size() < 3 and time.monotonic() < deadline:
-            root.update()
-            time.sleep(0.01)
-        assert panel.track_list.size() == 3
-        album = next(row for key, row in panel.surface._rows.items()
-                     if str(getattr(key, "value", getattr(key, "name", key))).lower() == "album")
-        album.shared_entry.focus_force()
-        album.shared_entry.delete(0, "end")
-        for character in "Stress":
-            album.shared_entry.event_generate("<KeyPress>", keysym=character)
-            album.shared_entry.event_generate("<KeyRelease>", keysym=character)
-        root.update()
-        assert album.shared_entry.get() == "Stress"
-        panel.btn_combine.invoke()
+            assert album.shared_entry.get() == "Stress"
+            panel.btn_combine.invoke()
 
-        sizes = [(1120, 800), (1300, 840), (1200, 820), (1400, 840)]
-        resized, longest_gap, last = 0, 0.0, time.monotonic()
-        deadline = time.monotonic() + 600
-        while time.monotonic() < deadline:
-            current = getattr(panel, "jobs", None)
-            state = getattr(getattr(current, "state", None), "name", str(getattr(current, "state", "")))
-            if resized >= 150 and state in ("SUCCEEDED", "FAILED", "CANCELLED", "COMPLETED_WITH_FAILURES"):
-                break
-            if resized < 150:
-                width, height = sizes[resized % len(sizes)]
-                root.geometry(f"{width}x{height}")
-                resized += 1
-            root.update()
-            now = time.monotonic()
-            longest_gap = max(longest_gap, now - last)
-            last = now
-            time.sleep(0.005)
-        print(f"MAC-032: {resized} resizes, final state {state}, longest main-thread turn {longest_gap * 1000:.0f} ms")
-        assert resized == 150
-        assert state == "SUCCEEDED", f"the Combine ended {state}"
-        assert off_thread == [], f"{len(off_thread)} Tk call(s) from a worker thread: {off_thread[:3]}"
-        assert longest_gap < 2.0, f"the main thread was held for {longest_gap:.2f} s"
-        published = [p for p in outputs.rglob("*.mp3") if ".work" not in p.parts]
-        assert len(published) == 1 and published[0].stat().st_size > 0
+            sizes = [(1120, 800), (1300, 840), (1200, 820), (1400, 840)]
+            resized, longest_gap, last = 0, 0.0, time.monotonic()
+            deadline = time.monotonic() + 600
+            while time.monotonic() < deadline:
+                current = getattr(panel, "jobs", None)
+                state = getattr(getattr(current, "state", None), "name", str(getattr(current, "state", "")))
+                if resized >= 150 and state in ("SUCCEEDED", "FAILED", "CANCELLED", "COMPLETED_WITH_FAILURES"):
+                    break
+                if resized < 150:
+                    width, height = sizes[resized % len(sizes)]
+                    root.geometry(f"{width}x{height}")
+                    resized += 1
+                root.update()
+                now = time.monotonic()
+                longest_gap = max(longest_gap, now - last)
+                last = now
+                time.sleep(0.005)
+            print(f"MAC-032: {resized} resizes, final state {state}, "
+                  f"longest main-thread turn {longest_gap * 1000:.0f} ms")
+            assert resized == 150
+            assert state == "SUCCEEDED", f"the Combine ended {state}"
+            assert off_thread == [], f"{len(off_thread)} Tk call(s) from a worker thread: {off_thread[:3]}"
+            assert longest_gap < 2.0, f"the main thread was held for {longest_gap:.2f} s"
+            published = [p for p in outputs.rglob("*.mp3") if ".work" not in p.parts]
+            assert len(published) == 1 and published[0].stat().st_size > 0
     finally:
         try:
             root.destroy()
