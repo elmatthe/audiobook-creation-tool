@@ -76,6 +76,24 @@ def test_fresh_macos_is_a_darwin_scenario_and_windows_keeps_its_frozen_set():
     assert (REPO_ROOT / POLICY["darwin_scenarios"]["fresh-macos"]["procedure"]).is_file()
 
 
+def test_every_feature_has_exactly_one_macos_standing_derived_from_the_census():
+    """MAC-027: coverage.json's macOS block covers every feature once, with a reviewed class; none is left to review."""
+    coverage = json.loads((GATE_DIR / "coverage.json").read_text(encoding="utf-8"))
+    block = coverage["macos"]
+    assert re.fullmatch(r"[0-9a-f]{40}", block["census"]["sha"])
+    assert sorted(block["features"]) == sorted(feature["id"] for feature in coverage["features"])
+    for feature_id, entry in block["features"].items():
+        kind = entry["class"]
+        assert kind in ("native", "native-with-failures", "pending", "not-applicable"), (feature_id, kind)
+        assert entry.get("why"), feature_id
+        if kind == "native":
+            assert entry["tests"].get("pass", 0) > 0 and not entry["tests"].get("fail"), feature_id
+        if kind == "native-with-failures":
+            assert entry.get("failing"), feature_id
+        if kind == "pending":
+            assert re.fullmatch(r"P[2-7][A-Ca-c]?(/P[2-7][A-Ca-c]?)*", entry.get("phase", "")), feature_id
+
+
 # --------------------------------------------------------------------------- #
 #  Negative controls: the map
 # --------------------------------------------------------------------------- #

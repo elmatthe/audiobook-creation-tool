@@ -127,7 +127,7 @@ The inventory itself and the checks above: static and live discovery, the review
 
 ## What this map does not establish
 
-- Anything about macOS. Native macOS has not been reviewed live or qualified.
+- macOS beyond its v0.8.x P1B automated evidence. `coverage.json`'s `macos` block gives each feature's macOS standing, derived from the P1B per-file census on a Mac (native, native with listed failures, pending its phase, or not applicable). Not established here: the owner's P1B manual checks, TTS on macOS (P2 to P4), the macOS first-run window (P5) and a REAL CLEAN install (P7c).
 - Windows display scaling other than 100%. HOME-PC runs at 96 DPI, and changing that is a system change.
 - Real Microsoft Edge speech. The routine journeys replay real MP3 frames at the service boundary. Real Edge is the `edge-low-memory` qualification.
 - Real synthesis on Kokoro, Chatterbox Turbo or Qwen3-TTS (the `optional-engines` qualification), a fresh Windows (`fresh-windows`), or 1,000-plus chapter scaling (`m4b-scaling`). Each is a runner under `verification-gate/` since v0.7.2 Phase 8, run by name and never by a routine mode; a result is for that scenario, this machine and that commit only.

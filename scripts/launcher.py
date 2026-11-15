@@ -787,10 +787,12 @@ class LauncherApp:
         self.root.geometry(self.theme["geometry"])
 
     def _on_close(self):
-        # One close, however many ways it was asked for (the red button, Cmd+Q, a signal, all three at once).
-        if getattr(self, "_closing", False):
-            return
-        self._closing = True
+        # macOS and Linux: one close, however many ways it was asked for (the red button, Cmd+Q, a signal, all three at
+        # once). Windows closes exactly as it did before (v0.8.x P1B: no Windows behaviour change without an owner decision).
+        if sys.platform != "win32":
+            if getattr(self, "_closing", False):
+                return
+            self._closing = True
         try:
             app_settings.set("last_tool", self.current_key)
         except Exception:
@@ -888,7 +890,7 @@ def _configure_hf_cache() -> None:
 MAC_APPLICATION_COMMANDS = ("::tk::mac::Quit", "::tk::mac::ShowPreferences")
 
 
-def _release_mac_application_commands(root: tk.Tk) -> None:
+def _drop_mac_application_commands(root: tk.Tk) -> None:
     """macOS (v0.8.x P1B): once the main loop has ended, the Tcl commands that call back into the window are removed. Tcl
     holds their callbacks from C, out of the collector's sight, so otherwise the closed window would stay reachable
     through them for the rest of the process -- a holder besides ``_ROOT`` that the Windows design never had. Nothing on
@@ -954,7 +956,7 @@ def _route_signals_to_close(root: tk.Tk, app: LauncherApp):
         app.logger.exception("Could not route the close signals to the close path")
         return None
 
-    def release() -> None:
+    def hand_back() -> None:
         for number, handler in previous.items():
             try:
                 signal.signal(number, handler)
@@ -970,7 +972,7 @@ def _route_signals_to_close(root: tk.Tk, app: LauncherApp):
             except OSError:
                 pass
 
-    return release
+    return hand_back
 
 
 def _raise_open_file_limit() -> tuple[int, int] | None:
@@ -1017,11 +1019,11 @@ def main() -> int:
     app = LauncherApp(root)
     if raised is not None:
         app.logger.info("Open-file limit raised from %d to %d for this process.", *raised)
-    release_signals = _route_signals_to_close(root, app)
+    hand_back_signals = _route_signals_to_close(root, app)
     root.mainloop()
-    if callable(release_signals):
-        release_signals()
-    _release_mac_application_commands(root)
+    if callable(hand_back_signals):
+        hand_back_signals()
+    _drop_mac_application_commands(root)
     # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
     _finish_tk_objects(root)
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.

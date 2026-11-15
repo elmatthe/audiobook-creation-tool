@@ -241,6 +241,23 @@ def test_cmd_q_and_settings_are_registered_on_aqua_and_quit_is_the_one_close_pat
     assert destroyed == [True]
 
 
+def test_on_windows_the_close_is_exactly_as_before(root, monkeypatch):
+    """Windows control: the one-close guard is POSIX only; each close request on Windows runs the close as at v0.8.0."""
+    import launcher
+
+    app = launcher.LauncherApp.__new__(launcher.LauncherApp)
+    app.root = root
+    app.current_key = "mp3_tool"
+    saved, destroyed = [], []
+    monkeypatch.setattr(launcher.app_settings, "set", lambda key, value: saved.append((key, value)))
+    monkeypatch.setattr(root, "destroy", lambda: destroyed.append(True))
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    app._on_close()
+    app._on_close()
+    monkeypatch.undo()
+    assert saved == [("last_tool", "mp3_tool")] * 2 and destroyed == [True, True]
+
+
 def test_nothing_mac_is_registered_where_tk_is_not_aqua(root, monkeypatch):
     import launcher
 

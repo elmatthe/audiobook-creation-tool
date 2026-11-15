@@ -25630,7 +25630,7 @@
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "40fcbe5bb81a3c9fe0801f497c2964f9b209cf88c010af5dc6ba81d0873cf46e",
+    "scripts/launcher.py": "901ce111f9b26d496d5b6d2c3b7e6945246305c9ab7e76cfdee791fcffcb07ee",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",
@@ -25781,5 +25781,3059 @@
     "scripts/tts/voice_install.py": "0aebc59b519f24ccb6b903151573a5094f7d5783e532d7a2bfef29ce09f08d0e",
     "scripts/tts/voice_registry.py": "690be4a66faa703fd3bbdc4f4be57973ae0a23932d61ec458f26deb6d441b0c1",
     "scripts/tts/worker_limits.py": "9b4093fdb86311b4accf5c2bcde58a034acadcf0ef058d4c6e6f8b2eb7e9029c"
+  },
+  "macos": {
+    "about": "v0.8.x P1B (MAC-027): each feature's macOS standing, derived from the per-file census of the P1B-affected suites on macOS at the SHA below (files/dev-work/macos-p1b/tools/macos_feature_map.py), never asserted. native: its routine tests ran natively and passed. native-with-failures: they ran and some fail (baseline failures, listed). pending: a later phase owns it on macOS (the phase). not-applicable: a Windows-only mechanism, with a reviewed reason. Counts are of the feature's routine behaviour test ids; skips are named by their darwin skip rule. This block is evidence for the macOS programme; the Windows gate does not read it.",
+    "census": {
+      "sha": "abd938bd9c09faa5302103bfa0c80381e9e451cd",
+      "summary": "files/dev-work/macos-p1b/perfile-p1b-final/summary-overlay.json"
+    },
+    "features": {
+      "ACT.TTS.IMPORT": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-direct-file": "pending P2",
+          "tts.edge-replay-folder-mixed": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.RUN": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-direct-file": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.DIRECT": {
+        "tests": {
+          "pass": 1,
+          "outside the census": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-direct-file": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.FOLDER": {
+        "tests": {
+          "pass": 2,
+          "outside the census": 2
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-folder-mixed": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.EDGE": {
+        "tests": {
+          "outside the census": 4,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.service-failure-then-retry": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CANCEL": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.cancel-during-narration": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CANCEL.PUBLICATION": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CANCEL.EDGE-REQUEST": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.cancel-during-narration": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CANCEL.MEMORY-WAIT": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CANCEL.FFMPEG": {
+        "tests": {
+          "pass": 3,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CANCEL.NATIVE": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {
+          "tts.cancel-during-narration": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.PAUSE": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.pause-at-file-boundary": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.PAUSE.NATIVE": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {
+          "tts.pause-at-file-boundary": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.RETRY": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.service-failure-then-retry": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.NO-TEXT": {
+        "tests": {
+          "outside the census": 2,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.pdf-without-text": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.PDF-TEXT": {
+        "tests": {
+          "outside the census": 27,
+          "pass": 2
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-folder-mixed": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.FINAL-TAIL": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.PUBLICATION": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.RESUME": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.OUTPUT-NAMES": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-direct-file": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.OUTPUT-FOLDER": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.WORKERS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-folder-mixed": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.LOW-MEMORY": {
+        "tests": {
+          "skip": 2,
+          "pass": 5
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 2
+        },
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.BITRATE": {
+        "tests": {
+          "pass": 3,
+          "outside the census": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-direct-file": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.EDGE-RATE": {
+        "tests": {
+          "pass": 3,
+          "outside the census": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-folder-mixed": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.VOICE": {
+        "tests": {
+          "outside the census": 4,
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.edge-replay-direct-file": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SENTENCE-DATA": {
+        "tests": {
+          "outside the census": 6
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.INSTALL-AND-CONTINUE": {
+        "tests": {
+          "pass": 6,
+          "outside the census": 1
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SPEECH-PREP": {
+        "tests": {
+          "outside the census": 6,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ACTIVITY-LOG": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.LAYOUT": {
+        "tests": {
+          "skip": 2,
+          "fail": 15,
+          "pass": 2
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 2
+        },
+        "failing": [
+          "files/tests/test_tts_compact_ui.py::test_the_minimum_window_keeps_activity_right_and_large_windows_use_two_columns",
+          "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[kokoro-absent-920x600]",
+          "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[kokoro-pronunciation-absent-920x600]",
+          "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[chatterbox-absent-920x600]",
+          "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[qwen3-absent-1024x720]",
+          "files/tests/test_tts_voice_states_layout.py::test_changing_voice_while_idle_leaves_no_stale_message_and_start_reachable[920x600]",
+          "files/tests/test_tts_voice_states_layout.py::test_resizing_and_the_appearance_toggle_keep_an_absent_kokoro_usable",
+          "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[qwen3-absent-920x600]",
+          "files/tests/test_tts_voice_states_layout.py::test_every_optional_voice_state_keeps_start_and_cancel_on_screen[qwen3-installed-920x600]",
+          "files/tests/test_tts_voice_states_layout.py::test_a_qwen3_voice_at_the_minimum_is_compact_and_keeps_every_action_on_screen[qwen3-absent-cpu]",
+          "files/tests/test_tts_voice_states_layout.py::test_a_qwen3_voice_at_the_minimum_is_compact_and_keeps_every_action_on_screen[qwen3-installed-gpu]",
+          "files/tests/test_tts_voice_states_layout.py::test_the_details_control_is_reachable_by_keyboard_and_shows_the_complete_disclosure",
+          "files/tests/test_tts_voice_states_layout.py::test_larger_windows_keep_the_full_qwen3_disclosure[qwen3-absent-1024x720]",
+          "files/tests/test_tts_voice_states_layout.py::test_resizing_and_the_appearance_toggle_move_between_compact_and_full_disclosure",
+          "files/tests/test_tts_voice_states_layout.py::test_a_qwen3_voice_becoming_installed_or_missing_at_the_minimum_stays_usable"
+        ],
+        "journeys": {
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.LOCK-DURING-RUN": {
+        "tests": {
+          "pass": 1,
+          "outside the census": 3
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CLEANUP": {
+        "tests": {
+          "pass": 11,
+          "skip": 19
+        },
+        "skipped_by": {
+          "work-area-recovery-windows-only": 19
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CLOSE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "shutdown.tts-close-during-work": "pending P2",
+          "shutdown.tts-close-forced-landing": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.CLI": {
+        "tests": {
+          "pass": 4,
+          "outside the census": 1,
+          "skip": 20
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 20
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.LOCAL-ROUTE": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.KOKORO": {
+        "tests": {
+          "outside the census": 18,
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "tts.kokoro-local": "pending P2"
+        },
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.CHATTERBOX": {
+        "tests": {
+          "pass": 4,
+          "outside the census": 1
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P3A",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.QWEN3": {
+        "tests": {
+          "pass": 4,
+          "outside the census": 1
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.QWEN3-WORKER-CONTROL": {
+        "tests": {
+          "pass": 3,
+          "skip": 2
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 2
+        },
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.QWEN3-EXCLUSIVE": {
+        "tests": {
+          "fail": 1,
+          "skip": 1,
+          "pass": 1,
+          "outside the census": 1
+        },
+        "skipped_by": {
+          "qwen3-windows-only": 1
+        },
+        "failing": [
+          "files/tests/test_qwen3_setup.py::test_an_install_cannot_start_while_a_conversion_holds_the_voices_and_a_conversion_cannot_start_during_an_install"
+        ],
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.OMNIVOICE": {
+        "tests": {
+          "pass": 30,
+          "outside the census": 3,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_omnivoice_layout.py::test_the_worker_s_search_path_keeps_its_own_folder_and_drops_the_parent_s_and_qwen3_s"
+        ],
+        "class": "pending",
+        "phase": "P4B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.LOCAL-ONE-WORKER": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.ENGINE.OFFLINE-USE": {
+        "tests": {
+          "outside the census": 6,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.VOICE-STATE": {
+        "tests": {
+          "pass": 8,
+          "outside the census": 9
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.VOICE-CLONE-REFERENCES": {
+        "tests": {
+          "pass": 3,
+          "outside the census": 8
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.KOKORO": {
+        "tests": {
+          "pass": 5,
+          "outside the census": 2,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_tts_voice_states_layout.py::test_the_kokoro_notice_returns_when_the_voice_becomes_installed"
+        ],
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.CHATTERBOX": {
+        "tests": {
+          "pass": 1,
+          "outside the census": 1,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_release_installer.py::test_a_chatterbox_file_lost_after_the_plan_cannot_expand_the_confirmed_download"
+        ],
+        "journeys": {},
+        "class": "pending",
+        "phase": "P3A",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.QWEN3": {
+        "tests": {
+          "outside the census": 3,
+          "fail": 2,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_qwen3_setup.py::test_a_first_time_install_of_both_builds_everything_in_order_and_checks_each_model_loads",
+          "files/tests/test_qwen3_setup.py::test_a_cancelled_install_keeps_what_is_done_and_the_next_one_finishes_only_the_rest"
+        ],
+        "journeys": {},
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.QWEN3-REPAIR": {
+        "tests": {
+          "outside the census": 2,
+          "fail": 4
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_qwen3_setup.py::test_the_analysis_is_read_only_probes_the_engine_and_lists_exactly_what_is_wrong",
+          "files/tests/test_qwen3_setup.py::test_repair_refetches_a_corrupt_model_file_and_nothing_else",
+          "files/tests/test_qwen3_setup.py::test_an_engine_that_will_not_start_is_rebuilt_even_though_every_record_looks_intact",
+          "files/tests/test_qwen3_setup.py::test_repair_refuses_to_delete_a_folder_that_is_not_the_apps_environment"
+        ],
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.QWEN3-ENVIRONMENT": {
+        "tests": {
+          "fail": 2,
+          "pass": 2,
+          "outside the census": 2
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_qwen3_setup.py::test_the_environment_install_runs_venv_then_pinned_pip_then_a_probe_and_records_it",
+          "files/tests/test_qwen3_setup.py::test_a_rebuild_on_a_legacy_only_copy_builds_the_canonical_engine_and_never_touches_the_legacy_one"
+        ],
+        "journeys": {},
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.QWEN3-CLONE": {
+        "tests": {
+          "pass": 4,
+          "fail": 2
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_qwen3_clone_setup.py::test_drafts_are_made_from_verified_copies_saved_unapproved_and_the_job_folder_is_removed",
+          "files/tests/test_qwen3_clone_setup.py::test_approving_in_the_dialog_needs_the_tick_and_then_records_it_locally"
+        ],
+        "class": "pending",
+        "phase": "P3B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.OMNIVOICE": {
+        "tests": {
+          "pass": 7,
+          "fail": 30
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_omnivoice_setup.py::test_the_licence_and_hardware_terms_are_shown_before_any_consent",
+          "files/tests/test_omnivoice_setup.py::test_the_review_shows_the_terms_and_reading_them_is_never_a_consent",
+          "files/tests/test_omnivoice_setup.py::test_a_fresh_install_fetches_the_pinned_files_builds_offline_proves_and_only_then_records",
+          "files/tests/test_omnivoice_setup.py::test_relaunching_after_an_install_downloads_and_runs_nothing",
+          "files/tests/test_omnivoice_setup.py::test_a_healthy_unreceipted_environment_is_adopted_without_downloading_rebuilding_or_changing_it",
+          "files/tests/test_omnivoice_setup.py::test_a_genuinely_broken_unreceipted_environment_is_not_adopted_and_a_repair_is_offered_then_kept",
+          "files/tests/test_omnivoice_setup.py::test_no_gpu_is_unsupported_unchecked_gpu_is_unverified_and_neither_can_be_consented",
+          "files/tests/test_omnivoice_setup.py::test_a_cancel_during_the_proof_records_nothing",
+          "files/tests/test_omnivoice_setup.py::test_the_byte_budget_stops_a_download_larger_than_was_confirmed",
+          "files/tests/test_omnivoice_setup.py::test_smart_app_control_first_loads_are_retried_and_never_reject",
+          "files/tests/test_omnivoice_layout.py::test_a_fresh_install_builds_the_nested_environment_at_its_final_path_from_the_base_python",
+          "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair[no parent-missing or incomplete]",
+          "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair[pending repair-did not finish]",
+          "files/tests/test_omnivoice_layout.py::test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair[pending repair, numbered-did not finish]",
+          "files/tests/test_omnivoice_layout.py::test_the_sibling_s_states_are_told_apart_and_none_of_them_is_ever_ready",
+          "files/tests/test_omnivoice_layout.py::test_a_healthy_sibling_is_rebuilt_at_the_nested_path_from_cached_wheels_and_then_retired_whole",
+          "files/tests/test_omnivoice_layout.py::test_an_interrupted_migration_leaves_the_sibling_untouched_and_the_retry_finishes_it",
+          "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness[pip]",
+          "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness[proof]",
+          "files/tests/test_omnivoice_layout.py::test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness[proof cancelled]",
+          "files/tests/test_omnivoice_layout.py::test_a_sibling_that_cannot_be_moved_stays_whole_and_unused_and_the_new_engine_still_stands",
+          "files/tests/test_omnivoice_layout.py::test_the_sibling_is_never_retired_before_the_nested_engine_is_proved",
+          "files/tests/test_omnivoice_layout.py::test_a_broken_nested_engine_is_never_preferred_over_or_hidden_behind_a_healthy_sibling",
+          "files/tests/test_omnivoice_layout.py::test_with_the_whole_parent_gone_stale_receipts_outside_it_authorise_nothing",
+          "files/tests/test_omnivoice_layout.py::test_an_omnivoice_only_repair_changes_nothing_of_qwen3_or_of_the_app_s_own_packages",
+          "files/tests/test_omnivoice_layout.py::test_a_set_aside_folder_that_is_a_link_keeps_the_sibling_and_never_fails_the_finished_install",
+          "files/tests/test_omnivoice_layout.py::test_an_install_lock_that_cannot_open_a_later_lock_gives_back_the_ones_it_took",
+          "files/tests/test_omnivoice_layout.py::test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keeps_it_and_builds_a_fresh_one",
+          "files/tests/test_omnivoice_layout.py::test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_offered",
+          "files/tests/test_omnivoice_layout.py::test_an_engine_built_through_another_spelling_of_the_same_base_python_is_accepted"
+        ],
+        "journeys": {},
+        "class": "pending",
+        "phase": "P4B",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.PLAN": {
+        "tests": {
+          "pass": 4,
+          "fail": 2
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_omnivoice_setup.py::test_an_existing_environment_without_a_receipt_is_planned_as_an_adoption_that_downloads_nothing",
+          "files/tests/test_omnivoice_setup.py::test_planning_writes_nothing_and_asks_no_process_or_network"
+        ],
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.CONSENT": {
+        "tests": {
+          "pass": 2,
+          "outside the census": 3
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.OPERATION": {
+        "tests": {
+          "pass": 3,
+          "outside the census": 2
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.HEALTH": {
+        "tests": {
+          "outside the census": 3,
+          "pass": 2,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_omnivoice_setup.py::test_installs_are_refused_while_omnivoice_is_converting_or_another_install_runs"
+        ],
+        "journeys": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.MODEL-INTEGRITY": {
+        "tests": {
+          "outside the census": 3,
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.V3-PLANNING": {
+        "tests": {
+          "pass": 1,
+          "fail": 3
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_optional_setup_authority.py::test_forged_or_changed_v3_terms_never_spend[forged]",
+          "files/tests/test_optional_setup_authority.py::test_all_ready_is_no_operation_and_normal_planning_does_not_spend",
+          "files/tests/test_optional_setup_readonly_context_v3.py::test_real_readonly_context_planner_without_fixture_adapters"
+        ],
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.SETUP.V3-LOCKED-EXECUTION": {
+        "tests": {
+          "fail": 2,
+          "outside the census": 1,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_qwen3_offline_engine.py::test_no_consumption_without_install_lock_or_live_spent_operation",
+          "files/tests/test_qwen3_offline_engine.py::test_rebuild_never_treats_missing_or_uncertain_as_approved_damage[uncertain]"
+        ],
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.TTS.VOICE-QA-SAMPLES": {
+        "tests": {
+          "outside the census": 4,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+      },
+      "ACT.MP3.IMPORT-FOLDER": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.ADD-FILES": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.unreadable-track": "automated",
+          "mp3.write-id3-then-combine": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.CLEAR-IMPORTS": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.BOOKS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.METADATA": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.write-id3-then-combine": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.SOURCE-PREFILL": {
+        "tests": {
+          "pass": 10
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.typed-values-survive-first-import": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.BLANK-VALUES": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.typed-values-survive-first-import": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.TIME-DELTA": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.AUTO-NUMBER": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.CHAPTER-TITLES": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.TRACK-ORDER": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.ARTWORK": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.INVALID-VALUES": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.WRITE-AND-COMBINE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.write-id3-then-combine": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.WRITE-ID3": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.write-id3-then-combine": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.COMBINE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.write-id3-then-combine": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.UNREADABLE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.unreadable-track": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.OUTPUT-RUN": {
+        "tests": {
+          "pass": 8,
+          "skip": 1
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 1
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.MP3.OUTPUT-NAMING": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.STAGING-PUBLISH": {
+        "tests": {
+          "pass": 12,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-filesystem-mechanics": 1
+        },
+        "journeys": {
+          "mp3.unreadable-track": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.MP3.CANCEL": {
+        "tests": {
+          "pass": 28
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.PAUSE": {
+        "tests": {
+          "pass": 2
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.RETRY": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.RUN-STATUS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.ACTIVITY-LOG": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.typed-values-survive-first-import": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.FFMPEG-REQUIRED": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MP3.LAYOUT": {
+        "tests": {
+          "skip": 3,
+          "pass": 2
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 3
+        },
+        "journeys": {
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.MP3.CLOSE": {
+        "tests": {
+          "pass": 2,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "journeys": {
+          "shutdown.mp3-close-during-work": "automated",
+          "shutdown.mp3-close-forced-landing": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.CONVERTER.LAYOUT": {
+        "tests": {
+          "skip": 2,
+          "pass": 3
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 2
+        },
+        "journeys": {
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.CONVERTER.IMPORT": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.split-by-chapter": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.FFMPEG-READY": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.START": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.whole-book-replace-metadata": "automated",
+          "launcher.switch-tools-during-work": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.WHOLE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.whole-book-replace-metadata": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.SPLIT": {
+        "tests": {
+          "pass": 8,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-filesystem-mechanics": 1
+        },
+        "journeys": {
+          "converter.split-by-chapter": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.CONVERTER.CHAPTERLESS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.CHAPTER-VALIDATION": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.NERO-RECOVERY": {
+        "tests": {
+          "pass": 10
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.CORRUPT": {
+        "tests": {
+          "pass": 4,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_a_book_whose_audio_is_damaged_fails_on_the_continuous_route_without_publishing"
+        ],
+        "journeys": {
+          "converter.corrupt-source": "automated"
+        },
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.CONVERTER.PRIMING": {
+        "tests": {
+          "pass": 9,
+          "fail": 3
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_ffmpeg_selects_by_the_half_up_rule_at_ties_and_neighbours_overlap_or_gap[overlap]",
+          "files/tests/test_m4b_continuous.py::test_ffmpeg_selects_by_the_half_up_rule_at_ties_and_neighbours_overlap_or_gap[gap]",
+          "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_in_every_metadata_mode[preserve]"
+        ],
+        "journeys": {
+          "converter.split-by-chapter": "automated"
+        },
+        "class": "native-with-failures",
+        "why": "its tests run natively; 3 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.CONVERTER.QUALITY": {
+        "tests": {
+          "pass": 12
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.whole-book-replace-metadata": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.METADATA": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.split-by-chapter": "automated",
+          "converter.whole-book-replace-metadata": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.CHAPTER-MAP": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.ARTWORK": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.split-by-chapter": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.NUMBERING": {
+        "tests": {
+          "pass": 12
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.OUTPUT-FOLDER": {
+        "tests": {
+          "pass": 10
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.split-by-chapter": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.NAMING": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.split-by-chapter": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.DECODE-COMPAT": {
+        "tests": {
+          "pass": 7,
+          "skip": 11
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 11
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.CONVERTER.SAFE-PUBLISH": {
+        "tests": {
+          "pass": 13,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_an_occupied_destination_fails_the_book_and_foreign_files_are_left_alone"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.CONVERTER.CANCEL": {
+        "tests": {
+          "pass": 18,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_cancel_during_a_late_chapter_reaps_both_processes_and_keeps_the_finished_book"
+        ],
+        "journeys": {
+          "converter.cancel-during-encode": "automated"
+        },
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.CONVERTER.PAUSE": {
+        "tests": {
+          "pass": 6,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_pause_between_chapters_then_resume_gives_the_same_bytes"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.CONVERTER.RETRY": {
+        "tests": {
+          "pass": 8,
+          "fail": 2
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_a_killed_process_fails_its_book_and_retry_repeats_it_exactly[decoder]",
+          "files/tests/test_m4b_continuous.py::test_a_killed_process_fails_its_book_and_retry_repeats_it_exactly[encoder]"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 2 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.CONVERTER.CLOSE-DURING-WORK": {
+        "tests": {
+          "pass": 3,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "journeys": {
+          "shutdown.converter-close-during-work": "automated",
+          "shutdown.converter-close-forced-landing": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.CONVERTER.ACTIVITY": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.corrupt-source": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.CONVERTER.SCALING": {
+        "tests": {
+          "pass": 20,
+          "fail": 8
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_m4b_continuous.py::test_the_packet_scan_proves_a_real_book_and_its_total",
+          "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_in_every_metadata_mode[replace]",
+          "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_in_every_metadata_mode[strip]",
+          "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_for_each_qualified_stream_shape[noelst]",
+          "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_for_each_qualified_stream_shape[mono22k]",
+          "files/tests/test_m4b_continuous.py::test_both_routes_write_the_same_bytes_for_each_qualified_stream_shape[s48k]",
+          "files/tests/test_m4b_continuous.py::test_a_rate_lame_does_not_take_keeps_the_seeking_route",
+          "files/tests/test_m4b_continuous.py::test_a_book_whose_audio_is_damaged_fails_on_the_continuous_route_without_publishing"
+        ],
+        "journeys": {},
+        "class": "native-with-failures",
+        "why": "its tests run natively; 8 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.MAKER.WORKSPACE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.IMPORT-FOLDER": {
+        "tests": {
+          "pass": 9
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.ADD-FILES": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.TRACKS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.CHAPTER-TITLES": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.FIELDS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.SILENCE": {
+        "tests": {
+          "pass": 9
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.SERIES": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.ARTWORK": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.ARTWORK-EMBED": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.OUTPUT-NAMING": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.RUN-FOLDER": {
+        "tests": {
+          "pass": 4,
+          "skip": 1
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 1
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.MAKER.CUSTOM-DESTINATION": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.FAST-FIRST": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.BUILD": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.CHAPTERS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.TAGS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.STAGING": {
+        "tests": {
+          "pass": 13,
+          "skip": 1
+        },
+        "skipped_by": {
+          "work-area-recovery-windows-only": 1
+        },
+        "journeys": {
+          "maker.unreadable-track": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.MAKER.UNREADABLE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.unreadable-track": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.PROGRESS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.CANCEL": {
+        "tests": {
+          "pass": 23
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.PAUSE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.RETRY": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.unreadable-track": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.RUN-LOCK": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.CLEAR-IMPORTS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.ACTIVITY-LOG": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.MAKER.LAYOUT": {
+        "tests": {
+          "pass": 4,
+          "skip": 2
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 2
+        },
+        "journeys": {
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.MAKER.CLOSE-DURING-BUILD": {
+        "tests": {
+          "skip": 1,
+          "pass": 4
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "journeys": {
+          "shutdown.maker-close-during-work": "automated",
+          "shutdown.maker-close-forced-landing": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.METADATA.PANEL-ENTRY": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.IMPORT": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.IMPORT-SCAN": {
+        "tests": {
+          "pass": 2
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.CLEAR-IMPORTS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.NAVIGATION": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.SOURCE-READBACK": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.BOOK-FIELDS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.SHARED-FIELDS": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.CHAPTER-TITLES": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.ARTWORK": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.AUTO-NUMBER": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.RUN-START": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.SAVE-AND-CLEAR": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.REMOVE-SERIES-NUMBERING": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.DECLINED": {
+        "tests": {
+          "pass": 1
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.confirmation-declined": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.UNREADABLE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.unreadable-file": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.OUTPUT": {
+        "tests": {
+          "pass": 5,
+          "skip": 1
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 1
+        },
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.METADATA.OPEN-OUTPUT": {
+        "tests": {
+          "pass": 1
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.PRESERVATION": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.FAILURE-SAFETY": {
+        "tests": {
+          "pass": 12
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.BATCH-RUN": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.CANCEL": {
+        "tests": {
+          "pass": 15
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.PAUSE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.RETRY": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.RUN-LOCKING": {
+        "tests": {
+          "pass": 2
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.ACTIVITY-LOG": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.METADATA.LAYOUT": {
+        "tests": {
+          "skip": 3,
+          "pass": 3
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 3
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.METADATA.APPEARANCE": {
+        "tests": {
+          "pass": 3,
+          "skip": 1
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 1
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.METADATA.CLOSE": {
+        "tests": {
+          "skip": 1,
+          "pass": 1
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "journeys": {
+          "shutdown.metadata-close-during-work": "automated",
+          "shutdown.metadata-close-forced-landing": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.METADATA.REMEMBERED-FOLDERS": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.OPEN": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated",
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.IMPORT": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.corrupt-image": "automated",
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.IMPORT.DUPLICATES": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.HEIC": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.BROWSER": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.BROWSER.SELECTION": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.BROWSER.PREVIEWS": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.SIZE": {
+        "tests": {
+          "pass": 18
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.center-crop": "automated",
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.LETTERBOX": {
+        "tests": {
+          "pass": 2
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.CROP": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.center-crop": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.OUTPUT-FORMAT": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.ORIENTATION": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.STANDARD-OUTPUT": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.SOURCE-SIDE-MODE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.NUMBERED-COPIES": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.REPLACE": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.replace-confirmation": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.REPLACE.CONFIRM": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.replace-confirmation": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.SOURCE-PROTECTION": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.center-crop": "automated",
+          "cover.corrupt-image": "automated",
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.RUN": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.CORRUPT": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.corrupt-image": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.PAUSE": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.CANCEL": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.RETRY": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.corrupt-image": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.RUN-REPORT": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.corrupt-image": "automated",
+          "cover.letterbox-numbered-run": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.CLOSE": {
+        "tests": {
+          "pass": 6,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "journeys": {
+          "shutdown.close-during-folder-scan": "automated",
+          "shutdown.cover-close-during-work": "automated",
+          "shutdown.cover-close-forced-landing": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.COVER.LAYOUT": {
+        "tests": {
+          "skip": 2,
+          "pass": 2
+        },
+        "skipped_by": {
+          "below-the-aqua-minimum": 1,
+          "windows-design-shell": 1
+        },
+        "journeys": {
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.COVER.APPEARANCE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.COVER.PERSISTENCE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.LAUNCHER.OPEN-TOOLS": {
+        "tests": {
+          "pass": 3,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-design-shell": 1
+        },
+        "journeys": {
+          "inventory.live-surfaces": "automated",
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.LAUNCHER.SWITCH-DURING-WORK": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "launcher.switch-tools-during-work": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.LAUNCHER.SETTINGS": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "journeys": {
+          "launcher.settings-survive-relaunch": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.LAUNCHER.WINDOW-SIZE": {
+        "tests": {
+          "pass": 2,
+          "fail": 2,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-design-shell": 1
+        },
+        "failing": [
+          "files/tests/test_cross_tool_consistency.py::test_every_tool_fits_every_supported_size[light]",
+          "files/tests/test_cross_tool_consistency.py::test_every_tool_fits_every_supported_size[dark]"
+        ],
+        "journeys": {
+          "launcher.settings-survive-relaunch": "automated",
+          "launcher.six-tools-at-three-sizes": "automated"
+        },
+        "class": "native-with-failures",
+        "why": "its tests run natively; 2 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.LAUNCHER.LOAD-ERROR": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.LAUNCHER.OPEN-LOG-FOLDER": {
+        "tests": {
+          "skip": 1,
+          "pass": 7
+        },
+        "skipped_by": {
+          "windows-design-shell": 1
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.LAUNCHER.STARTUP": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.M4B-STAGING": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.build-with-chapters-and-artwork": "automated",
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.CLOSE-DURING-WORK": {
+        "tests": {
+          "skip": 10,
+          "pass": 4
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 10
+        },
+        "journeys": {
+          "shutdown.close-during-folder-scan": "automated",
+          "shutdown.converter-close-during-work": "automated",
+          "shutdown.converter-close-forced-landing": "automated",
+          "shutdown.cover-close-during-work": "automated",
+          "shutdown.cover-close-forced-landing": "automated",
+          "shutdown.maker-close-during-work": "automated",
+          "shutdown.maker-close-forced-landing": "automated",
+          "shutdown.metadata-close-during-work": "automated",
+          "shutdown.metadata-close-forced-landing": "automated",
+          "shutdown.mp3-close-during-work": "automated",
+          "shutdown.mp3-close-forced-landing": "automated",
+          "shutdown.tts-close-during-work": "pending P2",
+          "shutdown.tts-close-forced-landing": "pending P2"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules",
+        "phase": "P2"
+      },
+      "ACT.SHARED.CANCELLATION": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.JOB-CONTROL": {
+        "tests": {
+          "pass": 9
+        },
+        "skipped_by": {},
+        "journeys": {
+          "converter.cancel-during-encode": "automated",
+          "tts.pause-at-file-boundary": "pending P2",
+          "tts.service-failure-then-retry": "pending P2"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass",
+        "phase": "P2"
+      },
+      "ACT.SHARED.INPUT-LOCKING": {
+        "tests": {
+          "pass": 5,
+          "outside the census": 1
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.PROGRESS": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.LOG-VIEW": {
+        "tests": {
+          "pass": 25
+        },
+        "skipped_by": {},
+        "journeys": {
+          "mp3.typed-values-survive-first-import": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.SESSION-LOG": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.IMPORTING": {
+        "tests": {
+          "pass": 9
+        },
+        "skipped_by": {},
+        "journeys": {
+          "cover.letterbox-numbered-run": "automated",
+          "tts.edge-replay-folder-mixed": "pending P2"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass",
+        "phase": "P2"
+      },
+      "ACT.SHARED.IMPORTING.CANCEL": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.FILE-LIST": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.CONFIRMATIONS": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.confirmation-declined": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.BOOK-WORKSPACE": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.BOOK-WORKSPACE.SHARED-METADATA": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.BOOK-WORKSPACE.RUN": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.SUCCESS-NUMBERING": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.OUTPUT-PATHS": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.OUTPUT-PATHS.REPLACE": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.SETTINGS": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "launcher.settings-survive-relaunch": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.CONFIG": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.APPEARANCE": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "launcher.settings-survive-relaunch": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.SCROLLING": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "maker.wheel-over-a-long-book": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.PREFERENCES": {
+        "tests": {
+          "pass": 5,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-design-shell": 1
+        },
+        "journeys": {
+          "inventory.live-surfaces": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.SHARED.PREFERENCES.OUTPUT-LOCATION": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.PREFERENCES.RESET": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.M4B-TAGS": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {
+          "metadata.save-tags-then-clear": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.FFMPEG": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.HIDDEN-CONSOLE": {
+        "tests": {
+          "skip": 3,
+          "pass": 2
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 3
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.SHARED.IMAGE-FORMATS": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.LAUNCH": {
+        "tests": {
+          "pass": 15
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.FIRST-RUN": {
+        "tests": {
+          "pass": 6,
+          "outside the census": 2
+        },
+        "skipped_by": {},
+        "journeys": {
+          "setup.first-run-choices-and-cancel": "pending P5",
+          "setup.first-run-refuses-a-folder-too-deep": "pending P5"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass",
+        "phase": "P5"
+      },
+      "ACT.SETUP.FIRST-RUN.CANCEL": {
+        "tests": {
+          "pass": 9,
+          "skip": 2
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 2
+        },
+        "journeys": {
+          "setup.first-run-choices-and-cancel": "pending P5"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules",
+        "phase": "P5"
+      },
+      "ACT.SETUP.APP-PYTHON": {
+        "tests": {
+          "skip": 4,
+          "pass": 2
+        },
+        "skipped_by": {
+          "windows-launch-layout": 4
+        },
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.SETUP.VENV-HEALTH": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.VENV-REPAIR": {
+        "tests": {
+          "pass": 28,
+          "skip": 1
+        },
+        "skipped_by": {
+          "windows-filesystem-mechanics": 1
+        },
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.SETUP.REPAIR": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.DEPENDENCY-LOCK": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.REQUIREMENTS-STATE": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.FFMPEG.HEALTH": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.FFMPEG.PORTABLE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.FFMPEG.REPAIR": {
+        "tests": {
+          "pass": 6
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.ENGINE-SELF-HEAL": {
+        "tests": {
+          "outside the census": 5,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "journeys": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.OPTIONAL-VOICES": {
+        "tests": {
+          "pass": 5,
+          "skip": 1,
+          "fail": 2
+        },
+        "skipped_by": {
+          "windows-process-and-job-mechanics": 1
+        },
+        "failing": [
+          "files/tests/test_optional_tts_setup.py::test_a_timed_out_worker_and_its_grandchild_are_ended_and_the_job_is_left_empty",
+          "files/tests/test_omnivoice_setup.py::test_the_review_shows_the_terms_and_reading_them_is_never_a_consent"
+        ],
+        "journeys": {},
+        "class": "native-with-failures",
+        "why": "its tests run natively; 2 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.SENTENCE-DATA": {
+        "tests": {
+          "outside the census": 8
+        },
+        "skipped_by": {},
+        "class": "pending",
+        "phase": "P2",
+        "why": "the sentence data serves the TTS speech pipeline (Kokoro first, P2); its tests (test_sentence_data.py) sit with the TTS suites the P1B census left to P2"
+      },
+      "ACT.SETUP.SPACY-RESTORE": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.LONG-PATHS": {
+        "tests": {
+          "pass": 5,
+          "outside the census": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.LONG-PATHS.ENABLE": {
+        "tests": {
+          "pass": 58,
+          "fail": 6,
+          "skip": 2
+        },
+        "skipped_by": {
+          "windows-filesystem-mechanics": 2
+        },
+        "failing": [
+          "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[84-False-True-False-False-True]",
+          "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[87-False-True-False-False-True]",
+          "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[88-False-False-False-True-False]",
+          "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[119-False-False-False-True-False]",
+          "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[120-False-False-False-True-False]",
+          "files/tests/test_long_paths.py::test_the_folder_is_compared_with_both_configurations_at_their_exact_boundaries[123-False-False-False-True-False]"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 6 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.ENGINE-LEASE": {
+        "tests": {
+          "outside the census": 5,
+          "pass": 6,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_omnivoice_layout.py::test_an_omnivoice_install_and_a_parent_repair_exclude_each_other_in_both_orders"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.CLEAR-DOWNLOADED-DATA": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "journeys": {
+          "setup.clear-downloaded-data": "pending P5"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass",
+        "phase": "P5"
+      },
+      "ACT.SETUP.CLEAR-DOWNLOADED-DATA.SAFETY": {
+        "tests": {
+          "pass": 7,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_cleanup_engine_lease.py::test_a_busy_engine_of_this_copy_leaves_the_item_whole_and_says_why[conversion-virtual_environment]"
+        ],
+        "journeys": {
+          "setup.clear-downloaded-data": "pending P5"
+        },
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.PACKAGING": {
+        "tests": {
+          "pass": 7
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.VERSION": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.MACOS-LAUNCH": {
+        "tests": {
+          "pass": 4
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.V3.CONSENT": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SETUP.V3.EXCHANGE": {
+        "tests": {
+          "fail": 5
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_optional_setup_exchange_v3.py::test_planning_request_and_complete_response_round_trip",
+          "files/tests/test_optional_setup_exchange_v3.py::test_junction_at_every_exchange_ancestor_is_refused_without_external_write[files/runtime-data/optional-setup]",
+          "files/tests/test_optional_setup_exchange_v3.py::test_concurrent_duplicate_publishers_have_exactly_one_winner[confirmation]",
+          "files/tests/test_optional_setup_exchange_v3.py::test_forged_but_consistent_exchange_cannot_replace_trusted_original",
+          "files/tests/test_optional_setup_exchange_v3.py::test_interrupted_planning_response_refuses_readback_and_retry[result.json]"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 5 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.V3.SUPERVISOR": {
+        "tests": {
+          "fail": 4,
+          "pass": 2
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_optional_setup_supervisor_v3.py::test_native_timeout_is_finite_and_empties_job[hang]",
+          "files/tests/test_optional_setup_supervisor_v3.py::test_native_success_claim_with_live_grandchild_is_rejected_and_reaped[child-left]",
+          "files/tests/test_optional_setup_supervisor_v3.py::test_cancel_before_start_never_executes",
+          "files/tests/test_optional_setup_supervisor_v3.py::test_launch_is_fixed_and_environment_is_scrubbed"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 4 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.V3.DISPLAY": {
+        "tests": {
+          "fail": 6
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_optional_setup_display_controller_v3.py::test_presentation_never_issues_consent_and_has_no_execution_or_launch_api",
+          "files/tests/test_optional_setup_tk_harness_v3.py::test_real_tk_delivery_retains_original_and_strict_readback",
+          "files/tests/test_optional_setup_tk_harness_v3.py::test_real_tk_cancel_before_delivery_cannot_retain",
+          "files/tests/test_optional_setup_confirmation_v3.py::test_final_click_composes_one_exact_original_confirmation",
+          "files/tests/test_optional_setup_confirmation_v3.py::test_at_most_one_consent_even_with_reentry[rapid]",
+          "files/tests/test_optional_setup_confirmation_v3.py::test_decline_never_resurrects_final_intention[window-close]"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 6 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.SETUP.V3.ARTIFACTS": {
+        "tests": {
+          "pass": 4,
+          "fail": 2
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_artifact_store.py::test_publication_has_no_overwrite_or_copy_fallback",
+          "files/tests/test_artifact_transfer.py::test_finished_consent_cannot_be_reused"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 2 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.GATE.RUNNER": {
+        "tests": {
+          "fail": 2,
+          "pass": 22,
+          "skip": 18
+        },
+        "skipped_by": {
+          "windows-gate-harness": 18
+        },
+        "failing": [
+          "files/tests/test_verification_gate_contract.py::test_the_known_good_tree_passes",
+          "files/tests/test_verification_gate_contract.py::test_a_sealed_qualification_blocked_stays_blocked"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 2 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.GATE.SELECTION": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.GUARDED": {
+        "tests": {
+          "pass": 3
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.NATIVE-INPUT": {
+        "tests": {
+          "skip": 4,
+          "pass": 1
+        },
+        "skipped_by": {
+          "windows-gate-harness": 4
+        },
+        "journeys": {
+          "control.covered-target-is-refused": "NOT APPLICABLE (windows-input-harness)",
+          "control.dead-input-path-blocks": "NOT APPLICABLE (windows-input-harness)",
+          "control.disabled-target-is-refused": "automated",
+          "control.lost-foreground-blocks-input": "NOT APPLICABLE (windows-input-harness)",
+          "control.other-desktop-is-blocked": "NOT APPLICABLE (windows-input-harness)",
+          "control.partly-hidden-window-is-not-pictured": "NOT APPLICABLE (windows-input-harness)",
+          "control.real-click-reaches-the-target": "NOT APPLICABLE (windows-input-harness)",
+          "control.second-run-refused-by-the-lease": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; some prove Windows mechanics and skip under reviewed darwin rules"
+      },
+      "ACT.GATE.ACCEPTANCE-REPORT": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.SHUTDOWN-CONTROLS": {
+        "tests": {
+          "pass": 2
+        },
+        "skipped_by": {},
+        "journeys": {
+          "control.act-crash-seen-with-the-root-released": "automated",
+          "control.act-orphan-seen-without-the-stop": "automated",
+          "control.forced-landing-sees-the-crash": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.MEDIA-ORACLE": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.CONTAINMENT": {
+        "tests": {
+          "not collected": 3,
+          "pass": 1
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.SCRATCH": {
+        "tests": {
+          "pass": 3,
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_gate_scratch_exception.py::test_a_child_whose_owner_process_still_runs_is_active_and_one_whose_owner_ended_is_abandoned"
+        ],
+        "class": "native-with-failures",
+        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+      },
+      "ACT.GATE.VISUAL-BASELINES": {
+        "tests": {
+          "pass": 1
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.GATE.COVERAGE-INVENTORY": {
+        "tests": {
+          "pass": 5
+        },
+        "skipped_by": {},
+        "journeys": {
+          "control.unmapped-live-control-is-caught": "automated",
+          "inventory.live-surfaces": "automated"
+        },
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass"
+      }
+    }
   }
 }

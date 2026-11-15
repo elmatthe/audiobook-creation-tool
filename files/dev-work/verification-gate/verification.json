@@ -223,20 +223,20 @@
     "darwin": [
       {
         "id": "windows-process-and-job-mechanics",
-        "max": 161,
+        "max": 111,
         "pattern": "^(Windows\\ process\\ identity|Windows\\ console\\ and\\ process\\ identity|the\\ identity\\ checks\\ read\\ Windows\\ process\\ creation\\ times|Job\\ Objects\\ are\\ Windows'|Job\\ Objects\\ are\\ a\\ Windows\\ mechanism|Windows\\ Job\\ Object\\ containment|handles\\ are\\ a\\ Windows\\ primitive|an\\ open\\ handle\\ only\\ blocks\\ deletion\\ on\\ Windows|an\\ open\\ handle\\ only\\ blocks\\ a\\ rename\\ on\\ Windows|what\\ Windows\\ reports|the\\ guard\\ is\\ a\\ no\\-op\\ off\\ Windows\\ by\\ design|the\\ launcher/child\\ arrangement\\ is\\ the\\ Windows\\ venv's|the\\ stand\\-in\\ ffmpeg\\ is\\ a\\ Windows\\ \\.cmd\\ wrapper|the\\ measured\\ crash\\ and\\ its\\ exit\\ status\\ are\\ Windows'|a\\ Windows\\ lock|Media\\ Foundation\\ is\\ Windows')$",
-        "why": "Tests of Windows process, Job Object, handle, console and Media Foundation mechanics. Their macOS counterparts are native: POSIX containment (test_child_ownership.py, test_macos_p1b_containment.py, test_macos_p1b_gui_containment.py: KX-1 to KX-9), the POSIX stop_media_children and closing latch, the renamex_np publication, and aac_at decoding (test_macos_xhe_proof.py). Counted from the P1B affected-suite census on macOS (181 files)."
+        "why": "Tests of Windows process, Job Object, handle, console and Media Foundation mechanics. Their macOS counterparts are native: POSIX containment (test_child_ownership.py, test_macos_p1b_containment.py, test_macos_p1b_gui_containment.py: KX-1 to KX-9), the POSIX stop_media_children and closing latch, the renamex_np publication, and aac_at decoding (test_macos_xhe_proof.py). Counted from the P1B affected-suite census on macOS (226 files)."
       },
       {
         "id": "windows-filesystem-mechanics",
-        "max": 34,
-        "pattern": "^(junctions\\ are\\ a\\ Windows\\ mechanism|junctions\\ are\\ a\\ Windows\\-only\\ facility|a\\ junction\\ is\\ the\\ Windows\\ link\\ that\\ needs\\ no\\ privilege|a\\ directory\\ junction\\ is\\ a\\ Windows\\ link|junctions\\ are\\ a\\ Windows\\ construct|FILE_ATTRIBUTE_HIDDEN\\ is\\ a\\ Windows\\-only\\ facility|Windows\\ long\\ paths\\ exist\\ on\\ Windows\\ only|Windows\\ paths\\ compare\\ without\\ regard\\ to\\ case|only\\ Windows\\ can\\ bind\\ a\\ roll\\-back's\\ move\\ to\\ the\\ file\\ itself;\\ elsewhere\\ a\\ roll\\-back\\ moves\\ nothing.*)$",
+        "max": 45,
+        "pattern": "^(junctions\\ are\\ a\\ Windows\\ mechanism|junctions\\ are\\ a\\ Windows\\-only\\ facility|a\\ junction\\ is\\ the\\ Windows\\ link\\ that\\ needs\\ no\\ privilege|a\\ directory\\ junction\\ is\\ a\\ Windows\\ link|junctions\\ are\\ a\\ Windows\\ construct|FILE_ATTRIBUTE_HIDDEN\\ is\\ a\\ Windows\\-only\\ facility|Windows\\ long\\ paths\\ exist\\ on\\ Windows\\ only|Windows\\ paths\\ compare\\ without\\ regard\\ to\\ case|only\\ Windows\\ can\\ bind\\ a\\ roll\\-back's\\ move\\ to\\ the\\ file\\ itself;\\ elsewhere\\ a\\ roll\\-back\\ moves\\ nothing.*|an\\ exclusive\\ open\\ is\\ how\\ Windows\\ reports\\ a\\ holder|a\\ junction\\ is\\ the\\ Windows\\ link\\ available\\ without\\ privilege|PurePath\\ is\\ only\\ the\\ Windows\\ flavour\\ on\\ Windows)$",
         "why": "Junctions, the hidden attribute, Windows long paths and case rules, and the handle-bound roll-back: Windows filesystem facilities. macOS's own (APFS and exFAT no-clobber, NFD names, case folding by the volume) are tested natively in test_macos_p1b_platform.py and test_macos_p1b_filesystem.py."
       },
       {
         "id": "windows-launch-layout",
-        "max": 16,
-        "pattern": "^(exercises\\ the\\ Windows\\ candidate\\ locations\\ \\(LOCALAPPDATA\\ /\\ ProgramFiles\\)|Windows\\ PowerShell\\ is\\ needed|exercises\\ the\\ Windows\\ \\.bat\\ launcher|the\\ app's\\ own\\ base\\ Python\\ is\\ the\\ Windows\\ layout)$",
+        "max": 18,
+        "pattern": "^(exercises\\ the\\ Windows\\ candidate\\ locations\\ \\(LOCALAPPDATA\\ /\\ ProgramFiles\\)|Windows\\ PowerShell\\ is\\ needed|exercises\\ the\\ Windows\\ \\.bat\\ launcher|the\\ app's\\ own\\ base\\ Python\\ is\\ the\\ Windows\\ layout|stage\\ 0\\ is\\ Windows\\ PowerShell)$",
         "why": "The Windows first-run host (PowerShell, the .bat launcher, the Windows Python locations and venv layout). macOS stage 0 and its venv are P1A's native tests (test_bootstrap_host_macos.py, test_macos_foundation.py)."
       },
       {
@@ -253,7 +253,7 @@
       },
       {
         "id": "windows-gate-harness",
-        "max": 94,
+        "max": 95,
         "pattern": "^(the\\ benchmark\\ harness\\ accounts\\ through\\ Windows\\ Job\\ Objects|Windows\\ behaviour|a\\ Windows\\ desktop|a\\ Windows\\ named\\ mutex|console\\ hosts\\ and\\ Job\\ Objects\\ are\\ Windows)$",
         "why": "The Windows verification gate's own adapters (Job Objects, the native desktop, the named-mutex lease, console hosts). The macOS gate's counterparts are its darwin preflight and the in-process journey driver (adapters/macos)."
       },
@@ -283,7 +283,7 @@
       },
       {
         "id": "case-insensitive-filesystem",
-        "max": 1,
+        "max": 2,
         "pattern": "^(this\\ filesystem\\ is\\ case\\-insensitive,\\ so\\ the\\ two\\ names\\ are\\ one\\ file)$",
         "why": "The default APFS volume folds case; the case-sensitive behaviour is tested where the volume keeps case."
       }
