@@ -25695,7 +25695,7 @@
     "scripts/shared/optional_setup_tk_harness_v3.py": "23727d8ea3d09d7ac49d523a05055748f378593c9cacd6b7c9942241562afb26",
     "scripts/shared/optional_setup_v3.py": "1a3fa01225bbc10dd68a5f41092ab5c9134546835b6035279301626f04c18d43",
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
-    "scripts/shared/output_paths.py": "aff96af326565fdd93631c59177c2c63e693bdb2274e4588f016fe9d37b72911",
+    "scripts/shared/output_paths.py": "84e2669b5ee0fb1f6fe8fea2f97860d494f706896560d0dfbfe83d969b9b2dd6",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
     "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",

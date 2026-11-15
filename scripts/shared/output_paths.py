@@ -1139,9 +1139,11 @@ def publish_new(temporary: Path, destination: Path) -> None:
 
     * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``, which fails when the name
       exists and never copies.
+    * macOS (v0.8.x P1B): ``renamex_np(RENAME_EXCL)``, which the kernel refuses when the name is taken; a filesystem
+      without it falls to the hard link below (:func:`move_without_replacing`).
     * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
-      temporary name is then removed. A filesystem without hard links fails with a clear message; there is no fallback
-      to a look followed by a move.
+      temporary name is then removed. A filesystem with neither (exFAT and FAT) fails with a clear message; there is no
+      fallback to a look followed by a move.
 
     Both are the primitives narration has published through since v0.7.1 (``tts.publication``), measured there on NTFS
     with eight processes racing for one name. On failure of either kind the temporary file is still the caller's, to
