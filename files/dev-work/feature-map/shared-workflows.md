@@ -33,7 +33,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 ### Window opens at 1024x720 and stays usable down to 920x600
 `ACT.LAUNCHER.WINDOW-SIZE`
 
-- Windows: opens at 1024x720 every launch; minimum 920x600. macOS: 1024x800 for both (native controls are larger).
+- Windows: opens at 1024x720 every launch; minimum 920x600. macOS: 1120x800 for both since v0.8.x P1B (native controls are larger; measured on Aqua Tk 9, provisional until the owner's geometry check; the v0.6.4 ruling was 1024x800).
 - Every tool's core controls are meant to fit from 920x600 to maximized, Light and Dark, without core scrolling.
 - The process is not DPI-aware, so at 125%/150% Windows scales the same 96-DPI layout.
 - Persistence: none, on purpose.

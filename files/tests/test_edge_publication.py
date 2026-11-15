@@ -338,6 +338,9 @@ def test_elsewhere_the_no_clobber_primitive_is_a_hard_link_and_an_unsupported_dr
     monkeypatch.setattr(publication.os, "rename", lambda *a, **k: pytest.fail("rename would replace on POSIX"))
     monkeypatch.setattr(publication.os, "link", lambda *a, **k: (_ for _ in ()).throw(
         OSError(errno.ENOTSUP, "simulated: no hard links on this drive")))
+    # v0.8.x P1B: macOS first asks for an exclusive rename (renamex_np RENAME_EXCL); a drive that has no hard links
+    # (exFAT) refuses that too, so it is simulated here as the measured exFAT refuses it.
+    monkeypatch.setattr(output_paths, "_rename_exclusive", lambda *a, **k: False)
     with pytest.raises(publication.PublicationError, match="cannot publish a file without risking"):
         publication.publish_file(finished, destination, overwrite=False)
     assert not destination.exists(), "there is no fallback to a copy or a check-then-move"

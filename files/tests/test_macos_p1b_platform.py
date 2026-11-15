@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO_ROOT / "scripts"
 
 from shared import appearance, job_ui, optional_setup_panel, output_paths, ui_theme  # noqa: E402
+from tk_gate import open_tk_root  # noqa: E402
 from tts import publication, worker_limits  # noqa: E402
 
 NATIVE_P1B = "native macOS only (P1B): Aqua Tk 9 shell, POSIX containment and macOS filesystem checks"
@@ -40,7 +41,7 @@ native = pytest.mark.skipif(sys.platform != "darwin", reason=NATIVE_P1B)
 
 @pytest.fixture
 def root():
-    window = tk.Tk()
+    window = open_tk_root(tk)
     window.geometry("400x300+40+40")
     yield window
     window.destroy()

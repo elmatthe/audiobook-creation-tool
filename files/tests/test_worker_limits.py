@@ -1227,7 +1227,8 @@ def test_logical_cpus_reads_this_machine():
 
 def test_memory_info_reads_this_machine_where_it_can():
     info = wl.memory_info()
-    if sys.platform == "win32" or sys.platform.startswith("linux"):
+    # v0.8.x P1B: macOS reads the kernel's own counters (host_statistics64 and hw.memsize).
+    if sys.platform in ("win32", "darwin") or sys.platform.startswith("linux"):
         assert info is not None and 0 < info.available <= info.total
     else:
         assert info is None

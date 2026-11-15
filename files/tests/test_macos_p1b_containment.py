@@ -13,6 +13,7 @@ contained and every spawn is the plain ``subprocess`` call it always was.
 
 from __future__ import annotations
 
+import ast
 import os
 import signal
 import stat
@@ -87,8 +88,6 @@ def test_only_the_media_programs_started_as_lists_without_a_session_are_routed(m
 
 
 def test_the_windows_stop_is_still_the_toolhelp_walk():
-    import ast
-
     source = (Path(sp.__file__)).read_text(encoding="utf-8")
     tree = ast.parse(source)
     stop = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "stop_media_children")
@@ -270,6 +269,53 @@ def test_without_an_owner_the_setup_worker_route_is_unchanged(monkeypatch, tmp_p
 
 
 @native
+def test_a_setup_worker_refused_while_the_window_closes_is_the_setup_protocols_containment_failure(owner):
+    """WorkerRun maps qwen3_process.ContainmentUnavailable to CONTAINMENT_UNAVAILABLE; the owner's refusal is that."""
+    from tts import qwen3_process
+
+    owner.begin_closing()
+    with pytest.raises(qwen3_process.ContainmentUnavailable, match="closing"):
+        qwen3_process.spawn([sys.executable, "-c", "pass"], require_job=True)
+    assert owner.children() == []
+
+
+@native
+def test_a_program_that_is_not_python_keeps_its_own_group_and_is_never_given_the_entry(owner, bin_dir):
+    from tts import qwen3_process
+
+    tool = _program(bin_dir, "helper", 'echo "$0 $1"')
+    proc = qwen3_process.spawn([str(tool), "arg"], stdout=subprocess.PIPE, text=True)
+    out, _ = proc.communicate(timeout=30)
+    assert out.split() == [str(tool), "arg"] and owner.children() == []
+
+
+@native
+def test_a_class_a_child_owns_the_python_children_it_starts(tmp_path):
+    """The nested link KX-1(e) relies on: in a process watching a lifeline, qwen3_process.spawn makes that process an
+    owner, so its child is class A of it (its own group, through the entry) rather than a new session nobody watches."""
+    owner = child_ownership.Owner()
+    try:
+        script = tmp_path / "inner.py"
+        script.write_text(
+            "import os, subprocess, sys, threading\n"
+            f"sys.path.insert(0, {str(Path(sp.__file__).resolve().parents[1])!r})\n"
+            "from shared import subprocess_utils\n"
+            "from tts import qwen3_process\n"
+            "child = qwen3_process.spawn([sys.executable, '-c', 'import os, sys; "
+            "print(os.getpgrp(), any(a.endswith(\"child_entry.py\") for a in sys.orig_argv))'], "
+            "stdout=subprocess.PIPE, text=True)\n"
+            "out, _ = child.communicate(timeout=30)\n"
+            "print(child.pid, out.strip(), subprocess_utils.containment_owner() is not None)\n",
+            encoding="utf-8")
+        proc = owner.popen_python([sys.executable, "-I", str(script)], stdout=subprocess.PIPE, text=True)
+        out, _ = proc.communicate(timeout=60)
+        pid, group, through_entry, owns = out.split()
+        assert int(group) == int(pid) != proc.pid and through_entry == "True" and owns == "True"
+    finally:
+        owner.shutdown()
+
+
+@native
 def test_the_tts_encodes_ffmpeg_is_class_b_too(owner, bin_dir):
     from tts import ffmpeg_watch
 
@@ -302,3 +348,96 @@ def test_the_tts_encode_still_makes_the_same_popen_call_on_windows(monkeypatch):
     watched._stop_watching()
     assert calls == [(["ffmpeg.exe", "-i", "x", "out.mp3"],
                       {"creationflags": 0x08000000, "stdin": None, "stdout": None, "stderr": None})]
+
+
+# --------------------------------------------------------------------------- #
+#  KX-9: the spawn-site guard over the app window, the five tools and the shared layer
+# --------------------------------------------------------------------------- #
+_SPAWNS = {"Popen", "run", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}
+_OS_SPAWNS = {"system", "popen", "posix_spawn", "posix_spawnp", "spawnv", "spawnve", "spawnl", "spawnle", "execv",
+              "execve", "execvp", "execvpe", "execl", "execle", "execlp", "startfile", "fork", "forkpty"}
+
+#: Every direct ``subprocess``/``os`` spawn in the application, with why it is not (or not yet) a P1B-owned child.
+#: The guard fails on a site that is not here and on an entry whose site is gone, so the list stays exact.
+KX9_ALLOWED = {
+    ("shared/child_ownership.py", "run_python"): "the ownership helper itself (class A)",
+    ("shared/child_ownership.py", "popen_python"): "the ownership helper itself (class A)",
+    ("shared/child_ownership.py", "_start_guardian"): "the ownership helper itself (the guardian)",
+    ("shared/child_ownership.py", "popen_external"): "the ownership helper itself (class B)",
+    ("shared/subprocess_utils.py", "run"): "the wrapper: FFmpeg/ffprobe routed to class B when the window owns them",
+    ("shared/subprocess_utils.py", "popen"): "the wrapper: FFmpeg/ffprobe routed to class B when the window owns them",
+    ("shared/subprocess_utils.py", "check_output"): "the wrapper: FFmpeg/ffprobe routed to class B when owned",
+    ("shared/subprocess_utils.py", "_ask_file_manager"): "Windows branch only (os.startfile); macOS `open` is class D",
+    ("shared/bootstrap.py", "relaunch_setup"): "setup side (P1A; test_child_ownership's KX-9 guard)",
+    ("shared/bootstrap.py", "_child_run"): "setup side (P1A; Windows branch, contained on macOS)",
+    ("shared/bootstrap.py", "_run"): "setup side (P1A; Windows branch, contained on macOS)",
+    ("shared/bootstrap.py", "_pip"): "setup side (P1A; Windows branch, contained on macOS)",
+    ("shared/bootstrap.py", "launch_gui"): "class D: the app window started by setup",
+    ("shared/bootstrap.py", "_open_folder"): "class D: the setup log's folder opened in Finder/Explorer",
+    ("shared/cleanup_state.py", "spawn_coordinator"): "class D: the cleanup coordinator must outlive the window",
+    ("shared/cleanup_state.py", "_probe_is_non_venv"): "a bounded 30 s probe of a candidate Python (cleanup)",
+    ("shared/close_terminal.py", "main"): "class D: closes the launch Terminal window (P1A)",
+    ("shared/long_paths.py", "_spawn_probe"): "Windows only: the long-path probe",
+    ("shared/long_paths.py", "_probe"): "Windows only: the long-path probe",
+    ("shared/release.py", "_git"): "developer packaging; never run by the app",
+    ("tts/chatterbox_synth.py", "build_reference_clip"): "TTS: P3A (Chatterbox) owns this FFmpeg call",
+    ("tts/generate_voice_samples.py", "measure_final_artifact"): "TTS sample generation (P2/P3A); developer tool",
+    ("tts/generate_voice_samples.py", "_git_commit_sha"): "TTS sample generation; developer tool",
+}
+
+#: Keyword arguments that would make a wrapper start FFmpeg outside the guardian's group.
+_BYPASS = {"start_new_session", "process_group", "preexec_fn", "shell"}
+
+
+def _direct_spawn_sites():
+    from source_probe import UNIVERSAL, application_python_files
+
+    sites: dict = {}
+    for path in application_python_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)):
+                continue
+            module, name = node.func.value.id, node.func.attr
+            if (module == "subprocess" and name in _SPAWNS) or (module == "os" and name in _OS_SPAWNS):
+                cursor, function = node, "<module>"
+                while cursor in parents:
+                    cursor = parents[cursor]
+                    if isinstance(cursor, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        function = cursor.name
+                        break
+                key = (path.relative_to(UNIVERSAL).as_posix(), function)
+                sites.setdefault(key, []).append(node.lineno)
+    return sites
+
+
+def test_kx9_every_direct_spawn_is_the_ownership_helper_a_routed_wrapper_or_named():
+    sites = _direct_spawn_sites()
+    unknown = {key: lines for key, lines in sites.items() if key not in KX9_ALLOWED}
+    assert unknown == {}, f"a direct spawn that neither the window owns nor this list names: {unknown}"
+    gone = sorted(set(KX9_ALLOWED) - set(sites))
+    assert gone == [], f"allow-list entries whose spawn is gone (remove them): {gone}"
+
+
+def test_kx9_no_media_spawn_in_the_window_or_the_five_tools_bypasses_the_guardian():
+    """A wrapper call that names its own session, group or shell is started exactly as asked -- outside class B -- so
+    none of the GUI's or the five tools' calls may pass one."""
+    from source_probe import UNIVERSAL, application_python_files
+
+    wrappers = {"run", "popen", "check_output", "run_supervised"}
+    roots = ("launcher.py", "m4b/", "mp3/", "artwork/", "shared/metadata.py", "shared/ffmpeg_utils.py",
+             "shared/ffmpeg_health.py", "tts/ffmpeg_watch.py")
+    offenders = []
+    for path in application_python_files():
+        relative = path.relative_to(UNIVERSAL).as_posix()
+        if not relative.startswith(roots):
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in wrappers \
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id in ("sp", "_sp", "subprocess_utils"):
+                passed = {k.arg for k in node.keywords} & _BYPASS
+                if passed:
+                    offenders.append(f"{relative}:{node.lineno} {sorted(passed)}")
+    assert offenders == []
