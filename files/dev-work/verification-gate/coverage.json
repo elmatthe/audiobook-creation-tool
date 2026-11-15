@@ -20679,7 +20679,7 @@
             "venv_is_valid",
             "_locked_distributions",
             "_venv_check",
-            "venv_creation_finished"
+            "venv_creation_cut_short"
           ]
         },
         {
@@ -25639,7 +25639,7 @@
     "scripts/shared/base_packages.py": "a93fd212c8f76432aa20b90ad83586767e47ef93abb76d645b61e7d828cfa9ff",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "cc309ee1c89a811fb5d4e7bae12f7523c82b7b1a2676e0fa6ea0a6f839841d65",
+    "scripts/shared/bootstrap.py": "2c8af10873a2fed90394d2298ff096936b72fdc84d6073c1e6b5e836924d1294",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",

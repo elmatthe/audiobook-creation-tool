@@ -831,12 +831,12 @@ def assess_venv_health(*, require_tk: bool = True,
             "copy's own Python, from the package files kept in this folder.",
             version=version, ssl=has_ssl, tk=has_tk, executes=True)
 
-    if IS_MAC and not venv_creation_finished():
-        # v0.8.x P1A: its creation never finished (or it predates the app's own Python on a Mac): rebuilt.
+    if IS_MAC and venv_creation_cut_short():
+        # v0.8.x P1A: its creation was interrupted before pip was installed: rebuilt, never filled in place.
         return VenvHealth(
             VENV_REPAIRABLE, "incomplete",
-            "The environment was never finished (its creation was interrupted, or it was made before this version "
-            "of the app). It is rebuilt on the app's own Python.",
+            "The environment's creation was interrupted before it finished (pip was never installed into it). It is "
+            "rebuilt on the app's own Python.",
             version=version, ssl=has_ssl, tk=has_tk, executes=True)
 
     if not has_ssl:
@@ -1680,14 +1680,19 @@ def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]
 # ===========================================================================
 #  Setup steps
 # ===========================================================================
-#: v0.8.x P1A (macOS): written into the environment only once ``python -m venv`` -- ensurepip included -- has finished.
-#: A setup killed while the environment was being created leaves an interpreter with no pip, which every other check
-#: passes; on a Mac an environment without this file is rebuilt (found by the P1A SIMULATED interruption run).
-VENV_CREATED_NAME = ".act-venv-created"
+def venv_creation_cut_short(venv_dir: Optional[Path] = None) -> bool:
+    """v0.8.x P1A (macOS): True when an environment's creation was cut short.
 
-
-def venv_creation_finished() -> bool:
-    return (VENV_DIR / VENV_CREATED_NAME).is_file()
+    ``python -m venv`` makes ``lib/python3.X/site-packages`` first and installs pip into it last (ensurepip), and pip
+    writes its own ``RECORD`` only once it is installed. A setup killed in between leaves an interpreter with ssl and
+    Tk and no pip -- every other check passes, the package reconcile then fails, and every later launch repeats it
+    (found by the P1A SIMULATED interruption run). The existing authority, pip's own record, decides; nothing new is
+    written. Without that folder there is no evidence either way, and the answer is False."""
+    venv_dir = VENV_DIR if venv_dir is None else Path(venv_dir)
+    sites = sorted((venv_dir / "lib").glob("python3*/site-packages"))
+    if not sites:
+        return False
+    return not any(sites[-1].glob("pip-*.dist-info/RECORD"))
 
 
 def create_venv(py_argv: list[str], log: SetupLog) -> bool:
@@ -1696,14 +1701,6 @@ def create_venv(py_argv: list[str], log: SetupLog) -> bool:
     if r.returncode != 0:
         log.line(f"  ERROR creating venv: {r.stderr.strip()}")
         return False
-    if IS_MAC:
-        try:
-            (VENV_DIR / VENV_CREATED_NAME).write_text(
-                json.dumps({"created_by": _shown(py_argv), "created_at": time.strftime("%Y-%m-%dT%H:%M:%S")}),
-                encoding="utf-8")
-        except OSError as exc:
-            log.line(f"  ERROR recording the finished environment: {exc}")
-            return False
     log.line("  Virtual environment created.")
     return True
 

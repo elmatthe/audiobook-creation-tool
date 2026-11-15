@@ -445,10 +445,16 @@ def test_launcher_scripts_are_executable_lf_in_the_index(path):
 # --------------------------------------------------------------------------- #
 #  An environment whose creation was interrupted is rebuilt (P1A SIMULATED finding)
 # --------------------------------------------------------------------------- #
-def _fake_venv(monkeypatch, tmp_path):
+def _fake_venv(monkeypatch, tmp_path, *, site: bool, pip: bool):
     venv = tmp_path / ".venv"
     (venv / "bin").mkdir(parents=True)
     (venv / "bin" / "python").write_text("")
+    if site:
+        packages = venv / "lib" / "python3.12" / "site-packages"
+        packages.mkdir(parents=True)
+        if pip:
+            (packages / "pip-25.0.1.dist-info").mkdir()
+            (packages / "pip-25.0.1.dist-info" / "RECORD").write_text("pip/__init__.py,,\n")
     monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
     monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: venv / "bin" / "python")
     monkeypatch.setattr(bootstrap, "probe_venv", lambda py: {"version": (3, 12), "ssl": True, "tk": True})
@@ -458,36 +464,36 @@ def _fake_venv(monkeypatch, tmp_path):
     return venv
 
 
-def test_on_a_mac_an_environment_whose_creation_never_finished_is_rebuilt(monkeypatch, tmp_path):
-    venv = _fake_venv(monkeypatch, tmp_path)
+def test_on_a_mac_an_environment_whose_creation_was_cut_short_is_rebuilt(monkeypatch, tmp_path):
+    _fake_venv(monkeypatch, tmp_path, site=True, pip=False)
     monkeypatch.setattr(bootstrap, "IS_MAC", True)
     health = bootstrap.assess_venv_health()
     assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "incomplete")
-    (venv / bootstrap.VENV_CREATED_NAME).write_text("{}")
+
+
+def test_a_finished_mac_environment_and_one_without_evidence_are_not_called_incomplete(monkeypatch, tmp_path):
+    _fake_venv(monkeypatch, tmp_path, site=True, pip=True)
+    monkeypatch.setattr(bootstrap, "IS_MAC", True)
     assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
+    assert bootstrap.venv_creation_cut_short(tmp_path / "no-such-venv") is False
 
 
-def test_windows_health_does_not_look_for_the_mac_marker(monkeypatch, tmp_path):
-    _fake_venv(monkeypatch, tmp_path)
+def test_windows_health_does_not_apply_the_mac_rule(monkeypatch, tmp_path):
+    _fake_venv(monkeypatch, tmp_path, site=True, pip=False)
     monkeypatch.setattr(bootstrap, "IS_MAC", False)
     assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
 
 
-def test_the_marker_is_written_only_after_venv_creation_succeeded(monkeypatch, tmp_path):
-    venv = tmp_path / ".venv"
-    monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
-    monkeypatch.setattr(bootstrap, "IS_MAC", True)
-    outcomes = iter([1, 0])
+@native
+def test_a_real_venv_is_complete_and_the_same_venv_without_pip_is_not(tmp_path):
+    venv = tmp_path / "real-venv"
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, capture_output=True, timeout=300)
+    assert bootstrap.venv_creation_cut_short(venv) is False
+    import shutil
 
-    def fake_run(cmd, **kw):
-        code = next(outcomes)
-        if code == 0:
-            venv.mkdir(parents=True, exist_ok=True)
-        return subprocess.CompletedProcess(cmd, code, "", "killed" if code else "")
-
-    monkeypatch.setattr(bootstrap, "_run", fake_run)
-    assert bootstrap.create_venv(["python3.12"], _Log()) is False and not venv.exists()
-    assert bootstrap.create_venv(["python3.12"], _Log()) is True and bootstrap.venv_creation_finished()
+    for record in (venv / "lib").glob("python3*/site-packages/pip-*.dist-info"):
+        shutil.rmtree(record)
+    assert bootstrap.venv_creation_cut_short(venv) is True
 
 
 def test_the_macos_download_names_the_app_not_python_and_never_waits_forever(monkeypatch):
