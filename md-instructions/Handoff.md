@@ -1,5 +1,43 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS compatibility Phase 0, Revision 1: the roadmap amended in place with nine engineering corrections; documents only; nothing implemented (2026-11-15, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`, from `389f56e` (the Phase 0 roadmap).
+  - The commit that adds this block changes documents only: the plan, amended in place, and this block.
+  - The owner's 17 tracked deletions and untracked files were not staged.
+  - The inherited `core.filemode=false`, the CRLF working-tree bytes and the four Windows worktree records are untouched.
+- **Revision 1** of `files/plans/ACT-v0.8.0-MacOS-Compatibility-and-Verification-Implementation-Plan.md`:
+  1. **Cancel.** A bounded contract (C1–C5). On macOS, Kokoro and Chatterbox move into a supervised local-engine worker, so Cancel never waits for a chunk. Windows is unchanged (D17). Tests CX-1 to CX-8 (§11.2.1, §11.2.3).
+  2. **Containment.** An owned-child registry, a lifeline, an ACT guardian, an allow-list of deliberately detached children, and identity-checked termination. Tests KX-1 to KX-10: kill -9, simulated crash, Force Quit, closed Terminal (§11.2.2).
+  3. **Native verification.** A per-journey darwin acceptance map: automated counterpart, signed owner-manual check, or a reviewed not-applicable reason. No blanket exemption. `fresh-macos` is mandatory; only its automation is optional (§14.3, D9).
+  4. **Release order.**
+     1. P6a: release source made final. The version is decided at P5 exit (D16); MacOS declarations and packaging are finished.
+     2. Codex review, then the final SHA is frozen.
+     3. P7a/P7b: the macOS and Windows full gates, both on that same SHA.
+     4. P7c: the exact archives, with no source change.
+     5. P7d: merge, tag and publish.
+
+     A post-freeze change table governs any change after the freeze (§17).
+  5. **Clean install.** Stage 0 gets safe extraction, interruption recovery and a watchdog. Evidence from this Mac is labelled SIMULATED (PATH-restricted, linkage-verified) and kept apart from REAL CLEAN. REAL CLEAN is mandatory at P7c (D18).
+  6. **FFmpeg (D3).** Evaluate the Riedl historical arm64 9.0.1 build first. Its published `codecs.txt` lists `aac_at` and `libmp3lame` (vendor pages read 2026-11-15; no binary downloaded, no digest recorded). Adoption needs eight proofs, including a real xHE-AAC file.
+  7. **D7.** No blanket consent. A failed engine gate stops the phase for a separate owner decision per engine (D7-Q, D7-O, …).
+  8. **D6.** A provisional speed/memory budget is set at each engine checkpoint, and each engine gets four separate verdicts: F, S, Q, P (§15).
+  9. **Git and local guidance (§3.1).** No broad CRLF or mode cleanup; new executables are staged with `--chmod=+x` and verified as `100755`. The stale `.claude/CLAUDE.md` references are listed for the owner to reconcile; the file was not edited.
+- **Verification.** Documents only.
+  - Section, decision, gap, risk and test-id cross-references resolve.
+  - Tables are well-formed and no private path appears.
+  - No code, test, environment, download, install, synthesis or gate was run.
+- **Open owner decisions before P1A.**
+  - Approve Revision 1.
+  - Record D1–D5, with D3 as revised (including consent for the Riedl 9.0.1 download).
+  - Supply one real xHE-AAC file locally for the D3 proof.
+  - Reconcile `.claude/CLAUDE.md` when convenient.
+
+  D6-x, D7-x, D16, D17 and D18 fall due at their stated checkpoints.
+- **Next action.** The owner reviews Revision 1 and authorizes P1A in a fresh Claude Code session. Do not begin P1A without that authorization.
+
 ## Current checkpoint — macOS compatibility Phase 0: research, architecture and the implementation roadmap committed for owner review; nothing implemented (2026-11-14, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released and recorded below.

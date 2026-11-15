@@ -2,6 +2,16 @@
 
 **Master implementation plan | Phase 0 deliverable (research, architecture and roadmap only) | NOT an authorization to implement**
 **Planning date:** 2026-11-14 (Claude Code, Opus 5.5, xHigh reasoning; Phase 0 session on the owner's Apple Silicon MacBook)
+**Revision 1:** 2026-11-15 (Claude Code, Opus 5.5; documents only), amended in place on `389f56e`. Nine engineering corrections are written into the contracts, phases, tests, risks and decisions where they apply:
+- preemptible Cancel for active inference (§11.2.1);
+- parent-death containment for every ACT-owned child (§11.2.2);
+- native macOS acceptance coverage and a mandatory extracted fresh-install qualification (§14.3);
+- the release order: release source final before review, then both gates on one SHA (§16–§19);
+- clean-install evidence classes (§8.2, §14.2);
+- the FFmpeg 9.0.1 pin procedure (§11.1);
+- per-engine owner decisions after a failed gate (D7);
+- per-engine provisional budgets and four separate qualification verdicts (§15, D6);
+- Git working-tree and local-guidance rules (§3.1).
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
 **Released baseline:** Windows v0.8.0, tag `v0.8.0` (tag object `0a3653e`) → release-source commit `d1701e987f106ce00f557f267a6761c5370f5968`
@@ -25,29 +35,40 @@
    - free-memory reading (`None` on macOS);
    - case-folding assumptions written as `os.name == "nt"`.
 
-   Each needs a native POSIX/macOS design, not a "skip on mac" (§11).
+   Each needs a native POSIX/macOS design, not a "skip on mac" (§11). Two gaps are broader than plumbing:
+   - **Cancel is not preemptive for Kokoro and Chatterbox.** They run inside the GUI process and check Cancel only between chunks; Chatterbox lets "a generation already in flight … finish". The standing rule (Decisions 2026-11-05) is "Cancel means stop, at once, everywhere". On a Mac CPU one chunk can take tens of seconds, so macOS runs active inference in a supervised worker process that Cancel can end at once (§11.2.1).
+   - **Containment off Windows relies on orderly exit.** Nothing ends ACT's FFmpeg, pip or worker children when the GUI or setup process is SIGKILLed, crashes or is force-quit, and `atexit` cannot help in those cases. macOS gets an ownership and lifeline design (§11.2.2).
 3. **GUI.** The aqua shell exists and has 39+ macOS-only layout tests that have not run on a Mac since v0.6.6. Gaps:
    - `::tk::mac::Quit` (Cmd+Q) is unhandled;
    - some fonts are hard-coded to Windows families;
    - Tk versions diverge. **Every no-admin Python route on macOS ships Tk 9.** Windows builds use Tk 8.6.15; python-build-standalone 20261009 builds macOS with Aqua Tk 9.0.4, and Homebrew with Tk 9.0.x. So a small, bounded **Tk 9 port** of ACT's GUI is required (§10). ACT's exposure is modest: no legacy `trace()` calls and no `~` paths handed to Tk. Three custom scroll handlers need `<TouchpadScroll>`.
 4. **Engines.** Summary only; the evidence is in §6 and §12.
    - Edge: platform-neutral network engine.
-   - Kokoro: CPU is already its only non-CUDA path; reliability first.
-   - Chatterbox Turbo: CPU by default. ACT's `select_device()` would pick MPS today, and MPS has open sampling and memory risks.
+   - Kokoro: CPU is already its only non-CUDA path; reliability first. On macOS it moves out of the GUI process into the supervised local-engine worker (§11.2.1).
+   - Chatterbox Turbo: CPU by default, in the same worker. ACT's `select_device()` would pick MPS today, and MPS has open sampling and memory risks.
    - Qwen3-TTS: CPU float32 is the only Apple Silicon configuration with a controlled, reported comparison of correct speech. MPS has been reported badly wrong on torch 2.7. It is gated as Windows-only today.
    - OmniVoice 0.2.1: upstream documents MPS, and the code path is device-neutral. ACT's worker hard-refuses non-CUDA devices. There is conflicting MPS fp16 evidence on M4 hardware. CPU fp32 is plausible but slow.
 
    Qwen3 and OmniVoice therefore get **owner-gated feasibility experiments** before integration.
-5. **Verification.** The canonical gate's skip policy exists only for `win32`, and its acceptance adapters are Windows-only. On macOS today every skip would be recorded as "NOT APPLICABLE, not judged". That is exactly how Windows-only skips could masquerade as a macOS pass. A `darwin` policy and macOS-native counterparts are required before any macOS result is trusted (§14, §17).
+5. **Verification.** The canonical gate's skip policy exists only for `win32`, and its acceptance adapters are Windows-only. On macOS today every skip would be recorded as "NOT APPLICABLE, not judged". That is exactly how Windows-only skips could masquerade as a macOS pass. A `darwin` policy and macOS-native counterparts are required before any macOS result is trusted (§14, §17). The 55 required acceptance journeys are **not** exempted because their Windows input adapter does not apply: each gets a native macOS automated test, a documented owner-manual check, or a reviewed per-journey not-applicable reason (§14.3). The extracted fresh-install and repair qualification is mandatory.
 
 **Final objectives (exit of the whole programme, P7):**
-- O1. A fresh Apple Silicon Mac with no Homebrew and no compatible Python reaches a healthy app through the double-click launcher. It uses an app-owned, hash-verified arm64 Python and FFmpeg, gets explicit consent for every download, and needs no admin password.
-- O2. All six tools pass native macOS functional acceptance with real media, including Cancel, Pause, recovery and publication invariants.
-- O3. Each of the five engine families is either **PROVEN on this Mac** for its whole voice roster, or explicitly shown as unavailable with an accurate reason and an owner-recorded decision. No voice is silently removed, substituted or faked.
+- O1. A fresh Apple Silicon Mac with no Homebrew and no compatible Python reaches a healthy app through the double-click launcher. It uses an app-owned, hash-verified arm64 Python and FFmpeg, gets explicit consent for every download, and needs no admin password. This is proven on a **real clean Mac** from the extracted release archive (D18). Evidence from this development Mac, where Homebrew is present but hidden, is labelled **SIMULATED** and never satisfies O1 by itself (§8.2, §14.2).
+- O2. All six tools pass native macOS functional acceptance with real media, including Cancel, Pause, recovery and publication invariants. Cancel meets the bounded contract of §11.2.1 for every engine, including during active inference.
+- O3. Each of the five engine families is either **PROVEN on this Mac** for its whole voice roster, or explicitly shown as unavailable with an accurate reason. Unavailable requires a separate owner decision for that engine, recorded after its failed gate (D7). No voice is silently removed, substituted or faked.
 - O4. The 34 stable `(backend, voice_id)` identities, the 18 clone-reference WAVs, their transcripts, the 28 preview WAVs and the shared speech-preparation pipeline are byte-for-byte unchanged.
-- O5. Windows v0.8.0 behaviour is preserved and re-verified on HOME-PC on the final candidate (owner decision D8).
-- O6. One independent Codex review and its remediation, owner acceptance, and then **one** canonical native macOS full gate on the frozen candidate. A failed gate is investigated, never rerun into a pass.
-- O7. A release whose provenance is truthful: no moved tag, and no macOS binary attributed to the Windows v0.8.0 commit (§18).
+- O5. Windows v0.8.0 behaviour is preserved and re-verified on HOME-PC by the canonical Windows full gate on the **same final executable SHA** as the macOS gate (D8).
+- O6. Steps run in this order:
+  1. release source finalized: version identity, MacOS platform declarations and packaging support (P6a);
+  2. one independent Codex review, its remediation and owner acceptance, which freeze the final executable SHA;
+  3. **one** canonical native macOS full gate and one canonical Windows full gate, both on that SHA (P7).
+
+  A failed gate is investigated, never rerun into a pass.
+- O7. A release whose provenance is truthful:
+  - the archives are built and audited from that same SHA with no source change;
+  - no tag is moved;
+  - no macOS binary is attributed to the Windows v0.8.0 commit (§18).
+- O8. No ACT-owned child process outlives its owner after any exit, including a crash, SIGKILL, Force Quit or a closed Terminal window during setup. The only exceptions are the deliberately detached children named in §11.2.2.
 
 ---
 
@@ -102,6 +123,45 @@ Collected read-only on 2026-11-14. Private detail (paths, usernames, exact PATH 
 
 The recommended clean checkout is `git worktree add files/dev-work/worktrees/<name> <sha>`. `files/dev-work/` is gitignored and excluded by `pytest.ini`.
 
+### 3.1 Working-tree, Git-mode and local-guidance rules (D4, MAC-030, MAC-034, MAC-046)
+
+**Leave the inherited settings and bytes alone.** `core.filemode=false`, `core.symlinks=false` and `core.ignorecase=true` stay as inherited, and so do the CRLF bytes of the 221 working-tree files. No phase does a broad cleanup. Specifically:
+- no `git add --renormalize .`;
+- no `git checkout -- .`, `git restore`, `git reset --hard` or `git clean`;
+- no change to `core.autocrlf`, `core.eol` or `core.filemode`;
+- no repository-wide `chmod`;
+- no `git update-index --chmod` on existing files;
+- no `git worktree prune` of the four Windows records without owner approval.
+
+**Editing a CRLF file is safe as it is, but check which case applies.** `git ls-files --eol` (read 2026-11-15) shows two cases:
+- **Index LF (`i/lf`) with CRLF or mixed working-tree bytes:** 225 files (221 CRLF, 4 mixed). `.gitattributes` has `* text=auto`, so Git normalizes them to LF on commit, and only real line changes enter the commit.
+- **Index already mixed (`i/mixed`):** `md-instructions/Briefing.md`, `Decisions.md` and `Handoff.md`. Their committed bytes already contain CRLF lines, so Git does **not** convert them.
+  - New lines follow the surrounding committed endings (the current top blocks are CRLF).
+  - `git diff --check` then reports those CRs as trailing whitespace. That is the inherited state, not an error.
+  - No phase normalizes these three files, because that would rewrite thousands of lines. Only a separate, owner-approved documents-only renormalization may do it.
+
+Each phase checks this before committing:
+- `git diff --cached --stat` lists only the intended files, with line counts matching the real edit;
+- `git diff --cached --summary` shows no `mode change` lines except intended ones.
+
+A file that would show whole-file churn is a stop: investigate, do not commit.
+
+**New executable files need their Git mode set explicitly (MAC-046).** With `core.filemode=false`, `git add` records a new file as `100644` whatever its disk mode. A new script that must run directly (for example `scripts/shared/bootstrap_host_macos.sh`, or any new `.command`) is staged with `git add --chmod=+x <path>`. The phase then confirms `git ls-files -s <path>` shows `100755`. Rules for such files:
+- `*.sh` and `*.command` are LF by `.gitattributes`, and new ones must stay LF;
+- a focused test asserts the index mode and LF bytes of every launcher and stage-0 script, beside the existing release-packaging 0755 rule (`release._write_executable`);
+- the disk-only `chmod +x` of the existing `.command` (D4) is invisible to Git and changes nothing in the index.
+
+**Stale local agent guidance (MAC-034; owner file, not changed by any phase).** `.claude/CLAUDE.md` is local and gitignored (`.gitignore` covers `.claude/`). It still names paths that do not exist or have other names:
+- `md-instructions/CHANGELOG.md`, `DECISIONS.md` and `handoff.md`: the real files are `Changelog.md`, `Decisions.md` and `Handoff.md`. They resolve only because this APFS volume is case-insensitive.
+- `scripts/Universal/`: absent.
+- `scripts/verify.py`: the gate is `files/dev-work/verification-gate/verify.py`.
+- the `files/dev/qwen_worker.py` delegation route: absent.
+- the v0.5.0 one-commit-per-drop rule: historical.
+
+`AI-WORKSPACE.md` also points at an `AGENTS.md` that the repository does not have.
+
+**Recommended reconciliation:** the owner edits `.claude/CLAUDE.md`, or authorizes a separate documents-only task to edit it, so that it points to `AI-WORKSPACE.md`, the four canonical documents with their real names, this plan and the real gate path, and drops the absent delegation route. Until then, agents follow the read order in §21 and treat the stale entries as non-authoritative. They never invoke the absent delegation script and never "fix" the file on their own.
+
 ---
 
 ## 4. Reusable Windows application architecture
@@ -115,14 +175,14 @@ The v0.8.0 code tree is single and cross-platform (`scripts/`), with `sys.platfo
 | Package locks | `scripts/shared/base_packages.py`, `scripts/requirements-lock-windows-py312.txt`, `files/dev-tools/lock_base_requirements.py` | **Reuse** the hashed-store design. Make `lock_applies`/`lock_path` platform-keyed. Add `requirements-lock-macos-arm64-py312.txt` |
 | Unified environments | `.venv/`, `.venv/engines/qwen3/`, `.venv/engines/omnivoice/`; `shared/venv_layout.py`, `shared/engine_lease.py` (already `fcntl.flock` on POSIX) | **Reuse** the layout (owner decision 2026-11-13). Engines are built at their final path, as on Windows |
 | FFmpeg | `shared/ffmpeg_health.py` (discover → prove by execution → pin), `shared/ffmpeg_utils.py` (consumes only the proven pair; `aac_at` selection for xHE-AAC), `shared/ffmpeg_portable.py` (Windows source pin) | **Reuse** the health model. Add a macOS source pin (§11) |
-| Subprocess control | `shared/subprocess_utils.py` (`run_supervised` terminate → kill through the handle, which works on POSIX), `tts/qwen3_process.py` (`start_new_session` + `killpg` on POSIX) | **Reuse**. Add a parent-death lifeline and a POSIX `stop_media_children` (MAC-009) |
+| Subprocess control | `shared/subprocess_utils.py` (`run_supervised` terminate → kill through the handle, which works on POSIX), `tts/qwen3_process.py` (`start_new_session` + `killpg` on POSIX) | **Reuse** the supervision. Add the POSIX ownership layer of §11.2.2: an owned-child registry, lifelines, the ACT guardian and an identity-checked POSIX `stop_media_children` (MAC-009, MAC-044) |
 | Output and publication | `shared/output_paths.py` (NFC, collisions; already treats darwin as case-insensitive), `tts/publication.py` (staging + `fsync` + `os.link` no-clobber on POSIX, `os.replace` for overwrite) | **Reuse**. Consider `renamex_np(RENAME_EXCL)` for non-APFS volumes (MAC-017) |
 | Jobs | `shared/job_control.py`, `shared/job_ui.py`, `shared/cancellation.py` | **Reuse unchanged** (thread-based; no platform branches) |
 | Optional engines | `tts/optional_setup*.py`, `shared/optional_setup_protocol.py`/`_panel.py`, `tts/voice_install.py`, per-engine `platform_supported()` gates | **Reuse** the consent, progress, Install & Continue and readiness flows. Change *gates* per engine only after proof |
 | Speech preparation | `tts/speech/*` (`pipeline.prepare`, 16 classes, `modes.json`, glossary) | **Reuse unchanged**; it is pure Python (§13) |
-| Engines | `tts/kokoro_synth.py`, `tts/chatterbox_synth.py` (both in-process); `qwen3_*`, `omnivoice_*` (isolated worker processes) | Narrow device/dtype adapters (§12) |
-| Packaging | `shared/release.py` already builds `AudiobookTool-MacOS-vX.Y.Z.zip` with a forced 0755 `.command` (`_write_executable`). The ordinary build is gated by `RELEASE_OS_NAMES = ("Windows",)` | **Reuse**. Enable MacOS only at P7 with owner approval |
-| Verification | `files/dev-work/verification-gate/` (`verify.py`, `verification.json`, `coverage.json`, `helpers/winproc.py` with a POSIX process-group branch), `files/dev-work/feature-map/` | **Reuse** the core. Add a `darwin` skip policy, a darwin preflight and macOS acceptance coverage. Keep Windows adapters untouched |
+| Engines | `tts/kokoro_synth.py`, `tts/chatterbox_synth.py` (both in-process; Cancel is checked only between chunks); `qwen3_*`, `omnivoice_*` (isolated worker processes) | Narrow device/dtype adapters (§12). On darwin, Kokoro and Chatterbox inference moves into a supervised local-engine worker (§11.2.1, MAC-043). The parent keeps speech preparation, chunking, assembly, the one encode and publication. Windows stays in-process (D17) |
+| Packaging | `shared/release.py` already builds `AudiobookTool-MacOS-vX.Y.Z.zip` with a forced 0755 `.command` (`_write_executable`). The ordinary build is gated by `RELEASE_OS_NAMES = ("Windows",)` | **Reuse**. Enable MacOS in P6a, in the release-source finalization before review and the gates, with owner approval (D16). Never after the gates |
+| Verification | `files/dev-work/verification-gate/` (`verify.py`, `verification.json`, `coverage.json`, `helpers/winproc.py` with a POSIX process-group branch), `files/dev-work/feature-map/` | **Reuse** the core. Add a `darwin` skip policy, a darwin preflight, a per-journey darwin acceptance map with native counterparts (§14.3) and the mandatory `fresh-macos` qualification. Keep Windows adapters untouched |
 
 **What must not be assumed to carry over:** Windows-measured speed, memory or VRAM figures; the qualified FFmpeg build set (`m4b/m4b_continuous.QUALIFIED_BUILDS` holds only the Gyan Windows hashes); seeds reproducing Windows audio (RNG differs by device); and any Windows qualification scenario (`fresh_windows`, `winjob`, the Windows native-input adapter).
 
@@ -142,8 +202,8 @@ Gap IDs (`MAC-nnn`) are indexed in Appendix B. "Status" describes macOS today, f
 | Unicode/NFD names | Inputs NFC-normalised in `importing.py`; outputs NFC (`output_paths`, `output_names`). APFS is normalization-insensitive. Needs an NFD fixture test (MAC-038) | Same | Same | Same | Same | Same |
 | FFmpeg dependence | Encode (pydub/`disk_assembly`). darwin adds `-write_xing 0` for MP3 (MAC-019) | Heavy (concat/convert; Cancel via `run_supervised`) | Heavy. xHE-AAC via `aac_at` (needs an AudioToolbox build). The fast one-decode split route is qualified only for the Gyan Windows build, so macOS falls back to the slower safe route (MAC-006) | Heavy (encode, chapters, art; supervised) | Chapter-title remux (supervised) | None (Pillow) |
 | Metadata/art deps | mutagen (pure) | mutagen | mutagen | mutagen + Pillow | mutagen | Pillow 12.2.0 and pillow-heif 1.5.0: arm64 wheels exist (§7) |
-| Cancel / Pause | In-process Kokoro/Chatterbox: Cancel between chunks (latency = one chunk on CPU, to be measured). Workers: flag → kill the process group. Pause at the file boundary | `run_supervised` SIGTERM → SIGKILL (POSIX OK) | Same | Same | Same | n/a (quick operations) |
-| Window close / Cmd+Q / crash | `WM_DELETE_WINDOW` handled. **Cmd+Q unhandled** (MAC-008). Orphaned workers after a crash (MAC-009) | `stop_media_children` is Windows-only, so FFmpeg can outlive the app (MAC-009) | Same | Same | Same | n/a |
+| Cancel / Pause | In-process Kokoro/Chatterbox check Cancel only **between** chunks, and a chunk already in flight finishes. On a Mac CPU that can take tens of seconds, which breaks the immediate-Cancel rule (MAC-043). macOS moves them into the local-engine worker that Cancel ends at once (§11.2.1). Workers: flag → kill the process group within a stated bound. Pause at the file boundary, unchanged | `run_supervised` SIGTERM → SIGKILL (POSIX OK) | Same | Same | Same | n/a (quick operations) |
+| Window close / Cmd+Q / crash | `WM_DELETE_WINDOW` handled. **Cmd+Q unhandled** (MAC-008). Orphaned workers after a crash (MAC-009) | `stop_media_children` is Windows-only. Nothing contains FFmpeg after SIGKILL or a crash, so FFmpeg can outlive the app (MAC-009, MAC-044) | Same | Same | Same | n/a |
 | Publication | `publication.py`: `os.link` no-clobber, which fails on exFAT/FAT/some SMB (MAC-017) | Roll-back cannot "take back" on macOS (`_CAN_TAKE_BACK`, documented degradation, MAC-018) | Same publication service | Same | In-place edit through a temp copy | Writes new files |
 | Temp/recovery | Work area in `$TMPDIR`. Other processes' leftovers are reclaimed only on Windows (MAC-016) | Same | Same | Same | Same | n/a |
 | Memory planning | `memory_info()` is `None` on macOS, so 4 GB/2 GB is assumed and the text says "kept for Windows" (MAC-011) | n/a | n/a | n/a | n/a | n/a |
@@ -161,8 +221,8 @@ Status is per configuration. Evidence links are in §7 and Appendix A. In this t
 | Engine (ACT pin) | Install on macOS arm64 / CPython 3.12 | CPU | MPS (Apple GPU) | CUDA-only assumptions in ACT today | Recommended Mac configuration *to be proven* | Overall status today |
 |---|---|---|---|---|---|---|
 | **A. Edge TTS** (edge-tts 7.3.1, 5 voices) | Pure wheel. TLS via `certifi.where()` (no Keychain dependence). Proxies via the system settings (`trust_env=True`; PAC files not handled). 7.3.0 shipped a macOS-only fix (#493) | n/a (network) | n/a | None | As Windows: up to `min(requested, ceiling, CPUs, memory)` files in parallel | **SUPPORTED UPSTREAM; PLAUSIBLE BUT UNVERIFIED on this Mac.** 7.3.1 (latest, 2026-10-13) fixed the October 403s. Open risks: intermittent `NoAudioReceived` (#512, still reported 2026-11-10) and the service-held voice list (en-GB voices were removed in Dec 2025, #451). The five en-US voices are PLAUSIBLE until P2 lists and synthesizes them |
-| **B. Kokoro-82M** (kokoro 0.9.4, misaki 0.9.4, espeakng-loader 0.2.4, spaCy 3.8.16 + `en_core_web_sm` 3.8.0, torch 2.6.0; 9 voices) | All wheels exist. `espeakng_loader-0.2.4-py3-none-macosx_11_0_arm64.whl` bundles `libespeak-ng.dylib` 1.52 and its data. **eSpeak calls `exit(1)` if its data path is ≥ 160 characters** (espeakng-loader #10). ACT's `espeak_data.py` already makes a short symlink root on POSIX; this checkout's path would be 155 characters (MAC-035). misaki would pip-install `en_core_web_sm` at runtime if missing, which ACT prevents with its pinned wheel | **REPORTED** on M4 Pro CPU: ~17× faster than real time, 4.85 GB peak (model card; versions not stated). **REPORTED** kokoro 0.9.4 on macOS 27 with **torch 2.13** (kokoro#152). torch **2.6.0 on macOS 27: no report** | Not used by ACT (`cuda` else `cpu`). Upstream MPS support (PR #164) is unreleased. Needs `PYTORCH_ENABLE_MPS_FALLBACK` for `aten::angle`. **REPORTED** crashes on long strings and allocator growth (1.9 → 8.9 GB) without `empty_cache` | `kokoro_synth._local_model`: `cuda` else `cpu` (fine) | **CPU fp32** (owner priority: reliability + pronunciation). MPS not offered | **PLAUSIBLE BUT UNVERIFIED (strong).** The only open question is torch 2.6.0 on macOS 27 (P1A import proof, P2 synthesis) |
-| **C. Chatterbox Turbo** (chatterbox-tts 0.1.7, torch 2.6.0, transformers 5.2.0, numpy 1.26.4, resemble-perth 1.0.1; 6 cloned voices) | All wheels exist (incl. `spacy_pkuseg-1.0.1-…-macosx_11_0_arm64`, `s3tokenizer`/`resemble_perth` pure). Turbo needs no libsox/FFmpeg from torchaudio (only `Resample` + `kaldi.fbank`; audio read by librosa) | **SUPPORTED UPSTREAM** (device-agnostic code: safetensors load to CPU, then `.to(device)`; no CUDA kernels, bf16, flash-attn or `torch.compile`). **PLAUSIBLE BUT UNVERIFIED** here. Upstream **does not claim** Turbo on Mac (README/CI: Linux/CUDA). Speed unknown: the original model reported ~0.34× real time on an M4 CPU; Turbo (350M params, 2-step decoder) should be faster [inference]. ~3.0 GB fp32 loaded | **PLAUSIBLE BUT UNVERIFIED, high risk:** torch 2.6 MPS `multinomial` can pick zero-probability tokens (pytorch#192577; silent); allocator growth on 24 GB machines (chatterbox#577: multilingual model reached 24.9 GB driver memory); macOS 27 MPSGraph argmax defect (pytorch#187280). The float64 crash (#499) probably avoided by numpy 1.26.4 [inference] | `select_device()` = cuda → **mps** → cpu, so **ACT would choose MPS on this Mac today** (MAC-023) | **CPU fp32 default on darwin**; MPS only as an owner opt-in after the correctness oracle | **PLAUSIBLE BUT UNVERIFIED** (CPU) |
+| **B. Kokoro-82M** (kokoro 0.9.4, misaki 0.9.4, espeakng-loader 0.2.4, spaCy 3.8.16 + `en_core_web_sm` 3.8.0, torch 2.6.0; 9 voices) | All wheels exist. `espeakng_loader-0.2.4-py3-none-macosx_11_0_arm64.whl` bundles `libespeak-ng.dylib` 1.52 and its data. **eSpeak calls `exit(1)` if its data path is ≥ 160 characters** (espeakng-loader #10). ACT's `espeak_data.py` already makes a short symlink root on POSIX; this checkout's path would be 155 characters (MAC-035). misaki would pip-install `en_core_web_sm` at runtime if missing, which ACT prevents with its pinned wheel | **REPORTED** on M4 Pro CPU: ~17× faster than real time, 4.85 GB peak (model card; versions not stated). **REPORTED** kokoro 0.9.4 on macOS 27 with **torch 2.13** (kokoro#152). torch **2.6.0 on macOS 27: no report** | Not used by ACT (`cuda` else `cpu`). Upstream MPS support (PR #164) is unreleased. Needs `PYTORCH_ENABLE_MPS_FALLBACK` for `aten::angle`. **REPORTED** crashes on long strings and allocator growth (1.9 → 8.9 GB) without `empty_cache` | `kokoro_synth._local_model`: `cuda` else `cpu` (fine) | **CPU fp32** (owner priority: reliability + pronunciation), run in the supervised local-engine worker on darwin (§11.2.1). MPS not offered | **PLAUSIBLE BUT UNVERIFIED (strong).** The only open question is torch 2.6.0 on macOS 27 (P1A import proof, P2 synthesis) |
+| **C. Chatterbox Turbo** (chatterbox-tts 0.1.7, torch 2.6.0, transformers 5.2.0, numpy 1.26.4, resemble-perth 1.0.1; 6 cloned voices) | All wheels exist (incl. `spacy_pkuseg-1.0.1-…-macosx_11_0_arm64`, `s3tokenizer`/`resemble_perth` pure). Turbo needs no libsox/FFmpeg from torchaudio (only `Resample` + `kaldi.fbank`; audio read by librosa) | **SUPPORTED UPSTREAM** (device-agnostic code: safetensors load to CPU, then `.to(device)`; no CUDA kernels, bf16, flash-attn or `torch.compile`). **PLAUSIBLE BUT UNVERIFIED** here. Upstream **does not claim** Turbo on Mac (README/CI: Linux/CUDA). Speed unknown: the original model reported ~0.34× real time on an M4 CPU; Turbo (350M params, 2-step decoder) should be faster [inference]. ~3.0 GB fp32 loaded | **PLAUSIBLE BUT UNVERIFIED, high risk:** torch 2.6 MPS `multinomial` can pick zero-probability tokens (pytorch#192577; silent); allocator growth on 24 GB machines (chatterbox#577: multilingual model reached 24.9 GB driver memory); macOS 27 MPSGraph argmax defect (pytorch#187280). The float64 crash (#499) probably avoided by numpy 1.26.4 [inference] | `select_device()` = cuda → **mps** → cpu, so **ACT would choose MPS on this Mac today** (MAC-023) | **CPU fp32 default on darwin**, in the supervised local-engine worker (§11.2.1); MPS only as an owner opt-in after the correctness oracle | **PLAUSIBLE BUT UNVERIFIED** (CPU) |
 | **D1. Qwen3 CustomVoice** (qwen-tts 0.1.1, transformers 4.57.3, accelerate 1.12.0, torch 2.10.0; Aiden, Ryan) | All 89 pins have a Mac artefact (onnxruntime 1.31.0 `macosx_14_0_arm64`; `sox` = ACT's pure supply wheel; the SoX *binary* is not needed: pysox only logs "SoX could not be found!"). onnxruntime/sox are imported at module scope but used only by the unreleased 25 Hz tokenizer. **ACT's installer authority fails closed off Windows** (MAC-013) | **REPORTED** working on a base M4 (third-party audiobook project; torch 2.7, qwen-tts 0.1.1): 0.38 audio-s per wall-s (~2.6× slower than real time), 25/30 lines exact by ASR, 11.3 GB RSS. Second report on macOS 26 CPU fp32 | MPS **fp32 REPORTED badly wrong** on torch 2.7 (6/30 exact, mean WER 1.15, 16.5 GB driver allocation). MPS **bf16**: anecdotal "works", no quality data. **fp16: overflow → inf/NaN** (#355) | `choose_device`: cuda:0 or cpu; default dtype **bf16**; `platform_supported()` = win32 only; `MachineGuard` no-op off Windows | **CPU fp32, sdpa, one chunk at a time.** CPU bf16 / MPS bf16 only if they match CPU fp32 on WER and listening. Never fp16 | **PLAUSIBLE BUT UNVERIFIED (+ REPORTED on M4 CPU); installer BLOCKED (ACT-side).** Upstream has no official Mac path; Mac PRs #124/#345 unmerged; last commit 2026-03 |
 | **D2. Qwen3 Voice Clone** (Base model; 6 cloned voices from the 18-reference set) | Same as D1 | The clone path is pure PyTorch (Mimi-based 12 Hz encoder, ECAPA-style speaker encoder, mel STFT on a CPU tensor, librosa/soxr resample). **PLAUSIBLE BUT UNVERIFIED** (no direct Apple CPU fp32 report; CPU **fp16** ran >20 min without finishing, #69) | Anecdotal (bf16 #69; MPS fp32 on 0.6B Base; PR #345 exits 0, no quality data) | As D1 | As D1, with the same reference WAV and transcript bytes | **PLAUSIBLE BUT UNVERIFIED; installer BLOCKED (ACT-side)** |
 | **E. OmniVoice 0.2.1** (omnivoice 0.2.1 @ `5ba967c4`, transformers 5.3.0, torch 2.8.0; model `k2-fsa/OmniVoice` @ `c5fdb5cc`; 6 cloned voices) | Pure wheel, no native extensions, no CUDA-only dependencies (triton only on linux x86_64). **Upstream's own `uv.lock` resolves darwin to PyPI `torch==2.8.0`** ("CUDA doesn't exist for Mac"). ~86 Mac wheels, ~247 MB (vs 3.66 GB Windows) [summed, not resolved]. Offline load is platform-neutral (local dir with `audio_tokenizer/`, `ref_text` supplied → no Hub, no Whisper) | **SUPPORTED UPSTREAM** code path (`get_best_device` falls back to CPU; no CUDA calls in inference). **REPORTED** correct speech on Apple CPU (#8 on 0.1.1, #172), RTF ≈ 3 (slow). ~612M-param backbone (2.45 GB fp32) + ~201M-param tokenizer | **SUPPORTED UPSTREAM** (README documents Apple Silicon and `device_map="mps"`, fp16; code pins the audio tokenizer to CPU on MPS). **Conflicting REPORTS on M4:** #172 (Mac mini M4, torch 2.8.0) garbled audio + NaN with fp16+SDPA, where the maintainer's advice was fp32; #279 (M4 Max, 0.2.1, fp16) works, RTF ≈ 0.4. Memory growth across `generate()` calls (#199) is CUDA-reported, untested on MPS | Worker refuses `device != "cuda"`; `device_map="cuda:0"`, fp16; `torch.cuda.synchronize`/memory/seed calls; `platform_supported()` = win32; NVIDIA-only GPU probe and setup proof | Decided by the **P4A experiment**: MPS fp32 (likely candidate), MPS fp16 (only if oracle-clean), CPU fp32 (correct but ~3× slower than real time) | **PLAUSIBLE BUT UNVERIFIED; ACT-side BLOCKED** (CUDA-only worker). No configuration is proven on Apple Silicon; nothing upstream blocks it |
@@ -230,10 +290,10 @@ Full links are in Appendix A.
 | Gatekeeper | Sequoia (15) removed Control-click override. Current flow: try to open → System Settings › Privacy & Security › **Open Anyway** → password; exception is remembered | VERIFIED | developer.apple.com/news/?id=saqachfa; support.apple.com/guide/mac-help/mh40616 |
 | Quarantine propagation | Archive Utility copies quarantine to every extracted file; `ditto` keeps it by default; **curl does not set quarantine**; `unzip`/`tar`/pip PLAUSIBLE (measure) | SUPPORTED UPSTREAM / PBU | eclecticlight.co 2022, 2025-12-08; `ditto(1)` |
 | arm64 signing | Every arm64 executable must be signed; ad-hoc (linker) signature suffices to *run*, but not to pass Gatekeeper when quarantined | VERIFIED | Apple Big Sur universal-apps release notes |
-| FFmpeg arm64 sources | Homebrew ffmpeg now 9.0.2 (GPL); **Martin Riedl**: arm64 release builds incl. 9.0.2 with per-ZIP `.sha256`, signed ZIPs; osxexperts: arm64 ZIPs + SHA-256, not notarized, mismatched source link; evermeet: Intel only | VERIFIED (pages) | formulae.brew.sh; ffmpeg.martin-riedl.de; osxexperts.net; evermeet.cx |
+| FFmpeg arm64 sources | Homebrew ffmpeg now 9.0.2 (GPL). **Martin Riedl**: arm64 release builds with a per-ZIP `.sha256`; the page says the macOS ZIPs are signed. Current release 9.0.2 (2026-09-20). The release history keeps a **9.0.1** arm64 build: created 2026-08-18, build path `1787073674_9.0.1`, separate `ffmpeg.zip` and `ffprobe.zip`, each with `.sha256`. Its published `codecs.txt` lists the AAC decoder `aac_at` and the MP3 encoder `libmp3lame`. That is the published listing; the binary is unproven, and no digest is recorded here. osxexperts: arm64 ZIPs + SHA-256, not notarized, mismatched source link. evermeet: Intel only | VERIFIED (pages and the 9.0.1 `codecs.txt`, read 2026-11-15; no binary downloaded) | formulae.brew.sh; ffmpeg.martin-riedl.de (release history, 9.0.1 detail page, 9.0.1 `codecs.txt`); osxexperts.net; evermeet.cx |
 | PyTorch macOS wheels | torch 2.6.0 / 2.8.0 / 2.10.0 (+ `-2` rebuild) `macosx_11_0_arm64` for cp312; newest 2.15.0 (`macosx_14_0`, py ≥ 3.11). MPS needs macOS 14+ from 2.9 and 15+ from 2.15; float64/complex128 unsupported on MPS (fallback does not apply); bf16 needs macOS 14+; 2.15 raises on MPS OOM instead of returning wrong values | VERIFIED | pypi.org/pypi/torch/json; PyTorch 2.9/2.15 release notes; docs.pytorch.org/docs/2.15/notes/mps.html |
 | MPS memory controls | `PYTORCH_MPS_HIGH_WATERMARK_RATIO` (default 1.7), `PYTORCH_MPS_LOW_WATERMARK_RATIO` (1.4 on unified memory); `torch.mps.{synchronize, empty_cache, current_allocated_memory, driver_allocated_memory, recommended_max_memory, manual_seed}`; **no peak-memory API** | VERIFIED | docs.pytorch.org/docs/2.15/mps_environment_variables.html, /mps.html |
-| Process control | `start_new_session` → `setsid`; `os.killpg`; no `PR_SET_PDEATHSIG` on macOS; kqueue `EVFILT_PROC`/`NOTE_EXIT` can watch the parent; `flock` locks are per open file and freed on close/death; `rename(2)` atomic on one volume; `fsync` ≠ `F_FULLFSYNC` | VERIFIED | Python docs; `kqueue(2)`, `flock(2)`, `fcntl(2)`, `rename(2)`, `fsync(2)` |
+| Process control | `start_new_session` → `setsid`; `Popen(process_group=…)` (3.11+) calls `setpgid` in the child before `exec`, joining only a group in the caller's session; `os.killpg`; no `PR_SET_PDEATHSIG` on macOS; kqueue `EVFILT_PROC`/`NOTE_EXIT` can watch the parent; the kernel closes every descriptor of a dead process (SIGKILL included), so a pipe's reader sees EOF once the last writer is gone; new Python descriptors are non-inheritable (PEP 446) and `pass_fds` is the only way one reaches a child; a process-group ID is not reused while the group has a member; `flock` locks are per open file and freed on close/death; `rename(2)` atomic on one volume; `fsync` ≠ `F_FULLFSYNC` | VERIFIED | Python docs (`subprocess`, `os`), PEP 446; `setpgid(2)`, `kqueue(2)`, `flock(2)`, `fcntl(2)`, `rename(2)`, `fsync(2)` |
 
 Engine-specific upstream evidence is in §6 and Appendix A.
 
@@ -275,13 +335,37 @@ Engine-specific upstream evidence is in §6 and Appendix A.
 
 The macOS mirror of `bootstrap_host.ps1` and the canonical name in `.ai/BOOTSTRAP.md`. It is responsible **only** for providing a proven base Python:
 
-1. If `files/runtime-data/python/bin/python3.12` exists, run it under a **bounded probe**. macOS has no `timeout`, so start it in the background and kill it after N seconds with a bash loop. The probe is `-I -c "import sys, ssl, venv, ensurepip, tkinter; r=tkinter.Tk(); r.withdraw(); r.destroy(); …"`: a real Tk init, not just `Tcl()` (the Windows audit lesson ACT67-AUD-006). It must also assert arm64 (`platform.machine()=='arm64'`) and version 3.12. On success, write the path and exit 0.
+1. If `files/runtime-data/python/bin/python3.12` exists, run it under a **bounded probe**. The probe is `-I -c "import sys, ssl, venv, ensurepip, tkinter; r=tkinter.Tk(); r.withdraw(); r.destroy(); …"`: a real Tk init, not just `Tcl()` (the Windows audit lesson ACT67-AUD-006). It must also assert arm64 (`platform.machine()=='arm64'`) and version 3.12. On success, write the path and exit 0.
+   - **Watchdog.** macOS has no `timeout`, so stage 0 starts the probe in the background and polls it with a bash loop. Past N seconds it sends SIGTERM, waits 2 s, then sends SIGKILL, and always reaps it (`wait`). A probe that hangs (for example a Tk init with no window server, as in an SSH session) or ignores SIGTERM ends as exit 3 with a message naming the cause. It never blocks the launcher.
 2. Otherwise **explain and ask**: what is downloaded (about 25 MB, from GitHub/astral-sh), where it goes, and that no admin is needed. Nothing downloads without Yes. Exit codes match Windows: 0 = proven, 2 = declined, 3 = failed.
-3. Download into `files/temp/bootstrap/` with `curl --fail --location --proto =https`. Verify the **exact size and SHA-256** with `shasum -a 256` (built-in). On mismatch, delete the file and exit 3. Never fall back to an unverified source.
-4. Extract with `/usr/bin/tar` into a staging sibling. Verify `bin/python3.12` exists and is arm64 (`lipo -archs` or the probe). Move it into place with one `mv` (atomic same-volume rename). Prove it with the probe and delete the archive and staging folder.
+3. Download into `files/temp/bootstrap/` with `curl --fail --location --proto =https`. curl's own stall limits apply: `--connect-timeout`, `--speed-limit`/`--speed-time`, and an overall `--max-time` sized for 25 MB on a slow link. Verify the **exact size and SHA-256** with `shasum -a 256` (built-in). On mismatch, delete the file and exit 3. Never fall back to an unverified source.
+4. **Safe extraction.**
+   - **List before extracting** (`/usr/bin/tar -tvzf`). Any member that fails these rules is refused (exit 3) and nothing is extracted:
+     - no absolute path and no `..` component;
+     - nothing but regular files, directories and symlinks;
+     - every symlink target resolves inside the extraction root;
+     - no setuid/setgid bit;
+     - every member sits under the single expected top folder.
+   - **Extract** with `/usr/bin/tar -xzf … --no-same-owner` into a fresh staging sibling named `.act-stage-python-<pid>`. bsdtar refuses `..` and absolute paths unless `-P` is given, and stage 0 never passes `-P`; the listing check above is the authority regardless.
+   - **Verify** that `bin/python3.12` exists and is arm64 (`lipo -archs`), then move it into place with one `mv` (atomic same-volume rename). Prove it with the probe, then delete the archive and the staging folder.
 5. Hand off to `bootstrap.py`, which stays the authority for `.venv`, packages, FFmpeg, models and launch.
 
+**Interruption recovery.** Every intermediate artefact is named so stage 0 can recognise it as its own: the `.part` download, the `.act-stage-python-<pid>` staging folder and the archive. The final `files/runtime-data/python/` exists only after the single `mv`, so the state is always one of: absent, staging-only or complete.
+- **On the next run,** stage 0 removes stale artefacts of its own naming whose recorded pid is not alive, and only inside `files/temp/bootstrap/` or `files/runtime-data/`. It then starts again. A complete interpreter that fails the probe is set aside under its own name, never deleted silently, and the owner is asked.
+- **During this run,** a `trap` on `EXIT HUP INT TERM` kills the probe/curl child it started and removes only the partial artefacts it created. Closing the Terminal window delivers SIGHUP to the script and to its children in the same foreground process group (job control is off in scripts), so no download or probe outlives the window.
+
 Qualification-only switches mirror `-AssumeYes/-AssumeNo/-DownloadOnly/-ArchivePath`. They exist so the stage can be tested offline against a fixture archive, and the launcher passes none of them.
+
+**Clean-install evidence classes (P1A, P7; reported as written here).**
+
+| Class | How it is produced | What it proves | What it cannot prove |
+|---|---|---|---|
+| **SIMULATED (PATH-restricted)** | On this Mac, in a disposable clean LF worktree. The launcher, stage 0 and `bootstrap.py` run under `env -i` with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, a scratch `HOME` and a scratch `TMPDIR`. Recording **shims** named `brew`, `python3`, `python3.12` and `ffmpeg` sit first on PATH; each logs its call and exits non-zero | ACT never *calls* Homebrew or a PATH Python or FFmpeg (every shim log must be empty), and the whole flow works from the app-owned interpreter | That nothing *links to* or *loads* from `/opt/homebrew` or `/usr/local`; that the Xcode Command Line Tools are not needed |
+| **SIMULATED (linkage-verified)** | Added to the above. `otool -L` on every Mach-O in `files/runtime-data/python/`, `.venv/`, the engine environments and `files/bin/ffmpeg/`: every dependency must be under the app tree (`@rpath`/`@loader_path` resolving inside it) or a system path (`/usr/lib`, `/System/Library`). The images actually loaded by the running GUI and by each worker are listed (`vmmap --summary` or `lsof -p` on the live process) and must include nothing under `/opt/homebrew` or `/usr/local`. Every Mach-O is arm64 (`lipo -archs`), `codesign --verify` passes (ad-hoc is enough to run), `pip check` is clean and every install used `--require-hashes`. A before/after listing of `~/Library/Caches`, `~/.cache`, `~/Library/Application Support` and `/usr/local` shows no ACT writes outside the repository and `$TMPDIR` | No hidden linkage or load dependence on Homebrew, and no writes outside the repository | That a Mac which never had Homebrew, the CLT or python.org behaves the same: Gatekeeper on a quarantined download, missing CLT prompts (`xcode-select` stubs) and first-run privacy prompts |
+| **SIMULATED (separate account)** | Optional. A new standard macOS user on this Mac. Its default PATH has no `/opt/homebrew/bin`, but Homebrew and the CLT still exist on disk | The same as above, from a profile with no user shell customization | Same as above |
+| **REAL CLEAN** | An Apple Silicon Mac, physical or a virtual machine, that never had Homebrew, the Xcode CLT or a python.org install. The browser-downloaded **release archive** is extracted with Archive Utility (quarantined) → Gatekeeper "Open Anyway" → stage 0 → first run → all six tools open → `.venv` damage → repair → relaunch → interrupted install → recovery. Method per D18 | O1 | — |
+
+P1A exits on SIMULATED (PATH-restricted + linkage-verified) evidence, labelled as such. REAL CLEAN is mandatory before publication: it is the `fresh-macos` qualification on the exact release archive, P7c. A SIMULATED result is never reported as a clean-Mac result.
 
 ### 8.3 The `.command` launcher (redesign; owner decision D2)
 
@@ -325,7 +409,7 @@ These are replaced by a call to `bootstrap_host_macos.sh`, then `files/runtime-d
 - **Placement (unchanged from Windows):** `files/runtime-data/models/huggingface/` (HF_HOME, Kokoro and Chatterbox pinned snapshots), `files/runtime-data/qwen3/…`, `files/runtime-data/omnivoice/…` (models, receipts, jobs, prompts, set-aside), `files/runtime-data/python-packages/<platform>/`, `files/runtime-data/pip-cache/`, `files/runtime-data/logs/`, and `files/bin/` for an app-owned FFmpeg. Nothing goes to `~/.cache`, `~/Library` or `/usr/local`, with one exception: the per-user temp folder ACT already uses for work areas.
 - **Consent:** reuse the existing first-run review panel and Install & Continue. Every model or environment download names its bytes, licence and hardware terms **before** consent. Nothing auto-downloads at synthesis time; the offline audit hooks stay.
 - **Integrity:** model files are verified by the existing platform-neutral size + SHA-256 manifests, after download and again on repair. Wheels are installed only with `--require-hashes` from the macOS locks.
-- **Transactions:** reuse the staging-then-rename pattern. Interrupted downloads resume or restart in staging and never in place. A partially installed engine has no receipt, so it reads as NOT READY and is never deleted silently.
+- **Transactions:** reuse the staging-then-rename pattern. Interrupted downloads resume or restart in staging and never in place. A partially installed engine has no receipt, so it reads as NOT READY and is never deleted silently. Installer children (pip and its build backends, downloads, unpacking) are owned and contained under §11.2.2. A setup that is killed, crashes or loses its Terminal window therefore leaves no installer running and nothing writing into staging. The next launch finds staging without a receipt and repairs it.
 - **Repair:** the normal launch is the repair path (`.ai/BOOTSTRAP.md`). Corrupt model → hash mismatch → offer repair (consented re-download of the affected file). Failed repair → the previous state is kept, with a clear message.
 - **Disk-space planning (approximate; recorded, not promised):**
 
@@ -358,7 +442,13 @@ Disk checks before each consented download reuse `optional_setup_resource_budget
   - **Threads.** The PBS `20261009` fix makes Tcl 9 threaded for 3.12. P1B still runs the worker → `after()` stress test, because a lost callback would freeze progress.
   - **Native-only tests.** The aqua-only tests (39+) were written against Tk 8.6 metrics, so expect some geometry pins to need Tk 9 values. Update only the macOS expectations, with screenshots in the evidence. Never update the Windows ones.
 - **Shell.** Keep the existing `aqua` mode of `shared/ui_theme.py`: Finder-style shell, native aqua controls, unchanged since v0.5.0 (Decisions 2026-07-08). No redesign. Run the existing aqua-only tests natively: 39 skips on Windows (`native-macos-only` policy), concentrated in `test_m4b_layout.py`, `test_mp3_tool_layout.py` and `test_ui_theme.py`. Fix only the regressions they reveal.
-- **Cmd+Q (MAC-008).** Register `root.createcommand("::tk::mac::Quit", app._on_close)` and route it through the same close path as the red close button. That path saves `last_tool`, lets panels cancel their runs, finishes Tk objects on the main thread and runs `stop_media_children`. Also consider `::tk::mac::ShowPreferences` → Preferences & Data (the existing `<Command-comma>` accelerator).
+- **Cmd+Q (MAC-008).** Register `root.createcommand("::tk::mac::Quit", app._on_close)` and route it through the same close path as the red close button. That path:
+  - saves `last_tool`;
+  - lets panels cancel their runs;
+  - finishes Tk objects on the main thread;
+  - runs the orderly containment shutdown of §11.2.2: `stop_media_children`, ending the workers, then closing the lifeline.
+
+  SIGTERM, SIGHUP and SIGINT (Activity Monitor "Quit", logout, Ctrl+C in the Terminal) reach the same close path through a signal handler that schedules it with `after`. Containment after a crash or SIGKILL never depends on this path (§11.2.2). Also consider `::tk::mac::ShowPreferences` → Preferences & Data (the existing `<Command-comma>` accelerator).
 - **Main-thread rule (MAC-032).** AppKit requires UI calls on the main thread; a Tk call from a worker thread can crash the whole process on macOS. P1B does two things:
   - a **static audit** that every worker-to-UI path uses `after()`/queues;
   - a **runtime stress test**: many rapid progress events from worker threads while resizing the window.
@@ -378,7 +468,7 @@ Disk checks before each consented download reuse `optional_setup_resource_budget
 
   Files the app downloads itself are **not** quarantined (curl/urllib/pip set no quarantine flag), so stage 0, the wheels and the models need no prompts. Integrity is enforced by SHA-256, not Gatekeeper.
 
-  - **Recommended UX (D10):** the README gives step-by-step "Open Anyway" guidance, with a screenshot taken in P5. As an *optional, explained, opt-in* alternative, it shows a one-line Terminal command that removes quarantine from **the launcher file only** (`xattr -d com.apple.quarantine Setup_and_Run-audiobook-creation-tool.command`), stating plainly that it skips Apple's malware check for that file.
+  - **Recommended UX (D10):** the README gives step-by-step "Open Anyway" guidance, with a screenshot taken in the P6a packaging rehearsal. As an *optional, explained, opt-in* alternative, it shows a one-line Terminal command that removes quarantine from **the launcher file only** (`xattr -d com.apple.quarantine Setup_and_Run-audiobook-creation-tool.command`), stating plainly that it skips Apple's malware check for that file.
   - The app never removes quarantine silently or recursively, never touches third-party binaries this way, and never suggests disabling Gatekeeper (`spctl --master-disable`).
   - Signing and notarization of a wrapper app/pkg is a future owner decision (it needs a paid Developer ID).
 - **Executable bit (MAC-002).** `release.py` already writes the `.command` as 0755 into the ZIP. This ZIP-transferred working copy needs a one-time, owner-approved `chmod +x Setup_and_Run-audiobook-creation-tool.command` before a Finder double-click test. It is a mode-only change, invisible to git under `core.filemode=false`.
@@ -396,10 +486,31 @@ Disk checks before each consented download reuse `optional_setup_resource_budget
   - version 9.0.1 to match the Windows pin.
 - **Discovery order (unchanged model):** an app-owned pinned pair in `files/bin/ffmpeg/<version>/` first; an explicitly configured pair; then PATH/Homebrew (`/opt/homebrew/bin`). Each candidate must pass the execution proof **and**, on macOS, list `aac_at`.
 - **Source pin for a fresh Mac without Homebrew (D3).**
-  - **Recommended:** a *versioned* (never "latest") **Martin Riedl** macOS arm64 release ZIP for `ffmpeg` and `ffprobe` (ffmpeg.martin-riedl.de). Riedl publishes a `.sha256` per ZIP and signs the macOS builds. Prefer 9.0.1 to match Windows' Gyan 9.0.1 if it is still offered as a versioned release; otherwise 9.0.2, which the owner must accept.
-  - **Pin:** ACT pins its *own* recorded size + SHA-256 in `shared/ffmpeg_portable.py` (macOS block). Like the Gyan pin, the digest and not the URL is the authority.
-  - **Acquisition:** with consent, curl (no quarantine) into `files/temp/bootstrap/`, verify, extract to `files/bin/ffmpeg/<version>/bin/`, `codesign --verify`, then the `ffmpeg_health` execution proof.
-  - **Proof:** it also requires `aac_at` in `-decoders` and `libmp3lame` in `-encoders`. FFmpeg autodetects AudioToolbox on Darwin, but a static third-party build could disable autodetection, so this is **PLAUSIBLE until P1A checks it**. Without `aac_at` the build is rejected (xHE-AAC) and the next candidate is tried.
+  - **Recommended:** evaluate the **historical Martin Riedl macOS arm64 9.0.1 release build first**, the same FFmpeg version as Windows' Gyan 9.0.1 pin. It is still published in Riedl's release history:
+    - build path `/download/macos/arm64/1787073674_9.0.1/`, created 2026-08-18;
+    - separate `ffmpeg.zip` and `ffprobe.zip`, each with a `.sha256`;
+    - a published `codecs.txt` that lists the AAC decoder `aac_at` and the MP3 encoder `libmp3lame` (§7.3).
+
+    Only the timestamped build path is used, never the `redirect/latest` route. The current 9.0.2 build (`1789931890_9.0.2`) is evaluated **only if 9.0.1 fails** one of the proofs below, and adopting it is a separate owner acceptance (a version different from Windows).
+  - **Adoption proofs (P1A).** Each must pass on the actual downloaded bytes, in this order, before anything is pinned or used. A failure rejects the build.
+    1. **Consented download** of the exact ZIPs from the build path with curl (no quarantine) into `files/temp/bootstrap/`.
+    2. **Immutable identity:** ACT computes the size and SHA-256 of each ZIP from the bytes it received, and each must equal Riedl's published `.sha256`. Only then are those values written into the pin. *This plan records no digest:* none exists until P1A has the bytes, and none may be copied from a page or guessed.
+    3. **Safe extraction** (member checks as in §8.2) to a staging folder, then one rename to `files/bin/ffmpeg/9.0.1/bin/`.
+    4. **Architecture:** `lipo -archs` reports `arm64` only for both binaries.
+    5. **Signature:** `codesign --verify --strict --verbose=2` passes. `codesign -dv` records the signing authority and Team ID, and these go into the pin so that a later re-signed binary is noticed.
+    6. **Linkage:** `otool -L` names only system libraries and frameworks (`/usr/lib`, `/System/Library`, including AudioToolbox), with no `/opt/homebrew` or `/usr/local` path.
+    7. **Execution:** the `ffmpeg_health` proof passes. `-version` reports 9.0.1, `-decoders` lists `aac_at` and `-encoders` lists `libmp3lame`; a published codec list is not accepted in place of this.
+    8. **Real xHE-AAC proof.**
+       - An owner-supplied **real xHE-AAC (USAC) audiobook**, kept local and never committed, is decoded through `-c:a aac_at` to PCM.
+       - Its duration and sample count must agree with Apple's own decode of the same file (`afconvert`, built in) within one AAC frame.
+       - The PCM of the two decodes must match within a stated tolerance.
+       - The owner spot-listens.
+       - The existing Converter real-media journey then runs on that file with this build.
+
+       A file generated on the Mac may supplement this proof but never replaces it: whether `afconvert` can encode USAC on macOS 27 is PLAUSIBLE BUT UNVERIFIED. The existing tests note that no xHE-AAC file can be generated with the pinned FFmpeg.
+  - **Pin:** ACT pins its *own* recorded build path, sizes, SHA-256s and signing identity in `shared/ffmpeg_portable.py` (macOS block), recorded in Decisions with the proof evidence. As with the Gyan pin, the digest is the authority, not the URL. A changed byte at the same URL fails verification and is never adopted.
+  - **Acquisition at run time** (after adoption): with consent, steps 1–7 run on every acquisition and repair, against the pinned values.
+  - **Note.** FFmpeg autodetects AudioToolbox on Darwin, and the 9.0.1 listing shows `aac_at`. The binary's behaviour on macOS 27 is still **PLAUSIBLE until proofs 7 and 8 pass**. Without `aac_at` the build is rejected (xHE-AAC) and the next candidate is tried.
   - **Licensing:** these builds are GPL (x264/x265); Gyan "full" on Windows is GPL too. ACT does not bundle FFmpeg in its archive; it downloads it on consent, as on Windows.
   - **Alternatives:**
     - accept a proven Homebrew pair when present (today's behaviour; unpinned version);
@@ -411,15 +522,171 @@ Disk checks before each consented download reuse `optional_setup_resource_budget
 
 ### 11.2 Processes, cancellation and containment (macOS semantics)
 
+Summary table; the binding design is §11.2.1–§11.2.3.
+
 | Mechanism | Windows today | macOS design (proposed) |
 |---|---|---|
-| Child ownership | Job Object (kill-on-close), suspended start | `start_new_session=True` gives each worker its **own process group** (pgid = pid); already used by `qwen3_process.spawn`, pip and the GUI launch |
-| Cancel a worker | flag file → `TerminateJobObject` | flag file (unchanged) → bounded grace → `os.killpg(pgid, SIGTERM)` → bounded grace → `os.killpg(pgid, SIGKILL)` → `waitpid`. Never kill by name |
+| Child ownership | Job Object (kill-on-close), suspended start | Every ACT-owned child is in a process group its owner can signal, and is tied to its owner by a lifeline (§11.2.2):<br>• ACT-authored Python children get their **own process group** (`start_new_session=True`, pgid = pid), as `qwen3_process.spawn` and the pip runs already do;<br>• third-party executables join the owner's **ACT guardian** group atomically (`process_group=`) |
+| Cancel a worker (Qwen3, OmniVoice) | flag file → `TerminateJobObject` | flag file (unchanged) → the engine's existing grace (Qwen3 3 s, OmniVoice 2 s) → `os.killpg(pgid, SIGKILL)` (as `qwen3_process.kill_tree` does today) → `waitpid`, within the bound of §11.2.1. Never kill by name |
+| Cancel Kokoro / Chatterbox inference | In-process; checked between chunks; the chunk in flight finishes (unchanged on Windows, D17) | Inference runs in the **local-engine worker**, and Cancel ends its process group at once (§11.2.1, MAC-043) |
 | Cancel a single FFmpeg step | `run_supervised` terminate → kill via handle | Unchanged (works on POSIX) |
-| **Parent death (GUI crash, force quit, Cmd+Q bypass)** | Job Object kill-on-close | **New lifeline (MAC-009):** the parent passes a pipe read-end (`pass_fds`). A daemon thread in every worker (`qwen3_worker`, `omnivoice_worker`, the optional-setup worker) blocks on it; on EOF it calls `os.killpg(0, SIGKILL)` on its own group. A `kqueue` `EVFILT_PROC`/`NOTE_EXIT` watch on the parent pid is an acceptable alternative. macOS has no `PR_SET_PDEATHSIG` |
-| App-exit cleanup of media children | `stop_media_children` (Toolhelp snapshot, own children named ffmpeg/ffprobe) | POSIX twin: track every spawned media child's pid/pgid in a registry inside `subprocess_utils` and terminate those still alive at exit. No `ps` scan by name. Registered at `atexit` and in the Cmd+Q path |
+| **Parent death (GUI or setup crash, SIGKILL, Force Quit, a closed Terminal during setup)** | Job Object kill-on-close | Lifeline EOF ends every ACT-authored child; the ACT guardian ends third-party executables (§11.2.2, MAC-009/044). macOS has no `PR_SET_PDEATHSIG`, and `atexit` is never the mechanism: it does not run on SIGKILL or a crash |
+| App-exit cleanup of media children | `stop_media_children` (Toolhelp snapshot, own children named ffmpeg/ffprobe) | POSIX twin over the owned-child registry (pid + start-time identity), never a `ps` scan by name. It is part of the orderly close path (window close, Cmd+Q, SIGTERM/SIGHUP/SIGINT), with `atexit` only as the last orderly resort |
 | Cross-copy engine exclusion | `Global\` named mutex (CreateMutexW); off Windows `scope = "none"` (MAC-010) | `fcntl.flock` on a per-user lock file in `tempfile.gettempdir()/ACT-locks/<engine>.lock`, the same temp root ACT already uses. The kernel releases it on process death, so locks never go stale. Owner decision D13 (Windows itself documents "two copies can still run Qwen3 and OmniVoice together"; the new lock is a strict improvement) |
 | Pause | Between files | Unchanged (platform-neutral) |
+
+#### 11.2.1 Cancellation contract and preemptible inference (MAC-043, D17)
+
+**Reconciliation with the standing rule.** Decisions 2026-11-05 (v0.7.2 Phase 1) rules:
+- "Cancel means stop, at once, everywhere";
+- the publication boundary is the rename;
+- Pause is the only graceful boundary.
+
+The released code meets this rule for:
+- Edge (one look, 0.25 s);
+- FFmpeg (supervised);
+- assembly and publication;
+- the worker engines (flag → grace → tree kill).
+
+It does **not** meet it for Kokoro and Chatterbox in the GUI process:
+- `kokoro_file_to_mp3` and `chatterbox_file_to_mp3` read `cancel_check` only between chunks; Chatterbox also reads it between colon segments, and its docstring says a generation in flight "is allowed to finish".
+- A model call in flight cannot be stopped from Python. A thread cannot be killed, and an asynchronous exception is not delivered inside a native torch operation.
+
+On Windows with CUDA a chunk is short. On a Mac CPU, one Chatterbox chunk, or one Kokoro chunk of up to 3,000 characters, can take tens of seconds. The earlier wording "Cancel latency bounded by one chunk" is therefore **withdrawn as an acceptance criterion**: it contradicts the rule.
+
+Alternatives rejected:
+- **smaller chunks:** they change the chunk ceilings, which §13 item 6 holds immutable;
+- **more cooperative check points:** still unbounded inside a single operation;
+- **thread interruption:** impossible inside native code;
+- **MPS for speed:** a correctness risk (§6).
+
+**Contract.** Applies to every tool and engine on macOS, measured from the Cancel click.
+- **C1 Acknowledge ≤ 0.5 s.** The panel shows the cancelling state and the latch is set. After the latch, no new chunk, request, file, FFmpeg step or publication starts.
+- **C2 Stop ≤ T_stop.** Every active operation of the run has ended, every ACT-owned child of the run is reaped, and the run is CANCELLED. The bound **never scales** with chunk length, text length or device speed. Bounds (D17):
+
+  | Route | T_stop | Basis |
+  |---|---|---|
+  | Edge | ≤ 2.5 s | the existing bounded request end |
+  | Local-engine worker (Kokoro, Chatterbox) | ≤ 2 s | immediate SIGKILL |
+  | Qwen3 worker | ≤ 5 s | 3 s grace + kill + reap |
+  | OmniVoice worker | ≤ 4 s | 2 s grace + kill + reap |
+  | One FFmpeg step | ≤ 4 s worst case, typically < 0.2 s | terminate → 2 s → kill → 2 s |
+- **C3 Nothing unfinished is published.** These are the 2026-11-05 semantics, unchanged:
+  - no file appears under a final name;
+  - the run's staging is removed;
+  - already-published files are untouched;
+  - the stopped items stay NOT_ATTEMPTED and the run is CANCELLED.
+- **C4 Pause is unchanged.** `JobController.checkpoint` between source files: active files finish and nothing new starts. A paused local-engine worker stays loaded and idle. Cancel during Pause meets C1–C3.
+- **C5 Recovery.** The next run after a Cancel works: a killed worker is restarted and its cold load is logged.
+- **Windows is unchanged.** Kokoro and Chatterbox stay in-process with between-chunk Cancel, exactly as released (D17). The remaining Windows gap, a long chunk on a CPU-only Windows machine, is recorded as an open item for a later Windows release. This programme does not change it.
+
+**Local-engine worker (darwin; shared code, selected by platform).**
+- **New modules.** `tts/local_engine_worker.py` (child entry) and `tts/local_engine_host.py` (parent side). They follow the Qwen3/OmniVoice worker protocol (JSON-line events, a per-event timeout) and are spawned through the containment layer as class A (§11.2.2).
+- **What moves.** Only the model calls: model load (`kokoro_synth._local_model`, Chatterbox `from_local`) and per-chunk synthesis (the `KPipeline` call, `_synthesize_chunk`).
+- **What stays in the parent, with the same functions as today:**
+  - speech preparation (`pipeline.prepare`, once per file in the parent, §13 item 5);
+  - chunking and seeds;
+  - the Cancel checks;
+  - PCM assembly and the one encode;
+  - publication and all job reporting.
+- **Data path.**
+  - The parent sends one request per chunk: prepared text, voice, settings and seed.
+  - The worker returns float32 PCM through a run-private file in the TTS work area (an entry the parent owns and removes) or through a pipe.
+  - The parent checks sample rate, dtype, finiteness and length before using it.
+- **Lifecycle.**
+  - **Running:** one local-engine worker at a time. It starts on first use and stays warm across files and runs while the same engine is selected.
+  - **Ending:** on an engine switch, on app close, and on Cancel. Cancel sends SIGKILL to its group, because the worker owns no state worth saving.
+  - **Cost after a Cancel:** the next run cold-loads the model, measured in P2/P3A and reported in the log.
+  - **Side benefit:** models no longer stay resident in the GUI process, which removes R11.
+- **Failure.** A worker exit not caused by Cancel marks the file FAILED with the worker's reason (its stderr tail), and the existing retry policy is unchanged. Nothing hangs: there is a per-event timeout, as with Qwen3's `EVENT_TIMEOUT_S`.
+- **Parity proof.** On the CPU with fixed seeds, the worker path and the in-process path must produce identical PCM for Chatterbox and identical phoneme/token streams for Kokoro (Kokoro's decoder noise is unseeded, §12.B). Any difference is a stop.
+- **Selection.** `local_engine_isolation()` is true on darwin and false on Windows, which keeps the released path. A later owner decision with Windows qualification can change that (D17).
+
+#### 11.2.2 Process ownership and parent-death containment (MAC-009, MAC-044)
+
+**Owners.** A process that spawns children owns them: the GUI (`launcher.py`) and the setup process (`bootstrap.py`). The gate keeps its own harness containment (the POSIX branch of `helpers/winproc.py`). Each owner holds one owned-child registry (`shared/child_ownership.py`: new, POSIX-only, stdlib).
+
+**Child classes.**
+
+| Class | Members | Process group | Parent-death mechanism |
+|---|---|---|---|
+| A. ACT-authored Python | Qwen3 and OmniVoice workers; the local-engine worker; the optional-setup worker and supervisor; pip with its build backends, run through a small ACT pip entry that starts the lifeline and then runs pip with `runpy` (the existing `omnivoice_setup.OFFLINE_PIP` wrapper is the precedent); setup helper scripts | Its own (`start_new_session=True`) | The lifeline thread inside the child |
+| B. Third-party executables | `ffmpeg`, `ffprobe`, and any external tool an owner runs beyond a short probe (`codesign`/`otool`/`lipo`, and `tar`/`unzip` where bootstrap uses them) | Joins the owner's **ACT guardian** group atomically: `Popen(process_group=<guardian pgid>)` calls `setpgid` before `exec`, so no window exists in which the child is outside a contained group | The guardian ends its group on lifeline EOF |
+| C. Stage 0 children (bash, before Python exists) | the bounded probe and curl | The Terminal's foreground group | SIGHUP on window close, the `trap` and the watchdog (§8.2) |
+| D. Deliberately detached (fixed allow-list) | the GUI started by setup; the cleanup coordinator (`cleanup_state`, designed to outlive its window); `caffeinate -w <gui-pid>` (D11d; it ends with the GUI); `open` for Finder reveal; `osascript` in `close_terminal.py` | Their own session | None, by design. A test pins the allow-list to exactly these |
+
+**Lifeline.**
+- **Write end.** Each owner creates one `os.pipe()` at start. The write end never leaves the owner:
+  - it is non-inheritable (the PEP 446 default);
+  - it is never passed in `pass_fds`;
+  - owners never `fork` without `exec`: the `multiprocessing` start method stays `spawn`, the macOS default, and a test asserts it.
+
+  So no other process can hold the write end.
+- **Read end.** It goes to each class-A child and to the guardian through `pass_fds`, with its number in `ACT_LIFELINE_FD`.
+- **In the child.** The **first statements** of each class-A entry point start a daemon thread that blocks on `os.read(fd, 1)`. This happens before importing torch, transformers or pip, which can take seconds. On EOF or a read error the thread calls `os.killpg(os.getpgrp(), signal.SIGKILL)`.
+- **Why it works without the owner.** The kernel closes a dead process's descriptors whatever ended it: SIGKILL, SIGSEGV/SIGABRT, Force Quit or a closed Terminal. EOF therefore arrives with no code running in the owner.
+- **Alternative.** Inside the guardian, a kqueue `EVFILT_PROC`/`NOTE_EXIT` watch on the owner's pid would also work. The pipe is preferred because it cannot be confused by pid reuse.
+
+**ACT guardian** (`shared/child_guardian.py`: stdlib only, a few dozen lines).
+- **Start.** Each owner starts one at startup with `process_group=0`. That gives the guardian a new group in the owner's session, which class-B children must share for `setpgid` to succeed. Owners never call `setsid` after starting it.
+- **On lifeline EOF.** The guardian holds the read end. On EOF it ignores SIGTERM for itself, sends `killpg(own group, SIGTERM)`, waits at most 1 s, then sends `killpg(own group, SIGKILL)`, which ends the guardian last.
+- **Per-step Cancel** of a class-B child is unchanged: `run_supervised` signals that child by handle, and FFmpeg does not fork.
+- **If the guardian dies** (for example, killed by hand), the owner reaps it, logs it and starts a new one for later spawns. Class-B children still running in the old group are then covered only by the orderly path until they end (residual R18).
+
+**Orderly shutdown.** Triggers: window close, Cmd+Q, SIGTERM/SIGHUP/SIGINT routed to the close path, and `atexit` as the last orderly resort. The steps, bounded to at most 5 s in all:
+1. Cancel running jobs.
+2. Run the POSIX `stop_media_children` over the registry.
+3. End class-A workers: SIGTERM → at most 1 s → SIGKILL → reap.
+4. Close the lifeline write end, which also retires the guardian.
+5. Reap the guardian.
+
+Containment after a crash never depends on this path.
+
+**Safe termination rules.**
+- **Never kill by name, by a `ps` scan or by a pid alone.** Every registry entry records the pid, the pgid and the start time (`sysctl kern.proc.pid` → `kp_proc.p_starttime`, the same reader as D11b). A signal goes only to a process whose start time still matches.
+- **Signal a group only while its ID cannot have been recycled.** A class-A group is signalled only while its leader is an unreaped child of the owner. The guardian signals only its own group, which cannot be recycled while the guardian lives.
+- **Bounded and quiet.** Every wait is bounded, `ESRCH` counts as success, and nothing raises during shutdown.
+- **Leftovers.** Staging left by a killed child is recovered by the existing owner-identity rules (`work_area` recovery, receipts, §9), never by guessing.
+
+**Windows is unchanged:** Job Objects (kill-on-close), the Toolhelp `stop_media_children` and the existing spawn helpers. The new modules are POSIX-only behind `sys.platform != "win32"`, and Windows tests prove no new path is taken.
+
+#### 11.2.3 Bounded cancellation and containment acceptance tests
+
+Rules for every test:
+- automated tests synchronize on barriers and recorded events; a sleep is never an assertion;
+- times come from `time.monotonic()`;
+- every spawned process is recorded with its start time, and its identity is checked before it is declared gone.
+
+| ID | Scenario | Pass |
+|---|---|---|
+| CX-1 | Cancel while a **local-engine** chunk is mid-inference, after its "chunk started" event. Real runs: a Chatterbox CPU chunk of at least 300 characters and a 3,000-character Kokoro chunk | C1 within 0.5 s; worker group gone and run CANCELLED within 2 s; nothing published; staging removed |
+| CX-2 | A stub class-A worker that ignores the Cancel flag and SIGTERM while blocked in a native call, under each worker route | Ends within its route's T_stop through SIGKILL |
+| CX-3 | Cancel mid-chunk for the Qwen3 and the OmniVoice worker | Within 5 s and 4 s; the process group is empty (`killpg(pgid, 0)` → ESRCH) |
+| CX-4 | Cancel during Edge requests (2 and 8 files) and during finalization | Within 2.5 s; no request after the latch (the existing `test_cancel_semantics` invariants, run on the Mac) |
+| CX-5 | Cancel during an FFmpeg step in each of the five non-TTS tools and during the TTS encode | Within 4 s; child reaped; nothing published |
+| CX-6 | Pause, then Cancel while paused; Pause during a chunk | The file in progress finishes and the next does not start; Cancel meets C1–C3 |
+| CX-7 | Cancel, then a new run with the same engine | The run succeeds; the worker is restarted and its cold load logged |
+| CX-8 | Cancel inside the publication window (between staging and the rename), in both orders | The existing commit-ordering rule: nothing is published, or the whole file is published and reported |
+| KX-1 | `kill -9` of the GUI during (a) local-engine inference, (b) Qwen3 inference, (c) OmniVoice inference, (d) an FFmpeg step, (e) an optional-setup pip install | Every ACT-owned descendant gone within 3 s; no file under a final name; the next launch recovers staging |
+| KX-2 | `kill -SEGV` and `kill -ABRT` of the GUI (a simulated crash) during (a) and (d) | As KX-1 |
+| KX-3 | SIGTERM (Activity Monitor "Quit") and Cmd+Q during (a) and (d) | Orderly path completes within 5 s; otherwise as KX-1 |
+| KX-4 | `kill -9` of `bootstrap.py` during a pip install and during a model or FFmpeg download; closing the Terminal window during first-run setup (owner-manual) | pip tree and downloads gone within 3 s; the next launch repairs |
+| KX-5 | Stage 0: SIGHUP (window close) during curl and during the probe; a probe that hangs; a probe that ignores SIGTERM | Children gone; the watchdog exits 3; partial artefacts removed by the trap or by the next run |
+| KX-6 | The guardian killed by hand, then `kill -9` of the GUI while an FFmpeg step started after the restart is running | The new step is contained; the old group's residual is recorded |
+| KX-7 | **Negative control:** KX-1(d) with the lifeline disabled by a test-only switch | The orphan **is** detected, proving the test can fail |
+| KX-8 | **Identity control:** a registry entry whose pid now belongs to an unrelated process with a different start time | That process is untouched |
+| KX-9 | **Spawn-site guard** (AST, like the existing `assemble` guard) | Every spawn goes through the ownership helper or is on the class-D allow-list |
+| KX-10 | **Owner-manual:** Force Quit (Activity Monitor, or ⌥⌘⎋) during a Chatterbox chapter and during an M4B Maker build, then run the provided read-only check script | No ACT process remains; owner-signed |
+
+**Placement by phase.**
+
+| Phase | Tests |
+|---|---|
+| P1A | KX-4, KX-5 |
+| P1B | CX-5, CX-8, KX-1(d, e), KX-2(d), KX-3(d), KX-6 to KX-10 |
+| P2 (Kokoro) and P3A (Chatterbox) | CX-1, CX-2, CX-4 (P2 only), CX-6, CX-7, CX-8, KX-1(a), KX-2(a), KX-3(a) |
+| P3B | CX-2, CX-3, CX-8, KX-1(b) |
+| P4B | CX-2, CX-3, CX-8, KX-1(c) |
 
 ### 11.3 Filesystem semantics
 
@@ -457,6 +724,9 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
   - optional `PYTORCH_MPS_LOW_WATERMARK_RATIO`/`HIGH_WATERMARK_RATIO` set *before* torch import, only if measurement shows growth;
   - MPS work on one thread.
 - **Speed and hardware wording comes from measurements.** The NVIDIA/Windows sentences stay for Windows. New macOS sentences say what was measured on which Mac.
+- **Local-engine worker (§11.2.1).** Built once in P2 with Kokoro and reused unchanged by Chatterbox in P3A. Each engine adapter supplies only "load the model" and "synthesize one prepared chunk to PCM".
+- **Containment (§11.2.2).** Every engine worker gets the lifeline as its first statements: the local-engine worker in P2, Qwen3 in P3B, OmniVoice in P4B.
+- **Qualification verdicts (§15).** Each engine phase reports four separate verdicts: **F** functionality, **S** speech correctness, **Q** listening/WER quality and **P** speed/memory. P is judged against that engine's provisional budget D6-x, which the owner sets at the engine checkpoint, not at P5.
 - Retry messages that blame Windows Application Control (`kokoro_synth.py:93,194-225`; `chatterbox_synth.py:6,1107`) become platform-neutral on darwin. The Windows wording is unchanged.
 
 ### 12.A Edge TTS (P2)
@@ -470,20 +740,28 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
   - E-A1: `edge-tts --list-voices` contains all five voice IDs.
   - E-A2: one sentence per voice through ACT's own path.
   - E-A3: ACT runs with 2 and then 8 files at once, counting 403 and `NoAudioReceived` errors and retries.
-  - E-A4: Cancel during synthesis and during finalization takes effect within ~2 s, with nothing published; Pause then Cancel.
+  - E-A4: Cancel during synthesis and during finalization meets C1–C3 (CX-4: stopped within 2.5 s, nothing published); Pause, then Cancel (CX-6).
+- **Provisional budget D6-E (owner, at P2 entry):** no speed budget, because Edge is network-bound. Reliability budget: in the 2- and 8-file runs every file completes within ACT's existing retry policy.
 - **Expected limitation:** service-side throttling, voice removals and token changes are upstream risks. An outage is recorded as BLOCKED, not as a Mac defect.
 
 ### 12.B Kokoro-82M (P2; owner's preferred engine)
 
 - **Needed:**
-  - nothing in the synthesis path; the device stays `cuda` else `cpu` (`kokoro_synth._local_model`), i.e. CPU on the Mac;
-  - verify the eSpeak NG short-root logic (`shared/espeak_data.py`) on macOS, including an app folder deep enough to push the data path past 160 characters (MAC-035), and the spaCy pinned-wheel route (`require_spacy_english`).
+  - the device stays `cuda` else `cpu` (`kokoro_synth._local_model`), i.e. CPU on the Mac;
+  - on darwin, the model load and the per-chunk pipeline call run in the **local-engine worker** (§11.2.1, MAC-043). It is built in this phase, with its lifeline (§11.2.2). The parent-side flow of `kokoro_file_to_mp3` (speech preparation, chunking, Cancel checks, assembly, one encode, publication) is unchanged;
+  - verify the eSpeak NG short-root logic (`shared/espeak_data.py`) on macOS, inside the worker, including an app folder deep enough to push the data path past 160 characters (MAC-035), and the spaCy pinned-wheel route (`require_spacy_english`).
 - **Optional (owner):** make the CPU choice explicit on darwin for readability. Kokoro MPS is **not offered**: the gain is small and the crash/allocator-growth risks are reported.
 - **Experiments:**
   - **E-B1 (imports):** in one process, import torch 2.6.0, sklearn, numba, spacy, kokoro and `misaki.en`; load `en_core_web_sm`; exercise the espeak fallback on 20 out-of-dictionary words. The watch item is a duplicate OpenMP runtime abort (torch and sklearn/numba each bringing `libomp`).
   - **E-B2 (pronunciation, the accuracy proof):** run `KPipeline(model=False)` (G2P only) over `quality_corpus` texts A–C on the Mac and on Windows (HOME-PC). **The phoneme strings must be identical.** This is the strongest "same pronunciation" oracle available, because Kokoro's decoder adds unseeded noise and audio is never byte-identical even on one machine.
-  - **E-B3 (CPU synthesis):** all nine voices through `synthesize_text_to_mp3`, plus one ≥30-minute chapter. Record RTF and peak memory (`/usr/bin/time -l`). Pass if RTF ≤ 0.25 (owner may adjust at D6), memory is flat, there are no errors, and the listening/WER spot check is clean.
-  - **E-B4:** Cancel latency (bounded by one 3,000-character chunk; record seconds), Pause at the boundary.
+  - **E-B3 (CPU synthesis):** all nine voices through `synthesize_text_to_mp3` (worker path), plus one ≥30-minute chapter. Record RTF and the worker's peak footprint (`/usr/bin/time -l`). The four verdicts are separate:
+    - **F:** no errors;
+    - **S:** the §15 correctness screen;
+    - **Q:** the listening/WER spot check;
+    - **P:** against the provisional budget **D6-K**, set by the owner at P2 entry.
+
+    Proposed starting values for D6-K: RTF ≤ 0.25, peak footprint ≤ 6 GB, growth < 10% after warm-up.
+  - **E-B4 (Cancel):** CX-1 with a 3,000-character chunk in flight: stopped within 2 s, *not* "after the chunk". Also CX-2, CX-6, CX-7, the worker/in-process parity proof (§11.2.1), and Pause at the boundary.
 - **If torch 2.6.0 fails on macOS 27** (E-B1/P1A): stop. The options are an owner decision, because torch is shared with Chatterbox, whose 0.1.7 metadata pins `torch==2.6.0` exactly:
   - (i) a darwin-only torch pin with Chatterbox gated off on macOS;
   - (ii) a newer torch on both platforms with Windows re-qualification;
@@ -494,6 +772,7 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
 - **Needed:**
   - `chatterbox_synth.select_device()` (L1088–1103): on darwin return **`cpu`** unless the owner has explicitly opted into MPS (a setting or env var, recorded per run). Windows order `cuda → mps → cpu` is unchanged.
   - Add the device to the conditionals cache key.
+  - On darwin, `from_local` and `_synthesize_chunk` run in the **local-engine worker** built in P2 (§11.2.1). Only a Chatterbox adapter is added; the parent-side flow of `chatterbox_file_to_mp3` is unchanged. The worker's cold load (~3 GB) after a Cancel is measured and logged.
 - **MPS opt-in only (if the owner wants it after E-C2):**
   - env vars set before torch import;
   - `empty_cache` between chunks;
@@ -504,8 +783,13 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
   - **E-C0:** install (lock), `pip check`, every `.so` arm64, `chatterbox.tts_turbo` imports, Perth watermarker imports (`pkg_resources` via setuptools 80.9.0).
   - **E-C1 (CPU):** `from_local(…, "cpu")`, each of the six references, three seeded chunks (30/150/300 characters). Record RTF, peak footprint, finite samples and watermark detection.
   - **E-C2 (MPS, informational):** the same, without the fallback; log `driver_allocated_memory` per chunk; count zero-probability picks over ≥200 chunks; compare with CPU by WER and listening.
-  - **E-C3 (soak):** one chapter (~50 chunks) on the chosen device. Pass: footprint < 16 GB, no swap growth, per-chunk time drift < 20%.
+  - **E-C3 (soak):** one chapter (~50 chunks) on the chosen device. The P verdict uses the provisional budget **D6-C**, set by the owner at P3A entry. Proposed starting values: worker footprint < 8 GB (hard ceiling 16 GB), no swap growth, per-chunk time drift < 20%, CPU RTF ≤ 1.0.
   - **E-C4:** a conditionals cache made on one device is never reused on another (identity key).
+  - **E-C5 (Cancel):**
+    - CX-1 with a ≥300-character chunk mid-inference: stopped within 2 s;
+    - CX-2, CX-6 and CX-7, the last including the measured cold reload;
+    - KX-1(a), KX-2(a) and KX-3(a) during a chapter;
+    - the worker/in-process parity proof on CPU with fixed seeds.
 
 ### 12.D Qwen3-TTS: CustomVoice and Voice Clone (P3B)
 
@@ -524,7 +808,8 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
   - `qwen3_worker.choose_device`: `auto` on darwin resolves to **`cpu`**; `mps` only as an explicit, recorded choice;
   - each job states its dtype, **float32** on the Mac by default (Windows keeps bf16);
   - `_device_state`/sync gain MPS branches;
-  - the out-of-memory match already covers "MPS backend out of memory".
+  - the out-of-memory match already covers "MPS backend out of memory";
+  - the lifeline thread (§11.2.2) is the first statement of the worker entry, before any heavy import (POSIX only; the Windows Job Object path is unchanged).
 - **Needed (runtime):**
   - `platform_supported()`/`platform_reason()`/`hardware_summary()` accept darwin **arm64** only after E-D1–E-D5 pass (refuse x86_64);
   - Mac speed text from measurements;
@@ -536,8 +821,14 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
   - **E-D2:** load both models under CPU fp32, CPU bf16, MPS bf16 and MPS fp32. Record load time and peak RSS / driver memory; check that the speaker list contains `aiden` and `ryan`.
   - **E-D3:** CustomVoice A/B on 20 fixed chunks including short headings, fixed seeds, both voices, each configuration. Record RTF, runaway re-renders, non-finite failures and WER; listen. Pass: zero failures and WER no worse than CPU fp32.
   - **E-D4:** the six clones: create clone prompts from the unchanged references and transcripts; 5 chunks each on the chosen configuration; WER and identity listening.
-  - **E-D5:** long form ≥ 1 hour: RSS per chunk (fail at > 10% growth after warm-up), Tk responsiveness, Cancel and kill of the worker group, lifeline on GUI kill.
-- **Stop rule:** if CPU fp32 fails E-D3 or E-D4, the Qwen3 macOS gate stays closed (D7).
+  - **E-D5:** long form ≥ 1 hour.
+    - RSS per chunk: fail at > 10% growth after warm-up.
+    - Tk responsiveness.
+    - Cancel mid-chunk (CX-3, within 5 s) and the stubborn-worker case (CX-2).
+    - Lifeline on GUI kill (KX-1(b)).
+    - The worker's lifeline thread starts before `import torch`.
+  - **Provisional budget D6-Q (owner, at P3B entry, after E-D2 load figures):** proposed starting values are CPU fp32 RTF ≤ 3.0 (reports show about 2.6 on a base M4) and peak footprint ≤ 14 GB (11.3 GB reported). A P verdict outside budget does not close the engine; it requires an owner decision (offer with an honest speed note, or gate).
+- **Stop rule:** if CPU fp32 fails E-D3 or E-D4 (F, S or Q), the Qwen3 macOS gate stays closed and the phase **STOPS** for a separate, explicit owner decision **D7-Q** (§20.3). Approval of this roadmap does not authorize shipping without Qwen3.
 
 ### 12.E OmniVoice 0.2.1 (P4A experiment, then P4B integration)
 
@@ -567,7 +858,7 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
    - envelope variation within ~2× CPU's;
    - no `NotImplementedError`, OOM or network attempt;
    - < 10% memory growth over 50 calls after warm-up;
-   - RTF within the owner's budget (D6).
+   - RTF and peak memory reported against the provisional budget **D6-O**, set by the owner at P4A entry. Proposed starting values: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, footprint ≤ 10 GB. A configuration that is correct but outside the budget is reported as such, for the owner to decide; it does not fail correctness.
 
    **Fail** on any NaN, any garbled sentence or any op error. Seeds will not reproduce Windows CUDA audio; record whether same-device repeats are bit-identical.
 9. **Optional:** move the tokenizer to MPS (`model.audio_tokenizer.to("mps")`). Codes must be identical and decode differences < 1e-4 (#279 reports ~6× faster).
@@ -596,10 +887,11 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
   - `omnivoice_manifest.json` darwin wheel list;
   - `optional_setup.py` L475–482, L547, L638–650 (texts, GPU facts: Apple GPU vs NVIDIA);
   - `optional_setup_health.py` L111;
-  - `MachineGuard` POSIX lock.
+  - `MachineGuard` POSIX lock;
+  - the lifeline thread (§11.2.2) at the very top of the `omnivoice_worker` entry, before `import torch` (POSIX only).
 - **Already neutral:** the `fcntl` lock (L131–157), the network guard, the CPU prompt load, `_is_oom`, the long-path checks (they return early off Windows) and the POSIX `site_packages` branch.
 
-**If no configuration passes:** the six OmniVoice voices stay visible but unavailable on macOS, with the measured reason (D7). Nothing is substituted. An MLX port would be a separate, owner-decided project, because its weights differ.
+**If no configuration passes:** the phase **STOPS** for a separate, explicit owner decision **D7-O** (§20.3), recorded with the measured evidence. Approval of this roadmap does not authorize it. If the owner then chooses to ship without OmniVoice, the six voices stay visible but unavailable on macOS, with the measured reason. Nothing is substituted. An MLX port would be a separate, owner-decided project, because its weights differ.
 
 ---
 
@@ -661,23 +953,39 @@ These hold for every phase. Any test or change that would alter them is a stop c
 | Windows-mechanism tests | Junctions, Job Objects, Win32 handles, named mutex, `pythonw`, Windows process identity, `.cmd` stand-ins (48 files carry platform skip markers) | Skipped on darwin by a **reviewed `darwin` skip policy** with exact reason patterns and maximum counts | Every macOS run | **No.** Reported as `NOT APPLICABLE ON MACOS (n)`, never folded into PASS |
 | macOS counterparts of Windows mechanisms | Process-group kill, lifeline, `flock` engine lock, `renamex_np`/`link` publication, `pathconf` case probe, darwin memory reader, symlink-based tests where Windows uses junctions | New tests beside the Windows ones | P1A/P1B | Yes |
 | Native arm64 dependency checks | Lock completeness; `pip check`; every `.so`/`.dylib` in each env is arm64 (`lipo -archs`); `import` proofs (bootstrap `prove_required_imports`); no x86_64 artefact | New focused tests + bootstrap proofs | P1A (app), P3B (Qwen3), P4B (OmniVoice) | Yes |
-| Stage 0 and launcher | Every state in §8.2, against fixture archives (size/hash mismatch, declined consent, interrupted download, truncated archive, Tk proof failure, healthy fast path, repair exit 3, translocated location) | `files/tests/test_bootstrap_host_macos.py` (bash run under bounded subprocess) | P1A | Yes |
+| Stage 0 and launcher | Every state in §8.2, against fixture archives:<br>• size/hash mismatch, declined consent, interrupted download, truncated archive;<br>• unsafe members: absolute, `..`, link outside the root, setuid, device file;<br>• a stale staging folder from a dead pid;<br>• watchdog: a hung probe and a SIGTERM-ignoring probe;<br>• Tk proof failure, healthy fast path, repair exit 3, translocated location;<br>• SIGHUP during curl and during the probe (KX-5) | `files/tests/test_bootstrap_host_macos.py` (bash run under a bounded subprocess) | P1A | Yes |
+| Clean-install evidence | SIMULATED (PATH-restricted with recording shims; linkage-verified) and REAL CLEAN, exactly as defined in §8.2 | Disposable clean worktree (simulated); a clean Mac or VM (real, D18) | P1A (simulated), P7c (real, mandatory) | Yes, under the class stated; SIMULATED never stands in for REAL CLEAN |
 | GUI (automated, in-process) | Widget construction for all six tools; `event_generate` for Cmd+Q, Select-All; worker→UI thread stress; Tk version and windowing system | Tk tests on the Mac display | P1B | Yes |
-| GUI (owner manual) | Light/Dark, Retina, min/max geometry, dialogs, Finder reveal, focus at launch, Dock/menu name, Terminal auto-close, Gatekeeper double-click | Checklist in Handoff | P1B, P5 | Yes (owner-signed) |
-| Subprocess/cancellation | Cancel during long generation (every engine), Cancel during encode, Pause at file boundary, `kill -9` of GUI → workers gone ≤ N s (lifeline), Cmd+Q during a job, two app copies + engine lock | Focused tests + bounded real runs | P1B (FFmpeg), P2–P4 (engines) | Yes |
+| Acceptance journeys (55 required + 1 optional) | Each Windows journey's *behaviour* on macOS, through the darwin acceptance map (§14.3): native automated counterpart, owner-manual check, or a reviewed not-applicable reason | In-process journey driver (`adapters/macos/`, no Accessibility/Screen Recording grant) + real media + owner checklist | P1B (map + five tools), P2–P4 (TTS journeys), P5 (complete) | Yes; manual items owner-signed and bound to the candidate SHA |
+| GUI (owner manual) | Light/Dark, Retina, min/max geometry, dialogs, Finder reveal, focus at launch, Dock/menu name, Terminal auto-close, Gatekeeper double-click | Checklist in Handoff | P1B, P5; Gatekeeper on the quarantined archive at P6a (rehearsal) and P7c (exact archive) | Yes (owner-signed) |
+| Subprocess/cancellation | The bounded Cancel contract C1–C5: CX-1…CX-8 (§11.2.3) for every engine route and every FFmpeg tool, mid-inference included; two app copies + engine lock | Focused tests + bounded real runs | P1B (FFmpeg), P2–P4 (engines) | Yes |
+| Containment (negative) | GUI and setup `kill -9`, simulated crash (SEGV/ABRT), SIGTERM, Cmd+Q, closed Terminal, guardian loss, negative and identity controls, spawn-site guard, owner Force Quit: KX-1…KX-10 (§11.2.3) | Focused tests + disposable app copies; owner-manual KX-4 (Terminal close) and KX-10 | P1A (setup), P1B (GUI/FFmpeg), P2–P4 (workers) | Yes |
 | Fault injection | Disk full (small `hdiutil` image), corrupted model file (flip a byte in a *copy* under scratch), failed repair (network off), interrupted publication (kill between stage and link), exFAT target, read-only target, NFD names | Repo-contained scratch under `files/dev-work/` | P1B, P2–P4, P5 | Yes |
 | Engine real synthesis | Opt-in, offline, bounded: each engine's voices on short multi-chunk texts | Guarded tests keyed by env vars (precedent `ACT_OMNIVOICE_P1_REAL=1`), each with its own exact skip rule | P2–P4 | Yes, only when actually run |
-| Install/repair/recovery | Fresh first run, healthy relaunch (no work), `.venv` damage → repair, engine carry-across, interrupted engine install, Windows-origin `runtime-data` | Disposable worktree copies under `files/dev-work/` | P1A, P3B, P4B, P5 | Yes |
-| MP3/M4B/metadata/image functional | Real media from `files/test-files/` via existing env-var fixtures; xHE-AAC via `aac_at`; chapter/series atoms; HEIC | Existing real-media acceptance tests run on the Mac | P1B, P5 | Yes |
-| Packaging/extraction | `release.py` MacOS archive into scratch → audit (members, 0755 launcher, LF, no env/models) → extract with Archive Utility *and* `ditto`, quarantined copy → first run | P5 dry run; P7 real | P5, P7 | Yes |
+| Install/repair/recovery | Fresh first run, healthy relaunch (no work), `.venv` damage → repair, engine carry-across, interrupted engine install (pip killed → no orphan; staging recovered), Windows-origin `runtime-data` | Disposable worktree copies under `files/dev-work/` | P1A, P3B, P4B, P5 | Yes |
+| `fresh-macos` qualification (**mandatory**) | Extracted archive → stage 0 → first run → all six tools open → `.venv` damage → repair → relaunch → interrupted install → recovery. Automation is optional (D9b); an owner-manual run against the written procedure, with signed evidence, satisfies it | Rehearsal on the P6a dry-run archive; **REAL CLEAN** on the exact release archive | P6a (rehearsal), P7c (binding) | Yes; reported as its own qualification verdict, never folded into the gate PASS |
+| MP3/M4B/metadata/image functional | Real media from `files/test-files/` via existing env-var fixtures; xHE-AAC via `aac_at` (the owner's real file, §11.1); chapter/series atoms; HEIC | Existing real-media acceptance tests run on the Mac | P1B, P5 | Yes |
+| Packaging/extraction | `release.py` MacOS archive into scratch → audit (members, 0755 launcher, LF, no env/models) → extract with Archive Utility *and* `ditto`, quarantined copy → first run | P6a rehearsal from the finalized release source; P7c exact archives from the final SHA | P6a, P7c | Yes |
 | Owner listening | §15 packs per engine | Owner | P2–P5 | Owner-signed |
-| Independent Codex review | Changed-area review of the frozen candidate | Codex CLI, read-only | P6 | Review evidence, not a test PASS |
-| Canonical full gate | `verify.py --mode full --platform macos` once, on the frozen clean-LF candidate | Native macOS | P6 | The one macOS gate PASS |
-| Windows regression | Focused Windows checks on HOME-PC for every shared file touched; Windows full gate on the same final SHA (D8) | HOME-PC | P5 (focused), P6 (full, if D8) | Windows evidence only |
+| Independent Codex review | Changed-area review of the frozen release candidate, version identity and packaging included | Codex CLI, read-only | P6b | Review evidence, not a test PASS |
+| Canonical full gate | `verify.py --mode full --platform macos` once, on the clean-LF checkout of the **final executable SHA** | Native macOS | P7a | The one macOS gate PASS |
+| Windows regression | Focused Windows checks on HOME-PC for every shared file touched; the canonical Windows full gate on the **same** final SHA (D8) | HOME-PC | P5 (focused), P7b (full) | Windows evidence only |
 
 ### 14.2 Reporting rules (no false passes)
 
-Every result is one of: `PASS`, `FAIL`, `BLOCKED` (could not run: prerequisite missing), `NOT APPLICABLE ON MACOS` (Windows mechanism; listed with count and reason id), `UNSUPPORTED` (engine gated off with an owner decision), or `NOT RUN`. A macOS gate verdict states its non-applicable count explicitly.
+Every result is one of:
+- `PASS`;
+- `FAIL`;
+- `BLOCKED`: could not run because a prerequisite is missing;
+- `NOT APPLICABLE ON MACOS`: a Windows mechanism with no macOS behaviour to prove, listed with its count and reason id;
+- `UNSUPPORTED`: an engine gated off by its recorded per-engine owner decision (D7-x);
+- `NOT RUN`.
+
+A macOS gate verdict states its non-applicable count explicitly. Two qualifiers are always printed beside a result and are never dropped in summaries:
+- **evidence class:** `SIMULATED` or `REAL CLEAN` (§8.2);
+- **source:** `AUTOMATED` or `OWNER-MANUAL (signed, <evidence id>, <sha>)`.
+
+An engine verdict is reported as four separate entries, **F**, **S**, **Q** and **P** (§15). A combined "PASS" without them is not a valid engine verdict.
 
 **`coverage.json` work (P1B).** Each behaviour id currently satisfied only by Windows-only tests gets one of two things:
 - a macOS counterpart test; or
@@ -691,8 +999,24 @@ The coverage-inventory check then fails on any behaviour with neither.
 
 - `verification.json`: add `skip_policy.darwin`, derived from the *actual* collected darwin skip reasons. Each gets an id, an exact pattern, a maximum count and a "why". A darwin run with an unknown skip reason **fails**; it is no longer "NOT APPLICABLE, not judged".
 - `verify.py` preflight on darwin: replace the Windows error-mode/Job checks with POSIX equivalents. Prove that a child is in the gate's own process group and is reaped on stop, and that no dialog can block (no Tk window outside tests). Windows logic is unchanged.
-- `acceptance`: there is no macOS native-input adapter in this programme (D9). macOS GUI journeys are owner-manual plus in-process Tk tests. `acceptance.required_scenarios` stays Windows-scoped, and a darwin full gate records the acceptance stage as `NOT APPLICABLE ON MACOS: owner-manual checklist P1B/P5`. It must be visibly separate, not PASS.
-- `qualification`: `fresh_windows`, `m4b-scaling` (Windows build hashes) and `edge-low-memory` are Windows scenarios. A darwin qualification scenario `fresh-macos` (packaged archive → extracted → stage 0 → first run → repair → launch) is added in P5 only if the owner wants it automated (D9b).
+- **`acceptance` (MAC-045).** Only the Windows *input adapter* is inapplicable: native mouse and keyboard injection through `adapters/windows/`, with no macOS adapter in this programme (D9). The journeys' *behaviour* is not inapplicable, and the acceptance category is **not** exempted.
+  - **The map.** `verification.json` gains `acceptance.darwin_map`. It gives each of the 55 `required_scenarios` and the optional `tts.kokoro-local` exactly one of:
+    - **(a) a native automated counterpart:** test ids run by an in-process macOS journey driver (`adapters/macos/`). The driver drives the real panels through Tk (`invoke`, `event_generate`, the widgets' own variables) with real media and real FFmpeg. It needs no Accessibility or Screen Recording grant;
+    - **(b) an owner-manual check:** a documented procedure (steps, machine, expected result) in the macOS acceptance checklist, whose signed evidence record names the candidate SHA. Used for what Tk cannot reach in-process: native NSOpenPanel dialogs, Finder reveal, Dock and menu-bar, Gatekeeper, Force Quit;
+    - **(c) `NOT APPLICABLE ON MACOS`:** allowed only for a scenario that tests the Windows input harness itself, with a reason id reviewed by the owner.
+  - **Expected classes, confirmed per scenario in P1B.** These follow the 55 required scenarios as they stand today (12 `control`, 13 `shutdown`, 3 `setup`, 27 tool/launcher/inventory journeys):
+    - **`shutdown.*` (13):** (a). Close-during-work and forced landing are exactly the macOS containment and Cancel behaviour (§11.2), backed by KX-1 to KX-3.
+    - **`setup.*` (3):** (a) plus the mandatory `fresh-macos` qualification.
+    - **Tool, launcher and inventory journeys (27):** (a) with (b) for their native-dialog steps.
+    - **`control.*` (12):** split per scenario.
+      - Harness self-tests of Windows input mechanics are (c): real click, lost foreground, covered target, partly hidden window, other desktop, dead input path.
+      - Behaviour controls get (a): second run refused by the lease, crash seen with the root released, orphan seen without the stop, forced landing sees the crash, disabled target refused, unmapped live control caught.
+  - **How a darwin full gate reports it.** An `acceptance` stage with three counts: automated counterparts PASS/FAIL, owner-manual items *verified present* (an evidence record exists for this SHA and is signed), and not-applicable items with reason ids. The stage **FAILS** on any unmapped scenario, any failed automated counterpart, or any manual item without signed evidence for this SHA. It is never recorded as a blanket `NOT APPLICABLE`.
+  - **Windows is untouched:** `required_scenarios`, the Windows adapters and the `win32` path do not change.
+- **`qualification`.** `fresh_windows`, `m4b-scaling` (Windows build hashes) and `edge-low-memory` are Windows scenarios.
+  - **`fresh-macos` is mandatory.** Path: packaged archive → extracted (quarantined) → stage 0 → first run → all six tools → `.venv` damage → repair → relaunch → interrupted install → recovery. It is added to the darwin qualification set in P1B.
+  - **Automation is optional (D9b).** Without a runner, the scenario is satisfied by an owner-manual run of the written procedure with signed evidence. Either way the verdict carries its evidence class: P6a rehearsal, SIMULATED or REAL CLEAN; P7c, **REAL CLEAN** required.
+  - **Truthful reporting.** A missing run reports `NOT RUN` and blocks publication. It is never skipped silently.
 
 ---
 
@@ -734,21 +1058,47 @@ Speech tuning is **never** changed to improve speed.
   - Mac against the owner-approved Windows tracks for OmniVoice (the 12 approved v0.8.0 tracks, by listening only).
   - Engines against each other on texts A–C for the owner's priorities.
 - **Harness:** a small dev-only script under `files/dev-tools/` (tracked: code only). Outputs, logs and audio go to ignored `files/dev-work/macos-bench/<date>/`. There is no prolonged benchmarking during implementation phases: P2–P4 run A plus a short multi-chunk text per voice; P5 runs C and D once.
-- **Acceptance budgets** are owner-set at P5 entry (D6). The plan records numbers and does not invent pass thresholds for speed. Correctness thresholds are fixed:
-  - zero non-finite outputs;
-  - zero truncated or garbled sentences in the owner's listening;
-  - MPS or other faster configurations have WER no worse than CPU fp32 + 1 pt absolute on texts A+B;
-  - no unbounded memory growth.
+- **Four separate qualification dimensions per engine × configuration.** Each has its own verdict, recorded at the engine's own checkpoint (P2, P3A, P3B, P4A/P4B). None is inferred from another.
+
+  | Dim. | Question | Evidence | Threshold | Who judges |
+  |---|---|---|---|---|
+  | **F: functionality** | Does it work as a product? | Install from the lock, offline load, every voice through the production path, Cancel contract C1–C5 (§11.2.1), containment (§11.2.3), Pause, publication, recovery, the offline audit | Fixed: all PASS | Automated |
+  | **S: speech correctness** | Are the words spoken the words prepared, with nothing broken? | Per output: all samples finite; duration within the voice's measured characters-per-second band; no runaway re-render and no internal silence > 2 s; an ASR screen showing every sentence present (WER ≤ 15% absolute as a *screen*, not as quality); Kokoro phoneme identity with Windows (E-B2) | Fixed: zero non-finite outputs, zero truncated or garbled sentences; flagged items confirmed by the owner | Automated + owner confirmation |
+  | **Q: listening/WER quality** | Is it as good as the reference? | Owner listening on the §15 priorities (calm, stable, consistent pronunciation, low emotional fluctuation); WER against the reference configuration; cross-chunk consistency; blind A/B where specified | Fixed: WER no worse than CPU fp32 + 1 pt absolute on texts A+B for any faster configuration; owner approval | Owner-signed |
+  | **P: speed/memory qualification** | Is it fast and lean enough to offer? | RTF, load time, peak footprint, memory slope, swap, thermals | **Provisional budget D6-x**, set by the owner at that engine's checkpoint; growth < 10% after warm-up is fixed | Measured against the owner's budget |
+
+  An engine is **PROVEN on this Mac** only when F, S and Q all pass for its whole voice roster. P is reported as "within budget" or "outside budget".
+  - **Outside budget** does not unprove a correct engine. It requires an owner decision: offer the engine with an honest speed note, or gate it.
+  - **F, S or Q failing** is a failed feasibility gate and triggers the per-engine stop and decision **D7-x** (§20.3).
+- **Provisional budgets at each engine checkpoint (D6).** Budgets are not deferred to P5. The owner sets each engine's provisional speed/memory budget at its own checkpoint, from the first measured figures and the proposed starting values in §12:
+
+  | Budget | Engine | Set at |
+  |---|---|---|
+  | D6-E | Edge | P2 entry |
+  | D6-K | Kokoro | P2 entry |
+  | D6-C | Chatterbox | P3A entry |
+  | D6-Q | Qwen3 | P3B entry, after the E-D2 load figures |
+  | D6-O | OmniVoice | P4A entry |
+
+  The phase's P verdict is judged against that budget. P5 then confirms or adjusts each budget as **D6-final**, using the long-form runs (texts C and D). Any adjustment is recorded with its reason; a budget is never moved silently to turn a FAIL into a PASS. Speech tuning is never changed to meet a budget.
 
 ---
 
-## 16. Independent Codex review and remediation gate (P6a)
+## 16. Independent Codex review and remediation gate (P6b–P6d)
 
-- **When:** after P5 is accepted (all implementation, focused acceptance and listening done), on a frozen candidate SHA pushed to the feature branch. Codex is an **independent verifier**: it implements nothing and does not run the full gate.
+- **When:** after P5 is accepted (all implementation, focused acceptance and listening done) **and** after P6a has finalized the release source. Finalizing means:
+  - version identity per D16;
+  - `RELEASE_OS_NAMES` including MacOS;
+  - the MacOS platform declarations;
+  - packaging support;
+  - README, Changelog and release-note text.
+
+  The review runs on a frozen release-candidate SHA pushed to the feature branch. Codex is an **independent verifier**: it implements nothing and does not run the full gate. Because the version identity and the packaging rules are already in the reviewed tree, nothing release-relevant can change after the review without the re-verification rule of §17.
 - **Scope (changed-area):** `git diff 9554bc8..<candidate>`, with priority on:
-  - the stage-0 download, hash and unpack path (supply-chain trust);
+  - the stage-0 download, hash and unpack path (supply-chain trust, safe extraction, interruption recovery);
   - the POSIX port of the Qwen3 installer authority (path pinning, symlink and race resistance);
-  - process containment, lifeline and cancel semantics;
+  - process containment, lifeline, guardian and the class-D allow-list; the Cancel contract and the local-engine worker;
+  - version identity, platform declarations and `release.py` MacOS packaging (members, modes, LF);
   - publication no-clobber and recovery;
   - platform gates (no fake-enable; Windows paths unchanged);
   - lock files (one artefact per pin, hashes, no CUDA wheel);
@@ -757,22 +1107,23 @@ Speech tuning is **never** changed to improve speed.
   - docs truthfulness.
 - **Inputs:** this plan, the Handoff, the diff and the focused evidence. Codex runs read-only checks and may run focused tests in a scratch worktree.
 - **Output:** findings `MACR-nnn` (severity, file:line, reproduction).
-- **Remediation:** Claude fixes each finding with a positive and a negative control and its focused tests. Then a **focused Codex closure check** of the fixes only, not a second full review. Findings the owner rejects are recorded in Decisions with reasons.
-- **Exit:** every finding fixed and closure-confirmed, or owner-waived in writing. Then owner acceptance of the remediated candidate, before the full gate.
+- **Remediation (P6c):** Claude fixes each finding with a positive and a negative control and its focused tests. Then a **focused Codex closure check** of the fixes only, not a second full review. Findings the owner rejects are recorded in Decisions with reasons.
+- **Exit (P6d):** every finding fixed and closure-confirmed, or owner-waived in writing. Then owner acceptance of the remediated candidate, which **freezes the final executable SHA** (recorded in Handoff before any gate runs). Both canonical gates and the archives use exactly this SHA.
 
-## 17. Native full-gate execution and failure policy (P6b)
+## 17. Native full-gate execution and failure policy (P7a, P7b)
 
 - **Preconditions:**
   - Codex remediation closed;
-  - owner acceptance recorded;
-  - a clean LF worktree at the candidate SHA (§3);
+  - owner acceptance recorded, and the final executable SHA frozen (P6d);
+  - the release source already final: version identity, MacOS declarations and packaging support are in that SHA;
+  - a clean LF worktree at that SHA (§3);
   - the app `.venv` built from the macOS lock;
   - the engines that are claimed are installed and offline-ready;
   - no other heavy process running;
   - mains power;
-  - the candidate SHA recorded in Handoff **before** the run.
-- **Command (exactly once):** `.venv/bin/python -u files/dev-work/verification-gate/verify.py --mode full --platform macos --label macos-final-<sha8>`, run from the clean worktree. Outputs go to the gate's ignored `outputs/`. Durable evidence: run id, counts, skips by darwin-policy id, `NOT APPLICABLE` totals, BLOCKED items, the tree fingerprint and the environment identity.
-- **During phases P1–P5:**
+  - the final executable SHA recorded in Handoff **before** the run.
+- **Command (P7a, exactly once):** `.venv/bin/python -u files/dev-work/verification-gate/verify.py --mode full --platform macos --label macos-final-<sha8>`, run from the clean worktree. Outputs go to the gate's ignored `outputs/`. Durable evidence: run id, counts, skips by darwin-policy id, `NOT APPLICABLE` totals, BLOCKED items, the tree fingerprint and the environment identity.
+- **During phases P1–P6** (no full gate before P7a):
   - Permitted: only `--mode focused --test <ids>` for the touched modules.
   - Forbidden: `--mode changed`. Its `full_on` rule escalates any `scripts/shared/` change to a full run.
   - Forbidden: `--mode full`, unfiltered `pytest` and repository-wide runs.
@@ -780,7 +1131,16 @@ Speech tuning is **never** changed to improve speed.
   - A FAIL or incomplete run is **BLOCKED**, not PASS. Stop: diagnose with narrow tests; fix only what is necessary, with focused checks.
   - **Ask the owner before any rerun.** Any program or test change after the run invalidates it, and a new full run is needed for the changed tree.
   - Never re-run unchanged failures, never split the gate into giant partial suites to dodge it, and never describe a stale or failed run as PASS.
-- **Windows (D8, recommended):** the same frozen SHA gets the canonical Windows full gate on HOME-PC (`.venv\Scripts\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows`), by the owner or a Windows-session agent, under the same failure policy. Without it, the release notes must state the Windows evidence actually obtained.
+- **Windows (P7b, D8, required).** The **same** final executable SHA gets the canonical Windows full gate on HOME-PC (`.venv\Scripts\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows`), run from a clean checkout of that SHA by the owner or a Windows-session agent, under the same failure policy. The two gates may run in either order but never on different SHAs. A release built without a Windows gate on that SHA needs a recorded owner exception, and the release notes must then state the Windows evidence actually obtained.
+- **Changes after the freeze (P6d onward) need justified re-verification.** Each change is classified in writing (Handoff and Decisions) before it is committed.
+
+  | Change | Required re-verification |
+  |---|---|
+  | **Documents outside the release tree:** Handoff/Decisions evidence records, committed *after* the final SHA and not part of the tag | None. The tag and the archives stay on the gated SHA, and `git diff --name-only <final>..HEAD` must list only those documents |
+  | **Anything inside the tagged tree:** program code, tests, gate code, configuration, launchers, version identity, or any document that `release.py` packages (README, licence texts) | A new candidate SHA; a focused Codex closure check of the delta; **both** canonical full gates again on the new SHA; the P7c archives rebuilt from it |
+  | **Narrower re-verification** | Only by an explicit owner exception recorded in Decisions, naming the delta, why it cannot affect the gated behaviour, and the evidence run instead (the v0.8.0 precedent) |
+
+  The P7c archives are built after both gates PASS, from that SHA, **with no source change**. A defect found while building or auditing them is a change under this table, never a quiet fix.
 
 ---
 
@@ -793,25 +1153,47 @@ Speech tuning is **never** changed to improve speed.
 - The owner's 17 tracked deletions and untracked files are never staged; stage only explicit paths.
 - No AI trailer unless the owner's attribution rule says otherwise.
 
-**Integration:** at P7 only, on approval, a fast-forward of `master` if ancestry permits. If `master` has diverged, stop for a new decision.
+**Integration:** at P7d only, each step on its own approval:
+1. a fast-forward of `master` **to the final executable SHA**, if ancestry permits; if `master` has diverged, stop for a new decision;
+2. the annotated tag on that same SHA;
+3. publication of the archives built from it in P7c.
+
+The Handoff closeout that records the gate and archive evidence is a documents-only commit *after* the tagged SHA (§17 change rules).
 
 **Provenance facts:** `v0.8.0` = `d1701e9` and ships only `AudiobookTool-Windows-v0.8.0.zip`. Every macOS change happens after that commit. A macOS archive built from the macOS branch therefore **cannot** honestly be called "v0.8.0", because its source is not `d1701e9`.
 
 | Option | What | Advantages | Disadvantages / Git implications |
 |---|---|---|---|
-| **A. v0.8.1 patch release with Windows + macOS assets from one commit (recommended)** | Identity 0.8.1 (`config.toml`, `version.py`). One tag `v0.8.1` on the merged commit. Both ZIPs built from it | One version = one source = two platforms. Shared fixes (process lifeline, publication, Cmd+Q, fonts, lock tooling) reach Windows. Clean "latest". `release.py` already builds both | Windows must be re-verified on that commit (D8). Windows users see a new version whose changes are mostly macOS. The patch number is arguable: adding a platform is a feature (see D) |
+| **A. v0.8.1 patch release with Windows + macOS assets from one commit (recommended)** | Identity 0.8.1 (`config.toml`, `version.py`), set in P6a before review and the gates. One tag `v0.8.1` on the final executable SHA that both gates passed. Both ZIPs built from it | One version = one source = two platforms. Shared fixes (process lifeline, publication, Cmd+Q, fonts, lock tooling) reach Windows. Clean "latest". `release.py` already builds both | Windows must be re-verified on that commit (D8). Windows users see a new version whose changes are mostly macOS. The patch number is arguable: adding a platform is a feature (see D) |
 | B. Add a macOS asset to the existing v0.8.0 release | — | — | **Rejected.** It misattributes source: the tag points at `d1701e9`, and the Mac build is not from it |
 | C. macOS-only revision (e.g. tag `v0.8.0-macos.1`, release "v0.8.0 for macOS (source r1)") | macOS ZIP from the Mac commit; Windows stays v0.8.0 | No Windows re-release; the Windows evidence is untouched | Two lines of versions; "latest" ambiguity; `version.py` must not say plain `0.8.0` for different source (needs e.g. `0.8.0+macos.1`, which tests and release tooling must accept); shared fixes do not reach Windows |
 | D. v0.9.0 (minor) with both assets | As A, minor bump | SemVer-honest for "new platform + new setup stage" | Same verification cost as A |
 
-**Recommendation:** A (or D if the owner prefers minor-version semantics). The decision is separate and recorded before P7.
+**Recommendation:** A (or D if the owner prefers minor-version semantics). The decision (D16) is separate and is recorded at **P5 exit, before P6a**, because the version identity is release-relevant source and must be in the reviewed and gated tree.
+
+**Release order (all options):**
+1. **P6a, release source final:**
+   - version identity per D16;
+   - `RELEASE_OS_NAMES` including MacOS;
+   - the MacOS platform declarations: README platform and engine tables, Briefing and Changelog entries, the feature map, and the final `platform_supported()` state of each engine per its recorded decision;
+   - packaging support and the in-tree release text;
+   - a packaging rehearsal and the `fresh-macos` rehearsal on the rehearsal archive.
+2. **P6b–P6d:** Codex review → remediation → closure → owner acceptance, which freezes the final executable SHA.
+3. **P7a/P7b:** the canonical macOS and Windows full gates, both on that SHA.
+4. **P7c:** the exact archives built from clean LF checkouts of that SHA by the unchanged packager, with no source change; audited; then the binding REAL CLEAN `fresh-macos` qualification on the exact macOS archive.
+5. **P7d:** merge, tag and publish, each separately approved.
 
 **In all options:**
-- Annotated tags only.
-- Release notes state exactly which platforms and engines were qualified, on what hardware, and what is still open.
-- The macOS asset is built from the clean LF worktree at the tagged SHA by the unchanged packager.
-- The archive is audited (members, modes, LF, no env, models or secrets) and its SHA-256 recorded.
-- An anonymous re-download is verified.
+- Annotated tags only, on the gated SHA.
+- Release notes state exactly which platforms and engines were qualified, on what hardware, with each engine's F/S/Q/P verdicts and its D7 decision if any, and what is still open. The GitHub release text outside the tree is written at P7d. In-tree text (README, Changelog) is final in P6a.
+- Each archive is audited:
+  - members equal the packager's expected set from `git ls-tree` at the SHA;
+  - modes are correct (0755 launcher);
+  - text is LF;
+  - no environment, model, secret or private path is included.
+
+  Its SHA-256 is recorded.
+- An anonymous re-download is verified (hash = the audited file).
 - Nothing in this programme is published without that separate approval.
 
 ---
@@ -822,10 +1204,17 @@ Speech tuning is **never** changed to improve speed.
 - A **fresh** Claude Code context per phase. Read this plan, `AI-WORKSPACE.md`, the Handoff, and the previous phase's checkpoint and actual Git state.
 - Do not re-audit earlier phases unless a concrete mismatch appears.
 - Complete only the named phase. Use focused tests only (§17).
-- Commit and push scoped changes to the feature branch.
+- Commit and push scoped changes to the feature branch, under the §3.1 Git rules.
 - Update Handoff (and Decisions for non-obvious choices).
-- **STOP** with a report: verdict PASS/BLOCKED, SHA, files, tests run with counts, real-hardware evidence, open items, and the next phase.
-- Never roll into the next phase.
+- **STOP** with a report:
+  - verdict PASS/BLOCKED;
+  - SHA and files;
+  - tests run, with counts;
+  - real-hardware evidence, with its evidence class and source (§14.2);
+  - for an engine phase, the F/S/Q/P verdicts per engine and configuration;
+  - open items and owner decisions due;
+  - the next phase.
+- Never roll into the next phase. A failed engine feasibility gate is a STOP for that engine's D7 decision, not a phase PASS.
 
 **Windows protection (every phase):**
 - Each change is platform-guarded or proven platform-neutral.
@@ -833,205 +1222,343 @@ Speech tuning is **never** changed to improve speed.
 - Run on the Mac the platform-neutral tests that exercise Windows branches through injectable `platform=` parameters.
 - HOME-PC focused verification of the accumulated touchpoints happens in P5.
 
-### P0 — Native research, architecture and roadmap (this session) — DONE when this plan is committed and pushed
-- **Entry:** owner prompt.
+### P0 — Native research, architecture and roadmap — DONE (`389f56e`); Revision 1 (documents only) after the owner's engineering review
+- **Entry:** owner prompt; for Revision 1, the owner's nine engineering corrections.
 - **Delivered:**
   - this plan;
   - the feature branch;
   - the Handoff checkpoint;
-  - the ignored private inventory and wheel matrix.
-- **Not done:** any code change, environment, install, download, model or gate.
+  - the ignored private inventory and wheel matrix;
+  - Revision 1, amended in place.
+- **Not done:** any code change, environment, install, download (the FFmpeg evidence comes from published pages only), model or gate.
 
-### P1A — Native bootstrap and environment foundation
+### P1A — Native bootstrap, environment foundation and installer containment
 - **Entry:**
-  - the owner approves this plan;
-  - decisions D1–D5 are recorded;
-  - `chmod +x` of the `.command` is approved;
-  - the clean-LF worktree decision is made;
-  - network access to python-build-standalone, PyPI and the FFmpeg source is approved for lock generation and first-run tests.
+  - The owner approves this plan **as revised** (Revision 1).
+  - Decisions D1–D5 are recorded, with D3 as revised in §11.1:
+    - evaluate Riedl 9.0.1 first;
+    - consent to download its `ffmpeg.zip`, `ffprobe.zip` and their `.sha256` files;
+    - 9.0.2 only if 9.0.1 fails a proof and the owner accepts it.
+  - The owner supplies **one real xHE-AAC file** locally for D3 proof 8. It is never committed. If none is available, P1A may still run, but it can only exit BLOCKED on exit item 3 until the file is supplied.
+  - D4:
+    - the disk-only `chmod +x` of the `.command` is approved;
+    - the §3.1 Git rules are acknowledged;
+    - the clean-LF worktree decision is made.
+  - D5: network access to python-build-standalone, PyPI and ffmpeg.martin-riedl.de is approved for lock generation and first-run tests.
+  - The universal start checklist (§21) passes: expected SHA, branch and the owner's untouched working-tree state.
 - **Scope:**
-  - `Setup_and_Run-audiobook-creation-tool.command`;
-  - new `scripts/shared/bootstrap_host_macos.sh`;
-  - `scripts/shared/bootstrap.py` (macOS branches: `APP_PYTHON` per platform, `install_python`, `find_suitable_python`, Homebrew removal from the default path, macOS FFmpeg acquisition);
-  - `scripts/shared/base_packages.py` (platform-keyed lock);
-  - new `scripts/requirements-lock-macos-arm64-py312.txt`;
-  - `files/dev-tools/lock_base_requirements.py` (platform parameter);
-  - `scripts/shared/ffmpeg_portable.py`/`ffmpeg_health.py` (macOS source pin, `aac_at` requirement);
-  - `scripts/shared/cleanup_state.py` (no Apple-python candidate, MAC-028);
-  - `venv_layout`/`venv_integrity`/`maintenance` case probe (MAC-015);
-  - platform-tagged receipts and stores (MAC-029);
-  - tests.
+  - **Launcher and stage 0:**
+    - `Setup_and_Run-audiobook-creation-tool.command`;
+    - new `scripts/shared/bootstrap_host_macos.sh` (§8.2: watchdog, safe extraction, interruption recovery, `trap`), committed as `100755` and LF (§3.1).
+  - **`scripts/shared/bootstrap.py` macOS branches:**
+    - `APP_PYTHON` per platform;
+    - `install_python` and `find_suitable_python`;
+    - Homebrew removed from the default path;
+    - macOS FFmpeg acquisition;
+    - `request_setup_stop` on POSIX through the containment layer.
+  - **Containment, setup side:** new `scripts/shared/child_ownership.py` (registry, start-time reader, lifeline, safe termination) and `scripts/shared/child_guardian.py`, both POSIX-only (§11.2.2). They are applied to the setup process's children: pip through the ACT pip entry, downloads, unpacking.
+  - **Packages and locks:**
+    - `scripts/shared/base_packages.py` (platform-keyed lock);
+    - new `scripts/requirements-lock-macos-arm64-py312.txt`;
+    - `files/dev-tools/lock_base_requirements.py` (platform parameter).
+  - **FFmpeg:** `scripts/shared/ffmpeg_portable.py` and `ffmpeg_health.py`. The Riedl 9.0.1 pin is recorded only after the eight proofs of §11.1, with `aac_at` and `libmp3lame` required.
+  - **Other platform fixes:**
+    - `scripts/shared/cleanup_state.py` (no Apple-python candidate, MAC-028);
+    - the case probe in `venv_layout`/`venv_integrity`/`maintenance` (MAC-015);
+    - platform-tagged receipts and stores (MAC-029).
+  - Tests.
 - **Tests:**
-  - stage-0 fixture states (§14);
-  - lock parse/applies/completeness;
-  - every installed native file is arm64;
-  - `pip check`;
-  - bootstrap import proofs;
-  - Windows `lock_applies` unchanged (injected `platform="win32"`);
-  - a real first run in a disposable clean worktree under `files/dev-work/`: stage 0 → base env → FFmpeg → GUI launches → all six tools open;
-  - `.venv` damage → repair;
-  - Windows-origin `runtime-data` ignored.
-- **Owner manual:** Finder double-click of the `.command` in the disposable copy (no Gatekeeper yet; that is P5).
-- **Exit (PASS):**
-  - the fresh setup reaches a running app with no Homebrew dependence and no admin prompt;
-  - hashes are enforced;
-  - focused tests pass;
-  - Windows touchpoints are listed;
-  - committed and pushed.
+  - **Stage 0:** the fixture states of §14.1, including unsafe archive members, stale staging, both watchdog cases and KX-5.
+  - **Locks:** parse, applies and completeness. Windows `lock_applies` is unchanged (injected `platform="win32"`).
+  - **Containment, setup side:** KX-4 (automated part); KX-7 and KX-8 for the setup owner; KX-9 over `bootstrap.py`; Windows paths unchanged.
+  - **FFmpeg:** D3 proofs 1–8 (§11.1).
+  - **Clean install, SIMULATED (PATH-restricted)** (§8.2), in a disposable clean LF worktree: stage 0 → base env → FFmpeg → the GUI launches → all six tools open. Every shim log must be empty.
+  - **Clean install, SIMULATED (linkage-verified)** (§8.2):
+    - every Mach-O is arm64;
+    - `otool -L` and the loaded images show nothing from Homebrew or `/usr/local`;
+    - `codesign --verify` passes;
+    - `pip check` is clean and every install used `--require-hashes`;
+    - nothing was written outside the repository and `$TMPDIR`.
+  - **Interruption recovery:** kill during the download, the extraction, the venv build and pip. The next launch repairs, and no orphan remains.
+  - **Repair:** `.venv` damage → repair; engine carry-across on APFS (§8.4).
+  - **Foreign state:** Windows-origin `runtime-data` is ignored.
+  - **torch:** the 2.6.0 import proof in the app environment (the E-B1 imports, without synthesis).
+  - **Git:** new executables are `100755` and LF in the index (§3.1).
+- **Owner manual:**
+  - a Finder double-click of the `.command` in the disposable copy (no Gatekeeper yet: that is P6a/P7c);
+  - KX-4: close the Terminal window during first-run pip, then confirm no installer remains.
+- **Not claimed by P1A:**
+  - REAL CLEAN evidence (P7c, D18);
+  - the Gatekeeper first run of a quarantined archive (P6a rehearsal, P7c);
+  - GUI and FFmpeg containment (P1B);
+  - any engine synthesis (P2 onward).
+- **Exit (PASS): all of the following.**
+  1. The SIMULATED first run reaches a running app with no Homebrew call, link or load and no admin prompt, and is reported as **SIMULATED**.
+  2. Hashes are enforced for every install, and the macOS lock is complete.
+  3. FFmpeg is settled one of two ways:
+     - Riedl 9.0.1 is adopted after all eight proofs, with its real size, SHA-256s and signing identity recorded; or
+     - D3 goes back to the owner with the failing proof, and the phase exits **BLOCKED**. An unproven build is never pinned.
+  4. Installer-containment and interruption-recovery tests PASS, with no orphan.
+  5. Focused tests PASS, with counts recorded, and the Windows touchpoints are listed.
+  6. New executables are `100755` and LF in the index. The staged diff holds only intended files, with no mode or CRLF churn (§3.1).
+  7. Committed and pushed.
 - **Stop conditions:**
   - the PBS Tk proof fails on macOS 27 (escalate D1);
   - any pin lacks a macOS artefact at resolution time (owner decision);
-  - torch 2.6.0 fails to import on macOS 27 (owner decision; affects the shared pins).
+  - torch 2.6.0 fails to import on macOS 27 (owner decision; it affects the shared pins);
+  - both Riedl candidates fail a D3 proof (owner decision). A Homebrew-only or unproven FFmpeg is never the pin for a clean Mac;
+  - obtaining any evidence would require a system change (Homebrew, shell profiles, PATH, Gatekeeper).
 
-### P1B — macOS GUI shell, platform safety layer and the five non-TTS tools
+### P1B — macOS GUI shell, platform safety layer, GUI containment and the five non-TTS tools
 - **Entry:** P1A PASS.
 - **Scope:**
-  - `launcher.py` (Cmd+Q, `ShowPreferences`, `RLIMIT_NOFILE`);
-  - `shared/subprocess_utils.py` (POSIX media-child registry and `stop_media_children`; lifeline helper);
-  - `tts/worker_limits.py` (darwin memory reader, neutral wording);
-  - `tts/publication.py` (`renamex_np` no-clobber);
-  - optionally `shared/work_area.py` (D11b);
-  - fonts and shortcuts (MAC-020, 037);
-  - the Tk 9 port (trackpad `<TouchpadScroll>`, wheel deltas; MAC-040) and the PBS launch cosmetics (MAC-042), all guarded by the running Tk version;
-  - the main-thread audit (MAC-032);
-  - fixes for aqua regressions the native tests reveal;
-  - gate: `verification.json` darwin skip policy, `verify.py` darwin preflight, `coverage.json` macOS counterparts / not-applicable entries (MAC-027).
-- **Tools accepted:** MP3 Tool, M4B Converter (incl. xHE-AAC via `aac_at`; continuous route refused and fallback correct), M4B Maker, M4B Metadata Editor, Cover/Image Tool (incl. HEIC).
+  - **`launcher.py`:**
+    - Cmd+Q and `ShowPreferences`;
+    - `RLIMIT_NOFILE`;
+    - SIGTERM/SIGHUP/SIGINT routed to the close path;
+    - the GUI as a containment owner with its own guardian (§11.2.2).
+  - **`shared/subprocess_utils.py`:** FFmpeg and ffprobe spawned as class B into the guardian group; the POSIX `stop_media_children`, checked by identity over the registry.
+  - **Optional setup:** the worker and supervisor run as class A with the lifeline.
+  - **Platform fixes:**
+    - `tts/worker_limits.py` (darwin memory reader, neutral wording);
+    - `tts/publication.py` (`renamex_np` no-clobber);
+    - optionally `shared/work_area.py` (D11b; it reuses the P1A start-time reader);
+    - fonts and shortcuts (MAC-020, 037).
+  - **GUI:**
+    - the Tk 9 port (trackpad `<TouchpadScroll>`, wheel deltas; MAC-040) and the PBS launch cosmetics (MAC-042), all guarded by the running Tk version;
+    - the main-thread audit (MAC-032);
+    - fixes for aqua regressions the native tests reveal.
+  - **Gate:**
+    - the `verification.json` darwin skip policy;
+    - the `verify.py` darwin preflight;
+    - `coverage.json` macOS counterparts or not-applicable entries (MAC-027);
+    - **`acceptance.darwin_map`** with every scenario mapped, and the in-process journey driver `adapters/macos/` (§14.3, MAC-045);
+    - the `fresh-macos` qualification procedure, and its optional runner (D9b).
+- **Tools accepted:** MP3 Tool, M4B Converter (incl. xHE-AAC via `aac_at` on the owner's file; continuous route refused and fallback correct), M4B Maker, M4B Metadata Editor, Cover/Image Tool (incl. HEIC).
 - **Tests:**
   - focused module suites on the Mac, including the 39+ aqua tests;
   - real-media acceptance with the existing env-var fixtures;
-  - Cancel and Pause with real FFmpeg;
-  - Cmd+Q during a job;
-  - `kill -9` of the GUI during an FFmpeg step (child gone);
+  - Cancel and containment: CX-5, CX-8, KX-1(d, e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8, KX-9;
   - disk-full image;
   - exFAT image;
   - NFD names;
   - two app copies;
-  - Edge-like 8-way open-file stress under 256.
-- **Owner manual:** GUI checklist (Light/Dark, Retina, geometry, dialogs, Finder reveal, focus, Terminal auto-close) for the five tools.
-- **Exit:** five tools PASS focused + real-media + owner GUI check; gate darwin policy in place; Windows touchpoints listed.
-- **Stop:** a GUI crash from the Tk/AppKit thread rule that cannot be fixed narrowly; any invariant break.
+  - Edge-like 8-way open-file stress under 256;
+  - the darwin acceptance map has no unmapped scenario. The automated counterparts for the five tools, the `shutdown.*` journeys and the behaviour `control.*` journeys PASS.
+- **Owner manual:**
+  - the GUI checklist for the five tools (Light/Dark, Retina, geometry, dialogs, Finder reveal, focus, Terminal auto-close);
+  - the class-(b) manual items for the five tools, signed;
+  - KX-10: Force Quit during an M4B Maker build.
+- **Exit:**
+  - the five tools PASS on focused tests, real media, their acceptance counterparts and the owner GUI check;
+  - the CX and KX tests listed above PASS, with no orphan;
+  - the darwin gate policy and the acceptance map are in place;
+  - Windows touchpoints are listed.
+- **Stop:** a GUI crash from the Tk/AppKit thread rule that cannot be fixed narrowly; any invariant break; any orphaned ACT process after a KX test.
 
 ### P2 — Edge TTS and Kokoro (TTS Audiobook panel on macOS)
-- **Entry:** P1B PASS.
-- **Scope:** TTS panel macOS behaviour, Edge multi-file workers, Kokoro (device policy and eSpeak data path on macOS), and the listed §12 changes.
+- **Entry:** P1B PASS. The owner sets the provisional budgets **D6-E** and **D6-K** (§12.A, §12.B, §15).
+- **Scope:**
+  - TTS panel macOS behaviour and Edge multi-file workers;
+  - Kokoro: device policy and the eSpeak data path on macOS;
+  - **the local-engine worker** (§11.2.1, MAC-043): the host, the worker entry with its lifeline, and the Kokoro adapter;
+  - the listed §12 changes.
 - **Tests:**
-  - five Edge voices: real network, short multi-file run with 8 workers, Cancel during synthesis and finalization, Pause then Cancel;
-  - nine Kokoro voices: CPU, texts A + short multi-chunk;
-  - Cancel latency measured (bounded by one chunk; record seconds);
-  - speech-prep `v1` and `off` parity tests;
-  - real-runtime opt-in tests with their exact skip rules;
-  - 18 reference hashes before and after.
+  - **Edge, five voices:** real network; a short multi-file run with 8 workers; CX-4 and CX-6.
+  - **Kokoro, nine voices:** CPU in the worker; texts A + a short multi-chunk text.
+  - **Kokoro Cancel:** CX-1 (a 3,000-character chunk in flight), CX-2, CX-6, CX-7 and CX-8. KX-1(a), KX-2(a) and KX-3(a).
+  - **Parity:** the worker path against the in-process path (§11.2.1).
+  - **Speech prep:** `v1` and `off` parity tests.
+  - **Opt-in real-runtime tests,** each with its exact skip rule.
+  - **Acceptance:** the darwin counterparts of the Edge and Kokoro TTS journeys, including `tts.kokoro-local`.
+  - **References:** the 18 reference hashes before and after.
 - **Owner manual:** listening pack per §15 (A track for all 14 voices; B track for one Kokoro and one Edge voice); Kokoro is the priority engine.
-- **Exit:** Edge and Kokoro **PROVEN on this Mac** for all 14 voices, with owner listening approval.
-- **Stop:** Kokoro pronunciation regressions vs Windows (owner-judged); espeak-ng load failure; Edge endpoint failure (upstream outage is BLOCKED, not FAIL, and recorded).
+- **Exit:**
+  - Edge and Kokoro **PROVEN on this Mac**: F, S and Q PASS for all 14 voices, with the owner's listening approval;
+  - P verdicts recorded against D6-E and D6-K. An outside-budget result carries its recorded owner decision.
+- **Stop:**
+  - a Kokoro pronunciation regression against Windows (owner-judged);
+  - an espeak-ng load failure;
+  - a Cancel bound exceeded;
+  - an F, S or Q failure. This **STOPS** the phase for a separate per-engine owner decision (D7-E, D7-K).
+
+  An Edge endpoint failure from an upstream outage is BLOCKED, not FAIL, and is recorded.
 
 ### P3A — Chatterbox Turbo
-- **Entry:** P2 PASS.
-- **Scope:** `chatterbox_synth.py` device policy (CPU default on darwin), dtype guard, conditionals cache key with device, and macOS-neutral wording (§12).
+- **Entry:** P2 PASS. The owner sets the provisional budget **D6-C**.
+- **Scope:**
+  - `chatterbox_synth.py` device policy (CPU default on darwin);
+  - the dtype guard;
+  - the conditionals cache key with the device;
+  - the Chatterbox adapter for the local-engine worker;
+  - macOS-neutral wording (§12).
 - **Tests:**
-  - experiments E0–E4 (§12);
-  - six voices on CPU: A + short multi-chunk;
+  - experiments E-C0 to E-C5 (§12), the E-C5 Cancel and containment tests included;
+  - six voices on CPU: A + a short multi-chunk text;
   - watermark detection;
-  - memory soak of one chapter;
-  - Cancel latency;
+  - a memory soak of one chapter;
   - MPS only as a documented opt-in experiment, never the default unless it passes the §15 correctness oracle.
-- **Owner manual:** six-voice listening (A track).
-- **Exit:** six Chatterbox voices PROVEN on CPU (or the owner accepts an MPS configuration on evidence).
-- **Stop:** CPU RTF unacceptable to the owner (D6) → recorded; voices stay available with an accurate speed note, or are gated per the owner.
+- **Owner manual:** six-voice listening (A track); KX-10 (Force Quit during a Chatterbox chapter).
+- **Exit:**
+  - six Chatterbox voices **PROVEN**: F, S and Q PASS on CPU, or on an MPS configuration the owner accepts on evidence;
+  - the P verdict recorded against D6-C. If it is outside budget, the owner records whether the voices stay available with an accurate speed note or are gated.
+- **Stop:**
+  - MPS made the default without the oracle;
+  - memory blow-up on CPU;
+  - an F, S or Q failure. This **STOPS** the phase for a separate owner decision **D7-C**.
 
 ### P3B — Qwen3-TTS (CustomVoice and Voice Clone)
-- **Entry:** P3A PASS.
-- **Owner consents:**
-  - the ~9.1 GB model download (CustomVoice + Base);
-  - the Qwen3 environment;
-  - optionally Whisper for WER;
-  - **D12** (POSIX authority design).
+- **Entry:**
+  - P3A closed: PASS, or a recorded D7-C decision.
+  - Owner consents:
+    - the ~9.1 GB model download (CustomVoice + Base);
+    - the Qwen3 environment;
+    - optionally Whisper for WER;
+    - **D12** (POSIX authority design).
+  - The owner sets the provisional budget **D6-Q** after the E-D2 load figures, before E-D3.
 - **Scope:**
-  - **(a) Installer authority port:** a POSIX implementation of `artifact_store.boundary` and the Qwen3 package/engine authority. It uses directory file descriptors (`os.open(..., O_DIRECTORY|O_NOFOLLOW)`, `dir_fd=`-relative operations, `fstat` identity checks before and after, `O_NOFOLLOW` leaf opens, same-volume `rename` from a pinned staging dir) to give the same "no renamed/replaced parent between check and use" guarantee the Windows handles give. Security-relevant; Codex review priority.
+  - **(a) Installer authority port:** a POSIX implementation of `artifact_store.boundary` and the Qwen3 package/engine authority. It gives the same "no renamed or replaced parent between check and use" guarantee that the Windows handles give, using:
+    - directory file descriptors (`os.open(..., O_DIRECTORY|O_NOFOLLOW)`);
+    - `dir_fd=`-relative operations;
+    - `fstat` identity checks before and after;
+    - `O_NOFOLLOW` leaf opens;
+    - a same-volume `rename` from a pinned staging dir.
+
+    Security-relevant; a Codex review priority.
   - **(b)** The macOS hash lock and darwin target in the Qwen3 manifest (PyPI only, one torch 2.10.0 file, ACT `sox` supply wheel).
   - **(c)** Worker device/dtype adapter: CPU fp32 default; MPS bf16 only by evidence; never fp16.
-  - **(d)** `platform_supported()` → darwin arm64 only after E1–E5 pass.
-  - **(e)** Hardware text from measurements.
+  - **(d)** The worker lifeline (§11.2.2).
+  - **(e)** `platform_supported()` → darwin arm64 only after E-D1 to E-D5 pass.
+  - **(f)** Hardware text from measurements.
 - **Tests:**
-  - experiments E1–E5 (§12);
+  - experiments E-D1 to E-D5 (§12);
   - eight voices (two CustomVoice, six clones);
   - the long-form memory trend;
-  - Cancel/kill of the worker group;
-  - lifeline on GUI kill;
-  - interrupted install;
+  - CX-2, CX-3 and CX-8;
+  - KX-1(b);
+  - interrupted install (no orphaned pip; staging recovered);
   - corrupt model → repair;
   - reference hashes.
 - **Owner manual:** listening for eight voices (A track; B track for one CustomVoice and one clone).
-- **Exit:** eight Qwen3 voices PROVEN on the chosen device, or **D7** applied (voices stay visible-unavailable on macOS, with the recorded reason).
-- **Stop:** E3/E4 fail on CPU fp32 → the Qwen3 macOS gate stays closed (no fake-enable).
+- **Exit:**
+  - eight Qwen3 voices **PROVEN** (F, S, Q), with the P verdict recorded against D6-Q; **or**
+  - the feasibility gate failed, the phase **STOPPED**, and the owner then recorded a separate, explicit **D7-Q** decision with the evidence.
+
+  Approval of this roadmap is never that decision.
+- **Stop:** E-D3 or E-D4 fails on CPU fp32. The Qwen3 macOS gate stays closed (no fake-enable), and the phase waits for D7-Q.
 
 ### P4A — OmniVoice feasibility experiment (owner-gated; no product code)
-- **Entry:** P3B closed (PASS or D7).
-- **Owner consents:** the ~3.27 GB model and ~0.25 GB wheels into a **disposable** environment under `files/dev-work/omnivoice-feasibility/`.
-- **Procedure:** §12 OmniVoice experiment, steps 1–9:
-  - neutral `say`-generated reference first, then the six real references read-only (hashes verified before and after);
+- **Entry:**
+  - P3B closed: PASS, or a recorded D7-Q decision.
+  - The owner consents to the ~3.27 GB model and ~0.25 GB of wheels, into a **disposable** environment under `files/dev-work/omnivoice-feasibility/`.
+  - The owner sets the provisional budget **D6-O**.
+- **Procedure:** the §12 OmniVoice experiment, steps 1–9:
+  - a neutral `say`-generated reference first, then the six real references read-only (hashes verified before and after);
   - three configurations (MPS fp16, MPS fp32, CPU fp32);
   - every measurement listed;
-  - `PYTORCH_ENABLE_MPS_FALLBACK` unset.
-- **Exit:** a written verdict per configuration (PASS/FAIL against §15 correctness) plus an owner decision: integrate on a named configuration, or keep OmniVoice unavailable on macOS (D7). No ACT code changed in P4A; the disposable environment is removed or kept per the owner.
+  - `PYTORCH_ENABLE_MPS_FALLBACK` unset;
+  - the disposable experiment's processes are bounded and reaped (no orphan).
+- **Exit:** a written verdict per configuration, with F/S/Q against §15 correctness and P against D6-O. Then an owner decision:
+  - integrate a named configuration; or
+  - if no configuration passes, a separate, explicit **D7-O** decision recorded with the evidence.
+
+  No ACT code changes in P4A. The disposable environment is removed or kept, as the owner decides.
 
 ### P4B — OmniVoice integration (only if P4A yields an owner-accepted configuration)
 - **Scope:**
   - the darwin wheel list in the manifest;
-  - worker adapter (every CUDA call site in §12);
+  - the worker adapter (every CUDA call site in §12);
+  - the worker lifeline (§11.2.2);
   - `omnivoice_synth` device/dtype;
   - `prompt_identity` gains the device;
-  - setup proof job per platform;
+  - the setup proof job per platform;
   - optional-setup texts and the GPU probe (Apple GPU vs NVIDIA);
   - `platform_supported()` for darwin arm64.
 - **Tests:**
   - six voices: A + multi-chunk;
   - the 48-chunk worker bound on MPS (memory trend);
-  - Cancel, kill and lifeline;
+  - CX-2, CX-3 and CX-8;
+  - KX-1(c);
   - install, adopt, repair and receipt on macOS;
   - reference hashes;
   - the offline audit hook.
 - **Owner manual:** six-voice listening (A + B), compared against the Windows-approved tracks.
-- **Exit:** six OmniVoice voices PROVEN, or the engine is closed with D7.
+- **Exit:**
+  - six OmniVoice voices **PROVEN** (F, S, Q), with the P verdict recorded against D6-O; or
+  - a failure **STOPS** the phase for a separate D7-O decision.
 
 ### P5 — Cross-platform integration and macOS acceptance
-- **Entry:** P4A/P4B closed.
+- **Entry:** P4A/P4B closed. Every engine is either PROVEN or carries its recorded per-engine D7 decision.
 - **Scope:**
   - long-book qualification (text D) for Kokoro, plus ≥30-minute runs for each other proven engine;
-  - the §15 benchmark table;
+  - the §15 benchmark table, and **D6-final** per engine;
   - App Nap / hidden-window run;
-  - packaging dry run (`release.py` MacOS archive into scratch → audit → Archive Utility extraction of a **quarantined** copy → Gatekeeper "Open Anyway" flow → first run → repair → relaunch);
-  - README/Briefing/Changelog/Decisions updates (truthful per-engine status);
-  - feature-map entries for macOS;
-  - **HOME-PC focused Windows regression** on all accumulated Windows touchpoints (owner or a Windows agent);
-  - optional `fresh-macos` qualification scenario (D9b).
+  - the complete darwin acceptance map: every automated counterpart PASS; every class-(b) item signed for the candidate;
+  - the remaining KX-10 drills;
+  - Briefing/Decisions updates and feature-map entries for the behaviour shipped (truthful per engine). The release-facing README/Changelog text and the version identity are finalized in P6a;
+  - **HOME-PC focused Windows regression** on all accumulated Windows touchpoints (owner or a Windows agent).
 - **Owner manual:**
   - full macOS GUI pass of all six tools;
-  - final listening sign-off across all proven voices;
-  - Gatekeeper first-run experience.
-- **Exit:** owner acceptance of macOS functionality; Windows focused regression PASS; the candidate frozen and pushed.
+  - final listening sign-off across all proven voices.
+- **Exit:**
+  - owner acceptance of macOS functionality;
+  - Windows focused regression PASS;
+  - **D16** recorded (version identity and release strategy);
+  - **D18** recorded (the REAL CLEAN route), with the clean machine or VM available before P7c.
 
-### P6 — Independent Codex review, remediation, owner acceptance, ONE native full gate
-- **P6a:** Codex review → remediation → closure (§16).
-- **P6b:** owner acceptance of the remediated candidate.
-- **P6c:** **one** macOS full gate (§17). **P6d (D8):** the Windows full gate on the same SHA.
-- **Exit:** both gates PASS (or the owner's recorded, informed exception, as with v0.8.0); the evidence recorded.
-- **Stop:** any FAIL leads to diagnosis → owner approval before a rerun.
+### P6 — Release-source finalization, independent Codex review, remediation and owner acceptance
+- **Entry:** P5 accepted; D16 and D18 recorded.
+- **P6a, release-source finalization.** Everything release-relevant is final **before** review:
+  - the version identity per D16 (`config.toml`, `version.py`);
+  - `RELEASE_OS_NAMES` includes MacOS (MAC-033);
+  - the MacOS platform declarations:
+    - README platform and engine tables, with each engine's F/S/Q/P and D7 status;
+    - Briefing and Changelog;
+    - the feature map;
+    - the final `platform_supported()` state of each engine, per its recorded decision;
+  - packaging support: `release.py` MacOS rules and the archive audit tooling;
+  - focused version, packaging and documentation tests.
 
-### P7 — Release candidate packaging and publication approval
-- **Entry:** P6 PASS and the release-strategy decision (§18).
-- **Scope:**
-  - version identity bump;
-  - `RELEASE_OS_NAMES` includes MacOS;
-  - both archives built from the clean LF worktree at the final SHA, then audited;
-  - README release section.
-- **Then the owner decides:**
-  - merge (fast-forward);
-  - tag;
-  - publish;
-  - each separately approved.
-- **Exit:** published release verified by anonymous download (hash = audited file); Handoff closeout.
+  Then a **packaging rehearsal** from a clean LF worktree:
+  1. audit the rehearsal archive;
+  2. extract a quarantined copy with Archive Utility and with `ditto`;
+  3. go through the Gatekeeper "Open Anyway" flow;
+  4. run the `fresh-macos` **rehearsal**, labelled SIMULATED or REAL CLEAN.
+
+  Freeze and push the release candidate.
+- **P6b:** independent Codex review of that candidate (§16).
+- **P6c:** remediation and the focused closure check.
+- **P6d:** owner acceptance. This **freezes the final executable SHA**, which is recorded in Handoff.
+- **Exit:**
+  - the final executable SHA frozen and pushed;
+  - every finding closed or waived in writing;
+  - **no full gate run in P6**.
+- **Stop:** the rehearsal audit fails; the Gatekeeper path is unusable; a finding re-opens an engine phase (return to that phase, then P6 again).
+
+### P7 — Canonical gates on the final SHA, exact archives and publication approval
+- **Entry:**
+  - P6d complete;
+  - a clean LF worktree on the Mac and a clean checkout on HOME-PC, both at the final executable SHA;
+  - the REAL CLEAN machine ready (D18).
+- **P7a:** the **one** macOS full gate on that SHA (§17).
+- **P7b:** the **one** Windows full gate on the same SHA (D8).
+
+  Any FAIL is BLOCKED: diagnose, and get owner approval before any rerun. A fix is a post-freeze change under §17: a new SHA, a closure check of the delta, and both gates again.
+- **P7c,** after both gates PASS, with **no source change**:
+  1. build both archives from clean checkouts of the final SHA;
+  2. audit them (§18) and record their SHA-256s;
+  3. run the **binding `fresh-macos` qualification, REAL CLEAN**, on the exact macOS archive, downloaded with a browser and therefore quarantined;
+  4. audit the Windows archive and run its fresh qualification per the existing Windows release practice.
+
+  A failure here is a post-freeze change: it is never patched into the archive.
+- **P7d:** the owner decides each step separately:
+  - merge (fast-forward of `master` to the final SHA);
+  - tag (annotated, on the final SHA);
+  - publish.
+
+  Then an anonymous re-download is verified (hash = audited file), and the Handoff closeout follows as a documents-only commit after the tagged SHA.
+- **Exit:** published release verified by anonymous download; Handoff closeout.
+- **Stop:** any provenance mismatch; any change needed inside the tagged tree (§17 change rules).
 
 ---
 
@@ -1045,18 +1572,24 @@ Speech tuning is **never** changed to improve speed.
 | R2 | torch 2.6.0 (Jan 2025) on macOS 27: CPU fine, MPS untested by PyTorch on macOS 27 | Medium for MPS, low for CPU | CPU defaults; MPS only by measured evidence; a pin bump is an owner decision with Windows re-verification |
 | R3 | MPS silent wrong output: multinomial zero-probability picks (pytorch#192577), MPSGraph argmax read past buffer on macOS 27 (pytorch#187280), NaNs in fp16 | Medium / high (garbled audio without an exception) | Correctness oracle vs CPU fp32 (§15); fallback disabled during experiments; no MPS default without owner acceptance |
 | R4 | MPS allocator growth on 24 GB (chatterbox#577: 3.2 GB allocated, 24.9 GB driver) | Medium / high (swap, stalls) | Memory slope checks; `empty_cache` between chunks; watermark ratios; bounded workers; CPU default |
-| R5 | Qwen3 CPU too slow for whole books (about 2.6× slower than real time reported on a base M4) | High / medium | Owner speed budget D6; honest speed note; keep available or gate per owner |
-| R6 | OmniVoice MPS fp16 garbled on M4 (#172) vs working (#279) | Medium | P4A three-configuration experiment before any code |
+| R5 | Qwen3 CPU too slow for whole books (about 2.6× slower than real time reported on a base M4) | High / medium | Provisional budget D6-Q set at P3B (not deferred to P5); P reported separately from F/S/Q; honest speed note; keep available or gate per owner |
+| R6 | OmniVoice MPS fp16 garbled on M4 (#172) vs working (#279) | Medium | P4A three-configuration experiment before any code; a failed gate stops for a separate D7-O decision |
 | R7 | The POSIX installer authority is security-sensitive and new | Medium / high | D12; focused race/symlink tests; Codex priority |
 | R8 | Gatekeeper friction for unsigned `.command` in a downloaded ZIP | High / medium (first-run UX) | Clear README and launcher guidance; D10 (signing/notarization is a future option) |
 | R9 | Tk/AppKit main-thread crashes from worker callbacks | Low–medium / high | Static audit + stress test (P1B) |
 | R10 | Shared-code changes regress Windows | Medium / high | Platform guards; touchpoint list; HOME-PC focused regression (P5) + Windows full gate (D8) |
-| R11 | In-process engines (Kokoro, Chatterbox) keep models resident; switching engines may stack memory | Medium / medium | Measure in P3A/P5; unload-on-switch only if needed (owner-visible behaviour unchanged) |
+| R11 | In-process engines (Kokoro, Chatterbox) keep models resident; switching engines may stack memory | Medium / medium | On darwin the models live in the local-engine worker, one engine at a time, ended on engine switch (§11.2.1); measure in P3A/P5. Windows unchanged |
 | R12 | Edge service changes (403s, voice removals) | Low–medium / medium | Upstream-outage = BLOCKED, not FAIL; pinned edge-tts reviewed at P2 entry. 7.3.1 is current as of 2026-11-14. `NoAudioReceived` (#512) is open upstream, so ACT's existing per-file retry policy applies unchanged |
 | R14 | Duplicate OpenMP runtimes (torch + sklearn/numba `libomp`) abort a process on macOS | Low–medium / high | E-B1 imports everything in one process before any synthesis work |
 | R15 | torch 2.6.0 (pinned by chatterbox-tts 0.1.7 metadata) fails on macOS 27 | Low (CPU) / high (shared pin) | P1A import proof; options listed in §12.B, owner decision |
 | R16 | eSpeak NG data-path length limit (≥ 160 chars → `exit(1)`) in deep install folders | Medium / high for Kokoro | Verify the `espeak_data` short root; refuse too-deep folders before downloads, like the Windows depth checks |
 | R13 | App Nap / idle sleep during long books | Medium / medium | Measure; optional `caffeinate -w` (D11d) |
+| R17 | The local-engine worker adds a cold model load after each Cancel (~3 GB for Chatterbox), IPC per chunk, and a second code path beside Windows' in-process one | Medium / medium | Warm reuse across files and runs; load time measured and logged; parity proof against the in-process path (§11.2.1); the worker is the only darwin path, so it is fully covered by the P2/P3A tests |
+| R18 | Containment residuals: a guardian killed by hand leaves the in-flight class-B children of its old group covered only by the orderly path; a future fork-without-exec in an owner would leak the lifeline write end | Low / medium | Guardian restart + logging; KX-6; the `multiprocessing` start-method assertion and the KX-9 spawn-site guard; Decisions records the residual |
+| R19 | SIMULATED clean-install evidence on this Mac (Homebrew and the CLT present) misses a dependency that only a truly clean Mac reveals (CLT stub prompts, Gatekeeper, privacy prompts) | Medium / high (first-run failure for real users) | Evidence classes kept separate (§8.2, §14.2); linkage and loaded-image checks in P1A; **REAL CLEAN `fresh-macos` mandatory** on the exact archive (P7c, D18) |
+| R20 | The Riedl 9.0.1 binary differs from its published listing, is re-signed or withdrawn, or its `aac_at` misdecodes real xHE-AAC | Low–medium / medium | Eight adoption proofs on the actual bytes (§11.1); ACT's own digest and signing identity pinned; 9.0.2 only by owner acceptance; never an unproven pin |
+| R21 | Git hygiene: a new executable recorded as `100644` under `core.filemode=false`, or a broad CRLF/mode "cleanup" rewriting hundreds of files | Medium / medium | §3.1 rules; `git add --chmod=+x` + `git ls-files -s`; an index-mode test; `--stat`/`--summary` review at every commit |
+| R22 | A change after the gates (a late fix, a version or README correction) leaves the archives or the tag on an unverified tree | Medium / high (provenance) | Release source final in P6a; both gates on one frozen SHA (P7a/P7b); the §17 post-freeze change table; archives built afterwards with no source change |
 
 ### 20.2 Unresolved blockers (today)
 
@@ -1064,6 +1597,9 @@ Speech tuning is **never** changed to improve speed.
 - **B2.** OmniVoice and Qwen3 workers have CUDA-only / Windows-only code paths and `platform_supported()` gates. Removing them is gated on experiments.
 - **B3.** A fresh Mac without Homebrew cannot set up today: the launcher depends on Homebrew. Resolved by P1A.
 - **B4.** No `darwin` skip policy exists, so any macOS gate result today is untrustworthy. Resolved by P1B.
+- **B5.** Kokoro and Chatterbox inference cannot be preempted by Cancel (in-process, cooperative between chunks), which breaks the immediate-Cancel rule on a Mac CPU. Resolved by the local-engine worker (P2, P3A; MAC-043).
+- **B6.** No POSIX parent-death containment: after a crash, SIGKILL or Force Quit, ACT's FFmpeg, pip and worker children are not ended. Resolved by §11.2.2 (P1A setup side, P1B GUI side, P2–P4B workers; MAC-009, MAC-044).
+- **B7.** The 55 acceptance journeys exist only through the Windows input adapter. Resolved by the darwin acceptance map and the in-process journey driver (P1B–P5; MAC-045).
 
 None of these blocks the *plan*.
 
@@ -1073,20 +1609,22 @@ None of these blocks the *plan*.
 |---|---|---|
 | D1 | Base Python for macOS | App-owned python-build-standalone 3.12.15+20261009 aarch64 (same as Windows): no admin, SHA-pinned, **Tk 9.0.4 on macOS**, so the bounded Tk 9 port is accepted. Fallback only on P1A failure: python.org 3.12.10 (Tk 8.6.16, admin, frozen) |
 | D2 | Launcher stops installing Homebrew and Homebrew Python | Yes; the app-owned runtime only |
-| D3 | FFmpeg on macOS | Accept a discovered arm64 pair only if proven (incl. `aac_at`, `libmp3lame`); app-owned fallback = a versioned Martin Riedl arm64 build (9.0.1 if offered, else 9.0.2), pinned by ACT's own size + SHA-256, signature-checked, downloaded on consent |
-| D4 | Checkout hygiene | `chmod +x` the `.command` in this tree; build releases and run the full gate from a clean LF worktree under `files/dev-work/worktrees/` |
+| D3 | FFmpeg on macOS | Accept a discovered arm64 pair only if proven (incl. `aac_at`, `libmp3lame`). App-owned source: **evaluate the historical Martin Riedl arm64 9.0.1 build first** (`1787073674_9.0.1`; published `codecs.txt` lists `aac_at` and `libmp3lame`), adopted only after the eight proofs of §11.1 on the actual bytes: consented download, size + SHA-256 computed and matched to the published `.sha256`, safe extraction, arm64, signature, linkage, execution, **real xHE-AAC**. 9.0.2 only if 9.0.1 fails, by separate owner acceptance. No digest is recorded before P1A has the bytes |
+| D4 | Checkout hygiene and Git rules | `chmod +x` the `.command` in this tree (disk only); build releases and run the full gate from a clean LF worktree under `files/dev-work/worktrees/`; follow §3.1: no broad CRLF/mode cleanup, new executables staged with `--chmod=+x` and verified as `100755`; `.claude/CLAUDE.md` reconciled by the owner, not by a phase |
 | D5 | Network access for P1A | Approve python-build-standalone, PyPI and the FFmpeg source for lock generation and first-run tests |
-| D6 | Speed/memory budgets per engine | Set at P5 entry from measured data; correctness thresholds per §15 are fixed |
-| D7 | If an engine cannot be proven on macOS | Ship macOS without it; its voices remain visible-unavailable with the reason; no substitution |
-| D8 | Windows evidence for a combined release | Windows full gate on the same final SHA |
-| D9 | macOS GUI acceptance method | Owner-manual checklist + in-process Tk tests; no Accessibility / Screen Recording permission grants. D9b: automated `fresh-macos` scenario optional |
+| D6 | Speed/memory budgets per engine | **Provisional budget at each engine checkpoint:** D6-E and D6-K at P2 entry, D6-C at P3A entry, D6-Q at P3B after E-D2, D6-O at P4A entry (starting proposals in §12). Each phase judges its P verdict against its budget; **D6-final** confirmed at P5 from long-form runs, any change recorded with its reason. F/S/Q correctness thresholds (§15) are fixed and never traded for speed |
+| D7 | If an engine fails its feasibility gate (F, S or Q) | **No standing answer.** Approving this roadmap does **not** consent to shipping without Qwen3, OmniVoice or any other engine. After each failed gate the phase STOPS and the owner records a separate, explicit decision for that engine (**D7-Q** Qwen3 at P3B, **D7-O** OmniVoice at P4A/P4B; D7-E, D7-K, D7-C likewise if Edge, Kokoro or Chatterbox fail) with the evidence. Options: keep investigating; try another configuration; ship macOS without the engine (its voices visible-unavailable with the measured reason, never substituted); or defer the macOS release. The recommendation is given per case, with the evidence |
+| D8 | Windows evidence for a combined release | **Required:** the canonical Windows full gate on the **same final executable SHA** as the macOS gate (P7b). Anything less needs a recorded owner exception, stated in the release notes |
+| D9 | macOS GUI acceptance method | No macOS native-input adapter and no Accessibility / Screen Recording grants, but **no exemption**: every acceptance journey is mapped to a native automated counterpart (in-process journey driver), a documented owner-manual check with signed evidence, or a reviewed per-journey not-applicable reason (§14.3). **D9b:** the extracted `fresh-macos` fresh-install/repair qualification is **mandatory** (REAL CLEAN at P7c); only its *automation* is optional |
 | D10 | Gatekeeper UX | README + launcher guidance for "Open Anyway"; no signing this release; Developer ID / notarization as a future decision |
 | D11 | Optional improvements | (a) F_FULLFSYNC: no; (b) macOS work-area recovery: yes if cheap; (c) qualify a macOS FFmpeg build for the continuous route: later; (d) `caffeinate` during jobs: decide after the P5 measurement |
 | D12 | Qwen3 installer authority on POSIX | Implement the dir-fd design (same guarantee), not a reduced-guarantee shortcut |
 | D13 | Cross-copy engine lock location | Per-user temp (`tempfile.gettempdir()/ACT-locks/`), consistent with the existing work area |
 | D14 | Download consent and disk budget | Per-engine, as Windows (§9 table shown before consent) |
 | D15 | ASR for WER | Reuse the pinned Whisper small.en in a dev-only scratch environment, on consent |
-| D16 | Release version and strategy | §18 option A (v0.8.1), or D (v0.9.0) |
+| D16 | Release version and strategy | §18 option A (v0.8.1), or D (v0.9.0). **Decided at P5 exit**, because the version identity is release-relevant source finalized in P6a, before review and both gates |
+| D17 | Preemptible Cancel for local engines | On darwin, Kokoro and Chatterbox run in the supervised local-engine worker; accept the Cancel contract C1–C5 and its bounds (§11.2.1). Windows keeps the released in-process path in this programme; adopting the worker on Windows is a later decision with Windows qualification |
+| D18 | REAL CLEAN qualification route | An Apple Silicon Mac that never had Homebrew, the Xcode CLT or python.org (a second Mac, or a freshly erased one), or a macOS virtual machine (needs an approved virtualization tool install and macOS image download). A new user account on this Mac is SIMULATED only. Decided at P5 exit; used at P7c |
 
 ---
 
@@ -1094,46 +1632,57 @@ None of these blocks the *plan*.
 
 **Universal checklist (start of every phase):**
 1. A fresh context.
-2. Read this plan, `AI-WORKSPACE.md`, `md-instructions/Handoff.md` (top block) and the prior phase report.
-3. `git status -sb`, `git log --oneline -5`, `git fetch origin`. Confirm the branch is `feature/0.8.0-macos-compatibility` and the expected prior SHA, and that the owner state is unchanged (17 deletions + untracked set).
-4. Confirm this phase's entry decisions and consents are recorded.
+2. Read this plan, `AI-WORKSPACE.md`, `md-instructions/Handoff.md` (top block) and the prior phase report. `.claude/CLAUDE.md` is local and partly stale (§3.1): this read order governs, and its absent paths and delegation route are not used.
+3. `git status -sb`, `git log --oneline -5`, `git fetch origin`. Confirm:
+   - the branch is `feature/0.8.0-macos-compatibility`;
+   - HEAD is the expected prior SHA;
+   - the owner state is unchanged (17 deletions + the untracked set);
+   - the inherited `core.filemode=false`, `core.symlinks=false` and `core.ignorecase=true` are as recorded, and nothing is "fixed" (§3.1).
+4. Confirm this phase's entry decisions and consents are recorded: for an engine phase, its provisional budget D6-x; after a failed gate, its D7-x.
 5. Re-verify the 18 reference hashes if this phase runs any engine.
-6. List the planned focused tests.
+6. List the planned focused tests, the CX/KX ids due in this phase (§11.2.3), and the evidence class each result will carry.
 
 **Universal checklist (end of every phase):**
 1. Focused tests pass, with counts recorded.
-2. Real-runtime evidence recorded (paths in ignored folders only).
+2. Real-runtime evidence recorded (paths in ignored folders only), with its evidence class and source (§14.2). An engine phase records its F/S/Q/P verdicts.
 3. 18 reference hashes re-verified (engine phases).
-4. Windows touchpoints updated.
-5. Handoff updated (Decisions for non-obvious choices).
-6. Stage explicit paths only; review `git diff --cached`.
-7. Commit and push to the feature branch.
-8. Report (verdict, SHA, files, tests, evidence, open items, next phase).
-9. **STOP.**
+4. No ACT-owned process remains after the phase's tests (the read-only check script).
+5. Windows touchpoints updated.
+6. Handoff updated (Decisions for non-obvious choices).
+7. Stage explicit paths only. Review `git diff --cached --stat` and `--summary`: only intended files, no CRLF or mode churn. Every new executable shows `100755` in `git ls-files -s` (§3.1).
+8. Commit and push to the feature branch.
+9. Report (verdict, SHA, files, tests, evidence, open items, decisions due, next phase).
+10. **STOP.**
 
 **Universal stop conditions (any phase):**
 - Any immutable contract in §13 would change.
 - A test passes only by weakening, skipping or deleting a meaningful check.
 - A Windows code path would change behaviour without being a deliberate, owner-approved shared fix.
 - An engine would be enabled without its proof, or a voice substituted.
-- Any download without recorded consent.
-- Any action outside the repository, or a system setting change (Gatekeeper, SIP, permissions, global Python, Homebrew).
-- The full gate is about to run outside P6c.
+- An engine fails its feasibility gate (F, S or Q): STOP for that engine's separate D7 decision. Roadmap approval is never that decision.
+- A Cancel bound of §11.2.1 is exceeded, or a cancelled run publishes anything under a final name.
+- Any ACT-owned process outlives its owner in a containment test (outside the class-D allow-list).
+- Any download without recorded consent; any digest recorded without the bytes it describes.
+- Any action outside the repository, or a system setting change (Gatekeeper, SIP, permissions, global Python, Homebrew, shell profiles).
+- A broad Git cleanup (renormalize, restore, repository-wide mode change) is about to happen (§3.1).
+- A full gate is about to run outside P7a/P7b, or on a SHA other than the frozen final executable SHA.
+- Any change inside the tagged tree after the P6d freeze without the §17 re-verification.
+- SIMULATED evidence is about to be reported as REAL CLEAN.
 - Git state contradicts Handoff (trust Git, investigate, correct Handoff).
 - Repeated failure of the same real-runtime test (diagnose, don't loop).
 
 | Phase | Must be true to start | Must be true to finish | Hard stop if |
 |---|---|---|---|
-| P1A | Plan approved; D1–D5; chmod approved | Fresh-copy first run → healthy app, no Homebrew/admin; locks hashed; focused PASS | PBS Tk fails; a pin cannot resolve natively; torch 2.6 import fails |
-| P1B | P1A PASS | Five tools PASS (focused + real media + owner GUI); darwin gate policy | Unfixable Tk/AppKit crash; invariant break |
-| P2 | P1B PASS | 14 Edge/Kokoro voices PROVEN + listening | Kokoro pronunciation regression; espeak-ng failure |
-| P3A | P2 PASS | 6 Chatterbox voices PROVEN (CPU or accepted MPS) | MPS made default without the oracle; memory blow-up on CPU |
-| P3B | P3A closed; D12; consents | 8 Qwen3 voices PROVEN, or D7 recorded | CPU fp32 fails E3/E4 (gate stays closed) |
-| P4A | P3B closed; consent | Per-configuration verdict + owner decision | Any reference WAV hash change |
-| P4B | P4A accepted configuration | 6 OmniVoice voices PROVEN, or D7 | Correctness oracle fails |
-| P5 | P4 closed | Owner macOS acceptance; Windows focused PASS; frozen candidate | Packaging audit fails; Gatekeeper path unusable |
-| P6 | P5 accepted | Codex closed; owner acceptance; ONE macOS full gate PASS (+ Windows per D8) | Gate FAIL (no rerun without owner) |
-| P7 | P6 PASS; D16 | Audited archives; approved merge/tag/publish | Any provenance mismatch |
+| P1A | Revised plan approved; D1–D5 (D3 as revised); owner's xHE-AAC file available; chmod approved; §3.1 acknowledged | SIMULATED (PATH-restricted + linkage-verified) first run → healthy app, no Homebrew call/link/load, no admin; locks hashed; FFmpeg 9.0.1 adopted after the eight proofs (or BLOCKED back to D3); installer containment and interruption recovery PASS; new executables `100755`; focused PASS | PBS Tk fails; a pin cannot resolve natively; torch 2.6 import fails; both Riedl candidates fail; evidence would need a system change |
+| P1B | P1A PASS | Five tools PASS (focused + real media + acceptance counterparts + owner GUI); CX-5/CX-8 and GUI KX tests PASS; darwin gate policy; every acceptance scenario mapped | Unfixable Tk/AppKit crash; invariant break; an orphan after a KX test |
+| P2 | P1B PASS; D6-E, D6-K set | 14 Edge/Kokoro voices PROVEN (F, S, Q) + listening; P vs budget recorded; local-engine worker Cancel within 2 s | Kokoro pronunciation regression; espeak-ng failure; Cancel bound exceeded; F/S/Q failure (→ D7-E/D7-K) |
+| P3A | P2 PASS; D6-C set | 6 Chatterbox voices PROVEN (CPU or accepted MPS); P vs D6-C recorded; Cancel within 2 s mid-chunk | MPS made default without the oracle; memory blow-up on CPU; F/S/Q failure (→ D7-C) |
+| P3B | P3A closed; D12; consents; D6-Q after E-D2 | 8 Qwen3 voices PROVEN (F, S, Q) with P vs D6-Q, **or** STOP and a separate D7-Q recorded after the failure | CPU fp32 fails E-D3/E-D4 (gate stays closed; wait for D7-Q) |
+| P4A | P3B closed (PASS or D7-Q); consent; D6-O set | Per-configuration F/S/Q/P verdict + owner decision (integrate, or a separate D7-O) | Any reference WAV hash change |
+| P4B | P4A accepted configuration | 6 OmniVoice voices PROVEN (F, S, Q) with P vs D6-O, or STOP for D7-O | Correctness oracle fails |
+| P5 | P4 closed; every engine PROVEN or with its D7 | Owner macOS acceptance; complete acceptance map PASS; D6-final; Windows focused PASS; D16 and D18 recorded | Unmapped or failing acceptance scenario; listening rejection |
+| P6 | P5 accepted; D16; D18 | P6a release source final (version, MacOS declarations, packaging) + rehearsal; Codex closed; owner acceptance; **final executable SHA frozen**; no gate run | Rehearsal audit fails; Gatekeeper path unusable; a finding re-opens an engine phase |
+| P7 | P6d; clean checkouts of the final SHA on both machines; REAL CLEAN machine ready | macOS and Windows full gates PASS on the **same** SHA; exact archives built afterwards with no source change and audited; REAL CLEAN `fresh-macos` PASS on the exact archive; approved merge/tag/publish; anonymous re-download verified | Gate FAIL (no rerun without owner); any provenance mismatch; any needed change inside the tagged tree (→ §17) |
 
 ---
 
@@ -1147,9 +1696,9 @@ Labels as used in the text. Third-party reports are evidence of plausibility, no
 - Homebrew formulae API: https://formulae.brew.sh/api/formula/python-tk@3.12.json , https://formulae.brew.sh/api/formula/tcl-tk.json , https://formulae.brew.sh/api/formula/ffmpeg.json
 - Tk 9: https://www.tcl-lang.org/software/tcltk/9.0.html , TIP 474 https://core.tcl-lang.org/tips/doc/trunk/tip/474.md , TIP 684 https://core.tcl-lang.org/tips/doc/trunk/tip/684.md , `tk::mac` hooks https://www.tcl-lang.org/man/tcl9.0/TkCmd/tk_mac.html , file dialogs https://www.tcl-lang.org/man/tcl9.0/TkCmd/getOpenFile.html , AppKit main-thread ticket https://core.tcl-lang.org/tk/info/bec431fc689e , tkinter threading https://docs.python.org/3/library/tkinter.html
 - Gatekeeper/quarantine: https://developer.apple.com/news/?id=saqachfa , https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac , https://support.apple.com/en-us/102445 , https://eclecticlight.co/2022/09/09/app-first-run-quarantine-and-translocation/ , https://eclecticlight.co/2025/12/08/who-decides-to-quarantine-files/ , https://eclecticlight.co/2024/08/10/gatekeeper-and-notarization-in-sequoia/ , `ditto(1)` https://keith.github.io/xcode-man-pages/ditto.1.html , arm64 signing https://developer.apple.com/documentation/macos-release-notes/macos-big-sur-11_0_1-universal-apps-release-notes
-- FFmpeg builds: https://ffmpeg.martin-riedl.de/ , https://www.osxexperts.net/ , https://evermeet.cx/ffmpeg/
+- FFmpeg builds: https://ffmpeg.martin-riedl.de/ (release history https://ffmpeg.martin-riedl.de/info/history/macos/arm64/release ; 9.0.1 arm64 detail https://ffmpeg.martin-riedl.de/info/detail/macos/arm64/1787073674_9.0.1 ; its codec list https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/codecs.txt ; accessed 2026-11-15, pages only, no binary downloaded) , https://www.osxexperts.net/ , https://evermeet.cx/ffmpeg/
 - PyTorch: https://pypi.org/pypi/torch/json , MPS notes https://docs.pytorch.org/docs/2.15/notes/mps.html , MPS env vars https://docs.pytorch.org/docs/2.15/mps_environment_variables.html , `torch.mps` https://docs.pytorch.org/docs/2.15/mps.html , bf16 on MPS https://github.com/pytorch/pytorch/pull/119641 , MPS multinomial https://github.com/pytorch/pytorch/issues/192577 , macOS 27 MPSGraph https://github.com/pytorch/pytorch/issues/187280 , MPS in sandboxes https://github.com/pytorch/pytorch/issues/177819
-- POSIX: `kqueue(2)` https://keith.github.io/xcode-man-pages/kqueue.2.html ; Python `subprocess`/`os`/`fcntl` docs (3.12)
+- POSIX: `kqueue(2)` https://keith.github.io/xcode-man-pages/kqueue.2.html ; `setpgid(2)`; Python `subprocess` (`process_group`, `pass_fds`, `start_new_session`) https://docs.python.org/3.12/library/subprocess.html , `os`/`fcntl` docs (3.12) ; non-inheritable descriptors PEP 446 https://peps.python.org/pep-0446/ ; bsdtar extraction safety (`-P`) `bsdtar(1)`
 
 **Engine A — Edge TTS:** https://pypi.org/pypi/edge-tts/json ; https://github.com/rany2/edge-tts/blob/7.3.1/src/edge_tts/communicate.py ; issues #490, #505, #507, #510, #512, #473, #451 and PR #493 at https://github.com/rany2/edge-tts
 
@@ -1168,14 +1717,14 @@ Labels as used in the text. Third-party reports are evidence of plausibility, no
 | ID | Gap | Where | Phase |
 |---|---|---|---|
 | MAC-001 | `.command` scavenges PATH Pythons (can reach Apple 3.9/Tk 8.5) and installs Homebrew via an unpinned remote script | `Setup_and_Run-audiobook-creation-tool.command` | P1A |
-| MAC-002 | Executable bit lost in this ZIP-transferred checkout (index 100755, disk 0666) | working tree | P1A (owner-approved chmod) |
-| MAC-003 | Gatekeeper/quarantine first-run UX for a downloaded ZIP | launcher, README | P1A text, P5 test |
+| MAC-002 | Executable bit lost in this ZIP-transferred checkout (index 100755, disk 0666) | working tree | P1A (owner-approved disk-only chmod; §3.1) |
+| MAC-003 | Gatekeeper/quarantine first-run UX for a downloaded ZIP | launcher, README | P1A text; P6a rehearsal; P7c REAL CLEAN on the exact archive |
 | MAC-004 | `bootstrap.py` macOS Python acquisition is Homebrew-only; `APP_PYTHON` is Windows-only | `bootstrap.py` | P1A |
 | MAC-005 | The dependency lock applies only to `win32`; macOS installs unhashed `==` pins | `base_packages.lock_applies` | P1A |
 | MAC-006 | macOS FFmpeg: Homebrew-only, no pinned source; continuous route qualified only for Gyan Windows hashes; `aac_at` needed for xHE-AAC | `ffmpeg_portable.py`, `ffmpeg_health.py`, `m4b_continuous.py` | P1A/P1B |
 | MAC-007 | Tk 9.0.4 (every no-admin macOS Python, incl. PBS) vs Tk 8.6.15 (Windows) | runtime choice (D1) | P1A (proof), P1B (port) |
 | MAC-008 | Cmd+Q (`::tk::mac::Quit`) unhandled | `launcher.py` | P1B |
-| MAC-009 | No parent-death containment; `stop_media_children` Windows-only | `subprocess_utils.py`, workers | P1B (FFmpeg), P3B/P4B (workers) |
+| MAC-009 | No parent-death containment; `stop_media_children` Windows-only | `subprocess_utils.py`, workers | P1A (setup children), P1B (GUI, FFmpeg, optional setup), P2/P3A (local-engine worker), P3B/P4B (workers); §11.2.2 |
 | MAC-010 | Cross-copy engine mutex is a no-op off Windows | `qwen3_runtime.MachineGuard`, OmniVoice | P3B/P4B |
 | MAC-011 | `memory_info()` is `None` on macOS; "kept for Windows" wording | `tts/worker_limits.py` | P1B |
 | MAC-012 | Soft open-file limit 256 for Finder/Terminal-launched apps | `launcher.py` | P1B |
@@ -1193,14 +1742,14 @@ Labels as used in the text. Third-party reports are evidence of plausibility, no
 | MAC-024 | Qwen3 worker: cuda/cpu only, bf16 default dtype | `qwen3_worker.py` | P3B |
 | MAC-025 | OmniVoice worker refuses non-CUDA; `torch.cuda.*` calls | `omnivoice_worker.py`, `omnivoice_synth.py`, `omnivoice_setup.py` | P4B |
 | MAC-026 | Qwen3/OmniVoice locks are `win_amd64` + cu128 | manifests | P3B/P4B |
-| MAC-027 | Gate has no darwin skip policy; Windows-only acceptance adapters | `verification.json`, `verify.py` | P1B |
+| MAC-027 | Gate has no darwin skip policy; Windows-only acceptance adapters | `verification.json`, `verify.py` | P1B (with MAC-045) |
 | MAC-028 | Cleanup coordinator may fall back to PATH `python3` (Apple's) | `cleanup_state.interpreter_candidates` | P1A |
 | MAC-029 | Windows-origin `runtime-data` (settings with a Windows path, consents, sessions) must be foreign-safe | settings, optional setup, receipts | P1A |
-| MAC-030 | CRLF working tree from the ZIP | checkout | P1A (D4) |
+| MAC-030 | CRLF working tree from the ZIP | checkout | Every phase: left as is, no broad cleanup (§3.1); clean LF worktree for the gate and archives (D4) |
 | MAC-031 | App Nap / idle sleep during long jobs | app | P5 (D11d) |
 | MAC-032 | Tk/AppKit main-thread rule | all panels | P1B |
-| MAC-033 | `RELEASE_OS_NAMES` Windows-only; README macOS status | `release.py`, README | P7 |
-| MAC-034 | Local agent guidance names stale paths (`scripts/Universal`, `scripts/verify.py`, `CHANGELOG.md`) | `.claude/CLAUDE.md` (local, untracked) | Owner refresh (not code) |
+| MAC-033 | `RELEASE_OS_NAMES` Windows-only; README macOS status | `release.py`, README | P6a (before review and the gates; never after) |
+| MAC-034 | Local agent guidance names stale or absent paths: `scripts/Universal/`, `scripts/verify.py`, `CHANGELOG.md`/`DECISIONS.md`/`handoff.md` (wrong case), the `files/dev/qwen_worker.py` delegation, the v0.5.0 commit rule; `AI-WORKSPACE.md` names an absent `AGENTS.md` | `.claude/CLAUDE.md` (local, gitignored) | Owner reconciliation (§3.1); no phase edits it |
 | MAC-035 | eSpeak NG data path on macOS (`espeak_data.py` symlink/short-root logic) | `shared/espeak_data.py` | P2 |
 | MAC-036 | No `timeout` utility; bash 3.2 for stage 0 | stage 0 | P1A |
 | MAC-037 | `<Control-a>` without `<Command-a>` in some text boxes | `shared/job_ui.py` | P1B |
@@ -1209,3 +1758,7 @@ Labels as used in the text. Third-party reports are evidence of plausibility, no
 | MAC-040 | Tk 9 trackpad `<TouchpadScroll>` missing at three custom scroll sites; `qwen3_clone_setup_ui` wheel handler never scrolls with small macOS deltas | `ui_theme.py`, `cover_resizer.py`, `qwen3_clone_setup_ui.py` | P1B |
 | MAC-041 | The launcher's Gatekeeper help says "right-click → Open", which macOS 15+ no longer honours | `.command`, README | P1A |
 | MAC-042 | Possible menu-bar name "Python", Dock icon, Retina sharpness and front-most focus with a non-framework PBS interpreter | GUI launch | P1A measure, P1B fix if needed |
+| MAC-043 | Kokoro/Chatterbox inference runs in the GUI process and checks Cancel only between chunks; a chunk in flight cannot be preempted (breaks the immediate-Cancel rule on a Mac CPU) | `kokoro_synth.py`, `chatterbox_synth.py`; new `local_engine_host.py`/`local_engine_worker.py` | P2 (Kokoro, worker), P3A (Chatterbox); §11.2.1 |
+| MAC-044 | Third-party children (FFmpeg, ffprobe, pip and its build backends) and the setup process's children have no POSIX containment after a crash or SIGKILL; `atexit` cannot help | `subprocess_utils.py`, `bootstrap.py`; new `child_ownership.py`/`child_guardian.py` | P1A (setup), P1B (GUI); §11.2.2 |
+| MAC-045 | The 55 acceptance journeys exist only through the Windows native-input adapter; macOS has no functional counterparts | `verification.json` (`acceptance`), new `adapters/macos/` | P1B (map, five tools), P2–P5 (TTS journeys, completion); §14.3 |
+| MAC-046 | Under `core.filemode=false` a newly added executable is recorded as `100644` | Git index (new `.sh`/`.command` files) | Every phase that adds one (`git add --chmod=+x`; §3.1) |
