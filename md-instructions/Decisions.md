@@ -2,6 +2,24 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-15 — macOS P1A accepted by the owner at `d6c0d77`: the three manual checks PASS (owner-reported); nothing else changes (owner decision; recorded by Claude Code)
+
+- **Owner decision.** P1A is accepted as PASS at the exact SHA `d6c0d77c010b1412dc3adb13aa73c67b1db71846`. The basis is the automated P1A evidence (the "D3 remediation" entry below) and three manual checks the owner performed personally, each reported PASS:
+  1. the listening comparison of the real xHE-AAC audiobook with the converted output (proof 8, C);
+  2. the Finder double-click of `Setup_and_Run-audiobook-creation-tool.command`;
+  3. KX-4: closing the Terminal window during first-run package installation left no installer running, and the next launch repaired.
+
+  Source: OWNER-MANUAL, owner-reported in the P1B kickoff. The agent observed none of them and made no screenshot, observation record or signature for them.
+- **Unchanged by this acceptance.**
+  - The 333 pre-existing macOS test failures stay unresolved baseline failures.
+  - No canonical macOS full gate has passed; none runs before P7.
+  - Clean-install evidence stays SIMULATED, never REAL CLEAN (P7c, D18).
+  - The seven-file signing exception stays exactly as narrow as recorded.
+  - The Riedl 9.0.1 identity and the revised proof 8 are unchanged. The pin is accepted for P1A, not for release.
+- **Why it is recorded on its own.** P1A's exit required the owner's checks to be performed by the owner and never inferred (plan §19 P1A, exit 3; §14.2's source qualifier). Binding the acceptance to the exact SHA keeps the evidence attributable: every P1B change comes after it.
+
+Signed: the owner (P1A acceptance, 2026-11-15); recorded by Claude Code.
+
 ## 2026-11-15 — macOS P1A D3 remediation: proof 8's sample-count clause amended for one proven stitched file; Riedl 9.0.1 adopted for local qualification (owner listening still pending); a narrow signing exception for seven upstream files; the locks' requirements digest no longer depends on line endings (owner decisions; implementation decisions by Claude Code)
 
 **Owner decisions (2026-11-15, after the D3 forensic investigation).**

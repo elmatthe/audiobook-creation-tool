@@ -1,5 +1,26 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P1A: PASS by the owner's acceptance at `d6c0d77`; documents only (2026-11-15, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched).
+
+- **Branch.** `feature/0.8.0-macos-compatibility`. The commit that adds this block is a documents-only P1A closure on `d6c0d77` (Handoff and Decisions only). The owner's 17 tracked deletions and untracked files were not staged. `core.filemode=false`, the CRLF working-tree bytes, the four Windows worktree records and `.claude/CLAUDE.md` are untouched.
+- **Owner acceptance (owner-reported, 2026-11-15, against `d6c0d77c010b1412dc3adb13aa73c67b1db71846`).** The owner personally performed the three P1A manual checks and reports each as PASS:
+  1. the listening comparison of the real xHE-AAC audiobook with the converted output (proof 8, C);
+  2. the Finder double-click of `Setup_and_Run-audiobook-creation-tool.command`;
+  3. KX-4: the Terminal window closed during first-run package installation left no installer running, and the next launch repaired.
+
+  Source: OWNER-MANUAL, owner-reported in the P1B kickoff. The agent observed none of them and made no screenshot, observation record or signature for them.
+- **Verdict: P1A PASS**, on the automated P1A evidence recorded for `d6c0d77` (block below) and the three owner checks above.
+- **Attribution checked.** `HEAD` = `origin/feature/0.8.0-macos-compatibility` = `d6c0d77` before this commit. The `p1a-sim` worktree is at `d6c0d77` with a clean status, and no tracked file in it changed after the final LF per-file run began. The automated evidence (amended proof 8, proofs 1–7, the Converter journey, the SIMULATED acquisition, relaunch and interruption runs, the native audit, the 3,388 / 333 / 175 LF comparison) is therefore the evidence of `d6c0d77`'s code.
+- **Unchanged by this acceptance.**
+  - The **333 pre-existing macOS test failures** stay unresolved baseline failures. They also fail at the untouched `de99ba1`. They do not authorize new failures or blanket skips.
+  - **No canonical macOS full gate has run or passed.** None runs before P7.
+  - Clean-install evidence stays **SIMULATED** (PATH-restricted, linkage-verified), never REAL CLEAN. REAL CLEAN `fresh-macos` is mandatory at P7c (D18).
+  - The **seven-file native-signing exception** stays exactly as narrow as recorded.
+  - The **Riedl FFmpeg 9.0.1 identity** (build path `1787073674_9.0.1`, the recorded sizes and SHA-256s, `Developer ID Application: Martin Riedl (KU3N25YGLU)`) and the **revised xHE-AAC qualification** (amended proof 8: one owner-approved fixture at its exact counts) are unchanged. The pin is accepted for P1A, not for release (P6/P7).
+- **Next action.** P1B, authorized by the owner in the same kickoff.
+
 ## Current checkpoint — macOS P1A D3 remediation: P1A AUTOMATED REMEDIATION COMPLETE — OWNER MANUAL ACCEPTANCE PENDING (2026-11-15, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched).
