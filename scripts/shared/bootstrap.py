@@ -3245,6 +3245,12 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
     if not ensure_ffmpeg(log):
         # Non-fatal: Edge TTS still works without ffmpeg for some paths, but most
         # tools need it. Surface clearly rather than crash.
+        if IS_MAC:
+            # v0.8.x P1A (D3): a Mac uses only the app's own verified build, so an FFmpeg installed elsewhere would
+            # never be used; asking the person to install one would be advice the app then ignores.
+            return False, ("The audio tools (FFmpeg) could not be set up.\n"
+                           "The app uses only its own verified FFmpeg build, downloaded into this folder, and tries "
+                           "again by itself the next time it starts. See the log for what failed.")
         return False, ("ffmpeg could not be installed automatically.\n"
                        "Install it (https://ffmpeg.org/download.html) and re-run, "
                        "or see the log for the manual steps.")

@@ -274,6 +274,9 @@ def no_package_manager(monkeypatch):
     monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         lambda log: False)
+    # v0.8.x P1A D3: a Mac's own-build route, which now has an adopted build to fetch.
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos",
+                        lambda log: False)
 
 
 def test_an_empty_machine_is_not_reported_as_ready(monkeypatch,

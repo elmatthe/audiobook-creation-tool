@@ -223,6 +223,19 @@ def requirement_pins(requirements_text: str, python: tuple[int, int] = LOCKED_PY
     return pins
 
 
+def requirements_digest(raw: bytes) -> str:
+    """The value a lock's ``requirements.txt sha256`` header records: SHA-256 of ``requirements.txt`` with every line
+    ending written as CRLF, whatever the checkout holds.
+
+    v0.8.x P1A D3 remediation: Git stores the file with LF and checks it out with CRLF on Windows and LF on a Mac, in a
+    clean worktree and in an extracted archive, so a digest of the raw bytes named a checkout, not a file. CRLF is the
+    form the released Windows lock was generated from (its header and the macOS lock's are unchanged and still
+    match); any change other than line endings still changes the digest. This is a development-time consistency
+    check only: setup's receipt stamp (``bootstrap.requirements_fingerprint``) still hashes the raw bytes.
+    """
+    return hashlib.sha256(raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")).hexdigest()
+
+
 def lock_problems(requirements_text: str, lock_text: str, requirements_sha256: str) -> list[str]:
     """Everything that makes the lock not a faithful, complete freeze of ``requirements.txt`` (empty when none)."""
     try:

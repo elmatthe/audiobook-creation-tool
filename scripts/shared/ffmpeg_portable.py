@@ -504,7 +504,10 @@ def cleanup_staging() -> None:
 #
 #  Proof 8 (a real xHE-AAC audiobook decoded by aac_at agrees with Apple's own
 #  decode, owner listening, the Converter journey) is not repeatable at run
-#  time; it is what adoption rests on.
+#  time; it is what adoption rests on (files/dev-tools/xhe_proof.py).
+#
+#  Nothing here or in the Converter trims, pads or shortens decoded audio to
+#  match Apple's length: aac_at output is used exactly as FFmpeg produces it.
 # =========================================================================== #
 from dataclasses import dataclass as _dataclass
 
@@ -528,7 +531,7 @@ class MacBuild:
     ffprobe: MacFile
     signing_authority: str
     team_id: str
-    adopted: bool          # False: proofs 1-7 recorded, adoption NOT approved
+    adopted: bool          # True only by an owner decision (D3); False: a candidate production refuses
     status: str
 
     @property
@@ -541,13 +544,15 @@ class MacBuild:
 
 #: The Riedl 9.0.1 arm64 release build, evaluated in P1A on 2026-11-15. Every value below was computed by ACT from the
 #: bytes it downloaded (the ZIP digests also equal Riedl's published .sha256 files) or read from those binaries; none
-#: was copied from a page. Proofs 1-7 PASSED. Proof 8 did NOT pass as specified: the aac_at decode of the owner's real
-#: xHE-AAC audiobook is bit-identical to Apple's afconvert decode for every sample Apple produces, but it carries 6,810
-#: further frames of digital silence at the end (FFmpeg does not apply the end trim with aac_at), which exceeds the
-#: one-AAC-frame (1,024) sample-count tolerance; the owner's listening check and the Converter journey are pending.
-#: So it is a CANDIDATE, not an adopted pin: :func:`acquire_macos` refuses it unless a qualification caller passes it
-#: explicitly. Adoption is the owner's D3 decision (Decisions, 2026-11-15).
-MACOS_RIEDL_9_0_1_CANDIDATE = MacBuild(
+#: was copied from a page. Proofs 1-7 PASSED. Proof 8 as first written failed only its sample-count clause: the aac_at
+#: decode of the owner's real xHE-AAC audiobook is bit-identical to Apple's afconvert decode for every frame Apple
+#: produces, then carries 6,810 further frames that are exactly zero. The D3 forensic investigation found why: Apple
+#: truncates its output to the edit-list length, while FFmpeg presents every decoded packet in full, and on that
+#: stitched file the difference is padding declared at its joins (aac_at does apply every trim the container declares;
+#: an AAC-LC control proves it). The owner amended that clause alone (D3 revised, 2026-11-15) and the amended automated
+#: proof 8 and the Converter journey PASSED, so the build is ADOPTED for further P1A local qualification. That is not
+#: the owner's listening acceptance (PENDING) and not release acceptance (Decisions, 2026-11-15).
+MACOS_RIEDL_9_0_1 = MacBuild(
     version="9.0.1",
     build_path="1787073674_9.0.1",
     base_url="https://ffmpeg.martin-riedl.de/download/macos/arm64",
@@ -557,13 +562,15 @@ MACOS_RIEDL_9_0_1_CANDIDATE = MacBuild(
                     "ffprobe", 66159232, "7abc49fb2bdf2204f018e76dc6e0a8ae7643313bae09a9fa43e7eb12442271bc"),
     signing_authority="Developer ID Application: Martin Riedl (KU3N25YGLU)",
     team_id="KU3N25YGLU",
-    adopted=False,
-    status="candidate: proofs 1-7 passed; proof 8 sample count outside tolerance; owner listening pending (D3)",
+    adopted=True,
+    status=("adopted for P1A local qualification (owner D3 revised, 2026-11-15): proofs 1-7 and the amended "
+            "automated proof 8 passed; owner listening PENDING; not release-accepted"),
 )
 
-#: The adopted macOS build: None until the owner accepts one under D3. With None, a Mac gets no FFmpeg from the app
-#: and the audio tools say so (limited mode); nothing unqualified is installed.
-MACOS_FFMPEG_PIN: Optional[MacBuild] = None
+#: The adopted macOS build (owner decision D3). Acquisition and every repair repeat proofs 1-7 against exactly these
+#: recorded values; changed bytes or another signing identity are refused. With None, a Mac would get no FFmpeg from
+#: the app and the audio tools would say so; nothing unqualified is ever installed.
+MACOS_FFMPEG_PIN: Optional[MacBuild] = MACOS_RIEDL_9_0_1
 
 #: Ceiling for one ZIP member (the real programs are about 66 MB).
 MAC_MAX_MEMBER_BYTES = 400_000_000

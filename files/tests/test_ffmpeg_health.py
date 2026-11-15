@@ -826,6 +826,8 @@ def test_setup_reports_ready_only_when_a_pair_was_proven(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         lambda log: False)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos",
+                        lambda log: False)  # v0.8.x P1A D3: a Mac's own build delivers nothing either
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
 
@@ -924,6 +926,8 @@ def test_a_launch_with_no_usable_ffmpeg_repairs_instead_of_warning(monkeypatch,
     monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         lambda log: False)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos",
+                        lambda log: False)  # v0.8.x P1A D3: a Mac's own build delivers nothing either
 
     result = bootstrap.ensure_ffmpeg_ready_for_launch()
 

@@ -214,6 +214,9 @@ def test_run_setup_builds_the_base_and_starts_nothing_else(monkeypatch, tmp_path
     monkeypatch.setattr(bootstrap, "_create_validated_venv", lambda *a, **k: True)
     monkeypatch.setattr(bootstrap, "reconcile_requirements", lambda *a: (True, ""))
     monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda *a: True)
+    # The sentence-data step writes into the real checkout (files/runtime-data/nltk_data), which _isolate_environment
+    # does not redirect: on a fresh tree it created that folder and tripped the session's write guard (v0.8.x P1A D3).
+    monkeypatch.setattr(bootstrap, "fetch_sentence_data", lambda log: True)
     monkeypatch.setattr(bootstrap.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("the base setup started a process of its own"))
     steps: list[int] = []

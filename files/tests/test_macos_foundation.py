@@ -33,6 +33,9 @@ native = pytest.mark.skipif(sys.platform != "darwin", reason=NATIVE_MACOS)
 
 from shared import base_packages, bootstrap, ffmpeg_health, ffmpeg_portable, macho  # noqa: E402
 
+#: The real macOS own-build route, before conftest's _no_real_provisioning refuses it for every test.
+REAL_MAC_ROUTE = bootstrap._download_portable_ffmpeg_macos
+
 
 # --------------------------------------------------------------------------- #
 #  Locks (MAC-005): one per platform; Windows unchanged
@@ -85,7 +88,7 @@ def test_the_macos_lock_is_complete_hashed_native_and_freezes_the_windows_versio
     text = MACOS_LOCK.read_text(encoding="utf-8")
     assert "\r" not in text
     problems = base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), text,
-                                           hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest())
+                                           base_packages.requirements_digest(REQUIREMENTS.read_bytes()))
     assert problems == []
     mac = base_packages.parse_lock(text)
     win = base_packages.parse_lock(WINDOWS_LOCK.read_text(encoding="utf-8"))
@@ -101,6 +104,34 @@ def test_the_macos_lock_is_complete_hashed_native_and_freezes_the_windows_versio
     by_key = mac.by_key()
     assert by_key["torch"].artifact == "torch-2.6.0-cp312-none-macosx_11_0_arm64.whl"
     assert by_key["numpy"].version == "1.26.4" and by_key["torch"].version == "2.6.0"
+
+
+#: The ``requirements.txt sha256`` both committed locks record (the released Windows lock's own header value).
+RELEASED_REQUIREMENTS_DIGEST = "a4805b76bd0732ed8a4433b47bebf3ba55c57c20c9355064af70643a0b2742dc"
+
+
+def test_the_requirements_digest_names_the_file_not_the_checkouts_line_endings():
+    """A CRLF checkout (Windows, this Mac's inherited tree), a clean LF worktree and an extracted archive hold the same
+    file; the digest the locks record is the same for all of them, and is exactly the released value."""
+    lf = REQUIREMENTS.read_bytes().replace(b"\r\n", b"\n")
+    crlf = lf.replace(b"\n", b"\r\n")
+    assert base_packages.requirements_digest(lf) == base_packages.requirements_digest(crlf) \
+        == RELEASED_REQUIREMENTS_DIGEST
+    # On a CRLF checkout the value is the raw bytes' SHA-256, computed as the released Windows lock was.
+    assert hashlib.sha256(crlf).hexdigest() == RELEASED_REQUIREMENTS_DIGEST
+    for header in (WINDOWS_LOCK, MACOS_LOCK):
+        parsed = base_packages.parse_lock(header.read_text(encoding="utf-8"))
+        assert parsed.header[base_packages.HEADER_REQUIREMENTS] == RELEASED_REQUIREMENTS_DIGEST, header.name
+    # Anything but line endings is still a different file.
+    for changed in (lf + b"\n", lf.replace(b"==", b"===", 1), lf[:-1], lf.replace(b"\n", b"\r")):
+        assert base_packages.requirements_digest(changed) != RELEASED_REQUIREMENTS_DIGEST
+
+
+def test_a_lock_from_another_requirements_file_is_still_refused():
+    other = base_packages.requirements_digest(REQUIREMENTS.read_bytes() + b"# edited\n")
+    problems = base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"),
+                                           MACOS_LOCK.read_text(encoding="utf-8"), other)
+    assert any("different requirements.txt" in problem for problem in problems)
 
 
 def _generator():
@@ -236,11 +267,28 @@ def test_a_non_native_ffmpeg_is_refused_before_it_is_run(monkeypatch, ffmpeg_san
     assert not proof.ok and "not a native Apple Silicon program" in proof.detail
 
 
-def test_no_macos_ffmpeg_is_adopted_and_nothing_unqualified_is_downloaded(ffmpeg_sandbox):
-    candidate = ffmpeg_portable.MACOS_RIEDL_9_0_1_CANDIDATE
-    assert ffmpeg_portable.MACOS_FFMPEG_PIN is None
-    assert candidate.adopted is False and "proof 8" in candidate.status
-    assert candidate.build_path == "1787073674_9.0.1" and "redirect" not in candidate.base_url
+def test_the_adopted_macos_ffmpeg_is_exactly_the_reviewed_riedl_build():
+    """Owner D3 (revised, 2026-11-15): the Riedl 9.0.1 bytes reviewed in P1A and nothing else -- the timestamped build
+    path, ACT's own measured sizes and digests, and the signing identity. Adopted for local qualification; the owner's
+    listening check is still pending and it is not release-accepted."""
+    build = ffmpeg_portable.MACOS_FFMPEG_PIN
+    assert build is ffmpeg_portable.MACOS_RIEDL_9_0_1 and build.adopted is True
+    assert (build.version, build.build_path) == ("9.0.1", "1787073674_9.0.1")
+    assert build.url("ffmpeg.zip") == \
+        "https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/ffmpeg.zip"
+    assert build.ffmpeg == ffmpeg_portable.MacFile(
+        "ffmpeg.zip", 28447413, "8287a1b2229e05eb41859f073e18e6c52c60a778f2f5e6881070fe51b79407fe",
+        "ffmpeg", 66334032, "393e4c395020a1cb7cbd77fbe00599ce69d1c6466fee0dbd59d13f86a81a1611")
+    assert build.ffprobe == ffmpeg_portable.MacFile(
+        "ffprobe.zip", 28370930, "102a26b8940a053298d9929bfaae71e4b6ef65ba5f19a99a88c433108560741a",
+        "ffprobe", 66159232, "7abc49fb2bdf2204f018e76dc6e0a8ae7643313bae09a9fa43e7eb12442271bc")
+    assert (build.signing_authority, build.team_id) == \
+        ("Developer ID Application: Martin Riedl (KU3N25YGLU)", "KU3N25YGLU")
+    assert "owner listening PENDING" in build.status and "not release-accepted" in build.status
+
+
+def test_without_an_adopted_build_nothing_unqualified_is_downloaded(monkeypatch, ffmpeg_sandbox):
+    monkeypatch.setattr(ffmpeg_portable, "MACOS_FFMPEG_PIN", None)
     lines = []
     log = type("L", (), {"line": lambda self, text: lines.append(text)})()
     opened = []
@@ -328,6 +376,7 @@ def test_a_mac_ffmpeg_repair_never_runs_homebrew_and_says_what_it_tried(monkeypa
     monkeypatch.setattr(bootstrap, "_run", lambda cmd, **kw: pytest.fail(f"ran {cmd}"))
     monkeypatch.setattr(ffmpeg_health, "establish", lambda log=None, **kw: None)
     monkeypatch.setattr(ffmpeg_portable, "acquire_macos", lambda log=None, **kw: None)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", REAL_MAC_ROUTE)   # the real wrapper, sandboxed
     result = bootstrap.repair_ffmpeg(_Log())
     assert not result.ready
     assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING, bootstrap.FFMPEG_ROUTE_PORTABLE)
@@ -340,15 +389,16 @@ RIEDL_ZIPS = REPO_ROOT / "files" / "temp" / "bootstrap" / "riedl-9.0.1"
 
 @native
 @pytest.mark.skipif(not (RIEDL_ZIPS / "ffmpeg.zip").is_file(), reason="the Riedl 9.0.1 ZIPs are not downloaded here")
-def test_the_candidate_passes_proofs_1_to_7_through_the_production_acquisition(monkeypatch, ffmpeg_sandbox):
-    """Real bytes, real codesign (in the guardian's group), real execution; served from the local verified copies."""
+def test_the_adopted_build_passes_proofs_1_to_7_through_the_production_acquisition(monkeypatch, ffmpeg_sandbox):
+    """Real bytes, real codesign (in the guardian's group), real execution; served from the local verified copies.
+    No build is passed: production's own default, the adopted pin, is what is acquired."""
     from shared import child_ownership
 
-    candidate = ffmpeg_portable.MACOS_RIEDL_9_0_1_CANDIDATE
+    candidate = ffmpeg_portable.MACOS_FFMPEG_PIN
     owner = child_ownership.Owner()
     log = _Log()
     try:
-        pair = ffmpeg_portable.acquire_macos(log, build=candidate, owner=owner,
+        pair = ffmpeg_portable.acquire_macos(log, owner=owner,
                                              opener=lambda url: open(RIEDL_ZIPS / url.rsplit("/", 1)[1], "rb"))
     finally:
         owner.shutdown()

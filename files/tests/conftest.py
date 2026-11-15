@@ -530,6 +530,19 @@ def _no_real_provisioning(monkeypatch):
 
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         _refuse_portable)
+
+    def _refuse_portable_macos(log=None):
+        # v0.8.x P1A D3: with a macOS build adopted, this route acquires the real Riedl build. Its network refusal
+        # above is caught and logged by the download step like any network error, after the staging folder exists,
+        # so without this a test that reached it would pass while writing files/runtime-data/ffmpeg-staging.
+        raise AssertionError(
+            "a test reached bootstrap._download_portable_ffmpeg_macos without "
+            "stubbing it. That path acquires the adopted macOS FFmpeg build "
+            "and creates files/runtime-data/ffmpeg-staging. Patch it, or drive "
+            "ffmpeg_portable.acquire_macos directly with a fixture build and opener.")
+
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos",
+                        _refuse_portable_macos)
     real_run = bootstrap._run
 
     def _guarded_run(cmd, **kwargs):

@@ -56,7 +56,7 @@ def _lock():
 # --------------------------------------------------------------------------- #
 def test_the_lock_records_this_requirements_file_and_every_pin_of_it():
     assert base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), LOCK.read_text(encoding="utf-8"),
-                                       hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest()) == []
+                                       base_packages.requirements_digest(REQUIREMENTS.read_bytes())) == []
 
 
 def test_every_locked_artifact_is_one_windows_cp312_or_pure_python_build():

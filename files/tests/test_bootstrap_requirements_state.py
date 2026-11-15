@@ -357,6 +357,9 @@ def setup_steps(monkeypatch, fake_env):
     monkeypatch.setattr(bootstrap, "_create_validated_venv",
                         lambda py, log, headless: True)
     monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda log: True)
+    # The sentence-data step writes into the real checkout (files/runtime-data/nltk_data), which fake_env does not
+    # redirect: on a fresh tree it created that folder and tripped the session's write guard (v0.8.x P1A D3).
+    monkeypatch.setattr(bootstrap, "fetch_sentence_data", lambda log: True)
     return fake_env
 
 

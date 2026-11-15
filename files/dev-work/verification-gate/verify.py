@@ -345,8 +345,9 @@ def check_requirements() -> tuple[str, bool, str]:
     lock = base_packages.lock_path(REQUIREMENTS)
     if not lock.is_file():
         return _fail("deps", f"missing {lock.name} (regenerate it with files/dev-tools/lock_base_requirements.py)")
+    # v0.8.x: the header's digest is of requirements.txt as text, whatever line endings this checkout holds.
     problems = base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), lock.read_text(encoding="utf-8"),
-                                           hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest())
+                                           base_packages.requirements_digest(REQUIREMENTS.read_bytes()))
     if problems:
         return _fail("deps", f"{lock.name}: " + "; ".join(problems[:5]))
     count = len(base_packages.parse_lock(lock.read_text(encoding="utf-8")).entries)

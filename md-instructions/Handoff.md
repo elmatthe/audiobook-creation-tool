@@ -1,5 +1,69 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P1A D3 remediation: P1A AUTOMATED REMEDIATION COMPLETE — OWNER MANUAL ACCEPTANCE PENDING (2026-11-15, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched).
+
+- **Branch.** `feature/0.8.0-macos-compatibility`, one commit on `1a6604a` (this block's commit), pushed to `origin` only. The owner's 17 tracked deletions and untracked files were never staged. `core.filemode=false`, the CRLF working-tree bytes, the four Windows worktree records and `.claude/CLAUDE.md` are untouched. Disposable worktrees under the ignored `files/dev-work/worktrees/`: `p1a-baseline` (`de99ba1`), `p1a-sim` (this commit; holds the SIMULATED installation with the adopted FFmpeg).
+- **Owner decisions recorded** (Decisions 2026-11-15, "D3 remediation"): D3 revised (amend proof 8's sample-count clause only; no trim; no 9.0.2); provisional pin adoption for local qualification; the narrow signing exception; the test and documentation corrections.
+- **Verdict: P1A AUTOMATED REMEDIATION COMPLETE — OWNER MANUAL ACCEPTANCE PENDING.** Every automated P1A criterion now passes. P1A is not PASS: the owner's listening check (proof 8, C), the Finder double-click and KX-4 remain PENDING (checklist below).
+- **What changed.**
+  - `scripts/shared/ffmpeg_portable.py`: `MACOS_FFMPEG_PIN = MACOS_RIEDL_9_0_1` (renamed from `…_CANDIDATE`, `adopted=True`; every recorded size, digest and the signing identity unchanged). The wrong "end trim is not applied with aac_at" comment is corrected.
+  - `scripts/shared/bootstrap.py`: on a Mac, a failed first-run FFmpeg step no longer says "install it from ffmpeg.org" (the Windows text is byte-identical).
+  - `scripts/shared/base_packages.py`: `requirements_digest` (line-ending-independent; equals the released header). It is used by the gate's `deps` stage (`verify.py`), the lock generator and the tests. Neither lock changed.
+  - New dev tools: `files/dev-tools/xhe_proof.py` (proof 8, amended T1) and `files/dev-tools/macos_native_audit.py` (the signing exception).
+  - New tests: `test_macos_xhe_proof.py` and `test_macos_native_audit.py`.
+  - Tests corrected:
+    - `test_macos_foundation.py`: the digest, the adopted pin, the real wrapper.
+    - `test_cleanup_state.py`: the interpreter-location assumption.
+    - `test_bootstrap_requirements_state.py`: the sentence-data leak.
+    - `conftest.py` and two fixtures/tests (`test_first_run_contract.py`, `test_ffmpeg_health.py`): the real Mac own-build route is refused like the Windows one.
+  - `coverage.json`: three sources restamped after review. The roadmap's §11.1 proof 8 and the P1A section are amended in place. `feature-map/shared-workflows.md`'s stale macOS FFmpeg lines are corrected.
+- **Evidence (this Mac; MEASURED unless stated).**
+  - **Proof 8, amended:** PASS on the owner's fixture (SHA-256 `b9a24a88…f8d4`, unchanged). Lag 0, all 1,552,303,462 Apple frames bit-identical, 6,810 excess frames all zero (≤ the 6,822 declared), 1,515,928 packets × 1,024.
+  - **AAC-LC controls:** Mistborn, and a synthetic Apple-encoded file. `aac_at` applies declared trims exactly as the native decoder does.
+  - **Riedl identity, proofs 1–7** on every acquisition: the timestamped build path, ZIP and program SHA-256s, arm64 only, `Developer ID Application: Martin Riedl (KU3N25YGLU)`, system libraries only, `aac_at` and `libmp3lame`.
+  - **Converter, real journey** (the real panel and worker; harness seams only for the output folder and the Finder reveal):
+    - split: SUCCEEDED in 567 s, 15 chapters. The independent check passed 77/77, with every chapter within 0.6 samples of the position the source's `stts` predicts and no gap at any boundary.
+    - whole: SUCCEEDED in 131 s; 44/44 checks passed, including 15 chapter markers and every interval.
+    - Source unchanged; nothing left in the run folders but the published MP3s.
+    - The first split oracle sliced the reference at `time × rate`, which this stitched file breaks. It and its file-name expectation were corrected and re-run on the same published files; nothing in the product changed.
+  - **SIMULATED** (`env -i`, PATH-restricted, recording shims, scratch HOME/TMPDIR, clean LF worktree):
+    - The first-run FFmpeg step from an absent installation acquired and pinned the exact bytes in 4 s.
+    - Healthy relaunches through the real `.command` returned rc 0 with no download.
+    - `kill -9` with a 1 MB partial `ffmpeg.zip.part` left 0 processes. The next `.command` removed the partial, re-downloaded, verified and pinned (rc 0).
+    - `kill -9` during verification (codesign running) left 0 processes, codesign included. The next `.command` reused the verified ZIPs (rc 0).
+    - Throughout: GUI 0 Homebrew images; shims called 0 times; the launcher's Terminal-close requests were recorded by an `osascript` shim and never sent; scratch HOME/TMPDIR untouched; 0 ACT processes left.
+  - **Native audit, SIMULATED installation:** 435 Mach-O files: 428 PASS, 7 PASS-EXCEPTION (the approved files at their recorded bytes), 0 FAIL. The libomp load proof PASSED.
+  - **Tests:** 3,896 ids, one pytest process per file, the forensic's 61-file list plus the stage-0 module and the two new modules. Clean LF worktree: **3,388 PASS, 333 FAIL, 175 SKIP**. Inherited CRLF main checkout: 3,384 / 333 / 179. **0 new failures** against the untouched `de99ba1`, and 0 regressions against the forensic HEAD run. All 333 failures also fail at `de99ba1`; only the deps-gate test's reason changed (its Windows-only "170 packages" expectation remains). Fixed: the 3 P1A line-ending tests, the line-ending lock test (failing since `b025b6c`) and the `nltk_data` guard echo. LF and CRLF differ only in 8 skips that depend on local data. The earlier "3,352 / 334 / 176" was a composite of two code states and is superseded. Details are in the Decisions entry; the per-id tables are `files/dev-work/macos-p1a/d3r/test-comparison-final.{json,csv}` (ignored).
+- **Owner manual checks — all PENDING; never self-certified.** A local checklist with exact paths and commands is in the ignored `files/dev-work/macos-p1a/d3r/OWNER-CHECKS.md`.
+  1. **Listening (proof 8, C).** Listen to the real Converter outputs under `files/dev-work/macos-p1a/d3r/journey-out/`:
+     - whole book `whole/…/Reincarnated as a Sword.mp3` at 0:00–0:50 (join 1 at 0:41) and 4:54:50–4:55:15 (the chapter 7→8 boundary);
+     - split `split/…/07 - …Part 2.mp3` (its end) with `08 - Chapter 4_ Ties That Bind.mp3` (its start);
+     - `15 - End Credits.mp3`, the whole file (the book's end; a join 4.9 s before the end).
+
+     Compare with the `.m4b` in QuickTime Player (Apple's decoder) at the same positions. Listen for clicks, gaps, stutters or repeated or missing words at the joins, distortion, wrong speed or pitch, and an unnatural end. Record PASS/FAIL per item.
+  2. **Finder.** In Finder, double-click `Setup_and_Run-audiobook-creation-tool.command` in `files/dev-work/worktrees/p1a-sim`, a disposable copy that is set up and known good. Expect:
+     - no Python download question and no package installation;
+     - no "Setting up the audio tools" window;
+     - the app opens with all six tools (TTS Audiobook, M4B Converter, MP3 Tool, M4B Maker, Cover Image, M4B Metadata);
+     - the Terminal window closes itself.
+
+     Quit the app, then check that `ps -axo pid,command | grep -F worktrees/p1a-sim | grep -v grep` prints nothing.
+  3. **KX-4.** Make a fresh disposable copy (`git archive` of this commit into `files/dev-work/manual/kx4`, with the kept wheel store copied in) and double-click its `.command`. While first-run setup is installing packages, close the Terminal window (Terminate). Within about 5 s, `ps … | grep -F manual/kx4` must print nothing. Double-click again: setup must repair and reach the app.
+- **Open items.**
+  - P1A: the three owner checks above.
+  - P1B:
+    - the `win32` skip rule for the native-only reason (this checkpoint adds native-only tests; recount at P1B);
+    - the darwin gate preflight (the `.venv/Lib` path) and the inventory CLI's `winreg` import;
+    - the pre-existing darwin failures (333, unchanged in kind);
+    - the `deps`-gate test's Windows-only "170 packages" expectation on a Mac.
+  - Unchanged from P1A:
+    - the Windows latent "venv killed during ensurepip" gap;
+    - the rebuild of a pre-P1A Homebrew-based Mac `.venv`.
+  - Release: REAL CLEAN, Gatekeeper and a fresh evaluation of the signing exception for a hardened host (P7c/D10).
+- **Next action.** The owner performs and records the three manual checks. Only then can P1A exit PASS. Do not start P1B before that, or without the owner's word.
+
 ## Current checkpoint — macOS P1A: native bootstrap, arm64 hash lock and setup containment implemented; P1A BLOCKED on D3 (FFmpeg proof 8) (2026-11-15, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched).
@@ -21,6 +85,7 @@ This block supersedes the blocks below for status and next action. Windows v0.8.
   - SIMULATED recovery on `fd47573` through the real launcher: on a fresh worktree state, `kill -9` during `python -m venv` (4 ACT processes, 0 left after 3 s) left a `.venv` with no pip record; the real `.command` classified it `repairable (incomplete)`, rebuilt it with hashes, proved the imports and launched the GUI (0 Homebrew images); a removed `tqdm` file was then repaired by the next real `.command` from the kept store; `pip check` clean; shims called 0 times; no ACT process left. Each `.command` returned 1 only because bootstrap then shows the one limited-mode notice (an `NSAlert`: no FFmpeg is adopted), which an automated run cannot click; the harness ended it with SIGTERM after the GUI was up. A launch-time `kill -9` during pip was not reached in this run (the launch handed off to a repair before pip ran); it was exercised twice in the `e956a29` run.
   - Harness note: the only write to the scratch HOME (`~/.cache/huggingface/hub/version_diffusers_cache.txt`) came from the harness calling `run_setup` without `bootstrap.main()`, which sets `HF_HOME` inside the app folder first. No write outside the repository or `$TMPDIR` was seen.
   - Not REAL CLEAN: this Mac has Homebrew and the Xcode Command Line Tools. REAL CLEAN is P7c (D18).
+- **[Corrected 2026-11-15, D3 remediation]** The totals in the next bullet merged runs of two code states and are superseded: the HEAD code alone measured 3,347 / 338 / 177 (forensic), and the "four real-coordinator tests" never failed at `de99ba1` or HEAD. The final numbers are in the block above.
 - **Focused tests (pytest directly; the gate's focused mode stops at a Windows-only preflight path on macOS, P1B).** New: `test_bootstrap_host_macos.py` 29 PASS, `test_child_ownership.py` 16 PASS, `test_macos_foundation.py` 44 PASS (0 FAIL, 0 SKIP on this Mac). Existing files that touch the changed modules (61 files, 3,832 ids), compared by test id with an untouched `de99ba1` worktree on this Mac: 3,862 test ids: **3,352 PASS, 334 FAIL, 176 SKIP, 0 BLOCKED**. 333 of the failures fail identically on the untouched baseline (pre-existing on macOS, outside P1A); the remaining 1 (`test_cleanup_state.py::test_the_real_base_interpreter_is_found_and_is_outside_the_project`) fails only because the test interpreter lives inside this checkout, and passes from the P1A worktree, as do the four real-coordinator tests that failed for the same reason. The 176 skips are the baseline's own.
 - **Windows shared-code touchpoints (need HOME-PC focused verification in P5; Windows branches are intended unchanged):** `scripts/shared/bootstrap.py` (spawn helpers' Windows branches, `requirements_fingerprint` lock name, Windows lock/unlocked messages, FFmpeg route answers), `base_packages.py` (Windows lock/store/cache unchanged; tested byte-for-byte), `ffmpeg_health.py` (darwin-only branches), `ffmpeg_portable.py` (`promote(destination=)`; Windows text identical), `venv_layout.py`/`maintenance.py`/`venv_integrity.py` (case rule: Windows always case-blind), `cleanup_state.py` (darwin-only), `files/dev-tools/lock_base_requirements.py` (Windows render byte-identical, tested), `coverage.json` (sources mapped, restamped), `feature-map/shared-workflows.md`, `scripts/shared/README.md`, and tests: `conftest.py` (`pinned_ffmpeg` pins via `BIN_DIR`), `test_launch_self_heal.py`, `test_hardening_matrix.py` (macOS rows moved to the D2/D3 contract), `test_first_run_contract.py`, `test_ffmpeg_health.py`, `test_ffmpeg_runtime_trust.py`, `test_ffmpeg_portable.py` (PATH contract made explicit), `test_base_packages.py`, `test_bootstrap_import_validation.py`, `test_venv_integrity.py`, `test_spacy_restore.py`, `test_cleanup_state.py`, `test_layout_canary.py`, `test_release_packaging.py`.
 - **Owner-manual, PENDING (not self-certified):** Finder double-click of the `.command` in a disposable copy; KX-4 closing the Terminal window during first-run pip, then confirming no installer remains; the proof-8 spot-listen of the xHE-AAC decode.

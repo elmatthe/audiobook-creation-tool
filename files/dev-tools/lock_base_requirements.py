@@ -27,7 +27,6 @@ Exit codes: 0 PASS, 1 the lock differs (--check), 2 refused.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -113,7 +112,7 @@ def _compare(entries: list[dict], pins: dict[str, tuple[str, str]]) -> None:
 
 
 def _render(entries: list[dict], source: str, pip_version: str, platform: str = "win_amd64") -> str:
-    requirements_sha256 = hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest()
+    requirements_sha256 = base_packages.requirements_digest(REQUIREMENTS.read_bytes())
     target = PLATFORMS[platform][0]
     title = ("Windows x86-64, CPython 3.12" if target is base_packages.WINDOWS_LOCK
              else "macOS Apple Silicon (arm64), CPython 3.12")
@@ -166,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         _compare(entries, pins)
         text = _render(entries, args.source, pip_version, args.platform)
         problems = base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), text,
-                                               hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest())
+                                               base_packages.requirements_digest(REQUIREMENTS.read_bytes()))
         if problems:
             raise Refused("the generated lock does not satisfy the lock contract: " + "; ".join(problems))
     except Refused as exc:

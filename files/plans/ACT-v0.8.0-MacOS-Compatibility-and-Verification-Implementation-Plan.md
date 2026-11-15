@@ -500,11 +500,21 @@ Disk checks before each consented download reuse `optional_setup_resource_budget
     5. **Signature:** `codesign --verify --strict --verbose=2` passes. `codesign -dv` records the signing authority and Team ID, and these go into the pin so that a later re-signed binary is noticed.
     6. **Linkage:** `otool -L` names only system libraries and frameworks (`/usr/lib`, `/System/Library`, including AudioToolbox), with no `/opt/homebrew` or `/usr/local` path.
     7. **Execution:** the `ffmpeg_health` proof passes. `-version` reports 9.0.1, `-decoders` lists `aac_at` and `-encoders` lists `libmp3lame`; a published codec list is not accepted in place of this.
-    8. **Real xHE-AAC proof.**
-       - An owner-supplied **real xHE-AAC (USAC) audiobook**, kept local and never committed, is decoded through `-c:a aac_at` to PCM.
-       - Its duration and sample count must agree with Apple's own decode of the same file (`afconvert`, built in) within one AAC frame.
-       - The PCM of the two decodes must match within a stated tolerance.
-       - The owner spot-listens.
+    8. **Real xHE-AAC proof.** (Its sample-count clause was amended by the owner after the D3 forensic investigation: D3 revised, 2026-11-15. Everything else is as first written.)
+       - An owner-supplied **real xHE-AAC (USAC) audiobook**, kept local and never committed, is decoded through `-c:a aac_at` to PCM, and by Apple's own decoder (`afconvert`, built in). Tool: `files/dev-tools/xhe_proof.py`.
+       - **A. Decoder correctness (unchanged).**
+         - The decodes align: lag within 2,048 frames (T2).
+         - The PCM matches over the aligned overlap: SNR ≥ 60 dB and largest difference ≤ 64 LSB (T3). No narration is dropped, corrupted or shifted.
+         - The source's own packet, sample-table and edit-list accounting is read and recorded with the result.
+       - **B. Sample count (amended).** The two counts agree within one AAC frame (1,024 frames). The only other accepted case is narrow. FFmpeg may emit **more** frames than Apple only for a source the owner approved by SHA-256, at exactly its approved counts, and only when all of these hold:
+         - it is an excess, never a shortfall;
+         - the decodes align at lag 0, and every frame Apple emits is bit-identical in FFmpeg's decode;
+         - FFmpeg's count is exactly packets × frames per packet (every packet the container holds, in full);
+         - the excess is no larger than the padding the container's own sample table declares;
+         - every excess frame is exactly zero, with the whole region read.
+
+         There is no loose tolerance and no general licence. ACT never trims, pads or rewrites decoded audio to match Apple's length. Why: Apple truncates its output to the edit-list length, while FFmpeg presents every decoded packet in full; on the approved stitched file the difference is padding declared at its joins (Decisions 2026-11-15).
+       - **C. Manual acceptance (unchanged).** The owner listens. It is a separate owner check and is never inferred from A or B.
        - The existing Converter real-media journey then runs on that file with this build.
 
        A file generated on the Mac may supplement this proof but never replaces it: whether `afconvert` can encode USAC on macOS 27 is PLAUSIBLE BUT UNVERIFIED. The existing tests note that no xHE-AAC file can be generated with the pinned FFmpeg.
@@ -1276,7 +1286,7 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
   - **Clean install, SIMULATED (linkage-verified)** (§8.2):
     - every Mach-O is arm64;
     - `otool -L` and the loaded images show nothing from Homebrew or `/usr/local`;
-    - `codesign --verify` passes;
+    - `codesign --verify` passes. The owner's narrow exception (2026-11-15) covers exactly seven upstream files, each at its recorded bytes: six universal2 modules whose arm64 slice verifies, and PyTorch's unsigned `libomp.dylib`, which must load and run. `files/dev-tools/macos_native_audit.py` judges them; anything else fails, and REAL CLEAN at P7c stays mandatory;
     - `pip check` is clean and every install used `--require-hashes`;
     - nothing was written outside the repository and `$TMPDIR`.
   - **Interruption recovery:** kill during the download, the extraction, the venv build and pip. The next launch repairs, and no orphan remains.
@@ -1296,7 +1306,7 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
   1. The SIMULATED first run reaches a running app with no Homebrew call, link or load and no admin prompt, and is reported as **SIMULATED**.
   2. Hashes are enforced for every install, and the macOS lock is complete.
   3. FFmpeg is settled one of two ways:
-     - Riedl 9.0.1 is adopted after all eight proofs, with its real size, SHA-256s and signing identity recorded; or
+     - Riedl 9.0.1 is adopted after all eight proofs, with its real size, SHA-256s and signing identity recorded (D3 revised, 2026-11-15: the pin may be enabled for further local qualification once the automated part of proof 8 and the Converter journey pass; the owner's listening check stays a P1A exit item and is never inferred); or
      - D3 goes back to the owner with the failing proof, and the phase exits **BLOCKED**. An unproven build is never pinned.
   4. Installer-containment and interruption-recovery tests PASS, with no orphan.
   5. Focused tests PASS, with counts recorded, and the Windows touchpoints are listed.
