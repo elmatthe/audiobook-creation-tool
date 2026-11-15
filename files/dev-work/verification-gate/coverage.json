@@ -21358,7 +21358,7 @@
             "FFmpegRepair.notice",
             "FFmpegRepair.attempted",
             "_install_ffmpeg",
-            "_brew_ffmpeg",
+            "_download_portable_ffmpeg_macos",
             "_package_manager_route",
             "_no_package_manager_detail",
             "_ffmpeg_on_path",
@@ -21371,7 +21371,8 @@
         "Windows never runs a package manager: the route is the pinned pair on file, then the app's own verified build",
         "Ready means the health record holds a proved pin; an installer's exit code never decides it",
         "A launch whose repair fails still opens the app in limited mode with one notice naming only the routes actually tried",
-        "An FFmpeg problem never rebuilds the Python environment, and a second launch after a successful repair does no work"
+        "An FFmpeg problem never rebuilds the Python environment, and a second launch after a successful repair does no work",
+        "On a Mac nothing is installed on the computer either (v0.8.x P1A, D3): the route is the adopted app-owned arm64 build, with proofs 1-7 on every acquisition and repair; Homebrew is never run"
       ],
       "selection": [
         "files/tests/test_launch_self_heal.py",
@@ -22678,8 +22679,8 @@
         {
           "path": "scripts/shared/bootstrap.py",
           "symbols": [
-            "_refresh_brew_path",
-            "_brew_install_python_tk"
+            "_is_app_python",
+            "find_suitable_python"
           ]
         },
         {
@@ -22690,7 +22691,7 @@
       "contracts": [
         "Run without its scripts/ folder beside it (Gatekeeper App Translocation or a copied .command), it explains how to move the folder and keeps the window open",
         "With an executable .venv/bin/python it runs --launch-only in the foreground; exit 3 takes the repair route and a present but unrunnable interpreter is also repaired",
-        "First run looks for a Tk-capable python3.12/3.11/python3, may install Homebrew Python with Tk, and falls back to a headless install",
+        "First run and repair run stage 0 (bootstrap_host_macos.sh, bash 3.2), which proves or, with consent, downloads the app's own Python, and setup then runs on that interpreter only: no Python on PATH, no Homebrew, no login password and no headless fallback (v0.8.x P1A, D1/D2)",
         "After a successful launch a detached helper closes the Terminal window without the 'terminate running processes' prompt"
       ],
       "selection": [
