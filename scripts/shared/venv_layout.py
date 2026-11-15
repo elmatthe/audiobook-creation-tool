@@ -51,8 +51,41 @@ ABSENT = "absent"
 _CASE_INSENSITIVE = os.name == "nt"
 
 
+#: ``_PC_CASE_SENSITIVE`` on macOS (the importer's ``filesystem_is_case_insensitive`` asks the same; this module may
+#: not import the importer, which belongs to the plan-3 foundation).
+_DARWIN_PC_CASE_SENSITIVE = 11
+_CASE_BLIND_BY_DEVICE: dict = {}
+
+
+def case_insensitive(path) -> bool:
+    """Whether two case-only spellings of ``path`` name one location. Windows: always (unchanged). macOS (v0.8.x
+    P1A, MAC-015): the volume's own answer (APFS is case-insensitive by default, a case-sensitive APFS volume is not),
+    asked of the nearest existing folder and remembered per volume; an unanswerable volume keeps spellings apart.
+    Elsewhere: no."""
+    if _CASE_INSENSITIVE:
+        return True
+    if sys.platform != "darwin":
+        return False
+    probe = os.path.abspath(str(path))
+    while not os.path.lexists(probe):
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return False
+        probe = parent
+    try:
+        device = os.lstat(probe).st_dev
+    except OSError:
+        return False
+    if device not in _CASE_BLIND_BY_DEVICE:
+        try:
+            _CASE_BLIND_BY_DEVICE[device] = not bool(os.pathconf(probe, _DARWIN_PC_CASE_SENSITIVE))
+        except (OSError, ValueError):
+            return False
+    return _CASE_BLIND_BY_DEVICE[device]
+
+
 def _fold(text: str) -> str:
-    return text.casefold() if _CASE_INSENSITIVE else text
+    return text.casefold() if case_insensitive(text) else text
 
 
 def _norm(path) -> str:

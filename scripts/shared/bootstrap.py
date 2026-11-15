@@ -17,8 +17,8 @@ Responsibilities, in order:
    - locate or install Python 3.11/3.12 (Kokoro wheels require <3.13),
    - create ``<repo_root>/.venv`` with that interpreter,
    - ``pip install`` the pinned ``scripts/requirements.txt``,
-   - ensure ffmpeg (Windows: the app's own pinned build in ``files/bin/``, never an install on the computer;
-     macOS: Homebrew),
+   - ensure ffmpeg (the app's own pinned build in ``files/bin/``, never an install on the computer; v0.8.x P1A:
+     macOS too, with no Homebrew),
    - optionally pre-download the Kokoro model (~300 MB).
 4. Launch the unified launcher GUI detached (``pythonw`` on Windows) and exit.
 
@@ -95,6 +95,8 @@ from shared import nltk_store  # noqa: E402
 from shared import venv_integrity  # noqa: E402
 # v0.8.0: Windows long-path support against this folder's depth -- read, offer, change with consent, prove. Stdlib.
 from shared import long_paths  # noqa: E402
+# v0.8.x P1A: POSIX ownership of setup's children (lifeline + guardian), so none outlives this process. Stdlib.
+from shared import child_ownership  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -112,8 +114,10 @@ for _stream in (sys.stdout, sys.stderr):
 PREFERRED_PY = ("3.12", "3.11")
 #: v0.7.0 portable layout (Windows): the app's own standalone CPython, placed by stage 0 (bootstrap_host.ps1) inside
 #: the app's folder. Outside .venv on purpose: a repair renames .venv aside while this interpreter runs the repair.
+#: v0.8.x P1A (owner decisions D1/D2): macOS has the same layout, placed by bootstrap_host_macos.sh, at
+#: python/bin/python3.12 -- the only Python a Mac's environment is ever built on.
 APP_PYTHON_DIR = FILES_DIR / "runtime-data" / "python"
-APP_PYTHON = APP_PYTHON_DIR / "python.exe"
+APP_PYTHON = APP_PYTHON_DIR / ("python.exe" if IS_WINDOWS else "bin/python3.12")
 
 # The project's full-feature range, in one place. 3.11 is the floor the project
 # supports; 3.13 is excluded because the pinned Kokoro/Chatterbox wheels require
@@ -447,7 +451,7 @@ def requirements_fingerprint() -> str:
         return digest.hexdigest()
     except OSError:
         lock_bytes = b"\0unreadable"  # never equal to a stamp, so it is reconciled (and that reports the problem)
-    digest.update(b"\0" + base_packages.LOCK_NAME.encode("ascii") + b"\0" + lock_bytes)
+    digest.update(b"\0" + lock.name.encode("ascii") + b"\0" + lock_bytes)
     return digest.hexdigest()
 
 
@@ -560,7 +564,7 @@ def restore_kept_spacy_model(log: "SetupLog") -> bool:
     if wheel is None or not py.exists():
         return False
     try:
-        probe = subprocess.run([str(py), "-I", "-c", _SPACY_VERSIONS_PROBE], capture_output=True, text=True,
+        probe = _child_run([str(py), "-I", "-c", _SPACY_VERSIONS_PROBE], capture_output=True, text=True,
                                timeout=IMPORT_PROBE_TIMEOUT_S, **_hidden())
         versions = json.loads(probe.stdout.strip().splitlines()[-1]) if probe.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError, IndexError):
@@ -583,7 +587,7 @@ def restore_kept_spacy_model(log: "SetupLog") -> bool:
         requirement.write_text(store.requirement_line(wheel), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PIP_")}
         env["PIP_CONFIG_FILE"] = os.devnull
-        proc = subprocess.run(store.offline_install_command(py, requirement), capture_output=True,
+        proc = _child_run(store.offline_install_command(py, requirement), capture_output=True,
                               text=True, env=env, cwd=str(requirement.parent), timeout=600, **_hidden())
         ok = proc.returncode == 0
     except (OSError, subprocess.SubprocessError):
@@ -664,7 +668,7 @@ def venv_is_valid() -> bool:
     if not py.exists():
         return False
     try:
-        r = subprocess.run(
+        r = _child_run(
             [str(py), "-c", "import sys, ssl; print(sys.version)"],
             capture_output=True,
             text=True,
@@ -779,7 +783,7 @@ def probe_venv(venv_py: Path) -> Optional[dict]:
     which does not load Tk at all (audit ACT67-AUD-006).
     """
     try:
-        r = subprocess.run([str(venv_py), "-c", _VENV_PROBE],
+        r = _child_run([str(venv_py), "-c", _VENV_PROBE],
                            capture_output=True, text=True, timeout=TK_PROOF_TIMEOUT_S, **_hidden())
         if r.returncode != 0:
             return None
@@ -1000,7 +1004,7 @@ def kokoro_packages_present(venv_py: Path) -> tuple[bool, str]:
         "sys.exit(0 if not missing else 1)"
     )
     try:
-        r = subprocess.run(
+        r = _child_run(
             [str(venv_py), "-c", probe],
             capture_output=True, text=True, timeout=30, **_hidden(),
         )
@@ -1025,7 +1029,7 @@ def prove_kokoro_dependencies(venv_py: Path) -> tuple[Optional[bool], str, dict]
     env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
     env["HF_HUB_OFFLINE"] = "1"
     try:
-        r = subprocess.run([str(venv_py), "-c", _KOKORO_PROOF], capture_output=True, text=True,
+        r = _child_run([str(venv_py), "-c", _KOKORO_PROOF], capture_output=True, text=True,
                            timeout=KOKORO_PROOF_TIMEOUT_S, env=env, **_hidden())
     except subprocess.TimeoutExpired:
         return None, f"the Kokoro proof did not finish within {KOKORO_PROOF_TIMEOUT_S} s", {}
@@ -1210,7 +1214,7 @@ def chatterbox_is_healthy(venv_py: Path) -> tuple[bool, str]:
     no model is constructed.
     """
     try:
-        r = subprocess.run(
+        r = _child_run(
             [str(venv_py), "-c", _CHATTERBOX_PROBE],
             capture_output=True, text=True, timeout=180, **_hidden(),
         )
@@ -1369,9 +1373,44 @@ def _hidden() -> dict:
     return {"startupinfo": si, "creationflags": subprocess.CREATE_NO_WINDOW}
 
 
+def _contained() -> bool:
+    """v0.8.x P1A: True where setup's children go through :mod:`shared.child_ownership` (macOS and other POSIX).
+    Windows keeps its released spawn paths."""
+    return not IS_WINDOWS and child_ownership.supported()
+
+
+_OWNER_SHUTDOWN_REGISTERED = False
+
+
+def _owner() -> "child_ownership.Owner":
+    """This setup process's owner of its children. The orderly shutdown is registered as the last orderly resort;
+    containment after a crash or SIGKILL never depends on it (the lifeline does that)."""
+    global _OWNER_SHUTDOWN_REGISTERED
+    owner = child_ownership.owner(LOG.line)
+    if not _OWNER_SHUTDOWN_REGISTERED:
+        import atexit
+
+        atexit.register(owner.shutdown)
+        _OWNER_SHUTDOWN_REGISTERED = True
+    return owner
+
+
+def _child_run(cmd: list, **kw) -> subprocess.CompletedProcess:
+    """``subprocess.run`` of an ACT-authored Python child of setup (a probe, a proof, ``-m venv``, an offline pip).
+
+    POSIX (v0.8.x P1A): a class-A child of :mod:`shared.child_ownership` -- its own process group and the lifeline,
+    so it and everything it starts end when this process ends, however it ends. Windows: exactly as before."""
+    if not _contained():
+        return subprocess.run(cmd, **kw)
+    return _owner().run_python(cmd, **kw)
+
+
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
-    """Run a command, capturing output, with the console hidden on Windows."""
-    return subprocess.run(cmd, capture_output=True, text=True, **{**_hidden(), **kw})
+    """Run a command, capturing output, with the console hidden on Windows. On POSIX only ACT-authored Python
+    children come here (v0.8.x P1A: Homebrew is never run), contained by :func:`_child_run`."""
+    if not _contained():
+        return subprocess.run(cmd, capture_output=True, text=True, **{**_hidden(), **kw})
+    return _child_run(cmd, capture_output=True, text=True, **kw)
 
 
 # ===========================================================================
@@ -1421,34 +1460,6 @@ def _ffprobe_available() -> bool:
         return True
     exe = BIN_DIR / ("ffprobe.exe" if IS_WINDOWS else "ffprobe")
     return exe.exists()
-
-
-def _refresh_brew_path() -> None:
-    """Add Homebrew's bin dirs to this process's PATH (Apple Silicon + Intel).
-
-    A fresh ``brew install`` lands in ``/opt/homebrew/bin`` (Apple Silicon) or
-    ``/usr/local/bin`` (Intel), which need not be on the PATH this already-running
-    process inherited. Re-add them so a subsequent ``shutil.which`` finds the new
-    binary in the same session.
-    """
-    if not IS_MAC:
-        return
-    cur = os.environ.get("PATH", "").split(os.pathsep)
-    for prefix in ("/opt/homebrew/bin", "/usr/local/bin"):
-        if Path(prefix).exists() and prefix not in cur:
-            os.environ["PATH"] = prefix + os.pathsep + os.environ.get("PATH", "")
-
-
-def _brew_install_python_tk(log: "SetupLog") -> None:
-    """On macOS, add Tk support for Homebrew's python@3.12 (python-tk@3.12)."""
-    if not IS_MAC or not shutil.which("brew"):
-        return
-    log.line("Installing Tk support for Python (python-tk@3.12) via Homebrew…")
-    r = _run(["brew", "install", "python-tk@3.12"])
-    if r.returncode != 0:
-        log.line(f"  brew install python-tk@3.12 problem: {r.stderr.strip()}")
-    else:
-        log.line("  python-tk@3.12 installed.")
 
 
 def preflight_report(py, log: "SetupLog") -> dict:
@@ -1505,12 +1516,14 @@ def _candidate_interpreters() -> list[list[str]]:
                                   / f"Python{tag}" / "python.exe")])
             cands.append([str(Path(progfiles) / f"Python{tag}" / "python.exe")])
         cands.append(["python"])
+    elif IS_MAC:
+        # v0.8.x P1A (owner decisions D1/D2): the app's own Python and nothing else. A PATH or Homebrew Python is
+        # never a base for the app's environment on a Mac (and PATH's python3 may be Apple's developer-tool shim).
+        cands.append([str(APP_PYTHON)])
     else:
         for ver in PREFERRED_PY:
             cands.append([f"python{ver}"])
-        # Homebrew locations (Apple Silicon + Intel).
         for ver in PREFERRED_PY:
-            cands.append([f"/opt/homebrew/bin/python{ver}"])
             cands.append([f"/usr/local/bin/python{ver}"])
         cands.append(["python3"])
     return cands
@@ -1551,9 +1564,11 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
          (if ``prefer_tk``) GUI-capable — the launcher selected it and, on macOS,
          verified Tk works, so the venv base stays consistent with that choice.
       2. A discovered 3.12/3.11 that is GUI-capable.
-      3. (macOS) a 3.12/3.11 that lacks Tk → try ``brew install python-tk@3.12``
-         and re-probe.
+      3. A full-feature Python that lacks Tk (the GUI may then be unavailable).
       4. Any 3.11+ interpreter (warning that Kokoro needs <3.13).
+
+    macOS (v0.8.x P1A, D1/D2): only the app's own Python (``APP_PYTHON``) is ever selected, including as the running
+    interpreter in step 1; nothing is installed through Homebrew.
 
     With ``prefer_tk=False`` (the ``--headless`` path) Tk is not required, so the
     first 3.12/3.11 found is accepted. Returns a *list* because ``py -3.12`` is
@@ -1565,7 +1580,7 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
     #    accept <3.13 here so we never silently pick 3.13 over an available 3.12
     #    (3.13 loses Kokoro); a 3.13-only system still falls through to step 4.
     cur_ver = sys.version_info[:2]
-    if sys.executable and is_full_feature_python(cur_ver):
+    if sys.executable and is_full_feature_python(cur_ver) and (not IS_MAC or _is_app_python(sys.executable)):
         if not prefer_tk or _tcl_tk_ok([sys.executable]):
             log.line(f"  Using the current interpreter: {sys.executable} "
                      f"(Python {cur_ver[0]}.{cur_ver[1]})")
@@ -1589,14 +1604,8 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
         elif ver >= FULL_FEATURE_MIN and best_any is None:
             best_any = argv
 
-    # 3. A full-feature Python exists but has no Tk. On macOS we can fix it.
+    # 3. A full-feature Python exists but has no Tk.
     if pref_no_tk is not None:
-        if prefer_tk and IS_MAC and shutil.which("brew"):
-            _brew_install_python_tk(log)
-            if _tcl_tk_ok(pref_no_tk):
-                log.line(f"  Tk support installed; using {_shown(pref_no_tk)}")
-                return pref_no_tk
-            log.line("  Tk still unavailable after python-tk install.")
         log.line(f"  Using {_shown(pref_no_tk)} (GUI may be unavailable; the "
                  "command line still works).")
         return pref_no_tk
@@ -1615,6 +1624,15 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
         return best_any
     log.line("  No suitable Python found on this system.")
     return None
+
+
+def _is_app_python(executable) -> bool:
+    """True when ``executable`` is this installation's own base Python (``APP_PYTHON``), however it is spelled
+    (``python3`` and ``python`` are links to ``python3.12`` in the standalone build)."""
+    try:
+        return os.path.samefile(os.path.realpath(executable), os.path.realpath(APP_PYTHON))
+    except OSError:
+        return False
 
 
 def _shown(argv: list[str]) -> str:
@@ -1642,17 +1660,11 @@ def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]
         log.line("  The app's own Python is provided by Setup_and_Run-audiobook-creation-tool.bat; run it to "
                  "download it into this folder.")
     elif IS_MAC:
-        if shutil.which("brew"):
-            log.line("Installing python@3.12 via Homebrew (this can take a few minutes)…")
-            r = _run(["brew", "install", "python@3.12"])
-            log.line(r.stdout.strip() or "")
-            if r.returncode != 0:
-                log.line(f"  brew reported a problem: {r.stderr.strip()}")
-            # Homebrew's python@3.12 has no working Tk unless python-tk is added.
-            if prefer_tk:
-                _brew_install_python_tk(log)
-        else:
-            log.line("  Homebrew not available — cannot auto-install Python.")
+        # v0.8.x P1A (D1/D2): the same portable layout. Stage 0 (Setup_and_Run-audiobook-creation-tool.command ->
+        # bootstrap_host_macos.sh) downloads the app's own Python into this folder, with consent; nothing else is
+        # installed and Homebrew is never used.
+        log.line("  The app's own Python is provided by Setup_and_Run-audiobook-creation-tool.command; run it to "
+                 "download it into this folder.")
     # Re-probe regardless (the installer may have succeeded).
     return find_suitable_python(log, prefer_tk=prefer_tk)
 
@@ -1662,7 +1674,7 @@ def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]
 # ===========================================================================
 def create_venv(py_argv: list[str], log: SetupLog) -> bool:
     log.line(f"Creating virtual environment at {VENV_DIR}…")
-    r = _run(py_argv + ["-m", "venv", str(VENV_DIR)])
+    r = _run(py_argv + ["-m", "venv", str(VENV_DIR)])  # POSIX: contained (``-m venv`` starts ensurepip's pip)
     if r.returncode != 0:
         log.line(f"  ERROR creating venv: {r.stderr.strip()}")
         return False
@@ -2188,8 +2200,10 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog, headless: bool,
         # ssl works (so setup can proceed), but the GUI base lost Tk. Don't abort —
         # finish installing so the CLI works, and warn clearly.
         log.line("  [!!] The virtual environment cannot initialize Tcl/Tk, so the "
-                 "app window may not open. Setup will finish; install Tk support "
-                 "(macOS: brew install python-tk@3.12) and re-run to enable the GUI.")
+                 "app window may not open. Setup will finish; " + (
+                     "run Setup_and_Run-audiobook-creation-tool.command again: it replaces the app's own Python if "
+                     "it cannot start Tk." if IS_MAC else
+                     "install Tk support (macOS: brew install python-tk@3.12) and re-run to enable the GUI."))
     if own_txn:
         txn.commit(log)
     log.line(f"  venv ready (ssl={caps['ssl']}, tkinter={caps['tcl_tk_functional']}).")
@@ -2286,7 +2300,7 @@ def required_modules_present(venv_py: Path) -> tuple[bool, str]:
         "sys.exit(0 if not missing else 1)"
     )
     try:
-        r = subprocess.run(
+        r = _child_run(
             [str(venv_py), "-c", probe],
             capture_output=True, text=True, timeout=60, **_hidden(),
         )
@@ -2340,7 +2354,7 @@ def prove_required_imports(venv_py: Path) -> tuple[Optional[bool], str, str]:
         "print('OK %d.%d.%d' % sys.version_info[:3])\n"
     )
     try:
-        r = subprocess.run(
+        r = _child_run(
             [str(venv_py), "-c", probe],
             capture_output=True, text=True, timeout=IMPORT_PROBE_TIMEOUT_S, **_hidden(),
         )
@@ -2496,6 +2510,7 @@ def request_setup_stop() -> bool:
 
     Only the pip this module started is touched, by its own process id, which Windows cannot give to another process
     while this one still holds the child's unreaped handle (:func:`_end_owned_pip`); never a process found by name.
+    On POSIX (v0.8.x P1A) the stop goes through the containment layer: pip's whole group, identity-checked.
     Returns once the tree is told to end (the setup's worker reaps the child and reports); True if a running pip was
     told to stop.
     """
@@ -2529,6 +2544,8 @@ def _end_owned_pip(proc: subprocess.Popen) -> None:
     try:
         if IS_WINDOWS:
             _run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], timeout=30)
+        elif _contained() and _owner().child(proc) is not None:
+            _owner().kill_now(proc)  # v0.8.x P1A: its group, only while its start time still matches
         else:
             import signal
 
@@ -2556,9 +2573,15 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
     global _RUNNING_PIP
     group = {} if IS_WINDOWS else {"start_new_session": True}
     try:
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                encoding="utf-8", errors="replace", env=env, **_hidden(), **group)
-    except OSError as exc:
+        if _contained():
+            # v0.8.x P1A: pip and its build backends are a class-A child (own group + lifeline): a setup that is
+            # killed, crashes or loses its Terminal window leaves no pip running.
+            proc = _owner().popen_python(command, label="pip", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True, encoding="utf-8", errors="replace", env=env)
+        else:
+            proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                    encoding="utf-8", errors="replace", env=env, **_hidden(), **group)
+    except (OSError, child_ownership.ContainmentUnavailable) as exc:
         log(f"  ERROR: pip could not be started: {exc}")
         return -1
     with _PIP_LOCK:
@@ -2575,6 +2598,8 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
     finally:
         with _PIP_LOCK:
             _RUNNING_PIP = None
+        if _contained():
+            _owner().forget(proc)
     if _SETUP_STOP.is_set():
         log("  pip was stopped because setup is being stopped.")
         return PIP_STOPPED
@@ -2594,8 +2619,12 @@ def _applicable_lock(venv_py: Path, log: Optional[Callable[[str], None]] = None)
     if base_packages.lock_applies(_interp_version_argv([str(venv_py)])):
         return lock
     if log is not None:
-        log("  This environment's Python is not the one the dependency lock describes (Windows x86-64 CPython "
-            "3.12); installing from requirements.txt instead.")
+        if IS_MAC:
+            log("  This environment's Python is not the one the macOS dependency lock describes (Apple Silicon "
+                "CPython 3.12); nothing is installed without the lock's hashes.")
+        else:
+            log("  This environment's Python is not the one the dependency lock describes (Windows x86-64 CPython "
+                "3.12); installing from requirements.txt instead.")
     return None
 
 
@@ -2614,6 +2643,11 @@ def install_base_packages(venv_py: Path, log: Callable[[str], None]) -> bool:
     lock = _applicable_lock(venv_py, log)
     if lock is not None:
         return _install_locked(venv_py, lock, env, log)
+    if IS_MAC:
+        # v0.8.x P1A (MAC-005): on a Mac every install is hash-checked against the macOS lock; an environment the lock
+        # does not describe is rebuilt on the app's own Python instead of being filled from unhashed pins.
+        log("  ERROR: no dependency lock describes this environment, so nothing was installed.")
+        return False
     code = _pip(base_packages.unlocked_install_command(venv_py, REQUIREMENTS_FILE), env, log)
     if code != 0:
         log(f"  ERROR: pip install failed (exit {code}).")
@@ -2725,6 +2759,8 @@ def _force_reinstall(py: Path, dist: str, log: Callable[[str], None]) -> bool:
     env = _pip_environment()
     lock_file = _applicable_lock(py)
     if lock_file is None:
+        if IS_MAC:
+            return False  # v0.8.x P1A: never an unhashed reinstall on a Mac
         _run(venv_pip() + ["install", "--force-reinstall", dist, "-c", str(REQUIREMENTS_FILE)], env=env)
         return False
     try:
@@ -2814,20 +2850,6 @@ class FFmpegRepair:
         return " ".join(parts)
 
 
-def _brew_ffmpeg(log: SetupLog) -> bool:
-    """Ask Homebrew for ffmpeg. Command result only — never the authority."""
-    log.line("Installing ffmpeg via Homebrew…")
-    result = _run(["brew", "install", "ffmpeg"])
-    # A fresh brew install may not be on THIS process's PATH yet (Apple Silicon
-    # installs to /opt/homebrew/bin), so make it findable before proving.
-    _refresh_brew_path()
-    if result.returncode == 0:
-        log.line("  Homebrew reported the ffmpeg install completed.")
-        return True
-    log.line(f"  brew install ffmpeg problem: {result.stderr.strip()}")
-    return False
-
-
 def _install_ffmpeg(log: SetupLog) -> bool:
     """Run the platform package manager's ffmpeg install. **Not** an authority.
 
@@ -2839,31 +2861,23 @@ def _install_ffmpeg(log: SetupLog) -> bool:
     nothing provable ended the repair, because the fallback had already been
     skipped inside this function.
     """
-    if IS_WINDOWS:
-        return False  # v0.7.0 portable layout: never installed on the computer (repair_ffmpeg uses the app's own build)
-    if IS_MAC:
-        if not shutil.which("brew"):
-            log.line("  Homebrew is not installed, so that route is unavailable.")
-            return False
-        return _brew_ffmpeg(log)
+    if IS_WINDOWS or IS_MAC:
+        # v0.7.0 portable layout, and v0.8.x P1A on a Mac (D2/D3): never installed on the computer; repair_ffmpeg
+        # uses the app's own build.
+        return False
     log.line("  Please install ffmpeg via your package manager (apt/dnf/pacman).")
     return False
 
 
 def _package_manager_route() -> Optional[str]:
-    """Which package-manager route this machine can attempt, if any."""
-    if IS_MAC and shutil.which("brew"):
-        return FFMPEG_ROUTE_HOMEBREW
+    """Which package-manager route this machine can attempt, if any. None on Windows and (v0.8.x P1A) on a Mac:
+    neither installs anything on the computer."""
     return None
 
 
 def _no_package_manager_detail() -> str:
     """Why the package-manager route was skipped, in the user's terms."""
-    if IS_MAC:
-        return ("Homebrew is not installed on this Mac, so the automatic "
-                "repair had nothing to install with. Installing Homebrew "
-                "(https://brew.sh) would let the app repair this by itself.")
-    if IS_WINDOWS:
+    if IS_WINDOWS or IS_MAC:
         return ("Nothing is installed on the computer for it: the app downloads its own verified FFmpeg build into "
                 "its folder.")
     return "No supported package manager is available on this computer."
@@ -2929,6 +2943,15 @@ def repair_ffmpeg(log: SetupLog, *, assessed: bool = False) -> FFmpegRepair:
                 return FFmpegRepair(True, routes)
             log.line("  The app's own build was installed but did not prove.")
 
+    if IS_MAC:
+        routes.append(FFMPEG_ROUTE_PORTABLE)
+        if _download_portable_ffmpeg_macos(log):
+            pair = ffmpeg_health.pinned_pair()
+            if pair is not None and ffmpeg_health.prove_pair(pair).ok:
+                log.line(f"FFmpeg verified after the app's own install: {pair.directory}")
+                return FFmpegRepair(True, routes)
+            log.line("  The app's own build was installed but did not prove.")
+
     detail = "" if route is not None else _no_package_manager_detail()
     return FFmpegRepair(False, routes, detail)
 
@@ -2966,6 +2989,17 @@ def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
         return False
     ffmpeg_portable.cleanup_staging()
     return True
+
+
+def _download_portable_ffmpeg_macos(log: SetupLog) -> bool:
+    """The macOS install route (v0.8.x P1A, D3): the adopted app-owned build, proofs 1-7 on every acquisition and
+    repair (:func:`shared.ffmpeg_portable.acquire_macos`). With no adopted build it installs nothing and says so.
+    Leftovers of an interrupted acquisition (its own staging and ``.part`` files) are removed first."""
+    build = ffmpeg_portable.MACOS_FFMPEG_PIN
+    if build is not None:
+        ffmpeg_portable.recover_macos_staging(build)
+    owner = _owner() if _contained() else None
+    return ffmpeg_portable.acquire_macos(log, owner=owner) is not None
 
 
 
@@ -3148,6 +3182,8 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
             return False, ("Python 3.12 could not be found or installed automatically.\n"
                            + ("Run Setup_and_Run-audiobook-creation-tool.bat again: it downloads the app's own "
                               "Python into this folder." if IS_WINDOWS else
+                              "Run Setup_and_Run-audiobook-creation-tool.command again: it downloads the app's own "
+                              "Python into this folder." if IS_MAC else
                               "Please install Python 3.12 and run setup again."))
 
         # Surface the chosen interpreter's capabilities up front (audit preflight).
@@ -4201,8 +4237,10 @@ def _run_headless(skip_kokoro: bool) -> int:
     LOG.line(final)
     if ok:
         LOG.line("Setup finished. The graphical window needs Tk, which is not "
-                 "available in this Python. To enable it: install Tk support "
-                 "(macOS: brew install python-tk@3.12) and run setup again.")
+                 "available in this Python. To enable it: " + (
+                     "run Setup_and_Run-audiobook-creation-tool.command again (it replaces the app's own Python if "
+                     "it cannot start Tk)." if IS_MAC else
+                     "install Tk support (macOS: brew install python-tk@3.12) and run setup again."))
     LOG.close()
     return 0 if ok else 1
 

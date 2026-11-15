@@ -300,6 +300,13 @@ def belongs_to_another_installation(directory) -> bool:
     return False
 
 
+def app_owned_directory(directory) -> bool:
+    """True for ``files/bin`` or a versioned build under ``files/bin/ffmpeg`` of THIS installation."""
+    key = _parts_key(directory)
+    owned = [_parts_key(BIN_DIR), *(_parts_key(d) for d in _portable_dirs())]
+    return key in owned
+
+
 def candidate_directories() -> list[Path]:
     """Every directory that might hold a pair, in preference order, deduped.
 
@@ -308,9 +315,16 @@ def candidate_directories() -> list[Path]:
     when it never reached PATH -- which is a real case, because a fresh
     ``winget install`` does not update the PATH of an already-running process.
     Another copy of the app's bundled FFmpeg is never a candidate.
+
+    macOS (v0.8.x P1A, owner decision D3): only the app's own builds. A PATH or
+    Homebrew FFmpeg is an unverified alternative the owner has not accepted, and
+    probing one would execute a program ACT does not own.
     """
-    ordered = [BIN_DIR, *_portable_dirs(), *_path_dirs(),
-               *_winget_package_dirs(), *_brew_dirs()]
+    if IS_MAC:
+        ordered = [BIN_DIR, *_portable_dirs()]
+    else:
+        ordered = [BIN_DIR, *_portable_dirs(), *_path_dirs(),
+                   *_winget_package_dirs(), *_brew_dirs()]
     seen: set[str] = set()
     unique: list[Path] = []
     for directory in ordered:
@@ -389,6 +403,10 @@ def prove_pair(pair: Pair, *, runner: Callable[[Path], tuple] | None = None) -> 
 
     *runner* is the seam the tests drive; production passes nothing.
     """
+    if runner is None and IS_MAC:
+        refused = _mac_refusal_before_running(pair)
+        if refused is not None:
+            return refused
     run = runner or _run_version
     ok, detail = run(pair.ffmpeg.as_path)
     if not ok:
@@ -397,7 +415,51 @@ def prove_pair(pair: Pair, *, runner: Callable[[Path], tuple] | None = None) -> 
     ok, detail = run(pair.ffprobe.as_path)
     if not ok:
         return Proof(ok=False, detail=detail[:MAX_DETAIL], failed="ffprobe")
+    if runner is None and IS_MAC and not has_decoder(pair.ffmpeg.as_path, MAC_REQUIRED_DECODER):
+        return Proof(ok=False, failed="ffmpeg",
+                     detail=f"this FFmpeg has no {MAC_REQUIRED_DECODER} decoder (needed for xHE-AAC audiobooks)")
     return Proof(ok=True, version_text=version_text)
+
+
+#: macOS (plan section 11.1): a pair is usable only with Apple's AudioToolbox AAC decoder, without which xHE-AAC
+#: sources mis-decode (``ffmpeg_utils.input_decoder_args``).
+MAC_REQUIRED_DECODER = "aac_at"
+
+
+def _mac_refusal_before_running(pair: Pair) -> Optional[Proof]:
+    """Read both binaries' Mach-O headers before anything runs: a non-arm64 binary is refused unexecuted, so no
+    Rosetta prompt ever appears (``lipo`` is a developer-tool shim on macOS and is not used)."""
+    try:
+        from . import macho
+    except ImportError:  # pragma: no cover - bootstrap imports this file directly
+        import macho  # type: ignore[no-redef]
+    for name, binary in (("ffmpeg", pair.ffmpeg), ("ffprobe", pair.ffprobe)):
+        archs = macho.architectures(binary.as_path)
+        if archs is None or "arm64" not in archs:
+            return Proof(ok=False, failed=name,
+                         detail=f"not a native Apple Silicon program (architectures: {archs or 'not Mach-O'})")
+    return None
+
+
+def has_codec(executable, listing: str, name: str) -> bool:
+    """True when ``<executable> -hide_banner -<listing>`` (decoders/encoders) names ``name``. Bounded; never
+    raises."""
+    try:
+        completed = _sp.run([str(executable), "-hide_banner", f"-{listing}"], capture_output=True, text=True,
+                            timeout=PROBE_TIMEOUT)
+    except Exception:  # noqa: BLE001 - a probe may not take the app down
+        return False
+    if completed.returncode != 0:
+        return False
+    for line in (completed.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and len(parts[0]) == 6 and parts[1] == name:
+            return True
+    return False
+
+
+def has_decoder(executable, name: str) -> bool:
+    return has_codec(executable, "decoders", name)
 
 
 # --------------------------------------------------------------------------- #
@@ -541,6 +603,8 @@ def pinned_pair() -> Optional[Pair]:
     pair = load_state().pair
     if pair is None or belongs_to_another_installation(pair.directory) or not pair.still_matches():
         return None
+    if IS_MAC and not app_owned_directory(pair.directory):
+        return None  # v0.8.x P1A (D3): an earlier Homebrew/PATH pin is never this Mac's pin
     return pair
 
 

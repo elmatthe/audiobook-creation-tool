@@ -651,18 +651,23 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
         zf.extractall(root)
     shim = (
         '#!/bin/bash\n'
-        'printf "%s\\n" "$*" >> "$RC_CALLS"\n'
+        'printf "%s %s\\n" "$0" "$*" >> "$RC_CALLS"\n'
         'case "$*" in\n'
         '  *--launch-only*) exit "$RC_LAUNCH_EXIT" ;;\n'
         '  --version) echo "Python 3.12 shim" ;;\n'
         'esac\n'
         'exit 0\n'
     )
-    for relative in (".venv/bin/python", "shim-bin/python3.12"):
+    # v0.8.x P1A (D1/D2): a repair runs on the app's own Python, which stage 0 proves first; a Python on PATH is never
+    # used. Stage 0 has its own tests (test_bootstrap_host_macos.py); here it is a stand-in that reports it proved.
+    for relative in (".venv/bin/python", "files/runtime-data/python/bin/python3.12", "shim-bin/python3.12"):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(shim, encoding="utf-8", newline="\n")
         path.chmod(0o755)
+    stage0 = root / "scripts" / "shared" / "bootstrap_host_macos.sh"
+    stage0.write_text('#!/bin/bash\nprintf "stage0 %s\\n" "$*" >> "$RC_CALLS"\nexit 0\n', encoding="utf-8",
+                      newline="\n")
     calls = root / "calls.txt"
     env = dict(os.environ, RC_CALLS=calls.as_posix(), RC_LAUNCH_EXIT=str(launch_rc))
     # Use MSYS paths on Windows so a drive colon is not a PATH separator.
@@ -681,6 +686,8 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
     recorded = calls.read_text(encoding="utf-8").splitlines()
     assert recorded[0].endswith("--launch-only")
     assert any("--repair-venv" in call for call in recorded) is repairs
+    assert all("files/runtime-data/python/bin/python3.12" in call for call in recorded if "--repair-venv" in call)
+    assert not any("shim-bin" in call for call in recorded), "a Python on PATH is never used"
     assert not any("close_terminal.py" in call for call in recorded)
 
 

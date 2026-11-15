@@ -43,8 +43,12 @@ APP_PYTHON_PARTS = ("files", "runtime-data", "python")
 
 
 def _key(path) -> tuple[str, ...]:
-    parts = Path(os.path.abspath(str(path))).parts
-    return tuple(p.casefold() for p in parts) if os.name == "nt" else parts
+    absolute = os.path.abspath(str(path))
+    parts = Path(absolute).parts
+    # v0.8.x P1A (MAC-015): the volume decides on a Mac; Windows is always case-blind, as before.
+    from . import venv_layout
+
+    return tuple(p.casefold() for p in parts) if venv_layout.case_insensitive(absolute) else parts
 
 
 def pyvenv_home(venv_dir: Path) -> Optional[Path]:

@@ -1,9 +1,16 @@
-"""ACT v0.7.0 -- regenerate ``scripts/requirements-lock-windows-py312.txt``, the app environment's complete hash lock.
+"""ACT v0.7.0 -- regenerate ``scripts/requirements-lock-windows-py312.txt``, the app environment's complete hash lock
+(v0.8.x P1A: or, with ``--platform macosx_arm64``, ``scripts/requirements-lock-macos-arm64-py312.txt``).
 
 Developer only: never shipped, never imported by the app, never a user requirement.
 
     python -I files/dev-tools/lock_base_requirements.py --python <venv python.exe> --constraints <versions.txt>
-        [--source "<where the versions were proved>"] [--check]
+        [--platform win_amd64|macosx_arm64] [--source "<where the versions were proved>"] [--check]
+
+``--platform`` (default ``win_amd64``) names the lock and the interpreter it must be generated on: each lock is
+resolved natively, on its own platform, by that platform's app Python. For ``macosx_arm64`` that is the app-owned
+python-build-standalone CPython 3.12 on an Apple Silicon Mac, and the constraints are the Windows lock's versions minus
+the packages whose markers exclude macOS (colorama): the macOS lock freezes the same versions, it never chooses newer
+ones, and the same refusal applies if pip's macOS resolution adds, drops or changes anything.
 
 ``--python`` must be a CPython 3.12 x86-64 Windows interpreter of a virtual environment (the app's own Python 3.12.15
 with its ensurepip pip is the reference). ``--constraints`` holds ``name==version`` lines: the versions already proved
@@ -60,6 +67,13 @@ def _constraints(path: Path) -> dict[str, tuple[str, str]]:
     return pins
 
 
+#: --platform -> (the lock target, the interpreter pip must report)
+PLATFORMS = {
+    "win_amd64": (base_packages.WINDOWS_LOCK, ("win32", "3.12", "amd64")),
+    "macosx_arm64": (base_packages.MACOS_ARM64_LOCK, ("darwin", "3.12", "arm64")),
+}
+
+
 def _resolve(python: Path, constraints: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="act-lock-") as tmp:
         report = Path(tmp) / "report.json"
@@ -72,11 +86,11 @@ def _resolve(python: Path, constraints: Path) -> dict:
         return json.loads(report.read_text(encoding="utf-8"))
 
 
-def _entries(report: dict) -> list[dict]:
+def _entries(report: dict, platform: str = "win_amd64") -> list[dict]:
     environment = report.get("environment", {})
     if (environment.get("sys_platform"), environment.get("python_version"),
-            environment.get("platform_machine", "").lower()) != ("win32", "3.12", "amd64"):
-        raise Refused(f"the interpreter is not CPython 3.12 x86-64 Windows: {environment}")
+            environment.get("platform_machine", "").lower()) != PLATFORMS[platform][1]:
+        raise Refused(f"the interpreter is not CPython 3.12 {platform}: {environment}")
     entries = []
     for item in report["install"]:
         info = item["download_info"]
@@ -98,21 +112,26 @@ def _compare(entries: list[dict], pins: dict[str, tuple[str, str]]) -> None:
                       f"changed {[(k, pins[k][1], resolved[k]) for k in changed]}")
 
 
-def _render(entries: list[dict], source: str, pip_version: str) -> str:
+def _render(entries: list[dict], source: str, pip_version: str, platform: str = "win_amd64") -> str:
     requirements_sha256 = hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest()
+    target = PLATFORMS[platform][0]
+    title = ("Windows x86-64, CPython 3.12" if target is base_packages.WINDOWS_LOCK
+             else "macOS Apple Silicon (arm64), CPython 3.12")
+    command = "lock_base_requirements.py --python <venv python> --constraints <versions>" + (
+        "" if target is base_packages.WINDOWS_LOCK else f" --platform {platform}")
     lines = [
-        "# Audiobook Creation Tool - the app environment's complete dependency lock (Windows x86-64, CPython 3.12).",
+        f"# Audiobook Creation Tool - the app environment's complete dependency lock ({title}).",
         "#",
         "# Every package the app environment holds, transitive ones included, at one version and with the SHA-256 of",
         "# the one artifact pip installs on this platform. Setup and repair install ONLY from this file",
         "# (pip --require-hashes): a package or version that is not listed here cannot be installed.",
         "# scripts/requirements.txt stays the human-maintained list; regenerate this file after any change to it:",
-        "#     python -I files/dev-tools/lock_base_requirements.py --python <venv python> --constraints <versions>",
+        f"#     python -I files/dev-tools/{command}",
         "# Do not edit by hand.",
         "#",
         f"# {base_packages.HEADER_REQUIREMENTS}: {requirements_sha256}",
         f"# {base_packages.HEADER_SOURCE}: {source}",
-        f"# {base_packages.HEADER_RESOLVER}: pip {pip_version}, CPython 3.12 win_amd64",
+        f"# {base_packages.HEADER_RESOLVER}: pip {pip_version}, {target.resolver}",
         f"# {base_packages.HEADER_COUNT}: {len(entries)}",
         "",
     ]
@@ -128,9 +147,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--constraints", required=True, type=Path)
     parser.add_argument("--source", default=None,
                         help="where the versions were proved (default: the committed lock's own statement)")
+    parser.add_argument("--platform", choices=sorted(PLATFORMS), default="win_amd64")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
-    lock = base_packages.lock_path(REQUIREMENTS)
+    target = PLATFORMS[args.platform][0]
+    lock = REQUIREMENTS.with_name(target.name)
     if args.source is None:
         try:
             args.source = base_packages.parse_lock(lock.read_text(encoding="utf-8")).header[base_packages.HEADER_SOURCE]
@@ -141,9 +162,9 @@ def main(argv: list[str] | None = None) -> int:
         pip_version = subprocess.run([str(args.python), "-m", "pip", "--version"], capture_output=True, text=True,
                                      check=True).stdout.split()[1]
         pins = _constraints(args.constraints)
-        entries = _entries(_resolve(args.python, args.constraints))
+        entries = _entries(_resolve(args.python, args.constraints), args.platform)
         _compare(entries, pins)
-        text = _render(entries, args.source, pip_version)
+        text = _render(entries, args.source, pip_version, args.platform)
         problems = base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), text,
                                                hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest())
         if problems:

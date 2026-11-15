@@ -468,7 +468,7 @@ def test_the_apps_own_portable_base_python_is_the_one_exception_inside_the_proje
     files/runtime-data/python is the only interpreter there is, and Clear Downloaded Data must still run (found by the
     3.12.15 qualification, 2026-10-31). Every other path inside the project stays refused."""
     root = fake_root(tmp_path)
-    portable = root / "files" / "runtime-data" / "python" / "python.exe"
+    portable = root.joinpath(*state.APP_BASE_PYTHON_PARTS)  # python.exe on Windows; bin/python3.12 on a Mac (P1A)
     write(portable, b"")
     refused = [root / ".venv" / "Scripts" / "python.exe", root / "files" / "bin" / "python.exe",
                root / "files" / "runtime-data" / "python2" / "python.exe",

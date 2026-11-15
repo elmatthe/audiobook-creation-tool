@@ -83,6 +83,10 @@ def test_a_missing_model_is_reinstalled_offline_from_the_kept_verified_wheel(kep
     (cmd,) = installs(pip)
     for flag in ("--no-index", "--no-deps", "--require-hashes", "--isolated", "--require-virtualenv"):
         assert flag in cmd
+    from shared import child_ownership
+
+    # POSIX (v0.8.x P1A): the contained child starts through child_entry.py, in front of `-m pip`.
+    cmd = [part for part in cmd if part != str(child_ownership.ENTRY)]
     assert cmd[:3] == [str(bootstrap.venv_python()), "-m", "pip"]
     (requirement,) = pip.requirements
     assert requirement == assets.spacy_requirement_line(kept)

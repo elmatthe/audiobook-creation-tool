@@ -285,7 +285,9 @@ def _abs(path) -> Path:
 
 def _key(path: Path) -> tuple[str, ...]:
     parts = path.parts
-    return tuple(p.casefold() for p in parts) if _CASE_INSENSITIVE_FS else parts
+    # v0.8.x P1A (MAC-015): the volume decides on a Mac; Windows is always case-blind, as before.
+    blind = _CASE_INSENSITIVE_FS or venv_layout.case_insensitive(path)
+    return tuple(p.casefold() for p in parts) if blind else parts
 
 
 def _within(root: Path, candidate: Path) -> bool:

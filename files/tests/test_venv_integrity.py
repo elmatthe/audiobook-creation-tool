@@ -256,7 +256,7 @@ def test_the_lock_names_required_packages_only_for_a_reconciled_locked_environme
     scripts = env.root / "scripts"
     scripts.mkdir(parents=True)
     (scripts / "requirements.txt").write_text("tqdm==4.67.3\n", encoding="utf-8")
-    (scripts / "requirements-lock-windows-py312.txt").write_text(
+    (scripts / bootstrap.base_packages.lock_path(scripts / "requirements.txt").name).write_text(
         f"# artifact: tqdm-4.67.3-py3-none-any.whl\ntqdm==4.67.3 --hash=sha256:{'a' * 64}\n", encoding="utf-8")
     monkeypatch.setattr(bootstrap.base_packages, "lock_applies", lambda version, **kw: True)
     monkeypatch.setattr(bootstrap, "requirements_are_current", lambda: False)

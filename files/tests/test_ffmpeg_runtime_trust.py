@@ -49,6 +49,9 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
     monkeypatch.setenv("PATH", "")
+    # v0.8.x P1A: the PATH-discovery contract (Windows and Linux), held on any machine; a Mac looks only in the app's
+    # own folders (D3), which test_macos_foundation holds.
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
     ffmpeg_utils.refresh()
     yield
     ffmpeg_utils.refresh()

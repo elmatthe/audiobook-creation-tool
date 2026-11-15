@@ -70,6 +70,9 @@ def sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_health, "BIN_DIR", bin_dir)
     # PATH-based discovery must not wander into the real machine.
     monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    # v0.8.x P1A: the PATH-discovery contract (Windows and Linux), held on any machine; a Mac looks only in the app's
+    # own folders (D3), which test_macos_foundation holds.
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
     return SimpleNamespace(tmp=tmp_path, files=files,
                            resources=resources, bin_dir=bin_dir)
 

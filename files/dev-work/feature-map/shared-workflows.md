@@ -332,6 +332,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **States and outputs:** not started exits with code 2, and the launcher prints "Setup cancelled. Nothing was installed." and closes without pausing. A run that failed or was closed part-way exits 1, and the launcher keeps its window open with the log location. Success exits 0. A cancelled run never writes the "packages installed" stamp. The base-install progress view has no Cancel button.
 - **Stop setup?** (v0.7.2 Phase 6): answering **No** keeps whatever is running going and launches nothing (ACT72-038). Closing during the base install asks the same question; **Yes** ends the running pip and everything it started, starts no later step, and closes the window once setup's worker has reported; the exit is 1 and the log says setup finishes the next time the app is started with Setup_and_Run (ACT72-039).
 - **Differences:** the TTS tool's Install & Continue window cancels on close without asking.
+- **macOS (v0.8.x P1A):** setup's children are owned (`child_ownership.py`): pip and its build backends, `-m venv` and the probes lead their own process groups and end through a lifeline when setup ends however it ends (a crash, SIGKILL or a closed Terminal window included); external programs run inside a guardian's group; a guardian that dies on its own makes its programs stop and report a failure. "Stop setup?" ends pip's whole group, identity-checked.
 
 ### App-local Python (stage 0)
 `ACT.SETUP.APP-PYTHON`
@@ -341,7 +342,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **States:** a working app Python is used as is. If it is absent or broken, the download is offered. Declining exits 2 and changes nothing; failure exits 3. If PowerShell itself is blocked, the launcher falls back to `py` or `python` on PATH, which bootstrap still checks.
 - **Inputs and outputs:** one pinned standalone CPython archive is downloaded to `files/temp/bootstrap`, checked against its SHA-256 before unpacking, moved to `files/runtime-data/python` with one rename, and accepted only after it runs (ssl, venv, ensurepip and a real Tk window). There is no installer, no administrator rights, no WinGet and no PATH change. Bootstrap's interpreter choice rejects any Python whose Tk cannot initialise. The fully supported range is 3.11 to 3.12, and 3.12 wins over a newer interpreter.
 - **Persistence:** the app Python stays in `files/runtime-data/python` across repairs.
-- **Differences:** macOS has no app-local Python (see the macOS launcher).
+- **Differences:** macOS (v0.8.x P1A) has the same layout: `bootstrap_host_macos.sh` downloads the pinned standalone CPython 3.12.15 `aarch64-apple-darwin` build (Aqua Tk 9.0.4), lists every archive member and refuses unsafe ones before extracting, checks the program's architecture with `/usr/bin/file` (`lipo` is a developer-tool shim), proves it under a watchdog, moves it to `files/runtime-data/python` with one rename, and sets a copy that fails its proof aside instead of deleting it. Bootstrap uses `files/runtime-data/python/bin/python3.12` and nothing else.
 
 ### Install-folder depth check and eSpeak NG data path
 `ACT.SETUP.LONG-PATHS`
@@ -365,7 +366,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 `ACT.SETUP.DEPENDENCY-LOCK`
 
 - **Purpose:** every install and repair produces the same verified packages, and repairs can work offline from files already kept on the computer.
-- **Behaviour:** on Windows x86-64 CPython 3.12, every package comes from `scripts/requirements-lock-windows-py312.txt`. Each artifact is fetched into `files/runtime-data/python-packages` against its SHA-256 (or found there already) and installed from that store alone, with no index. A package the lock does not name cannot be installed, and a kept file whose hash changed is refused. Files that do not belong in the store are moved to `files/runtime-data/python-packages-quarantine` and never installed. pip is never upgraded, its cache is `files/runtime-data/pip-cache`, and no inherited pip configuration applies. On any other interpreter, the `==` pins of `requirements.txt` install under the same pip policy.
+- **Behaviour:** on Windows x86-64 CPython 3.12, every package comes from `scripts/requirements-lock-windows-py312.txt` (v0.8.x P1A: on an Apple Silicon Mac, from `scripts/requirements-lock-macos-arm64-py312.txt`, with its store in `python-packages/macosx_arm64`; a Mac never installs without the lock's hashes). Each artifact is fetched into `files/runtime-data/python-packages` against its SHA-256 (or found there already) and installed from that store alone, with no index. A package the lock does not name cannot be installed, and a kept file whose hash changed is refused. Files that do not belong in the store are moved to `files/runtime-data/python-packages-quarantine` and never installed. pip is never upgraded, its cache is `files/runtime-data/pip-cache`, and no inherited pip configuration applies. On any other interpreter, the `==` pins of `requirements.txt` install under the same pip policy.
 - **Failure and retry:** a kept file that fails its check is fetched once more. A store that cannot be made safe installs nothing.
 - **Persistence:** the store survives environment rebuilds, which is what makes offline repair possible.
 
@@ -427,7 +428,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 `ACT.SETUP.FFMPEG.HEALTH`
 
 - **Purpose:** one answer to "which FFmpeg does this app use, and does it really run here?" for setup and for every tool.
-- **Behaviour:** a usable FFmpeg is an ffmpeg and ffprobe pair from one folder, and it counts only after both actually run (bounded, hidden `-version` calls). The proven pair is pinned in `files/runtime-data/ffmpeg-state.json` and reused while both files are unchanged. A changed or deleted binary invalidates the pin. While the pin holds, a launch runs no other FFmpeg on the computer. Candidates are tried in this order: `files/bin`, the app's versioned builds, PATH, WinGet package folders, Homebrew. Another copy's `files/bin` is never used. The failure text says running the same launcher again will not help, and never suggests turning protection off.
+- **Behaviour:** a usable FFmpeg is an ffmpeg and ffprobe pair from one folder, and it counts only after both actually run (bounded, hidden `-version` calls). The proven pair is pinned in `files/runtime-data/ffmpeg-state.json` and reused while both files are unchanged. A changed or deleted binary invalidates the pin. While the pin holds, a launch runs no other FFmpeg on the computer. Candidates are tried in this order: `files/bin`, the app's versioned builds, PATH, WinGet package folders, Homebrew. On a Mac (v0.8.x P1A, D3) only `files/bin` and the app's versioned builds are candidates, an earlier pin elsewhere is ignored, a binary whose Mach-O header is not arm64 is refused before it runs, and a pair counts only with the `aac_at` decoder. Another copy's `files/bin` is never used. The failure text says running the same launcher again will not help, and never suggests turning protection off.
 
 ### FFmpeg repair at setup and on every launch
 `ACT.SETUP.FFMPEG.REPAIR`
@@ -439,7 +440,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 ### The app's own FFmpeg build (Windows)
 `ACT.SETUP.FFMPEG.PORTABLE`
 
-- **Purpose:** FFmpeg on Windows without installing anything on the computer.
+- **Purpose:** FFmpeg on Windows without installing anything on the computer. (v0.8.x P1A: a Mac has the same route, `ffmpeg_portable.acquire_macos`, which repeats the adoption proofs on every install, but no macOS build is adopted yet, so a Mac installs no FFmpeg; Homebrew is never used.)
 - **Behaviour:** only the pinned download URL (Gyan FFmpeg 9.0.1) is used. The archive's SHA-256 is checked before anything is extracted, and every member is vetted first (no absolute paths, traversal, links or absurd sizes). The pair is proved in staging, moved with one rename into `files/bin/ffmpeg/<version>`, proved again there and only then pinned. Any failure before the pin leaves the previously working pair active, with nothing partial in the final place. An already-promoted build is adopted without a download.
 - **Persistence:** the build stays until Clear Downloaded Data's "Portable binaries" item removes it.
 
@@ -520,7 +521,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
   - Without its `scripts/` folder beside it (Gatekeeper App Translocation, or the `.command` copied out on its own), it explains how to move the folder and keeps the window open.
   - With a runnable `.venv`, it runs `--launch-only` in the foreground. A detached helper (`close_terminal.py`) then closes the Terminal window without the "terminate running processes" prompt.
   - Exit 3, or a present but unrunnable interpreter, takes the repair route.
-  - First run looks for a Tk-capable `python3.12`, `python3.11` or `python3`. If none is found it may install Homebrew (asking for the Mac login password), Python with Tk, and ffmpeg. As a last resort it falls back to a headless install.
+  - First run and repair (v0.8.x P1A, owner decisions D1/D2): it runs stage 0, `scripts/shared/bootstrap_host_macos.sh` (bash 3.2), which proves or, with consent, downloads the app's own Python into `files/runtime-data/python`, and then runs setup on that interpreter. It never looks for a Python on PATH, never runs Homebrew and never asks for the Mac login password; there is no headless fallback.
 - **Differences:** unlike Windows, a cancelled setup (exit 2) is also reported as "did not complete".
 
 ### Optional-setup v3 foundations (not in the shipped app)

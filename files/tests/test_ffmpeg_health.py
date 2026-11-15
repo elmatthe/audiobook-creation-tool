@@ -71,6 +71,9 @@ def isolated_state(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", "")
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
+    # v0.8.x P1A: the PATH-discovery contract (Windows and Linux), held on any machine; a Mac looks only in the app's
+    # own folders (D3), which test_macos_foundation holds.
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
     ffmpeg_utils.refresh()
     yield resources
     ffmpeg_utils.refresh()
@@ -558,6 +561,7 @@ def test_a_state_write_failure_leaves_the_run_retryable(monkeypatch, tmp_path):
     monkeypatch.undo()
     monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", tmp_path / "state")
     monkeypatch.setenv("PATH", str(directory))
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)  # the PATH contract again, after undo (v0.8.x P1A)
     assert ffmpeg_health.establish(runner=runner_for(healthy=both(directory))) \
         is not None
 
@@ -854,7 +858,7 @@ def test_a_winget_install_is_accepted_without_waiting_for_path():
     Stated as AST it says the actual invariant: this function does not call the
     PATH probe, and neither does the route that decides on its result.
     """
-    for name in ("_brew_ffmpeg", "_install_ffmpeg"):  # v0.7.0: no WinGet install remains (Windows installs nothing)
+    for name in ("_install_ffmpeg",):  # v0.7.0: no WinGet install remains; v0.8.x P1A: no Homebrew one either (D2)
         called = source_probe.calls(
             source_probe.function("shared/bootstrap.py", name))
         assert "_ffmpeg_on_path" not in called, name
@@ -959,6 +963,7 @@ def test_the_health_module_stays_importable_before_the_venv_exists():
     assert roots <= {
         "__future__", "hashlib", "json", "os", "shutil", "subprocess", "sys",
         "time", "dataclasses", "pathlib", "typing", "subprocess_utils",
+        "macho",  # v0.8.x P1A: its stdlib-only sibling (Mach-O headers), imported the same way as subprocess_utils
     }, sorted(roots)
 
 

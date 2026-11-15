@@ -337,7 +337,9 @@ def pinned_ffmpeg(monkeypatch, tmp_path):
             "sandbox binary", encoding="utf-8")
 
     monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", resources)
-    monkeypatch.setattr(ffmpeg_health, "BIN_DIR", tmp_path / "no-bundled-bin")
+    # The app's own folder (v0.8.x P1A): a Mac pins FFmpeg only from there (D3), and the pair pinned is the same one
+    # PATH discovery found before, on every platform.
+    monkeypatch.setattr(ffmpeg_health, "BIN_DIR", directory)
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
     monkeypatch.setenv("PATH", str(directory))

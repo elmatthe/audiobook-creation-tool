@@ -57,6 +57,9 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", "")
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
+    # v0.8.x P1A: the PATH-discovery contract (Windows and Linux), held on any machine; a Mac looks only in the app's
+    # own folders (D3), which test_macos_foundation holds.
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
     return resources
 
 
@@ -231,9 +234,10 @@ def installer(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", do_install)
-    if bootstrap.IS_WINDOWS:
+    if bootstrap.IS_WINDOWS or bootstrap.IS_MAC:
         # v0.7.0 portable layout: on Windows the app installs only its own pinned build, into files/bin, and pins it
-        # (ffmpeg_portable.acquire does that through ffmpeg_health). The stand-in does exactly that much.
+        # (ffmpeg_portable.acquire does that through ffmpeg_health). The stand-in does exactly that much. v0.8.x P1A:
+        # a Mac does the same through its own route (ffmpeg_portable.acquire_macos; D2/D3, no Homebrew).
         package = ffmpeg_health.portable_root() / "9.0.1" / "bin"
 
         def own_build(log):
@@ -242,7 +246,8 @@ def installer(monkeypatch, tmp_path):
             ffmpeg_health.establish(log)
             return True
 
-        monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows", own_build)
+        monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows" if bootstrap.IS_WINDOWS
+                            else "_download_portable_ffmpeg_macos", own_build)
         monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
         state["package"] = package
         return state
@@ -324,7 +329,8 @@ def test_an_install_that_still_does_not_run_is_reported_as_failure(
                             ok=False, detail="blocked", failed="ffprobe"))
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
-    assert ("installed but did not prove" if bootstrap.IS_WINDOWS else "no pair here could be proved") in log.text
+    assert ("installed but did not prove" if bootstrap.IS_WINDOWS or bootstrap.IS_MAC
+            else "no pair here could be proved") in log.text
     assert ffmpeg_health.pinned_pair() is None
 
 

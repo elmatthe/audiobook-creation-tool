@@ -20462,7 +20462,10 @@
             "_end_owned_pip",
             "_pip",
             "_stopped",
-            "run_setup"
+            "run_setup",
+            "_contained",
+            "_owner",
+            "_child_run"
           ]
         },
         {
@@ -20470,6 +20473,30 @@
           "symbols": [
             "OptionalSetupPanel.close_requested",
             "OptionalSetupPanel.busy"
+          ]
+        },
+        {
+          "path": "scripts/shared/child_ownership.py",
+          "symbols": [
+            "Owner",
+            "Owner.popen_python",
+            "Owner.popen_external",
+            "Owner.kill_now",
+            "Owner.shutdown",
+            "process_start_time",
+            "signal_if_same"
+          ]
+        },
+        {
+          "path": "scripts/shared/child_entry.py",
+          "symbols": [
+            "_start_lifeline"
+          ]
+        },
+        {
+          "path": "scripts/shared/child_guardian.py",
+          "symbols": [
+            "main"
           ]
         }
       ],
@@ -20572,8 +20599,13 @@
             "probe_capabilities",
             "_tcl_tk_ok",
             "preflight_report",
-            "_interp_version_argv"
+            "_interp_version_argv",
+            "_is_app_python"
           ]
+        },
+        {
+          "path": "scripts/shared/bootstrap_host_macos.sh",
+          "symbols": []
         }
       ],
       "contracts": [
@@ -20993,7 +21025,8 @@
             "missing_artifacts",
             "sweep_store",
             "build_backends",
-            "requirement_text"
+            "requirement_text",
+            "lock_target"
           ]
         },
         {
@@ -21158,7 +21191,16 @@
             "Binary",
             "HealthState",
             "Proof",
-            "state_path"
+            "state_path",
+            "app_owned_directory",
+            "has_codec"
+          ]
+        },
+        {
+          "path": "scripts/shared/macho.py",
+          "symbols": [
+            "architectures",
+            "foreign_dependencies"
           ]
         }
       ],
@@ -21231,13 +21273,24 @@
             "adopt_existing_final",
             "cleanup_staging",
             "final_dir",
-            "staging_root"
+            "staging_root",
+            "acquire_macos",
+            "verify_macos_build",
+            "recover_macos_staging"
           ]
         },
         {
           "path": "scripts/shared/bootstrap.py",
           "symbols": [
-            "_download_portable_ffmpeg_windows"
+            "_download_portable_ffmpeg_windows",
+            "_download_portable_ffmpeg_macos"
+          ]
+        },
+        {
+          "path": "scripts/shared/macho.py",
+          "symbols": [
+            "architectures",
+            "foreign_dependencies"
           ]
         }
       ],
@@ -22625,6 +22678,10 @@
             "_refresh_brew_path",
             "_brew_install_python_tk"
           ]
+        },
+        {
+          "path": "scripts/shared/bootstrap_host_macos.sh",
+          "symbols": []
         }
       ],
       "contracts": [
@@ -25534,7 +25591,7 @@
   ],
   "source_review": {
     "Setup_and_Run-audiobook-creation-tool.bat": "05d244791f517ec95068f2a3f3be065248bb983dfe1a74d8692051c688473ca3",
-    "Setup_and_Run-audiobook-creation-tool.command": "24f965d1c3a34aea754d8ad800a29320f21f0619a9fcbb2c1c82d7b2067d5090",
+    "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
     "scripts/artwork/cover_resizer.py": "ea9866b202b5cf544fa683828cbe2ae908d38b6f1fcc8b99cd9639ee6dde9160",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
@@ -25578,20 +25635,24 @@
     "scripts/shared/appearance.py": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
     "scripts/shared/artifact_transfer.py": "983713a2d2661a0ead741e83f3435363fb091567889ead3ee3fca9828f3c9ebf",
-    "scripts/shared/base_packages.py": "22af9d92ca7aed222b98bbe455fc1dfb1f1c9f4643b6a8bd39372d3e43ee7899",
+    "scripts/shared/base_packages.py": "a93fd212c8f76432aa20b90ad83586767e47ef93abb76d645b61e7d828cfa9ff",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "ae05f587e819362f2567c45722fcc3d01d418a459362245765bd5d6f466d640b",
+    "scripts/shared/bootstrap.py": "359128816be9d9093b5b13522c5a397d7ce3dc37f2b6cd8e26721670e8937f4f",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
+    "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
-    "scripts/shared/cleanup_state.py": "578e2450158d598976facbf07ab14f7978ea6d8ff445c2dda73ffaee6dbfe4b4",
+    "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
+    "scripts/shared/child_guardian.py": "81afa2fed11a560b56c8e05eaf309a313646f07b20b23b495de8be6100a80bdf",
+    "scripts/shared/child_ownership.py": "4c3c08df717776304432d1f0f1b61aa1535435775bcd0ae041e63e83eba62b39",
+    "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "97eec2be66062b7ae56bc2ed2a2d967e2deb7ab10041609f1906b1f4ed1919ca",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
     "scripts/shared/config.py": "b7fff5244ee6d4fee482d44d392852907d4d125007f4f0f7ad6af9f314ce441e",
     "scripts/shared/engine_lease.py": "115683703f56744ef5d37930d53fdca5f263783438a0c78c8d9b37d09f56ad57",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
-    "scripts/shared/ffmpeg_health.py": "228a91e033f200177f9365402e3986f03ce5169fce0b20321c3d61396dbc3562",
-    "scripts/shared/ffmpeg_portable.py": "81de60172b1157f5284aefde0e4499ada50cd338ad14f4096f7ab7a874e80a15",
+    "scripts/shared/ffmpeg_health.py": "55d2564cec45e117e7a64c0b25a16715c4b942096976b15cee203ac57ae3c5c7",
+    "scripts/shared/ffmpeg_portable.py": "e2ec05bd8923ed2289f36a11a9a7707c84b72b0e698f21995e6d9d843cfaeb77",
     "scripts/shared/ffmpeg_utils.py": "97dfa2d46a7e4e86a4b84cb81dafe9db2b556cf245f9fd497ed4a8545036f838",
     "scripts/shared/image_capabilities.py": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
@@ -25600,7 +25661,8 @@
     "scripts/shared/job_ui.py": "3a8a58d0a936e8930f3fd4653db25755c7f2ac66c0e23c5a9ea37e1384e0a51b",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
-    "scripts/shared/maintenance.py": "a30c9f2f7fa472b30eccdda55d8e05703c91ef921cc2fedaa417b61e994399a6",
+    "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
+    "scripts/shared/maintenance.py": "d389c802e4249e1253fe1e1249c095bb3b813dc7e2c9a2b5228ad8d4a8bd313d",
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
@@ -25624,8 +25686,8 @@
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "16ee5c00e861705ab98612afdfa98fb236f4356eb8c98a47b96d78ed010494bb",
     "scripts/shared/ui_theme.py": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
-    "scripts/shared/venv_integrity.py": "8117439dea34cc5a1243fb02b35762bdfdce06ef879713d2f873da1af64640a3",
-    "scripts/shared/venv_layout.py": "bd32dbfb036d7ca91dd54d27efbca55bdc049fb543f89269a6cd2bedfe62aa84",
+    "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
+    "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
     "scripts/shared/version.py": "cae8a836bf5363ed00c1fc4a22c149638a1c87b082d330d8691786c6758e2f49",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",

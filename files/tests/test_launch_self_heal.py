@@ -91,18 +91,9 @@ def sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
     monkeypatch.setenv("PATH", "")
-    # Emptying PATH is not enough on a Mac. ``_brew_ffmpeg`` calls
-    # ``_refresh_brew_path``, which puts ``/opt/homebrew/bin`` and
-    # ``/usr/local/bin`` *back* — by design, because a fresh ``brew install``
-    # is not on an already-running process's PATH. ``candidate_directories()``
-    # then searches PATH **before** the ``_brew_dirs`` seam these tests
-    # control, so on a developer Mac that has Homebrew's own FFmpeg the
-    # "sandbox" discovered and pinned the host's real pair and the module's
-    # result depended on what was installed on the machine running it.
-    # Production keeps its behaviour; the simulated install stays reachable
-    # through ``_brew_dirs``. ``test_hardening_matrix``'s ``mac_launch``
-    # fixture already isolates itself the same way.
-    monkeypatch.setattr(bootstrap, "_refresh_brew_path", lambda: None)
+    # These rows hold the PATH-discovery contract (Windows and Linux) on whatever machine runs them. A Mac looks only
+    # in the app's own folders (v0.8.x P1A, D3); the ``macos`` fixture below simulates that.
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
     ffmpeg_utils.refresh()
     yield tmp_path
     ffmpeg_utils.refresh()
@@ -130,12 +121,30 @@ def proves_nothing(monkeypatch):
 def windows(monkeypatch):
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
     monkeypatch.setattr(bootstrap, "IS_MAC", False)
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
 
 
 @pytest.fixture
 def macos(monkeypatch):
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
     monkeypatch.setattr(bootstrap, "IS_MAC", True)
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", True)
+
+
+@pytest.fixture
+def mac_own_build(monkeypatch, sandbox):
+    """The app's own build on a Mac (v0.8.x P1A, D3): it lands in files/bin and is pinned there, as
+    ``ffmpeg_portable.acquire_macos`` does once a build is adopted. Records each acquisition."""
+    final = sandbox / "bin" / "ffmpeg" / "9.0.1" / "bin"
+    acquired: list = []
+
+    def acquire(log):
+        acquired.append(1)
+        install(final)
+        return ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(final), log).pinned
+
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", acquire)
+    return acquired, final
 
 
 @pytest.fixture
@@ -462,37 +471,37 @@ def test_the_final_word_is_the_health_authority_not_the_installer(
 
 
 # =========================================================================== #
-# C. macOS route matrix
+# C. macOS route matrix (v0.8.x P1A, owner decisions D2/D3: Homebrew is never
+#    run; the app's own pinned build in files/bin is the only install route)
 # =========================================================================== #
-def test_a_mac_with_a_valid_pin_never_calls_brew(
+def test_a_mac_with_a_valid_pin_never_calls_anything(
         sandbox, macos, tools, commands, proves_everything, monkeypatch):
     """Row 1."""
     tools.add("brew")
-    directory = install(sandbox / "pinned")
-    monkeypatch.setenv("PATH", str(directory))
+    install(sandbox / "bin")
     assert ffmpeg_health.establish() is not None
 
     assert bootstrap.repair_ffmpeg(Log()).ready
     assert commands == []
 
 
-def test_an_existing_mac_venv_reaches_the_homebrew_repair(
-        sandbox, macos, tools, commands, installs_when_run, proves_everything):
-    """Row 2 — M4. The existing-venv path could not repair at all before."""
+def test_an_existing_mac_venv_reaches_the_apps_own_build(
+        sandbox, macos, tools, commands, mac_own_build, proves_everything):
+    """Row 2 — M4. The existing-venv path repairs through the app's own build, never Homebrew (D2/D3)."""
     tools.add("brew")
-    cellar = installs_when_run
+    acquired, final = mac_own_build
 
     result = bootstrap.repair_ffmpeg(Log())
 
-    assert commands and commands[0] == ["brew", "install", "ffmpeg"]
-    assert result.ready
+    assert commands == [], "nothing is run: no brew, no installer"
+    assert result.ready and acquired == [1]
     assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING,
-                             bootstrap.FFMPEG_ROUTE_HOMEBREW)
-    assert ffmpeg_health.pinned_pair().directory == cellar
+                             bootstrap.FFMPEG_ROUTE_PORTABLE)
+    assert ffmpeg_health.pinned_pair().directory == final
 
 
-def test_the_mac_repair_never_escapes_into_the_host_homebrew(
-        sandbox, macos, tools, commands, installs_when_run, proves_everything,
+def test_the_mac_repair_never_escapes_into_the_host(
+        sandbox, macos, tools, commands, mac_own_build, proves_everything,
         monkeypatch):
     """Row 2 again, but guarding the *isolation* rather than the route.
 
@@ -520,68 +529,60 @@ def test_the_mac_repair_never_escapes_into_the_host_homebrew(
     assert searched, "the repair must actually have swept for candidates"
     escaped = [d for d in searched if not d.is_relative_to(sandbox)]
     assert escaped == [], f"the sandbox searched host directories: {escaped}"
-    assert ffmpeg_health.pinned_pair().directory == installs_when_run
+    assert ffmpeg_health.pinned_pair().directory == mac_own_build[1]
 
 
-def test_brew_succeeding_is_not_ffmpeg_succeeding(
+def test_the_apps_own_build_reporting_success_is_not_ffmpeg_succeeding(
         sandbox, macos, tools, commands, proves_nothing, monkeypatch):
-    """Row 3. ``shutil.which`` finding a file is not the pair having run.
-
-    The old code accepted ``_ffmpeg_on_path()`` after ``brew install`` — a
-    filename, on a machine whose whole problem may be that the binary will not
-    execute.
-    """
+    """Row 3. An acquisition that says it finished is not a pair that runs."""
     tools.add("brew")
-    install(sandbox / "opt" / "homebrew" / "bin")
-    monkeypatch.setattr(ffmpeg_health, "_brew_dirs",
-                        lambda: [sandbox / "opt" / "homebrew" / "bin"])
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", lambda log: True)
 
-    result = bootstrap.repair_ffmpeg(Log())
-
-    assert commands[0] == ["brew", "install", "ffmpeg"], "brew ran and exited 0"
-    assert result.ready is False
-    assert ffmpeg_health.pinned_pair() is None
-
-
-def test_a_mac_without_homebrew_does_not_install_homebrew(
-        sandbox, macos, tools, commands, proves_nothing):
-    """Row 4. Installing Homebrew is a first-run decision, not a repair.
-
-    The root ``.command`` may run Homebrew's own installer on a first run,
-    where a person is watching and consented by double-clicking. A background
-    launch repair must not make that choice for them, and must not loop.
-    """
     result = bootstrap.repair_ffmpeg(Log())
 
     assert commands == []
     assert result.ready is False
-    assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING,)
-    assert "Homebrew" in result.detail
-    assert "brew.sh" in result.detail
+    assert ffmpeg_health.pinned_pair() is None
 
 
-def test_the_mac_failure_notice_names_homebrew_truthfully(
-        sandbox, macos, tools, commands, proves_nothing):
+def test_a_mac_never_installs_homebrew_or_anything_on_the_computer(
+        sandbox, macos, tools, commands, proves_nothing, monkeypatch):
+    """Row 4. A launch repair installs nothing on the Mac and does not loop; with no build available it says so."""
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", lambda log: False)
+
+    result = bootstrap.repair_ffmpeg(Log())
+
+    assert commands == []
+    assert result.ready is False
+    assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING, bootstrap.FFMPEG_ROUTE_PORTABLE)
+    assert "Homebrew" not in result.detail and "brew.sh" not in result.detail
+
+
+def test_the_mac_failure_notice_names_what_was_tried_truthfully(
+        sandbox, macos, tools, commands, proves_nothing, monkeypatch):
     """It must not claim a route that was never attempted."""
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", lambda log: False)
     notice = bootstrap.repair_ffmpeg(Log()).notice()
 
-    assert "Homebrew" in notice
+    assert "the app's own verified FFmpeg build" in notice
+    assert "Homebrew" not in notice
     assert "WinGet" not in notice
     assert "the FFmpeg copies already on this computer" in notice
 
 
-def test_no_portable_route_exists_on_macos(
+def test_the_windows_portable_route_is_never_used_on_macos(
         sandbox, macos, tools, commands, proves_nothing, monkeypatch):
-    """This drop does not invent a macOS portable-binary architecture."""
+    """The Windows build is never offered to a Mac; the Mac's route is its own (``acquire_macos``)."""
     portable: list = []
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         lambda log: portable.append(1) or True)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", lambda log: False)
     tools.add("brew")
 
     result = bootstrap.repair_ffmpeg(Log())
 
     assert portable == []
-    assert bootstrap.FFMPEG_ROUTE_PORTABLE not in result.routes
+    assert bootstrap.FFMPEG_ROUTE_PORTABLE in result.routes
 
 
 # =========================================================================== #
