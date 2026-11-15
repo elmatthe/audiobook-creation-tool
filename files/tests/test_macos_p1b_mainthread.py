@@ -59,7 +59,7 @@ def test_a_real_combine_under_continuous_resizing_makes_no_tk_call_off_the_main_
 
     import launcher
     import test_ffmpeg_cancel as cx
-    from shared import ffmpeg_utils, output_paths
+    from shared import config, ffmpeg_utils, output_paths
     from shared import settings as app_settings
     from tk_gate import open_tk_root
 
@@ -80,6 +80,9 @@ def test_a_real_combine_under_continuous_resizing_makes_no_tk_call_off_the_main_
     outputs.mkdir()
     app_settings.set("output_base_directory", str(outputs))
     app_settings.set("last_tool", "mp3_tool")
+    config.invalidate()  # the process's cached snapshot may predate this test (one pytest process runs many files)
+    # Fail closed: the run must publish into this test's own folder, never the real default output location.
+    assert output_paths.resolve_output_base() == outputs, output_paths.resolve_output_base()
     monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: tuple(str(t) for t in tracks))
 
     off_thread: list = []
@@ -137,3 +140,4 @@ def test_a_real_combine_under_continuous_resizing_makes_no_tk_call_off_the_main_
             root.destroy()
         except tk.TclError:
             pass
+        config.invalidate()
