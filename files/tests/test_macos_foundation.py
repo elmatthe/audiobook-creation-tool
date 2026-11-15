@@ -440,3 +440,65 @@ def test_launcher_scripts_are_executable_lf_in_the_index(path):
     mode, data = _index(path)
     assert mode == "100755"
     assert b"\r" not in data and data.startswith(b"#!/bin/bash\n")
+
+
+# --------------------------------------------------------------------------- #
+#  An environment whose creation was interrupted is rebuilt (P1A SIMULATED finding)
+# --------------------------------------------------------------------------- #
+def _fake_venv(monkeypatch, tmp_path):
+    venv = tmp_path / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").write_text("")
+    monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
+    monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: venv / "bin" / "python")
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: {"version": (3, 12), "ssl": True, "tk": True})
+    monkeypatch.setattr(bootstrap.venv_integrity, "foreign_base_python", lambda venv_dir, root: None)
+    monkeypatch.setattr(bootstrap.venv_integrity, "repair_requested", lambda venv_dir: False)
+    monkeypatch.setattr(bootstrap.venv_integrity, "package_damage", lambda venv_dir, required=(): [])
+    return venv
+
+
+def test_on_a_mac_an_environment_whose_creation_never_finished_is_rebuilt(monkeypatch, tmp_path):
+    venv = _fake_venv(monkeypatch, tmp_path)
+    monkeypatch.setattr(bootstrap, "IS_MAC", True)
+    health = bootstrap.assess_venv_health()
+    assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "incomplete")
+    (venv / bootstrap.VENV_CREATED_NAME).write_text("{}")
+    assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
+
+
+def test_windows_health_does_not_look_for_the_mac_marker(monkeypatch, tmp_path):
+    _fake_venv(monkeypatch, tmp_path)
+    monkeypatch.setattr(bootstrap, "IS_MAC", False)
+    assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
+
+
+def test_the_marker_is_written_only_after_venv_creation_succeeded(monkeypatch, tmp_path):
+    venv = tmp_path / ".venv"
+    monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
+    monkeypatch.setattr(bootstrap, "IS_MAC", True)
+    outcomes = iter([1, 0])
+
+    def fake_run(cmd, **kw):
+        code = next(outcomes)
+        if code == 0:
+            venv.mkdir(parents=True, exist_ok=True)
+        return subprocess.CompletedProcess(cmd, code, "", "killed" if code else "")
+
+    monkeypatch.setattr(bootstrap, "_run", fake_run)
+    assert bootstrap.create_venv(["python3.12"], _Log()) is False and not venv.exists()
+    assert bootstrap.create_venv(["python3.12"], _Log()) is True and bootstrap.venv_creation_finished()
+
+
+def test_the_macos_download_names_the_app_not_python_and_never_waits_forever(monkeypatch):
+    """The build server answers Python's default user agent with HTTP 403 (found by the P1A SIMULATED run)."""
+    seen = {}
+
+    def fake_urlopen(request, timeout=None):
+        seen["agent"], seen["timeout"] = request.get_header("User-agent"), timeout
+        return io.BytesIO(b"")
+
+    monkeypatch.setattr(ffmpeg_portable.urllib.request, "urlopen", fake_urlopen)
+    ffmpeg_portable._mac_open("https://example.invalid/ffmpeg.zip")
+    assert seen == {"agent": "AudiobookCreationTool", "timeout": ffmpeg_portable.MAC_DOWNLOAD_SOCKET_TIMEOUT_S}
+    assert "Python-urllib" not in seen["agent"]

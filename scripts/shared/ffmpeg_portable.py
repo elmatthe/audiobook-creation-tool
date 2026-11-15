@@ -568,6 +568,16 @@ MACOS_FFMPEG_PIN: Optional[MacBuild] = None
 #: Ceiling for one ZIP member (the real programs are about 66 MB).
 MAC_MAX_MEMBER_BYTES = 400_000_000
 _CODESIGN = "/usr/bin/codesign"
+#: The build server refuses Python's default ``Python-urllib`` user agent (HTTP 403, measured 2026-11-15); a neutral
+#: product name is sent instead. Nothing about the person or the computer is sent.
+MAC_DOWNLOAD_USER_AGENT = "AudiobookCreationTool"
+#: Seconds a stalled connection may stay silent before the download fails (and is retried by a later repair).
+MAC_DOWNLOAD_SOCKET_TIMEOUT_S = 60
+
+
+def _mac_open(url: str):
+    request = urllib.request.Request(url, headers={"User-Agent": MAC_DOWNLOAD_USER_AGENT})
+    return urllib.request.urlopen(request, timeout=MAC_DOWNLOAD_SOCKET_TIMEOUT_S)
 
 
 def macos_staging_root(build: MacBuild) -> Path:
@@ -736,7 +746,7 @@ def acquire_macos(log=None, *, build: Optional[MacBuild] = None, opener: Optiona
     pin leaves whatever was pinned exactly as it was.
     """
     log = log or _NullLog()
-    opener = opener or urllib.request.urlopen
+    opener = opener or _mac_open
     build = build or MACOS_FFMPEG_PIN
     if build is None:
         log.line("  No FFmpeg build for macOS has been approved for this version of the app yet, so none is "

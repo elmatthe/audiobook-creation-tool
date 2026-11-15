@@ -831,6 +831,14 @@ def assess_venv_health(*, require_tk: bool = True,
             "copy's own Python, from the package files kept in this folder.",
             version=version, ssl=has_ssl, tk=has_tk, executes=True)
 
+    if IS_MAC and not venv_creation_finished():
+        # v0.8.x P1A: its creation never finished (or it predates the app's own Python on a Mac): rebuilt.
+        return VenvHealth(
+            VENV_REPAIRABLE, "incomplete",
+            "The environment was never finished (its creation was interrupted, or it was made before this version "
+            "of the app). It is rebuilt on the app's own Python.",
+            version=version, ssl=has_ssl, tk=has_tk, executes=True)
+
     if not has_ssl:
         # pip and Edge TTS both need ssl; this is a real failure, not a nuisance.
         return VenvHealth(
@@ -1672,12 +1680,30 @@ def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]
 # ===========================================================================
 #  Setup steps
 # ===========================================================================
+#: v0.8.x P1A (macOS): written into the environment only once ``python -m venv`` -- ensurepip included -- has finished.
+#: A setup killed while the environment was being created leaves an interpreter with no pip, which every other check
+#: passes; on a Mac an environment without this file is rebuilt (found by the P1A SIMULATED interruption run).
+VENV_CREATED_NAME = ".act-venv-created"
+
+
+def venv_creation_finished() -> bool:
+    return (VENV_DIR / VENV_CREATED_NAME).is_file()
+
+
 def create_venv(py_argv: list[str], log: SetupLog) -> bool:
     log.line(f"Creating virtual environment at {VENV_DIR}…")
     r = _run(py_argv + ["-m", "venv", str(VENV_DIR)])  # POSIX: contained (``-m venv`` starts ensurepip's pip)
     if r.returncode != 0:
         log.line(f"  ERROR creating venv: {r.stderr.strip()}")
         return False
+    if IS_MAC:
+        try:
+            (VENV_DIR / VENV_CREATED_NAME).write_text(
+                json.dumps({"created_by": _shown(py_argv), "created_at": time.strftime("%Y-%m-%dT%H:%M:%S")}),
+                encoding="utf-8")
+        except OSError as exc:
+            log.line(f"  ERROR recording the finished environment: {exc}")
+            return False
     log.line("  Virtual environment created.")
     return True
 

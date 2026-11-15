@@ -20678,7 +20678,8 @@
             "tk_error_is_no_display",
             "venv_is_valid",
             "_locked_distributions",
-            "_venv_check"
+            "_venv_check",
+            "venv_creation_finished"
           ]
         },
         {
@@ -25638,7 +25639,7 @@
     "scripts/shared/base_packages.py": "a93fd212c8f76432aa20b90ad83586767e47ef93abb76d645b61e7d828cfa9ff",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
-    "scripts/shared/bootstrap.py": "359128816be9d9093b5b13522c5a397d7ce3dc37f2b6cd8e26721670e8937f4f",
+    "scripts/shared/bootstrap.py": "cc309ee1c89a811fb5d4e7bae12f7523c82b7b1a2676e0fa6ea0a6f839841d65",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
@@ -25652,7 +25653,7 @@
     "scripts/shared/engine_lease.py": "115683703f56744ef5d37930d53fdca5f263783438a0c78c8d9b37d09f56ad57",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
     "scripts/shared/ffmpeg_health.py": "55d2564cec45e117e7a64c0b25a16715c4b942096976b15cee203ac57ae3c5c7",
-    "scripts/shared/ffmpeg_portable.py": "e2ec05bd8923ed2289f36a11a9a7707c84b72b0e698f21995e6d9d843cfaeb77",
+    "scripts/shared/ffmpeg_portable.py": "2196aaf8c8fe35a06490faa6935fdd28f1a88bfffa29ca4bbff34c76f512663c",
     "scripts/shared/ffmpeg_utils.py": "97dfa2d46a7e4e86a4b84cb81dafe9db2b556cf245f9fd497ed4a8545036f838",
     "scripts/shared/image_capabilities.py": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
