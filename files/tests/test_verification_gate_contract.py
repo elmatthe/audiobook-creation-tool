@@ -393,7 +393,10 @@ def test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_applicat
     verdict = json.loads((outcome.directory / "qualification" / "verdict.json").read_text(encoding="utf-8"))
     assert verdict["status"] == "BLOCKED" and verdict["scenario"] == scenario and verdict["checks"] == []
     assert outcome.check("cleanup")["status"] == "PASS"
-    assert outcome.results["qualification"]["satisfied"] == [] and scenario in outcome.results["qualification"]["pending"]
+    assert outcome.results["qualification"]["satisfied"] == []
+    # v0.8.x P1B: the qualification set a run reports pending is its own platform's (macOS: fresh-macos only).
+    assert scenario in outcome.results["qualification"]["pending"] if sys.platform != "darwin" \
+        else outcome.results["qualification"]["pending"] == ["fresh-macos"]
     assert sorted(path.name for path in (outcome.directory / "qualification").iterdir()) == ["runs.json", "verdict.json"]
 
 
@@ -1573,7 +1576,9 @@ def _with_runner(tree, script=None, *, required=("mp3.journey",), tools=("mp3-to
     tree.write("files/dev-work/verification-gate/acceptance_runner.py", _SCRIPTED_RUNNER)
     tree.write("files/dev-work/verification-gate/scripted.json", json.dumps(script or {}))
     policy = tree.policy()
-    policy["acceptance"] = {"required_tools": list(tools), "required_scenarios": list(required), "optional_scenarios": [], "journey_routes": {}}
+    policy["acceptance"] = {"required_tools": list(tools), "required_scenarios": list(required), "optional_scenarios": [], "journey_routes": {},
+                            # v0.8.x P1B: the macOS gate judges by its darwin map; Windows never reads it.
+                            "darwin_map": {item: {"class": "automated", "journey": item} for item in required}}
     policy["stages"]["acceptance"] = {"timeout_seconds": 60, "stall_seconds": 6}
     policy.update(policy_overrides)
     tree.write_policy(policy)
@@ -1656,6 +1661,7 @@ def test_a_claimed_pass_with_no_media_output_is_a_failure(tree):
     assert outcome.code == 1 and "no inspected output" in outcome.check("acceptance")["detail"], outcome
 
 
+@WINDOWS_ONLY  # v0.8.x P1B (D9): macOS has no Screen Recording grant; its pictures are the owner's signed visual check
 def test_a_claimed_pass_with_no_picture_is_a_failure(tree):
     _with_runner(tree, {"entry": {"screenshots": []}})
     outcome = _journey(tree, "mp3.journey")

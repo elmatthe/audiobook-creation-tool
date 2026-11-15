@@ -207,7 +207,10 @@ DARWIN_NA_REASONS = ("windows-input-harness",)
 
 
 def darwin_map_problems(darwin_map: dict | None, required: list[str], optional: list[str]) -> list[str]:
-    """Every required and optional scenario mapped exactly once, each entry well formed. Empty when the map is usable."""
+    """Every required and optional scenario mapped exactly once, each entry well formed. Empty when the map is usable.
+    A policy with no acceptance scenarios at all has nothing to map, so it needs no map; any scenario needs one."""
+    if darwin_map is None and not required and not optional:
+        return []
     if not isinstance(darwin_map, dict):
         return ["there is no acceptance.darwin_map"]
     problems: list[str] = []
@@ -258,11 +261,14 @@ def _darwin_evidence_problems(entry: dict, evidence_root: Path) -> list[str]:
 
 
 def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: list[str], optional: list[str], evidence_root: Path,
-                 returncode: int | None, ended: str, darwin_map: dict, manual_evidence: Path | None, sha: str | None) -> Judgement:
+                 returncode: int | None, ended: str, darwin_map: dict, manual_evidence: Path | None, sha: str | None,
+                 required_tools: list[str] = (), whole_set: bool = False) -> Judgement:
     """The verdict on one macOS acceptance stage. Three counts -- automated counterparts PASS/FAIL, owner-manual items verified
     present (signed for this SHA), not-applicable items with their reason ids -- and FAIL on any unmapped scenario, failed
     counterpart or manual item without signed evidence; a required scenario not yet runnable is NOT RUN. Never a blanket
-    NOT APPLICABLE."""
+    NOT APPLICABLE. The report itself is held to the Windows judge's rules: this run's token, the registered set equal to the
+    policy's, nothing reported twice or unselected, a finished report from a runner that exited 0, and on a whole-set run
+    every required tool with a passing journey (or journeys mapped to a later phase, which are NOT RUN, never a pass)."""
     problems = darwin_map_problems(darwin_map, required, optional)
     if problems:
         return Judgement("FAIL", "; ".join(problems), problems=problems)
@@ -274,13 +280,30 @@ def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: 
         return Judgement("NOT RUN", f"the runner exited {returncode} and left no report")
     except ValueError as exc:
         return Judgement("FAIL", f"the report cannot be read: {exc}")
-    if not isinstance(report, dict) or report.get("schema_version") != 1 or report.get("token") != token:
-        return Judgement("FAIL", "the report is not this run's (schema or token)")
+    if not isinstance(report, dict) or report.get("schema_version") != 1:
+        return Judgement("FAIL", "the report has an unknown schema")
+    if report.get("token") != token:
+        return Judgement("FAIL", f"the report belongs to another run ({report.get('token')!r}, not {token!r}): copied or stale")
     if report.get("blocked"):
         return Judgement("BLOCKED", f"{report['blocked']}; no evidence exists, so this is neither a pass nor a product failure")
-    if not report.get("finished") or returncode != 0:
-        return Judgement("FAIL" if report.get("finished") else "NOT RUN", f"the runner exited {returncode}; finished {report.get('finished')}")
-    by_id = {entry.get("id"): entry for entry in report.get("scenarios", [])}
+    if not report.get("finished"):
+        return Judgement("NOT RUN", f"the runner exited {returncode} and never finished its report")
+    if returncode != 0:
+        return Judgement("FAIL", f"the report looks finished and the runner exited {returncode}: the two disagree")
+    registered, known = set(report.get("registered", [])), set(required) | set(optional)
+    if registered != known:
+        problems.append(f"the registered scenarios and the policy disagree: only registered {sorted(registered - known)}, "
+                        f"only in the policy {sorted(known - registered)}")
+    entries = report.get("scenarios", [])
+    ids = [entry.get("id") for entry in entries]
+    if len(ids) != len(set(ids)):
+        problems.append(f"a scenario was reported twice: {sorted({i for i in ids if ids.count(i) > 1})}")
+    unexpected = sorted(set(ids) - set(wanted))
+    if unexpected:
+        problems.append(f"scenarios ran that were not selected: {unexpected}")
+    if report.get("unknown"):
+        problems.append(f"unknown scenarios were asked for: {report['unknown']}")
+    by_id = {entry.get("id"): entry for entry in entries}
     verdicts: list[dict] = []
     counts = {"automated PASS": 0, "automated FAIL": 0, "manual verified": 0, "manual missing": 0, "not applicable": 0, "NOT RUN": 0}
     for scenario_id in wanted:
@@ -325,6 +348,14 @@ def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: 
     before, after = report.get("runtime_before"), report.get("runtime_after")
     if not before or before != after:
         problems.append(f"the real runtime data or the default output folder changed during the run: {before} -> {after}")
+    if whole_set:
+        later = {darwin_map[sid].get("tool") for sid in wanted if darwin_map[sid].get("pending_phase")}
+        for tool in required_tools:
+            mine = [item for item in verdicts if item.get("tool") == tool and item.get("tier") == "journey"
+                    and {"native", "media"} <= set(item.get("layers", []))]
+            # As on Windows: one that was BLOCKED or never ran, or is mapped to a later phase, is already reported as that.
+            if not any(item["verdict"] in ("PASS", "BLOCKED", "NOT RUN") for item in mine) and tool not in later:
+                problems.append(f"{tool} has no complete native and real-output journey that passed")
     statuses = [item["verdict"] for item in verdicts
                 if not (item["id"] in optional and item["verdict"] in ("NOT RUN", "NOT APPLICABLE"))
                 and item["verdict"] != "NOT APPLICABLE"]

@@ -210,8 +210,8 @@
       {
         "id": "native-macos-p1b",
         "pattern": "^(native\\ macOS\\ only\\ \\(P1B\\):\\ Aqua\\ Tk\\ 9\\ shell,\\ POSIX\\ containment\\ and\\ macOS\\ filesystem\\ checks)$",
-        "max": 42,
-        "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (14) and test_macos_p1b_gui_containment.py (13). The same files' Windows controls run on Windows."
+        "max": 60,
+        "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (15), test_macos_p1b_gui_containment.py (13), test_macos_p1b_filesystem.py (8: exFAT and APFS disk images, read-only and full volumes, two app copies, the measured descriptor peak), test_macos_p1b_mainthread.py (1: MAC-032) and test_macos_p1b_publication_cancel.py (8: CX-8). The same files' Windows controls run on Windows, and test_macos_p1b_gate.py (16) runs everywhere."
       },
       {
         "id": "macos-xhe-owner-fixture",
@@ -731,6 +731,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.edge-replay-direct-file",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -738,6 +739,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.edge-replay-folder-mixed",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -745,6 +747,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.service-failure-then-retry",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -752,6 +755,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.cancel-during-narration",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -759,6 +763,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.pause-at-file-boundary",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -766,6 +771,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.pdf-without-text",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -773,6 +779,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "shutdown.tts-close-during-work",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -780,6 +787,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "shutdown.tts-close-forced-landing",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       },
@@ -897,6 +905,7 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.kokoro-local",
+        "tool": "tts-audiobook",
         "pending_phase": "P2",
         "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
       }

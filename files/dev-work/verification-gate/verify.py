@@ -1252,7 +1252,8 @@ class GateRun:
             self.acceptance = acceptance_report.judge_darwin(
                 report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence,
                 returncode=result.returncode, ended=result.ended, darwin_map=policy.get("darwin_map", {}),
-                manual_evidence=DARWIN_MANUAL_EVIDENCE, sha=self.identity_start.get("head"))
+                manual_evidence=DARWIN_MANUAL_EVIDENCE, sha=self.identity_start.get("head"),
+                required_tools=list(policy.get("required_tools", [])), whole_set=selection.journeys is None)
         else:
             self.acceptance = acceptance_report.judge(
                 report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence, returncode=result.returncode,

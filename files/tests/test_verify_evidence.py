@@ -188,6 +188,8 @@ POLICY = {
     "process": {"drain_seconds": 2, "kill_wait_seconds": 10},
     "scenarios": {name: {"phase": 8, "network": [], "detail": "synthetic"}
                   for name in ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows")},
+    # v0.8.x P1B: the macOS gate's own frozen qualification set; Windows never reads it.
+    "darwin_scenarios": {"fresh-macos": {"phase": "P1B", "network": [], "procedure": "synthetic", "detail": "synthetic"}},
     "later_phase_requirements": [{"id": "native-journeys", "phase": 3, "required": False, "detail": "synthetic"}],
     "inventory": {"minimum_ordinary": 1, "minimum_guarded": {}, "guarded_membership": {}},
     "required_self_tests": [],
