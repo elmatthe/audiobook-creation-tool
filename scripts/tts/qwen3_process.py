@@ -9,7 +9,8 @@ parent, and ``TerminateJobObject`` stops all of them at once. If the Job Object 
 started without one and the older ``taskkill /T`` route remains.
 
 Other platforms get a new process group instead (the Qwen3 voices are Windows-only for now; this keeps the module
-honest if that changes).
+honest if that changes). On macOS (v0.8.x P1B) an ACT Python child of the app window, or of one of its own class-A
+children, is started through its owner (``shared.child_ownership``): its own group, tied to the owner's lifeline.
 """
 
 from __future__ import annotations
@@ -130,6 +131,31 @@ class ContainmentUnavailable(RuntimeError):
     """The process could not be placed under the app's control, so it was never allowed to run."""
 
 
+#: The thread ``shared/child_entry.py`` starts in a class-A child to watch its owner's lifeline.
+_LIFELINE_THREAD = "act-lifeline"
+
+
+def _under_a_lifeline() -> bool:
+    """True in a class-A child: a process whose own end is tied to its owner's (macOS)."""
+    import threading
+
+    return any(thread.name == _LIFELINE_THREAD for thread in threading.enumerate())
+
+
+def _posix_owner(cmd: list):
+    """The containment owner to start the Python program *cmd* under, or ``None`` to start it as before (POSIX).
+
+    The app window is an owner (``subprocess_utils.enable_containment``). A class-A child becomes one the first time it
+    starts an ACT Python child of its own, so that child is tied to it in turn. Anything else -- a program that is not
+    Python, a process that is neither -- starts in a new process group as before."""
+    if not os.path.basename(str(cmd[0])).lower().startswith("python"):
+        return None
+    owner = subprocess_utils.containment_owner()
+    if owner is None and _under_a_lifeline():
+        owner = subprocess_utils.enable_containment()
+    return owner
+
+
 def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen:
     """``subprocess.Popen`` (hidden console) that returns a process whose whole tree can be stopped.
 
@@ -142,7 +168,22 @@ def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen
     worker could outlive a Cancel and keep the GPU. A single-process command such as ffmpeg may go without.
     """
     if sys.platform != "win32":
-        proc = subprocess_utils.popen(cmd, start_new_session=True, **kwargs)
+        owner = _posix_owner(cmd)
+        if owner is not None:
+            # v0.8.x P1B (plan section 11.2.2): an ACT-authored Python child of the app window (the optional-setup
+            # worker), or of such a child (the pip and the probes that worker runs), is class A -- its own process
+            # group, started through ``child_entry.py`` whose first statements watch its owner's lifeline, so it and
+            # everything it started end with its owner however the owner ends; the window's end therefore reaches
+            # the worker's pip through the worker. Once the window is closing nothing new starts.
+            try:
+                proc = owner.popen_python([str(part) for part in cmd], label=os.path.basename(str(cmd[0])),
+                                          **kwargs)
+            except RuntimeError as exc:
+                if type(exc).__name__ != "ContainmentUnavailable":
+                    raise
+                raise ContainmentUnavailable(str(exc)) from exc
+        else:
+            proc = subprocess_utils.popen(cmd, start_new_session=True, **kwargs)
         proc.act_job = None  # type: ignore[attr-defined]
         return proc
     job: Optional[ProcessJob] = None

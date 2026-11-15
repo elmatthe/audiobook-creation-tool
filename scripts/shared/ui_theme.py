@@ -64,7 +64,16 @@ MIN_SIZE = (920, 600)
 #: short for a readable chapter editor and log at the same time; the
 #: maintainer ruled 1024x800 for macOS (v0.6.4 Phase 13). Windows and the
 #: classic branch keep ``MIN_SIZE`` and ``DEFAULT_GEOMETRY``.
-AQUA_MIN_SIZE = (1024, 800)
+#:
+#: v0.8.x P1B: measured again on the app's own Aqua Tk 9.0.4 with today's panels,
+#: 1024 px no longer holds the composition this constant defines: the Cover
+#: tool falls into its stacked layout (17 px short of its columns layout), so
+#: Cancel, Retry Failed and the progress line run below the window; the Editor's
+#: actions row is 31 px wider than its host (Retry Failed is cut off); the
+#: Maker's progress line runs past the right edge. 1120 px is the smallest width
+#: at which all five non-TTS tools fit whole (files/dev-work/macos-p1b, the Aqua
+#: probe). The height is unchanged. The TTS panel's height at 800 is P2's.
+AQUA_MIN_SIZE = (1120, 800)
 AQUA_GEOMETRY = "{}x{}".format(*AQUA_MIN_SIZE)
 
 #: Every ttk style this module registers for Windows begins with this prefix.
@@ -1018,6 +1027,72 @@ def style_tk_widget(widget, theme: dict, role: str = "surface", **overrides):
     return applied
 
 
+#: Tk 9 delivers a two-finger trackpad scroll as ``<TouchpadScroll>`` (TIP 684), not ``<MouseWheel>``. Tk 8.6 (Windows)
+#: has no such event and rejects a binding to it, so every use is guarded by the *running* Tk version (v0.8.x P1B).
+TOUCHPAD_SCROLL = "<TouchpadScroll>"
+
+
+def touchpad_scroll_supported() -> bool:
+    """True when the running Tk sends trackpad scrolls as ``<TouchpadScroll>`` (Tk 9 and later)."""
+    return tk.TkVersion >= 9.0
+
+
+def is_aqua(widget) -> bool:
+    """True when *widget* is drawn by Tk's native macOS windowing system (``tk windowingsystem`` is ``aqua``)."""
+    try:
+        return str(widget.tk.call("tk", "windowingsystem")) == "aqua"
+    except (tk.TclError, AttributeError):
+        return False
+
+
+def wheel_units(delta: int) -> int:
+    """Units to scroll for one ``<MouseWheel>`` event: Windows' ±120 steps by their count, a smaller (macOS) delta by
+    its sign only, so a small delta never rounds to no movement and never jumps by its raw size."""
+    delta = int(delta)
+    if abs(delta) >= 120:
+        return int(-delta / 120)  # the Windows formula exactly
+    return -1 if delta > 0 else (1 if delta < 0 else 0)
+
+
+def _native_touchpad_class(widget) -> bool:
+    """True when *widget*'s own Tk class already scrolls it by trackpad (Tk 9's Text, Listbox and Treeview)."""
+    try:
+        return bool(widget.tk.call("bind", widget.winfo_class(), TOUCHPAD_SCROLL))
+    except (tk.TclError, AttributeError):
+        return False
+
+
+def scroll_by_touchpad(target, event) -> bool:
+    """Scroll *target* vertically by one ``<TouchpadScroll>`` event, as precisely as the widget allows. True if it moved.
+
+    Tk packs both axes into ``%D``; ``tk::PreciseScrollDeltas`` (Tk's own decoder, the one its Text binding uses) turns it
+    into pixels. A Text scrolls by those pixels, exactly as Tk's class binding does. A Canvas or Listbox has no pixel unit
+    in Tk 9.0, so it moves by the same distance as a fraction of its whole scrollable height. Never raises.
+    """
+    try:
+        _dx, dy = (int(float(value)) for value in
+                   target.tk.splitlist(target.tk.call("tk::PreciseScrollDeltas", event.delta)))
+    except (tk.TclError, ValueError, TypeError, AttributeError):
+        return False
+    if not dy:
+        return False
+    try:
+        target.tk.call(target._w, "yview", "scroll", -dy, "pixels")
+        return True
+    except tk.TclError:
+        pass
+    try:
+        first, last = (float(value) for value in target.yview())
+        span = last - first
+        if span <= 0.0 or span >= 1.0:
+            return False  # everything is already visible
+        whole = max(1, target.winfo_height()) / span
+        target.yview_moveto(min(1.0, max(0.0, first - dy / whole)))
+        return True
+    except (tk.TclError, ValueError, ZeroDivisionError):
+        return False
+
+
 def enable_mousewheel(scroll_target, hover_region=None):
     """Make wheel + two-finger trackpad scroll work while the pointer is anywhere
     over hover_region (defaults to scroll_target). scroll_target must support
@@ -1030,29 +1105,44 @@ def enable_mousewheel(scroll_target, hover_region=None):
         if getattr(event, "delta", 0):
             scroll_target.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
+    def _on_touchpad(event):
+        # Tk 9's Text, Listbox and Treeview classes scroll themselves by trackpad, and the class binding runs before
+        # this "all" one: scrolling again here would move them twice. Only the pointer over something else in the
+        # region (a label, a frame, a canvas) needs this.
+        widget = getattr(event, "widget", None)
+        if widget is scroll_target or _native_touchpad_class(widget):
+            return
+        scroll_by_touchpad(scroll_target, event)
+
+    # Tk 8.6 (Windows) has one sequence to own; Tk 9 has the trackpad's as well.
+    handlers = {"<MouseWheel>": _on_mousewheel}
+    if touchpad_scroll_supported():
+        handlers[TOUCHPAD_SCROLL] = _on_touchpad
+
     # The launcher runs every tool in one root, so "all" holds a single
     # <MouseWheel> slot that all hover regions take turns owning. A region may
     # therefore only ever give back the binding it still holds: the script Tk
     # installs names this region's own registered callback, which makes it a
     # self-describing ownership token. If another region has since been entered
     # the script no longer matches, and this one leaves the wheel alone.
-    owned_script = None
+    # (Tk 9: the <TouchpadScroll> slot is owned and given back the same way.)
+    owned_scripts: dict[str, str] = {}
 
     def _claim():
-        nonlocal owned_script
-        scroll_target.bind_all("<MouseWheel>", _on_mousewheel)
-        owned_script = hover_region.tk.call("bind", "all", "<MouseWheel>")
+        for sequence, handler in handlers.items():
+            scroll_target.bind_all(sequence, handler)
+            owned_scripts[sequence] = hover_region.tk.call("bind", "all", sequence)
 
     def _release():
-        nonlocal owned_script
-        if owned_script is None:
+        if not owned_scripts:
             return
-        try:
-            if hover_region.tk.call("bind", "all", "<MouseWheel>") == owned_script:
-                hover_region.tk.call("bind", "all", "<MouseWheel>", "")
-        except tk.TclError:
-            pass  # the interpreter is already going away — nothing left to own
-        owned_script = None
+        for sequence, owned_script in list(owned_scripts.items()):
+            try:
+                if hover_region.tk.call("bind", "all", sequence) == owned_script:
+                    hover_region.tk.call("bind", "all", sequence, "")
+            except tk.TclError:
+                pass  # the interpreter is already going away — nothing left to own
+        owned_scripts.clear()
 
     def _on_enter(_event):
         _claim()

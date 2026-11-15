@@ -253,6 +253,15 @@ def _gb(value: int) -> str:
     return f"{value / 1024 ** 3:.1f} GB"
 
 
+def _system_name(platform: Optional[str] = None) -> str:
+    """Who the reserve is kept for, in the plan's own words: "Windows" exactly as before, "macOS" on a Mac (v0.8.x P1B,
+    MAC-011), "the system" anywhere else."""
+    platform = sys.platform if platform is None else platform
+    if platform == "win32":
+        return "Windows"
+    return "macOS" if platform == "darwin" else "the system"
+
+
 def memory_reserve(memory: MemoryInfo) -> int:
     """What stays free for Windows, the app's own window and other programs."""
     return max(MIN_MEMORY_RESERVE, int(MEMORY_RESERVE_FRACTION * memory.total))
@@ -310,7 +319,7 @@ def plan_workers(requested, backend: str, budgets: Sequence[FileBudget], *, cpu_
         else:
             reserve = memory_reserve(memory)
             usable = memory_usable(memory)
-            situation = f"{_gb(memory.available)} free, {_gb(reserve)} kept for Windows and other programs"
+            situation = f"{_gb(memory.available)} free, {_gb(reserve)} kept for {_system_name()} and other programs"
             if usable < memory.available - reserve:
                 situation += f", and at most {_gb(max(0, usable))} can be committed"
         if budgets:
@@ -701,10 +710,12 @@ def logical_cpus() -> Optional[int]:
 
 
 def memory_info() -> Optional[MemoryInfo]:
-    """Free and total physical memory where the OS reports it reliably (Windows, Linux); ``None`` elsewhere."""
+    """Free and total physical memory where the OS reports it reliably (Windows, macOS, Linux); ``None`` elsewhere."""
     try:
         if sys.platform == "win32":
             return _windows_memory()
+        if sys.platform == "darwin":
+            return _darwin_memory()
         if sys.platform.startswith("linux"):
             return _linux_memory()
     except (OSError, ValueError, AttributeError, MemoryError):
@@ -713,10 +724,13 @@ def memory_info() -> Optional[MemoryInfo]:
 
 
 def own_private_bytes() -> Optional[int]:
-    """What this process has committed (Windows) or holds in memory (Linux), or ``None`` where that cannot be read."""
+    """What this process has committed (Windows), its physical footprint (macOS) or what it holds in memory (Linux), or
+    ``None`` where that cannot be read."""
     try:
         if sys.platform == "win32":
             return _windows_private_bytes()
+        if sys.platform == "darwin":
+            return _darwin_footprint()
         if sys.platform.startswith("linux"):
             with open("/proc/self/statm", encoding="ascii") as handle:
                 return int(handle.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
@@ -804,6 +818,71 @@ def _windows_memory() -> Optional[MemoryInfo]:
         return None
     process, job = _windows_job_headroom()
     return MemoryInfo(int(status.ullAvailPhys), int(status.ullTotalPhys), int(status.ullAvailPageFile), process, job)
+
+
+def _darwin_vm_statistics():
+    """``host_statistics64(HOST_VM_INFO64)``: the kernel's page counts, and its page size. Raises OSError on failure."""
+    import ctypes
+
+    natural, u64 = ctypes.c_uint, ctypes.c_uint64
+
+    class VMStatistics64(ctypes.Structure):  # <mach/vm_statistics.h>, struct vm_statistics64
+        _fields_ = [("free_count", natural), ("active_count", natural), ("inactive_count", natural),
+                    ("wire_count", natural), ("zero_fill_count", u64), ("reactivations", u64), ("pageins", u64),
+                    ("pageouts", u64), ("faults", u64), ("cow_faults", u64), ("lookups", u64), ("hits", u64),
+                    ("purges", u64), ("purgeable_count", natural), ("speculative_count", natural),
+                    ("decompressions", u64), ("compressions", u64), ("swapins", u64), ("swapouts", u64),
+                    ("compressor_page_count", natural), ("throttled_count", natural),
+                    ("external_page_count", natural), ("internal_page_count", natural),
+                    ("total_uncompressed_pages_in_compressor", u64)]
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.mach_host_self.restype = ctypes.c_uint
+    host = libc.mach_host_self()
+    page = ctypes.c_size_t(0)
+    if libc.host_page_size(host, ctypes.byref(page)) != 0 or page.value <= 0:
+        raise OSError("host_page_size failed")
+    stats = VMStatistics64()
+    count = ctypes.c_uint(ctypes.sizeof(stats) // ctypes.sizeof(ctypes.c_int))
+    if libc.host_statistics64(host, 4, ctypes.byref(stats), ctypes.byref(count)) != 0:  # HOST_VM_INFO64
+        raise OSError("host_statistics64 failed")
+    return stats, int(page.value)
+
+
+def _darwin_total_memory() -> int:
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    value, size = ctypes.c_uint64(0), ctypes.c_size_t(8)
+    if libc.sysctlbyname(b"hw.memsize", ctypes.byref(value), ctypes.byref(size), None, 0) != 0 or not value.value:
+        raise OSError(ctypes.get_errno(), "sysctl hw.memsize failed")
+    return int(value.value)
+
+
+def _darwin_memory() -> Optional[MemoryInfo]:
+    """macOS (v0.8.x P1B, MAC-011): physical memory from ``hw.memsize``; *available* is what the kernel can hand out
+    without paging anything to disk -- free, speculative and inactive pages (inactive pages are reclaimed first, and
+    purgeable pages are left out because they are also counted in those queues). An estimate the plan keeps its reserve
+    on top of, never a promise; there is no commit limit to read on macOS."""
+    stats, page = _darwin_vm_statistics()
+    available = (int(stats.free_count) + int(stats.speculative_count) + int(stats.inactive_count)) * page
+    return MemoryInfo(available, _darwin_total_memory())
+
+
+def _darwin_footprint() -> Optional[int]:
+    """This process's physical footprint (``proc_pid_rusage``: ``ri_phys_footprint``), what Activity Monitor calls its
+    Memory: the closest macOS has to Windows' private bytes."""
+    import ctypes
+
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    buffer = ctypes.create_string_buffer(512)  # struct rusage_info_v0 is 96 bytes
+    if libproc.proc_pid_rusage(os.getpid(), 0, buffer) != 0:  # RUSAGE_INFO_V0
+        return None
+    import struct
+
+    # uuid[16], then uint64: user_time, system_time, pkg_idle_wkups, interrupt_wkups, pageins, wired_size,
+    # resident_size, phys_footprint, ...
+    return int(struct.unpack_from("=Q", buffer.raw, 16 + 7 * 8)[0])
 
 
 def _linux_memory() -> Optional[MemoryInfo]:

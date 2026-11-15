@@ -220,6 +220,8 @@ class LauncherApp:
         appearance.register_listener(self._on_appearance_changed)
         self._apply_default_geometry()
         self._bind_preferences_accelerators()
+        self._closing = False
+        self._register_mac_application_commands()
 
         # Open the last-used tool, or the first available one.
         last = app_settings.get("last_tool")
@@ -573,6 +575,21 @@ class LauncherApp:
             except tk.TclError:
                 pass
 
+    def _register_mac_application_commands(self):
+        """macOS (v0.8.x P1B, MAC-008): the application menu's Quit and Cmd+Q, and its Settings item and Cmd+,.
+
+        Without ``::tk::mac::Quit`` Tk ends the process itself on Cmd+Q, skipping the close path below: the last tool
+        was not remembered and the orderly end of the app's FFmpeg children did not run. Registered only where Tk
+        draws natively on macOS (decided by the running Tk, never by guessing the OS); nothing changes elsewhere.
+        """
+        if not ui_theme.is_aqua(self.root):
+            return
+        try:
+            self.root.createcommand("::tk::mac::Quit", self._on_close)
+            self.root.createcommand("::tk::mac::ShowPreferences", self.open_preferences)
+        except tk.TclError:
+            self.logger.exception("Could not register the macOS application commands")
+
     def open_preferences(self):
         """Open Preferences & Data, or focus the window that is already open."""
         self.preferences_dialog = preferences_ui.open_preferences(
@@ -770,10 +787,17 @@ class LauncherApp:
         self.root.geometry(self.theme["geometry"])
 
     def _on_close(self):
+        # One close, however many ways it was asked for (the red button, Cmd+Q, a signal, all three at once).
+        if getattr(self, "_closing", False):
+            return
+        self._closing = True
         try:
             app_settings.set("last_tool", self.current_key)
         except Exception:
             pass
+        # POSIX: from here no worker may start another FFmpeg; the running ones are ended once the window is gone
+        # (main). Nothing on Windows.
+        sp.begin_closing()
         self.root.destroy()
 
 
@@ -860,6 +884,80 @@ def _configure_hf_cache() -> None:
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
 
 
+#: The signals that mean "close the app" on macOS: Activity Monitor's Quit and logout (SIGTERM), a closed Terminal
+#: window (SIGHUP) and Ctrl+C in it (SIGINT).
+CLOSE_SIGNALS = ("SIGTERM", "SIGHUP", "SIGINT")
+
+
+def _route_signals_to_close(root: tk.Tk, app: LauncherApp) -> bool:
+    """POSIX (v0.8.x P1B): the close signals reach the same close path as the red button and Cmd+Q, on Tk's thread.
+
+    Python runs a signal handler only when the main thread next gets control, and Tk's main loop can sleep inside Tcl
+    until a window event arrives; so the signal also writes to a wake-up pipe that Tk watches, and the loop turns at
+    once. The handler only schedules the close; it never touches a widget itself. Containment after SIGKILL or a crash
+    never depends on this (the lifeline does that). Nothing on Windows. Returns True when installed.
+    """
+    if sys.platform == "win32":
+        return False
+    import signal
+
+    def request_close(_signum, _frame):
+        try:
+            root.after(0, app._on_close)
+        except Exception:  # noqa: BLE001 - the window is already going
+            pass
+
+    try:
+        wake_read, wake_write = os.pipe()
+        os.set_blocking(wake_read, False)
+        os.set_blocking(wake_write, False)
+
+        def drain(_fd, _mask):
+            try:
+                os.read(wake_read, 512)
+            except OSError:
+                pass
+
+        root.createfilehandler(wake_read, tk.READABLE, drain)
+        signal.set_wakeup_fd(wake_write)
+        for name in CLOSE_SIGNALS:
+            number = getattr(signal, name)
+            # A signal this process was started ignoring stays ignored (``nohup``'s contract); the app the launch
+            # script starts is in its own session, so a closed Terminal never sends it SIGHUP in any case.
+            if signal.getsignal(number) is signal.SIG_IGN:
+                continue
+            signal.signal(number, request_close)
+    except (OSError, ValueError, tk.TclError, AttributeError):
+        app.logger.exception("Could not route the close signals to the close path")
+        return False
+    return True
+
+
+def _raise_open_file_limit() -> tuple[int, int] | None:
+    """macOS (v0.8.x P1B, MAC-012): raise this process's soft open-file limit to ``min(hard, 4096)``.
+
+    An app started from Finder or Terminal inherits launchd's soft limit of 256. Process-local, never a system change,
+    and never lowered. Returns ``(before, after)``, or None when nothing was changed. Nothing on Windows.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = OPEN_FILE_TARGET if hard == resource.RLIM_INFINITY else min(hard, OPEN_FILE_TARGET)
+        if soft != resource.RLIM_INFINITY and soft < target:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            return soft, target
+    except (ImportError, OSError, ValueError):
+        pass
+    return None
+
+
+#: The soft open-file limit the app asks for on macOS (plan section 11.3).
+OPEN_FILE_TARGET = 4096
+
+
 def main() -> int:
     global _ROOT
     # Install the global no-window guard first, before anything imports pydub /
@@ -867,13 +965,26 @@ def main() -> int:
     # inherit hidden-window flags and do not flash console windows on Windows.
     sp.install_no_window_guard()
     _configure_hf_cache()
+    raised = _raise_open_file_limit()
+    # POSIX (v0.8.x P1B): this window owns every FFmpeg and ffprobe it starts, and the optional-setup workers; they end
+    # with it however it ends. None on Windows (Job Objects and the Toolhelp stop, unchanged).
+    owner = sp.enable_containment(logging_setup.get_logger().info)
+    if owner is not None:
+        import atexit
+
+        atexit.register(owner.shutdown)  # the last orderly resort; never the containment after a crash
     root = _ROOT = tk.Tk()
-    LauncherApp(root)
+    app = LauncherApp(root)
+    if raised is not None:
+        app.logger.info("Open-file limit raised from %d to %d for this process.", *raised)
+    _route_signals_to_close(root, app)
     root.mainloop()
     # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
     _finish_tk_objects(root)
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
     sp.stop_media_children()
+    # POSIX: the rest of the orderly end -- the optional-setup worker, then the lifeline and the guardian. Bounded.
+    sp.shutdown_containment()
     return 0
 
 

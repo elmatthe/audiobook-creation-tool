@@ -21,9 +21,11 @@ confirmation.
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Callable, Iterable, Optional
 
@@ -38,6 +40,27 @@ def _open_in_browser(url: str) -> None:
 
     webbrowser.open(url)
 
+
+
+#: The point size of Windows' own default UI font, against which this panel's sizes were chosen.
+_WINDOWS_BODY_POINTS = 9
+
+
+def panel_font(widget: tk.Misc, windows_points: int, *style: str) -> tuple:
+    """This panel's font: exactly ``("Segoe UI", windows_points, *style)`` on Windows, as before. Elsewhere Segoe UI
+    does not exist, so it is the platform's own UI font at the same size relative to that platform's default (v0.8.x
+    P1B, MAC-020): the 9-point body becomes macOS's 13-point body, not a 9-point fallback face."""
+    if sys.platform == "win32":
+        return ("Segoe UI", windows_points, *style)
+    try:
+        default = tkfont.nametofont("TkDefaultFont", root=widget)
+        family = default.actual("family")
+        size = int(default.actual("size"))
+    except (tk.TclError, ValueError, RuntimeError):
+        return ("TkDefaultFont", windows_points, *style)
+    if size <= 0:
+        size = _WINDOWS_BODY_POINTS
+    return (family, size + windows_points - _WINDOWS_BODY_POINTS, *style)
 
 class OptionalSetupPanel(ttk.Frame):
     def __init__(self, master, repo_root: Path, components: Iterable[str], *, on_done: Callable[[dict], None],
@@ -60,7 +83,7 @@ class OptionalSetupPanel(ttk.Frame):
         self._confirmed = False
         self.state = "idle"
 
-        self.heading = ttk.Label(self, text="", font=("Segoe UI", 12, "bold"))
+        self.heading = ttk.Label(self, text="", font=panel_font(self, 12, "bold"))
         self.heading.pack(anchor="w", pady=(0, 6))
         self.status = ttk.Label(self, text="", justify="left")
         self.status.pack(anchor="w", fill="x")
@@ -69,7 +92,7 @@ class OptionalSetupPanel(ttk.Frame):
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
         self.text = tk.Text(body, height=14, wrap="word", state="disabled", relief="flat",
-                            font=("Segoe UI", 9))
+                            font=panel_font(self, 9))
         scroll = ttk.Scrollbar(body, orient="vertical", command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
@@ -222,7 +245,7 @@ class OptionalSetupPanel(ttk.Frame):
             row.pack(side="bottom", fill="x", pady=(4, 0))
             ttk.Button(row, text="Open", command=lambda url=doc["url"]: self._open_url(url)).pack(side="right")
             ttk.Label(row, text=doc["title"], wraplength=440, justify="left").pack(side="left", fill="x")
-        body = tk.Text(frame, wrap="word", relief="flat", font=("Segoe UI", 9), height=14)
+        body = tk.Text(frame, wrap="word", relief="flat", font=panel_font(frame, 9), height=14)
         text = "\n\n".join([*(terms.get("summary") or ()), terms.get("attribution") or "",
                             "Hardware: " + (terms.get("hardware") or "")])
         body.insert("end", text)

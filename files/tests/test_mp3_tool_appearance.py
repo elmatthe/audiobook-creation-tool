@@ -210,7 +210,12 @@ def test_a_dark_bundle_reaches_the_whole_interior(make_panel, tk_root):
         assert widget.cget("foreground") == colors["text"], str(widget)
     selector = panel.navigator.selector
     popdown = selector.tk.eval(f"ttk::combobox::PopdownWindow {selector}")
-    assert selector.tk.call(f"{popdown}.f.l", "cget", "-background") == colors["field"]
+    if ui_theme.is_aqua(selector):
+        # Aqua Tk 9: the drop-down is a native menu that follows the window's own appearance (v0.8.x P1B);
+        # there is no Tk list to colour. Everywhere else the list keeps the bundle's field colour.
+        assert selector.tk.call("winfo", "class", f"{popdown}.menu") == "Menu"
+    else:
+        assert selector.tk.call(f"{popdown}.f.l", "cget", "-background") == colors["field"]
 
 
 # --------------------------------------------------------------------------- #

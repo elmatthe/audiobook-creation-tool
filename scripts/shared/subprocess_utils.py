@@ -5,7 +5,12 @@ through :func:`run` or :func:`popen` so that no console window flashes when the
 app is launched from the GUI (under ``pythonw.exe``). :func:`run_supervised`
 starts its child through :func:`popen` too, and lets Cancel stop it (v0.7.2).
 
-On non-Windows platforms these are thin pass-throughs to ``subprocess``.
+On non-Windows platforms these are thin pass-throughs to ``subprocess``, with one addition (v0.8.x P1B, plan section
+11.2.2): once a process has made itself the *owner* of its media children (:func:`enable_containment`; the app window does
+so at start), every FFmpeg and ffprobe started through this module joins that owner's guardian group (class B of
+:mod:`shared.child_ownership`), so it ends with the app however the app ends -- SIGKILL, a crash, Force Quit -- and
+:func:`stop_media_children` ends it by identity on an orderly close. Windows is unchanged: Job Objects and the Toolhelp
+``stop_media_children``.
 """
 
 from __future__ import annotations
@@ -37,22 +42,145 @@ def _hidden_kwargs() -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- #
+# POSIX containment of the media children (v0.8.x P1B, plan section 11.2.2)
+# --------------------------------------------------------------------------- #
+
+#: The programs this module starts as class B once an owner exists. This only decides how a child is *started*; nothing
+#: is ever found or ended by its name (ending reads the owner's registry, pid and start time).
+MEDIA_PROGRAMS = frozenset({"ffmpeg", "ffprobe"})
+
+_owner = None
+
+
+def enable_containment(log: Optional[Callable[[str], None]] = None):
+    """Make this process the owner of the FFmpeg and ffprobe it starts through this module, and return the owner.
+
+    POSIX only (``None`` on Windows, which keeps its Job Objects and Toolhelp path unchanged). Called by the app window
+    at start; a process that never calls it -- setup, the optional-setup workers, every test that does not ask --
+    spawns exactly as before. Imported here, never at the top: this module must import alone (ffmpeg_health imports it
+    bare before the venv exists, and the planning worker's reviewed source closure carries it without
+    ``child_ownership.py``), and only an owner ever needs it.
+    """
+    global _owner
+    if sys.platform == "win32":
+        return None
+    try:
+        from . import child_ownership
+    except ImportError:  # pragma: no cover - imported bare off scripts/shared
+        try:
+            import child_ownership  # type: ignore[no-redef]
+        except ImportError:  # a reviewed source closure without it: nothing here can own a child
+            return None
+    if not child_ownership.supported():
+        return None
+    _owner = child_ownership.owner(log)
+    return _owner
+
+
+def containment_owner():
+    """The owner :func:`enable_containment` made, or ``None`` (always ``None`` on Windows)."""
+    return _owner
+
+
+def begin_closing() -> None:
+    """The app is closing: from now on no FFmpeg, ffprobe or setup worker starts (a request raises, nothing runs).
+    POSIX with an owner only; nothing on Windows. Never raises."""
+    owner = _owner
+    if owner is not None:
+        with contextlib.suppress(Exception):
+            owner.begin_closing()
+
+
+def shutdown_containment() -> None:
+    """The rest of the orderly end (plan section 11.2.2): every child still owned, then the lifeline -- which retires
+    the guardian -- then the guardian is reaped; bounded. POSIX with an owner only; never raises. The containment after
+    SIGKILL or a crash never depends on this."""
+    owner = _owner
+    if owner is not None:
+        with contextlib.suppress(Exception):
+            owner.shutdown()
+
+
+def _media_owner(cmd, kwargs: dict):
+    """The owner to start ``cmd`` under as class B, or ``None`` to start it exactly as before."""
+    owner = _owner
+    if owner is None or sys.platform == "win32" or isinstance(cmd, (str, bytes, os.PathLike)):
+        return None
+    if "start_new_session" in kwargs or "process_group" in kwargs or kwargs.get("shell"):
+        return None
+    try:
+        program = os.path.basename(os.fsdecode(list(cmd)[0]))
+    except (IndexError, TypeError, ValueError):
+        return None
+    return owner if program in MEDIA_PROGRAMS else None
+
+
+def _contained_popen(owner, cmd, **kwargs) -> subprocess.Popen:
+    argv = [os.fspath(part) for part in cmd]
+    return owner.popen_external(argv, label=os.path.basename(argv[0]), **kwargs)
+
+
+def _contained_run(owner, cmd, *, input=None, capture_output: bool = False, timeout=None, check: bool = False,
+                   **kwargs) -> subprocess.CompletedProcess:
+    """``subprocess.run`` with the child started as class B: the same arguments and the same results (a timeout
+    kills the child -- by identity -- and raises ``TimeoutExpired``; ``check`` raises ``CalledProcessError``)."""
+    if input is not None:
+        if kwargs.get("stdin") is not None:
+            raise ValueError("stdin and input arguments may not both be used.")
+        kwargs["stdin"] = subprocess.PIPE
+    if capture_output:
+        if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
+            raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    process = _contained_popen(owner, cmd, **kwargs)
+    try:
+        with process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                owner.kill_now(process)
+                exc.stdout, exc.stderr = process.communicate()
+                raise
+            except BaseException:
+                owner.kill_now(process)
+                raise
+            retcode = process.poll()
+    finally:
+        owner.forget(process)
+    if check and retcode:
+        raise subprocess.CalledProcessError(retcode, process.args, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
+
 def run(cmd, **kwargs) -> subprocess.CompletedProcess:
     """Drop-in replacement for ``subprocess.run`` with hidden console on Windows.
 
     Caller-supplied kwargs win over the hidden-window defaults so that explicit
     ``startupinfo``/``creationflags`` are still honoured if ever needed.
     """
+    owner = _media_owner(cmd, kwargs)
+    if owner is not None:
+        return _contained_run(owner, cmd, **kwargs)
     return subprocess.run(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
 def popen(cmd, **kwargs) -> subprocess.Popen:
     """Drop-in replacement for ``subprocess.Popen`` with hidden console on Windows."""
+    owner = _media_owner(cmd, kwargs)
+    if owner is not None:
+        return _contained_popen(owner, cmd, **kwargs)
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
 def check_output(cmd, **kwargs) -> bytes | str:
     """Drop-in replacement for ``subprocess.check_output`` with hidden console."""
+    owner = _media_owner(cmd, kwargs)
+    if owner is not None:
+        if "stdout" in kwargs:
+            raise ValueError("stdout argument not allowed, it will be overridden.")
+        return _contained_run(owner, cmd, stdout=subprocess.PIPE, check=True, **kwargs).stdout
     return subprocess.check_output(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
@@ -111,6 +239,13 @@ def _stop(child: subprocess.Popen, grace_seconds: float) -> bool:
         except subprocess.TimeoutExpired:
             continue
     return False
+
+
+def _forget(child: subprocess.Popen) -> None:
+    """Drop a reaped child from the owner's registry (POSIX containment); nothing to do anywhere else."""
+    owner = _owner
+    if owner is not None and child.returncode is not None:
+        owner.forget(child)
 
 
 def _tail(stream, limit: int) -> bytes:
@@ -193,6 +328,7 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
             # Every route out, an exception in the loop included: a child started here is stopped and collected here.
             if child.returncode is None:
                 reaped = _stop(child, grace_seconds)
+        _forget(child)
         if stopped:
             _cancelled(supervision, child, reaped, grace_seconds)
         if timed_out:
@@ -208,7 +344,13 @@ _MEDIA_CHILDREN = frozenset({"ffmpeg.exe", "ffprobe.exe"})
 
 
 def stop_media_children() -> list[int]:
-    """End FFmpeg and ffprobe processes this process itself started, and return their pids. Windows only; never raises.
+    """End FFmpeg and ffprobe processes this process itself started, and return their pids. Never raises.
+
+    POSIX (v0.8.x P1B): the owner's own registry of the class-B children it started (pid and kernel start time), ended
+    together -- SIGTERM, at most a second, SIGKILL, reaped -- and nothing else: never a process listing, never a name on
+    the system. Without an owner (:func:`enable_containment` was never called) there is nothing to end.
+
+    Windows (unchanged):
 
     A tool's worker blocks in :func:`run` while FFmpeg works. It is a daemon thread, so it dies with the interpreter, and FFmpeg does not
     notice: closing the window during an M4B Maker build left FFmpeg encoding with nobody to publish the result (measured, v0.7.2 Phase 3).
@@ -216,7 +358,13 @@ def stop_media_children() -> list[int]:
     anyone else is untouched and a name alone is never enough.
     """
     if sys.platform != "win32":
-        return []
+        owner = _owner
+        if owner is None:
+            return []
+        try:
+            return owner.stop_external(MEDIA_PROGRAMS)
+        except Exception:  # noqa: BLE001 - closing the application is never the moment to raise
+            return []
     stopped: list[int] = []
     try:
         import ctypes
@@ -444,6 +592,7 @@ def _ask_file_manager(target: str, platform: Optional[str] = None) -> Optional[s
                 os.startfile(target)  # type: ignore[attr-defined]
             return None
         opener = "open" if platform == "darwin" else "xdg-open"
+        # Class D (deliberately not owned, plan section 11.2.2): the opener hands the folder to Finder and exits.
         child = popen([opener, target], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                       stderr=subprocess.DEVNULL)
         try:

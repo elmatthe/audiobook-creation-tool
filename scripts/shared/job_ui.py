@@ -296,6 +296,18 @@ def style_tk_widget(
     return module.style_tk_widget(widget, theme or {}, role, **overrides)
 
 
+#: Select-All as Windows and Linux type it. Bound by hand because Tk binds it to Control-a on Windows only.
+_CONTROL_SELECT_ALL = ("<Control-a>", "<Control-A>")
+#: Select-All as macOS types it (v0.8.x P1B, MAC-037). Bound only where Tk draws natively on macOS: on Windows Tk maps
+#: NumLock to the same modifier bit, so a Command binding there could fire on a plain key.
+_COMMAND_SELECT_ALL = ("<Command-a>", "<Command-A>")
+
+
+def select_all_sequences(widget: tk.Misc) -> tuple[str, ...]:
+    """The key sequences that mean Select All for *widget*'s windowing system."""
+    return _CONTROL_SELECT_ALL + (_COMMAND_SELECT_ALL if ui_theme.is_aqua(widget) else ())
+
+
 def bind_list_shortcuts(
     listbox: tk.Listbox,
     *,
@@ -348,7 +360,7 @@ def bind_list_shortcuts(
 
         return _handler
 
-    for sequence in ("<Control-a>", "<Control-A>"):
+    for sequence in select_all_sequences(listbox):
         listbox.bind(sequence, _select_all)
     if on_move_up is not None:
         listbox.bind("<Alt-Up>", _bound(on_move_up))
@@ -2293,8 +2305,8 @@ class SummaryDetailsView:
         # Read-only is not unselectable: a person sends the log by selecting it.
         # Tk binds Select-All to Control-a on Windows only, so it is bound here
         # for every platform; Copy is the class binding and works when disabled.
-        text.bind("<Control-a>", self._select_all)
-        text.bind("<Control-A>", self._select_all)
+        for sequence in select_all_sequences(text):
+            text.bind(sequence, self._select_all)
         text.grid(row=0, column=0, sticky="nsew")
         bar = ttk.Scrollbar(page, orient="vertical", command=text.yview,
                             style=style_name(theme, "vscrollbar"))

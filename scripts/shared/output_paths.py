@@ -26,6 +26,7 @@ shipped tree; a test in ``files/tests/test_output_paths.py`` enforces that.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import stat
@@ -1071,18 +1072,57 @@ def move_without_replacing(source, destination) -> None:
 
     * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``: it fails when the name exists
       and never copies.
-    * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
-      old name is then removed. If that removal fails the move has still happened: the old name is only a second name
-      for the same file.
+    * macOS (v0.8.x P1B, MAC-017): ``renamex_np(RENAME_EXCL)`` first, one rename the kernel itself refuses when the
+      name is taken (``EEXIST``), leaving no second name behind. A filesystem that does not offer it answers ``ENOTSUP``
+      and the hard link below is tried instead.
+    * Elsewhere, and on a Mac whose filesystem has no exclusive rename, ``os.rename`` replaces silently, so ``os.link``
+      makes the name (it fails when the name exists) and the old name is then removed. If that removal fails the move
+      has still happened: the old name is only a second name for the same file.
+    * A filesystem with neither (exFAT and FAT: measured on macOS 27, both answer ``ENOTSUP``) raises that
+      ``OSError``. There is deliberately no fallback to a look followed by a move.
     """
     if os.name == "nt":
         os.rename(source, destination)
+        return
+    if sys.platform == "darwin" and _rename_exclusive(source, destination):
         return
     os.link(source, destination)
     try:
         os.unlink(source)
     except OSError:
         pass
+
+
+#: ``<stdio.h>``: rename only if the destination does not exist (macOS 10.12 and later).
+RENAME_EXCL = 0x00000004
+_renamex_np = None
+
+
+def _rename_exclusive(source, destination) -> bool:
+    """``renamex_np(source, destination, RENAME_EXCL)``. True when it renamed. False only when this filesystem (or
+    this system) does not offer it, so the caller can try a hard link; every other failure is raised as the kernel's
+    own ``OSError`` -- ``FileExistsError`` when the name is taken, ``errno`` intact otherwise."""
+    global _renamex_np
+    if _renamex_np is None:
+        try:
+            import ctypes
+
+            function = ctypes.CDLL(None, use_errno=True).renamex_np
+            function.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            function.restype = ctypes.c_int
+            _renamex_np = function
+        except (OSError, AttributeError):
+            _renamex_np = False
+    if _renamex_np is False:
+        return False
+    import ctypes
+
+    if _renamex_np(os.fsencode(source), os.fsencode(destination), RENAME_EXCL) == 0:
+        return True
+    number = ctypes.get_errno()
+    if number in (errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)):
+        return False
+    raise OSError(number, os.strerror(number), os.fspath(source), None, os.fspath(destination))
 
 
 def publish_new(temporary: Path, destination: Path) -> None:
@@ -1123,8 +1163,19 @@ def publish_new(temporary: Path, destination: Path) -> None:
     except OSError as exc:
         raise OutputPathError(
             f"{destination.name} could not be saved in {destination.parent}",
-            f"{type(exc).__name__}: {exc}",
+            _publication_failure_detail(exc),
         ) from exc
+
+
+def _publication_failure_detail(exc: OSError) -> str:
+    """Why a new output could not take its name. A drive without any exclusive way to name a file says so in words a
+    person can act on (v0.8.x P1B: exFAT and FAT drives on a Mac); everything else is the system's own words, as
+    before."""
+    if getattr(exc, "errno", None) in (errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)) and os.name != "nt":
+        return ("this drive cannot give a new file its name without risking a file already there (it has neither an "
+                "exclusive rename nor hard links, as exFAT and FAT drives do not), so nothing was saved there; choose "
+                f"an output folder on another drive. ({type(exc).__name__}: {exc})")
+    return f"{type(exc).__name__}: {exc}"
 
 
 def validate_source_for_replacement(source: Path) -> Path:

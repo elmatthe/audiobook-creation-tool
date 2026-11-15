@@ -3,7 +3,8 @@
 Windows ends a setup's or the app's children through Job Objects (kill-on-close). macOS has no such object and no
 ``PR_SET_PDEATHSIG``, and ``atexit`` does not run when a process is SIGKILLed, crashes, is force-quit or loses its
 Terminal window. This module is the macOS mechanism (plan section 11.2.2). A process that starts children is their
-*owner* (in P1A: the setup process, ``bootstrap.py``) and holds one :class:`Owner`.
+*owner* (P1A: the setup process, ``bootstrap.py``; P1B: the app window, ``launcher.py``) and holds one
+:class:`Owner`.
 
 **Class A -- ACT-authored Python children** (pip with its build backends, ``python -m venv``, setup probes and proofs).
 Each leads its own process group (``start_new_session``) and starts through ``child_entry.py``, whose first statements
@@ -12,7 +13,7 @@ non-inheritable (PEP 446), never passed to a child, and the owner never forks wi
 however it went -- the kernel closes the write end, the read returns end-of-file, and the thread ends the child's whole
 group.
 
-**Class B -- third-party executables** (``codesign`` here; FFmpeg in the GUI owner, P1B). They cannot run that thread,
+**Class B -- third-party executables** (``codesign`` in setup; FFmpeg and ffprobe in the app, P1B). They cannot run that thread,
 so each joins the owner's *guardian* group at spawn (``process_group=``; the child joins before it executes). The
 guardian (``child_guardian.py``) holds the lifeline's read end and ends its group when it reads end-of-file.
 
@@ -245,6 +246,7 @@ class Owner:
         """Popen keyword arguments for a class-A child: its own session and the lifeline's read end."""
         if "process_group" in kwargs or kwargs.get("start_new_session") is False:
             raise ValueError("a class-A child always leads its own process group")
+        self._refuse_if_closing()
         kw = dict(kwargs)
         kw["start_new_session"] = True
         kw["close_fds"] = True
@@ -263,10 +265,25 @@ class Owner:
         return subprocess.run(python_argv(argv), **self.class_a_kwargs(kwargs))
 
     def popen_python(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
-        """Start a registered class-A child (pip)."""
-        proc = subprocess.Popen(python_argv(argv), **self.class_a_kwargs(kwargs))
-        self._register(proc, CLASS_A, proc.pid, label or Path(str(argv[0])).name)
+        """Start a registered class-A child (pip in setup; the optional-setup worker in the app)."""
+        with self._lock:
+            proc = subprocess.Popen(python_argv(argv), **self.class_a_kwargs(kwargs))
+            self._register(proc, CLASS_A, proc.pid, label or Path(str(argv[0])).name)
         return proc
+
+    def _refuse_if_closing(self) -> None:
+        """Once the orderly end has begun nothing new starts: a worker thread that asks for another program while the
+        app is closing gets an error, never a child that the closing owner would no longer see (v0.8.x P1B)."""
+        if self._retiring:
+            raise ContainmentUnavailable("the application is closing; nothing was started")
+
+    def begin_closing(self) -> None:
+        """The orderly end's latch (window close, Cmd+Q, SIGTERM/SIGHUP/SIGINT): from now on nothing new starts."""
+        self._retiring = True
+
+    @property
+    def closing(self) -> bool:
+        return self._retiring
 
     # -- class B ---------------------------------------------------------------
     def _guardian_alive(self) -> bool:
@@ -354,6 +371,7 @@ class Owner:
         if "start_new_session" in kwargs or "process_group" in kwargs:
             raise ValueError("a class-B child always joins the guardian's group")
         with self._lock:
+            self._refuse_if_closing()
             group = self._guardian_group()
             proc = subprocess.Popen([str(a) for a in argv], process_group=group, close_fds=True, **kwargs)
             self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
@@ -387,6 +405,9 @@ class Owner:
         child = OwnedChild(proc=proc, kind=kind, pid=proc.pid, pgid=pgid, start_time=process_start_time(proc.pid),
                            generation=self._generation if kind == CLASS_B else 0, label=label)
         with self._lock:
+            # A child its caller has already reaped can never be signalled again (its id may now be someone else's),
+            # so it is dropped here: an app that runs thousands of FFmpeg steps keeps a registry of what is running.
+            self._children = [c for c in self._children if c.proc.returncode is None]
             self._children.append(child)
         return child
 
@@ -426,6 +447,39 @@ class Owner:
         if child is not None:
             self._end(child, grace=grace)
 
+    def _end_many(self, children: Sequence[OwnedChild], *, grace: float) -> None:
+        """:meth:`_end` for several children at once, so the bound does not grow with their number: SIGTERM to each,
+        one shared wait of at most ``grace`` seconds, SIGKILL to whatever is left, then each is reaped. The same
+        identity rules hold: a class-A group is signalled only while its leader is still this owner's unreaped child (a
+        leader that has exited but is not yet reaped still identifies its group, so a grandchild left behind is
+        caught)."""
+        live = [c for c in children if c.proc.returncode is None]
+        if not live:
+            return
+        if grace > 0:
+            for child in live:
+                signal_if_same(child.pid, child.start_time, signal.SIGTERM, group=child.kind == CLASS_A)
+            deadline = time.monotonic() + grace
+            while time.monotonic() < deadline and not all(_has_exited(c.pid) for c in live):
+                time.sleep(0.02)
+        for child in live:
+            signal_if_same(child.pid, child.start_time, signal.SIGKILL, group=child.kind == CLASS_A)
+        for child in live:
+            try:
+                child.proc.wait(timeout=2.0)
+            except (subprocess.TimeoutExpired, ChildProcessError):
+                pass
+
+    def stop_external(self, labels: Optional[Sequence[str]] = None, *, grace: float = TERM_GRACE_S) -> list[int]:
+        """End this owner's running class-B children (only those whose label is in ``labels``, when given) and return
+        their pids: the POSIX ``stop_media_children``. Identity-checked, bounded (``grace`` plus the reap), quiet; it
+        reads this owner's registry only -- never a process listing, never a name on the system."""
+        wanted = None if labels is None else frozenset(labels)
+        targets = [c for c in self.children() if c.kind == CLASS_B and c.proc.returncode is None
+                   and (wanted is None or c.label in wanted)]
+        self._end_many(targets, grace=grace)
+        return [c.pid for c in targets]
+
     def kill_now(self, proc: subprocess.Popen) -> bool:
         """End a registered child (and, for class A, its group) at once with SIGKILL. True if a signal was sent."""
         child = self.child(proc)
@@ -439,9 +493,10 @@ class Owner:
         (which retires the guardian), then the guardian is reaped. Crash containment never depends on this."""
         deadline = time.monotonic() + SHUTDOWN_BOUND_S
         self._retiring = True
-        for child in [c for c in self.children() if c.running()]:
-            remaining = deadline - time.monotonic()
-            self._end(child, grace=min(TERM_GRACE_S, max(0.0, remaining - 1.0)))
+        # Every child not yet reaped -- running, or exited with its group's leftovers still identifiable -- ended
+        # together, so the bound holds whatever their number (v0.8.x P1B).
+        unreaped = [c for c in self.children() if c.proc.returncode is None]
+        self._end_many(unreaped, grace=min(TERM_GRACE_S, max(0.0, deadline - time.monotonic() - 1.0)))
         with self._lock:
             write, self._write = self._write, None
         if write is not None:

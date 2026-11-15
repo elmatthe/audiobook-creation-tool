@@ -231,9 +231,10 @@ class Supervised:
         if stderr == subprocess.PIPE:
             self._errors = tempfile.TemporaryFile()
             stderr = self._errors
-        arguments = {**subprocess_utils._hidden_kwargs(), **kwargs}
         try:
-            self.process = subprocess.Popen(args, stdin=stdin, stdout=stdout, stderr=stderr, **arguments)
+            # The same Popen call as before on Windows (hidden console, the caller's arguments winning); on macOS the
+            # app window owns the FFmpeg it starts, so it ends with the window however that ends (v0.8.x P1B).
+            self.process = subprocess_utils.popen(args, stdin=stdin, stdout=stdout, stderr=stderr, **kwargs)
         except BaseException:
             self._close_errors()
             raise

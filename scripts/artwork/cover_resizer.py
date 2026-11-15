@@ -78,6 +78,7 @@ from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
+from shared import ui_theme
 from shared.cancellation import ConversionCancelled
 from shared.import_coordination import ImportCoordinator
 from shared.importing import (
@@ -993,7 +994,18 @@ class CoverBrowser:
         for button, direction in (("<Button-4>", -1), ("<Button-5>", 1)):
             canvas.bind(button, self._wheel_handler(canvas, units=direction),
                         add="+")
+        # Tk 9 (macOS) sends a two-finger trackpad scroll as <TouchpadScroll>,
+        # never as <MouseWheel>; Tk 8.6 has no such event (v0.8.x P1B).
+        if ui_theme.touchpad_scroll_supported():
+            canvas.bind(ui_theme.TOUCHPAD_SCROLL, self._touchpad_handler(canvas), add="+")
         return canvas
+
+    @staticmethod
+    def _touchpad_handler(canvas):
+        def handle(event):
+            ui_theme.scroll_by_touchpad(canvas, event)
+            return "break"
+        return handle
 
     def _scroll_reporter(self, bar):
         """Keep the scrollbar in step, and tell the browser the viewport moved.

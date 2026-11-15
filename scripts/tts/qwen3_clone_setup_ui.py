@@ -22,7 +22,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
-from shared import appearance
+from shared import appearance, ui_theme
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 from tts import qwen3_clone_setup as qt
@@ -150,7 +150,14 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     grid = ttk.Frame(canvas, style=st("window"))
     canvas.create_window((0, 0), window=grid, anchor="nw")
     grid.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
-    win.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
+    if ui_theme.is_aqua(win):
+        # v0.8.x P1B: a macOS wheel delta can be smaller than 120, which the Windows formula below rounds to no
+        # movement; Tk 9 sends the trackpad as <TouchpadScroll>, never as <MouseWheel>.
+        win.bind("<MouseWheel>", lambda event: canvas.yview_scroll(ui_theme.wheel_units(event.delta), "units"))
+        if ui_theme.touchpad_scroll_supported():
+            win.bind(ui_theme.TOUCHPAD_SCROLL, lambda event: ui_theme.scroll_by_touchpad(canvas, event))
+    else:
+        win.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
     win.rows_canvas = canvas
     win.rows = []
     for index, row in enumerate(qt.rows()):
