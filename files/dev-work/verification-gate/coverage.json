@@ -24647,6 +24647,18 @@
         "spin_workers": "ACT.TTS.WORKERS",
         "voice_combo": "ACT.TTS.VOICE"
       }
+    },
+    "live_absent_on_macos": {
+      "about": "v0.8.x P1B: reviewed keys of surfaces.live that the Aqua shell does not show, each with its Aqua counterpart. Only inventory.live-surfaces on macOS reads this.",
+      "launcher": {
+        "buttons[tts]": "the Aqua shell's sidebar is a list of rows, not buttons: sidebar_rows[tts] (a row and its label, opened by a click on the row; journeys.common.SIDEBAR_KEY), the same select_tool",
+        "buttons[mp3_tool]": "the Aqua shell's sidebar is a list of rows, not buttons: sidebar_rows[mp3_tool] (a row and its label, opened by a click on the row; journeys.common.SIDEBAR_KEY), the same select_tool",
+        "buttons[m4b_converter]": "the Aqua shell's sidebar is a list of rows, not buttons: sidebar_rows[m4b_converter] (a row and its label, opened by a click on the row; journeys.common.SIDEBAR_KEY), the same select_tool",
+        "buttons[m4b_maker]": "the Aqua shell's sidebar is a list of rows, not buttons: sidebar_rows[m4b_maker] (a row and its label, opened by a click on the row; journeys.common.SIDEBAR_KEY), the same select_tool",
+        "buttons[m4b_metadata]": "the Aqua shell's sidebar is a list of rows, not buttons: sidebar_rows[m4b_metadata] (a row and its label, opened by a click on the row; journeys.common.SIDEBAR_KEY), the same select_tool",
+        "buttons[cover]": "the Aqua shell's sidebar is a list of rows, not buttons: sidebar_rows[cover] (a row and its label, opened by a click on the row; journeys.common.SIDEBAR_KEY), the same select_tool",
+        "_log_button": "the Aqua shell's status bar opens the log folder from a link label (log_link, a <Button-1> binding), the same _open_logs"
+      }
     }
   },
   "issues": [
@@ -25602,7 +25614,7 @@
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "6d6a5c793a7466a73ea7cd6dfb40c8e1721883b29130f3f45c0a045d0567ec6b",
+    "scripts/launcher.py": "40fcbe5bb81a3c9fe0801f497c2964f9b209cf88c010af5dc6ba81d0873cf46e",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",

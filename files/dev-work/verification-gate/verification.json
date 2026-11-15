@@ -200,6 +200,92 @@
         "pattern": "^loads the multi-gigabyte model; set ACT_OMNIVOICE_P1_REAL=1 where it is installed$",
         "max": 1,
         "why": "v0.8.0: the one routine skip of files/tests/test_omnivoice_phase1.py::test_real_clone_proof, the only test with this reason. It loads the multi-gigabyte OmniVoice model and runs only with ACT_OMNIVOICE_P1_REAL=1 on a computer where the engine is installed; the routine gate never sets it. This skip is evidence of nothing: the real clone is proven only by that opt-in run (Phase 1, recorded in the Handoff) and by the release qualification and owner listening that coverage.json lists as release-pending for OmniVoice."
+      },
+      {
+        "id": "native-macos-p1a",
+        "pattern": "^(native\\ macOS\\ only\\ \\(P1A\\):\\ bash\\ 3\\.2\\ stage\\ 0,\\ POSIX\\ process\\ groups,\\ Mach\\-O\\ and\\ codesign\\ checks)$",
+        "max": 46,
+        "why": "v0.8.x P1A/P1B review: the macOS-native tests of P1A (stage 0 in bash 3.2, POSIX containment, Mach-O, codesign and the adopted Riedl build): 44 marked in test_bootstrap_host_macos.py (29), test_child_ownership.py (10) and test_macos_foundation.py (5), plus the real aac_at decodes of test_macos_xhe_proof.py that skip at run time (1, and the AAC-LC control audiobook test when the owner's local file is present: 46 at most). Their Windows counterparts are the existing Windows suites; nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "native-macos-p1b",
+        "pattern": "^(native\\ macOS\\ only\\ \\(P1B\\):\\ Aqua\\ Tk\\ 9\\ shell,\\ POSIX\\ containment\\ and\\ macOS\\ filesystem\\ checks)$",
+        "max": 42,
+        "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (14) and test_macos_p1b_gui_containment.py (13). The same files' Windows controls run on Windows."
+      },
+      {
+        "id": "macos-xhe-owner-fixture",
+        "pattern": "^(the\\ owner's\\ local\\ AAC\\-LC\\ control\\ audiobook\\ is\\ not\\ here|set\\ ACT_XHE_PROOF_APPLE_CAF\\ to\\ afconvert's\\ LEI16\\ decode\\ of\\ the\\ owner's\\ xHE\\-AAC\\ fixture\\ \\(about\\ 6\\ GB\\)\\ to\\ run\\ the\\ real\\ proof\\ 8)$",
+        "max": 2,
+        "why": "v0.8.x P1B review of P1A: two tests of test_macos_xhe_proof.py name the owner's local media or a 6 GB decode by their own skip reason before the platform is asked; on Windows they skip for that reason. At most one each."
+      }
+    ],
+    "darwin": [
+      {
+        "id": "windows-process-and-job-mechanics",
+        "max": 161,
+        "pattern": "^(Windows\\ process\\ identity|Windows\\ console\\ and\\ process\\ identity|the\\ identity\\ checks\\ read\\ Windows\\ process\\ creation\\ times|Job\\ Objects\\ are\\ Windows'|Job\\ Objects\\ are\\ a\\ Windows\\ mechanism|Windows\\ Job\\ Object\\ containment|handles\\ are\\ a\\ Windows\\ primitive|an\\ open\\ handle\\ only\\ blocks\\ deletion\\ on\\ Windows|an\\ open\\ handle\\ only\\ blocks\\ a\\ rename\\ on\\ Windows|what\\ Windows\\ reports|the\\ guard\\ is\\ a\\ no\\-op\\ off\\ Windows\\ by\\ design|the\\ launcher/child\\ arrangement\\ is\\ the\\ Windows\\ venv's|the\\ stand\\-in\\ ffmpeg\\ is\\ a\\ Windows\\ \\.cmd\\ wrapper|the\\ measured\\ crash\\ and\\ its\\ exit\\ status\\ are\\ Windows'|a\\ Windows\\ lock|Media\\ Foundation\\ is\\ Windows')$",
+        "why": "Tests of Windows process, Job Object, handle, console and Media Foundation mechanics. Their macOS counterparts are native: POSIX containment (test_child_ownership.py, test_macos_p1b_containment.py, test_macos_p1b_gui_containment.py: KX-1 to KX-9), the POSIX stop_media_children and closing latch, the renamex_np publication, and aac_at decoding (test_macos_xhe_proof.py). Counted from the P1B affected-suite census on macOS (181 files)."
+      },
+      {
+        "id": "windows-filesystem-mechanics",
+        "max": 34,
+        "pattern": "^(junctions\\ are\\ a\\ Windows\\ mechanism|junctions\\ are\\ a\\ Windows\\-only\\ facility|a\\ junction\\ is\\ the\\ Windows\\ link\\ that\\ needs\\ no\\ privilege|a\\ directory\\ junction\\ is\\ a\\ Windows\\ link|junctions\\ are\\ a\\ Windows\\ construct|FILE_ATTRIBUTE_HIDDEN\\ is\\ a\\ Windows\\-only\\ facility|Windows\\ long\\ paths\\ exist\\ on\\ Windows\\ only|Windows\\ paths\\ compare\\ without\\ regard\\ to\\ case|only\\ Windows\\ can\\ bind\\ a\\ roll\\-back's\\ move\\ to\\ the\\ file\\ itself;\\ elsewhere\\ a\\ roll\\-back\\ moves\\ nothing.*)$",
+        "why": "Junctions, the hidden attribute, Windows long paths and case rules, and the handle-bound roll-back: Windows filesystem facilities. macOS's own (APFS and exFAT no-clobber, NFD names, case folding by the volume) are tested natively in test_macos_p1b_platform.py and test_macos_p1b_filesystem.py."
+      },
+      {
+        "id": "windows-launch-layout",
+        "max": 16,
+        "pattern": "^(exercises\\ the\\ Windows\\ candidate\\ locations\\ \\(LOCALAPPDATA\\ /\\ ProgramFiles\\)|Windows\\ PowerShell\\ is\\ needed|exercises\\ the\\ Windows\\ \\.bat\\ launcher|the\\ app's\\ own\\ base\\ Python\\ is\\ the\\ Windows\\ layout)$",
+        "why": "The Windows first-run host (PowerShell, the .bat launcher, the Windows Python locations and venv layout). macOS stage 0 and its venv are P1A's native tests (test_bootstrap_host_macos.py, test_macos_foundation.py)."
+      },
+      {
+        "id": "windows-design-shell",
+        "max": 29,
+        "pattern": "^(the\\ ACT\\ design\\ system\\ only\\ applies\\ on\\ win32|the\\ Windows\\ bundle's\\ metrics\\ only\\ apply\\ on\\ win32|the\\ ACT\\ Windows\\ shell\\ only\\ builds\\ on\\ win32|the\\ measured\\ breakpoints\\ are\\ Windows\\ metrics|process\\ DPI\\ awareness\\ is\\ a\\ Windows\\ concept|aqua\\ keeps\\ native\\ controls|aqua\\ drop\\-downs\\ are\\ native|aqua\\ keeps\\ native\\ controls\\ \\(and\\ the\\ Phase\\ 8\\ Toolbutton\\ restyle\\))$",
+        "why": "The ACT Windows design system, its measured breakpoints and DPI. The Aqua shell keeps native controls and is tested natively by the aqua branches of the same suites and test_macos_p1b_platform.py."
+      },
+      {
+        "id": "below-the-aqua-minimum",
+        "max": 33,
+        "pattern": "^(920x600\\ is\\ below\\ the\\ aqua\\ minimum|920x600\\ is\\ below\\ ui_theme\\.AQUA_MIN_SIZE;\\ unreachable\\ through\\ the\\ real\\ macOS\\ launcher)$",
+        "why": "Windows' 920x600 minimum is below the Aqua minimum, so the window can never be that size on macOS; the Aqua minimum itself is tested at its own size by the same suites."
+      },
+      {
+        "id": "windows-gate-harness",
+        "max": 94,
+        "pattern": "^(the\\ benchmark\\ harness\\ accounts\\ through\\ Windows\\ Job\\ Objects|Windows\\ behaviour|a\\ Windows\\ desktop|a\\ Windows\\ named\\ mutex|console\\ hosts\\ and\\ Job\\ Objects\\ are\\ Windows)$",
+        "why": "The Windows verification gate's own adapters (Job Objects, the native desktop, the named-mutex lease, console hosts). The macOS gate's counterparts are its darwin preflight and the in-process journey driver (adapters/macos)."
+      },
+      {
+        "id": "work-area-recovery-windows-only",
+        "max": 36,
+        "pattern": "^(recovering\\ another\\ process's\\ files\\ is\\ proved\\ on\\ Windows\\ only)$",
+        "why": "Recovery of another process's work area is proved on Windows only. On macOS the optional D11b counterpart (shared/work_area.py on the P1A start-time reader) is not implemented in P1B; the gap is recorded in coverage.json's issue ledger, not hidden."
+      },
+      {
+        "id": "qwen3-windows-only",
+        "max": 8,
+        "pattern": "^(the\\ guard\\ is\\ a\\ Windows\\ named\\ mutex;\\ Qwen3\\ is\\ Windows\\-only|the\\ guard\\ is\\ a\\ Windows\\ named\\ mutex|no\\ Qwen3\\ environment\\ or\\ Base\\ model\\ on\\ this\\ machine)$",
+        "why": "Qwen3-TTS is Windows-only (P3B decides macOS)."
+      },
+      {
+        "id": "local-fixture-absent",
+        "max": 3,
+        "pattern": "^(files/dev\\-work/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|files/runtime\\-data/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|the\\ Riedl\\ 9\\.0\\.1\\ ZIPs\\ are\\ not\\ downloaded\\ here)$",
+        "why": "Local fixtures that are absent on this computer; the tests run where they are present."
+      },
+      {
+        "id": "empty-parameter-set",
+        "max": 1,
+        "pattern": "^got empty parameter set for ",
+        "why": "A parametrisation empty on this platform."
+      },
+      {
+        "id": "case-insensitive-filesystem",
+        "max": 1,
+        "pattern": "^(this\\ filesystem\\ is\\ case\\-insensitive,\\ so\\ the\\ two\\ names\\ are\\ one\\ file)$",
+        "why": "The default APFS volume folds case; the case-sensitive behaviour is tested where the volume keeps case."
       }
     ]
   },
@@ -430,6 +516,406 @@
       "files/dev-work/verification-gate/fixtures/": "all",
       "files/dev-work/verification-gate/acceptance_runner.py": "all",
       "files/dev-work/verification-gate/helpers/media_": "all"
+    },
+    "darwin_map": {
+      "control.real-click-reaches-the-target": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.lost-foreground-blocks-input": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.covered-target-is-refused": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.partly-hidden-window-is-not-pictured": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.disabled-target-is-refused": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.disabled-target-is-refused"
+      },
+      "control.dead-input-path-blocks": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.second-run-refused-by-the-lease": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.second-run-refused-by-the-lease"
+      },
+      "control.other-desktop-is-blocked": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.forced-landing-sees-the-crash": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.forced-landing-sees-the-crash"
+      },
+      "control.act-orphan-seen-without-the-stop": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.act-orphan-seen-without-the-stop"
+      },
+      "control.act-crash-seen-with-the-root-released": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.act-crash-seen-with-the-root-released"
+      },
+      "control.unmapped-live-control-is-caught": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.unmapped-live-control-is-caught"
+      },
+      "inventory.live-surfaces": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "inventory.live-surfaces"
+      },
+      "launcher.six-tools-at-three-sizes": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "launcher.six-tools-at-three-sizes",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "launcher.settings-survive-relaunch": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "launcher.settings-survive-relaunch",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "launcher.switch-tools-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "launcher.switch-tools-during-work",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "cover.letterbox-numbered-run": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.letterbox-numbered-run",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "cover.center-crop": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.center-crop",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "cover.corrupt-image": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.corrupt-image",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "mp3.write-id3-then-combine": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "mp3.write-id3-then-combine",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "mp3.unreadable-track": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "mp3.unreadable-track",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "mp3.typed-values-survive-first-import": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "mp3.typed-values-survive-first-import",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "converter.split-by-chapter": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.split-by-chapter",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "converter.whole-book-replace-metadata": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.whole-book-replace-metadata",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "converter.corrupt-source": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.corrupt-source",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "converter.cancel-during-encode": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.cancel-during-encode",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "maker.build-with-chapters-and-artwork": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "maker.build-with-chapters-and-artwork",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "maker.unreadable-track": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "maker.unreadable-track",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "metadata.save-tags-then-clear": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "metadata.save-tags-then-clear",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "metadata.confirmation-declined": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "metadata.confirmation-declined",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "metadata.unreadable-file": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "metadata.unreadable-file",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "tts.edge-replay-direct-file": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.edge-replay-direct-file",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "tts.edge-replay-folder-mixed": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.edge-replay-folder-mixed",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "tts.service-failure-then-retry": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.service-failure-then-retry",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "tts.cancel-during-narration": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.cancel-during-narration",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "tts.pause-at-file-boundary": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.pause-at-file-boundary",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "tts.pdf-without-text": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.pdf-without-text",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "shutdown.tts-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.tts-close-during-work",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "shutdown.tts-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.tts-close-forced-landing",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      },
+      "shutdown.converter-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.converter-close-during-work"
+      },
+      "shutdown.converter-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.converter-close-forced-landing"
+      },
+      "shutdown.mp3-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.mp3-close-during-work"
+      },
+      "shutdown.mp3-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.mp3-close-forced-landing"
+      },
+      "shutdown.maker-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.maker-close-during-work"
+      },
+      "shutdown.maker-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.maker-close-forced-landing"
+      },
+      "shutdown.metadata-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.metadata-close-during-work"
+      },
+      "shutdown.metadata-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.metadata-close-forced-landing"
+      },
+      "shutdown.cover-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.cover-close-during-work"
+      },
+      "shutdown.cover-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.cover-close-forced-landing"
+      },
+      "cover.replace-confirmation": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.replace-confirmation",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "shutdown.close-during-folder-scan": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.close-during-folder-scan"
+      },
+      "maker.wheel-over-a-long-book": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "maker.wheel-over-a-long-book",
+        "manual": [
+          "macos-checklist:native-dialogs"
+        ]
+      },
+      "setup.first-run-refuses-a-folder-too-deep": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "setup.first-run-refuses-a-folder-too-deep",
+        "pending_phase": "P5",
+        "tests": [
+          "files/tests/test_bootstrap_host_macos.py",
+          "files/tests/test_child_ownership.py",
+          "files/tests/test_macos_foundation.py"
+        ],
+        "qualification": "fresh-macos",
+        "why": "macOS first run, repair and recovery are proved by P1A's native suites and the mandatory fresh-macos qualification (owner-run procedure, D9b); the journey through the macOS first-run window completes the map in P5. Until then the stage reports NOT RUN."
+      },
+      "setup.first-run-choices-and-cancel": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "setup.first-run-choices-and-cancel",
+        "pending_phase": "P5",
+        "tests": [
+          "files/tests/test_bootstrap_host_macos.py",
+          "files/tests/test_child_ownership.py",
+          "files/tests/test_macos_foundation.py"
+        ],
+        "qualification": "fresh-macos",
+        "why": "macOS first run, repair and recovery are proved by P1A's native suites and the mandatory fresh-macos qualification (owner-run procedure, D9b); the journey through the macOS first-run window completes the map in P5. Until then the stage reports NOT RUN."
+      },
+      "setup.clear-downloaded-data": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "setup.clear-downloaded-data",
+        "pending_phase": "P5",
+        "tests": [
+          "files/tests/test_bootstrap_host_macos.py",
+          "files/tests/test_child_ownership.py",
+          "files/tests/test_macos_foundation.py"
+        ],
+        "qualification": "fresh-macos",
+        "why": "macOS first run, repair and recovery are proved by P1A's native suites and the mandatory fresh-macos qualification (owner-run procedure, D9b); the journey through the macOS first-run window completes the map in P5. Until then the stage reports NOT RUN."
+      },
+      "tts.kokoro-local": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.kokoro-local",
+        "pending_phase": "P2",
+        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+      }
+    },
+    "darwin_about": "v0.8.x P1B (plan 14.3, MAC-045, D9): every required scenario and the optional one, exactly one class each. automated: the same journey run by the in-process macOS driver (adapters/macos: real panels, real media, real FFmpeg, acts through Tk, dialogs answered by in-process stand-ins), with its native-dialog steps owner-manual where 'manual' names them; pending_phase: mapped but not yet runnable on macOS, reported NOT RUN until that phase. not-applicable: only a test of the Windows input harness itself, with an owner-reviewed reason id. A darwin acceptance stage fails on an unmapped scenario, a failed automated counterpart, a NOT RUN required scenario or a manual item without signed evidence for the candidate SHA; it is never a blanket NOT APPLICABLE."
+  },
+  "darwin_scenarios": {
+    "fresh-macos": {
+      "phase": "P1B (contract and procedure); P6a rehearsal; P7c REAL CLEAN",
+      "network": [
+        "online-setup"
+      ],
+      "procedure": "files/dev-work/verification-gate/qualification/fresh_macos_procedure.md",
+      "detail": "The packaged archive extracted fresh (quarantined, as a download is), stage 0, the first run, all six tools opened, the .venv damaged and repaired, the app relaunched, an install interrupted and recovered. Mandatory (D9b); its automation is optional. Without a runner it is satisfied only by the owner's run of the written procedure with signed evidence naming the candidate SHA, and its verdict carries its evidence class: SIMULATED, P6a rehearsal or REAL CLEAN (P7c needs REAL CLEAN). A missing run is NOT RUN and blocks publication.",
+      "evidence_classes": [
+        "SIMULATED",
+        "P6a-rehearsal",
+        "REAL CLEAN"
+      ]
     }
   }
 }

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import subprocess
+import sys
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 SOURCE_RATE = 44100
 HEAD_MARKER_HZ, TAIL_MARKER_HZ = 5000.0, 7000.0
 MARKER_SECONDS = 0.030
-_NO_WINDOW = 0x08000000
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW; POSIX takes no flags
 
 
 def load_manifest(path: Path) -> dict:

@@ -59,7 +59,9 @@ from test_mp3_tool_ui import (  # noqa: F401  (fixtures are collected by name)
     windows_theme,
 )
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows process identity")
+# v0.8.x P1B: macOS runs these too (CX-5), with its own identity reader and stand-in below; Windows is unchanged.
+pytestmark = pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="Windows process identity")
+_DARWIN = sys.platform == "darwin"
 
 PING = Path(r"C:\Windows\System32\PING.EXE")
 BASE_PYTHON = Path(getattr(sys, "_base_executable", "") or sys.executable)
@@ -73,8 +75,26 @@ _IDS = IdFactory("cx-")
 # --------------------------------------------------------------------------- #
 
 
+def _darwin_media_children() -> list[int]:
+    """macOS: process ids of every ffmpeg / ffprobe whose parent is this process, from the kernel (libproc). Read-only."""
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    libproc.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    libproc.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+    pids = (ctypes.c_int * 4096)()
+    count = libproc.proc_listchildpids(os.getpid(), pids, ctypes.sizeof(pids))
+    found = []
+    for pid in list(pids)[:max(0, count)]:
+        path = ctypes.create_string_buffer(4096)
+        if pid > 0 and libproc.proc_pidpath(pid, path, 4096) > 0 and \
+                os.path.basename(path.value.decode("utf-8", "replace")) in ("ffmpeg", "ffprobe"):
+            found.append(int(pid))
+    return sorted(found)
+
+
 def _media_children() -> list[int]:
     """Process ids of every ffmpeg.exe / ffprobe.exe whose parent is this process. Read-only."""
+    if _DARWIN:
+        return _darwin_media_children()
     import ctypes.wintypes as wt
 
     class ENTRY(ctypes.Structure):
@@ -104,11 +124,25 @@ def _media_children() -> list[int]:
 
 
 def _ping(image: Path, seconds: int = 120) -> list[str]:
+    if _DARWIN:
+        # macOS: the adopted FFmpeg itself, encoding silence to nowhere in real time: harmless, long-running and named ffmpeg
+        # (a copy of a system program is refused by the kernel outside its signed location).
+        return [str(image), "-hide_banner", "-nostdin", "-loglevel", "error", "-re", "-f", "lavfi",
+                "-i", f"anullsrc=r=8000:cl=mono:d={seconds}", "-f", "null", "-"]
     return [str(image), "-n", str(seconds), "127.0.0.1"]
 
 
 @pytest.fixture
 def named_ffmpeg(tmp_path) -> Path:
+    if _DARWIN:
+        found = ffmpeg_utils.ffmpeg_path()
+        if not found:
+            pytest.fail("the adopted FFmpeg is not pinned in this checkout; set the app up before these Cancel tests")
+        # A path of its own (the steps are told apart by it) that runs the adopted binary under its own name.
+        target = tmp_path / "stand-in" / "ffmpeg"
+        target.parent.mkdir()
+        target.symlink_to(found)
+        return target
     target = tmp_path / "stand-in" / "ffmpeg.exe"
     target.parent.mkdir()
     shutil.copyfile(PING, target)
@@ -265,6 +299,7 @@ def test_a_cancel_already_requested_starts_nothing(monkeypatch):
     assert spawned.children == [] and len(acknowledged) == 1
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process identity")
 def test_a_supervised_child_gets_no_console_window(monkeypatch):
     seen: dict = {}
     real = subprocess.Popen

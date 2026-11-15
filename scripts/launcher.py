@@ -884,18 +884,40 @@ def _configure_hf_cache() -> None:
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
 
 
+#: The application-menu commands the window registers on macOS (``LauncherApp._register_mac_application_commands``).
+MAC_APPLICATION_COMMANDS = ("::tk::mac::Quit", "::tk::mac::ShowPreferences")
+
+
+def _release_mac_application_commands(root: tk.Tk) -> None:
+    """macOS (v0.8.x P1B): once the main loop has ended, the Tcl commands that call back into the window are removed. Tcl
+    holds their callbacks from C, out of the collector's sight, so otherwise the closed window would stay reachable
+    through them for the rest of the process -- a holder besides ``_ROOT`` that the Windows design never had. Nothing on
+    Windows."""
+    if sys.platform != "darwin":
+        return
+    for name in MAC_APPLICATION_COMMANDS:
+        try:
+            root.tk.deletecommand(name)
+        except (tk.TclError, AttributeError):
+            pass
+
+
 #: The signals that mean "close the app" on macOS: Activity Monitor's Quit and logout (SIGTERM), a closed Terminal
 #: window (SIGHUP) and Ctrl+C in it (SIGINT).
 CLOSE_SIGNALS = ("SIGTERM", "SIGHUP", "SIGINT")
 
 
-def _route_signals_to_close(root: tk.Tk, app: LauncherApp) -> bool:
+def _route_signals_to_close(root: tk.Tk, app: LauncherApp):
     """POSIX (v0.8.x P1B): the close signals reach the same close path as the red button and Cmd+Q, on Tk's thread.
 
     Python runs a signal handler only when the main thread next gets control, and Tk's main loop can sleep inside Tcl
     until a window event arrives; so the signal also writes to a wake-up pipe that Tk watches, and the loop turns at
     once. The handler only schedules the close; it never touches a widget itself. Containment after SIGKILL or a crash
-    never depends on this (the lifeline does that). Nothing on Windows. Returns True when installed.
+    never depends on this (the lifeline does that). Nothing on Windows (returns False).
+
+    Returns the function that hands the signals back once the main loop has ended (or None when nothing was routed):
+    the window is gone then, so a further signal must end the process as it did before, not be lost on a closed
+    window -- and the handler must not keep that closed window reachable for the rest of the process.
     """
     if sys.platform == "win32":
         return False
@@ -907,6 +929,7 @@ def _route_signals_to_close(root: tk.Tk, app: LauncherApp) -> bool:
         except Exception:  # noqa: BLE001 - the window is already going
             pass
 
+    previous: dict = {}
     try:
         wake_read, wake_write = os.pipe()
         os.set_blocking(wake_read, False)
@@ -926,11 +949,28 @@ def _route_signals_to_close(root: tk.Tk, app: LauncherApp) -> bool:
             # script starts is in its own session, so a closed Terminal never sends it SIGHUP in any case.
             if signal.getsignal(number) is signal.SIG_IGN:
                 continue
-            signal.signal(number, request_close)
+            previous[number] = signal.signal(number, request_close)
     except (OSError, ValueError, tk.TclError, AttributeError):
         app.logger.exception("Could not route the close signals to the close path")
-        return False
-    return True
+        return None
+
+    def release() -> None:
+        for number, handler in previous.items():
+            try:
+                signal.signal(number, handler)
+            except (OSError, ValueError):
+                pass
+        try:
+            signal.set_wakeup_fd(-1)
+        except (OSError, ValueError):
+            pass
+        for descriptor in (wake_read, wake_write):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+    return release
 
 
 def _raise_open_file_limit() -> tuple[int, int] | None:
@@ -977,8 +1017,11 @@ def main() -> int:
     app = LauncherApp(root)
     if raised is not None:
         app.logger.info("Open-file limit raised from %d to %d for this process.", *raised)
-    _route_signals_to_close(root, app)
+    release_signals = _route_signals_to_close(root, app)
     root.mainloop()
+    if callable(release_signals):
+        release_signals()
+    _release_mac_application_commands(root)
     # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
     _finish_tk_objects(root)
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.

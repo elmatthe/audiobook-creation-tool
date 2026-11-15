@@ -25,6 +25,7 @@ import hashlib
 import json
 import math
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,7 +51,7 @@ MIN_CORRELATION = 0.90
 EDGE_SECONDS = 0.060
 MIN_EDGE_ENERGY = 0.55
 MAX_EDGE_ENERGY = 1.8
-_NO_WINDOW = 0x08000000
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW; POSIX takes no flags
 
 
 class OracleFailure(AssertionError):

@@ -79,8 +79,37 @@ def _keep_app_logs(session, evidence: Path) -> None:
                 shutil.copy2(item, evidence / f"{session.name}-applog-{item.name}")
 
 
+def _adapters():
+    """The platform's adapter: native input on Windows, the in-process driver on macOS (v0.8.x P1B, plan 14.3)."""
+    if sys.platform == "darwin":
+        from adapters.macos import containment, native_input as native
+    else:
+        from adapters.windows import containment, native_input as native
+    return containment, native
+
+
+def _darwin_map() -> dict:
+    policy = json.loads((GATE_DIR / "verification.json").read_text(encoding="utf-8"))
+    return policy.get("acceptance", {}).get("darwin_map", {})
+
+
+def _not_run_on_macos(scenario, mapping: dict) -> dict | None:
+    """What the darwin map says instead of a run: NOT APPLICABLE ON MACOS (a Windows input-harness test) or NOT RUN until the
+    phase that owns it. None when the scenario is an automated counterpart that runs now."""
+    base = {"id": scenario.id, "tool": scenario.tool, "layers": list(scenario.layers), "tier": scenario.tier, "summary": scenario.summary,
+            "seconds": 0.0, "checks": [], "outputs": [], "fixtures": [], "screenshots": [], "teardown": [], "native_inputs": 0, "sessions": []}
+    if mapping.get("class") == "not-applicable":
+        return {**base, "status": "NOT APPLICABLE", "reason": f"NOT APPLICABLE ON MACOS ({mapping.get('reason_id')})",
+                "notes": {"applicability": mapping.get("why", "")}}
+    if mapping.get("pending_phase"):
+        return {**base, "status": "NOT RUN", "reason": f"mapped; pending {mapping['pending_phase']}", "notes": {}}
+    if mapping.get("class") != "automated":
+        return {**base, "status": "NOT RUN", "reason": f"owner-manual ({mapping.get('checklist')})", "notes": {}}
+    return None
+
+
 def run_one(scenario, *, evidence_root: Path, scratch_root: Path, tools, manifest, index: int) -> dict:
-    from adapters.windows import containment, native_input as native
+    containment, native = _adapters()
     from helpers import media_fixtures, media_oracle as oracle
     from journeys.common import Context, JourneyTimeout
 
@@ -159,7 +188,7 @@ def main(argv=None) -> int:
         print(json.dumps({key: {"tool": item.tool, "layers": item.layers, "tier": item.tier, "summary": item.summary}
                           for key, item in scenarios.items()}, indent=1))
         return 0
-    from adapters.windows import containment, native_input as native
+    containment, native = _adapters()
     from helpers import media_fixtures, media_oracle as oracle, scratch as scratch_store
 
     native.set_dpi_aware()
@@ -205,6 +234,7 @@ def main(argv=None) -> int:
         save()
         return 2
     history_before = containment.history_references()
+    darwin = _darwin_map() if sys.platform == "darwin" else {}
     report["dialog_history"] = {"preflight": contained, "needle": "act-gate", "before": len(history_before)}
     save()
     try:
@@ -213,7 +243,9 @@ def main(argv=None) -> int:
                 if identifier in scenarios:
                     item = scenarios[identifier]
                     print(f"[acceptance] {identifier}: start", flush=True)
-                    entry = run_one(item, evidence_root=evidence, scratch_root=scratch, tools=tools, manifest=manifest, index=index)
+                    entry = _not_run_on_macos(item, darwin.get(identifier, {})) if sys.platform == "darwin" else None
+                    if entry is None:
+                        entry = run_one(item, evidence_root=evidence, scratch_root=scratch, tools=tools, manifest=manifest, index=index)
                     report["scenarios"].append(entry)
                     save()
                     print(f"[acceptance] {identifier}: {entry['status']} {entry['seconds']:.1f}s {entry['reason'][:300]}", flush=True)

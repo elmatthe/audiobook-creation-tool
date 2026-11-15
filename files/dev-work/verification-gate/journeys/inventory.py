@@ -12,6 +12,7 @@ scope with ``coverage.json`` ``surfaces.live``. A control nobody mapped, or a ma
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from helpers import surface_discovery
@@ -26,7 +27,14 @@ PROBE_TEXT = "Unmapped probe"
 
 def live_index() -> dict[str, dict[str, str]]:
     coverage = json.loads((GATE_DIR / "coverage.json").read_text(encoding="utf-8"))
-    return coverage.get("surfaces", {}).get("live", {})
+    index = coverage.get("surfaces", {}).get("live", {})
+    if sys.platform == "darwin":
+        # v0.8.x P1B: the reviewed controls of the Windows shell that the Aqua shell draws differently (each entry names
+        # its Aqua counterpart). Only those leave the index on macOS; every tool's index is held as it is.
+        absent = coverage.get("surfaces", {}).get("live_absent_on_macos", {})
+        index = {scope: {key: feature for key, feature in keys.items() if key not in absent.get(scope, {})}
+                 for scope, keys in index.items()}
+    return index
 
 
 class Scan:

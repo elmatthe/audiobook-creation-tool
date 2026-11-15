@@ -13,12 +13,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from adapters.windows.app_session import AppSession
-from journeys.common import Context, native, oracle, scenario, wait_until
+from journeys.common import AppSession, Context, native, oracle, scenario, wait_until
 
 GATE_DIR = Path(__file__).resolve().parents[1]
-TARGET = GATE_DIR / "adapters" / "windows" / "control_target.py"
-EXIT_TCL_CRASH = 0x80000003
+#: v0.8.x P1B: macOS runs the same target through the in-process driver (adapters/macos), and Tcl's wrong-thread panic
+#: ends a process with a trap there, SIGTRAP (measured: exit -5), where Windows reports the breakpoint exception.
+ADAPTER = "macos" if sys.platform == "darwin" else "windows"
+TARGET = GATE_DIR / "adapters" / ADAPTER / "control_target.py"
+EXIT_TCL_CRASH = -5 if sys.platform == "darwin" else 0x80000003
 
 
 def _target(context: Context, name: str, **config) -> AppSession:
@@ -198,7 +200,7 @@ def dead_input(context: Context) -> None:
 def lease(context: Context) -> None:
     probe = ("import sys\n"
              f"sys.path.insert(0, {str(GATE_DIR)!r})\n"
-             "from adapters.windows import native_input as n\n"
+             f"from adapters.{ADAPTER} import native_input as n\n"
              "try:\n"
              "    with n.DesktopLease():\n"
              "        print('GRANTED')\n"
@@ -250,9 +252,12 @@ def forced_landing(context: Context) -> None:
                   "supervised step's answer to the panel's close-time Cancel): the orphan FFmpeg must be seen, or the clean closes prove nothing")
 def orphan_without_stop(context: Context) -> None:
     from journeys.common import open_tool, wait_for_listbox
+    from journeys.converter import FFMPEG_IMAGE
     from journeys.shutdown import wait_for_long_encode
 
-    session = context.app(last_tool="m4b_maker", control_no_stop_children=True)
+    # macOS: the window's containment is a third stop (its guardian and lifeline end FFmpeg with it), so it is taken away too.
+    session = context.app(last_tool="m4b_maker", control_no_stop_children=True,
+                          **({"control_no_containment": True} if sys.platform == "darwin" else {}))
     open_tool(session, "m4b_maker")
     paths = [context.fixtures.path(item) for item in ("track-long-1", "track-long-2", "track-long-3")]
     session.click("m4b_maker", "btn_add_files")
@@ -264,7 +269,7 @@ def orphan_without_stop(context: Context) -> None:
     context.notes["control_exit"] = {key: facts.get(key) for key in ("exited", "exit_hex", "seconds", "orphans")}
     context.report.equal("the application itself exited cleanly", facts["exit_status"], 0)
     images = [Path(item["image"]).name.lower() for item in facts["orphans"]]
-    context.report.check("and FFmpeg was left running, which the journey saw", "ffmpeg.exe" in images, images)
+    context.report.check("and FFmpeg was left running, which the journey saw", FFMPEG_IMAGE in images, images)
 
 
 @scenario("control.act-crash-seen-with-the-root-released", tool="gate", layers=("native", "control", "shutdown"), tier="control",

@@ -263,6 +263,43 @@ def test_windows_routes_no_signal_and_changes_no_open_file_limit(monkeypatch):
 
 
 @native
+def test_once_the_window_is_gone_the_close_signals_are_handed_back_and_hold_nothing(root):
+    """While the window runs, SIGTERM/SIGHUP/SIGINT take the close path; once the main loop has ended they are what
+    they were before (a further signal ends the process instead of being lost on a closed window), and the handler no
+    longer keeps the closed window reachable."""
+    import gc
+    import signal
+    import weakref
+
+    import launcher
+
+    class App:
+        closed = 0
+        logger = None
+
+        def _on_close(self):
+            App.closed += 1
+
+    before = {name: signal.getsignal(getattr(signal, name)) for name in launcher.CLOSE_SIGNALS}
+    app = App()
+    release = launcher._route_signals_to_close(root, app)
+    try:
+        assert callable(release)
+        assert all(signal.getsignal(getattr(signal, name)) is not before[name] for name in launcher.CLOSE_SIGNALS)
+        signal.raise_signal(signal.SIGHUP)
+        root.update()
+        root.update()
+        assert App.closed == 1, "the signal reached the close path on Tk's thread"
+    finally:
+        release()
+    assert {name: signal.getsignal(getattr(signal, name)) for name in launcher.CLOSE_SIGNALS} == before
+    held = weakref.ref(app)
+    del app
+    gc.collect()
+    assert held() is None, "nothing of the signal routing still holds the application"
+
+
+@native
 def test_the_open_file_limit_is_raised_from_launchds_256_and_never_lowered(tmp_path):
     probe = textwrap.dedent(f"""
         import resource, sys

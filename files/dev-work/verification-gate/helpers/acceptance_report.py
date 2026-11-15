@@ -196,3 +196,141 @@ def report_lines(judgement: Judgement) -> list[str]:
         lines.append(f"| `{item['id']}` | {item['verdict']} | {item.get('tool', '')} | {item.get('tier', '')} | {item.get('inputs', '')} | "
                      f"{item.get('checks', '')} | {item.get('screenshots', '')} | {item.get('outputs', '')} | {item.get('seconds', '')} |")
     return lines
+
+
+# --------------------------------------------------------------------------------------------------------------------- #
+#  macOS (v0.8.x P1B, plan 14.3, MAC-045, D9): the darwin acceptance map
+# --------------------------------------------------------------------------------------------------------------------- #
+DARWIN_CLASSES = ("automated", "owner-manual", "not-applicable")
+#: Only a test of the Windows input harness itself may be NOT APPLICABLE ON MACOS (plan 14.3 class c).
+DARWIN_NA_REASONS = ("windows-input-harness",)
+
+
+def darwin_map_problems(darwin_map: dict | None, required: list[str], optional: list[str]) -> list[str]:
+    """Every required and optional scenario mapped exactly once, each entry well formed. Empty when the map is usable."""
+    if not isinstance(darwin_map, dict):
+        return ["there is no acceptance.darwin_map"]
+    problems: list[str] = []
+    wanted = set(required) | set(optional)
+    missing, extra = sorted(wanted - set(darwin_map)), sorted(set(darwin_map) - wanted)
+    if missing:
+        problems.append(f"unmapped scenarios: {missing}")
+    if extra:
+        problems.append(f"mapped scenarios the policy does not have: {extra}")
+    for scenario_id, entry in darwin_map.items():
+        kind = entry.get("class") if isinstance(entry, dict) else None
+        if kind not in DARWIN_CLASSES:
+            problems.append(f"{scenario_id}: class {kind!r} is not one of {DARWIN_CLASSES}")
+            continue
+        if kind == "automated" and entry.get("journey") != scenario_id and not entry.get("tests"):
+            problems.append(f"{scenario_id}: an automated counterpart names neither its journey nor its tests")
+        if kind == "owner-manual" and not entry.get("checklist"):
+            problems.append(f"{scenario_id}: an owner-manual counterpart names no checklist item")
+        if kind == "not-applicable" and (entry.get("reason_id") not in DARWIN_NA_REASONS or not scenario_id.startswith("control.")):
+            problems.append(f"{scenario_id}: not applicable on macOS only for a test of the Windows input harness, with a reviewed "
+                            f"reason id ({entry.get('reason_id')!r})")
+    return problems
+
+
+def _manual_evidence(evidence_dir: Path | None, item: str, sha: str | None) -> str | None:
+    """A problem with the owner's signed record for one manual item at this SHA, or None when it is there and signed."""
+    if evidence_dir is None or not sha:
+        return f"{item}: no candidate SHA or evidence folder to look in"
+    path = Path(evidence_dir) / sha / f"{item.replace(':', '--')}.json"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return f"{item}: no signed owner evidence for {sha[:12]} ({path.name})"
+    if record.get("sha") != sha or not str(record.get("signed_by", "")).strip() or record.get("result") != "PASS":
+        return f"{item}: the evidence for {sha[:12]} is not a signed PASS of this SHA"
+    return None
+
+
+def _darwin_evidence_problems(entry: dict, evidence_root: Path) -> list[str]:
+    """What a macOS automated counterpart's PASS must show. No picture is required: there is no Screen Recording grant (D9) and
+    pictures are the owner's visual check; everything else is the Windows rule, plus the Tk thread audit."""
+    problems = [line for line in scenario_evidence_problems({**entry, "screenshots": []}, evidence_root)
+                if not line.startswith("it has no screenshot")]
+    for facts in entry.get("notes", {}).get("exits", []):
+        if facts.get("tk_off_thread"):
+            problems.append(f"a worker thread called Tk: {facts['tk_off_thread'][:3]}")
+    return problems
+
+
+def judge_darwin(report_path: Path, *, token: str, wanted: list[str], required: list[str], optional: list[str], evidence_root: Path,
+                 returncode: int | None, ended: str, darwin_map: dict, manual_evidence: Path | None, sha: str | None) -> Judgement:
+    """The verdict on one macOS acceptance stage. Three counts -- automated counterparts PASS/FAIL, owner-manual items verified
+    present (signed for this SHA), not-applicable items with their reason ids -- and FAIL on any unmapped scenario, failed
+    counterpart or manual item without signed evidence; a required scenario not yet runnable is NOT RUN. Never a blanket
+    NOT APPLICABLE."""
+    problems = darwin_map_problems(darwin_map, required, optional)
+    if problems:
+        return Judgement("FAIL", "; ".join(problems), problems=problems)
+    if ended != "exited":
+        return Judgement("FAIL", f"the runner did not finish on its own: {ended}, exit {returncode}")
+    try:
+        report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    except OSError:
+        return Judgement("NOT RUN", f"the runner exited {returncode} and left no report")
+    except ValueError as exc:
+        return Judgement("FAIL", f"the report cannot be read: {exc}")
+    if not isinstance(report, dict) or report.get("schema_version") != 1 or report.get("token") != token:
+        return Judgement("FAIL", "the report is not this run's (schema or token)")
+    if report.get("blocked"):
+        return Judgement("BLOCKED", f"{report['blocked']}; no evidence exists, so this is neither a pass nor a product failure")
+    if not report.get("finished") or returncode != 0:
+        return Judgement("FAIL" if report.get("finished") else "NOT RUN", f"the runner exited {returncode}; finished {report.get('finished')}")
+    by_id = {entry.get("id"): entry for entry in report.get("scenarios", [])}
+    verdicts: list[dict] = []
+    counts = {"automated PASS": 0, "automated FAIL": 0, "manual verified": 0, "manual missing": 0, "not applicable": 0, "NOT RUN": 0}
+    for scenario_id in wanted:
+        mapping = darwin_map[scenario_id]
+        kind = mapping["class"]
+        if kind == "not-applicable":
+            counts["not applicable"] += 1
+            verdicts.append({"id": scenario_id, "verdict": "NOT APPLICABLE", "reason": f"NOT APPLICABLE ON MACOS ({mapping['reason_id']})"})
+            continue
+        if kind == "automated" and mapping.get("pending_phase"):
+            counts["NOT RUN"] += 1
+            verdicts.append({"id": scenario_id, "verdict": "NOT RUN", "reason": f"pending {mapping['pending_phase']}"})
+            continue
+        missing_manual = [problem for item in mapping.get("manual", []) + ([mapping["checklist"]] if kind == "owner-manual" else [])
+                          if (problem := _manual_evidence(manual_evidence, item, sha))]
+        if kind == "owner-manual":
+            verdict = "FAIL" if missing_manual else "PASS"
+            counts["manual verified" if not missing_manual else "manual missing"] += 1
+            verdicts.append({"id": scenario_id, "verdict": verdict, "reason": "; ".join(missing_manual)})
+            continue
+        entry = by_id.get(scenario_id)
+        if entry is None:
+            counts["NOT RUN"] += 1
+            verdicts.append({"id": scenario_id, "verdict": "NOT RUN", "reason": "selected and never reported"})
+            continue
+        status, reason = entry.get("status"), entry.get("reason", "")
+        if status == "PASS":
+            found = _darwin_evidence_problems(entry, Path(evidence_root))
+            if found:
+                status, reason = "FAIL", "; ".join(found)
+        if status not in STATUSES or status == "NOT APPLICABLE":
+            status, reason = "FAIL", f"an automated counterpart reported {status!r}: {reason}"
+        counts["automated PASS" if status == "PASS" else "automated FAIL"] += 1 if status in ("PASS", "FAIL") else 0
+        if status == "PASS" and missing_manual:
+            counts["manual missing"] += 1
+            status, reason = "FAIL", "its native-dialog steps have no signed owner evidence: " + "; ".join(missing_manual)
+        elif mapping.get("manual"):
+            counts["manual verified"] += 1
+        verdicts.append({"id": scenario_id, "verdict": status, "reason": reason, "tool": entry.get("tool"), "tier": entry.get("tier"),
+                         "layers": entry.get("layers", []), "seconds": entry.get("seconds"), "inputs": entry.get("native_inputs"),
+                         "checks": len(entry.get("checks", [])), "outputs": len(entry.get("outputs", [])), "notes": entry.get("notes", {})})
+    before, after = report.get("runtime_before"), report.get("runtime_after")
+    if not before or before != after:
+        problems.append(f"the real runtime data or the default output folder changed during the run: {before} -> {after}")
+    statuses = [item["verdict"] for item in verdicts
+                if not (item["id"] in optional and item["verdict"] in ("NOT RUN", "NOT APPLICABLE"))
+                and item["verdict"] != "NOT APPLICABLE"]
+    if problems:
+        statuses.append("FAIL")
+    status = _worst(statuses) if statuses else "NOT RUN"
+    bad = [f"{item['id']}: {item['verdict']}: {str(item.get('reason', ''))[:200]}" for item in verdicts if item["verdict"] in ("FAIL", "BLOCKED", "NOT RUN")]
+    detail = "; ".join([", ".join(f"{count} {name}" for name, count in counts.items() if count), *problems, *bad[:12]])
+    return Judgement(status, detail, verdicts, problems, [])

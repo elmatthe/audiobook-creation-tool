@@ -17,11 +17,11 @@ import shutil
 
 from journeys import tts as tts_journeys
 from journeys.common import Context, expect_clean_close, open_tool, oracle, scenario, wait_for_listbox, wait_until
-from journeys.converter import native_image
+from journeys.converter import FFMPEG_IMAGE, native_image
 
 
 def _ffmpeg_running(session) -> bool:
-    return any(native_image(pid) == "ffmpeg.exe" for pid in session.job.pids())
+    return any(native_image(pid) == FFMPEG_IMAGE for pid in session.job.pids())
 
 
 def wait_for_long_encode(session, tool: str, *, timeout: float = 60) -> None:
@@ -31,7 +31,7 @@ def wait_for_long_encode(session, tool: str, *, timeout: float = 60) -> None:
 
     def settled() -> bool:
         now = oracle.time_now()
-        running = {pid for pid in session.job.pids() if native_image(pid) == "ffmpeg.exe"}
+        running = {pid for pid in session.job.pids() if native_image(pid) == FFMPEG_IMAGE}
         for pid in list(seen):
             if pid not in running:
                 del seen[pid]

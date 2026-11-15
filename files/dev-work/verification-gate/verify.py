@@ -130,6 +130,16 @@ DIGEST_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 _OUTPUTS_RELATIVE = "files/dev-work/verification-gate/outputs/"
 SCENARIO_NAMES = ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows")
+#: v0.8.x P1B (plan 14.3, D9b): the macOS qualification set. fresh-macos is mandatory and has no runner yet (its automation is
+#: optional): it reports NOT RUN until the owner's signed run of qualification/fresh_macos_procedure.md exists. Windows' frozen
+#: set above is unchanged, so a Windows run never lists a macOS scenario as pending.
+DARWIN_SCENARIO_NAMES = ("fresh-macos",)
+#: Where the owner's signed macOS manual evidence lives, one folder per candidate SHA (ignored; never committed).
+DARWIN_MANUAL_EVIDENCE = REPO_ROOT / "files" / "dev-work" / "macos-acceptance" / "evidence"
+
+
+def platform_scenarios() -> tuple[str, ...]:
+    return DARWIN_SCENARIO_NAMES if sys.platform == "darwin" else SCENARIO_NAMES
 MODES = ("focused", "changed", "full", "qualification")
 GATE_ORDER = ("acceptance", "pytest", "guarded", "deps", "docs", "docnames", "config")
 # Never inherited by a stage: each could narrow, extend or redirect what pytest runs without appearing on its command line.
@@ -222,18 +232,37 @@ def _sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+#: v0.8.x P1B (darwin preflight): what the guarded specification pins only for Windows. The Windows venv's reviewed numpy
+#: site (``.venv/Lib/...``; guarded_pytest.py honours its rule only when ``os.name == "nt"``) and the Windows shells the
+#: guarded runner allows only for Windows fixtures (``cmd /c mklink /J`` junctions, ``tasklist``/``taskkill``,
+#: ``powershell``). Elsewhere they are inert, so they are left out of the darwin run's configuration instead of failing it
+#: as missing; on Windows every entry is pinned exactly as before.
+_WINDOWS_VENV_SITE = ".venv/Lib/"
+_WINDOWS_SHELLS = frozenset({"cmd", "powershell", "tasklist", "taskkill"})
+
+
+def _windows_only_guarded_entry(*, site: str | None = None, tool: str | None = None) -> bool:
+    if sys.platform == "win32":
+        return False
+    return (site is not None and site.startswith(_WINDOWS_VENV_SITE)) or (tool is not None and tool in _WINDOWS_SHELLS)
+
+
 def guarded_run_config(spec: dict) -> dict:
     """guarded_pytest.py configuration version 1 for this tree: each reviewed process source pinned by its current
     SHA-256 (the tree fingerprint and the runner's own re-check keep it from changing during the run), each tool by
     resolved path and SHA-256. A listed source or tool that is missing fails the gate rather than being dropped."""
     sites = {}
     for relative, functions in spec.get("process_sites", {}).items():
+        if _windows_only_guarded_entry(site=relative):
+            continue
         path = REPO_ROOT / relative
         if not path.is_file():
             raise GuardedSpecError(f"reviewed process source {relative} is missing")
         sites[relative] = {"sha256": _sha256_of(path), "functions": list(functions)}
     tools = {}
     for name in spec.get("tools", []):
+        if _windows_only_guarded_entry(tool=name):
+            continue
         found = shutil.which(name)
         if not found:
             raise GuardedSpecError(f"tool {name!r} is not on PATH")
@@ -625,6 +654,15 @@ def load_policy(path: Path | None = None) -> dict:
             raise PolicyError(f"{path.name}: missing {key!r}")
     if set(policy["scenarios"]) != set(SCENARIO_NAMES):
         raise PolicyError(f"{path.name}: scenarios {sorted(policy['scenarios'])} are not the frozen {sorted(SCENARIO_NAMES)}")
+    if sys.platform == "darwin":
+        darwin = policy.get("darwin_scenarios", {})
+        if set(darwin) != set(DARWIN_SCENARIO_NAMES):
+            raise PolicyError(f"{path.name}: darwin_scenarios {sorted(darwin)} are not the frozen {sorted(DARWIN_SCENARIO_NAMES)}")
+        acceptance = policy.get("acceptance", {})
+        problems = acceptance_report.darwin_map_problems(acceptance.get("darwin_map"), acceptance.get("required_scenarios", []),
+                                                         acceptance.get("optional_scenarios", []))
+        if problems:
+            raise PolicyError(f"{path.name}: acceptance.darwin_map: {'; '.join(problems[:5])}")
     for rules in policy["skip_policy"].values():
         for rule in rules:
             try:
@@ -923,6 +961,14 @@ class GateRun:
 
     def check_scenario(self) -> None:
         name = self.args.scenario
+        if name in DARWIN_SCENARIO_NAMES:
+            if sys.platform != "darwin":
+                self.check(f"scenario:{name}", "BLOCKED", f"{name} is a macOS scenario")
+                return
+            scenario = self.policy["darwin_scenarios"][name]
+            self.check(f"scenario:{name}", "NOT RUN", f"no runner (its automation is optional, D9b): satisfied only by the owner's "
+                                                      f"signed run of {scenario['procedure']}; {scenario['detail']}")
+            return
         scenario = self.policy["scenarios"][name]
         runner = scenario.get("runner")
         if not runner:
@@ -1201,9 +1247,16 @@ class GateRun:
         env = self.stage_env(scratch / "t")
         result = self.supervise("acceptance", argv, log=log, env=env, progress=(report,))
         self.judge_cleanup("acceptance", result)
-        self.acceptance = acceptance_report.judge(
-            report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence, returncode=result.returncode,
-            ended=result.ended, required_tools=list(policy.get("required_tools", [])), whole_set=selection.journeys is None)
+        if sys.platform == "darwin":
+            # v0.8.x P1B (plan 14.3): the darwin map's three counts; a manual item needs the owner's signed evidence for this SHA.
+            self.acceptance = acceptance_report.judge_darwin(
+                report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence,
+                returncode=result.returncode, ended=result.ended, darwin_map=policy.get("darwin_map", {}),
+                manual_evidence=DARWIN_MANUAL_EVIDENCE, sha=self.identity_start.get("head"))
+        else:
+            self.acceptance = acceptance_report.judge(
+                report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence, returncode=result.returncode,
+                ended=result.ended, required_tools=list(policy.get("required_tools", [])), whole_set=selection.journeys is None)
         self.stages.append({"name": "acceptance", "log": self.relative(log), "report": self.relative(report) if report.is_file() else None,
                             "scenarios": self.acceptance.scenarios, **result.record()})
         (self.directory / "acceptance-report.md").write_text("\n".join(acceptance_report.report_lines(self.acceptance)) + "\n",
@@ -1377,7 +1430,7 @@ class GateRun:
             "coverage": {**(self.coverage_result.record() if self.coverage_result else {"inventory_reviewed": False}),
                          "exceptions": [item for feature in (self.coverage or {}).get("features", []) for item in feature.get("exceptions", [])]},
             "qualification": {"required": [], "satisfied": satisfied,
-                              "pending": [n for n in SCENARIO_NAMES if n not in satisfied],
+                              "pending": [n for n in platform_scenarios() if n not in satisfied],
                               "ran": dict(self.qualified)},
             "pending_requirements": self.policy.get("later_phase_requirements", []),
             "release_ready": False,
@@ -1922,7 +1975,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                         help="focused: a native and real-media journey registered in verification.json (repeatable); needs the desktop")
     parser.add_argument("--base", action=_OnceOnly, metavar="REF", help="changed: compare with the merge base of this ref (default origin/master)")
     parser.add_argument("--platform", action=_OnceOnly, choices=("windows", "macos"), help="refuse to run (BLOCKED) on any other platform")
-    parser.add_argument("--scenario", action=_OnceOnly, choices=SCENARIO_NAMES, help="qualification: the named scenario")
+    parser.add_argument("--scenario", action=_OnceOnly, choices=(*SCENARIO_NAMES, *DARWIN_SCENARIO_NAMES),
+                        help="qualification: the named scenario")
     parser.add_argument("--network", action=_OnceOnly, metavar="POLICY", help="qualification: a network policy the scenario declares; there is "
                                                             "no way to turn isolation off")
     parser.add_argument("--preflight-only", action="store_true", help="prove the prerequisites; run no test")
