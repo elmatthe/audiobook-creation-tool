@@ -458,13 +458,14 @@ def test_act72_080_is_an_approved_exception_that_stays_unverified():
     native file picker. The selection stays UNVERIFIED and the record says who decided, the issue and when it is revisited."""
     entry = next(item for item in POLICY["darwin_p1b"]["requirements"] if item["id"] == "native-panel-selection")
     assert entry["kind"] == "approved-exception" and entry["issue"] == "ACT72-080"
-    assert "owner" in entry["decided"] and "2026-11-15" in entry["decided"]
+    assert entry["decided"].startswith("2026-11-15") and "Decisions.md" in entry["decided"]
     assert "P5" in entry["revisit"] and "P7" in entry["revisit"] and "not blanket" in entry["revisit"]
     assert "UNVERIFIED" in entry["scope"] and "never PASS" in entry["scope"]
     assert "APPROVED P1B EXCEPTION (ACT72-080, unverified)" in POLICY["darwin_p1b"]["checklist_map"]["macos-checklist:native-dialogs"]
     verify = load_gate("act_verify_exception_label")
     label = verify.approved_exception_label(entry)
-    assert label.startswith("APPROVED P1B EXCEPTION - ACT72-080 UNVERIFIED") and "PASS" not in label.replace("P1B", "")
+    assert label.startswith("APPROVED P1B EXCEPTION - ACT72-080 UNVERIFIED (owner decision 2026-11-15")
+    assert "PASS" not in label.replace("P1B", "")
     assert verify.approved_exception_label({**entry, "decided": ""}).startswith("BLOCKED"), (
         "an exception nobody is recorded as deciding is not accepted")
 

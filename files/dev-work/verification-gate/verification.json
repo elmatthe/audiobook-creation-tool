@@ -1173,7 +1173,7 @@
         "id": "native-panel-selection",
         "kind": "approved-exception",
         "issue": "ACT72-080",
-        "decided": "2026-11-15 by the owner (Decisions.md: P1B final visual remediation and the approved native-picker exception)",
+        "decided": "2026-11-15 (Decisions.md: P1B final visual remediation and the approved native-picker exception)",
         "scope": "P1B may close without granting Accessibility or Screen Recording solely to automate a selection inside the native file picker. The selection itself stays UNVERIFIED, never PASS; opening, configuring and cancelling the real NSOpenPanel (native-dialogs) and the in-process returned paths, NFC/NFD names and downstream processing (p1b-suites, five-tools-journeys) keep their own evidence within their tested scope and are not proof of a real selection. No other requirement is relaxed by it.",
         "revisit": "P5/P7 release qualification (not blanket release approval)",
         "permission": "Accessibility (to drive) and Screen Recording (to see) for the application hosting the run",
