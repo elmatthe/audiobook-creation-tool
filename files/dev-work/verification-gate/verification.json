@@ -800,56 +800,88 @@
         "driver": "adapters/macos",
         "journey": "tts.edge-replay-direct-file",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "tts.edge-replay-folder-mixed": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.edge-replay-folder-mixed",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "tts.service-failure-then-retry": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.service-failure-then-retry",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "tts.cancel-during-narration": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.cancel-during-narration",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "tts.pause-at-file-boundary": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.pause-at-file-boundary",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "tts.pdf-without-text": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.pdf-without-text",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "shutdown.tts-close-during-work": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "shutdown.tts-close-during-work",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "shutdown.tts-close-forced-landing": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "shutdown.tts-close-forced-landing",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       },
       "shutdown.converter-close-during-work": {
         "class": "automated",
@@ -1025,7 +1057,11 @@
         "driver": "adapters/macos",
         "journey": "tts.kokoro-local",
         "tool": "tts-audiobook",
-        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
       }
     },
     "darwin_about": "v0.8.x P1B (plan 14.3, MAC-045, D9), revised by the owner's P1B closeout instruction of 2026-11-15: every required scenario and the optional one, exactly one class each. automated: the same journey run by the in-process macOS driver (adapters/macos: real panels, real media, real FFmpeg, acts through Tk, file and message dialogs answered by in-process stand-ins that record the options the application gave them), judged on the evidence its 'evidence' list names (helpers/acceptance_report.DARWIN_EVIDENCE: journey-checks, real-screenshots -- the window server's picture of the application's own window at this run's SHA, PASS on helpers/visual_review.py -- and dialog-contract). No owner signature stands in for an automated check. The real NSOpenPanel and NSAlert are the darwin scenario macos-native-dialogs; what no automation can reach without a privacy grant is listed in darwin_p1b as BLOCKED with the grant it needs. pending_phase: mapped but not yet runnable on macOS, reported NOT RUN until that phase. not-applicable: only a test of the Windows input harness itself, with an owner-reviewed reason id. A darwin acceptance stage fails on an unmapped scenario, a failed automated counterpart, missing or failed evidence, or a NOT RUN required scenario; it is never a blanket NOT APPLICABLE."
