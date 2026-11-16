@@ -18,7 +18,13 @@ What macOS lets a process do without any privacy grant, and what this module the
       - an alert gets a key event posted to *this application's own* event queue (``-[NSApplication postEvent:atStart:]``,
         documented as callable from any thread): Return or Escape, dispatched by AppKit to the alert exactly as a key press is,
         so the alert's own keyboard handling decides the result. Synthetic, not a HID device: no Accessibility grant is needed
-        or used, and none is claimed.
+        or used, and none is claimed. AppKit routes a key *equivalent* (Return for the default button) only to the key window
+        of an active application, and an application is not made active while another one -- a system alert, say -- holds
+        the front (measured at ``c0a1553``: a posted Return went unanswered while ``UserNotificationCenter`` was frontmost; a
+        posted Escape, which the alert window handles itself, still worked). So when this application is not active a Return
+        is given to the alert window's own ``performKeyEquivalent:`` on the main thread instead of the queue: the alert's
+        buttons still decide by their own key equivalents, and nothing is left queued for another window. Escape keeps the
+        queue. Which route answered, and whether the application was active, is recorded with every answer.
       - an open or save panel is sent its own ``cancel:`` action on the main thread, in the modal run-loop mode
         (``performSelectorOnMainThread:withObject:waitUntilDone:modes:``), which is what its Cancel button does -- a panel shown
         as a sheet must end through it, or Tk waits on the sheet for ever (measured: ``abortModal`` ends the modal loop and
@@ -160,28 +166,51 @@ def capture(number: int, path: Path) -> dict:
     return {"captured": True, "width_px": width, "height_px": height, "mechanism": "CGWindowListCreateImage, own window"}
 
 
+def key_event(name: str, window_number: int, kind: int = _KEY_DOWN):
+    """One synthetic key event (an autoreleased ``NSEvent``) aimed at one of this application's windows. Not a HID device."""
+    chars, code = KEYS[name]
+    return _send(_class("NSEvent"),
+                 "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:",
+                 kind, CGPoint(0.0, 0.0), 0, ctypes.c_double(time.monotonic()), int(window_number), None, _ns(chars), _ns(chars),
+                 False, code, argtypes=(ctypes.c_ulong, CGPoint, ctypes.c_ulong, ctypes.c_double, ctypes.c_long, ctypes.c_void_p,
+                                        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool, ctypes.c_ushort))
+
+
 def post_key(name: str, window_number: int) -> None:
     """A key press for this application's own queue, aimed at one of its windows. Synthetic: not a HID device."""
-    chars, code = KEYS[name]
-    event_class = _class("NSEvent")
     for kind in (_KEY_DOWN, _KEY_UP):
-        event = _send(event_class,
-                      "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:",
-                      kind, CGPoint(0.0, 0.0), 0, ctypes.c_double(time.monotonic()), int(window_number), None, _ns(chars), _ns(chars),
-                      False, code, argtypes=(ctypes.c_ulong, CGPoint, ctypes.c_ulong, ctypes.c_double, ctypes.c_long, ctypes.c_void_p,
-                                             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool, ctypes.c_ushort))
-        _send(_app(), "postEvent:atStart:", event, False, argtypes=(ctypes.c_void_p, ctypes.c_bool), restype=None)
+        _send(_app(), "postEvent:atStart:", key_event(name, window_number, kind), False, argtypes=(ctypes.c_void_p, ctypes.c_bool),
+              restype=None)
+
+
+def app_state() -> dict:
+    """Whether AppKit counts this application active, and the number of its key window (None when it has none)."""
+    app = _app()
+    key = _send(app, "keyWindow")
+    return {"active": bool(_send(app, "isActive", restype=ctypes.c_bool)),
+            "key_window": int(_send(key, "windowNumber", restype=ctypes.c_long)) if key else None}
+
+
+def alert_key_route(name: str, state: dict, window_number: int) -> str:
+    """How a key reaches an alert: ``queue`` (posted, routed by AppKit) or ``key-equivalent`` (the alert window's own
+    ``performKeyEquivalent:``). Escape always takes the queue: the alert window handles it itself and it was measured to work
+    whether or not the application was active. Return is a key equivalent, which AppKit routes only to the key window of an
+    active application, so it takes the queue only then. Pure, so it is tested on every platform."""
+    if name == "escape" or (state.get("active") and state.get("key_window") == window_number):
+        return "queue"
+    return "key-equivalent"
 
 
 def abort_modal() -> None:
     _send(_app(), "abortModal", restype=None)
 
 
-def perform_on_main(target, selector: str) -> None:
-    """``[target selector nil]`` on the main thread, also while a modal panel or sheet runs its loop. Does not wait."""
+def perform_on_main(target, selector: str, argument=None) -> None:
+    """``[target selector argument]`` on the main thread, also while a modal panel or sheet runs its loop. Does not wait (the
+    call retains ``argument`` until it has run)."""
     modes = (ctypes.c_void_p * 2)(_ns("kCFRunLoopCommonModes"), _ns("NSModalPanelRunLoopMode"))
     array = _send(_class("NSArray"), "arrayWithObjects:count:", modes, 2, argtypes=(ctypes.c_void_p, ctypes.c_ulong))
-    _send(target, "performSelectorOnMainThread:withObject:waitUntilDone:modes:", _objc.sel_registerName(selector.encode()), None,
+    _send(target, "performSelectorOnMainThread:withObject:waitUntilDone:modes:", _objc.sel_registerName(selector.encode()), argument,
           False, array, argtypes=(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool, ctypes.c_void_p), restype=None)
 
 
@@ -267,8 +296,17 @@ class NativeWatcher:
             entry["picture"] = {"name": path.name, **shot, "content_is_remote": kind in ("open", "save")}
         respond = (wanted or {}).get("respond") or ("escape" if kind == "alert" else "cancel")
         if kind == "alert" and respond in KEYS:
-            post_key(respond, window["number"])
-            entry["answered"] = {"by": f"{respond} key event posted to this application's own queue", "synthetic": True}
+            state = app_state()
+            route = alert_key_route(respond, state, window["number"])
+            if route == "queue":
+                post_key(respond, window["number"])
+                by = f"{respond} key event posted to this application's own queue"
+            else:
+                perform_on_main(window["ptr"], "performKeyEquivalent:", key_event(respond, window["number"]))
+                by = (f"{respond} key event given to the alert window's own performKeyEquivalent: (this application was not active, "
+                      "so AppKit would route no key equivalent to it)")
+            entry["answered"] = {"by": by, "synthetic": True, "route": route, "app_active": state["active"],
+                                 "alert_was_key": state["key_window"] == window["number"]}
         else:
             perform_on_main(window["ptr"], "cancel:")
             entry["answered"] = {"by": "the panel's own cancel: action, on the main thread (as its Cancel button)", "synthetic": True}
