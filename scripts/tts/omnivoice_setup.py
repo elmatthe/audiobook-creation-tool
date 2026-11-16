@@ -5,8 +5,9 @@ The OmniVoice part of the app's ONE optional-voice installer. It is called only 
 was proved to cover it and was spent; nothing here asks, plans or decides scope on its own, and nothing here runs at
 import (the first-run window never imports it).
 
-* **Sources.** Exactly the shipped manifest (``tts/omnivoice_manifest.json``): the 88 wheels of upstream's own lock at
-  0.2.1, each by URL, size and SHA-256, and the model snapshot at its pinned commit, each file by size and SHA-256. Every
+* **Sources.** Exactly the shipped manifest (``tts/omnivoice_manifest.json``): the wheels of upstream's own lock at 0.2.1
+  for this platform (88 for Windows; 86 for an Apple Silicon Mac, all from PyPI, macOS P4B), each by URL, size and
+  SHA-256, and the model snapshot at its pinned commit, each file by size and SHA-256. Every
   download goes through the caller's opener (the acquirer's scoped, budgeted door) and ``qwen3_setup.download_file``
   (resumes a ``.part``, accepts a file only at its exact size and hash). pip installs only those local wheels, offline
   (``--no-index --require-hashes --no-deps --only-binary=:all:``) behind an audit hook that refuses any network or
@@ -528,7 +529,7 @@ def verified_base_python(*, runner, cancel_check: Optional[CancelCheck] = None) 
         raise refuse("it is not there")
     if venv_layout.is_link(candidate):
         raise refuse("it is a link")
-    if venv_layout.is_within(ov.repo_root(), candidate) and not venv_layout.same_path(candidate, rt.app_base_python()):
+    if venv_layout.is_within(ov.repo_root(), candidate) and not venv_layout.same_path(candidate, ov.app_owned_python()):
         raise refuse("it is inside this app's folder, so it belongs to an environment")
     if any((folder / "pyvenv.cfg").is_file() for folder in (candidate.parent, candidate.parent.parent)):
         raise refuse("it belongs to a virtual environment")
@@ -652,9 +653,12 @@ def foreign_environments() -> list[str]:
 
 
 def proof_job() -> dict:
+    """The installer's proof job: on Windows CUDA float16, as released; on a Mac the device the person runs OmniVoice
+    on (``omnivoice_runtime.device_policy``: the GPU by default, the CPU by choice), in float32."""
     manifest = ov.load_manifest()
+    policy = ov.device_policy()
     return {"schema": 1, "kind": "probe", "model_dir": str(ov.model_dir()),
-            "omnivoice_version": manifest["engine"]["omnivoice"], "dtype": "float16", "device": "cuda",
+            "omnivoice_version": manifest["engine"]["omnivoice"], "dtype": policy.dtype, "device": policy.device,
             "engine_lock": str(ov.engine_lock_path()), "packages": ov.pinned_packages(),
             "environment": str(ov.venv_dir()), "foreign": foreign_environments()}
 
@@ -714,8 +718,10 @@ def prove(*, runner, progress: Progress, cancel_check: CancelCheck, timeout_s: f
     """Run the worker's ``probe`` job (offline, under the model guard), retrying only Smart App Control's first-load
     refusal. Returns its report, or raises :class:`ProofFailed` (``stage`` says whether it speaks against the
     environment) or ``qwen3_setup.SetupCancelled``."""
+    where = {ov.DEVICE_MPS: "this Mac's GPU", ov.DEVICE_CPU: "this Mac's processor"}.get(
+        ov.device_policy().device, "this computer's GPU")
     progress({"unit": "omnivoice-engine", "step": "verify", "done": 0, "total": 0,
-              "message": "Checking that OmniVoice starts on this computer's GPU and loads its model (offline)..."})
+              "message": f"Checking that OmniVoice starts on {where} and loads its model (offline)..."})
     for attempt in range(APPLICATION_CONTROL_ATTEMPTS):
         try:
             return _prove_once(runner=runner, cancel_check=cancel_check, timeout_s=timeout_s)
@@ -742,6 +748,9 @@ def record_proved(origin: str, probe: dict) -> dict:
         raise OmniVoiceSetupError("The Python the OmniVoice environment was built from is missing.")
     summary = {key: probe.get(key) for key in ("versions", "device_name", "total_mib", "load_s", "vram_allocated_mib",
                                                 "vram_reserved_mib", "network_attempts", "isolation")}
+    if probe.get("device") is not None:  # a Mac: which device and dtype were proved, and the memory the proof used
+        summary.update({key: probe.get(key) for key in ("device", "dtype", "footprint_mib", "peak_footprint_mib",
+                                                        "mps_allocated_mib", "mps_driver_mib") if key in probe})
     return ov.write_receipt(ov.STAGE_INSTALLED, origin=origin, base=base, probe=summary, probe_ok=True,
                             model_manifest_sha256=ov.model_manifest_sha256())
 

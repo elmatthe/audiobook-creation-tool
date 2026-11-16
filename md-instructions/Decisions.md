@@ -2,6 +2,61 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P4B OmniVoice production integration: implemented and verified on HOME-MacOS. P4B TECHNICAL PASS (F, S) with one PERFORMANCE EXCEPTION — OWNER DECISION PENDING (memory growth inside one worker); the P4B checkpoint awaits the owner; P4C not started
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB), under the owner's P4B authorization (entry below). Start SHA `ca778c9`.
+
+**Owner approvals used (this session, each asked for separately).**
+- **Adoption of the P4A bytes, token `39f30ad47add55ca3598148c78316ef3e1ad86f63408385f3aab0968b2aaa874`.** 97 files (86 Mac wheels + 11 model files), 3,514,204,377 bytes, placed in the production wheel cache and model folder with `clonefile(2)` (APFS copy-on-write: no extra disk). Each file was hashed against the production manifest before and after; the sources were only read. Tool: `files/dev-tools/macos_p4b_omnivoice_setup.py` (dev-only).
+- **Installation through ACT's own installer** (`optional_setup.plan` → consent → `RealAcquirer`), approved at a download total of 0 bytes. Engine READY in 41.7 s. Receipt: stage `installed`, origin `installed`, `probe_ok`. Probe: `mps` float32, "Apple M4 Pro GPU (MPS)", load 1.04 s, 0 network attempts, footprint 2,970 MiB. `packages_sha256` `3d98081b…1853`, `model_manifest_sha256` `1fda8c17…3d2a`. The wheels were discarded after the proof, as the installer does. Engine: `.venv/engines/omnivoice`, 1.2 GB.
+
+**Implementation decisions (within the authorization; Windows behaviour unchanged).**
+1. **One device policy** (`omnivoice_runtime.device_policy`). Windows: CUDA float16, as released; the Mac setting is ignored there. Mac: `mps` float32 by default, `cpu` float32 when `config.toml` says `[tts] omnivoice_device = "cpu"`. The value is validated by `shared.config`; an invalid one keeps the default and gets a diagnostic. It is read once per file. Float16 and every other device are refused, never substituted.
+2. **No silent fallback.** After loading, the worker checks that the model is on the requested device and dtype; if not, it fails. `PYTORCH_ENABLE_MPS_FALLBACK` and the MPS watermark switches are removed from the worker's environment, and a job carrying a fallback switch is refused.
+3. **Prompt identity** gains `device` only off CUDA. Every Windows clone-prompt key stays byte-identical, so no cached Windows prompt is lost; the Mac's GPU and CPU prompts each get their own key. Measured: the CPU run built its own prompts, and the GPU track B reused the GPU's.
+4. **Mac wheel set:** a `darwin_arm64` section in `omnivoice_manifest.json`. It holds 86 PyPI wheels (`files.pythonhosted.org` only), the same pins as P4A: plain torch and torchaudio 2.8.0, no colorama or tzdata. The Windows top-level set is unchanged.
+5. **Containment.** The Mac worker is a class-A child of the app window's containment owner, tied to its lifeline; a command-line run gets a private owner instead. The Windows Job Object path is unchanged. Cancel is unchanged everywhere: the flag, a 2 s grace, then the whole group is killed (T_stop 4 s).
+6. **Cross-copy model guard (D13) on a Mac:** a `flock` on `ACT-locks/omnivoice.lock` in the per-user temporary folder (`confstr(_CS_DARWIN_USER_TEMP_DIR)`, which a worker's `TMPDIR` cannot move). It is opened with `O_NOFOLLOW`; the kernel releases it when its holder dies. Windows is unchanged.
+7. **The installer's base Python on a Mac** is `files/runtime-data/python/bin/python3.12` (`omnivoice_runtime.app_owned_python`). The first real install showed the installer refusing it ("inside this app's folder"), because the Windows-shaped rule only knew `python.exe`. Fixed; a regression test covers it.
+8. **A config bug, found by the new test before any commit:** `omnivoice_device` was missing from `config.py`'s `[tts]` schema, so a CPU choice would have been ignored as an unknown key. Fixed. The test also follows `config.toml`'s own "remove the '# '" instruction and checks the result is a valid CPU choice.
+9. **First-run wizard:** `bootstrap.optional_choices_for(platform)`. The Windows tuple is byte-identical (`WINDOWS_OPTIONAL_CHOICES`). On a Mac the same five choices remain, and only OmniVoice's line names Apple Silicon. Trimming the Mac wizard to Kokoro + OmniVoice is P4C.
+10. **88 standard-library bytecode caches** were written into the app-owned Python by the installer's base-Python probe and venv creation: normal CPython behaviour, and the installer does the same on Windows. They were left in place, since they are production behaviour, not an experiment artefact (P4A removed its own).
+11. **Feature map and coverage.** Feature map: macOS P4B bullets added to `ACT.TTS.ENGINE.OMNIVOICE`, `ACT.TTS.SETUP.OMNIVOICE` and `ACT.SHARED.CONFIG`; the Windows text is unchanged. `coverage.json`: the 8 changed sources were reviewed and restamped, their feature mappings unchanged.
+
+**Verification (real engine, production paths; evidence `files/dev-work/macos-p4b/q/`, ignored).** Every conversion went through `omnivoice_file_to_mp3`: `v1` speech preparation, the chunk plan, bounded workers, assembly, one encode and atomic publication. Pinned OmniVoice 0.2.1, model `c5fdb5cc`, references and `GENERATION` unchanged.
+
+| Check | Result |
+|---|---|
+| Six voices, text A, MPS fp32 | 6/6 PASS. Wall RTF 0.923–1.069 (inference 0.869–1.005); peak footprint 7,439–9,577 MiB; 4 chunks each; device `mps` "Apple M4 Pro GPU (MPS)" float32 |
+| Multi-chunk, text B, MPS fp32 (Female 1, Male 1) | 2/2 PASS, 14 chunks each. 151.3 s and 200.8 s of audio; wall RTF 1.043 and 1.092; peak 7,454 and 9,437 MiB |
+| Worker bound and memory, 60 one-sentence chunks, MPS (Female 2) | PASS: 60/60 chunks, 2 workers (48 + 12), 366.0 s of audio, wall RTF 1.312, peak 6,900 MiB. Memory after a 5-chunk warm-up, see the P verdict below |
+| CPU fp32 by choice (Female 1, Male 4, text A) | 2/2 PASS. Device `cpu` "Apple M4 Pro CPU" float32; wall RTF 1.510 and 1.233; peak 3,331 and 2,265 MiB |
+| CX-3, real Cancel mid-chunk (1 s into chunk 2) | MPS: 2.144 s. CPU: 2.103 s (bound 4 s). Worker group empty, nothing published, no job folder left |
+| KX-1(c), owner SIGKILLed mid-inference (Force Quit's signal) | Worker group gone in 0.384 s (bound 3 s); nothing published; no process left. The killed owner's job folder (704 KB) stays until the next conversion's 24-hour stale cleanup, as on Windows |
+| CX-2 (a worker ignoring SIGTERM and the flag) and CX-8 (Cancel after the commit point) | Unit tests on the Mac: PASS (CX-2 ends within the bound in about 2.1 s) |
+| Installer in a disposable sandbox (`macos_p4b_omnivoice_install_qa.py`, real installer, no network) | T0: a tampered cached wheel is no longer counted as verified (it would be downloaded again). S0: Cancel during pip leaves it `incomplete`. S1: a repair cancelled during the proof leaves it `unchecked` with nothing recorded. S2: adoption proves and records it, with nothing downloaded or rebuilt. S3: damage is detected as `broken`; the repair moves the old environment aside, rebuilds offline, proves on `mps` and discards the wheels. All PASS, no process left. The sandbox was removed afterwards |
+| Availability | All six voices `(True, "ok")` on this Mac; policy `mps` float32 (default) |
+| Protected assets, before and after | 18/18 references, both transcript files, 28/28 previews unchanged |
+| Focused tests (no full gate) | The 76 affected modules: 4,230 passed, 57 skipped, 229 failed. All 229 failures fail identically on clean HEAD `ca778c9` (a `git archive` tree; Windows-simulation suites: `winreg`, the `python.exe` layout); 0 new. New Mac tests cover the device policy, the config key, the base Python, the model guard, the MPS switch, placement, prompt identity, CX-2 and CX-8; every Windows pin goes through `ov._system`, and no new skip was added. `test_verification_coverage` passes after reviewing and restamping the 8 changed sources. `test_verification_gate_contract`'s 12 failures also fail on clean HEAD |
+
+**P verdict against D6-O (provisional targets).**
+- *Speed:* MPS within the C2 speed exception the owner accepted. CPU within its target.
+- *Peak:* at most 9,577 MiB, within 10 GiB.
+- *Growth: outside the target → PERFORMANCE EXCEPTION — OWNER DECISION PENDING.* Within one worker on 60 varied one-sentence chunks, the footprint grows 28.4 % after warm-up (5,363 → 6,884 MiB) and the MPS driver memory 14.5 % (3,611 → 4,135 MiB). The MPS-allocated tensors stay flat at 2,336 MiB, so the model is not leaking tensors. It is safe (S PASS): the existing 48-chunk worker bound returns it to 4,927 MiB, so no worker exceeds about 6.9 GB however long the book. P4A's +1.11 % came from 50 calls of one text; varied text is the stricter measure. The C2 speed exception does not waive memory.
+- *The owner's options:* (a) accept it as bounded; or (b) authorize a Mac-only mitigation experiment, such as `torch.mps.empty_cache()` after each chunk or a smaller Mac worker bound. Neither was tried: both change worker behaviour beyond what P4B was authorized to change.
+
+**Q observations (diagnostic only; the owner's P4A listening verdict stands and is not reopened).**
+- Full-scale samples at the encoder's input: Male 3 text A 2, Male 1 text B 5. Production adds no loudness processing, as on Windows.
+- The chunk speaking-rate screen flags 21.3–21.5 characters/s on text B, just outside the P4A screen's 8–20 band; Codex found that screen not reproducible.
+
+**Not covered here.**
+- No GUI smoke: the Mac's TTS surfaces are P4C's. It is an owner check.
+- No Windows machine. The Windows branches were verified through platform seams on the Mac; the HOME-PC focused regression stays a P5 gate.
+- The Windows-simulation OmniVoice installer tests still fail on a Mac exactly as on clean HEAD (`winreg`; 42 in `test_omnivoice_setup.py`), so the Mac installer paths were exercised for real in the sandbox instead. Their darwin seams are P4C or P5 work.
+- No `verify.py` gate run: focused tests only, as the authorization said.
+
+**Status.** P4B TECHNICAL PASS (F, S) with the one P exception above. Q accepted at P4A. The checkpoint waits for the owner's acceptance and the growth decision. P4C (20-voice roster, Chatterbox and Qwen3 gated on the Mac) is next only after that. Nothing merged, tagged or released; draft release `447445728` untouched.
+
 ## 2026-11-16 — P4A OWNER ACCEPTED: all six OmniVoice voices accepted by the owner's listening; MPS fp32 preferred, CPU fp32 a selectable alternative, MPS fp16 experimental only; C2's speed exception accepted for integration; P4B authorized; the final macOS roster is Edge + Kokoro + OmniVoice (20 voices); six OmniVoice previews added to the final release (owner decisions; recorded by Claude Code)
 
 **Evidence the acceptance rests on (P4A evidence SHA `6fb98e63098981692b5b1508e7f4abafd68f96c4`; local evidence `files/dev-work/omnivoice-feasibility/`, ignored).**

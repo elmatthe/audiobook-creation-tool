@@ -477,7 +477,7 @@ def _omnivoice_plan(facts: Facts) -> tuple[tuple[str, str], list[Unit]]:
     if not facts.is_64bit:
         return (UNSUPPORTED, "OmniVoice needs 64-bit Windows and Python"), []
     if facts.gpu is False:
-        return (UNSUPPORTED, ov.NO_GPU_MESSAGE), []
+        return (UNSUPPORTED, ov.no_gpu_message()), []
     if ov.assess_engine().state != ov.ENGINE_READY:
         too_deep = ov.install_depth_problem()  # only an engine not yet proved here: one that works is never refused
         if too_deep:
@@ -487,7 +487,8 @@ def _omnivoice_plan(facts: Facts) -> tuple[tuple[str, str], list[Unit]]:
     gpu_reason = ""
     if facts.gpu is None:
         parts.append(UNVERIFIED)
-        gpu_reason = ("this computer's graphics card has not been checked yet (OmniVoice needs an NVIDIA GPU); it is "
+        needs = "Apple Silicon" if ov._system() == "darwin" else "an NVIDIA GPU"
+        gpu_reason = (f"this computer's graphics card has not been checked yet (OmniVoice needs {needs}); it is "
                       "checked before anything is downloaded")
     references = _omnivoice_reference_problem()
     if references:
@@ -635,19 +636,29 @@ def _hardware(facts: Facts, context: str) -> dict:
             "Qwen3 is Windows-only and needs the app's CPython 3.12 (its packages are locked for Windows x64).",
             "Kokoro and Chatterbox need the app's environment on CPython 3.11 or 3.12, 64-bit.",
             "No speed is promised: Kokoro, Chatterbox and Qwen3 also run on the CPU, more slowly.",
+            OMNIVOICE_MAC_LIMIT if ov._system() == "darwin" else
             "OmniVoice is Windows-only and needs an NVIDIA GPU; it does not run on the CPU alone.",
         ],
         "omnivoice": _omnivoice_hardware(facts, context),
     }
 
 
+#: macOS P4B: what the plan says about OmniVoice's hardware on a Mac (Windows' line is unchanged).
+OMNIVOICE_MAC_LIMIT = ("OmniVoice on a Mac needs Apple Silicon: it runs on the Mac's GPU, or on its processor if chosen in "
+                       "config.toml; no speed is promised.")
+
+
 def _omnivoice_hardware(facts: Facts, context: str) -> str:
     if not ov.platform_supported():
         return ov.platform_reason()
-    found = {True: "An NVIDIA GPU was found on this computer.",
-             False: "No NVIDIA GPU was found on this computer, so OmniVoice cannot be installed here."}
+    if ov._system() == "darwin":
+        found = {True: "This Mac has Apple Silicon.",
+                 False: "This Mac does not report Apple Silicon, so OmniVoice cannot be installed here."}
+    else:
+        found = {True: "An NVIDIA GPU was found on this computer.",
+                 False: "No NVIDIA GPU was found on this computer, so OmniVoice cannot be installed here."}
     checked = found.get(facts.gpu) if context == CONTEXT_MAIN else None
-    return ov.HARDWARE_DISCLOSURE + " " + (checked or "This computer's GPU is checked before anything is downloaded.")
+    return ov.hardware_disclosure() + " " + (checked or "This computer's GPU is checked before anything is downloaded.")
 
 
 _ENGINE = {True: "proved", False: "broken", None: "unproved"}

@@ -215,6 +215,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Each value is checked on its own; nothing in a bad file can stop the app.
 - Problems appear once per launch in one "Configuration warnings" window with a plain summary and Continue (Escape closes it); details go to the session log.
 - Developer mode is read only from `config.toml`, only as a real true/false, at start-up.
+- `tts.omnivoice_device` (`mps` or `cpu`, default `mps`; macOS P4B) chooses where OmniVoice runs on an Apple Silicon Mac, read when a run starts; Windows ignores it.
 
 ### Light/Dark appearance toggle
 `ACT.SHARED.APPEARANCE`

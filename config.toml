@@ -84,6 +84,17 @@ max_sessions = 30
 large_result_warning_threshold = 1000
 
 
+# OmniVoice device (Apple Silicon Macs only): where the six OmniVoice voices run.
+#     "mps"  the Mac's GPU, in float32 (the default, and the faster choice)
+#     "cpu"  the Mac's processor, in float32 (slower, and uses less memory)
+# The app never switches between them on its own. Windows ignores this setting:
+# there OmniVoice always runs on the NVIDIA graphics card, as before.
+# To run OmniVoice on the processor, remove the "# " in front of the two lines
+# below and restart the application.
+# [tts]
+# omnivoice_device = "cpu"
+
+
 [development]
 # Developer tools. Leave this false: it is what the app ships with, and nothing
 # a normal user does needs it. The six cloned Qwen3 voices already include their

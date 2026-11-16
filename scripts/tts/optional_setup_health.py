@@ -103,7 +103,8 @@ def busy_components(components: Iterable[str]) -> frozenset:
 
 def gpu_present(components: Iterable[str]) -> Optional[bool]:
     """v0.8.0: whether an NVIDIA GPU is present -- asked (``nvidia-smi``, bounded, once per process) only when OmniVoice,
-    which needs one, is chosen; ``None`` otherwise."""
+    which needs one, is chosen; ``None`` otherwise. On a Mac (macOS P4B) the question is whether it has Apple Silicon
+    (``sysctl``; ``omnivoice_runtime.detect_gpu``)."""
     if proto.OMNIVOICE not in set(components):
         return None
     from tts import omnivoice_runtime as ov

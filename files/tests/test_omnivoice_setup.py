@@ -269,9 +269,17 @@ def test_exactly_five_components_the_four_earlier_unchanged_and_omnivoice_last_a
     from shared import bootstrap
 
     assert [c for c, *_ in bootstrap.OPTIONAL_CHOICES] == list(proto.COMPONENTS)
-    choice = bootstrap.OPTIONAL_CHOICES[-1]
+    assert bootstrap.OPTIONAL_CHOICES == bootstrap.optional_choices_for(sys.platform)
+    windows = bootstrap.optional_choices_for("win32")
+    assert windows is bootstrap.WINDOWS_OPTIONAL_CHOICES, "Windows' wizard is exactly as released"
+    choice = windows[-1]
     assert choice[:3] == ("omnivoice", "OmniVoice — Six Cloned Voices", False)
     assert "NVIDIA GPU" in choice[3] and "NON-COMMERCIAL" in choice[3] and "CC-BY-NC" in choice[3]
+    # macOS P4B: the same five choices and defaults on a Mac; only OmniVoice's own line says what is true there
+    mac = bootstrap.optional_choices_for("darwin")
+    assert [row[:3] for row in mac] == [row[:3] for row in windows] and mac[:-1] == windows[:-1]
+    assert "Apple Silicon" in mac[-1][3] and "NVIDIA" not in mac[-1][3] and "Windows" not in mac[-1][3]
+    assert "NON-COMMERCIAL" in mac[-1][3] and "CC-BY-NC" in mac[-1][3]
 
 
 @pytest.mark.parametrize("components, code", [
@@ -884,9 +892,15 @@ def test_the_probe_job_is_checked_before_anything_heavy_and_names_its_failures(t
            "device": "cuda", "engine_lock": str(tmp_path / "engine.lock"), "packages": {"torch": "2.8.0+cu128"},
            "environment": str(tmp_path), "foreign": []}
     offline = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
-    assert ow.job_problems(job, offline) == []
-    assert any("GPU only" in p for p in ow.job_problems({**job, "device": "cpu"}, offline))
-    assert any("HF_HUB_OFFLINE" in p for p in ow.job_problems(job, {}))
+    assert ow.job_problems(job, offline, "win32") == []
+    assert any("GPU only" in p for p in ow.job_problems({**job, "device": "cpu"}, offline, "win32"))
+    assert any("HF_HUB_OFFLINE" in p for p in ow.job_problems(job, {}, "win32"))
+    # macOS P4B: the installer's proof on a Mac names the accepted device in float32, nothing else
+    mac = {**job, "device": "mps", "dtype": "float32", "packages": {"torch": "2.8.0"}}
+    assert ow.job_problems(mac, offline, "darwin") == [] and ow.job_problems({**mac, "device": "cpu"}, offline,
+                                                                             "darwin") == []
+    assert any("in float32" in p for p in ow.job_problems({**mac, "dtype": "float16"}, offline, "darwin"))
+    assert any("in float32" in p for p in ow.job_problems(job, offline, "darwin")), "CUDA is never a Mac job"
     assert any("missing" in p for p in ow.job_problems({"schema": 1, "kind": "probe"}, offline))
     assert ow.version_problems({"pytest": "0.0.0-not"}) == ["pytest is " + __import__("pytest").__version__ +
                                                             ", not 0.0.0-not"]

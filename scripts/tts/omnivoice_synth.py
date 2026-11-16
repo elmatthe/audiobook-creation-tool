@@ -26,6 +26,14 @@ What happens for one file (``omnivoice_file_to_mp3``, the same shape as ``qwen3_
 
 Nothing falls back: an unavailable engine, model or reference raises ``OmniVoiceUnavailable``; a GPU that fails, a worker
 that dies, or a chunk that is wrong fails the file with a plain sentence.
+
+**On a Mac (macOS P4B).** The device and dtype come from ``omnivoice_runtime.device_policy`` once per file -- the Mac's
+GPU (MPS) in float32 by default, the CPU in float32 by explicit choice -- are logged, go into the job and into the clone
+prompt's identity, and are never changed on the way: a GPU that cannot be used fails the file, it does not move to the
+CPU. The worker is a class-A child (``shared.child_ownership``): its own process group, started through
+``child_entry.py`` so its owner's lifeline ends it however the owner ends; the owner is the app window's, or this
+process's own when there is none (a command-line tool). Cancel keeps its released shape (flag file, 2 s grace, the
+whole group killed and reaped), within the macOS contract's OmniVoice bound (plan section 11.2.1: 4 s).
 """
 
 from __future__ import annotations
@@ -36,6 +44,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -71,8 +80,10 @@ PIPELINE_REVISION = 1
 SEED_BASE = 20261113
 
 LANGUAGE = "English"
-DTYPE = "float16"
-DEVICE = "cuda"
+#: Windows' device and dtype, as released. Every run asks ``omnivoice_runtime.device_policy`` (these on Windows; the
+#: Mac's accepted configuration on a Mac).
+DTYPE = ov.WINDOWS_DTYPE
+DEVICE = ov.WINDOWS_DEVICE
 #: The pinned generation baseline: ``OmniVoiceGenerationConfig``'s own defaults in omnivoice 0.2.1, written out so a run
 #: states exactly what it used (plan section 3: 32 steps). ``preprocess_prompt`` trims the reference's leading and
 #: trailing silence to 100/200 ms and its inner pauses to 200 ms, in memory; it never adds audio. Not user controls.
@@ -121,15 +132,18 @@ def batches(chunks: list, size: int = CHUNKS_PER_WORKER) -> list[list]:
 
 
 def build_job(voice: ov.OmniVoiceVoice, spec: ov.ReferenceSpec, chunks: list, *, job_dir: Path, reference: dict,
-              model_dir: Path, omnivoice_version: str, prompt_cache: Optional[dict]) -> dict:
+              model_dir: Path, omnivoice_version: str, prompt_cache: Optional[dict],
+              policy: Optional[ov.DevicePolicy] = None) -> dict:
     """Everything one worker needs, as plain data. Pure: touches no disk.
 
     *reference* is :func:`omnivoice_runtime.verify_reference`'s answer: the voice's own recording, its SHA-256, frame
-    count, rate and the most frames it may have. The worker proves the file again before it uses it.
+    count, rate and the most frames it may have. The worker proves the file again before it uses it. *policy* is the
+    run's device and dtype (:func:`omnivoice_runtime.device_policy` when not given).
     """
+    policy = ov.device_policy() if policy is None else policy
     return {
         "schema": 1, "kind": "synth", "voice_id": voice.voice_id, "model_dir": str(model_dir),
-        "omnivoice_version": omnivoice_version, "language": LANGUAGE, "dtype": DTYPE, "device": DEVICE,
+        "omnivoice_version": omnivoice_version, "language": LANGUAGE, "dtype": policy.dtype, "device": policy.device,
         "out_dir": str(job_dir / "chunks"), "cancel_file": str(job_dir / "cancel"),
         "engine_lock": str(ov.engine_lock_path()),
         "reference": {key: reference[key] for key in ("wav", "wav_sha256", "frames", "sample_rate", "max_frames")},
@@ -139,9 +153,13 @@ def build_job(voice: ov.OmniVoiceVoice, spec: ov.ReferenceSpec, chunks: list, *,
 
 
 def prompt_cache_entry(spec: ov.ReferenceSpec, *, model_revision: str, omnivoice_version: str,
-                       prompts_root: Optional[Path] = None) -> dict:
+                       prompts_root: Optional[Path] = None, policy: Optional[ov.DevicePolicy] = None) -> dict:
+    """Where the voice's reusable clone prompt is filed, under an identity that binds its dtype and (off CUDA) its
+    device, so a prompt made on one device is never reused on another."""
+    policy = ov.device_policy() if policy is None else policy
     key, identity = ov.prompt_identity(spec, model_revision=model_revision, omnivoice_version=omnivoice_version,
-                                       preprocess_prompt=GENERATION["preprocess_prompt"], dtype=DTYPE)
+                                       preprocess_prompt=GENERATION["preprocess_prompt"], dtype=policy.dtype,
+                                       device=policy.device)
     root = ov.ensure_runtime_dir(ov.prompts_root()) if prompts_root is None else Path(prompts_root)
     return {"path": str(root / ov.prompt_cache_path(spec.voice_id, key).name), "key": key, "identity": identity}
 
@@ -168,12 +186,53 @@ class WorkerRun:
     returncode: int
 
 
+_PRIVATE_OWNER = None
+
+
+def _private_owner():
+    """This process's own containment owner, for a run started where the app window's is not (a command-line tool):
+    the worker is still a class-A child tied to a lifeline, so it ends with this process however it ends."""
+    global _PRIVATE_OWNER
+    if _PRIVATE_OWNER is None:
+        from shared import child_ownership
+
+        _PRIVATE_OWNER = child_ownership.Owner()
+    return _PRIVATE_OWNER
+
+
+def spawn_worker(cmd: list, **kwargs) -> subprocess.Popen:
+    """Start one worker so that its whole tree can always be stopped. Windows: a Job Object, as released
+    (``qwen3_process.spawn`` with ``require_job``). A Mac: a class-A child of the app window's containment owner
+    (``qwen3_process.spawn`` finds it), or of this process's own when there is none -- never a worker without a
+    lifeline."""
+    if sys.platform != "win32" and qwen3_process._posix_owner(cmd) is None:
+        try:
+            proc = _private_owner().popen_python([str(part) for part in cmd], label="omnivoice-worker", **kwargs)
+        except RuntimeError as exc:  # child_ownership.ContainmentUnavailable: nothing was started
+            raise qwen3_process.ContainmentUnavailable(str(exc)) from exc
+        proc.act_job = None  # type: ignore[attr-defined]
+        return proc
+    return qwen3_process.spawn(cmd, require_job=True, **kwargs)
+
+
+def _running_on(event: dict) -> str:
+    """The log's words for where a worker said it loaded (CUDA wording as released)."""
+    device = str(event.get("device") or "")
+    name = event.get("device_name") or "unknown device"
+    if device == "mps":
+        return f"OmniVoice is running on the Mac's GPU: {name}, float32"
+    if device == "cpu":
+        return f"OmniVoice is running on the processor: {name}, float32"
+    return f"OmniVoice is running on the GPU: {name}"
+
+
 def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Path, env: dict,
                cancel_check: Optional[Callable[[], bool]] = None, log: Callable[[str], None] = print,
                on_chunk: Optional[Callable[[dict], None]] = None, grace_s: float = CANCEL_GRACE_S,
                event_timeout_s: float = EVENT_TIMEOUT_S, exit_grace_s: float = EXIT_GRACE_S,
                kill_wait_s: float = KILL_WAIT_S,
-               kill: Callable[[subprocess.Popen], None] = qwen3_process.kill_tree) -> WorkerRun:
+               kill: Callable[[subprocess.Popen], None] = qwen3_process.kill_tree,
+               spawn: Optional[Callable[..., subprocess.Popen]] = None) -> WorkerRun:
     """Run one worker (one batch) to completion under supervision.
 
     The contract is the Qwen3 worker's: exactly one terminal event (``done``, ``failed`` or ``canceled``) and, for
@@ -190,13 +249,14 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
     lines: "queue.Queue[Optional[str]]" = queue.Queue()
     with open(stderr_path, "w", encoding="utf-8") as stderr_file:
         try:
-            proc = qwen3_process.spawn(
-                [str(python), "-I", str(script), str(job_path)], require_job=True, stdin=subprocess.DEVNULL,
+            proc = (spawn or spawn_worker)(
+                [str(python), "-I", str(script), str(job_path)], stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=stderr_file, text=True, encoding="utf-8", errors="replace", env=env,
                 cwd=str(job_dir))
         except qwen3_process.ContainmentUnavailable as exc:
-            raise OmniVoiceFailed("The OmniVoice voice engine was not started: Windows would not let this app keep "
-                                  f"control of it, so it could not be stopped safely if you cancelled. ({exc})") from exc
+            who = "Windows would not let this app" if sys.platform == "win32" else "the app could not"
+            raise OmniVoiceFailed(f"The OmniVoice voice engine was not started: {who} keep control of it, so it could "
+                                  f"not be stopped safely if you cancelled. ({exc})") from exc
 
         def pump() -> None:
             try:
@@ -246,9 +306,8 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                             raise OmniVoiceFailed("The OmniVoice voice engine sent an unreadable message and was stopped.")
                         if kind == "loaded":
                             loaded = event
-                            log(f"OmniVoice is running on the GPU: {event.get('device_name') or 'unknown device'} "
-                                f"(model {event.get('load_s')} s, clone prompt {event.get('prompt')} in "
-                                f"{event.get('prompt_s')} s).")
+                            log(f"{_running_on(event)} (model {event.get('load_s')} s, clone prompt "
+                                f"{event.get('prompt')} in {event.get('prompt_s')} s).")
                         elif kind == "chunk":
                             chunk_events.append(event)
                             if on_chunk is not None:
@@ -300,13 +359,18 @@ def failure_message(terminal: dict, *, repair_offered: bool = False) -> str:
     detail = str(terminal.get("message") or "no further detail")
     if stage in ("engine", "job"):
         return detail if stage == "engine" else f"The OmniVoice voice engine refused the job: {detail}"
+    mac = ov._system() == "darwin"
     if terminal.get("oom"):
+        if mac:
+            return ("The OmniVoice voice ran out of memory (on a Mac the GPU shares the computer's memory). Close other "
+                    f"programs and try again. ({detail})")
         return ("The OmniVoice voice ran out of GPU memory. Close other programs that use the graphics card and try "
                 f"again. ({detail})")
     if terminal.get("gpu") is False:
-        return ov.NO_GPU_MESSAGE
+        return ov.MPS_UNAVAILABLE_MESSAGE if mac else ov.NO_GPU_MESSAGE
     if stage == "memory":
-        return ("The OmniVoice voice engine could not start because Windows did not have enough memory to load it. "
+        who = "this Mac" if mac else "Windows"
+        return (f"The OmniVoice voice engine could not start because {who} did not have enough memory to load it. "
                 f"Close other programs and try again; the engine itself is unchanged. ({detail})")
     where = {"load": "loading the model and the voice", "generate": "generating speech",
              "import": "starting the voice engine", "network": "starting (it tried to use the network)",
@@ -468,8 +532,9 @@ def omnivoice_file_to_mp3(
                                        f"({exc}).") from exc
         manifest = ov.load_manifest()
         model_revision, version = manifest["model"]["revision"], manifest["engine"]["omnivoice"]
+        policy = ov.device_policy()  # once per file: every batch and the prompt's identity use exactly this
         cache = prompt_cache_entry(spec, model_revision=model_revision, omnivoice_version=version,
-                                   prompts_root=prompts_root)
+                                   prompts_root=prompts_root, policy=policy)
         py = Path(python) if python is not None else ov.venv_python()
         worker = Path(script) if script is not None else ov.worker_script()
         cleanup_stale_jobs(jobs_root)
@@ -478,6 +543,9 @@ def omnivoice_file_to_mp3(
             log(f"OmniVoice: synthesizing {len(chunks)} chunk(s) in {voice.label} (pipeline revision "
                 f"{PIPELINE_REVISION}; reference {spec.duration_s:.3f} s at {spec.sample_rate} Hz, used whole; "
                 f"{GENERATION['num_step']} steps)...")
+            if policy.device != ov.DEVICE_CUDA:  # a Mac: say where it runs and who chose it (Windows' log unchanged)
+                chosen = "the default" if policy.source == "default" else f"chosen in {policy.source}"
+                log(f"OmniVoice device: {policy.label} ({chosen}).")
             env = ov.worker_environment() if env is None else env
             events: list[dict] = []
             groups = batches(chunks, chunks_per_worker)
@@ -492,7 +560,7 @@ def omnivoice_file_to_mp3(
                         progress_callback(len(events), len(chunks))
 
                 job = build_job(voice, spec, group, job_dir=job_dir, reference=reference, model_dir=ov.model_dir(),
-                                omnivoice_version=version, prompt_cache=cache)
+                                omnivoice_version=version, prompt_cache=cache, policy=policy)
                 run = run_worker(job, job_dir, name=f"job-{number:03d}", python=py, script=worker, env=env,
                                  cancel_check=cancel_check, log=log, on_chunk=chunk_done, grace_s=grace_s,
                                  event_timeout_s=event_timeout_s, exit_grace_s=exit_grace_s, kill_wait_s=kill_wait_s)

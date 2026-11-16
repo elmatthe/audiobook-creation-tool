@@ -66,6 +66,15 @@ if behavior == "malformed":
 if behavior == "no_gpu":
     emit({"event": "failed", "stage": "load", "message": "PyTorch reports no usable CUDA GPU", "gpu": False})
     sys.exit(2)
+if behavior == "stubborn":  # CX-2: ignores SIGTERM and the cancel flag, blocked as if inside a native call
+    import signal
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    group = os.getpgrp() if hasattr(os, "getpgrp") else None
+    Path(plan["pidfile"]).write_text(json.dumps({"pid": os.getpid(), "pgid": group}), encoding="utf-8")
+    emit({"event": "loaded", "device": "cuda:0", "device_name": "Fake GPU", "load_s": 0.01, "prompt": "built",
+          "prompt_s": 0.01, "chunks": len(job["chunks"])})
+    time.sleep(120)
 if behavior == "import_error":  # as the real worker reports a package that does not import during a conversion
     emit({"event": "failed", "stage": plan.get("stage", "worker"), "message": plan.get("message", "ImportError: cannot "
           "import name 'OmniVoice' from 'omnivoice' (unknown location)")})
@@ -170,7 +179,8 @@ def test_a_conversion_runs_one_worker_assembles_with_the_local_policy_and_cleans
     assert any("[omnivoice] a library banner" in line for line in fake.logs)
 
 
-def test_the_worker_is_conditioned_on_the_voices_own_whole_recording_and_its_owner_transcript(fake):
+def test_the_worker_is_conditioned_on_the_voices_own_whole_recording_and_its_owner_transcript(fake, monkeypatch):
+    monkeypatch.setattr(ov, "_system", lambda: "win32")  # the released Windows job, asked on any host (macOS P4B seam)
     fake.convert(voice="omnivoice-female-2")
     (job,) = fake.jobs_seen()
     voice, spec = ov.get_voice("omnivoice-female-2"), ov.load_references()["omnivoice-female-2"]
@@ -334,6 +344,41 @@ def test_a_cancel_at_the_instant_of_publication_still_wins(fake):
     assert not list(fake.tmp.glob("story.mp3.*.part"))
 
 
+def test_a_cancel_after_the_commit_point_keeps_the_whole_file_and_reports_it(fake):
+    """CX-8, the other order (plan section 11.2.3): a Cancel that arrives once the rename has happened finds the whole
+    file published; it is kept and reported as saved, never half-removed and never left as a temporary."""
+    destination = fake.tmp / "story.mp3"
+    fake.convert(cancel_check=destination.exists)
+    assert destination.read_bytes() == b"MP3-BYTES"
+    assert any("OmniVoice: saved ->" in line for line in fake.logs)
+    assert not list(fake.tmp.glob("story.mp3.*.part")) and fake.leftovers() == []
+
+
+def test_a_worker_that_ignores_sigterm_and_the_flag_is_ended_within_the_omnivoice_bound(fake, tmp_path):
+    """CX-2 (macOS P4B): a worker that ignores the cancel flag and SIGTERM, blocked as if in a native call, is ended by
+    the supervisor's kill after the production 2 s grace, within the OmniVoice T_stop of 4 s (plan section 11.2.1),
+    through the platform's own containment (on a Mac a class-A child in its own group, which is then empty)."""
+    pidfile = tmp_path / "stubborn.json"
+    latched: dict = {}
+
+    def cancel_once_running() -> bool:
+        if "at" not in latched and pidfile.exists():
+            latched["at"] = time.monotonic()
+        return "at" in latched
+
+    with pytest.raises(ConversionCancelled):
+        fake.convert(plan={"behavior": "stubborn", "pidfile": str(pidfile)}, cancel_check=cancel_once_running,
+                     grace_s=osy.CANCEL_GRACE_S)
+    stopped = time.monotonic() - latched["at"]
+    assert stopped <= 4.0, f"stopped {stopped:.2f} s after the Cancel (bound 4 s)"
+    worker = json.loads(pidfile.read_text(encoding="utf-8"))
+    if sys.platform != "win32":
+        assert worker["pgid"] == worker["pid"], "a class-A child leads its own process group"
+        with pytest.raises(ProcessLookupError):
+            os.killpg(worker["pgid"], 0)  # nothing of the worker's group is left
+    assert not (fake.tmp / "story.mp3").exists() and fake.leftovers() == []
+
+
 # --------------------------------------------------------------------------- #
 # Failures: a plain sentence, nothing published, nothing clobbered
 # --------------------------------------------------------------------------- #
@@ -348,13 +393,66 @@ def test_a_cancel_at_the_instant_of_publication_still_wins(fake):
     ({"behavior": "missing_file", "at": 1}, "chunk 2 was reported but its audio file is missing"),
     ({"behavior": "nan", "at": 0}, "chunk 1 could not be used"),
 ], ids=["generate", "oom", "no-gpu", "exit-early", "no-terminal", "done-then-crash", "malformed", "missing-file", "nan"])
-def test_a_failed_file_says_why_publishes_nothing_and_keeps_an_existing_output(fake, plan, message):
+def test_a_failed_file_says_why_publishes_nothing_and_keeps_an_existing_output(fake, plan, message, monkeypatch):
+    monkeypatch.setattr(ov, "_system", lambda: "win32")  # Windows' sentences, as released (a Mac's: the test below)
     destination = fake.tmp / "story.mp3"
     destination.write_bytes(b"THE OWNER'S EARLIER FILE")
     with pytest.raises(osy.OmniVoiceFailed, match=message):
         fake.convert(text=PARAGRAPHS, plan=plan)
     assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
     assert (fake.jobs / "last-failure.txt").is_file(), "the diagnostic, without the job text"
+
+
+@pytest.mark.parametrize("plan, message", [
+    ({"behavior": "fail", "at": 0, "message": "MPS backend out of memory", "oom": True},
+     "ran out of memory \\(on a Mac the GPU shares the computer's memory\\)"),
+    ({"behavior": "no_gpu"}, "never moves to the processor on its own"),
+], ids=["oom", "no-gpu"])
+def test_on_a_mac_a_failed_file_says_why_in_the_mac_s_words(fake, plan, message, monkeypatch):
+    """macOS P4B: the Mac's sentences -- memory the GPU shares, and a GPU that cannot be used, which is never answered by
+    moving to the processor -- with the same guarantees: nothing published, nothing clobbered."""
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    destination = fake.tmp / "story.mp3"
+    destination.write_bytes(b"THE OWNER'S EARLIER FILE")
+    with pytest.raises(osy.OmniVoiceFailed, match=message) as failed:
+        fake.convert(text=PARAGRAPHS, plan=plan)
+    assert "NVIDIA" not in str(failed.value) and "graphics card" not in str(failed.value)
+    assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
+
+
+@pytest.mark.parametrize("choice, device", [(None, "mps"), ("cpu", "cpu")])
+def test_on_a_mac_the_job_and_the_prompt_identity_carry_the_accepted_device(fake, monkeypatch, choice, device):
+    """macOS P4B: the run's device comes from the policy once per file -- the Mac's GPU by default, the processor by
+    explicit choice, both float32 -- and goes into the job and into the clone prompt's identity, so a prompt made on one
+    device is never reused on another or as a CUDA prompt. The log says where it runs and who chose it."""
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    if choice is not None:
+        monkeypatch.setattr(ov, "configured_mac_device", lambda: (choice, "config.toml"))
+    else:
+        monkeypatch.setattr(ov, "configured_mac_device", lambda: ("mps", "default"))
+    fake.convert(voice="omnivoice-female-2")
+    (job,) = fake.jobs_seen()
+    assert (job["device"], job["dtype"]) == (device, "float32")
+    spec = ov.load_references()["omnivoice-female-2"]
+    key, identity = ov.prompt_identity(spec, model_revision=ov.load_manifest()["model"]["revision"],
+                                       omnivoice_version="0.2.1", preprocess_prompt=True, dtype="float32",
+                                       device=device)
+    assert job["prompt_cache"]["key"] == key and job["prompt_cache"]["identity"]["device"] == device
+    cuda_key, _ = ov.prompt_identity(spec, model_revision=ov.load_manifest()["model"]["revision"],
+                                     omnivoice_version="0.2.1", preprocess_prompt=True, dtype="float32")
+    assert key != cuda_key, "a Mac prompt never collides with a CUDA prompt"
+    said = "the default" if choice is None else "chosen in config.toml"
+    assert any(line.startswith("OmniVoice device: ") and said in line for line in fake.logs), fake.logs
+
+
+def test_on_a_mac_a_refused_device_choice_stops_before_any_worker_starts(fake, monkeypatch):
+    """No guess and no fallback: a device the owner did not accept (MPS float16 is not even a value) stops the file
+    before a job folder or a worker exists."""
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    monkeypatch.setattr(ov, "configured_mac_device", lambda: ("cuda", "config.toml"))
+    with pytest.raises(ov.OmniVoiceUnavailable, match="runs only on mps or cpu"):
+        fake.convert()
+    assert fake.jobs_seen() == [] and fake.leftovers() == []
 
 
 def test_a_worker_whose_packages_do_not_import_has_the_engine_recorded_as_damaged_and_says_how_to_repair(fake, monkeypatch):
@@ -437,6 +535,7 @@ if PLAN.get("at") == "torch":
     fail()
 
 float16 = "float16"
+float32 = "float32"
 
 
 class _Properties:
@@ -450,6 +549,18 @@ class cuda:
     manual_seed_all = staticmethod(lambda seed: None)
     memory_allocated = memory_reserved = max_memory_allocated = max_memory_reserved = staticmethod(lambda i=0: 0)
     get_device_properties = staticmethod(lambda i: _Properties())
+
+
+class backends:  # macOS P4B: the Mac's GPU, as MPS reports it
+    class mps:
+        is_available = staticmethod(lambda: PLAN.get("gpu", True))
+        is_built = staticmethod(lambda: True)
+
+
+class mps:
+    synchronize = staticmethod(lambda: None)
+    empty_cache = staticmethod(lambda: None)
+    current_allocated_memory = driver_allocated_memory = staticmethod(lambda: 0)
 
 
 def manual_seed(seed):
@@ -478,6 +589,19 @@ class VoiceClonePrompt:
         self.ref_text = ref_text
 
 
+class _Device:
+    def __init__(self, kind):
+        self.type = kind
+
+
+class _Parameter:
+    def __init__(self, device, dtype):
+        self.device, self.dtype = _Device(device), "torch." + dtype
+
+    def is_floating_point(self):
+        return True
+
+
 class OmniVoice:
     sampling_rate = 24000
 
@@ -485,7 +609,18 @@ class OmniVoice:
     def from_pretrained(cls, *args, **kwargs):
         if torch.PLAN.get("at") == "load":
             torch.fail()
-        return cls()
+        model = cls()
+        model.device = str(kwargs.get("device_map", "cuda:0")).split(":")[0]
+        model.dtype = str(kwargs.get("dtype"))
+        return model
+
+    def named_parameters(self):
+        """Where upstream places the weights: the backbone on the asked device, the audio tokenizer on the CPU under
+        MPS (``torch.PLAN["misplaced"]`` puts the backbone on the CPU instead: a silent fallback)."""
+        backbone = "cpu" if torch.PLAN.get("misplaced") else self.device
+        tokenizer = "cpu" if self.device == "mps" else self.device
+        yield "llm.weight", _Parameter(backbone, self.dtype)
+        yield "audio_tokenizer.weight", _Parameter(tokenizer, self.dtype)
 
     def create_voice_clone_prompt(self, ref_audio, ref_text, preprocess_prompt):
         return VoiceClonePrompt(ref_text)
@@ -506,6 +641,9 @@ sys.argv[0] = os.path.join(STACK, "omnivoice_worker.py")
 runpy.run_path(sys.argv[0], run_name="__main__")
 '''
 OFFLINE = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+#: macOS P4B: the real worker in its subprocess sees the real platform, so the stand-in jobs name this host's own
+#: configuration -- Windows' CUDA float16 as released, a Mac's accepted MPS float32. Each platform runs its own branch.
+HOST_DEVICE, HOST_DTYPE = ("mps", "float32") if sys.platform == "darwin" else ("cuda", "float16")
 DLL_193 = {"at": "torch", "kind": "oserror", "winerror": 193,
            "text": 'Error loading "torch\\lib\\torch_cpu.dll" or one of its dependencies.'}
 DLL_126 = {"at": "torch", "kind": "oserror", "winerror": 126,
@@ -544,7 +682,7 @@ def synth_job(folder: Path) -> dict:
     with wave.open(str(reference), "wb") as out:
         out.setnchannels(1), out.setsampwidth(2), out.setframerate(44100), out.writeframes(b"\0\0" * 100)
     return {"schema": 1, "kind": "synth", "voice_id": "omnivoice-male-1", "model_dir": str(model),
-            "omnivoice_version": "0.2.1", "language": "English", "dtype": "float16", "device": "cuda",
+            "omnivoice_version": "0.2.1", "language": "English", "dtype": HOST_DTYPE, "device": HOST_DEVICE,
             "out_dir": str(folder / "chunks"), "cancel_file": str(folder / "cancel"),
             "engine_lock": str(folder / "engine.lock"),
             "reference": {"wav": str(reference), "wav_sha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
@@ -560,7 +698,7 @@ def probe_job(folder: Path) -> dict:
 
     job = synth_job(folder)
     return {"schema": 1, "kind": "probe", "model_dir": job["model_dir"], "omnivoice_version": "0.2.1",
-            "dtype": "float16", "device": "cuda", "engine_lock": job["engine_lock"],
+            "dtype": HOST_DTYPE, "device": HOST_DEVICE, "engine_lock": job["engine_lock"],
             "packages": {"numpy": metadata.version("numpy")}, "environment": sys.prefix, "foreign": []}
 
 
@@ -594,7 +732,43 @@ def test_the_stand_in_stack_lets_the_real_worker_render_so_its_failures_are_not_
     the app's real PyTorch), renders its chunk and ends ``done``."""
     code, events = run_stack_worker(tmp_path, {})
     assert code == 0 and [e["event"] for e in events] == ["loaded", "chunk", "done"], events
-    assert events[0]["device_name"] == "Stand-in GPU" and (tmp_path / "chunks" / "chunk-0001.wav").is_file()
+    if HOST_DEVICE == "cuda":
+        assert events[0]["device_name"] == "Stand-in GPU"
+    else:  # a Mac: the chip by name, the device and dtype said, and the memory the run used
+        assert events[0]["device_name"].endswith("GPU (MPS)") and events[0]["device"] == "mps", events[0]
+        assert events[0]["dtype"] == "float32" and events[-1]["device"] == "mps" and "peak_footprint_mib" in events[-1]
+    assert (tmp_path / "chunks" / "chunk-0001.wav").is_file()
+
+
+def test_on_a_mac_a_model_that_lands_anywhere_but_where_it_was_asked_is_refused_not_used():
+    """macOS P4B, no silent fallback: the worker's placement guard (pure; the same check runs after every Mac load).
+    The backbone must be entirely on the asked device in the asked dtype; the audio tokenizer stays on the CPU under MPS
+    (where upstream places it) and is on the CPU on the CPU."""
+    from tts import omnivoice_worker as w
+
+    class Param:
+        def __init__(self, device, dtype="torch.float32"):
+            self.device, self.dtype = type("D", (), {"type": device})(), dtype
+
+        def is_floating_point(self):
+            return True
+
+    class Model:
+        def __init__(self, *pairs):
+            self.pairs = pairs
+
+        def named_parameters(self):
+            return iter(self.pairs)
+
+    good_mps = Model(("llm.w", Param("mps")), ("audio_tokenizer.w", Param("cpu")))
+    good_cpu = Model(("llm.w", Param("cpu")), ("audio_tokenizer.w", Param("cpu")))
+    assert w.placement_problem(good_mps, "mps", "float32") == "" and w.placement_problem(good_cpu, "cpu", "float32") == ""
+    fallback = Model(("llm.w", Param("mps")), ("llm.v", Param("cpu")), ("audio_tokenizer.w", Param("cpu")))
+    assert "not only on mps" in w.placement_problem(fallback, "mps", "float32")
+    half = Model(("llm.w", Param("mps", "torch.float16")), ("audio_tokenizer.w", Param("cpu")))
+    assert "not only in float32" in w.placement_problem(half, "mps", "float32")
+    tokenizer_moved = Model(("llm.w", Param("mps")), ("audio_tokenizer.w", Param("mps")))
+    assert "audio tokenizer" in w.placement_problem(tokenizer_moved, "mps", "float32")
 
 
 @pytest.mark.parametrize("plan, stage, kind, condemns", [
@@ -750,7 +924,8 @@ def test_the_worker_refuses_a_job_that_could_reach_the_network_or_load_whisper(t
             "ref_text": "Zeth,", "prompt_cache": None, "generation": dict(osy.GENERATION),
             "chunks": [{"index": 0, "text": "Hello.", "seed": 1}]}
     offline = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
-    assert w.job_problems(good, offline) == []
+    win = "win32"  # Windows' rules, asked on any host (macOS P4B seam); a Mac's follow
+    assert w.job_problems(good, offline, win) == []
     for change, expected in [({"ref_text": " "}, "speech recognizer"), ({"device": "cpu"}, "GPU only"),
                              ({"generation": {"num_step": 32, "asr": True}}, "OmniVoiceGenerationConfig"),
                              ({"reference": {**good["reference"], "frames": 441001}}, "approved length"),
@@ -758,10 +933,21 @@ def test_the_worker_refuses_a_job_that_could_reach_the_network_or_load_whisper(t
                              ({"reference": {**good["reference"], "wav": str(tmp_path / "gone.wav")}}, "missing"),
                              ({"reference": None}, "missing"),
                              ({"chunks": []}, "chunks")]:
-        assert any(expected in p for p in w.job_problems({**good, **change}, offline)), change
+        assert any(expected in p for p in w.job_problems({**good, **change}, offline, win)), change
+    # macOS P4B: a Mac takes exactly the two accepted configurations, both float32, and never the MPS fallback switch
+    mac = "darwin"
+    for device in ("mps", "cpu"):
+        assert w.job_problems({**good, "device": device, "dtype": "float32"}, offline, mac) == [], device
+    for device, dtype in (("mps", "float16"), ("cuda", "float16"), ("cpu", "float16"), ("mps", "bfloat16")):
+        assert any("only on the Apple GPU (mps) or the CPU, in float32" in p
+                   for p in w.job_problems({**good, "device": device, "dtype": dtype}, offline, mac)), (device, dtype)
+    fallback = {**offline, "PYTORCH_ENABLE_MPS_FALLBACK": "1"}
+    assert any("PYTORCH_ENABLE_MPS_FALLBACK" in p
+               for p in w.job_problems({**good, "device": "mps", "dtype": "float32"}, fallback, mac))
+    assert w.job_problems(good, fallback, win) == [], "Windows ignores the MPS switch, as before"
     (model / "audio_tokenizer" / "config.json").unlink()
-    assert any("would fetch one" in p for p in w.job_problems(good, offline))
-    assert w.job_problems(good, {})[0] == "HF_HUB_OFFLINE is not 1"
+    assert any("would fetch one" in p for p in w.job_problems(good, offline, win))
+    assert w.job_problems(good, {}, win)[0] == "HF_HUB_OFFLINE is not 1"
 
 
 def test_the_worker_reads_the_reference_once_proves_its_bytes_and_keeps_its_own_rate(tmp_path):

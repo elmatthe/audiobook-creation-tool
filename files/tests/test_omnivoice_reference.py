@@ -330,7 +330,8 @@ def sandbox(tmp_path, monkeypatch):
     return Sandbox()
 
 
-def test_the_environment_must_hold_exactly_the_pinned_packages(sandbox):
+def test_the_environment_must_hold_exactly_the_pinned_packages(sandbox, monkeypatch):
+    monkeypatch.setattr(ov, "_system", lambda: "win32")  # Windows' 88-wheel set (torch +cu128), asked on any host
     assert ov.environment_status() == (False, ov.NOT_INSTALLED_MESSAGE)
     sandbox.make_env()
     # v0.8.0 Phase 3: exactly the pinned set is not enough on its own -- it is unchecked until the installer proves it
@@ -361,6 +362,7 @@ def test_the_model_is_ready_only_after_a_full_verification_and_stays_ready_until
 
 
 def test_availability_says_why_in_order_and_never_offers_an_install_without_a_gpu(sandbox, monkeypatch):
+    monkeypatch.setattr(ov, "_system", lambda: "win32")  # Windows' order and words, asked on any host (macOS P4B seam)
     monkeypatch.setattr(ov, "platform_supported", lambda: False)
     assert ov.voice_availability("omnivoice-male-1") == (False, ov.platform_reason())
     monkeypatch.setattr(ov, "platform_supported", lambda: True)
@@ -380,6 +382,182 @@ def test_availability_says_why_in_order_and_never_offers_an_install_without_a_gp
     assert ov.voice_availability("omnivoice-male-1") == (True, "ok")
     assert ov.install_would_help() is False
     assert ov.voice_availability("omnivoice-nobody")[0] is False
+
+
+def test_on_a_mac_the_package_set_is_the_mac_s_own_and_only_apple_silicon_is_supported(monkeypatch):
+    """macOS P4B: an Apple Silicon Mac reads the manifest's darwin_arm64 set -- the same upstream lock, 86 PyPI wheels,
+    plain torch 2.8.0, no Windows-only packages -- while Windows keeps its 88 exactly as released. Rosetta (x86_64) and
+    any other platform are not supported."""
+    monkeypatch.setattr(ov, "_system", lambda: "win32")
+    windows = {w.name: w for w in ov.wheels()}
+    windows_digest = ov.packages_sha256()
+    assert len(windows) == 88 and windows["torch"].version == "2.8.0+cu128" and "colorama" in windows
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    mac = {w.name: w for w in ov.wheels()}
+    assert len(mac) == 86 and set(windows) - set(mac) == {"colorama", "tzdata"}
+    assert mac["torch"].version == mac["torchaudio"].version == "2.8.0" and mac["omnivoice"].version == "0.2.1"
+    assert all(w.url.startswith(ov.PYPI_HOSTS) for w in mac.values()), "never PyTorch's CUDA index on a Mac"
+    assert ov.pinned_packages()["torch"] == "2.8.0" and ov.packages_sha256() != windows_digest
+    assert ov.engine_installed_bytes() == ov.load_manifest()[ov.DARWIN_SET]["installed_bytes"]["environment"]
+    monkeypatch.setattr(ov, "_machine", lambda: "arm64")
+    assert ov.platform_supported() is True
+    monkeypatch.setattr(ov, "_machine", lambda: "x86_64")
+    assert ov.platform_supported() is False, "an Intel Mac or Rosetta cannot load the arm64 wheels"
+    monkeypatch.setattr(ov, "_system", lambda: "linux")
+    assert ov.platform_supported() is False and "Apple Silicon" in ov.platform_reason()
+
+
+def test_the_manifest_refuses_a_mac_set_that_could_come_from_anywhere_but_pypi():
+    import copy
+
+    data = copy.deepcopy(ov.load_manifest())
+    assert ov.manifest_problems(data) == []
+    data[ov.DARWIN_SET]["wheels"][0]["url"] = "https://download-r2.pytorch.org/whl/cu128/x.whl"
+    assert any("Mac package set" in p for p in ov.manifest_problems(data))
+    data = copy.deepcopy(ov.load_manifest())
+    data[ov.DARWIN_SET]["platform"] = "win_amd64"
+    assert any("not for macOS arm64" in p for p in ov.manifest_problems(data))
+    data = copy.deepcopy(ov.load_manifest())
+    data[ov.DARWIN_SET]["packages"].append(["torch", "2.8.0"])
+    assert any("pinned twice" in p or "exactly the pinned packages" in p for p in ov.manifest_problems(data))
+
+
+def test_on_a_mac_availability_and_the_device_policy_say_why_without_a_fallback(sandbox, monkeypatch):
+    """macOS P4B: the device comes from the accepted policy only (MPS float32 by default, the CPU float32 by choice),
+    Windows' answer never changes, and a Mac's reasons name the Mac's hardware -- never NVIDIA."""
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    monkeypatch.setattr(ov, "platform_supported", lambda: True)
+    monkeypatch.setattr(ov, "configured_mac_device", lambda: ("mps", "default"))
+    assert ov.device_policy() == ov.DevicePolicy("mps", "float32", "default")
+    assert ov.device_policy(choice="cpu") == ov.DevicePolicy("cpu", "float32", "caller")
+    assert ov.device_policy(system="win32", choice="cpu") == ov.DevicePolicy("cuda", "float16", "windows")
+    for refused in ("cuda", "mps-fp16", "float16", "auto"):
+        with pytest.raises(ov.OmniVoiceUnavailable, match="runs only on mps or cpu"):
+            ov.device_policy(choice=refused)
+    monkeypatch.setattr(ov, "detect_gpu", lambda: None)
+    assert ov.voice_availability("omnivoice-male-1") == (False, ov.MAC_NO_GPU_MESSAGE)
+    monkeypatch.setattr(ov, "detect_gpu", lambda: rt.GpuInfo("Apple M4 Pro", 24576))
+    assert ov.voice_availability("omnivoice-male-1") == (False, ov.NOT_INSTALLED_MESSAGE)
+    monkeypatch.setattr(ov, "configured_mac_device", lambda: ("tpu", "config.toml"))
+    ok, reason = ov.voice_availability("omnivoice-male-1")
+    assert ok is False and "runs only on mps or cpu" in reason
+    assert "NVIDIA" not in ov.hardware_disclosure() and "Apple Silicon" in ov.disclosure()["hardware"]
+    monkeypatch.setattr(ov, "_system", lambda: "win32")
+    assert ov.hardware_disclosure() == ov.HARDWARE_DISCLOSURE and ov.no_gpu_message() == ov.NO_GPU_MESSAGE
+
+
+def test_a_prompt_identity_binds_the_device_off_cuda_and_keeps_every_cuda_key_as_released():
+    """macOS P4B: a Windows (CUDA) prompt keeps exactly its released key, so no cached Windows prompt is lost; the Mac's
+    GPU and processor each file theirs under a key no other device can produce."""
+    spec = ov.load_references()["omnivoice-male-2"]
+    common = dict(model_revision="c" * 40, omnivoice_version="0.2.1", preprocess_prompt=True)
+    released, released_fields = ov.prompt_identity(spec, dtype="float16", **common)
+    assert ov.prompt_identity(spec, dtype="float16", device="cuda", **common) == (released, released_fields)
+    assert "device" not in released_fields
+    mps, mps_fields = ov.prompt_identity(spec, dtype="float32", device="mps", **common)
+    cpu, cpu_fields = ov.prompt_identity(spec, dtype="float32", device="cpu", **common)
+    assert mps_fields["device"] == "mps" and cpu_fields["device"] == "cpu"
+    assert len({released, mps, cpu, ov.prompt_identity(spec, dtype="float32", **common)[0]}) == 4
+
+
+def test_the_model_guard_is_one_per_user_on_a_mac_and_never_stale(monkeypatch, tmp_path):
+    """macOS P4B (D13): every copy of the app run by this user meets one flock in the user's own temporary folder, which
+    a setup worker's TMPDIR does not move; it is taken at once or refused, freed on release, and the kernel frees it when
+    its holder dies (it is a descriptor). A link planted in its place is never followed."""
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    monkeypatch.setattr(ov, "machine_lock_path", lambda: tmp_path / "ACT-locks" / "omnivoice.lock")
+    first, second = ov.MachineGuard(), ov.MachineGuard()
+    assert first.acquire() and first.held and first.scope == "user"
+    assert second.acquire() is False and second.failure == "busy"
+    assert "Another copy of this app" in second.refusal_message and "Windows" not in second.refusal_message
+    first.release()
+    assert not first.held and second.acquire()
+    second.release()
+    target = tmp_path / "elsewhere.txt"
+    target.write_text("not a lock")
+    (tmp_path / "ACT-locks" / "omnivoice.lock").unlink()
+    os.symlink(target, tmp_path / "ACT-locks" / "omnivoice.lock")
+    with pytest.raises(ov.OmniVoiceUnavailable, match="could not be opened"):
+        ov.MachineGuard().acquire()
+    assert target.read_text() == "not a lock"
+
+
+def test_on_a_mac_the_configured_device_is_validated_and_reaches_the_policy(tmp_path, monkeypatch):
+    """macOS P4B: ``[tts] omnivoice_device`` accepts exactly the policy's two Mac devices, defaults to MPS, and a wrong
+    value falls back to the default with a diagnostic -- it never reaches the worker as some third device."""
+    from shared import config as shared_config
+
+    assert shared_config.OMNIVOICE_DEVICE_VALUES == ov.MAC_DEVICES
+    assert shared_config.DEFAULT_OMNIVOICE_DEVICE == ov.MAC_DEFAULT_DEVICE == "mps"
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "launcher.py").write_text("", encoding="utf-8")
+
+    def load(toml: str):
+        path = root / "config.toml"
+        path.write_text(toml, encoding="utf-8")
+        return shared_config.load(config_path=path, settings_data={}, repo_root=root, home=tmp_path)
+
+    assert load("").tts.omnivoice_device == "mps"
+    # The committed config.toml's own instructions ("remove the '# ' in front of the two lines") give a valid choice.
+    shipped = (Path(__file__).resolve().parents[2] / "config.toml").read_text(encoding="utf-8")
+    assert load(shipped).tts.omnivoice_device == "mps"
+    followed = load(shipped.replace('# [tts]\n# omnivoice_device = "cpu"\n', '[tts]\nomnivoice_device = "cpu"\n', 1))
+    assert followed.tts.omnivoice_device == "cpu"
+    assert not any(d.key.startswith("tts") or "unrecognised" in d.detail for d in followed.diagnostics)
+    chosen = load('[tts]\nomnivoice_device = "CPU"\n')
+    assert chosen.tts.omnivoice_device == "cpu" and chosen.diagnostics == ()
+    for wrong in ('"cuda"', '"mps-fp16"', "1", "true"):
+        bad = load(f"[tts]\nomnivoice_device = {wrong}\n")
+        assert bad.tts.omnivoice_device == "mps"
+        assert any(d.key == "tts.omnivoice_device" for d in bad.diagnostics)
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    monkeypatch.setattr(shared_config, "get_effective", lambda: chosen)
+    device, source = ov.configured_mac_device()
+    assert device == "cpu" and source == chosen.source_of(ov.DEVICE_SETTING)
+    assert (ov.device_policy().device, ov.device_policy().dtype) == ("cpu", "float32")
+
+
+def test_on_a_mac_the_installer_builds_from_the_app_s_own_python_and_no_other_inside_the_app(sandbox, monkeypatch):
+    """macOS P4B: setup places the app's base CPython inside the app's folder (``files/runtime-data/python/bin/
+    python3.12``). The installer must accept exactly that interpreter there -- the first real Mac install found it
+    refused -- and still refuse anything else inside the folder (an environment's python). Windows' rule is as
+    released."""
+    from tts import omnivoice_setup as osu
+
+    root = ov.repo_root()
+    monkeypatch.setattr(ov, "_system", lambda: "darwin")
+    owned = root / "files" / "runtime-data" / "python" / "bin" / "python3.12"
+    assert ov.app_owned_python() == owned
+    other = root / ".venv" / "bin" / "python3.12"
+    for path in (owned, other):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+    asked = []
+
+    def runner(cmd, *, env, cwd, on_line, cancel_check=None):
+        asked.append(cmd[0])
+        home = str(Path(cmd[0]).parent.parent)
+        on_line(osu._BASE_PROBE_MARK + json.dumps({"version": [3, 12, 10], "implementation": "cpython",
+                                                   "prefix": home, "base_prefix": home, "executable": cmd[0]}))
+        return 0
+
+    monkeypatch.setattr(osu.su, "installer_environment", lambda: {"PATH": "/usr/bin"})  # no real runtime folders
+    monkeypatch.setattr(ov, "app_base_python", lambda: owned)
+    assert osu.verified_base_python(runner=runner) == owned and asked == [str(owned)]
+    monkeypatch.setattr(ov, "app_base_python", lambda: other)
+    with pytest.raises(osu.OmniVoiceSetupError, match="inside this app's folder"):
+        osu.verified_base_python(runner=runner)
+    assert asked == [str(owned)], "a refused interpreter is never started"
+    monkeypatch.setattr(ov, "_system", lambda: "win32")
+    assert ov.app_owned_python() == rt.app_base_python()
+
+
+def test_the_worker_environment_never_carries_the_mps_fallback_switch(sandbox):
+    env = ov.worker_environment({"PATH": "/usr/bin", "PYTORCH_ENABLE_MPS_FALLBACK": "1",
+                                 "PYTORCH_MPS_HIGH_WATERMARK_RATIO": "0.0", "PYTORCH_CUDA_ALLOC_CONF": "x"})
+    assert "PYTORCH_ENABLE_MPS_FALLBACK" not in env and "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in env
+    assert env["PYTORCH_CUDA_ALLOC_CONF"] == "x", "what CUDA reads on Windows is left exactly as it was"
 
 
 def test_a_changed_recording_makes_only_that_voice_unavailable(sandbox, monkeypatch, tmp_path):

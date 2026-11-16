@@ -1,5 +1,47 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4B OmniVoice integration: TECHNICAL PASS, one PERFORMANCE EXCEPTION — OWNER DECISION PENDING; the checkpoint waits for the owner (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 is untouched; nothing merged, tagged or released; draft release `447445728` untouched. P4C has not started.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`; start `ca778c9`, plus one scoped P4B commit (code, tests, dev-only tools, documents). Pushed to `origin` only. No audio, model, wheel or log was committed.
+- **What P4B changed (Decisions, P4B entry).**
+  - Device policy: Mac `mps` float32 by default; `cpu` float32 via `config.toml` `[tts] omnivoice_device = "cpu"`; float16 and anything else refused; no silent fallback.
+  - The Mac wheel set (`darwin_arm64`, 86 PyPI wheels); Apple GPU detection; device placement, sync and real memory.
+  - The device in the prompt identity (off CUDA only).
+  - Mac containment (class-A child or private owner) and the per-user `flock` model guard.
+  - The installer's Mac base Python, and Mac texts in setup, the wizard and the hardware disclosure.
+  - Windows: CUDA float16, its pins, keys, texts and setup are byte-identical.
+- **Installed in this checkout** with two separate owner approvals: the P4A bytes adopted by APFS clone (token `39f30ad4…a874`, 97 files), then ACT's installer (0 bytes downloaded). Engine READY, receipt `installed`, probe on `mps`.
+- **Verified on the real engine** (evidence `files/dev-work/macos-p4b/q/`, ignored):
+  - six voices on MPS: wall RTF 0.92–1.07, peak 7.3–9.4 GB;
+  - text B, 14 chunks: Female 1 and Male 1;
+  - 60 chunks across 2 workers;
+  - CPU fp32: Female 1 and Male 4, RTF 1.23–1.51, peak 3.3 GB;
+  - CX-3 Cancel: 2.14 s on MPS, 2.10 s on CPU (bound 4 s), nothing published;
+  - KX-1(c) owner SIGKILL: worker group gone in 0.38 s (bound 3 s);
+  - installer in a sandbox: tampered wheel, Cancel during pip, Cancel during proof, adoption, damage then repair — all PASS;
+  - protected assets 18/2/28 unchanged;
+  - focused tests: 76 affected modules, 4,230 passed and 229 failed — every one of the 229 fails identically on clean HEAD (Windows-simulation suites); 0 new.
+- **Owner decision pending: memory growth inside one worker.** On 60 varied chunks the footprint grows 28 % after warm-up (5.4 → 6.9 GB); the MPS tensors stay flat. It is bounded by the 48-chunk worker restart (back to 4.9 GB), so S is PASS, but it is outside the provisional < 10 % target, and the speed exception does not cover memory.
+  - (a) accept it as bounded; or
+  - (b) authorize a Mac-only mitigation experiment (`torch.mps.empty_cache()` per chunk, or a smaller Mac worker bound).
+- **Owner manual checks** (not done by the agent):
+  1. A GUI conversion with an OmniVoice voice on the Mac, including a mid-run Cancel.
+  2. Optionally, listening to the P4B MP3s in `files/dev-work/macos-p4b/q/voices/`.
+- **Windows touchpoints added by P4B (HOME-PC focused regression in P5):**
+  - `scripts/shared/config.py` (new key; Windows ignores it);
+  - `config.toml` (a comment block);
+  - `scripts/shared/bootstrap.py` (the wizard tuple, Windows byte-identical);
+  - `scripts/tts/omnivoice_runtime.py`, `omnivoice_worker.py`, `omnivoice_synth.py`, `omnivoice_setup.py`, `optional_setup.py`, `optional_setup_health.py` (Windows branches unchanged; Windows-pinned tests through `ov._system`);
+  - `scripts/tts/omnivoice_manifest.json` (a pure addition);
+  - the feature map (`tts-audiobook.md`, `shared-workflows.md`: macOS bullets only);
+  - `coverage.json` (8 sources restamped).
+  - Tests to run there: `test_omnivoice_reference.py`, `test_omnivoice_synth.py`, `test_omnivoice_setup.py`, `test_optional_tts_setup.py`, `test_config.py`, the first-run and bootstrap suites.
+- **Next action (the owner's):**
+  1. Accept or reject the P4B checkpoint.
+  2. Decide the growth exception, (a) or (b).
+  3. Then authorize P4C (the 20-voice roster; plan §19 P4C, scope as recorded there).
 ## Current checkpoint — macOS P4A OWNER ACCEPTED; P4B authorized and in progress (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 is untouched; nothing merged, tagged or released.

@@ -3305,7 +3305,8 @@ def fetch_sentence_data(log: SetupLog) -> bool:
 
 #: The five optional voice choices of the first-run wizard, in the approved order, with the approved defaults
 #: (Kokoro checked, the other four unchecked) and what each one is. v0.8.0 Phase 3 appends OmniVoice, unchecked.
-OPTIONAL_CHOICES = (
+#: These are Windows' words, as released; :func:`optional_choices_for` gives a Mac its own OmniVoice line.
+WINDOWS_OPTIONAL_CHOICES = (
     ("kokoro", "Kokoro voices", True,
      "Natural English voices that run on this computer (CPU or GPU)."),
     ("chatterbox", "Chatterbox Turbo voices", False,
@@ -3320,6 +3321,22 @@ OPTIONAL_CHOICES = (
      "weights are CC-BY-NC and its audio tokenizer has its own licence; the full terms are shown before anything is "
      "downloaded."),
 )
+#: macOS P4B: the OmniVoice line on a Mac, where it runs on Apple Silicon (P4A owner-accepted, 2026-11-16).
+OMNIVOICE_MAC_NOTE = ("Six more cloned voices from a separate engine, on this Mac's GPU (Apple Silicon). "
+                      "NON-COMMERCIAL: the model weights are CC-BY-NC and its audio tokenizer has its own licence; the "
+                      "full terms are shown before anything is downloaded.")
+
+
+def optional_choices_for(platform: str) -> tuple:
+    """The wizard's optional voice choices on *platform*: Windows' exactly as released; on a Mac the same choices with
+    OmniVoice's own Mac line (which choices a Mac offers at all is P4C's central policy, not this list's)."""
+    if platform != "darwin":
+        return WINDOWS_OPTIONAL_CHOICES
+    return tuple((c, label, default, OMNIVOICE_MAC_NOTE if c == "omnivoice" else note)
+                 for c, label, default, note in WINDOWS_OPTIONAL_CHOICES)
+
+
+OPTIONAL_CHOICES = optional_choices_for(sys.platform)
 
 
 def optional_estimates() -> dict:

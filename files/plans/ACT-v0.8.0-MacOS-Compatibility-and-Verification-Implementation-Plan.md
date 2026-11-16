@@ -25,6 +25,7 @@
 - MPS fp32 preferred and default, its speed exception accepted for integration; CPU fp32 a selectable alternative; MPS fp16 experimental only;
 - P4B authorized; the final macOS roster is fixed at **Edge 5 + Kokoro 9 + OmniVoice 6 = 20 voices** (P4C);
 - six OmniVoice previews are added to the final release (P6a), the 28 historical previews unchanged.
+**Revision 3a:** 2026-11-16 (Claude Code, Opus 5.5). **P4B implemented and verified: TECHNICAL PASS (F, S), one PERFORMANCE EXCEPTION — OWNER DECISION PENDING** (memory growth inside one worker, bounded by the 48-chunk restart). The P4B checkpoint waits for the owner; P4C has not started (§19 P4B status; Decisions, P4B entry).
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
 **Released baseline:** Windows v0.8.0, tag `v0.8.0` (tag object `0a3653e`) → release-source commit `d1701e987f106ce00f557f267a6761c5370f5968`
@@ -1785,6 +1786,28 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 > **Revision 2:** P4B needs both a proven P4A configuration and the owner's acceptance of its audio, and then its own authorization. Any OmniVoice install control on macOS uses separately verified and approved macOS setup behaviour. Chatterbox and Qwen3 stay gated.
 >
 > **Revision 3 (2026-11-16): AUTHORIZED.** Configurations: MPS fp32 default, CPU fp32 by explicit choice, MPS fp16 refused as a production choice. Windows CUDA behaviour, pins and setup unchanged. Pinned OmniVoice 0.2.1, model `c5fdb5cc`, references and `GENERATION` unchanged. Production downloads and adoption of the P4A bytes each need separate owner consent. Only the narrow platform gating P4B needs; the broad roster work is P4C. P4B's minimum verification: install and repair; model hash, receipt and provenance; six voices through production; multi-chunk; the 48-chunk MPS worker/memory test; CPU fp32; device choice without silent fallback; Cancel and containment (CX-2, CX-3, CX-8, KX-1(c)); Force Quit containment; Windows-branch unit tests through platform seams; reference, transcript and preview hashes; GUI smoke where appropriate; installer failure and repair paths.
+>
+> **Status 2026-11-16: P4B TECHNICAL PASS (F, S), one PERFORMANCE EXCEPTION — OWNER DECISION PENDING; the checkpoint waits for the owner** (Decisions, P4B entry; evidence `files/dev-work/macos-p4b/q/`, ignored). The engine is installed in the HOME-MacOS checkout through ACT's installer, from the P4A bytes adopted by APFS clone (two separate owner approvals; 0 bytes downloaded). Real-engine results:
+> - six voices on MPS fp32: wall RTF 0.923–1.069, peak ≤ 9,577 MiB;
+> - text B, 14 chunks (Female 1, Male 1);
+> - 60 chunks across 2 workers;
+> - CPU fp32 by `[tts] omnivoice_device = "cpu"`: RTF 1.233–1.510, peak ≤ 3,331 MiB;
+> - CX-3 Cancel: 2.144 s on MPS and 2.103 s on CPU; KX-1(c): 0.384 s;
+> - CX-2 and CX-8: unit PASS;
+> - installer tampered-wheel, Cancel, adoption, damage and repair paths: PASS in a disposable sandbox;
+> - protected assets unchanged.
+>
+> **Exception:** within one worker the footprint grows 28.4 % after warm-up (MPS tensors flat), bounded by the 48-chunk worker restart; this is outside the provisional < 10 % target. The owner chooses (a) accept as bounded, or (b) a Mac-only mitigation experiment. Not done here: the GUI smoke (P4C surfaces; owner manual) and the HOME-PC Windows regression (P5).
+>
+> **P4B implementation map (as built):**
+> - `omnivoice_runtime`: `package_set`/`DARWIN_SET`, `platform_supported` (win32, or darwin arm64), `apple_gpu`/`detect_gpu`, `device_policy`/`configured_mac_device`, `prompt_identity(device=)`, `machine_lock_path` and the POSIX `MachineGuard`, `app_owned_python`, the dropped MPS switches, `hardware_disclosure`/`no_gpu_message`;
+> - `omnivoice_worker`: `device_problems`, `placement_problem`, `_sync`/`_empty_cache`/`_memory`/`_device_facts` per device;
+> - `omnivoice_synth`: `spawn_worker` (private owner off Windows), the device once per file, Mac failure texts;
+> - `omnivoice_setup`: the proof job on the policy's device; the base Python through `app_owned_python`;
+> - `optional_setup`, `optional_setup_health`: Mac texts and limits;
+> - `shared/config`: `tts.omnivoice_device`;
+> - `shared/bootstrap`: `optional_choices_for`;
+> - the manifest: the `darwin_arm64` set.
 
 - **Scope:**
   - the darwin wheel list in the manifest;
@@ -1810,6 +1833,14 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 
 ### P4C — macOS engine roster through one capability policy (Revision 2; Q2=A)
 > **Revision 3 (2026-11-16):** the configuration is **Edge + Kokoro + OmniVoice, 20 voices** (§12.F). P4C starts after P4B's checkpoint is accepted, and must be complete before the Mac work is called complete or any release is authorized.
+>
+> **Integration points left for P4C after P4B (2026-11-16, read-only survey; nothing done):**
+> - `tts/voice_registry.py`: the roster and group labels the panel lists.
+> - `tts/epub2tts_gui.py`: the voice dropdown, the engine headings, and dispatch to `chatterbox_file_to_mp3`, `qwen3_file_to_mp3` and `omnivoice_file_to_mp3`. Dispatch must refuse Chatterbox and Qwen3 on darwin.
+> - `shared/bootstrap.optional_choices_for("darwin")`: it still lists all five choices; P4C trims it to Kokoro + OmniVoice.
+> - `tts/optional_setup.py`, `shared/optional_setup_protocol.py` and `tts/voice_install.py`: Install & Continue, repair and the optional-install entries.
+> - The restore of a saved or imported voice selection that names an engine not offered.
+> - The Windows-simulation OmniVoice suites that fail on a Mac at baseline (`winreg`, `python.exe` layout): they need darwin seams, or a platform pin, as P4B did for the synth and reference suites.
 
 - **Entry:**
   - the P4A outcome is recorded:
@@ -2004,6 +2035,7 @@ None of these blocks the *plan*.
 | **Q3** | Windows evidence while HOME-PC is unavailable | **DECIDED 2026-11-16: A.** Finish and verify the Mac implementation now. Native Windows verification (E-B2, the Windows focused regression) and the final cross-platform release qualification are deferred until HOME-PC is available, not waived. D8 and P7 are unchanged |
 | **D6-O** | OmniVoice speed/memory budget and the practicality line | Proposed at Revision 2: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, peak footprint ≤ 10 GiB, growth < 10 % after warm-up (fixed). The proposed line then read: if every technically passing configuration falls outside it, that is the Q1 "impractical" line. **SET 2026-11-16 (Revision 2a): the four values are provisional practicality targets, not automatic rejection thresholds.** A technically correct configuration outside a target is a PERFORMANCE EXCEPTION — OWNER DECISION PENDING, unless its resource behaviour is unsafe, which fails S. F, S, Q and P are separate verdicts; the owner decides speed, footprint and quality (§12.E). **Revision 3 (2026-11-16): C2 MPS fp32's speed exception is accepted for integration** (no memory, safety, Cancel or reliability requirement waived) |
 | **P4A acceptance** | OmniVoice on macOS | **ACCEPTED 2026-11-16 (Revision 3):** six voices by owner listening; MPS fp32 preferred, CPU fp32 alternative, MPS fp16 experimental; P4B authorized; macOS roster Edge + Kokoro + OmniVoice = 20; six OmniVoice previews added at P6a |
+| **P4B checkpoint** | OmniVoice on macOS, production | **PENDING THE OWNER (2026-11-16):** TECHNICAL PASS (F, S); memory growth inside one worker +28.4 % after warm-up (bounded by the 48-chunk restart, MPS tensors flat) is a PERFORMANCE EXCEPTION against D6-O's provisional < 10 %: (a) accept as bounded, or (b) a Mac-only mitigation experiment. P4C follows the acceptance |
 | **P4A consent** | Acquisition for P4A | **GIVEN 2026-11-16:** only the files of `files/dev-tools/macos_p4a_omnivoice_manifest.json` at `bac67d4`, token `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c` (86 wheels, 246,737,206 bytes; 11 model files, 3,267,467,171 bytes), into `files/dev-work/omnivoice-feasibility/` only. Whisper **not** authorized (D15 deferred until after the owner's listening verdict) |
 | D16 | Release version and strategy | §18 option A (v0.8.1), or D (v0.9.0). **Decided at P5 exit**, because the version identity is release-relevant source finalized in P6a, before review and both gates |
 | D17 | Preemptible Cancel for local engines | On darwin, Kokoro and Chatterbox run in the supervised local-engine worker; accept the Cancel contract C1–C5 and its bounds (§11.2.1). Windows keeps the released in-process path in this programme; adopting the worker on Windows is a later decision with Windows qualification |

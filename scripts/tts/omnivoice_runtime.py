@@ -36,6 +36,13 @@ built from unchanged since, and an install-time load proof. An environment at th
 pinned set that no receipt vouches for -- one whose proof was interrupted -- is *unchecked*, never ready and never
 broken: the installer adopts it after the same proof, without downloading or replacing anything
 (:func:`assess_engine`).
+
+**Platforms (macOS P4B).** Windows runs the engine exactly as released: an NVIDIA GPU, CUDA, float16, the 88 wheels at
+the top of the manifest. An Apple Silicon Mac runs the same pinned engine and model in the configurations the owner
+accepted after the P4A experiment (Decisions, 2026-11-16): the Apple GPU (MPS) in float32 by default, or the CPU in
+float32 when ``config.toml`` says so (``[tts] omnivoice_device = "cpu"``); MPS float16 is never offered. Its wheels are
+the manifest's ``darwin_arm64`` set (the same upstream lock, 86 PyPI wheels). :func:`device_policy` is the one answer to
+"which device and dtype", and nothing ever falls back from one device to another on its own.
 """
 
 from __future__ import annotations
@@ -44,9 +51,11 @@ import hashlib
 import io
 import json
 import os
+import platform as host_platform
 import re
 import stat
 import sys
+import tempfile
 import time
 import wave
 from dataclasses import dataclass
@@ -350,6 +359,18 @@ def manifest_problems(data: object) -> list[str]:
     if (data.get("engine") or {}).get("omnivoice") != "0.2.1":
         problems.append("the engine is not omnivoice 0.2.1")
     problems += _wheel_problems(data)
+    darwin = data.get(DARWIN_SET)
+    if darwin is not None:  # macOS P4B: the Mac's own package set, from PyPI only
+        if not isinstance(darwin, dict) or darwin.get("platform") != "macosx_arm64":
+            problems.append("the Mac package set is not for macOS arm64")
+        else:
+            packages = darwin.get("packages")
+            if not isinstance(packages, list) or not packages or not all(
+                    isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) and x for x in p) for p in packages):
+                problems.append("the Mac package set is not a list of [name, version] pins")
+            elif len({canonical_name(p[0]) for p in packages}) != len(packages):
+                problems.append("a Mac package is pinned twice")
+            problems += [f"the Mac package set: {p}" for p in _wheel_problems(darwin, hosts=PYPI_HOSTS)]
     if model.get("url_template") != HUB_URL_TEMPLATE:
         problems.append("the model is not fetched from its pinned revision on the Hugging Face Hub")
     return problems
@@ -359,10 +380,14 @@ def manifest_problems(data: object) -> list[str]:
 HUB_URL_TEMPLATE = "https://huggingface.co/{repo}/resolve/{revision}/{path}"
 #: Where a wheel may come from: PyPI's file host, or PyTorch's own index for its CUDA 12.8 builds.
 WHEEL_HOSTS = ("https://files.pythonhosted.org/packages/", "https://download-r2.pytorch.org/whl/cu128/")
+#: The Mac set comes from PyPI alone: PyTorch's CUDA index has nothing for a Mac and must never be used there.
+PYPI_HOSTS = ("https://files.pythonhosted.org/packages/",)
+#: The manifest key of the Apple Silicon package set (macOS P4B). The top-level ``packages``/``wheels`` stay Windows'.
+DARWIN_SET = "darwin_arm64"
 _WHEEL_NAME = re.compile(r"[A-Za-z0-9_.+-]+\.whl")
 
 
-def _wheel_problems(data: dict) -> list[str]:
+def _wheel_problems(data: dict, *, hosts: tuple = WHEEL_HOSTS) -> list[str]:
     """The wheels must be exactly the pinned packages, each by name, file name, host, size and SHA-256 (v0.8.0 Phase 3:
     the installer fetches these and nothing else, so the application never re-resolves a dependency)."""
     wheels = data.get("wheels")
@@ -374,7 +399,7 @@ def _wheel_problems(data: dict) -> list[str]:
     for entry in wheels:
         if not (isinstance(entry, dict) and isinstance(entry.get("name"), str) and isinstance(entry.get("version"), str)
                 and isinstance(entry.get("filename"), str) and _WHEEL_NAME.fullmatch(entry["filename"])
-                and isinstance(entry.get("url"), str) and entry["url"].startswith(WHEEL_HOSTS)
+                and isinstance(entry.get("url"), str) and entry["url"].startswith(hosts)
                 and type(entry.get("size")) is int and entry["size"] > 0
                 and _HEX64.fullmatch(str(entry.get("sha256", "")))):
             problems.append(f"wheel {entry!r:.80} is not a pinned file (name, file, host, size, SHA-256)")
@@ -409,8 +434,20 @@ def canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def package_set() -> dict:
+    """The pinned package set of THIS platform: the manifest's top level on Windows (unchanged since v0.8.0), its
+    ``darwin_arm64`` set on a Mac. ``packages`` and ``wheels`` are read from here, never from the other platform's."""
+    data = load_manifest()
+    if _system() == "darwin":
+        darwin = data.get(DARWIN_SET)
+        if not isinstance(darwin, dict):
+            raise OmniVoiceUnavailable("The OmniVoice engine list shipped with the app has no package set for a Mac.")
+        return darwin
+    return data
+
+
 def pinned_packages() -> dict[str, str]:
-    return {canonical_name(name): version for name, version in load_manifest()["packages"]}
+    return {canonical_name(name): version for name, version in package_set()["packages"]}
 
 
 @dataclass(frozen=True)
@@ -424,9 +461,10 @@ class Wheel:
 
 
 def wheels() -> tuple[Wheel, ...]:
-    """The 88 pinned wheels of the environment, in manifest order, each with the one URL it may come from."""
+    """The pinned wheels of the environment on this platform (88 on Windows, 86 on a Mac), in manifest order, each
+    with the one URL it may come from."""
     return tuple(Wheel(w["name"], w["version"], w["filename"], w["url"], w["size"], w["sha256"])
-                 for w in load_manifest()["wheels"])
+                 for w in package_set()["wheels"])
 
 
 def wheels_total_bytes() -> int:
@@ -514,7 +552,7 @@ ENGINE_INSTALLED_BYTES_FALLBACK = 8_346_271_361
 
 def engine_installed_bytes() -> int:
     try:
-        value = (load_manifest().get("installed_bytes") or {}).get("environment")
+        value = (package_set().get("installed_bytes") or {}).get("environment")
     except OmniVoiceUnavailable:
         value = None
     return value if type(value) is int and value > 0 else ENGINE_INSTALLED_BYTES_FALLBACK
@@ -548,6 +586,20 @@ HARDWARE_DISCLOSURE = (
     "OmniVoice needs Windows and an NVIDIA graphics card (GPU) with a current driver; it does not run on the processor "
     "alone. It was qualified on one computer: an NVIDIA RTX 5070 with the CUDA 12.8 build of PyTorch, CPython 3.12 and "
     "its own separate environment. Its speed and the graphics memory it needs on other cards are not promised.")
+#: The same promise for an Apple Silicon Mac (macOS P4B), from the P4A measurements on the one Mac it was qualified on
+#: (Decisions, 2026-11-16 P4A results: wall RTF 0.914-1.190 and a 9.54 GiB peak on MPS; 1.31-1.66 and 4.05 GiB on the
+#: CPU). Never a promise for another Mac.
+MAC_HARDWARE_DISCLOSURE = (
+    "On a Mac, OmniVoice needs Apple Silicon (M1 or later). It runs on the Mac's GPU (Metal, float32), or on its "
+    "processor (float32) if you choose that in config.toml ([tts] omnivoice_device = \"cpu\"); it never switches "
+    "between them on its own. It was qualified on one Mac, an Apple M4 Pro with 24 GB of memory: narration took about "
+    "0.9 to 1.2 times as long as the audio on the GPU (using up to about 10 GB of memory) and about 1.3 to 1.7 times "
+    "as long on the processor (about 4.5 GB). Its speed and memory use on other Macs are not promised.")
+
+
+def hardware_disclosure() -> str:
+    """The hardware sentence for this platform: Windows' as released, the Mac's on an Apple Silicon Mac."""
+    return MAC_HARDWARE_DISCLOSURE if _system() == "darwin" else HARDWARE_DISCLOSURE
 
 
 def license_documents() -> list[dict]:
@@ -569,7 +621,7 @@ def license_documents() -> list[dict]:
 def disclosure() -> dict:
     """The licence and hardware terms shown before consent (plan data: wording, never acquisition terms)."""
     return {"title": "OmniVoice licence terms", "summary": list(LICENSE_SUMMARY), "attribution": TOKENIZER_ATTRIBUTION,
-            "documents": license_documents(), "hardware": HARDWARE_DISCLOSURE}
+            "documents": license_documents(), "hardware": hardware_disclosure()}
 
 
 #: Installed by ``python -m venv`` itself, not by the lock; its presence or version says nothing about the engine.
@@ -600,24 +652,146 @@ def installed_distributions(folder: Path) -> dict[str, str]:
 # --------------------------------------------------------------------------- #
 # Readiness: platform, GPU, environment, model
 # --------------------------------------------------------------------------- #
+def _system() -> str:
+    """``sys.platform``, asked through one seam so a test can ask every question as Windows or as a Mac."""
+    return sys.platform
+
+
+def _machine() -> str:
+    """The processor architecture this interpreter runs as (``arm64`` natively on Apple Silicon, ``x86_64`` under
+    Rosetta, where the Mac wheels would not load)."""
+    return host_platform.machine().lower()
+
+
 def platform_supported() -> bool:
-    """Windows only: the engine was qualified on Windows 11 x64 (plan non-goal: no Mac support claim)."""
-    return sys.platform == "win32"
+    """Windows, qualified on Windows 11 x64 with an NVIDIA GPU (v0.8.0); and, since macOS P4B, a Mac with Apple Silicon
+    running this interpreter natively (P4A owner-accepted, 2026-11-16). Nothing else."""
+    system = _system()
+    return system == "win32" or (system == "darwin" and _machine() == "arm64")
 
 
 def platform_reason() -> str:
-    return ("The OmniVoice voices are not available on this platform. They currently need Windows; every other voice "
-            "works as before.")
+    return ("The OmniVoice voices are not available on this platform. They need Windows with an NVIDIA graphics card, "
+            "or a Mac with Apple Silicon; every other voice works as before.")
+
+
+_APPLE_GPU_CACHE: dict = {}
+
+
+def _sysctl(name: str, kind: str):
+    """One ``sysctlbyname`` value (``kind`` ``"int"`` or ``"text"``), or ``None``. macOS only; stdlib ctypes."""
+    import ctypes
+    import ctypes.util
+
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.dylib", use_errno=True)
+        size = ctypes.c_size_t(0)
+        if libc.sysctlbyname(name.encode(), None, ctypes.byref(size), None, 0) != 0 or not size.value:
+            return None
+        buffer = ctypes.create_string_buffer(size.value)
+        if libc.sysctlbyname(name.encode(), buffer, ctypes.byref(size), None, 0) != 0:
+            return None
+        if kind == "text":
+            return buffer.raw[:size.value].split(b"\0", 1)[0].decode("utf-8", "replace").strip()
+        return int.from_bytes(buffer.raw[:size.value], sys.byteorder)
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def apple_gpu(refresh: bool = False) -> Optional["_qwen3.GpuInfo"]:
+    """This Mac's Apple Silicon chip as a GPU description (its name, and its unified memory, which the GPU shares), or
+    ``None`` when it is not Apple Silicon. Read from ``sysctl``; nothing is loaded and no process is started. Whether
+    PyTorch can really use the GPU (MPS) is proved by the engine itself, which never falls back to the CPU."""
+    if refresh or "gpu" not in _APPLE_GPU_CACHE:
+        found = None
+        if _sysctl("hw.optional.arm64", "int") == 1:
+            name = _sysctl("machdep.cpu.brand_string", "text") or "Apple Silicon"
+            memory = _sysctl("hw.memsize", "int") or 0
+            found = _qwen3.GpuInfo(name, memory // 2**20)
+        _APPLE_GPU_CACHE["gpu"] = found
+    return _APPLE_GPU_CACHE["gpu"]
 
 
 def detect_gpu() -> Optional["_qwen3.GpuInfo"]:
-    """The first NVIDIA GPU the driver reports, or ``None`` (asked once per process; the Qwen3 probe, shared)."""
+    """The GPU OmniVoice can use here, or ``None``: on Windows the first NVIDIA GPU the driver reports (asked once per
+    process; the Qwen3 probe, shared); on a Mac its Apple Silicon chip (:func:`apple_gpu`)."""
+    if _system() == "darwin":
+        return apple_gpu()
     return _qwen3.detect_gpu()
 
 
 NO_GPU_MESSAGE = ("The OmniVoice voices need an NVIDIA graphics card (GPU) with a current driver, and none was found on "
                   "this computer. They were not qualified to run on the processor alone. Every other voice is "
                   "unaffected.")
+MAC_NO_GPU_MESSAGE = ("The OmniVoice voices need a Mac with Apple Silicon (M1 or later), and this Mac does not report "
+                      "one. Every other voice is unaffected.")
+#: The engine found the Mac's GPU unusable when it was asked to run there. Never answered by a silent switch to the CPU.
+MPS_UNAVAILABLE_MESSAGE = ("PyTorch reports that this Mac's GPU (Metal) cannot be used right now, so OmniVoice did not "
+                           "start; it never moves to the processor on its own. Restart the Mac and try again, or choose "
+                           "the processor for OmniVoice in config.toml ([tts] omnivoice_device = \"cpu\"). Every other "
+                           "voice is unaffected.")
+
+
+def no_gpu_message() -> str:
+    """What to say when the GPU this platform's OmniVoice needs is not there."""
+    return MAC_NO_GPU_MESSAGE if _system() == "darwin" else NO_GPU_MESSAGE
+
+
+# --------------------------------------------------------------------------- #
+# Device and dtype: one answer per platform (macOS P4B)
+# --------------------------------------------------------------------------- #
+DEVICE_CUDA, DEVICE_MPS, DEVICE_CPU = "cuda", "mps", "cpu"
+#: Windows, exactly as released (v0.8.0): the NVIDIA GPU in float16.
+WINDOWS_DEVICE, WINDOWS_DTYPE = DEVICE_CUDA, "float16"
+#: The configurations the owner accepted for an Apple Silicon Mac after P4A (2026-11-16): the Apple GPU (MPS) in
+#: float32 -- preferred, the default -- and the CPU in float32 by explicit choice. MPS float16 was a bounded experiment
+#: only and is never offered (a job asking for it is refused by the worker).
+MAC_DEVICES = (DEVICE_MPS, DEVICE_CPU)
+MAC_DEFAULT_DEVICE = DEVICE_MPS
+MAC_DTYPE = "float32"
+#: The ``config.toml`` key that chooses the Mac's device (``shared.config``); ignored on Windows.
+DEVICE_SETTING = "tts.omnivoice_device"
+
+
+@dataclass(frozen=True)
+class DevicePolicy:
+    """Where one OmniVoice run executes and in which precision, and where that choice came from."""
+    device: str  # "cuda" | "mps" | "cpu"
+    dtype: str  # "float16" (Windows) | "float32" (a Mac)
+    source: str  # "windows", or the config layer that chose the Mac's device ("default", "config.toml", ...)
+
+    @property
+    def label(self) -> str:
+        return {DEVICE_CUDA: "the NVIDIA GPU (CUDA, float16)", DEVICE_MPS: "the Mac's GPU (MPS, float32)",
+                DEVICE_CPU: "the processor (CPU, float32)"}.get(self.device, f"{self.device} ({self.dtype})")
+
+
+def configured_mac_device() -> tuple[str, str]:
+    """``(device, source)`` the person chose for OmniVoice on a Mac (``[tts] omnivoice_device``), read from the app's
+    validated configuration at the moment of asking; the default (MPS) if it cannot be read. An invalid value never
+    reaches here: ``shared.config`` reports it and keeps the default."""
+    try:
+        from shared import config
+
+        effective = config.get_effective()
+        device = str(getattr(effective.tts, "omnivoice_device", MAC_DEFAULT_DEVICE))
+        return device, effective.source_of(DEVICE_SETTING)
+    except Exception:  # noqa: BLE001 - a configuration that cannot be read keeps the accepted default
+        return MAC_DEFAULT_DEVICE, "default"
+
+
+def device_policy(*, system: Optional[str] = None, choice: Optional[str] = None) -> DevicePolicy:
+    """The one device and dtype OmniVoice runs with here. Windows: CUDA float16, as released (the Mac setting is
+    ignored). A Mac: the accepted device -- *choice*, else the configured one -- always float32. Raises
+    ``OmniVoiceUnavailable`` for anything else (never a guess, never a fallback)."""
+    system = _system() if system is None else system
+    if system != "darwin":
+        return DevicePolicy(WINDOWS_DEVICE, WINDOWS_DTYPE, "windows")
+    device, source = (choice, "caller") if choice is not None else configured_mac_device()
+    if device not in MAC_DEVICES:
+        raise OmniVoiceUnavailable(f"OmniVoice on a Mac runs only on {' or '.join(MAC_DEVICES)} (float32), not "
+                                   f"{device!r}. Check [tts] omnivoice_device in config.toml.")
+    return DevicePolicy(device, MAC_DTYPE, source)
 INSTALL_ACTION = "Install it from the app's optional voice setup (Install & Continue)"
 NOT_INSTALLED_MESSAGE = ("The OmniVoice voice engine is not installed on this computer. " + INSTALL_ACTION
                          + "; every other voice is unaffected.")
@@ -831,6 +1005,16 @@ ENGINE_STATES = (ENGINE_READY, ENGINE_ABSENT, ENGINE_UNCHECKED, ENGINE_INCOMPLET
 class EngineAssessment:
     state: str
     reason: str  # a sentence fit for a person; "ok" when ready
+
+
+def app_owned_python() -> Path:
+    """Where setup's stage 0 places the app's own base CPython inside the app's folder (``bootstrap.APP_PYTHON``):
+    ``files/runtime-data/python/python.exe`` on Windows (``qwen3_runtime.app_base_python``, as released) and
+    ``files/runtime-data/python/bin/python3.12`` on a Mac (macOS P1A, D1). The one interpreter inside the app's folder
+    an OmniVoice environment may be built from."""
+    if _system() == "darwin":
+        return repo_root() / "files" / "runtime-data" / "python" / "bin" / "python3.12"
+    return _qwen3.app_base_python()
 
 
 def app_base_python() -> Path:
@@ -1290,12 +1474,17 @@ PROMPT_IDENTITY_SCHEMA = 2
 
 
 def prompt_identity(spec: ReferenceSpec, *, model_revision: str, omnivoice_version: str, preprocess_prompt: bool,
-                    dtype: str) -> tuple[str, dict]:
+                    dtype: str, device: Optional[str] = None) -> tuple[str, dict]:
     """The key a reusable clone prompt is filed under: every input that shapes it, so any change misses the cache.
 
     Bound: the recording's SHA-256, its frame count and rate, the preprocessing version, the transcript's SHA-256, the
     model revision, the engine version, the prompt format, the prompt preprocessing flag and the dtype the tokenizer ran
     in. A changed recording or transcript therefore never reuses a prompt made from the old one.
+
+    macOS P4B: the device the prompt was made on is bound too, so a prompt made on the Mac's GPU, its CPU or a CUDA GPU
+    is never reused on another (plan section 13 item 6). The CUDA identity is the released one, unchanged: it carries no
+    device field (CUDA was the only device), so every Windows prompt already cached keeps its key; every other device
+    adds the field, so it can never collide with a CUDA prompt.
     """
     fields = {
         "schema": PROMPT_IDENTITY_SCHEMA, "voice_id": spec.voice_id, "wav_sha256": spec.wav_sha256,
@@ -1303,6 +1492,8 @@ def prompt_identity(spec: ReferenceSpec, *, model_revision: str, omnivoice_versi
         "text_sha256": spec.text_sha256, "model_revision": model_revision, "omnivoice": omnivoice_version,
         "prompt_format_version": PROMPT_FORMAT_VERSION, "preprocess_prompt": bool(preprocess_prompt), "dtype": dtype,
     }
+    if device not in (None, DEVICE_CUDA):
+        fields["device"] = device
     key = hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return key, fields
 
@@ -1344,7 +1535,8 @@ def voice_availability(voice_id: str) -> tuple[bool, str]:
         return False, platform_reason()
     try:
         if detect_gpu() is None:
-            return False, NO_GPU_MESSAGE
+            return False, no_gpu_message()
+        device_policy()  # a Mac: the configured device is one the owner accepted (raises with the reason otherwise)
         for check in (environment_status, model_status):
             ok, reason = check()
             if not ok:
@@ -1389,24 +1581,91 @@ BUSY_MESSAGE = ("The OmniVoice voices are being installed or repaired, or anothe
                 "Try again when that has finished.")
 
 
+MAC_MACHINE_BUSY_MESSAGE = ("Another copy of this app is running an OmniVoice conversion right now, and only one can use "
+                            "the model at a time. Try again when it has finished.")
+#: macOS P4B (plan section 11.2 and D13): where every copy of the app run by this user finds the one OmniVoice model
+#: lock -- the user's own temporary folder as macOS defines it (``confstr(_CS_DARWIN_USER_TEMP_DIR)``), which does not
+#: follow a ``TMPDIR`` that a setup worker points elsewhere, so a conversion and an install proof in two copies always
+#: meet the same file.
+_CS_DARWIN_USER_TEMP_DIR = 65537
+MACHINE_LOCK_FOLDER = "ACT-locks"
+MACHINE_LOCK_NAME = "omnivoice.lock"
+
+
+def machine_lock_path() -> Path:
+    try:
+        base = os.confstr(_CS_DARWIN_USER_TEMP_DIR) if _system() == "darwin" else None
+    except (OSError, ValueError):
+        base = None
+    return Path(base or tempfile.gettempdir()) / MACHINE_LOCK_FOLDER / MACHINE_LOCK_NAME
+
+
 class MachineGuard(_qwen3.MachineGuard):
-    """The Qwen3 machine-wide named mutex, under OmniVoice's own name and words (one OmniVoice model per computer)."""
+    """One OmniVoice model at a time across every copy of the app: on Windows the Qwen3 machine-wide named mutex under
+    OmniVoice's own name and words, exactly as released; on a Mac (macOS P4B, D13) an exclusive ``flock`` on
+    :func:`machine_lock_path`, which the kernel releases when its holder dies however it dies, so it is never stale.
+    Like the mutex it never waits: it is taken at once or refused."""
 
     DENIED_MESSAGE = MACHINE_DENIED_MESSAGE
 
     def __init__(self) -> None:
         super().__init__(MACHINE_GUARD_NAME)
+        self._fd: Optional[int] = None
 
     @property
     def refusal_message(self) -> str:
+        if _system() == "darwin":
+            return MAC_MACHINE_BUSY_MESSAGE
         return MACHINE_DENIED_MESSAGE if self.failure == "denied" else MACHINE_BUSY_MESSAGE
 
+    @property
+    def held(self) -> bool:
+        return self._fd is not None or super().held
+
     def acquire(self) -> bool:
+        if _system() == "darwin":
+            return self._acquire_posix()
         try:
             return super().acquire()
         except _qwen3.Qwen3Unavailable as exc:  # the parent's words name Qwen3; the failure itself is the same
             raise OmniVoiceUnavailable("Windows could not take the lock that keeps two copies of this app from loading "
                                        "the OmniVoice model at once, so OmniVoice was not started.") from exc
+
+    def _acquire_posix(self) -> bool:
+        if self._fd is not None:
+            return True
+        import fcntl
+
+        self.failure = None
+        path = machine_lock_path()
+        try:
+            path.parent.mkdir(mode=0o700, exist_ok=True)
+            if path.parent.is_symlink() or not path.parent.is_dir():
+                raise OSError(f"{path.parent} is not a plain folder")
+            # O_NOFOLLOW: a link planted in the shared folder is never written through; non-inheritable (PEP 446),
+            # so no worker or other child ever holds the lock after this process has gone.
+            fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        except OSError as exc:
+            raise OmniVoiceUnavailable(f"The lock that keeps two copies of this app from loading the OmniVoice model at "
+                                       f"once could not be opened ({exc}), so OmniVoice was not started.") from exc
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            self.failure = "busy"
+            return False
+        self._fd, self.scope = fd, "user"
+        return True
+
+    def release(self) -> None:
+        if self._fd is not None:
+            fd, self._fd, self.scope = self._fd, None, None
+            try:
+                os.close(fd)  # closing the only descriptor releases the flock
+            except OSError:
+                pass
+            return
+        super().release()
 
 
 class inference_lease:
@@ -1447,7 +1706,12 @@ class inference_lease:
 _DROPPED_PREFIXES = ("PYTHON", "PIP_", "HF_", "HUGGINGFACE_", "TRANSFORMERS_", "TORCH_")
 _DROPPED_NAMES = frozenset({"VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT", "__PYVENV_LAUNCHER__", "CONDA_PREFIX",
                             "CONDA_DEFAULT_ENV", "CONDA_PYTHON_EXE", "CONDA_EXE", "CONDA_SHLVL", "CONDA_PROMPT_MODIFIER",
-                            "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "NUMBA_CACHE_DIR"})
+                            "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "NUMBA_CACHE_DIR",
+                            # macOS P4B: an unsupported operation must fail loudly, never run quietly on the CPU, and
+                            # the Mac's GPU memory limits are PyTorch's own defaults (the P4A-accepted behaviour). CUDA
+                            # reads neither, so Windows runs exactly as before.
+                            "PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_HIGH_WATERMARK_RATIO",
+                            "PYTORCH_MPS_LOW_WATERMARK_RATIO", "PYTORCH_MPS_PREFER_METAL"})
 #: The worker refuses to start unless these are exactly so: the model and its tokenizer load from local files only.
 OFFLINE = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1"}
 
