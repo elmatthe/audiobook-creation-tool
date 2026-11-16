@@ -25879,7 +25879,7 @@
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
-    "scripts/tts/omnivoice_synth.py": "1e2b1b8b3c4455da194bc652b33f27a360d2430d2b3286de0fa6036f1ca9298f",
+    "scripts/tts/omnivoice_synth.py": "c75a379e4b3d0bb38861f39727b80e7f2c92587304e08ac67d61eed9a45b7a58",
     "scripts/tts/omnivoice_worker.py": "f35756992d51fb9dcaf0fa53abddc057764f57adbb18864439ca2634fd10fc5e",
     "scripts/tts/optional_setup.py": "f5102ec64c6f2fa311c5a315b691161defc5c19d1f730bc7a955298e05264893",
     "scripts/tts/optional_setup_acquire.py": "98125a5a85e7c6a2e6120042fa6f57ee4073b3e13966963a24a3335cc95c3cfc",

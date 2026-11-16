@@ -2,6 +2,129 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P4B memory checkpoint: a 16-chunk worker bound on the Mac's GPU reduces the memory exception but does not close it. OWNER DECISION PENDING; P4B not owner accepted; P4C not started
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB). This was the owner's authorized memory checkpoint: one bounded Mac-only investigation, worker lifetimes 48 / 24 / 16 only, no per-chunk cache clearing, no downloads. Start SHA `ce67630`.
+
+**Summary.**
+- On the Mac's GPU, memory growth comes from PyTorch's MPS caching allocator keeping GPU buffers, plus MPSGraph caches compiled for each new chunk shape.
+- On a book-like text, one 48-chunk worker reached 13.6 GB, with memory pressure and swap.
+- A bound of 16 chunks per worker on the Mac's GPU was implemented. It cuts the worst measured peak to 10.7 GB, with no pressure, no swap and bit-identical audio. Windows and a Mac's CPU keep 48.
+- The peak and growth targets are still missed: **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**, reduced, not closed.
+
+**Correction to the P4B entry below.** It says "no worker exceeds about 6.9 GB however long the book". That is true only for short chunks. On book-length chunks, one 48-chunk worker reached 13,590 MiB (run D).
+
+**Method.**
+- **Same conditions in every run:**
+  - the installed production engine: model `c5fdb5cc`, OmniVoice 0.2.1, MPS float32;
+  - the production `GENERATION` settings and seeds;
+  - `v1` speech preparation, assembly and one encode, through `omnivoice_file_to_mp3`.
+- **The harness:** the dev-only `macos_p4b_omnivoice_qualify.py long`, extended with:
+  - the `chunks_per_worker` test seam;
+  - per-chunk SHA-256 of the audio;
+  - per-worker growth and start-up time;
+  - swap and memory-pressure readings per chunk;
+  - `footprint -p` and `heap` snapshots;
+  - a safety cancel at 14 GiB.
+- **Evidence:** `files/dev-work/macos-p4b/q/memory/` (ignored).
+- **The baseline:** A is P4B's own record and was not rerun. P4B's original CX-3 and KX-1 records were copied to `q/p4b-original/` before the reruns.
+
+**Controlled comparison: the P4B 60-chunk sequence** (Female 2, one-sentence chunks of 74–89 characters, 366 s of audio).
+
+| Run | Bound | Workers | Peak footprint | Worst worker growth after a 5-chunk warm-up | Max MPS driver | Start-up per worker | Wall RTF | Audio |
+|---|---|---|---|---|---|---|---|---|
+| A (P4B) | 48 | 48 + 12 | 6,900 MiB | +28.4 % | 4,135 MiB | not recorded | 1.312 | MP3 `4e6b17f5…a28` |
+| B | 24 | 24 + 24 + 12 | 6,459 MiB | +19.5 % | 3,964 MiB | 4.0–5.4 s | 1.223 | identical MP3 |
+| C | 16 | 16 × 3 + 12 | 5,922 MiB | +10.5 % | 3,840 MiB | 3.7–4.0 s | 1.285 | identical MP3 |
+| V2 (production default, after the change) | 16 | 16 × 3 + 12 | 5,919 MiB | +10.6 % | 3,840 MiB | 2.8–4.4 s | 1.296 | identical MP3 |
+
+- **Truncation, not change.** A bound cuts the same memory curve short; it does not change the curve.
+  - B's first worker matched A's first 24 chunks within 5 MiB (4,936 → 6,411 against 4,933 → 6,406).
+  - Every restart brought the footprint back to 4.9–5.0 GB.
+  - Inside one worker the footprint grows about 50–58 MiB a chunk and never levelled off.
+- **Integrity.** In B, C and V2 the MP3 and all 60 per-chunk SHA-256 are identical. Every chunk was produced once, in plan order, and the bound changes no audio.
+- **Speed.**
+  - The wall-time differences are run-to-run variation. B was 8.6 % faster than A even on chunks 0–23, where both use the same fresh worker.
+  - The real cost of a shorter bound is the start-up of each extra worker: 2.8–5.4 s, of which 0.8–1.8 s is the model load. That is about 2 % on short chunks and about 1 % on long ones.
+- **System.** No memory-pressure event and no swap-out in A, B, C or V2.
+
+**The book-like case** (D, then V1): Male 1 on 48 all-different paragraphs of 229–293 characters, 984 s of audio.
+
+| Run | Bound | Peak footprint | Max MPS driver | Worst worker growth | Memory pressure | Swap-outs | Wall RTF |
+|---|---|---|---|---|---|---|---|
+| D | 48 | 13,590 MiB | 10,453 MiB | +59.5 % | reached the warning level (2) | +26,400 pages (about 412 MiB); swap file 2 → 3 GB | 1.029 |
+| V1 (production default, after the change) | 16 | 10,745 MiB (workers 10.6, 10.2, 10.7 GB) | 7,179 MiB | +31.4 % | normal (1) after every chunk | 0 | 0.979 |
+
+V1's MP3 and all 48 chunk hashes are identical to D's.
+
+**Root cause (measured).**
+1. **Reusable allocator cache retention: the main part.**
+   - The live MPS tensors stay at 2,336 MiB after every chunk in every run, while the MPS driver memory grows (D: 3,721 → 10,142 MiB).
+   - In `footprint -p`, "IOAccelerator (graphics)" rose from 1,111 MiB at chunk 5 to 5,553 MiB at chunk 47. That is about 88 % of the footprint's +5,047 MiB.
+   - PyTorch's MPS caching allocator keeps the GPU buffers freed after each chunk, sized for that chunk's shapes, and does not hand them back while the process lives.
+2. **CPU-side caches for each shape: the second part.**
+   - "Malloc Small" grew from 524 to 1,544 MiB in D (chunks 5 to 47).
+   - `heap` (run E: Male 1, the first 12 paragraphs, chunks 1 and 11) shows malloc'd blocks going from 1.98 M to 5.50 M (340 → 676 MB).
+   - The growing types are Apple MetalPerformanceShadersGraph objects: +466 `MPSGraphExecutable` (compiled graphs), their device, runtime and shape-function caches, MLIR storage caches and `MPSNDArray` objects. These are graphs compiled per operation and input shape.
+   - 258 MB of the growth is untyped ("non-object"). Its owner was not identified; that would need MallocStackLogging.
+3. **It depends on chunk shape and size.**
+   - It grows only on new shapes. P4A's 50 repeats of one text grew +1.11 %, with MPS driver memory flat.
+   - Varied short chunks add about 55 MiB a chunk; long chunks about 120 MiB (about 108 MiB of it MPS driver memory).
+   - Male 1's slower speech gives longer audio and larger tensors.
+4. **It is not prompt retention, temporary-tensor retention or ACT data.**
+   - The clone prompt is loaded once per worker from its cache.
+   - The worker writes each chunk's audio to disk and keeps only counters (read in the code).
+   - Live tensors stay flat.
+5. **Part of each peak is transient.**
+   - "Malloc Large" differs by up to about 1.5 GB between runs at the same chunk: D 11,451 MiB against E 9,977 MiB at chunk 11.
+   - The MPS driver memory there was identical, 6,562 MiB.
+6. **Uncertain.**
+   - The run did not show whether the caches level off with enough distinct shapes. D's growth slowed between chunks 25 and 40, then rose again.
+   - The untyped 258 MB is unattributed.
+
+**What was implemented** (within the authorization).
+- `omnivoice_synth.MPS_CHUNKS_PER_WORKER = 16` and `chunks_per_worker_for(policy)`: a run on the Mac's GPU starts a fresh worker every 16 chunks.
+- Windows (CUDA) and a Mac's CPU keep `CHUNKS_PER_WORKER = 48`.
+- The entry point's `chunks_per_worker` seam now defaults to `None`, meaning the run's device bound. The GUI and the sample path use the default.
+- Nothing else changed: model, generation settings, references, the worker, Cancel and containment.
+
+**Why 16, not 24.**
+- On the owner's comparison it gave the lowest peak (5,922 against 6,459 MiB) and growth (+10.5 % against +19.5 %).
+- On the book-like text it cut the peak by 21 % and kept the system out of memory pressure and swap.
+- The audio is bit-identical.
+- The cost is one start-up of about 3–4.5 s per 16 chunks.
+
+**Why only the GPU.** The mechanism is the MPS allocator and MPSGraph. CPU fp32 grew +2.6 % over 20 chunks in one worker (V4), so there is no evidence of a CPU problem.
+
+**Verification of the change.**
+- **Memory:** V1 and V2 above, through the production default with no seam.
+- **V3, CX-3 Cancel on MPS:** 2.41 s (bound 4 s). The worker group is empty, nothing was published and no job folder was left.
+- **V4, CPU fp32** (Female 2, 20 chunks): PASS. One worker (the 48 bound), peak 3,011 MiB, growth +2.6 %, wall RTF 1.873 on short chunks (target ≤ 3.5).
+- **V5, KX-1(c):** the worker group was gone 0.09 s after the owner's SIGKILL (bound 3 s). Nothing was published and no process was left. The killed owner's job folder stays until the 24-hour stale cleanup, as in P4B; there are two such folders now, both from KX-1 runs.
+- **Tests:**
+  - `test_omnivoice_synth.py` gained 2 tests (4 cases): the bound per device (48 on Windows, 16 on MPS, 48 on a Mac's CPU), and 50 chunks through the default in plan order (Windows 48 + 2, MPS 16 × 3 + 2, CPU 48 + 2). They were written first and seen failing.
+  - Nine affected modules (OmniVoice synth, reference, GUI, layout and speech; chatterbox evaluation; epub retirement; speech pipeline; verification coverage): 814 passed, 4 skipped, 36 failed.
+  - All 36 failures are in `test_omnivoice_layout.py`, Windows-simulation tests that fail the same way at `ce67630`. None are new.
+- **Bookkeeping:** `coverage.json` restamped for `omnivoice_synth.py`; the feature map's Mac bullet updated.
+- **Protected assets,** before and after: 18/18 references, both transcript files, 28/28 previews.
+- **Windows:** `CHUNKS_PER_WORKER` stays 48, and a Windows run batches 48 + 2 (test pinned to win32). No Windows machine was used; the HOME-PC regression is in P5.
+
+**P verdict against D6-O** (provisional targets), after the change:
+- *Peak ≤ 10 GiB:* met on the 60-chunk sequence (5.9 GB) and on texts A and B as before. **Missed on the book-like text: 10,745 MiB, 4.9 % over** (13,590 MiB, 33 % over, before the change).
+- *Growth < 10 % after warm-up:* **missed.** +10.6 % on the sequence (was +28.4 %), +31.4 % on the book-like text (was +59.5 %).
+- Both remain a **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**, reduced but not closed. The 10 % target is unchanged, and nothing is marked PASS.
+- *S:* PASS. There was no pressure event and no swap, every restart gave the memory back, and no run came near the 14 GiB safety cancel.
+
+**The owner's options.**
+- **(a)** Accept the remaining exception with the 16-chunk bound.
+- **(b)** Authorize one more bounded Mac-only experiment aimed at the main measured component, the allocator's kept buffers: `torch.mps.empty_cache()` after each chunk, every N chunks, or only above a footprint threshold.
+  - The evidence now shows about 88 % of the growth is GPU buffers, which `empty_cache` targets.
+  - The MPSGraph heap part would remain; only a worker restart clears it.
+  - The throughput cost is not measured.
+- **(c)** Revert to 48. The 13.6 GB result, with memory pressure, then stands for book-like text.
+
+**Status.** P4B memory checkpoint: one Mac-only change implemented and verified, and the exception reduced but not closed. P4B is NOT owner accepted. P4C has not started. Nothing was merged, tagged or released; draft release `447445728` is untouched.
+
 ## 2026-11-16 — macOS P4B OmniVoice production integration: implemented and verified on HOME-MacOS. P4B TECHNICAL PASS (F, S) with one PERFORMANCE EXCEPTION — OWNER DECISION PENDING (memory growth inside one worker); the P4B checkpoint awaits the owner; P4C not started
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB), under the owner's P4B authorization (entry below). Start SHA `ca778c9`.

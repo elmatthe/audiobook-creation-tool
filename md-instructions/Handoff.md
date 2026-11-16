@@ -1,5 +1,46 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4B memory checkpoint: Mac-GPU worker bound of 16 implemented; memory exception reduced, not closed — OWNER DECISION PENDING; P4B not owner accepted (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Windows v0.8.0 is untouched. Nothing was merged, tagged or released; draft release `447445728` is untouched.
+- P4C has not started, and P4B is **not owner accepted**.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`. It started at `ce67630`, plus one scoped commit (code, tests, dev-only harness, documents), pushed to `origin` only.
+- **Cause found (Decisions, memory-checkpoint entry; evidence `files/dev-work/macos-p4b/q/memory/`, ignored).**
+  - On the Mac's GPU a worker's memory grows with every chunk of a new shape.
+  - About 88 % is GPU buffers kept by PyTorch's MPS caching allocator. The rest is MPSGraph executables and caches compiled for each shape.
+  - Live tensors stay flat, and one text repeated stays flat.
+  - On book-like text (Male 1, 48 long, all-different paragraphs), one 48-chunk worker reached **13.6 GB**. The system hit memory-pressure warning and swapped out about 412 MiB.
+- **Implemented.**
+  - `omnivoice_synth.MPS_CHUNKS_PER_WORKER = 16` via `chunks_per_worker_for(policy)`.
+  - Windows (CUDA) and a Mac's CPU keep 48.
+  - Nothing else changed: model, settings, references, worker, Cancel, containment.
+- **Measured.**
+  - 60-chunk sequence: peak 6,900 → 5,919 MiB; worst worker growth +28.4 → +10.6 %.
+  - Book-like text: peak 13,590 → 10,745 MiB, no pressure, no swap.
+  - Audio bit-identical (MP3 and every chunk hash).
+  - Each extra worker costs about 3–4.5 s (about 1–2 %).
+  - The 24-chunk bound was also measured: 6,459 MiB, +19.5 %.
+- **Verified.**
+  - CX-3 Cancel on MPS: 2.41 s.
+  - KX-1(c): 0.09 s.
+  - CPU fp32, 20 chunks: PASS, peak 3.0 GB.
+  - Focused tests: 814 passed. The 36 failures are the Windows-simulation layout baseline; 0 are new.
+  - Protected assets 18/2/28 unchanged.
+- **Still missed (D6-O provisional targets).**
+  - Peak on the book-like text: 4.9 % over 10 GiB.
+  - Growth: +10.6 % on the sequence, +31.4 % on the book-like text, against < 10 %.
+  - This is a **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**. S is PASS.
+- **Leftovers.** Two job folders from KX-1 runs (the killed owner's) stay under `files/runtime-data/omnivoice/jobs` until the app's 24-hour stale cleanup. P4B's original CX-3 and KX-1 records are kept in `q/p4b-original/`.
+- **Next action (the owner's).**
+  1. Decide the memory behaviour:
+     - (a) accept the remaining exception with the 16-chunk bound;
+     - (b) authorize one bounded `torch.mps.empty_cache()` experiment (per chunk, every N chunks, or above a threshold), aimed at the allocator's kept buffers;
+     - (c) revert to 48.
+  2. Then accept or reject P4B.
+  3. Then authorize P4C: one macOS capability policy; Chatterbox and Qwen3 hidden from every macOS surface; the Windows experience preserved.
+
 ## Current checkpoint — macOS P4B OmniVoice integration: TECHNICAL PASS, one PERFORMANCE EXCEPTION — OWNER DECISION PENDING; the checkpoint waits for the owner (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 is untouched; nothing merged, tagged or released; draft release `447445728` untouched. P4C has not started.

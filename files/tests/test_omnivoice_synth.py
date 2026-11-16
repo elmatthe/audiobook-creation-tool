@@ -234,6 +234,37 @@ def test_chunks_are_rendered_by_bounded_workers_and_assembled_in_plan_order(fake
     assert peaks == sorted(peaks), "chunk k is amplitude 0.05*(k+1): the order is plan order"
 
 
+def test_the_worker_bound_is_the_released_48_except_on_a_mac_s_gpu():
+    """macOS P4B memory checkpoint: on MPS a worker's footprint grows with every chunk of a new shape (the allocator's
+    kept GPU buffers and per-shape heap state; the live tensors stay flat), so a Mac's GPU hands over to a fresh worker
+    after 16 chunks. Windows (CUDA) and a Mac's processor keep the released 48."""
+    assert osy.CHUNKS_PER_WORKER == 48 and osy.MPS_CHUNKS_PER_WORKER == 16
+    assert osy.chunks_per_worker_for(ov.DevicePolicy(ov.WINDOWS_DEVICE, ov.WINDOWS_DTYPE, "windows")) == 48
+    assert osy.chunks_per_worker_for(ov.DevicePolicy(ov.DEVICE_MPS, ov.MAC_DTYPE, "default")) == 16
+    assert osy.chunks_per_worker_for(ov.DevicePolicy(ov.DEVICE_CPU, ov.MAC_DTYPE, "config.toml")) == 48
+
+
+@pytest.mark.parametrize("system, device, sizes", [
+    ("win32", None, [48, 2]),  # Windows, as released
+    ("darwin", "mps", [16, 16, 16, 2]),
+    ("darwin", "cpu", [48, 2]),
+])
+def test_without_the_seam_each_run_uses_its_device_s_worker_bound_in_plan_order(fake, monkeypatch, system, device,
+                                                                                  sizes):
+    """The entry point's default asks the run's own device policy (once per file): 50 chunks go to fresh workers in
+    batches of that bound, every chunk exactly once and in plan order across each hand-over."""
+    monkeypatch.setattr(ov, "_system", lambda: system)
+    if device is not None:
+        monkeypatch.setattr(ov, "configured_mac_device", lambda: (device, "default"))
+    text = "\n\n".join(f"Paragraph number {i} says something quite different from the rest." for i in range(50))
+    fake.convert(text=text, speech_prep=OFF)
+    jobs = fake.jobs_seen()
+    assert [len(job["chunks"]) for job in jobs] == sizes
+    assert [c["index"] for job in jobs for c in job["chunks"]] == list(range(50))
+    assert {job["device"] for job in jobs} == {device or ov.WINDOWS_DEVICE}
+    assert fake.leftovers() == []
+
+
 def test_the_text_is_prepared_once_and_the_worker_speaks_exactly_that(fake, monkeypatch):
     calls: list[str] = []
     real_prepare = osy.prepare

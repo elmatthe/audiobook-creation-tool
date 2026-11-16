@@ -17,7 +17,8 @@ What happens for one file (``omnivoice_file_to_mp3``, the same shape as ``qwen3_
    (one hash-bound owner exception; ``omnivoice_runtime``) -- and handed to the worker whole and unchanged, with its
    owner-written transcript and a cache identity that binds every input of the clone prompt. Nothing is cropped or
    copied; OmniVoice resamples the reference in memory.
-4. The chunks go to the worker in batches of at most :data:`CHUNKS_PER_WORKER`: each batch is a fresh worker process, so
+4. The chunks go to the worker in batches of at most :data:`CHUNKS_PER_WORKER` (:data:`MPS_CHUNKS_PER_WORKER` on a Mac's
+   GPU): each batch is a fresh worker process, so
    no file, however long, accumulates GPU state in one process (upstream issue #199). Cancellation asks politely (a flag
    file) and then, after a short grace period, kills the whole process tree.
 5. The chunk waveforms are read back in plan order, validated, joined with the voice preset's paragraph pause between
@@ -33,7 +34,8 @@ prompt's identity, and are never changed on the way: a GPU that cannot be used f
 CPU. The worker is a class-A child (``shared.child_ownership``): its own process group, started through
 ``child_entry.py`` so its owner's lifeline ends it however the owner ends; the owner is the app window's, or this
 process's own when there is none (a command-line tool). Cancel keeps its released shape (flag file, 2 s grace, the
-whole group killed and reaped), within the macOS contract's OmniVoice bound (plan section 11.2.1: 4 s).
+whole group killed and reaped), within the macOS contract's OmniVoice bound (plan section 11.2.1: 4 s). On the Mac's
+GPU a worker renders at most :data:`MPS_CHUNKS_PER_WORKER` chunks (the P4B memory checkpoint); the processor keeps 48.
 """
 
 from __future__ import annotations
@@ -74,7 +76,14 @@ from tts.speech.profiles import OMNIVOICE as OMNIVOICE_ROUTE
 OMNIVOICE_MAX_CHUNK_CHARS = 300
 #: The most chunks one worker process renders before it exits and a fresh one takes over (bounded lifetime: GPU memory
 #: cannot accumulate across a long book). Reloading costs a few seconds per batch; the clone prompt is reused from cache.
+#: Windows (CUDA) and a Mac's processor, as released.
 CHUNKS_PER_WORKER = 48
+#: The bound on a Mac's GPU (MPS; macOS P4B memory checkpoint, 2026-11-16). There a worker's footprint grows with every
+#: chunk of a new shape while its live tensors stay flat: PyTorch's MPS allocator keeps the GPU buffers it freed, and
+#: the MPSGraph executables compiled for each new shape stay cached; only the process's end gives them back. On long,
+#: all-different chunks one worker passed 13 GB after 48 (about 120 MiB a chunk), so a fresh worker starts three times
+#: as often. The audio is bit-identical; each extra worker costs about 4 s.
+MPS_CHUNKS_PER_WORKER = 16
 #: Bump deliberately whenever a change can alter generated audio (planning, seeding, generation, assembly).
 PIPELINE_REVISION = 1
 SEED_BASE = 20261113
@@ -123,6 +132,12 @@ def derive_seed(voice_id: str, chunk: _local.Chunk) -> int:
     text_hash = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
     digest = hashlib.sha256(f"{SEED_BASE}|{voice_id}|{chunk.index}|{text_hash}".encode("utf-8")).digest()
     return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+
+
+def chunks_per_worker_for(policy: ov.DevicePolicy) -> int:
+    """How many chunks one worker renders for a run on *policy*'s device: 16 on a Mac's GPU, 48 everywhere else
+    (Windows' CUDA and a Mac's processor exactly as released)."""
+    return MPS_CHUNKS_PER_WORKER if policy.device == ov.DEVICE_MPS else CHUNKS_PER_WORKER
 
 
 def batches(chunks: list, size: int = CHUNKS_PER_WORKER) -> list[list]:
@@ -490,7 +505,7 @@ def omnivoice_file_to_mp3(
     prompts_root: Optional[Path] = None,
     env: Optional[dict] = None,
     encoder: Callable = _encoder,
-    chunks_per_worker: int = CHUNKS_PER_WORKER,
+    chunks_per_worker: Optional[int] = None,
     grace_s: float = CANCEL_GRACE_S,
     event_timeout_s: float = EVENT_TIMEOUT_S,
     exit_grace_s: float = EXIT_GRACE_S,
@@ -501,7 +516,8 @@ def omnivoice_file_to_mp3(
     ``progress_callback(done, total)`` fires after each chunk on the calling (worker) thread. Cancellation raises
     ``ConversionCancelled`` and is honoured at every stage up to the instant the file is published; no partial MP3 is
     left and an existing destination is not touched until the new file is complete. No closing pause (v0.7.0 Q1):
-    ``end_silence_ms`` is accepted for callers and ignored. The keyword-only seams exist for the offline tests.
+    ``end_silence_ms`` is accepted for callers and ignored. The keyword-only seams exist for the offline tests;
+    ``chunks_per_worker`` left at None is the run's device's own bound (:func:`chunks_per_worker_for`).
     """
     src = Path(source_path)
     if not src.exists():
@@ -548,7 +564,8 @@ def omnivoice_file_to_mp3(
                 log(f"OmniVoice device: {policy.label} ({chosen}).")
             env = ov.worker_environment() if env is None else env
             events: list[dict] = []
-            groups = batches(chunks, chunks_per_worker)
+            bound = chunks_per_worker_for(policy) if chunks_per_worker is None else chunks_per_worker
+            groups = batches(chunks, bound)
             for number, group in enumerate(groups, start=1):
                 _local._raise_if_cancelled(cancel_check)
 

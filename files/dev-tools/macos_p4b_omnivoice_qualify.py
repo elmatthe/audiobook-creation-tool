@@ -3,6 +3,7 @@
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py voices [--device mps|cpu] [--track A|B]
                                                                               [--voice <id> ...]
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py long [--chunks 60] [--voice <id>]
+                     [--text short|paragraphs] [--chunks-per-worker N] [--footprint-at I ...] [--ceiling-mib M]
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py cancel [--device mps|cpu]
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py kx1
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py assets
@@ -25,7 +26,11 @@ config file itself is not edited (its parsing has its own tests). Outputs, recor
   the per-chunk integrity screen.
 * ``long``    one voice on a text of ``--chunks`` one-sentence paragraphs (each its own chunk), so more than
   ``CHUNKS_PER_WORKER`` (48) chunks run: the per-chunk memory trend inside the first worker, its growth after a 5-chunk
-  warm-up, and the hand-over to a fresh worker at the bound.
+  warm-up, and the hand-over to a fresh worker at the bound. The memory checkpoint (after P4B) adds the
+  ``chunks_per_worker`` seam (``--chunks-per-worker``), a stress text of long, all-different paragraphs
+  (``--text paragraphs``), per-worker growth and start-up, per-chunk SHA-256 of the audio, swap and memory-pressure
+  readings, ``footprint -p`` by category at chosen chunks, and a safety ceiling that cancels a run whose worker passes
+  ``--ceiling-mib`` (default 14 GiB on this 24 GB Mac). Its records go to ``q/memory/``.
 * ``cancel``  CX-3: Cancel 1 s after the first chunk finished (the next chunk is being generated): the time to
   ``ConversionCancelled``, the worker's group empty, nothing published, the job folder gone.
 * ``kx1``     KX-1(c): an owner process (containment enabled exactly as the app window enables it) runs a conversion;
@@ -157,8 +162,9 @@ class Watch:
         osy._encoder(wav, mp3, bitrate, work_dir=work_dir, cancel_check=cancel_check)
 
 
-def convert(voice_id: str, text: str, dest: Path, *, cancel_check=None) -> dict:
-    """One production conversion, watched. Returns the facts."""
+def convert(voice_id: str, text: str, dest: Path, *, cancel_check=None, seams: dict | None = None) -> dict:
+    """One production conversion, watched. Returns the facts. *seams* go to ``omnivoice_file_to_mp3`` unchanged (the
+    memory checkpoint passes its ``chunks_per_worker`` test seam)."""
     from macos_p4a_omnivoice_run import flags, screen  # the P4A integrity screen (pure functions)
 
     snap = gvs.omnivoice_speech_prep()
@@ -171,7 +177,7 @@ def convert(voice_id: str, text: str, dest: Path, *, cancel_check=None) -> dict:
     with Watch() as watch:
         try:
             gvs._synthesize_omnivoice(voice_entry(voice_id), text, dest, log=lines.append, speech_prep=snap,
-                                      encoder=watch.encoder, cancel_check=cancel_check)
+                                      encoder=watch.encoder, cancel_check=cancel_check, **(seams or {}))
         except ConversionCancelled:
             result = "CANCELLED"
         except BaseException as exc:  # noqa: BLE001 - recorded
@@ -179,6 +185,11 @@ def convert(voice_id: str, text: str, dest: Path, *, cancel_check=None) -> dict:
     wall = time.monotonic() - started
     facts = {"voice_id": voice_id, "result": result, "wall_s": round(wall, 2), "log": lines,
              "spawned": watch.spawned, "published": dest.exists()}
+    if watch.chunks is not None:  # each chunk's exact float32 samples, for the determinism comparison
+        import hashlib
+
+        facts["chunk_sha256"] = [hashlib.sha256(np.ascontiguousarray(a, dtype=np.float32).tobytes()).hexdigest()
+                                 for a in watch.chunks]
     events = [e for r in watch.runs for e in r["chunk_events"]]
     facts["workers"] = [{"loaded": {k: r["loaded"].get(k) for k in ("device", "device_name", "dtype", "load_s",
                                                                      "prompt", "prompt_s", "versions")},
@@ -235,27 +246,175 @@ def long_text(count: int) -> str:
     return "\n\n".join(f"{SENTENCES[i % len(SENTENCES)]} This is passage number {i + 1}." for i in range(count))
 
 
+def paragraph_text(count: int) -> str:
+    """*count* distinct paragraphs of four or five sentences (about 230-290 characters after speech preparation), each
+    one whole chunk: a book-like load of long, all-different chunks (the memory checkpoint's stress text)."""
+    rows = []
+    for i in range(count):
+        take = 4 + (i % 2)
+        picked = [SENTENCES[(i * 3 + k) % len(SENTENCES)] for k in range(take)]
+        rows.append(" ".join(picked) + f" This is passage number {i + 1}.")
+    return "\n\n".join(rows)
+
+
+WARMUP = 5  # chunks: the P4B growth measure starts after a worker's fifth chunk
+
+
+def growth(rows: list[dict]) -> dict:
+    """Footprint / MPS figures over one worker's chunks: first, after the warm-up, last, max and the growth after it."""
+    found = {}
+    for key in ("footprint_mib", "mps_driver_mib", "mps_allocated_mib"):
+        values = [r.get(key) for r in rows if r.get(key) is not None]
+        if not values:
+            continue
+        entry = {"first": values[0], "last": values[-1], "max": max(values)}
+        after = values[WARMUP:]
+        if len(after) >= 2 and after[0]:
+            entry.update({"after_warmup": after[0], "growth_pct": round(100.0 * (after[-1] - after[0]) / after[0], 2),
+                          "per_chunk_mib": round((after[-1] - after[0]) / (len(after) - 1), 1)})
+        found[key] = entry
+    return found
+
+
+def sysctl(name: str) -> str:
+    return subprocess.run(["sysctl", "-n", name], capture_output=True, text=True).stdout.strip()
+
+
+def swapouts() -> int:
+    for line in subprocess.run(["vm_stat"], capture_output=True, text=True).stdout.splitlines():
+        if line.startswith("Swapouts:"):
+            return int(line.split(":")[1].strip().rstrip("."))
+    return -1
+
+
+def footprint_categories(pid: int) -> dict:
+    """``footprint -p``: the process's footprint by category (dirty KB), read-only."""
+    text = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+    rows: dict = {}
+    total = None
+    for line in text.splitlines():
+        parts = line.split()
+        if "Footprint:" in line:
+            total = line.split("Footprint:")[1].strip()
+        if len(parts) >= 5 and parts[1] in ("KB", "MB", "GB", "B") and parts[3] in ("KB", "MB", "GB", "B"):
+            scale = {"B": 1 / 1024, "KB": 1, "MB": 1024, "GB": 1024 * 1024}[parts[1]]
+            name = " ".join(parts[7:]) if len(parts) > 7 else " ".join(parts[6:])
+            if name and name != "TOTAL":
+                rows[name] = round(float(parts[0]) * scale / 1024, 1)  # MiB dirty
+    return {"footprint": total, "dirty_mib": dict(sorted(rows.items(), key=lambda kv: -kv[1])[:12])}
+
+
+def heap_classes(pid: int, raw: Path) -> list[dict]:
+    """``heap --sortBySize``: the largest malloc'd classes and types of a live process (read-only), raw text kept."""
+    text = subprocess.run(["heap", "--sortBySize", str(pid)], capture_output=True, text=True).stdout
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    raw.write_text(text, encoding="utf-8")
+    rows, table = [], False
+    for line in text.splitlines():
+        if line.strip().startswith("COUNT") and "BYTES" in line:
+            table = True
+            continue
+        parts = line.split()
+        if table and len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append({"count": int(parts[0]), "bytes": int(parts[1]), "name": " ".join(parts[3:])})
+        if len(rows) >= 30:
+            break
+    return rows
+
+
 def cmd_long(args) -> int:
     choose(args.device)
-    dest = OUT / "long" / f"long-{args.chunks}-{args.voice}-{args.device}.mp3"
-    facts = convert(args.voice, long_text(args.chunks), dest)
-    first = [m for m in facts["chunk_memory"]][:osy.CHUNKS_PER_WORKER]
-    after = [m for m in first[5:] if m.get("footprint_mib")]
-    trend = {}
-    if len(after) >= 2:
-        for key in ("footprint_mib", "mps_driver_mib", "mps_allocated_mib"):
-            values = [m.get(key) for m in after if m.get(key) is not None]
-            if values:
-                trend[key] = {"after_warmup": values[0], "last": values[-1], "max": max(values),
-                              "growth_pct": round(100.0 * (values[-1] - values[0]) / values[0], 2) if values[0] else None}
-    facts["first_worker_trend"] = trend
+    bound = args.chunks_per_worker or "default"
+    label = args.label or f"long-{args.text}-{args.chunks}-{args.voice}-{args.device}-w{bound}"
+    folder = OUT / "memory" if args.label or args.chunks_per_worker or args.text != "short" else OUT / "long"
+    dest = folder / f"{label}.mp3"
+    text = long_text(args.chunks) if args.text == "short" else paragraph_text(args.chunks)
+    planned = osy.plan_chunks(osy.prepare(text, gvs.omnivoice_speech_prep(), osy.OMNIVOICE_ROUTE).text)
+    state: dict = {"times": [], "pids": [], "pressure": [], "categories": {}, "ceiling_hit": None}
+    sample_at = set(args.footprint_at or [])
+    heap_at = set(args.heap_at or [])
+    state["heaps"] = {}
+    original_spawn, original_run = osy.spawn_worker, osy.run_worker
+
+    def spawn(cmd, **kwargs):
+        proc = original_spawn(cmd, **kwargs)
+        state["pids"].append({"pid": proc.pid, "at": time.monotonic()})
+        return proc
+
+    def run_worker(*a, **k):
+        on_chunk = k.get("on_chunk")
+
+        def chunk(event):
+            now = time.monotonic()
+            state["times"].append({"index": event.get("index"), "at": now, "worker": len(state["pids"])})
+            state["pressure"].append(int(sysctl("kern.memorystatus_vm_pressure_level") or 0))
+            state["times"][-1]["pressure"], state["times"][-1]["swapouts"] = state["pressure"][-1], swapouts()
+            index = int(event.get("index", -1))
+            if index in heap_at and state["pids"]:
+                state["heaps"][str(index)] = heap_classes(state["pids"][-1]["pid"],
+                                                          folder / f"{label}.heap-{index}.txt")
+            if index in sample_at and state["pids"]:
+                state["categories"][str(index)] = footprint_categories(state["pids"][-1]["pid"])
+            if args.ceiling_mib and (event.get("footprint_mib") or 0) > args.ceiling_mib:
+                state["ceiling_hit"] = {"index": index, "footprint_mib": event.get("footprint_mib")}
+            if on_chunk is not None:
+                on_chunk(event)
+        k["on_chunk"] = chunk
+        return original_run(*a, **k)
+
+    osy.spawn_worker, osy.run_worker = spawn, run_worker
+    system_before = {"swapusage": sysctl("vm.swapusage"), "swapouts": swapouts(),
+                     "pressure_level": sysctl("kern.memorystatus_vm_pressure_level")}
+    try:
+        seams = {} if args.chunks_per_worker is None else {"chunks_per_worker": args.chunks_per_worker}
+        facts = convert(args.voice, text, dest, cancel_check=lambda: state["ceiling_hit"] is not None, seams=seams)
+    finally:
+        osy.spawn_worker, osy.run_worker = original_spawn, original_run
+    facts["system"] = {"before": system_before,
+                       "after": {"swapusage": sysctl("vm.swapusage"), "swapouts": swapouts(),
+                                 "pressure_level": sysctl("kern.memorystatus_vm_pressure_level")},
+                       "max_pressure_level_during": max(state["pressure"] or [0]),
+                       "pressure_levels_seen": sorted(set(state["pressure"]))}
+    facts["system"]["swapouts_delta"] = facts["system"]["after"]["swapouts"] - system_before["swapouts"]
+    facts["ceiling"] = {"mib": args.ceiling_mib, "hit": state["ceiling_hit"]}
+    facts["footprint_categories"] = state["categories"]
+    facts["heap_classes"] = state["heaps"]
+    facts["chunk_system"] = [{k: t.get(k) for k in ("index", "worker", "pressure", "swapouts")} for t in state["times"]]
+    facts["text"] = {"kind": args.text, "paragraphs": args.chunks, "planned_chunks": len(planned),
+                     "chunk_chars": [len(c.text) for c in planned]}
+    facts["chunks_per_worker"] = args.chunks_per_worker or "production default"
+    # One row per worker: its chunks, memory over its life, and its start-up (spawn -> first chunk, less that chunk).
+    per_worker, rows = [], facts["chunk_memory"]
+    gen = {m["index"]: m["gen_s"] for m in rows}
+    for number, spawned in enumerate(state["pids"], start=1):
+        mine = [m for m, t in zip(rows, state["times"]) if t["worker"] == number]
+        first_t = next((t for t in state["times"] if t["worker"] == number), None)
+        entry = {"worker": number, "chunks": [mine[0]["index"], mine[-1]["index"]] if mine else None,
+                 "count": len(mine), "memory": growth(mine)}
+        if first_t is not None:
+            entry["startup_s"] = round(first_t["at"] - spawned["at"] - gen[first_t["index"]], 2)
+        if number <= len(facts["workers"]):
+            entry["load_s"] = facts["workers"][number - 1]["loaded"].get("load_s")
+            entry["terminal_peak_footprint_mib"] = facts["workers"][number - 1]["terminal"].get("peak_footprint_mib")
+        per_worker.append(entry)
+    for prev, nxt in zip(per_worker, per_worker[1:]):  # what a restart gives back
+        if prev["memory"].get("footprint_mib") and nxt["memory"].get("footprint_mib"):
+            nxt["after_restart"] = {"previous_last": prev["memory"]["footprint_mib"]["last"],
+                                    "this_first": nxt["memory"]["footprint_mib"]["first"]}
+    facts["per_worker"] = per_worker
     facts["workers_used"] = len(facts["workers"])
-    out = OUT / "long" / f"long-{args.chunks}-{args.voice}-{args.device}.json"
+    facts["first_worker_trend"] = per_worker[0]["memory"] if per_worker else {}
+    facts["max_worker_growth_pct"] = max((w["memory"].get("footprint_mib", {}).get("growth_pct") or 0)
+                                         for w in per_worker) if per_worker else None
+    facts["startup_total_s"] = round(sum(w.get("startup_s") or 0 for w in per_worker), 2)
     facts["processes_after"] = act_processes()
-    write_json(out, facts)
+    write_json(folder / f"{label}.json", facts)
     print(json.dumps({k: facts.get(k) for k in ("result", "chunks", "workers_used", "audio_s", "rtf_wall",
-                                                 "peak_footprint_mib", "max_mps_driver_mib", "first_worker_trend",
-                                                 "flags")}, indent=1), flush=True)
+                                                 "rtf_inference", "peak_footprint_mib", "max_mps_driver_mib",
+                                                 "max_worker_growth_pct", "startup_total_s", "system", "ceiling",
+                                                 "mp3_sha256", "flags", "processes_after")}, indent=1), flush=True)
+    for w in per_worker:
+        print(json.dumps(w), flush=True)
     return 0 if facts["result"] == "PASS" else 1
 
 
@@ -398,6 +557,12 @@ def main(argv=None) -> int:
     p.add_argument("--device", default="mps")
     p.add_argument("--chunks", type=int, default=60)
     p.add_argument("--voice", default="omnivoice-female-2")
+    p.add_argument("--text", default="short", choices=("short", "paragraphs"))
+    p.add_argument("--chunks-per-worker", type=int, help="the test seam; omitted: the production default")
+    p.add_argument("--heap-at", type=int, action="append", help="chunk index at which to read heap --sortBySize")
+    p.add_argument("--footprint-at", type=int, action="append", help="chunk index at which to read footprint -p")
+    p.add_argument("--ceiling-mib", type=int, default=14336, help="cancel the run if a worker passes this footprint")
+    p.add_argument("--label")
     p = sub.add_parser("cancel")
     p.add_argument("--device", default="mps")
     sub.add_parser("kx1")

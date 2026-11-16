@@ -26,6 +26,7 @@
 - P4B authorized; the final macOS roster is fixed at **Edge 5 + Kokoro 9 + OmniVoice 6 = 20 voices** (P4C);
 - six OmniVoice previews are added to the final release (P6a), the 28 historical previews unchanged.
 **Revision 3a:** 2026-11-16 (Claude Code, Opus 5.5). **P4B implemented and verified: TECHNICAL PASS (F, S), one PERFORMANCE EXCEPTION — OWNER DECISION PENDING** (memory growth inside one worker, bounded by the 48-chunk restart). The P4B checkpoint waits for the owner; P4C has not started (§19 P4B status; Decisions, P4B entry).
+**Revision 3b:** 2026-11-16 (Claude Code, Opus 5.5). **P4B memory checkpoint:** P4B is not owner accepted while the memory growth is open. The investigation found that on the Mac's GPU the growth is PyTorch's MPS caching allocator keeping GPU buffers, plus per-shape MPSGraph caches. One book-like text drove a 48-chunk worker to 13.6 GB, with memory pressure and swap. A Mac-GPU worker bound of 16 chunks was implemented and verified: peak 10.7 GB, no pressure, no swap, bit-identical audio. Windows and the Mac's CPU keep 48. The peak and growth targets are still missed: **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**, reduced, not closed (§19 P4B memory checkpoint; Decisions, memory-checkpoint entry). P4C has not started.
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
 **Released baseline:** Windows v0.8.0, tag `v0.8.0` (tag object `0a3653e`) → release-source commit `d1701e987f106ce00f557f267a6761c5370f5968`
@@ -1799,6 +1800,37 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 >
 > **Exception:** within one worker the footprint grows 28.4 % after warm-up (MPS tensors flat), bounded by the 48-chunk worker restart; this is outside the provisional < 10 % target. The owner chooses (a) accept as bounded, or (b) a Mac-only mitigation experiment. Not done here: the GUI smoke (P4C surfaces; owner manual) and the HOME-PC Windows regression (P5).
 >
+> **P4B memory checkpoint (2026-11-16, Revision 3b; Decisions, memory-checkpoint entry; evidence `files/dev-work/macos-p4b/q/memory/`, ignored).** P4B is **not owner accepted**: one bounded Mac-only investigation was authorized, with worker lifetimes 48 / 24 / 16 only.
+> - **Cause (measured):**
+>   - The live MPS tensors stay flat (2,336 MiB).
+>   - About 88 % of the growth is GPU buffers kept by PyTorch's MPS caching allocator ("IOAccelerator (graphics)", MPS driver memory).
+>   - The rest is CPU-heap MPSGraph executables and caches compiled for each new chunk shape (`heap`: +466 executables in 10 long chunks).
+>   - It grows only on new shapes: one text repeated stays flat (P4A). It is larger for long chunks (about 120 MiB a chunk against about 55).
+> - **The 60-chunk sequence (Female 2):**
+>
+>   | Bound | Peak | Growth |
+>   |---|---|---|
+>   | 48 | 6,900 MiB | +28.4 % |
+>   | 24 | 6,459 MiB | +19.5 % |
+>   | 16 | 5,922 MiB | +10.5 % |
+>
+>   Each MP3 is byte-identical to the 48-chunk run's.
+> - **The book-like stress text (Male 1, 48 paragraphs of 229–293 characters):**
+>   - With 48: 13,590 MiB, and the system reached memory-pressure warning and swapped out about 412 MiB.
+>   - With 16: 10,745 MiB, no pressure and no swap.
+>   - The audio is bit-identical.
+> - **Implemented:**
+>   - `omnivoice_synth.MPS_CHUNKS_PER_WORKER = 16` through `chunks_per_worker_for(policy)`. The entry point's seam defaults to the device's bound.
+>   - Windows' CUDA and a Mac's CPU keep `CHUNKS_PER_WORKER = 48`.
+>   - Verified: CX-3 2.41 s; KX-1(c) 0.09 s; CPU fp32 20 chunks PASS; focused tests 0 new failures; protected assets unchanged.
+> - **Still missed:**
+>   - Peak on the stress text, 4.9 % over 10 GiB.
+>   - Growth: +10.6 % on the sequence, +31.4 % on the stress text.
+> - **The owner's options:**
+>   - (a) accept the remaining exception with the 16-chunk bound;
+>   - (b) one more bounded experiment aimed at the allocator's kept buffers (`torch.mps.empty_cache()` per chunk, every N chunks, or above a threshold);
+>   - (c) revert to 48.
+>
 > **P4B implementation map (as built):**
 > - `omnivoice_runtime`: `package_set`/`DARWIN_SET`, `platform_supported` (win32, or darwin arm64), `apple_gpu`/`detect_gpu`, `device_policy`/`configured_mac_device`, `prompt_identity(device=)`, `machine_lock_path` and the POSIX `MachineGuard`, `app_owned_python`, the dropped MPS switches, `hardware_disclosure`/`no_gpu_message`;
 > - `omnivoice_worker`: `device_problems`, `placement_problem`, `_sync`/`_empty_cache`/`_memory`/`_device_facts` per device;
@@ -2035,7 +2067,7 @@ None of these blocks the *plan*.
 | **Q3** | Windows evidence while HOME-PC is unavailable | **DECIDED 2026-11-16: A.** Finish and verify the Mac implementation now. Native Windows verification (E-B2, the Windows focused regression) and the final cross-platform release qualification are deferred until HOME-PC is available, not waived. D8 and P7 are unchanged |
 | **D6-O** | OmniVoice speed/memory budget and the practicality line | Proposed at Revision 2: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, peak footprint ≤ 10 GiB, growth < 10 % after warm-up (fixed). The proposed line then read: if every technically passing configuration falls outside it, that is the Q1 "impractical" line. **SET 2026-11-16 (Revision 2a): the four values are provisional practicality targets, not automatic rejection thresholds.** A technically correct configuration outside a target is a PERFORMANCE EXCEPTION — OWNER DECISION PENDING, unless its resource behaviour is unsafe, which fails S. F, S, Q and P are separate verdicts; the owner decides speed, footprint and quality (§12.E). **Revision 3 (2026-11-16): C2 MPS fp32's speed exception is accepted for integration** (no memory, safety, Cancel or reliability requirement waived) |
 | **P4A acceptance** | OmniVoice on macOS | **ACCEPTED 2026-11-16 (Revision 3):** six voices by owner listening; MPS fp32 preferred, CPU fp32 alternative, MPS fp16 experimental; P4B authorized; macOS roster Edge + Kokoro + OmniVoice = 20; six OmniVoice previews added at P6a |
-| **P4B checkpoint** | OmniVoice on macOS, production | **PENDING THE OWNER (2026-11-16):** TECHNICAL PASS (F, S); memory growth inside one worker +28.4 % after warm-up (bounded by the 48-chunk restart, MPS tensors flat) is a PERFORMANCE EXCEPTION against D6-O's provisional < 10 %: (a) accept as bounded, or (b) a Mac-only mitigation experiment. P4C follows the acceptance |
+| **P4B checkpoint** | OmniVoice on macOS, production | **PENDING THE OWNER (2026-11-16):** TECHNICAL PASS (F, S); memory growth inside one worker +28.4 % after warm-up (bounded by the 48-chunk restart, MPS tensors flat) is a PERFORMANCE EXCEPTION against D6-O's provisional < 10 %: (a) accept as bounded, or (b) a Mac-only mitigation experiment. P4C follows the acceptance. **Memory checkpoint (Revision 3b): NOT OWNER ACCEPTED.** The cause is MPS allocator buffer retention plus per-shape MPSGraph caches. A Mac-GPU bound of 16 chunks per worker is implemented: worst measured peak 13.6 → 10.7 GB, growth +28.4 → +10.6 % on the 60-chunk sequence, bit-identical audio. Windows and the Mac's CPU keep 48. The peak (stress text) and growth targets are still missed: PERFORMANCE EXCEPTION — OWNER DECISION PENDING, with options (a) accept, (b) an `empty_cache` experiment, or (c) revert |
 | **P4A consent** | Acquisition for P4A | **GIVEN 2026-11-16:** only the files of `files/dev-tools/macos_p4a_omnivoice_manifest.json` at `bac67d4`, token `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c` (86 wheels, 246,737,206 bytes; 11 model files, 3,267,467,171 bytes), into `files/dev-work/omnivoice-feasibility/` only. Whisper **not** authorized (D15 deferred until after the owner's listening verdict) |
 | D16 | Release version and strategy | §18 option A (v0.8.1), or D (v0.9.0). **Decided at P5 exit**, because the version identity is release-relevant source finalized in P6a, before review and both gates |
 | D17 | Preemptible Cancel for local engines | On darwin, Kokoro and Chatterbox run in the supervised local-engine worker; accept the Cancel contract C1–C5 and its bounds (§11.2.1). Windows keeps the released in-process path in this programme; adopting the worker on Windows is a later decision with Windows qualification |
