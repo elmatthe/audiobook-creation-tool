@@ -13,7 +13,11 @@ inside the application, reads each panel's configuration from the panel itself, 
 
 What this does not prove, and never claims: a real keyboard or pointer (the events are synthetic, no Accessibility grant
 exists), and anything inside the open panel's browser, which another process draws (choosing files there is the
-``native-panel-selection`` requirement, BLOCKED on Accessibility; see verification.json darwin_p1b).
+``native-panel-selection`` requirement, BLOCKED on Accessibility; see verification.json darwin_p1b). While another
+application holds the front (a system alert, such as the crash dialog the deliberate crash journeys can leave), this
+application is not active and AppKit answers no Return in it; a Return is then answered by the alert's default button
+(the window's ``defaultButtonCell``, the button Return presses) performing its click, and the record and the check say
+that route (``native_ui.alert_key_route``).
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from qualification import common, macos_common  # noqa: E402
 NAME = "macos-native-dialogs"
 TITLES = {"mp3": "Select MP3 files", "m4b": "Select .m4b files", "meta": "Select M4B file(s)", "cover": "Select cover images",
           "art": "Select Book Artwork"}
-FOUND: dict[str, list] = {"opened": [], "cancel_ok": [], "escape_ok": [], "return_ok": []}
+FOUND: dict[str, list] = {"opened": [], "cancel_ok": [], "escape_ok": [], "return_ok": [], "routes": []}
 
 
 def _panel(session, report, label: str, tool: str, key: str, *, title: str | None, multiple: bool | None, files: bool, folders: bool,
@@ -82,8 +86,14 @@ def _alert(session, report, label: str, tool: str, key: str, respond: str):
     report.check(f"{label}: a real NSAlert appeared", event.get("kind") == "alert" and not event.get("unexpected"), event.get("window"))
     picture = event.get("picture") or {}
     report.check(f"{label}: the alert was imaged", picture.get("captured") is True and picture.get("width_px", 0) > 100, picture)
-    report.check(f"{label}: answered by a {respond} key event, not a stand-in", respond in str((event.get("answered") or {}).get("by")),
-                 event.get("answered"))
+    answered = event.get("answered") or {}
+    route = answered.get("route")
+    honest = ((route == "queue" and f"{respond} key event posted" in str(answered.get("by")))
+              or (route == "default-button" and respond == "return" and (answered.get("button") or {}).get("via") == "defaultButtonCell"
+                  and answered.get("app_active") is False))
+    FOUND["routes"].append(f"{label}: {route}")
+    report.check(f"{label}: answered through the alert's own {respond} handling (a posted key event, or with the application not "
+                 "active the default button Return presses), not a stand-in", honest, answered)
     session.settle()
     return event
 
@@ -199,7 +209,7 @@ def main(argv=None) -> int:
         q.check("every real open panel ended as Cancel added nothing", len(FOUND["cancel_ok"]) >= 7 and all(FOUND["cancel_ok"]),
                 FOUND["cancel_ok"])
         q.check("a real alert's Escape did nothing", len(FOUND["escape_ok"]) >= 2 and all(FOUND["escape_ok"]), FOUND["escape_ok"])
-        q.check("a real alert's Return chose its default", FOUND["return_ok"] == [True], FOUND["return_ok"])
+        q.check("a real alert's Return chose its default", FOUND["return_ok"] == [True], {"ok": FOUND["return_ok"], "routes": FOUND["routes"]})
 
     return q.finish(body)
 

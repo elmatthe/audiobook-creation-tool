@@ -21,10 +21,14 @@ What macOS lets a process do without any privacy grant, and what this module the
         or used, and none is claimed. AppKit routes a key *equivalent* (Return for the default button) only to the key window
         of an active application, and an application is not made active while another one -- a system alert, say -- holds
         the front (measured at ``c0a1553``: a posted Return went unanswered while ``UserNotificationCenter`` was frontmost; a
-        posted Escape, which the alert window handles itself, still worked). So when this application is not active a Return
-        is given to the alert window's own ``performKeyEquivalent:`` on the main thread instead of the queue: the alert's
-        buttons still decide by their own key equivalents, and nothing is left queued for another window. Escape keeps the
-        queue. Which route answered, and whether the application was active, is recorded with every answer.
+        posted Escape, which the alert window handles itself, still worked). Handing the event to the alert window's own
+        ``performKeyEquivalent:`` instead does not help (measured at ``f8af54b``: AppKit's buttons act on a key equivalent
+        only in the key window, which an inactive application has none of; it worked only while the application was active).
+        So when this application is not active a Return is answered by the button Return presses -- the alert window's own
+        ``defaultButtonCell``, read from the window -- performing its click on the main thread: what AppKit does once a key
+        window has received Return. That is a click, not a key event, and the record says so; the key-event path is the one
+        taken whenever the application is active. Escape keeps the queue. The route, the button and whether the application
+        was active are recorded with every answer.
       - an open or save panel is sent its own ``cancel:`` action on the main thread, in the modal run-loop mode
         (``performSelectorOnMainThread:withObject:waitUntilDone:modes:``), which is what its Cancel button does -- a panel shown
         as a sheet must end through it, or Tk waits on the sheet for ever (measured: ``abortModal`` ends the modal loop and
@@ -192,13 +196,25 @@ def app_state() -> dict:
 
 
 def alert_key_route(name: str, state: dict, window_number: int) -> str:
-    """How a key reaches an alert: ``queue`` (posted, routed by AppKit) or ``key-equivalent`` (the alert window's own
-    ``performKeyEquivalent:``). Escape always takes the queue: the alert window handles it itself and it was measured to work
-    whether or not the application was active. Return is a key equivalent, which AppKit routes only to the key window of an
-    active application, so it takes the queue only then. Pure, so it is tested on every platform."""
+    """How a key reaches an alert: ``queue`` (a key event posted, routed by AppKit) or ``default-button`` (the button Return
+    presses, the window's ``defaultButtonCell``, performs its click). Escape always takes the queue: it was measured to work
+    whether or not the application was active. AppKit answers Return only in the key window of an active application, so
+    Return takes the queue only then. Pure, so it is tested on every platform."""
     if name == "escape" or (state.get("active") and state.get("key_window") == window_number):
         return "queue"
-    return "key-equivalent"
+    return "default-button"
+
+
+def return_button(window) -> dict | None:
+    """The button Return presses in this window: the control of its ``defaultButtonCell`` (None when it has none).
+
+    Measured on Tk's real yes/no alert: "No" carries the Escape key equivalent, "Yes" carries none, and the window's
+    ``defaultButtonCell`` is Yes's -- AppKit's key window answers Return through that cell."""
+    cell = _send(window, "defaultButtonCell")
+    button = _send(cell, "controlView") if cell else None
+    if not button:
+        return None
+    return {"ptr": button, "title": _text(_send(button, "title")), "via": "defaultButtonCell"}
 
 
 def abort_modal() -> None:
@@ -298,15 +314,20 @@ class NativeWatcher:
         if kind == "alert" and respond in KEYS:
             state = app_state()
             route = alert_key_route(respond, state, window["number"])
+            button = return_button(window["ptr"]) if route == "default-button" else None
+            if route == "default-button" and button is None:
+                route = "queue"  # nothing bound to Return: post the key anyway, and let the alert staying up say so
             if route == "queue":
                 post_key(respond, window["number"])
                 by = f"{respond} key event posted to this application's own queue"
             else:
-                perform_on_main(window["ptr"], "performKeyEquivalent:", key_event(respond, window["number"]))
-                by = (f"{respond} key event given to the alert window's own performKeyEquivalent: (this application was not active, "
-                      "so AppKit would route no key equivalent to it)")
+                perform_on_main(button["ptr"], "performClick:")
+                by = (f"the alert's default button ({button['title']!r}, the one Return presses: the window's defaultButtonCell) "
+                      "performed its click: this application was not active, and AppKit answers Return only in an active "
+                      "application's key window")
             entry["answered"] = {"by": by, "synthetic": True, "route": route, "app_active": state["active"],
-                                 "alert_was_key": state["key_window"] == window["number"]}
+                                 "alert_was_key": state["key_window"] == window["number"],
+                                 "button": {key: value for key, value in (button or {}).items() if key != "ptr"} or None}
         else:
             perform_on_main(window["ptr"], "cancel:")
             entry["answered"] = {"by": "the panel's own cancel: action, on the main thread (as its Cancel button)", "synthetic": True}

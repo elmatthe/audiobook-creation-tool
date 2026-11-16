@@ -244,24 +244,32 @@ def _pure_function(path: Path, name: str):
 
 
 def test_a_return_reaches_a_real_alert_whether_or_not_the_application_is_active():
-    """Regression (c0a1553): with a system alert frontmost the application is not active, AppKit routes no key equivalent to it,
-    and a posted Return left the real alert up for ever. Return then goes to the alert window's own performKeyEquivalent:;
-    Escape, measured to work either way, keeps the queue; the answer records its route and the activation it saw."""
+    """Regression (c0a1553, f8af54b): with a system alert frontmost the application is not active, and AppKit honours no key
+    equivalent in it: a posted Return left the real alert up for ever (c0a1553), and so did handing the event to the alert
+    window's performKeyEquivalent: (f8af54b). Return is then answered by the button Return presses -- the window's
+    defaultButtonCell (Tk's Yes carries no key equivalent of its own, measured) -- performing its click, recorded as that
+    route; Escape, measured to work either way, keeps the queue."""
     source = GATE_DIR / "adapters" / "macos" / "native_ui.py"
     route, tree = _pure_function(source, "alert_key_route")
     alert = 8283
     active = {"active": True, "key_window": alert}
     assert route("return", active, alert) == "queue" and route("escape", active, alert) == "queue"
     for state in ({"active": False, "key_window": None}, {"active": True, "key_window": 17}, {"active": False, "key_window": alert}):
-        assert route("return", state, alert) == "key-equivalent", state
+        assert route("return", state, alert) == "default-button", state
         assert route("escape", state, alert) == "queue", state
     import ast
 
     text = source.read_text(encoding="utf-8")
     answer = next(item for item in ast.walk(tree) if getattr(item, "name", "") == "_answer")
     body = "\n".join(text.splitlines()[answer.lineno - 1:answer.end_lineno])
-    assert "alert_key_route(respond, state, window[\"number\"])" in body and '"performKeyEquivalent:"' in body
-    assert all(key in body for key in ('"route": route', '"app_active": state["active"]', '"alert_was_key"'))
+    assert "alert_key_route(respond, state, window[\"number\"])" in body and 'return_button(window["ptr"])' in body
+    assert '"performClick:"' in body and '"performKeyEquivalent:"' not in body
+    assert all(key in body for key in ('"route": route', '"app_active": state["active"]', '"alert_was_key"', '"button":'))
+    finder = next(item for item in ast.walk(tree) if getattr(item, "name", "") == "return_button")
+    assert '"defaultButtonCell"' in "\n".join(text.splitlines()[finder.lineno - 1:finder.end_lineno])
+    scenario = (GATE_DIR / "qualification" / "macos_native_dialogs.py").read_text(encoding="utf-8")
+    assert 'route == "default-button" and respond == "return"' in scenario and 'answered.get("app_active") is False' in scenario
+    assert '.get("via") == "defaultButtonCell"' in scenario
 
 
 def test_the_contact_sheet_indexes_every_picture(tmp_path):
