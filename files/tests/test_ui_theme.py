@@ -655,6 +655,8 @@ AQUA_PANEL_HINTS = {
     "import_band_layout", "group_pad", "field_gap", "field_columns",
     "field_label_wrap_short", "book_fields_span", "options_layout", "actions_columns",
     "navigator_layout_one_action", "readback_layout", "note_wrap", "chapter_rows",
+    # v0.8.x P1B remediation (ACT72-078).
+    "navigator_heading", "chapter_floor_rows", "source_line", "status_line",
 }
 
 

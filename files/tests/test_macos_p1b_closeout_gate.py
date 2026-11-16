@@ -428,7 +428,8 @@ def test_a_darwin_scenario_verdict_short_of_its_requirements_is_not_accepted(tmp
 
 def test_the_p1b_ledger_covers_every_former_checklist_item_and_names_its_evidence():
     block = POLICY["darwin_p1b"]
-    kinds = {"journeys", "tests", "scenario", "owner-visual", "blocked-permission", "later-phase", "not-applicable"}
+    kinds = {"journeys", "tests", "scenario", "owner-visual", "blocked-permission", "approved-exception", "later-phase",
+             "not-applicable"}
     ids = {item["id"] for item in block["requirements"]}
     for item in block["requirements"]:
         assert item["kind"] in kinds and item["what"], item
@@ -436,8 +437,10 @@ def test_the_p1b_ledger_covers_every_former_checklist_item_and_names_its_evidenc
             assert all((REPO_ROOT / test).is_file() for test in item["tests"]), item["id"]
         if item["kind"] == "scenario":
             assert item["scenario"] in POLICY["darwin_scenarios"], item["id"]
-        if item["kind"] == "blocked-permission":
+        if item["kind"] in ("blocked-permission", "approved-exception"):
             assert "Accessibility" in item["permission"], item["id"]
+        if item["kind"] == "approved-exception":
+            assert item["issue"] and item["decided"] and item["revisit"] and item["scope"], item["id"]
         if item["kind"] == "later-phase":
             assert item["phase"], item["id"]
     assert set(block["checklist_map"]) == {
@@ -448,6 +451,56 @@ def test_the_p1b_ledger_covers_every_former_checklist_item_and_names_its_evidenc
         named = {word.strip(" ,;:()") for word in text.split()}
         assert named & ids, text
     assert {"fresh-macos", "native-panel-selection", "owner-visual-dark", "kx10"} <= ids
+
+
+def test_act72_080_is_an_approved_exception_that_stays_unverified():
+    """The owner's decision of 2026-11-15: P1B may close without the privacy grants needed to automate a selection inside the
+    native file picker. The selection stays UNVERIFIED and the record says who decided, the issue and when it is revisited."""
+    entry = next(item for item in POLICY["darwin_p1b"]["requirements"] if item["id"] == "native-panel-selection")
+    assert entry["kind"] == "approved-exception" and entry["issue"] == "ACT72-080"
+    assert "owner" in entry["decided"] and "2026-11-15" in entry["decided"]
+    assert "P5" in entry["revisit"] and "P7" in entry["revisit"] and "not blanket" in entry["revisit"]
+    assert "UNVERIFIED" in entry["scope"] and "never PASS" in entry["scope"]
+    assert "APPROVED P1B EXCEPTION (ACT72-080, unverified)" in POLICY["darwin_p1b"]["checklist_map"]["macos-checklist:native-dialogs"]
+    verify = load_gate("act_verify_exception_label")
+    label = verify.approved_exception_label(entry)
+    assert label.startswith("APPROVED P1B EXCEPTION - ACT72-080 UNVERIFIED") and "PASS" not in label.replace("P1B", "")
+    assert verify.approved_exception_label({**entry, "decided": ""}).startswith("BLOCKED"), (
+        "an exception nobody is recorded as deciding is not accepted")
+
+
+PASSING = ["AUTOMATED PASS", "AUTOMATED PASS (carried)", "OWNER VISUAL ACCEPTANCE (reported at 455bf833e681; application unchanged "
+           "since)", "NOT RUN - LATER PHASE (P2)", "NOT APPLICABLE - JUSTIFIED"]
+EXCEPTION = "APPROVED P1B EXCEPTION - ACT72-080 UNVERIFIED (owner decision 2026-11-15; revisit P5/P7)"
+
+
+@pytest.mark.parametrize("other, outcome", [
+    ("AUTOMATED FAIL", "FAIL"),
+    ("BLOCKED - needs Accessibility", "BLOCKED"),
+    ("NEEDS RERUN", "INCOMPLETE"),
+    ("NOT RUN", "INCOMPLETE"),
+    ("NEEDS RE-REVIEW - 9 application file(s) changed since the owner looked at 455bf833e681",
+     "AWAITING THE OWNER'S VISUAL RE-REVIEW"),
+])
+def test_an_approved_exception_never_makes_another_requirement_pass(other, outcome):
+    verify = load_gate("act_verify_outcome")
+    assert verify.evidence_outcome(PASSING + [EXCEPTION, other])[0] == outcome
+    assert verify.evidence_outcome(PASSING + [other])[0] == outcome, "the same verdict without the exception"
+
+
+def test_the_outcome_names_an_approved_exception_and_is_never_plain_complete():
+    verify = load_gate("act_verify_outcome_names")
+    outcome, code = verify.evidence_outcome(PASSING + [EXCEPTION])
+    assert outcome == "COMPLETE WITH 1 APPROVED P1B EXCEPTION(S) (ACT72-080: UNVERIFIED)"
+    assert verify.evidence_outcome(PASSING) == ("COMPLETE", code)
+
+
+def test_an_owner_visual_record_reopened_by_a_code_change_is_not_complete():
+    """Regression: the outcome checked NEEDS RERUN and NOT RUN only, so NEEDS RE-REVIEW (the owner's visual acceptance
+    re-opened by an application change) read as COMPLETE."""
+    verify = load_gate("act_verify_outcome_rereview")
+    outcome, code = verify.evidence_outcome(PASSING[:2] + ["NEEDS RE-REVIEW - 1 application file(s) changed"])
+    assert outcome != "COMPLETE" and code != 0
 
 
 # --------------------------------------------------------------------------- #

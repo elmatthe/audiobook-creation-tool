@@ -319,6 +319,14 @@ def _layout_hints(theme) -> dict:
         "readback_layout": str(metrics.get("readback_layout", "compact")),
         "note_wrap": metrics.get("note_wrap"),
         "chapter_rows": int(metrics.get("chapter_rows", CHAPTER_ROWS)),
+        # v0.8.x P1B remediation (ACT72-078): "fit" shortens a long Book label
+        # so the navigator's "(X of Y)" is never cut. Windows keeps "natural".
+        "navigator_heading": str(metrics.get("navigator_heading", "natural")),
+        # v0.8.x P1B remediation (ACT72-078): Aqua keeps three chapter rows in
+        # either density (the tight floor of one row is Windows' 920x600 rule)
+        # and fits the Source line to its width with the full value on hover.
+        "chapter_floor_rows": metrics.get("chapter_floor_rows"),
+        "source_line": str(metrics.get("source_line", "natural")),
     }
 
 
@@ -549,6 +557,7 @@ class M4BMetadataEditorUI(ttk.Frame):
 
         self.navigator = BookNavigator(
             imp, theme=bundle, layout=hints["navigator_layout"],
+            fit_heading=hints["navigator_heading"] == "fit",
             actions=(BookNavigator.REMOVE,),
             describe=self._describe, label_for=self._label_for,
             on_previous=self.on_previous, on_next=self.on_next,
@@ -621,8 +630,24 @@ class M4BMetadataEditorUI(ttk.Frame):
         readback.columnconfigure(0, weight=1)
         self.readback = readback
         self.var_source = tk.StringVar(master=self, value="")
-        self.source_label = ttk.Label(readback, textvariable=self.var_source, anchor="w",
-                                      style=st("secondary_label"))
+        #: (file name, folder, status) of the Source line, for fitting it; None for the no-source message.
+        self._source_parts: tuple[str, str, str] | None = None
+        self._source_trace = None
+        self._source_hover = None
+        if hints["source_line"] == "fit":
+            # ACT72-078: the whole line asked for ~2200 px in an 835 px band, so
+            # Tk cut the path and the status off. The label now asks for no
+            # width, shows the line fitted to what it is given (``_fit_source``)
+            # and the whole of it on hover; ``var_source`` keeps the full text.
+            self.source_label = ttk.Label(readback, text="", width=1, anchor="w",
+                                          style=st("secondary_label"))
+            self.source_label.bind("<Configure>", self._fit_source, add="+")
+            self._source_trace = self.var_source.trace_add(
+                "write", lambda *_a: self._fit_source())
+            self._source_hover = ui_theme.HoverText(self.source_label, self.var_source.get)
+        else:
+            self.source_label = ttk.Label(readback, textvariable=self.var_source, anchor="w",
+                                          style=st("secondary_label"))
         self.source_label.grid(row=0, column=0, columnspan=2, sticky="ew")
         self.var_readback = tk.StringVar(master=self, value="")
         self.readback_label = ttk.Label(readback, textvariable=self.var_readback, anchor="w",
@@ -652,7 +677,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         chapters.grid(row=1, column=0, columnspan=2, sticky="nsew")
         chapters.columnconfigure(0, weight=1)
         chapters.rowconfigure(0, weight=1)
-        self._chapter_rows = hints["chapter_rows"]
+        # A theme's chapter floor is also what the box asks for, so it can keep it.
+        self._chapter_rows = max(hints["chapter_rows"], int(hints["chapter_floor_rows"] or 0))
         self.chapter_text = tk.Text(chapters, height=self._chapter_rows, width=24,
                                     wrap="none", undo=True)
         chapter_scroll = ttk.Scrollbar(chapters, orient="vertical",
@@ -833,10 +859,11 @@ class M4BMetadataEditorUI(ttk.Frame):
         label = self.output_label
         full = str(self.var_outdir.get())
         try:
-            width = label.winfo_width()
             described = ttk.Style(label).lookup(
                 str(label.cget("style")) or "TLabel", "font")
             font = tkfont.Font(font=described or "TkDefaultFont")
+            # The label's own padding is not room for text (the last glyph was cut).
+            width = ui_theme.text_room(label, font.measure)
         except tk.TclError:
             return
         text = full
@@ -892,6 +919,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         the platform's real metrics and scaling.
         """
         floor_rows = TIGHT_CHAPTER_FLOOR_ROWS if self._tight else CHAPTER_FLOOR_ROWS
+        # ACT72-078: Aqua keeps its own floor in either density (one row at 1120x800 was unusable).
+        floor_rows = max(floor_rows, int(self._hints["chapter_floor_rows"] or 0))
         chapters = self._linespace(self.chapter_text) * max(0, self._chapter_rows - floor_rows)
         log_floor = TIGHT_LOG_FLOOR_LINES if self._tight else LOG_FLOOR_LINES
         log = self._linespace(self.log.summary_text) * (LOG_HEIGHT - log_floor)
@@ -1200,6 +1229,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         source = wf.source_of(book)
         seen = self.store.for_book(book)
         if source is None:
+            self._source_parts = None
             self.var_source.set("No source — use Import Folder or Add Files.")
             self.var_readback.set("")
             self.var_facts.set("")
@@ -1207,12 +1237,11 @@ class M4BMetadataEditorUI(ttk.Frame):
         path = source.path
         if seen is None or not seen.readable:
             error = seen.error if seen is not None and seen.error else "unreadable"
-            self.var_source.set(f"Source: {path.name}  ({path.parent})  — "
-                                f"the file's tags could not be read: {error}")
+            self._set_source(path, f"the file's tags could not be read: {error}")
             self.var_readback.set(wf.series_readback(seen))
             self.var_facts.set("Series Part: —  ·  Artwork: unknown  ·  Chapters: —")
             return
-        self.var_source.set(f"Source: {path.name}  ({path.parent})  — readable")
+        self._set_source(path, "readable")
         self.var_readback.set(wf.series_readback(seen))
         part = seen.series_part.strip() or "—"
         if seen.series_part_source and seen.series_part.strip():
@@ -1220,6 +1249,54 @@ class M4BMetadataEditorUI(ttk.Frame):
         cover = "on file" if seen.has_cover else "none"
         self.var_facts.set(f"Series Part: {part}  ·  Artwork: {cover}  ·  "
                            f"Chapters: {seen.chapter_count}")
+
+    def _set_source(self, path, status: str) -> None:
+        """The Source line: the file, its folder and what reading it said. One text, two uses."""
+        self._source_parts = (path.name, str(path.parent), status)
+        self.var_source.set(f"Source: {path.name}  ({path.parent})  — {status}")
+
+    def _fit_source(self, _event=None) -> None:
+        """Show the Source line in the width it has (ACT72-078). Presentation only.
+
+        The folder yields first (its middle), then the file name (its middle);
+        the status -- readable, or why the tags could not be read -- stays whole
+        while anything else can yield. The full line is ``var_source`` and the
+        hover text.
+        """
+        if self._closed or self._source_trace is None:
+            return
+        label = self.source_label
+        full = str(self.var_source.get())
+        try:
+            measure = ui_theme.label_font(label).measure
+            width = ui_theme.text_room(label, measure)
+        except tk.TclError:
+            return
+        text = full
+        parts = self._source_parts
+        if width > 1 and measure(full) > width:
+            text = ui_theme.fit_end(full, width, measure)
+            if parts is not None:
+                name, folder, status = parts
+                tail = f")  — {status}"
+                shorter = ui_theme.fit_middle(folder, width, measure,
+                                              prefix=f"Source: {name}  (", suffix=tail)
+                if measure(shorter) > width:
+                    shorter = ui_theme.fit_middle(name, width, measure, prefix="Source: ",
+                                                  suffix=f"  ({ui_theme.ELLIPSIS}{tail}")
+                if measure(shorter) <= width:
+                    text = shorter
+        try:
+            label.configure(text=text)
+        except tk.TclError:
+            pass
+
+    @property
+    def source_shown(self) -> str:
+        """What the Source line shows now: the full text, or its fitted form."""
+        if self._source_trace is None:
+            return str(self.var_source.get())
+        return str(self.source_label.cget("text"))
 
     def _render_status(self) -> None:
         if self._closed:

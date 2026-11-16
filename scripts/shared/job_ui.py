@@ -160,6 +160,7 @@ __all__ = [
     "JobStatusView",
     "SummaryDetailsView",
     "JobAdapter",
+    "eta_is_estimated",
     "ask_files",
     "ask_folder",
     "ask_confirm",
@@ -1813,7 +1814,7 @@ class JobStatusView:
     nothing is ever rounded up to a hundred per cent to make an ending look tidy.
     """
 
-    __slots__ = ("_guard", "_theme", "_closed", "_view",
+    __slots__ = ("_guard", "_theme", "_closed", "_view", "_status_trace",
                  "frame", "indicator", "var_stage", "var_eta", "var_status",
                  "label_stage", "label_eta", "label_status")
 
@@ -1829,6 +1830,7 @@ class JobStatusView:
         self._theme = theme
         self._closed = False
         self._view: ProgressView | None = None
+        self._status_trace: str | None = None
 
         self.frame = ttk.Frame(parent, style=style_name(theme, "card"))
         self.indicator = ui_theme.ProgressIndicator(self.frame, length=progress_length)
@@ -1839,7 +1841,8 @@ class JobStatusView:
                                      style=style_name(theme, "secondary_label"))
         self.label_stage.grid(row=1, column=0, sticky="w")
 
-        self.var_eta = tk.StringVar(master=self.frame, value=CALCULATING)
+        # Empty until a run is working: an idle panel is estimating nothing (ACT72-079).
+        self.var_eta = tk.StringVar(master=self.frame, value="")
         self.label_eta = ttk.Label(self.frame, textvariable=self.var_eta,
                                    style=style_name(theme, "secondary_label"))
         self.label_eta.grid(row=1, column=1, sticky="e")
@@ -1910,6 +1913,52 @@ class JobStatusView:
     def set_status(self, text: str) -> None:
         self._guard.require("set_status")
         self._write(self.var_status, str(text))
+
+    @property
+    def status_shown(self) -> str:
+        """What the status line shows now: :attr:`status_text`, or its fitted form."""
+        if self._status_trace is None:
+            return self.status_text
+        try:
+            return str(self.label_status.cget("text"))
+        except tk.TclError:
+            return ""
+
+    def fit_status(self, enabled: bool) -> None:
+        """One line, shortened to the width it is given, or the shared label as it was.
+
+        v0.8.x P1B remediation (ACT72-078): a consumer that sets the status
+        beside its controls in a narrow column (the Maker's tight density on
+        Aqua) had Tk cut it mid-word ("Book 1: trac"). Fitted, it asks for no
+        width and ends in an ellipsis; :attr:`var_status` keeps the whole line,
+        which is also the last line of the Summary log. Presentation only.
+        """
+        self._guard.require("fit_status")
+        label = self.label_status
+        if enabled and self._status_trace is None:
+            label.configure(textvariable="", width=1, wraplength=0)
+            label.bind("<Configure>", self._fit_status_label, add="+")
+            self._status_trace = self.var_status.trace_add(
+                "write", lambda *_a: self._fit_status_label())
+            self._fit_status_label()
+        elif not enabled and self._status_trace is not None:
+            try:
+                self.var_status.trace_remove("write", self._status_trace)
+            except tk.TclError:
+                pass
+            self._status_trace = None
+            label.configure(textvariable=self.var_status, width=0)
+
+    def _fit_status_label(self, _event: object = None) -> None:
+        if self._closed or self._status_trace is None or not _alive(self.label_status):
+            return
+        label = self.label_status
+        try:
+            measure = ui_theme.label_font(label).measure
+            room = ui_theme.text_room(label, measure)
+            label.configure(text=ui_theme.fit_end(_read_str(self.var_status), room, measure))
+        except tk.TclError:
+            pass
 
     def finish(self) -> None:
         """End-of-run cleanup. Stops an animation; never invents a completion."""
@@ -2645,7 +2694,7 @@ class JobAdapter:
         self._guard.require("render")
         events = self._stream.events
         view = project_summary(events)
-        view = replace(view, eta=self._eta_text(view.progress))
+        view = replace(view, eta=self._eta_text(view.state, view.progress))
         self._summary_view = view
         if self._closed:
             return view
@@ -2717,7 +2766,17 @@ class JobAdapter:
 
     # -- internals --------------------------------------------------------- #
 
-    def _eta_text(self, progress: ProgressView) -> str:
+    def _eta_text(self, state: JobState | None, progress: ProgressView) -> str:
+        """The estimate, only while the run is working; otherwise nothing (ACT72-079).
+
+        Before a run has reported anything there is nothing to estimate from; a
+        paused, cancelling or ended run is not working, so there is nothing left
+        to estimate. The lifecycle is the stream's: this only chooses the text.
+        """
+        working = (progress.mode is not ProgressMode.IDLE if state is None
+                   else eta_is_estimated(state))
+        if not working:
+            return ""
         if self._estimator is None:
             return CALCULATING
         remaining: int | None = None
@@ -2728,6 +2787,17 @@ class JobAdapter:
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return (f"JobAdapter(run_id={self.run_id!r}, state={self.state.name}, "
                 f"closed={self._closed})")
+
+
+#: The states in which a run is doing work whose remaining time can be estimated
+#: (ACT72-079). Pause *requested* is still work: §6.10 lets the stage run on to its
+#: checkpoint. Idle, paused, cancelling and every ending estimate nothing.
+_ESTIMATED_STATES = frozenset({JobState.RUNNING, JobState.PAUSE_REQUESTED})
+
+
+def eta_is_estimated(state: JobState) -> bool:
+    """Whether a run in *state* shows an estimate (or ``Calculating…`` while one forms)."""
+    return state in _ESTIMATED_STATES
 
 
 #: States in which an animating indeterminate bar should stop. A determinate bar keeps

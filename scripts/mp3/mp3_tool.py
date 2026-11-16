@@ -522,6 +522,9 @@ def _layout_hints(theme) -> dict:
         # v0.6.4 Phase 13 (macOS parity): Clear All Imports widened this band
         # past the aqua host, squeezing the import status bar to one pixel.
         "import_band_layout": str(metrics.get("import_band_layout", "compact")),
+        # v0.8.x P1B remediation (ACT72-078): "fit" shortens a long Book label
+        # so the navigator's "(X of Y)" is never cut. Windows keeps "natural".
+        "navigator_heading": str(metrics.get("navigator_heading", "natural")),
     }
 
 
@@ -908,6 +911,7 @@ class MP3ToolUI(ttk.Frame):
 
         self.navigator = BookNavigator(
             imp, theme=bundle, layout=hints["navigator_layout"],
+            fit_heading=hints["navigator_heading"] == "fit",
             describe=self._describe, label_for=self._label_for,
             on_previous=self.on_previous, on_next=self.on_next,
             on_add=self.on_add, on_duplicate=self.on_duplicate,
@@ -1213,10 +1217,11 @@ class MP3ToolUI(ttk.Frame):
         label = self.output_label
         full = str(self.var_outdir.get())
         try:
-            width = label.winfo_width()
             described = ttk.Style(label).lookup(
                 str(label.cget("style")) or "TLabel", "font")
             font = tkfont.Font(font=described or "TkDefaultFont")
+            # The label's own padding is not room for text (the last glyph was cut).
+            width = ui_theme.text_room(label, font.measure)
         except tk.TclError:
             return
         text = full

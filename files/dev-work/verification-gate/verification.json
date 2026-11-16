@@ -1111,7 +1111,7 @@
     }
   },
   "darwin_p1b": {
-    "about": "The P1B acceptance ledger after the owner's revised instruction of 2026-11-15: every requirement of the former owner checklist (files/dev-work/macos-acceptance/P1B-owner-checklist.md, kept as history) and of the closeout, with the evidence that decides it. verify.py --evidence reads it. Statuses: AUTOMATED PASS, AUTOMATED FAIL, BLOCKED, OWNER VISUAL ACCEPTANCE, NOT RUN -- LATER PHASE, NOT APPLICABLE -- JUSTIFIED, plus NEEDS RERUN and NOT RUN for evidence a change invalidated or that never ran. A requirement with no evidence is never a pass.",
+    "about": "The P1B acceptance ledger after the owner's revised instruction of 2026-11-15: every requirement of the former owner checklist (files/dev-work/macos-acceptance/P1B-owner-checklist.md, kept as history) and of the closeout, with the evidence that decides it. verify.py --evidence reads it. Statuses: AUTOMATED PASS, AUTOMATED FAIL, BLOCKED, OWNER VISUAL ACCEPTANCE, APPROVED P1B EXCEPTION (an owner-approved exception: the behaviour stays UNVERIFIED, is never a pass, and relaxes no other requirement), NOT RUN -- LATER PHASE, NOT APPLICABLE -- JUSTIFIED, plus NEEDS RERUN and NOT RUN for evidence a change invalidated or that never ran, and NEEDS RE-REVIEW when application code changed after the owner's visual look. A requirement with no evidence is never a pass.",
     "owner_visual_record": "files/dev-work/macos-acceptance/evidence/{sha}/owner-visual-acceptance.json",
     "requirements": [
       {
@@ -1171,7 +1171,11 @@
       },
       {
         "id": "native-panel-selection",
-        "kind": "blocked-permission",
+        "kind": "approved-exception",
+        "issue": "ACT72-080",
+        "decided": "2026-11-15 by the owner (Decisions.md: P1B final visual remediation and the approved native-picker exception)",
+        "scope": "P1B may close without granting Accessibility or Screen Recording solely to automate a selection inside the native file picker. The selection itself stays UNVERIFIED, never PASS; opening, configuring and cancelling the real NSOpenPanel (native-dialogs) and the in-process returned paths, NFC/NFD names and downstream processing (p1b-suites, five-tools-journeys) keep their own evidence within their tested scope and are not proof of a real selection. No other requirement is relaxed by it.",
+        "revisit": "P5/P7 release qualification (not blanket release approval)",
         "permission": "Accessibility (to drive) and Screen Recording (to see) for the application hosting the run",
         "what": "Choosing files or folders inside Apple's NSOpenPanel with a real keyboard or pointer and receiving them through Tk. The panel's browser is drawn by another process (openAndSavePanelService): key events posted to the application do not reach it and its picture comes back without content (measured). Opening, configuring and cancelling the real panel are proved (native-dialogs); the paths a selection yields are proved through the stand-ins with NFC/NFD names (p1b-suites, journeys)."
       },
@@ -1206,7 +1210,7 @@
       }
     ],
     "checklist_map": {
-      "macos-checklist:native-dialogs": "native-dialogs (real panels: configuration, Cancel adds nothing, alert Return/Escape) + five-tools-journeys (dialog-contract, results processed, NFC/NFD names through p1b-suites); BLOCKED remainder: native-panel-selection",
+      "macos-checklist:native-dialogs": "native-dialogs (real panels: configuration, Cancel adds nothing, alert Return/Escape) + five-tools-journeys (dialog-contract, results processed, NFC/NFD names through p1b-suites); remainder native-panel-selection: APPROVED P1B EXCEPTION (ACT72-080, unverified)",
       "macos-checklist:appearance": "visual-pictures (every panel, Light and Dark, reviewed) + owner-visual-dark",
       "macos-checklist:retina-geometry": "visual-pictures (backing scale 2 recorded per picture, 1120 x 800 minimum and the largest visible size) + five-tools-journeys (launcher.six-tools-at-three-sizes); zoom/full screen/second display not automated (geometry at the sizes above only)",
       "macos-checklist:scrolling": "five-tools-journeys (maker.wheel-over-a-long-book, the wheel and <TouchpadScroll> paths through Tk) + p1b-suites; a physical trackpad is not exercised (HID: needs Accessibility)",

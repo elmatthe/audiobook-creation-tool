@@ -492,7 +492,7 @@ class LauncherApp:
         sidebar = tk.Frame(outer, bg=c["sidebar"], width=m["sidebar_width"])
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
-        tk.Label(sidebar, text="TOOLS", bg=c["sidebar"], fg=c["secondary"],
+        tk.Label(sidebar, text="TOOLS", bg=c["sidebar"], fg=c["sidebar_label"],
                  font=self.theme["font_section"], anchor="w"
                  ).pack(fill="x", padx=m["sidebar_pad"] + m["row_padx"],
                         pady=(m["sidebar_pad"] + 2, 4))
@@ -529,14 +529,29 @@ class LauncherApp:
         self._toolbar_title.pack(side="left", padx=(m["content_pad"], 8))
         self._toolbar_desc = tk.Label(toolbar, text="", bg=c["window"],
                                       fg=c["secondary"],
-                                      font=self.theme["font_status"], anchor="w")
+                                      font=self.theme["font_status"], anchor="w",
+                                      justify="left")
         self._toolbar_desc.pack(side="left", fill="x", expand=True)
+        # ACT72-078: the TTS description is wider than the toolbar at the
+        # 1120x800 minimum and was cut at the right edge. It wraps to the
+        # width it is given instead (two lines fit the 44 pt toolbar).
+        self._toolbar_desc.bind(
+            "<Configure>",
+            lambda event: event.widget.configure(wraplength=max(1, event.width)),
+            add="+")
         tk.Frame(column, bg=c["separator"], height=1).pack(fill="x")
 
         card_holder = tk.Frame(column, bg=c["window"])
         card_holder.pack(fill="both", expand=True)
+        # The hairline is drawn in highlightcolor whenever keyboard focus is
+        # inside the card (Aqua), which turned it black or white around the
+        # whole panel as soon as any field was used (P1B eye review). It is
+        # chrome, not a focus indicator: one colour, and never a focus stop.
         card = tk.Frame(card_holder, bg=c["card"],
-                        highlightbackground=c["separator"], highlightthickness=1)
+                        highlightbackground=c["separator"],
+                        highlightcolor=c["separator"], highlightthickness=1,
+                        takefocus=0)
+        self._content_card = card
         card.pack(fill="both", expand=True,
                   padx=m["content_pad"], pady=m["content_pad"])
 

@@ -13,7 +13,8 @@ inside the application, reads each panel's configuration from the panel itself, 
 
 What this does not prove, and never claims: a real keyboard or pointer (the events are synthetic, no Accessibility grant
 exists), and anything inside the open panel's browser, which another process draws (choosing files there is the
-``native-panel-selection`` requirement, BLOCKED on Accessibility; see verification.json darwin_p1b). While another
+``native-panel-selection`` requirement, ACT72-080: not automatable without Accessibility, and an owner-approved P1B
+exception that stays UNVERIFIED; see verification.json darwin_p1b). While another
 application holds the front (a system alert, such as the crash dialog the deliberate crash journeys can leave), this
 application is not active and AppKit answers no Return in it; a Return is then answered by the alert's default button
 (the window's ``defaultButtonCell``, the button Return presses) performing its click, and the record and the check say

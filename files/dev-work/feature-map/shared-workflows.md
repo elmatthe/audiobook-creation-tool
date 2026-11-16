@@ -104,7 +104,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 
 - Shows "done/total N%", animates when the total is unknown, and never rounds an unfinished, cancelled or failed run up to 100%. It never goes backwards within one stage.
 - The stage line names the stage and current item (tools may add context such as "Book 2 of 10 — Track 14 of 32").
-- Time remaining reads "Calculating…" until there is enough evidence, while paused, and after the run ends.
+- Time remaining reads "Calculating…" only while a run is working and its estimate is not yet trustworthy; it is empty before a run has reported anything, while paused or cancelling, and after the run ends (v0.8.x P1B remediation, ACT72-079).
 
 ### Summary and Details log panes
 `ACT.SHARED.LOG-VIEW`

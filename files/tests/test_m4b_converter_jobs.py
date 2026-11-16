@@ -1245,6 +1245,32 @@ def test_the_eta_starts_calculating(make_panel, tmp_path, run_env):
     assert panel.jobs.status.eta_text == jc.CALCULATING
 
 
+def test_an_idle_converter_estimates_nothing(make_panel):
+    """ACT72-079: the idle Converter showed "Calculating…" with no run at all."""
+    panel = make_panel()
+    panel._pump.tick()
+    assert panel.jobs.state is jc.JobState.IDLE
+    assert panel.jobs.status.eta_text == ""
+
+
+def test_a_cancelled_conversion_estimates_nothing_and_keeps_its_count(make_panel, tmp_path, run_env):
+    """ACT72-079: "3/6 50 %" beside "Calculating…" after Cancel. Running estimates; cancelled does not."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
+    params = start(panel)
+    panel._pump.tick()
+    assert panel.jobs.state is jc.JobState.RUNNING
+    assert panel.jobs.status.eta_text == jc.CALCULATING
+    panel.cancel()
+    panel.convert_worker(params)
+    panel._pump.tick()
+    assert panel.job_controller.state is jc.JobState.CANCELLED
+    assert panel.jobs.state is jc.JobState.CANCELLED
+    assert panel.jobs.status.eta_text == ""
+    view = panel.jobs.status.view
+    assert view.completed < (view.total or 1), "a cancelled run keeps the count it really reached"
+
+
 def test_two_samples_are_still_not_enough(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b", "D.m4b"))

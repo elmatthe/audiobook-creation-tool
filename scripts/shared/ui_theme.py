@@ -113,6 +113,40 @@ def _blend(hex_a: str, hex_b: str, t: float) -> str:
     )
 
 
+def _luminance(hex_color: str) -> float:
+    """WCAG 2 relative luminance of '#rrggbb'."""
+    def channel(value: int) -> float:
+        value /= 255
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    """WCAG 2 contrast ratio of two '#rrggbb' colors (1.0 to 21.0)."""
+    light, dark = sorted((_luminance(foreground), _luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+#: WCAG 2 AA for normal-size text.
+MIN_TEXT_CONTRAST = 4.5
+
+
+def _readable_secondary(text: str, toward: str, background: str, t: float,
+                        minimum: float = MIN_TEXT_CONTRAST) -> str:
+    """``_blend(text, toward, t)``, moved back toward *text* only as far as *background* needs for *minimum*.
+
+    The secondary grey is a blend of the label color into the window color; on
+    a tinted surface (the sidebar) that blend can fall under AA (ACT72-078's
+    advisory: "TOOLS" at 4.31). The step is a hundredth of the blend, so the
+    color changes no more than the contrast requires.
+    """
+    while t > 0 and contrast_ratio(_blend(text, toward, t), background) < minimum:
+        t = round(t - 0.01, 2)
+    return _blend(text, toward, max(0.0, t))
+
+
 def _is_dark(hex_color: str) -> bool:
     r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
     return (0.299 * r + 0.587 * g + 0.114 * b) < 128
@@ -178,6 +212,9 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
         "card": window,
         "text": text,
         "secondary": _blend(text, window, 0.45),
+        # The sidebar's "TOOLS" heading: the same grey, held to AA on the
+        # sidebar tint (v0.8.x P1B remediation; it measured 4.31).
+        "sidebar_label": _readable_secondary(text, window, sidebar, 0.45),
         "accent": accent,
         "selection": accent,
         "selection_text": "#ffffff",
@@ -248,7 +285,16 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
             "navigator_layout_one_action": "row",  # a Remove-only navigator fits
             "readback_layout": "compact",  # Editor: facts + status on the read-back line
             "note_wrap": 740,             # px; the Editor's preserve note folds once
-            "chapter_rows": 2,            # the chapter editor's floor; it grows
+            "chapter_rows": 6,            # the chapter editor's request (P1B: was 2, the
+                                          # floor it showed one row of); it grows
+            # v0.8.x P1B remediation (ACT72-078), measured on the real launcher
+            # at 1120x800: a long Book title cut the navigator's counter to
+            # "(1 of", the Editor's Chapter Titles box held one line, and the
+            # Editor's Source line lost its path and status at the right edge.
+            "navigator_heading": "fit",   # the title yields, "(X of Y)" stays whole
+            "chapter_floor_rows": 3,      # Editor: chapter rows kept in either density
+            "source_line": "fit",         # Editor: Source line fits, full value on hover
+            "status_line": "fit",         # Maker: the tight status line fits one line
         },
     }
 
@@ -1171,6 +1217,162 @@ def enable_mousewheel(scroll_target, hover_region=None):
     hover_region.tk.call(
         "bind", hover_region._w, "<Leave>", "+%s %%d" % leave_cb
     )
+
+
+# ---------------------------------------------------------------------------
+# Text that must fit a width (v0.8.x P1B remediation, ACT72-078)
+# ---------------------------------------------------------------------------
+#
+# A Tk label given less room than its text needs cuts the text at the edge,
+# whatever its anchor -- which is how a Book counter became "(1 of" and a
+# source path lost its status. These choose what to keep instead: the part
+# that must stay whole (a counter, a status) is kept, the rest yields behind
+# an ellipsis. Pure: *measure* is the label's own font (``Font.measure``), so
+# the rule is tested without a display. A width of 1 or less means "not laid
+# out yet" and the text comes back whole.
+
+ELLIPSIS = "\u2026"
+
+
+def _longest(count: int, fits) -> int:
+    """The largest ``k`` in ``0..count`` with ``fits(k)`` true (``fits`` is monotone)."""
+    low, high = 0, count
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def label_font(label) -> tkfont.Font:
+    """The font a ttk label draws its text in (its style's, else Tk's default), for measuring that text."""
+    described = ttk.Style(label).lookup(str(label.cget("style")) or "TLabel", "font")
+    return tkfont.Font(font=described or "TkDefaultFont")
+
+
+def text_room(label, measure) -> int:
+    """The width a label really has for its text: its width less its own padding.
+
+    A ttk label draws its text inside padding of its own (2 pt a side on Aqua,
+    measured), so text fitted to the whole widget width lost the end of its
+    last glyph (the output-folder hint's final "s"). The padding is read from
+    the label itself: its request less what its text, or its ``-width`` in
+    average characters, needs.
+    """
+    width = label.winfo_width()
+    if width <= 1:
+        return width
+    try:
+        chars = int(str(label.cget("width")) or 0)
+        shown = str(label.cget("text"))
+    except (tk.TclError, ValueError):
+        return width
+    natural = measure("0") * chars if chars > 0 else measure(shown)
+    return max(1, width - max(0, label.winfo_reqwidth() - natural))
+
+
+def fit_end(text: str, width: int, measure, *, suffix: str = "") -> str:
+    """*text* then *suffix*, or as much of *text* as fits, an ellipsis, then *suffix* whole."""
+    whole = text + suffix
+    if width <= 1 or measure(whole) <= width:
+        return whole
+    keep = _longest(len(text), lambda k: measure(text[:k].rstrip() + ELLIPSIS + suffix) <= width)
+    return text[:keep].rstrip() + ELLIPSIS + suffix
+
+
+def fit_middle(text: str, width: int, measure, *, prefix: str = "", suffix: str = "") -> str:
+    """*prefix* + *text* + *suffix*, or with the middle of *text* replaced by an ellipsis so it fits.
+
+    The start and the end of *text* are kept in equal measure (the end of a path
+    names the folder, its start where it lives). At the least, *text* becomes the
+    ellipsis alone; whether that fits is the caller's to judge.
+    """
+    whole = prefix + text + suffix
+    if width <= 1 or measure(whole) <= width:
+        return whole
+
+    def shown(k: int) -> str:
+        head, tail = (k + 1) // 2, k // 2
+        return prefix + text[:head] + ELLIPSIS + (text[len(text) - tail:] if tail else "") + suffix
+
+    return shown(_longest(len(text) - 1, lambda k: measure(shown(k)) <= width))
+
+
+class HoverText:
+    """The whole of a shortened label, shown while the pointer rests on it (ACT72-078).
+
+    A label that elides its text must still give the full value. *full* returns
+    it; nothing appears when the label already shows all of it. A borderless
+    window beside the pointer, built on the main thread from the label's own
+    events and gone on Leave, a press or the label's destruction.
+    """
+
+    DELAY_MS = 500
+    WRAP = 640
+
+    def __init__(self, widget, full, *, colors: tuple[str, str] = ("#ffffe1", "#000000")) -> None:
+        self.widget = widget
+        self._full = full
+        self._colors = colors
+        self._after: str | None = None
+        self.window: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+        widget.bind("<Destroy>", self.hide, add="+")
+
+    def text(self) -> str:
+        """The full value, or ``""`` when the label already shows it."""
+        try:
+            full = str(self._full())
+            shown = str(self.widget.cget("text"))
+        except tk.TclError:
+            return ""
+        return "" if full == shown else full
+
+    def _schedule(self, _event=None) -> None:
+        self._cancel()
+        try:
+            self._after = self.widget.after(self.DELAY_MS, self.show)
+        except tk.TclError:
+            self._after = None
+
+    def _cancel(self) -> None:
+        if self._after is not None:
+            try:
+                self.widget.after_cancel(self._after)
+            except tk.TclError:
+                pass
+            self._after = None
+
+    def show(self) -> None:
+        self._after = None
+        text = self.text()
+        if not text or self.window is not None:
+            return
+        try:
+            x = self.widget.winfo_pointerx() + 12
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+            window = tk.Toplevel(self.widget)
+            window.wm_overrideredirect(True)
+            background, foreground = self._colors
+            tk.Label(window, text=text, justify="left", wraplength=self.WRAP, padx=6, pady=3,
+                     background=background, foreground=foreground, relief="solid", borderwidth=1).pack()
+            window.wm_geometry(f"+{x}+{y}")
+        except tk.TclError:
+            return
+        self.window = window
+
+    def hide(self, _event=None) -> None:
+        self._cancel()
+        window, self.window = self.window, None
+        if window is not None:
+            try:
+                window.destroy()
+            except tk.TclError:
+                pass
 
 
 class ProgressIndicator:

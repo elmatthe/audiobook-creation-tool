@@ -1806,9 +1806,10 @@ def test_a_cancelled_image_contributes_no_timing_sample(
     assert panel.job_estimator.sample_count == 1, "one finished image, one sample"
 
 
-def test_a_finished_run_reports_calculating_however_many_samples_it_has(
+def test_a_finished_run_shows_no_estimate_however_many_samples_it_has(
     make_panel, output_base, tmp_path, monkeypatch
 ):
+    """ACT72-079: the run ended at 3/3, so nothing is left to estimate and "Calculating…" would be untrue."""
     clock = ManualClock()
     panel = make_panel(clock=clock)
     import_files(panel, *(make_image(tmp_path / "art" / f"{i}.jpg") for i in range(3)))
@@ -1817,11 +1818,11 @@ def test_a_finished_run_reports_calculating_however_many_samples_it_has(
     start(panel)
 
     assert panel.job_estimator.sample_count == 3
-    assert panel.jobs.status.eta_text == jc.CALCULATING, (
-        "the run ended; there is nothing left to estimate")
+    assert panel.jobs.state is jc.JobState.SUCCEEDED
+    assert panel.jobs.status.eta_text == "", "the run ended; there is nothing left to estimate"
 
 
-def test_a_paused_run_reports_calculating(
+def test_a_paused_run_shows_no_estimate_until_it_resumes(
     make_panel, output_base, tmp_path, monkeypatch
 ):
     clock = ManualClock()
@@ -1839,12 +1840,14 @@ def test_a_paused_run_reports_calculating(
     drain(panel)
 
     assert panel.job_estimator.sample_count == 3
-    assert panel.jobs.status.eta_text == jc.CALCULATING
+    assert panel.jobs.status.eta_text == "", "paused: nothing is being estimated (ACT72-079)"
 
     panel.resume()
     gate.let_through()
     runner.join()
     drain(panel)
+    assert panel.jobs.state is jc.JobState.SUCCEEDED
+    assert panel.jobs.status.eta_text == ""
 
 
 def test_every_estimator_call_happens_on_the_main_thread(

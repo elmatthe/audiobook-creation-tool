@@ -2013,6 +2013,8 @@ def _evidence_command(args) -> int:
                 status = _owner_visual_status(policy, current)
             elif kind == "blocked-permission":
                 status = f"BLOCKED - needs {requirement['permission']}"
+            elif kind == "approved-exception":
+                status = approved_exception_label(requirement)
             elif kind == "later-phase":
                 status = f"NOT RUN - LATER PHASE ({requirement['phase']})"
             else:
@@ -2026,17 +2028,49 @@ def _evidence_command(args) -> int:
         print("\nTo rerun exactly what is not current:")
         for line in plan:
             print(f"  {line}")
-    if any(verdict.startswith(("FAIL", "AUTOMATED FAIL")) for verdict in verdicts):
-        outcome, code = "FAIL", runstore.EXIT_FAIL
-    elif any(verdict.startswith("BLOCKED") for verdict in verdicts):
-        outcome, code = "BLOCKED", runstore.EXIT_BLOCKED
-    elif any(verdict.startswith(("NEEDS RERUN", "NOT RUN -", "NOT RUN")) and not verdict.startswith("NOT RUN - LATER") for verdict in verdicts):
-        outcome, code = "INCOMPLETE", runstore.EXIT_NOT_RUN
-    else:
-        outcome, code = "COMPLETE", runstore.EXIT_PASS
+    outcome, code = evidence_outcome(verdicts)
     print(f"\nEVIDENCE: {outcome} (incremental bookkeeping; not a canonical gate PASS -- the final release gate runs in full on the "
           "finalized SHA on both platforms)")
     return code
+
+
+#: The label every owner-approved P1B exception starts with. Never "PASS": the behaviour it names stays unverified.
+APPROVED_EXCEPTION = "APPROVED P1B EXCEPTION"
+
+
+def approved_exception_label(requirement: dict) -> str:
+    """An owner-approved exception, as the ledger shows it: the issue, that the behaviour is UNVERIFIED, who decided, when it
+    is revisited. A requirement that does not carry all four is refused rather than shown as accepted."""
+    missing = [key for key in ("issue", "decided", "revisit") if not str(requirement.get(key, "")).strip()]
+    if missing:
+        return f"BLOCKED - the exception record lacks {', '.join(missing)}"
+    return (f"{APPROVED_EXCEPTION} - {requirement['issue']} UNVERIFIED (owner decision {requirement['decided']}; revisit "
+            f"{requirement['revisit']})")
+
+
+def evidence_outcome(verdicts) -> tuple[str, int]:
+    """The ledger's one-line outcome from its requirement verdicts. Pure.
+
+    A failure, then anything blocked, then anything not current (a rerun the change needs, a requirement that never ran, the
+    owner's visual record re-opened by an application change) each outrank a completion. An owner-approved exception is
+    never a pass: it is named in the outcome, and it never stands in for any other requirement -- every other verdict is
+    judged as if it were not there.
+    """
+    verdicts = [str(verdict) for verdict in verdicts]
+    exceptions = [verdict for verdict in verdicts if verdict.startswith(APPROVED_EXCEPTION)]
+    others = [verdict for verdict in verdicts if not verdict.startswith(APPROVED_EXCEPTION)]
+    if any(verdict.startswith(("FAIL", "AUTOMATED FAIL")) for verdict in others):
+        return "FAIL", runstore.EXIT_FAIL
+    if any(verdict.startswith("BLOCKED") for verdict in others):
+        return "BLOCKED", runstore.EXIT_BLOCKED
+    if any(verdict.startswith(("NEEDS RERUN", "NOT RUN")) and not verdict.startswith("NOT RUN - LATER") for verdict in others):
+        return "INCOMPLETE", runstore.EXIT_NOT_RUN
+    if any(verdict.startswith("NEEDS RE-REVIEW") for verdict in others):
+        return "AWAITING THE OWNER'S VISUAL RE-REVIEW", runstore.EXIT_NOT_RUN
+    if exceptions:
+        named = "; ".join(verdict.split(" - ", 1)[1].split(" ", 1)[0] for verdict in exceptions)
+        return f"COMPLETE WITH {len(exceptions)} {APPROVED_EXCEPTION}(S) ({named}: UNVERIFIED)", runstore.EXIT_PASS
+    return "COMPLETE", runstore.EXIT_PASS
 
 
 def _owner_visual_status(policy: dict, current: dict) -> str:

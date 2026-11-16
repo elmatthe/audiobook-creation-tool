@@ -927,6 +927,17 @@ class CoverBrowser:
         for key, heading, width in DETAILS_COLUMNS:
             self.details.heading(key, text=heading)
             self.details.column(key, width=width, stretch=(key == "folder"))
+        self.details_xbar = None
+        if ui_theme.is_aqua(self.frame):
+            # v0.8.x P1B remediation (ACT72-078): at the Aqua 1120x800 minimum
+            # the Sources column shows Filename, Dimensions and a sliver of
+            # Format; File size and Folder could not be reached at all. The
+            # five columns now scroll sideways there. Windows is unchanged.
+            self.details_xbar = ttk.Scrollbar(
+                self.details.master, orient="horizontal", command=self.details.xview,
+                style=job_ui.style_name(theme, "hscrollbar"))
+            self.details_xbar.grid(row=1, column=0, sticky="ew")
+            self.details.configure(xscrollcommand=self.details_xbar.set)
 
         self.simple = self._treeview(VIEW_LIST, ["path"], height)
         self.simple.heading("path", text="File")

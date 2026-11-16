@@ -214,6 +214,14 @@ WORKFLOW_BREATHING = 48
 #: the widest thing in Output & Run under native aqua metrics.
 PROGRESS_BAR_AQUA_LENGTH = 140
 
+#: v0.8.x P1B remediation (ACT72-078). Characters the Voice list asks for on
+#: aqua (44 elsewhere). At 44 its aqua request alone (~427 pt) kept the
+#: small-window "split" arrangement from fitting the 1120x800 minimum, so the
+#: panel fell back to "stacked", where Sources showed two rows and Activity
+#: fell below the window. It still stretches to its column, and its drop-down
+#: lists every voice whole.
+VOICE_COMBO_AQUA_CHARS = 30
+
 #: v0.6.6 Phase 3. The progress bar's requested length in the small-window
 #: "split" arrangement, where Output & Run shares the right column with
 #: Activity. It still stretches to the width it is given; this only stops its
@@ -1274,7 +1282,7 @@ class TtsPanel(ttk.Frame):
             textvariable=self.selected_voice_label,
             values=display_labels(),
             state="readonly",
-            width=44,
+            width=VOICE_COMBO_AQUA_CHARS if self._is_aqua else 44,
             style=st("combobox"),
         )
         self.voice_combo.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -1362,8 +1370,8 @@ class TtsPanel(ttk.Frame):
             style=st("combobox"),
         )
         self.combo_bitrate.grid(row=0, column=1, sticky="w", padx=(6, 18))
-        ttk.Label(audio, text="File workers (requested)", style=st("label")).grid(
-            row=0, column=2, sticky="w")
+        self.label_workers = ttk.Label(audio, text="File workers (requested)", style=st("label"))
+        self.label_workers.grid(row=0, column=2, sticky="w")
         self.spin_workers = ttk.Spinbox(
             audio, from_=1, to=MAX_REQUESTED_WORKERS, textvariable=self.workers_var, width=4,
             style=st("spinbox"))
@@ -1382,7 +1390,10 @@ class TtsPanel(ttk.Frame):
         # backend in _on_voice_selected(); Chatterbox Turbo shows neither, since
         # the pinned engine exposes no rate/speed parameter at all.
         self.edge_rate_frm = ttk.Frame(audio, style=st("surface"))
-        self.edge_rate_frm.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(6, 0))
+        # Row 3, not 2: row 2 is where the workers note moves when the narrow
+        # aqua arrangement folds File workers under MP3 bitrate (_arrange_audio).
+        # An empty grid row takes no space, so nothing else moves.
+        self.edge_rate_frm.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(6, 0))
         self.edge_rate_frm.columnconfigure(3, weight=1)
         ttk.Label(self.edge_rate_frm, text="Edge speech rate", style=st("label")).grid(
             row=0, column=0, sticky="w")
@@ -1403,7 +1414,7 @@ class TtsPanel(ttk.Frame):
         self._wrap(self.edge_rate_note, voice)
 
         self.kokoro_speed_frm = ttk.Frame(audio, style=st("surface"))
-        self.kokoro_speed_frm.grid(row=2, column=0, columnspan=5, sticky="ew",
+        self.kokoro_speed_frm.grid(row=3, column=0, columnspan=5, sticky="ew",
                                    pady=(6, 0))
         ttk.Label(self.kokoro_speed_frm, text="Kokoro speed", style=st("label")).grid(
             row=0, column=0, sticky="w")
@@ -2159,6 +2170,7 @@ class TtsPanel(ttk.Frame):
             button.grid_configure(row=0, column=column, columnspan=1, sticky="w",
                                   padx=(0 if column == 0 else 10, 0), pady=0)
         self._arrange_job_controls(inner)
+        self._arrange_audio(fold=narrow and self._is_aqua)
         if narrow:
             options.check_subfolders.grid_configure(
                 row=0, column=count, columnspan=1, sticky="w", padx=(18, 0), pady=0)
@@ -2198,6 +2210,26 @@ class TtsPanel(ttk.Frame):
                 row=2, column=0, columnspan=2, sticky="ew", padx=0, pady=(6, 0))
             self.chk_resume.grid(row=0, column=0, sticky="w", padx=0, pady=0)
             self.chk_overwrite.grid(row=0, column=1, sticky="w", padx=(18, 0), pady=0)
+
+    def _arrange_audio(self, fold: bool) -> None:
+        """MP3 bitrate and File workers side by side, or -- narrow, on aqua -- File workers beneath.
+
+        v0.8.x P1B remediation (ACT72-078): under aqua metrics the side-by-side
+        pair was the widest thing left in Voice & Audio, and with the Voice list
+        it kept "split" from fitting the 1120x800 minimum. Grid positions only;
+        Windows never folds.
+        """
+        label = getattr(self, "label_workers", None)
+        if label is None:
+            return
+        if fold:
+            label.grid_configure(row=1, column=0, sticky="w", pady=(4, 0))
+            self.spin_workers.grid_configure(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
+            self.workers_note.grid_configure(row=2)
+        else:
+            label.grid_configure(row=0, column=2, sticky="w", pady=0)
+            self.spin_workers.grid_configure(row=0, column=3, sticky="w", padx=(6, 0), pady=0)
+            self.workers_note.grid_configure(row=1)
 
     def _arrange_job_controls(self, inner: str) -> None:
         """The shared job controls: one row, or two rows of two in ``"narrow"``.
