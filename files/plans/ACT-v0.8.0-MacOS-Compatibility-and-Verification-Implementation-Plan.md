@@ -1370,6 +1370,11 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
     stays UNVERIFIED (never PASS; `verify.py --evidence` shows APPROVED P1B EXCEPTION); opening, configuring and cancelling
     the real panels and the in-process returned paths keep their own evidence within their scope. It relaxes no other
     requirement and is revisited at P5/P7 release qualification.
+  - **ACT72-081 amendment to the frozen shell (owner, 2026-11-15; Decisions, P1B ACT72-081):** on macOS only, the footer
+    follows the application's current appearance so its native Aqua buttons sit on one coherent footer in Light and Dark;
+    native buttons, their positions, labels, actions and keyboard access, the Dark appearance and the Windows and Linux
+    shells are unchanged, and nothing else in the shell is redesigned. `macos-visual` pictures the switch without a
+    restart, and its review fails a native button drawn in a box of another colour.
 - **Exit:**
   - the five tools PASS on focused tests, real media, their acceptance counterparts with real pictures, and the darwin scenarios
     above; the owner's visual review recorded as owner-reported;
