@@ -8,7 +8,8 @@ evidence:
 
   * settings, logs and runtime data point into the test's scratch (the module constants the gate's Windows adapter
     sets); the proved FFmpeg record is copied in, so the pinned pair is the one used.
-  * once the window is up, a worker thread starts the work the scenario names, through the production spawn path:
+  * once the window is up, a worker thread starts the work the scenario names, through the production spawn path
+    (``kokoro``, v0.8.x P2: one Kokoro file through the local-engine worker, under the window's own owner):
       - ``ffmpeg``: one long FFmpeg step through ``subprocess_utils.run_supervised`` (what every tool's FFmpeg step
         uses), on the adopted FFmpeg;
       - ``setup``: a stand-in optional-setup worker through ``optional_setup_protocol._contained_spawn`` (what
@@ -170,8 +171,56 @@ def _scenario_setup() -> None:
     note("SETUPDONE", proc.wait())
 
 
+def _watch_kokoro_worker(stop: threading.Event) -> None:
+    """Report the local-engine worker the window's owner registers and each chunk it starts (host records only)."""
+    from tts import local_engine_host
+
+    seen: set = set()
+    while not stop.is_set():
+        host = local_engine_host.current_host()
+        if host is not None:
+            for event in list(host.history):
+                key = (event.name, event.at)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if event.name == "hello":
+                    pid = int(event.detail.get("pid") or 0)
+                    note("KWORKER", pid, os.getpgid(pid) if pid else 0)
+                elif event.name == "started":
+                    note("KCHUNK", event.detail.get("id"), event.detail.get("chars"))
+        time.sleep(0.02)
+
+
+def _scenario_kokoro() -> None:
+    """One Kokoro file through the production route the panel uses (``kokoro_file_to_mp3`` inside the conversion's own
+    work-area folder), on macOS through the local-engine worker under the window's containment owner. ``kokoro_stub``
+    (test-only) serves the real worker program with a stand-in engine instead of the model."""
+    from shared import work_area
+    from tts import kokoro_synth, local_engine_host
+
+    stub = CONFIG.get("kokoro_stub")
+    if stub:
+        os.environ["ACT_STUB_BEHAVIOUR"] = json.dumps(CONFIG.get("kokoro_stub_behaviour", {"mode": "hang"}))
+        local_engine_host._HOST = local_engine_host.WorkerHost(
+            "kokoro", sample_rate=24000, argv=[sys.executable, "-I", "-B", stub, "kokoro"], log=lambda _t: None)
+    source = Path(CONFIG["runtime"]) / "kokoro-source.txt"
+    source.write_text(CONFIG.get("kokoro_text") or ("A sentence for the voice to read. " * 90), encoding="utf-8")
+    stop = threading.Event()
+    threading.Thread(target=_watch_kokoro_worker, args=(stop,), name="kx-kokoro-watch", daemon=True).start()
+    try:
+        with work_area.conversion_folder("local") as scratch:
+            note("KSCRATCH", scratch)
+            kokoro_synth.kokoro_file_to_mp3(str(source), str(Path(scratch) / "output.mp3"),
+                                            voice_id=CONFIG.get("kokoro_voice", "af_heart"),
+                                            log=lambda text: None, cancel_check=lambda: False)
+        note("KDONE", "ok")
+    except BaseException as exc:  # noqa: BLE001 - reported to the test, which judges it
+        note("KDONE", type(exc).__name__)
+
+
 SCENARIOS = {"ffmpeg": _scenario_ffmpeg, "setup": _scenario_setup, "guardian-loss": _scenario_guardian_loss,
-             "idle": lambda: None}
+             "kokoro": _scenario_kokoro, "idle": lambda: None}
 
 
 def _poll_requests(app) -> None:

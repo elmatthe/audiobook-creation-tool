@@ -2163,6 +2163,9 @@ def fake_kokoro(monkeypatch):
             yield ("graphemes", "phonemes", (0.3 * np.sin(2 * np.pi * 220 * np.arange(6000) / 24000)).astype(np.float32))
 
     monkeypatch.setattr(ks, "_get_pipeline", lambda lang_code: Pipeline())
+    # The in-process route (Windows); on macOS the same parent flow runs through the local-engine worker, tested in
+    # test_local_engine_worker.py.
+    monkeypatch.setattr(ks, "_use_worker", lambda: False)
     return calls
 
 

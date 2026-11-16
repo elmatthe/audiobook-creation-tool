@@ -214,6 +214,12 @@
         "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (15), test_macos_p1b_gui_containment.py (13), test_macos_p1b_filesystem.py (10: exFAT and APFS disk images, read-only and full volumes, output permissions, two app copies, the measured descriptor peak), test_macos_p1b_mainthread.py (1: MAC-032) and test_macos_p1b_publication_cancel.py (8: CX-8). The same files' Windows controls run on Windows, and test_macos_p1b_gate.py (16) runs everywhere."
       },
       {
+        "id": "native-macos-p2",
+        "pattern": "^(native\\ macOS\\ only\\ \\(P2\\):\\ the\\ local\\-engine\\ worker,\\ POSIX\\ containment\\ and\\ real\\ Kokoro)$",
+        "max": 33,
+        "why": "v0.8.x P2: the macOS local-engine worker's tests. test_local_engine_worker.py (21 of its 23: the real worker program and host under POSIX containment with a stand-in engine; its Windows guard -- Kokoro never starts a worker and keeps its released in-process route -- and the platform rule run everywhere) and test_macos_p2_kokoro_real.py (12: real Kokoro in the worker, CX-1/6/7/8, KX-1(a)/2(a)/3(a), KX-7, parity). Windows keeps Kokoro in-process (D17); nothing Windows ran before is skipped by this rule."
+      },
+      {
         "id": "macos-xhe-owner-fixture",
         "pattern": "^(the\\ owner's\\ local\\ AAC\\-LC\\ control\\ audiobook\\ is\\ not\\ here|set\\ ACT_XHE_PROOF_APPLE_CAF\\ to\\ afconvert's\\ LEI16\\ decode\\ of\\ the\\ owner's\\ xHE\\-AAC\\ fixture\\ \\(about\\ 6\\ GB\\)\\ to\\ run\\ the\\ real\\ proof\\ 8)$",
         "max": 2,
@@ -286,6 +292,12 @@
         "max": 2,
         "pattern": "^(this\\ filesystem\\ is\\ case\\-insensitive,\\ so\\ the\\ two\\ names\\ are\\ one\\ file)$",
         "why": "The default APFS volume folds case; the case-sensitive behaviour is tested where the volume keeps case."
+      },
+      {
+        "id": "kokoro-p2-real-opt-in",
+        "pattern": "^(loads\\ the\\ Kokoro\\ model;\\ set\\ ACT_KOKORO_P2_REAL=1\\ where\\ it\\ is\\ installed)$",
+        "max": 12,
+        "why": "v0.8.x P2: the routine skip of every test in files/tests/test_macos_p2_kokoro_real.py, the only file with this reason. They load the Kokoro model and interrupt real inference, so they run only with ACT_KOKORO_P2_REAL=1 on a Mac where Kokoro is installed in the checkout (an opted-in run without it FAILS); the routine gate never sets it. This skip is evidence of nothing: their results are the opted-in P2 runs recorded in the Handoff."
       }
     ]
   },
@@ -788,64 +800,56 @@
         "driver": "adapters/macos",
         "journey": "tts.edge-replay-direct-file",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "tts.edge-replay-folder-mixed": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.edge-replay-folder-mixed",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "tts.service-failure-then-retry": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.service-failure-then-retry",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "tts.cancel-during-narration": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.cancel-during-narration",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "tts.pause-at-file-boundary": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.pause-at-file-boundary",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "tts.pdf-without-text": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "tts.pdf-without-text",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "shutdown.tts-close-during-work": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "shutdown.tts-close-during-work",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "shutdown.tts-close-forced-landing": {
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "shutdown.tts-close-forced-landing",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       },
       "shutdown.converter-close-during-work": {
         "class": "automated",
@@ -1021,8 +1025,7 @@
         "driver": "adapters/macos",
         "journey": "tts.kokoro-local",
         "tool": "tts-audiobook",
-        "pending_phase": "P2",
-        "why": "The TTS journeys belong to the engine phases (P2 Kokoro first); until then the stage reports NOT RUN."
+        "why": "v0.8.x P2: the TTS journey run by the in-process macOS driver against the real panel (the replayed speech service for Edge, real Kokoro in the local-engine worker for tts.kokoro-local)."
       }
     },
     "darwin_about": "v0.8.x P1B (plan 14.3, MAC-045, D9), revised by the owner's P1B closeout instruction of 2026-11-15: every required scenario and the optional one, exactly one class each. automated: the same journey run by the in-process macOS driver (adapters/macos: real panels, real media, real FFmpeg, acts through Tk, file and message dialogs answered by in-process stand-ins that record the options the application gave them), judged on the evidence its 'evidence' list names (helpers/acceptance_report.DARWIN_EVIDENCE: journey-checks, real-screenshots -- the window server's picture of the application's own window at this run's SHA, PASS on helpers/visual_review.py -- and dialog-contract). No owner signature stands in for an automated check. The real NSOpenPanel and NSAlert are the darwin scenario macos-native-dialogs; what no automation can reach without a privacy grant is listed in darwin_p1b as BLOCKED with the grant it needs. pending_phase: mapped but not yet runnable on macOS, reported NOT RUN until that phase. not-applicable: only a test of the Windows input harness itself, with an owner-reviewed reason id. A darwin acceptance stage fails on an unmapped scenario, a failed automated counterpart, missing or failed evidence, or a NOT RUN required scenario; it is never a blanket NOT APPLICABLE."

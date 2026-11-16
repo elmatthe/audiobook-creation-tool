@@ -373,7 +373,9 @@ def collect_kokoro() -> dict:
             def fake_export(arr, sample_rate, output_path, bitrate=None, log=None, _exported=exported):
                 _exported.append({"samples": int(len(arr)), "sample_rate": sample_rate})
 
+            # The in-process route: the parent's flow is the same on macOS's worker route (test_local_engine_worker).
             with quiet(), mock.patch.object(ks, "_get_pipeline", lambda lang_code: fake_pipeline), \
+                    mock.patch.object(ks, "_use_worker", lambda: False), \
                     mock.patch.object(ks, "_export_mp3", fake_export):
                 result = attempt(ks.kokoro_file_to_mp3, str(source), str(Path(tmp) / f"{name}.mp3"), "af_heart",
                                  1.0, 3000, 50)

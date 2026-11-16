@@ -496,6 +496,9 @@ def test_kokoro_output_is_internally_consistent(monkeypatch, tmp_path):
             yield ("g", "p", _pcm(1.0))
 
     monkeypatch.setattr(ks, "_get_pipeline", lambda lang_code: _Pipeline())
+    # The in-process route (Windows); on macOS the same parent flow runs through the local-engine worker, tested in
+    # test_local_engine_worker.py.
+    monkeypatch.setattr(ks, "_use_worker", lambda: False)
     source = tmp_path / "k.txt"
     source.write_text(("This is a sentence that fills the chunk. " * 90).strip(),
                       encoding="utf-8")

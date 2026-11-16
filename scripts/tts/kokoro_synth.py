@@ -234,6 +234,83 @@ def _load_pipeline(lang_code: str):
     return pipeline
 
 
+# --------------------------------------------------------------------------- #
+#  macOS: the model in the preemptible local-engine worker (v0.8.x P2, D17)
+# --------------------------------------------------------------------------- #
+#: The pipeline call's one setting besides voice and speed, the same on both routes.
+SPLIT_PATTERN = r"\n+"
+
+
+def _use_worker() -> bool:
+    """True where the model runs in the local-engine worker, so that Cancel can stop a chunk in flight: macOS only.
+    Windows keeps the released in-process route exactly (plan section 11.2.1, D17)."""
+    from tts import local_engine_host
+
+    return local_engine_host.isolation_enabled()
+
+
+def _worker_load_message(info: dict) -> str:
+    where = f"{info.get('device') or 'cpu'} {info.get('dtype') or ''}".strip()
+    if info.get("cached"):
+        return f"Kokoro: the worker's {info.get('lang_code')!r} pipeline was already loaded."
+    start = "cold start" if info.get("worker_start") else "load"
+    return (f"Kokoro: model loaded in its worker process ({start} #{info.get('worker_start')}, "
+            f"{info.get('load_s')} s, {where}).")
+
+
+def _worker_host(lang_code: str, log: Callable[[str], None], cancel_check: Callable[[], bool] | None = None):
+    """The warm Kokoro worker with ``lang_code``'s pipeline loaded, refusing exactly as the in-process load does: an
+    approved file missing is ``AssetsUnavailable`` (nothing downloaded); anything else is the pipeline failure."""
+    from tts import local_engine_host as hosts
+
+    host = hosts.host_for("kokoro", sample_rate=SAMPLE_RATE, log=log)
+    try:
+        info = host.load({"lang_code": lang_code}, cancel_check=cancel_check)
+    except hosts.WorkerError as exc:
+        if exc.kind == "assets":
+            raise model_assets.AssetsUnavailable(str(exc)) from None
+        raise _pipeline_failure(RuntimeError(str(exc))) from exc
+    except hosts.LocalEngineFailed as exc:
+        raise _pipeline_failure(exc) from exc
+    if not info.get("reused"):
+        log(_worker_load_message(info))
+    return host
+
+
+def _worker_render(host, text: str, voice_id: str, speed: float,
+                   cancel_check: Callable[[], bool] | None) -> list[np.ndarray]:
+    """One prepared chunk through the worker: the same pipeline call, its segments' PCM concatenated in order, or an
+    empty list when no segment had audio (as the in-process route returns)."""
+    from tts import local_engine_host as hosts
+
+    try:
+        result = host.synthesize({"text": text, "voice": voice_id, "speed": float(speed),
+                                  "split_pattern": SPLIT_PATTERN, "seed": None}, cancel_check=cancel_check)
+    except hosts.WorkerError as exc:
+        if exc.kind == "assets":
+            raise model_assets.AssetsUnavailable(str(exc)) from None
+        raise hosts.LocalEngineFailed(f"Kokoro could not synthesize this text: {exc}") from exc
+    return [result.pcm] if result.pcm.size else []
+
+
+def _end_worker_after_cancel() -> None:
+    """Cancel ends the worker wherever it was seen (the next run cold-loads, as after a Cancel mid-chunk)."""
+    from tts import local_engine_host as hosts
+
+    host = hosts.current_host()
+    if host is not None:
+        host.kill("cancel")
+
+
+def _finish_worker_use() -> None:
+    """A voice of another engine was chosen while this file used the worker: release it now that the file is done."""
+    from tts import local_engine_host as hosts
+
+    host = hosts.current_host()
+    if host is not None and host.release_when_idle:
+        hosts.release("engine switched")
+
+
 def synthesize_text_to_mp3(
     text: str,
     output_path: str,
@@ -244,6 +321,13 @@ def synthesize_text_to_mp3(
 ) -> None:
     """Synthesize `text` using Kokoro and save the result as an MP3 file at `output_path`."""
     lang_code = _lang_code_for_voice(voice_id)
+    if _use_worker():
+        host = _worker_host(lang_code, log)
+        audio_chunks = _worker_render(host, text, voice_id, speed, None)
+        if not audio_chunks:
+            raise RuntimeError(f"Kokoro produced no audio for voice '{voice_id}'.")
+        _export_mp3(np.concatenate(audio_chunks), SAMPLE_RATE, output_path, bitrate, log=log)
+        return
     try:
         pipeline = _get_pipeline(lang_code)
     except model_assets.AssetsUnavailable:
@@ -350,6 +434,23 @@ def kokoro_file_to_mp3(
     log(f"Kokoro: synthesizing {len(chunks)} chunk(s) with voice '{voice_id}' speed={speed}...")
 
     lang_code = _lang_code_for_voice(voice_id)
+    if _use_worker():
+        # macOS: the same chunks, in the same order, each through the same pipeline call -- in the local-engine worker,
+        # where Cancel ends a chunk in flight instead of waiting for it (plan section 11.2.1). Everything else here is
+        # unchanged and stays in this process.
+        from shared.cancellation import ConversionCancelled
+
+        try:
+            _kokoro_chunks_to_mp3(chunks, output_mp3_path, voice_id, speed, chunk_pause_ms, log, cancel_check,
+                                  progress_callback, bitrate,
+                                  _worker_renderer(lang_code, voice_id, speed, log, cancel_check))
+        except ConversionCancelled:
+            _end_worker_after_cancel()
+            raise
+        finally:
+            _finish_worker_use()
+        return
+
     try:
         pipeline = _get_pipeline(lang_code)
     except model_assets.AssetsUnavailable:
@@ -357,6 +458,31 @@ def kokoro_file_to_mp3(
     except Exception as e:
         raise _pipeline_failure(e) from e
 
+    def render(chunk: str) -> list[np.ndarray]:
+        audio_chunks: list[np.ndarray] = []
+        generator = pipeline(chunk, voice=voice_id, speed=speed, split_pattern=SPLIT_PATTERN)
+        for _, _, audio in generator:
+            if audio is not None:
+                arr = audio.numpy() if hasattr(audio, "numpy") else np.array(audio)
+                audio_chunks.append(arr)
+        return audio_chunks
+
+    _kokoro_chunks_to_mp3(chunks, output_mp3_path, voice_id, speed, chunk_pause_ms, log, cancel_check,
+                          progress_callback, bitrate, render)
+
+
+def _worker_renderer(lang_code: str, voice_id: str, speed: float, log: Callable[[str], None],
+                     cancel_check: Callable[[], bool] | None) -> Callable[[str], list[np.ndarray]]:
+    host = _worker_host(lang_code, log, cancel_check)
+    return lambda chunk: _worker_render(host, chunk, voice_id, speed, cancel_check)
+
+
+def _kokoro_chunks_to_mp3(chunks: list[str], output_mp3_path: str, voice_id: str, speed: float, chunk_pause_ms: int,
+                          log: Callable[[str], None], cancel_check: Callable[[], bool] | None,
+                          progress_callback: Callable[[int, int], None] | None, bitrate: str | None,
+                          render: Callable[[str], list[np.ndarray]]) -> None:
+    """The parent's half of ``kokoro_file_to_mp3`` on either route: each chunk rendered in order, the pauses between
+    rendered chunks, the Cancel checks, the one assembly and the one encode. ``render`` is the only difference."""
     # Silence built at the model's own rate, so configured pauses are exact sample
     # counts rather than something resampled from another rate on the way in.
     gap = np.zeros(int(SAMPLE_RATE * chunk_pause_ms / 1000.0), dtype="float32")
@@ -368,12 +494,7 @@ def kokoro_file_to_mp3(
             raise ConversionCancelled("Conversion cancelled by user.")
         log(f"  Kokoro chunk {idx}/{len(chunks)}...")
 
-        audio_chunks: list[np.ndarray] = []
-        generator = pipeline(chunk, voice=voice_id, speed=speed, split_pattern=r"\n+")
-        for _, _, audio in generator:
-            if audio is not None:
-                arr = audio.numpy() if hasattr(audio, "numpy") else np.array(audio)
-                audio_chunks.append(arr)
+        audio_chunks = render(chunk)
 
         if not audio_chunks:
             log(f"  Warning: chunk {idx} produced no audio, skipping.")

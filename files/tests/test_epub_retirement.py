@@ -126,6 +126,9 @@ PRODUCTION_TTS_SOURCES = (
     "tts/voice_install.py",
     # v0.8.0 Phase 3: OmniVoice's part of the optional installer (install, adopt, repair, proof, receipt).
     "tts/omnivoice_setup.py",
+    # v0.8.x P2 (macOS): the preemptible local-engine worker, its parent side and its child. Same reasoning as above.
+    "tts/local_engine_host.py",
+    "tts/local_engine_worker.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

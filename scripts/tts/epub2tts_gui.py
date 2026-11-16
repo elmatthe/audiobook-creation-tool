@@ -143,7 +143,7 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import ffmpeg_watch, publication, worker_limits
+from tts import ffmpeg_watch, local_engine_host, publication, worker_limits
 from shared import work_area
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
@@ -1651,6 +1651,9 @@ class TtsPanel(ttk.Frame):
         entry = get_voice(label)
         if entry is None:
             return
+        # macOS (v0.8.x P2): a warm local-engine worker of another engine is released, off this thread; never one that
+        # is serving a run. Nothing happens on Windows, where no worker exists.
+        local_engine_host.engine_selected(entry.backend)
 
         self.voice_var.set(entry.voice_id)
         if entry.backend == "qwen3" and self._qwen3_setup_offered():
@@ -3117,6 +3120,11 @@ class TtsPanel(ttk.Frame):
         # this run within one look, and a file waiting at the memory gate leaves it (v0.7.2). Both are no-ops when idle.
         ffmpeg_watch.wake()
         worker_limits.ASSEMBLY_GATE.wake()
+        # macOS (v0.8.x P2): this run's local-engine worker ends too when it is not mid-request (paused, or finishing a
+        # file); mid-request, the request's own Cancel poll ends it. Nothing on Windows, where there is no worker.
+        snapshot = self._snapshot
+        if snapshot is not None:
+            local_engine_host.cancel_requested(str(snapshot.tool_options.get("backend", "")))
         # A panel-authored status line, not engine transcript: it belongs in
         # both panes, matching the sibling tools' own ``_say``/``append`` use.
         self.log.append("Cancelling… stopping the files being converted now; nothing unfinished will be saved.")

@@ -37,6 +37,9 @@ class _FakePipeline:
 @pytest.fixture
 def fake_pipeline(monkeypatch):
     monkeypatch.setattr(ks, "_get_pipeline", lambda lang_code: _FakePipeline())
+    # The in-process route (Windows); on macOS the same parent flow runs through the local-engine worker, tested in
+    # test_local_engine_worker.py.
+    monkeypatch.setattr(ks, "_use_worker", lambda: False)
 
 
 # Long enough to split into exactly two chunks (split_into_chunks max is 3000
