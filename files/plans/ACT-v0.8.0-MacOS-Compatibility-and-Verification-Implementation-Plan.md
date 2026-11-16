@@ -1355,12 +1355,19 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
   - two app copies;
   - Edge-like 8-way open-file stress under 256;
   - the darwin acceptance map has no unmapped scenario. The automated counterparts for the five tools, the `shutdown.*` journeys and the behaviour `control.*` journeys PASS.
-- **Owner manual:**
-  - the GUI checklist for the five tools (Light/Dark, Retina, geometry, dialogs, Finder reveal, focus, Terminal auto-close);
-  - the class-(b) manual items for the five tools, signed;
-  - KX-10: Force Quit during an M4B Maker build.
+- **Owner manual (revised by the owner, 2026-11-15; Decisions, P1B closeout):** limited to subjective visual design and usability
+  review (reported: the six panels accepted in Dark Mode) and unavoidable OS permissions. Functional behaviour is the gate's:
+  - the former GUI checklist and class-(b) items are decided by automated evidence (`verification.json` → `darwin_p1b`): the
+    journeys with real window-server pictures and the dialog contract, the darwin scenarios `macos-native-dialogs` (the real
+    NSOpenPanel/NSAlert) and `macos-visual` (every panel, Light and Dark, sizes and states, machine-reviewed);
+  - KX-10 is the darwin scenario `macos-kx10` (SIGKILL of the exact process during a real Maker encode; the Force Quit window
+    itself is not exercised);
+  - what cannot be automated without a privacy grant is listed as BLOCKED with the grant it needs (choosing files inside the
+    native panel's out-of-process browser: Accessibility); later-phase items stay NOT RUN. `fresh-macos` REAL CLEAN is
+    unchanged (P7c).
 - **Exit:**
-  - the five tools PASS on focused tests, real media, their acceptance counterparts and the owner GUI check;
+  - the five tools PASS on focused tests, real media, their acceptance counterparts with real pictures, and the darwin scenarios
+    above; the owner's visual review recorded as owner-reported;
   - the CX and KX tests listed above PASS, with no orphan;
   - the darwin gate policy and the acceptance map are in place;
   - Windows touchpoints are listed.
