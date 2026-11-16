@@ -567,7 +567,9 @@ def cmd_voices(out: Path, pack: Path | None, only: list[str] | None) -> dict:
                 target = pack / f"{row['text'][:1]}-{row['voice']}.mp3"
                 shutil.copyfile(row["output"], target)
                 row["pack_file"] = str(target)
-    return {"rows": rows}
+    # The final record keeps what the running one held (the run's packages and machine, and each text's identity).
+    return {"environment": environment_facts(), "texts": {k: {"sha256": sha256_text(v), "chars": len(v)}
+                                                          for k, v in corpus.items()}, "rows": rows}
 
 
 # --------------------------------------------------------------------------- E-B3: the chapter
