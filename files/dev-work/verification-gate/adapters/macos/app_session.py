@@ -488,7 +488,11 @@ class AppSession:
 
         ``window`` names a top-level the way ``windows_of`` does; a stand-in dialog has no window of its own, so its
         picture is of the window behind it and says so (``subject``). A picture that could not be taken is recorded with
-        ``captured`` false and why: never a pass (``helpers/visual_review.py``)."""
+        ``captured`` false and why: never a pass (``helpers/visual_review.py``).
+
+        A picture the review finds out of register (the window server's image offset from the window's bounds for an
+        instant) is retaken a bounded number of times, each rejected image kept and listed in the sidecar's ``retakes``;
+        nothing else is retaken (``visual_review.take_in_register``)."""
         self.screenshots.mkdir(parents=True, exist_ok=True)
         path = self.screenshots / f"{name}.png"
         toplevel, subject = ".", "window"
@@ -496,6 +500,21 @@ class AppSession:
             subject = "window behind an in-process stand-in dialog"
         elif isinstance(window, str) and ":" in window:
             toplevel = window.split(":", 1)[1]
+        record, retakes = visual_review.take_in_register(
+            lambda: self._take(path, name, toplevel, subject, tool, state), path,
+            log=lambda item: self._log("screenshot retake", name=path.name, **item))
+        record["retakes"] = retakes
+        path.with_suffix(".json").write_text(json.dumps(record, indent=1, default=str), encoding="utf-8")
+        entry = {"name": path.name, "captured": bool(record["captured"]), "sidecar": path.with_suffix(".json").name,
+                 "review": record["review"]["status"], "tool": record.get("tool"), "state": record["state"],
+                 "appearance": (record.get("appearance") or {}).get("app"), "viewport": record.get("viewport"),
+                 "sha": record.get("sha"), "session": self.name, "retakes": len(retakes)}
+        self.shots.append(entry)
+        self._log("screenshot", **entry, reason=record["review"].get("reason"))
+        return entry["name"]
+
+    def _take(self, path: Path, name: str, toplevel: str, subject: str, tool: str | None, state: str | None) -> dict:
+        """One capture into ``path`` and its review: the record a sidecar holds."""
         record = {"name": path.name, "session": self.name, "scenario": self.evidence.name, "state": state or name,
                   "subject": subject, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **source_identity()}
         if self.client is None:
@@ -513,14 +532,7 @@ class AppSession:
         else:
             record["captured"] = False
         record["review"] = visual_review.review(path, record)
-        path.with_suffix(".json").write_text(json.dumps(record, indent=1, default=str), encoding="utf-8")
-        entry = {"name": path.name, "captured": bool(record["captured"]), "sidecar": path.with_suffix(".json").name,
-                 "review": record["review"]["status"], "tool": record.get("tool"), "state": record["state"],
-                 "appearance": (record.get("appearance") or {}).get("app"), "viewport": record.get("viewport"),
-                 "sha": record.get("sha"), "session": self.name}
-        self.shots.append(entry)
-        self._log("screenshot", **entry, reason=record["review"].get("reason"))
-        return entry["name"]
+        return record
 
     def _log(self, kind: str, **facts) -> None:
         self.evidence.mkdir(parents=True, exist_ok=True)

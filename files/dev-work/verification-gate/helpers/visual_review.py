@@ -1,10 +1,13 @@
-"""Judging one picture of the real application, and indexing a set of them (v0.8.x P1B closeout). Pure: files in, findings out.
+"""Judging one picture of the real application, and indexing a set of them (v0.8.x P1B closeout). Pure: files in, findings out
+(``take_in_register`` alone renames a rejected take).
 
 A picture is evidence only when all of this holds, and each failure is named:
 
   * it was really captured (``captured`` true) of a window this application drew itself -- a file panel's browser is drawn
     by another process, so its picture is UNVERIFIED, never a pass;
   * the file is a PNG that decodes, of exactly the size recorded, and that size is the window's frame times its backing scale;
+  * the window fills the picture to its edges (in register): the window server's image of a window can, for an instant, be
+    out of register with the window's bounds, leaving a transparent band along one edge and cutting the opposite edge off;
   * it is not blank (more than a handful of colours, real variation);
   * it shows the appearance the application was set to (a dark or light content area, and AppKit's own appearance name);
   * where Tk named solid points (``layout_audit.probes``), most of them are that colour in the picture at that place, which
@@ -30,10 +33,68 @@ PROBE_TOLERANCE = 28
 PROBE_SHARE = 0.6
 DARK_MAX, LIGHT_MIN = 0.36, 0.55
 STATUSES = ("PASS", "FAIL", "UNVERIFIED")
+#: A transparent band this wide (pixels) along an edge's middle means the image is out of register; 1 px is border rounding.
+REGISTER_BAND_PX = 4
+REGISTER_CHECK = "the window fills the picture to its edges (in register)"
+#: Retakes of a picture found out of register, and the pause before each (``take_in_register``).
+RETAKES, RETAKE_PAUSE = 2, 0.4
 
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def edge_bands(alpha) -> dict:
+    """How many fully transparent pixels run inward from each edge along the middle row and column of an alpha channel.
+
+    A window imaged in register is opaque to its edges on those lines (its rounded corners are not on them). Measured once at
+    ``b97d5bf`` (``converter.cancel-during-encode``, just after the run was cancelled): 32 px transparent at the left and the
+    right 16 points cut off, with AppKit's frame and Tk's layout exactly as in 96 other pictures at that position.
+    """
+    width, height = alpha.size
+    row, column = height // 2, width // 2
+
+    def run(points) -> int:
+        count = 0
+        for point in points:
+            if alpha.getpixel(point) != 0:
+                break
+            count += 1
+        return count
+
+    return {"left": run((x, row) for x in range(width)), "right": run((x, row) for x in range(width - 1, -1, -1)),
+            "top": run((column, y) for y in range(height)), "bottom": run((column, y) for y in range(height - 1, -1, -1))}
+
+
+def out_of_register(verdict: dict) -> bool:
+    """True when the verdict failed the in-register check: the picture, not the window, is wrong, and a retake may be right."""
+    return any(item["name"] == REGISTER_CHECK and not item["ok"] for item in verdict.get("checks", []))
+
+
+def take_in_register(take, path: Path, *, retakes: int = RETAKES, pause: float = RETAKE_PAUSE, sleep=None, log=None) -> tuple[dict, list]:
+    """``take()`` captures into ``path`` and returns the reviewed record; the final record and the rejected takes come back.
+
+    Only a take whose review failed the in-register check is retaken, at most ``retakes`` times, ``pause`` seconds apart. Each
+    rejected image is renamed ``<stem>.out-of-register-<n>.png`` beside the picture (no sidecar of its own, so nothing counts
+    it as a picture) and described in the returned list. A take showing the wrong content, appearance or layout is never
+    retaken, and a picture still out of register after the last retake fails as it was taken. The one function here that
+    moves a file.
+    """
+    import time
+
+    path, rejected = Path(path), []
+    while True:
+        record = take()
+        if len(rejected) >= retakes or not out_of_register(record.get("review") or {}) or not path.is_file():
+            return record, rejected
+        kept = path.with_name(f"{path.stem}.out-of-register-{len(rejected) + 1}.png")
+        path.replace(kept)
+        review_ = record.get("review") or {}
+        rejected.append({"file": kept.name, "sha256": record.get("sha256"), "at": record.get("at"),
+                         "registration": review_.get("registration"), "reason": review_.get("reason")})
+        if log is not None:
+            log(rejected[-1])
+        (sleep or time.sleep)(pause)
 
 
 def layout_defects(audit: dict) -> list[str]:
@@ -91,6 +152,7 @@ def review(png: Path, record: dict) -> dict:
 
         with Image.open(png) as opened:
             opened.load()
+            alpha = opened.getchannel("A") if "A" in opened.getbands() else None
             image = opened.convert("RGB")
     except Exception as exc:  # noqa: BLE001 - an undecodable picture is a finding, not a crash
         found["status"], found["reason"] = "FAIL", f"the picture does not decode: {type(exc).__name__}: {exc}"
@@ -104,6 +166,11 @@ def review(png: Path, record: dict) -> dict:
     check("is the window's frame at its backing scale", scale > 0 and abs(width - expected[0]) <= SIZE_SLACK_PX
           and abs(height - expected[1]) <= SIZE_SLACK_PX, f"{width}x{height} against {expected[0]}x{expected[1]} (scale {scale})")
     check("has a plausible size", width >= MIN_PX[0] and height >= MIN_PX[1], f"{width}x{height}")
+    if alpha is not None:  # every subject here is a window-server image of one of the application's own windows
+        bands = edge_bands(alpha)
+        found["registration"] = bands
+        check(REGISTER_CHECK, max(bands.values()) < REGISTER_BAND_PX,
+              "transparent inward from each edge's middle: " + ", ".join(f"{side} {pixels} px" for side, pixels in bands.items()))
     small = image.resize((96, 96))
     pixels = list(small.getdata())
     levels = [_luminance(pixel) for pixel in pixels]
@@ -170,7 +237,7 @@ def contact_sheet(entries: list[dict], folder: Path, *, title: str) -> dict:
         record, verdict = entry.get("record") or {}, entry.get("review") or {}
         rows.append("<tr><td><a href='{0}'><img src='{0}' width='240'></a></td><td>{1}</td><td><b>{2}</b><br>{3}</td><td>{4}</td></tr>".format(
             html.escape(entry["path"]), html.escape(json.dumps({key: record.get(key) for key in (
-                "tool", "state", "scenario", "viewport", "appearance", "sha", "dirty", "subject")}, indent=1)),
+                "tool", "state", "scenario", "viewport", "appearance", "sha", "dirty", "subject", "retakes")}, indent=1)),
             html.escape(verdict.get("status", "")), html.escape(verdict.get("reason", "")),
             "<br>".join(html.escape(line) for line in verdict.get("defects", []) + verdict.get("advisories", []))))
         if png.is_file() and record.get("captured"):

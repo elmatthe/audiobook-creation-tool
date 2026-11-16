@@ -152,6 +152,85 @@ def test_advisories_alone_do_not_fail_a_picture(tmp_path):
     assert verdict["status"] == "PASS" and len(verdict["advisories"]) == 2, verdict
 
 
+def _as_window_server_returned(path: Path, record: dict, *, shift_px: int = 0, clear_rows: tuple = ()) -> None:
+    """Make a synthetic picture RGBA like a real capture. ``shift_px`` draws the window that far right of the image's bounds, as
+    the window server returned it once at ``b97d5bf`` (``converter.cancel-during-encode``: 32 px transparent at the left, the
+    right edge cut off, the same size); ``clear_rows`` makes whole rows transparent, as a 1 px border rounding does."""
+    from PIL import Image
+
+    with Image.open(path) as opened:
+        window = opened.convert("RGBA")
+    picture = Image.new("RGBA", window.size, (0, 0, 0, 0))
+    picture.paste(window, (shift_px, 0))
+    for row in clear_rows:
+        for x in range(picture.size[0]):
+            picture.putpixel((x, row % picture.size[1]), (0, 0, 0, 0))
+    picture.save(path)
+    record["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_a_picture_out_of_register_fails_by_name_and_a_border_pixel_does_not(tmp_path):
+    """Regression (b97d5bf, converter.cancel-during-encode): an image offset from the window's bounds is never a pass, and the
+    review says what is wrong with the picture rather than only that Tk's points are elsewhere."""
+    path, record = _picture(tmp_path / "in")
+    _as_window_server_returned(path, record)
+    verdict = vr.review(path, record)
+    assert verdict["status"] == "PASS" and verdict["registration"] == {"left": 0, "right": 0, "top": 0, "bottom": 0}, verdict
+
+    path, record = _picture(tmp_path / "border")
+    _as_window_server_returned(path, record, clear_rows=(0, -1))
+    verdict = vr.review(path, record)
+    assert verdict["status"] == "PASS" and not vr.out_of_register(verdict), verdict
+
+    path, record = _picture(tmp_path / "out")
+    _as_window_server_returned(path, record, shift_px=32)
+    verdict = vr.review(path, record)
+    assert verdict["status"] == "FAIL" and vr.out_of_register(verdict) and vr.REGISTER_CHECK in verdict["reason"], verdict
+    assert verdict["registration"]["left"] == 32 and verdict["registration"]["right"] == 0
+
+
+def _taker(path: Path, record: dict, takes: list[dict]):
+    """A stand-in for one capture: writes the next synthetic take into ``path`` and returns its reviewed record."""
+    import shutil
+
+    good = path.with_name("good.png")
+    shutil.copyfile(path, good)
+
+    def take() -> dict:
+        shape = takes.pop(0)
+        shutil.copyfile(good, path)
+        fresh = json.loads(json.dumps(record))
+        _as_window_server_returned(path, fresh, **shape)
+        fresh["review"] = vr.review(path, fresh)
+        return fresh
+
+    return take
+
+
+def test_only_a_take_out_of_register_is_retaken_and_every_rejected_take_is_kept(tmp_path):
+    path, record = _picture(tmp_path / "retake")
+    logged, slept = [], []
+    final, rejected = vr.take_in_register(_taker(path, record, [{"shift_px": 32}, {}]), path, sleep=slept.append, log=logged.append)
+    assert final["review"]["status"] == "PASS" and len(rejected) == 1 and len(logged) == 1 and slept == [vr.RETAKE_PAUSE]
+    kept = path.with_name(rejected[0]["file"])
+    assert kept.name == "shot.out-of-register-1.png" and kept.is_file() and not kept.with_suffix(".json").exists()
+    assert rejected[0]["registration"]["left"] == 32 and hashlib.sha256(kept.read_bytes()).hexdigest() == rejected[0]["sha256"]
+
+
+def test_a_picture_still_out_of_register_after_the_last_retake_fails(tmp_path):
+    path, record = _picture(tmp_path / "never")
+    final, rejected = vr.take_in_register(_taker(path, record, [{"shift_px": 32}] * (vr.RETAKES + 1)), path, sleep=lambda _s: None)
+    assert final["review"]["status"] == "FAIL" and vr.out_of_register(final["review"]) and len(rejected) == vr.RETAKES
+
+
+def test_a_picture_with_the_wrong_content_is_never_retaken(tmp_path):
+    """A take that is in register but wrong (here: the wrong appearance) fails as it was taken; retaking is not a way to a pass."""
+    path, record = _picture(tmp_path / "wrong")
+    record["appearance"] = {"app": "light", "native": "NSAppearanceNameAqua"}
+    final, rejected = vr.take_in_register(_taker(path, record, [{}, {}]), path, sleep=lambda _s: None)
+    assert final["review"]["status"] == "FAIL" and not vr.out_of_register(final["review"]) and rejected == []
+
+
 def test_the_contact_sheet_indexes_every_picture(tmp_path):
     entries = []
     for name in ("one", "two", "three"):
