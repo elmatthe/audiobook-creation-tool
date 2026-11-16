@@ -2,6 +2,86 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P4B option B (MPS cache clearing) feasibility: `torch.mps.empty_cache()` gives no meaningful, repeatable memory improvement. Recommendation: keep the present 16-chunk behaviour and adopt no clearing policy. The memory exception stays OWNER DECISION PENDING; P4B is not owner accepted; P4C has not started
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB), under the owner's option-B authorization: one final bounded feasibility experiment, no production change, no new policy without the owner's review. Start SHA `dc7b1ed`.
+
+**Method.**
+- **Same as the memory checkpoint:**
+  - the installed engine: model `c5fdb5cc`, OmniVoice 0.2.1, MPS float32;
+  - the production `GENERATION` settings, seeds, `v1` speech preparation, assembly and encode, and the production 16-chunk MPS bound;
+  - the book-like text: Male 1, 48 all-different paragraphs of 229–293 characters, 984 s of audio, 3 workers of 16 chunks.
+- **How the clearing ran (experiment only).**
+  - It ran in a generated, ignored copy of `omnivoice_worker.py`, reached only through `omnivoice_file_to_mp3`'s `script` seam.
+  - It acts at the post-chunk boundary: after the chunk's audio is written, synchronized and its memory measured, and before its event is sent. When due, it synchronizes, calls `torch.mps.empty_cache()`, synchronizes again and measures again.
+  - `gen_s` is taken before the clear, and nothing is cleared after a worker's last chunk.
+- **The variants:**
+  - `control`: the production worker, unchanged;
+  - `every4`: after every 4th chunk of a worker;
+  - `thr8192`: after any chunk whose measured footprint is at least 8,192 MiB.
+- **Tools and evidence:**
+  - The driver `files/dev-work/macos-p4b/q/cache-exp/run_cache_exp.py` and `analyse.py` (ignored, not committed) reuse `macos_p4b_omnivoice_qualify`.
+  - Evidence is in `q/cache-exp/` (ignored).
+  - No tracked file changed during the experiment.
+
+**Results.**
+
+| Run | Clears | Worker lifetime peaks | Highest chunk-end footprint | Worst worker growth | Max MPS driver | Pressure / swap | Wall s (RTF) | Chunk generation vs control | Clear cost |
+|---|---|---|---|---|---|---|---|---|---|
+| control (16, no clear) | 0 | 11,131 / 9,988 / 10,360 MiB | 11,131 MiB | +31.2 % | 7,179 MiB | normal / 0 | 931.7 (0.947) | — | — |
+| every4 | 9 | **13,944** / 10,297 / 9,994 MiB | 10,844 MiB | +33.4 % | **10,277** MiB | normal / 0 | 985.1 (1.001) | +5.8 % (already +11 % on chunks 0–3, before any clear) | 0.192 s in all (mean 21 ms, max 26 ms) |
+| thr8192 | 20 | 10,931 / 9,907 / 10,086 MiB | 10,490 MiB | +27.7 % | 7,179 MiB | normal / 0 | 919.2 (0.934) | −1.4 % | 0.360 s in all (mean 18 ms) |
+
+- **Audio.** Every variant's MP3 (`ef0910ad…71b6`) and all 48 chunk hashes are identical to the control's, and to D and V1 from the memory checkpoint.
+- **Repeat and noise.**
+  - The same 16-chunk production code peaked at 10,745 MiB in V1 and 11,131 MiB here, so a peak varies about 400 MiB between identical runs.
+  - Chunk generation time varies up to about 11 % between runs.
+- **Containment and Cancel, with clearing after every chunk** (the `every1` copy, so clearing is on the stopping path):
+  - CX-3 Cancel: 2.13 s (bound 4 s). Worker group empty, nothing published.
+  - KX-1(c): worker group gone 0.083 s after the owner's SIGKILL (bound 3 s). Nothing published, no process left.
+
+**What `empty_cache` recovers, and what it cannot.**
+1. **Allocator recovery is real but small and fixed.**
+   - Every clear released exactly 2,096 MiB of MPS driver memory after a long chunk, or 1,072 MiB after a shorter one: PyTorch's pool holding one chunk's working space.
+   - Live tensors stayed at 2,336 MiB.
+   - The worker's footprint read straight after the clear did not drop yet. Metal gives the memory back a moment later; `footprint -p` at chunk 11 showed about 1.1 GB less, in "Owned physical footprint (unmapped) (graphics)".
+2. **The next chunk takes it straight back.**
+   - In `thr8192`, 35 of 48 chunk ends have MPS driver memory exactly equal to the control.
+   - The 13 that differ are shorter chunks that followed a cleared long chunk, each exactly 1,024 MiB lower: the long chunk's extra working space. The next long chunk takes it again.
+   - Peaks happen at long chunks, so they are unchanged.
+3. **The growth is below what `empty_cache` can reach.**
+   - The driver memory left after each clear rose in every worker. In `every4`, from the 4th to the 12th chunk: 3,152 → 4,466, 3,258 → 4,417 and 3,384 → 4,425 MiB. `thr8192` was the same: 3,656 → 4,883, 3,631 → 4,577 and 3,697 → 4,942 MiB. That is about 120–180 MiB a chunk.
+   - The CPU heap's "Malloc Small" (MPSGraph structures) was about 860 MiB at chunk 15 in all three runs.
+   - At chunk 15, "IOAccelerator (graphics)" was 2,696–2,729 MiB in all three.
+   - So the accumulating memory is GPU memory outside PyTorch's free pool, plus the CPU heap. Both grow with each new chunk shape and are freed only when the process ends.
+   - Its likely owner is the Metal resources of the MPSGraph executables compiled per shape (`heap`: +466 executables in 10 chunks). That is inferred, not proven.
+4. **Clearing can make things worse.**
+   - In `every4`'s first worker, chunk 15 ended with 10,277 MiB of driver memory against the control's 7,179, and the worker peaked at 13,944 MiB against 11,131.
+   - This was not seen in its other workers or in `thr8192`. It is unexplained, and only one occurrence was observed.
+
+**Correction to the memory-checkpoint entry below.**
+- It said about 88 % of the growth is "GPU buffers kept by PyTorch's MPS caching allocator".
+- That is wrong as a cause. The allocator does keep about 1–2 GB of working space between chunks, but it does not accumulate. The GPU growth is in memory `empty_cache` cannot release.
+- The same wording is in the comment above `MPS_CHUNKS_PER_WORKER` (`scripts/tts/omnivoice_synth.py`) and in the feature map's macOS bullet. Neither was edited, because this was a feasibility run. Correct them when the owner decides the final memory behaviour.
+
+**Not run.** The `every1` memory run was not run. `thr8192` already cleared after consecutive chunks (11–14, 25–29, 41–46), which is every-chunk clearing over those stretches, and the pool released is fixed. That leaves no material uncertainty, as the owner's condition required.
+
+**Recommendation.**
+- Keep the present behaviour: a fresh worker every 16 chunks on the Mac's GPU, and 48 on Windows and the Mac's CPU, as committed in `dc7b1ed`.
+- Adopt no cache-clearing policy. It gives no repeatable memory improvement: peaks are unchanged within run-to-run noise, the growth is untouched, and one clearing run peaked 2.8 GB higher. Its only measured benefit, about 1 GB lower after a shorter chunk, does not lower any peak.
+- **Throughput:** a clear costs about 20 ms, which is negligible. Run-to-run variation hides any effect on the next chunk.
+
+**The remaining exception, unchanged in kind.**
+- Book-like text at 16 chunks peaks at 10.7–11.1 GB, 5–9 % over the 10 GiB target.
+- Worker growth after warm-up is +20 to +31 % on book-like text and +10.6 % on the 60-chunk sequence, against < 10 %.
+- S: PASS. There was no pressure event and no swap in any run.
+
+**What is left for the owner.**
+- Accept the exception with the 16-chunk bound.
+- Or authorize work on the per-shape caching itself. That would need a different, separately authorized approach: a shorter bound with diminishing returns, or limiting distinct shapes, which would change the model's input and need listening.
+
+**Status.** P4B is NOT owner accepted. P4C has not started. Nothing was merged, tagged or released; draft release `447445728` is untouched. A third KX-1 job folder (the killed owner's) waits for the 24-hour stale cleanup.
+
 ## 2026-11-16 — macOS P4B memory checkpoint: a 16-chunk worker bound on the Mac's GPU reduces the memory exception but does not close it. OWNER DECISION PENDING; P4B not owner accepted; P4C not started
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB). This was the owner's authorized memory checkpoint: one bounded Mac-only investigation, worker lifetimes 48 / 24 / 16 only, no per-chunk cache clearing, no downloads. Start SHA `ce67630`.

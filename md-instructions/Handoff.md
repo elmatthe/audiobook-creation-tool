@@ -1,5 +1,39 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4B option B (MPS cache clearing) feasibility: no meaningful improvement; recommendation is to keep the 16-chunk behaviour; memory exception OWNER DECISION PENDING; P4B not owner accepted (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Windows v0.8.0 is untouched. Nothing was merged, tagged or released; draft release `447445728` is untouched.
+- P4C has not started, and P4B is **not owner accepted**.
+
+- **Branch.** `feature/0.8.0-macos-compatibility` at `dc7b1ed`, plus one documents-only commit.
+  - Production code is unchanged.
+  - The experiment driver and its worker copies are ignored and uncommitted: `files/dev-work/macos-p4b/q/cache-exp/`.
+- **What ran** (Decisions, option-B entry). The book-like text: Male 1, 48 long, all-different paragraphs, 3 workers of 16.
+  - The 16-chunk control (production worker);
+  - `empty_cache` every 4 chunks;
+  - `empty_cache` above an 8,192 MiB footprint.
+  - Cancel and KX-1 with clearing after every chunk.
+- **Results.**
+  - **Peaks:** control 11,131 MiB; every-4 13,944 MiB (one worker's driver memory reached 10,277 MiB against 7,179); threshold 10,931 MiB. Identical runs vary by about 400 MiB.
+  - **Growth after warm-up:** +31 %, +33 % and +28 % respectively.
+  - **Audio:** bit-identical in all (MP3 and every chunk hash).
+  - **Pressure and swap:** none.
+  - **Cost:** about 20 ms per clear.
+  - **Cancel:** 2.13 s. **KX-1:** 0.083 s.
+- **What it shows.**
+  - Each clear releases a fixed 2,096 MiB (after a long chunk) or 1,072 MiB (after a shorter one): one chunk's working space, which the next long chunk takes back.
+  - The growth stays: the driver memory left after a clear rose from about 3.2–3.7 to 4.4–4.9 GB in each worker (about 120–180 MiB a chunk), and the MPSGraph CPU heap was unchanged.
+  - **Correction:** the memory-checkpoint entry's "88 % is GPU buffers kept by PyTorch's allocator" is wrong as a cause. The comment above `MPS_CHUNKS_PER_WORKER` and the feature map's macOS bullet repeat it; correct them when the owner decides.
+- **Recommendation.**
+  - Keep the 16-chunk Mac-GPU bound (48 on Windows and the Mac's CPU), and adopt no cache clearing.
+  - The remaining exception: book-like text peaks at 10.7–11.1 GB (5–9 % over 10 GiB), and growth is +20 to +31 % (+10.6 % on the 60-chunk sequence). S is PASS.
+- **Leftovers.** Three KX-1 job folders wait for the 24-hour stale cleanup. Protected assets 18/2/28 were unchanged before and after.
+- **Next action (the owner's).**
+  1. Decide the memory exception: accept it with the 16-chunk bound, or authorize work on the per-shape caching (a different approach).
+  2. Accept or reject P4B. With that decision, correct the cause wording in the code comment and the feature map.
+  3. Then authorize P4C.
+
 ## Current checkpoint — macOS P4B memory checkpoint: Mac-GPU worker bound of 16 implemented; memory exception reduced, not closed — OWNER DECISION PENDING; P4B not owner accepted (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action.
