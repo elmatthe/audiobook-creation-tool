@@ -2040,8 +2040,12 @@ def _evidence_command(args) -> int:
 
 
 def _owner_visual_status(policy: dict, current: dict) -> str:
-    """The owner's reported visual acceptance carries while the application's code is the code they looked at."""
+    """The owner's reported visual acceptance carries while the application's code is the code they looked at.
+
+    A path the policy names as never selecting anything (``changed.no_selection``, e.g. the owner's own untracked
+    ``scripts/project-status.py``) is not the application, here as in the ledger."""
     pattern = policy.get("darwin_p1b", {}).get("owner_visual_record", "")
+    not_code = tuple(policy.get("changed", {}).get("no_selection", []))
     found = sorted((REPO_ROOT / "files" / "dev-work" / "macos-acceptance" / "evidence").glob("*/owner-visual-acceptance.json"))
     for path in reversed(found):
         try:
@@ -2055,7 +2059,8 @@ def _owner_visual_status(policy: dict, current: dict) -> str:
             then = evidence_ledger.blob_map_at(REPO_ROOT, sha)
         except RuntimeError:
             return f"NOT RUN - the owner's record names {str(sha)[:12]}, which this repository does not have"
-        moved = [p for p in evidence_ledger.changed_between(then, current) if p.startswith(("scripts/", "config.toml"))]
+        moved = [p for p in evidence_ledger.changed_between(then, current)
+                 if p.startswith(("scripts/", "config.toml")) and not (not_code and p.startswith(not_code))]
         if moved:
             return f"NEEDS RE-REVIEW - {len(moved)} application file(s) changed since the owner looked at {sha[:12]}"
         return f"OWNER VISUAL ACCEPTANCE (reported at {sha[:12]}; application unchanged since)"

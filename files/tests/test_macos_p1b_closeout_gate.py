@@ -472,6 +472,27 @@ TESTS = ["files/tests/test_a.py", "files/tests/test_b.py", "files/tests/test_c.p
 ENV = {"python": "3.12.15", "tk": "9.0.4", "ffmpeg": "9.0.1"}
 
 
+def test_the_owner_visual_record_carries_until_application_code_changes_and_owner_files_are_not_code(repo, monkeypatch):
+    """Regression (b8e0c92): the owner's own untracked ``scripts/project-status.py``, which the policy names in
+    ``changed.no_selection``, was read as an application change, so the owner's reported visual acceptance showed NEEDS
+    RE-REVIEW with no application file changed. A real application change must still invalidate it."""
+    verify = load_gate("act_verify_owner_visual")
+    monkeypatch.setattr(verify, "REPO_ROOT", repo)
+    sha = _git(repo, "rev-parse", "HEAD")
+    folder = repo / "files" / "dev-work" / "macos-acceptance" / "evidence" / sha
+    folder.mkdir(parents=True)
+    (folder / "owner-visual-acceptance.json").write_text(json.dumps({"sha": sha, "code_sha": sha}), encoding="utf-8")
+    policy = {"changed": {"no_selection": ["md-instructions/", "scripts/project-status.py"]}, "darwin_p1b": {}}
+    assert verify._owner_visual_status(policy, ledger.blob_map(repo)).startswith("OWNER VISUAL ACCEPTANCE (reported at")
+    (repo / "scripts" / "project-status.py").write_text("print('the owner')\n", encoding="utf-8")
+    (repo / "md-instructions" / "Notes.md").write_text("changed\n", encoding="utf-8")
+    assert verify._owner_visual_status(policy, ledger.blob_map(repo)).startswith("OWNER VISUAL ACCEPTANCE (reported at")
+    (repo / "scripts" / "a.py").write_text("VALUE = 2\n", encoding="utf-8")
+    assert verify._owner_visual_status(policy, ledger.blob_map(repo)).startswith("NEEDS RE-REVIEW - 1 application file(s)")
+    (folder / "owner-visual-acceptance.json").unlink()
+    assert verify._owner_visual_status(policy, ledger.blob_map(repo)).startswith("NOT RUN - no owner visual record")
+
+
 @pytest.fixture(autouse=True)
 def _synthetic_runs_are_admissible(monkeypatch):
     """These runs are hand-made, not sealed by the gate; the admission rule itself is tested on its own below."""
