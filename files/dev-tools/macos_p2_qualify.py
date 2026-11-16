@@ -254,11 +254,13 @@ def tk_root():
     return root
 
 
-def host_events(since: int = 0) -> list:
+def host_events(since: float = 0.0) -> list:
+    """The current worker host's events seen at or after ``since`` (monotonic). By time, never by index: a new panel
+    whose first voice belongs to another engine releases the warm worker, so a run may be served by a new host."""
     from tts import local_engine_host as hosts
 
     host = hosts.current_host()
-    return [] if host is None else list(host.history)[since:]
+    return [] if host is None else [event for event in list(host.history) if event.at >= since]
 
 
 def screen(path: Path, chars: int) -> dict:
@@ -516,7 +518,7 @@ def run_voice(root, voice_id: str, name: str, text: str, folder: Path, *, timeou
     folder.mkdir(parents=True, exist_ok=True)
     source = folder / f"{name}.txt"
     source.write_text(text, encoding="utf-8")
-    since = len(host_events())
+    since = time.monotonic()
     run = PanelRun(root, voice_id, [source], workers=1)
     try:
         run.start()
