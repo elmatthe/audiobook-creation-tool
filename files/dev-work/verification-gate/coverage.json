@@ -21789,13 +21789,20 @@
             "data_dir",
             "english_dir",
             "SentenceDataError",
-            "SentenceDataMissing"
+            "SentenceDataMissing",
+            "folder_text"
           ]
         },
         {
           "path": "scripts/shared/bootstrap.py",
           "symbols": [
             "fetch_sentence_data"
+          ]
+        },
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "sentence_data_question"
           ]
         }
       ],
@@ -21804,7 +21811,8 @@
         "Anything that does not match (hash, unsafe member, not a zip) installs nothing",
         "NLTK reads only files/runtime-data/nltk_data, never the user's profile",
         "First-run setup discloses the download before Begin Setup and a failed fetch is not fatal; when the data is missing an Edge conversion asks first, and No starts nothing and downloads nothing",
-        "The 'sentence data missing' message names the Start button."
+        "The 'sentence data missing' message names the Start button.",
+        "Both the missing-data message and the download question name the data folder with this system's separator: files\\runtime-data\\nltk_data on Windows (unchanged), files/runtime-data/nltk_data on macOS (v0.8.x P2)."
       ],
       "selection": [
         "files/tests/test_sentence_data.py",
@@ -25825,7 +25833,7 @@
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
     "scripts/shared/maintenance.py": "d389c802e4249e1253fe1e1249c095bb3b813dc7e2c9a2b5228ad8d4a8bd313d",
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
-    "scripts/shared/nltk_store.py": "42497303293134e07557754b8a1b354c2d0bf47489bbdaf78b333378e133580e",
+    "scripts/shared/nltk_store.py": "c7773eddd7987c4faeafb30f5681cb0c3267c8392c0258db0bd7912d1f25f375",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
     "scripts/shared/optional_setup_client.py": "3ab89c262a0bb885cca9dc1dcc43ddac9960d5a4c4786ca27f1e562e3ff507fd",
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
@@ -25862,7 +25870,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "d03cb89ae2784edcdf75d0c5e4226b6fc1ed51acd5bbe5bbca7e8e3196aa43d9",
+    "scripts/tts/epub2tts_gui.py": "7a7ac0f104e35cd5be5d9803ef4fc23825946f1152859121709062129271e3d9",
     "scripts/tts/ffmpeg_watch.py": "3af5ccd8a3aef4be21bf805be1eb808e056a8b9fd862ae2677d51473fe441f64",
     "scripts/tts/generate_voice_samples.py": "b59a47057a671e006c3aae750e1186f9310bfd30ae610f05ceae4c2dac47b26e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",

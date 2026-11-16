@@ -565,7 +565,7 @@ def needs_sentence_data(imported) -> bool:
 def sentence_data_question(detail: str) -> str:
     return (f"The Edge voices split text into sentences with the app's English sentence data, and {detail}.\n\n"
             f"Download it now? It is {nltk_store.DOWNLOAD_SIZE_TEXT} from {nltk_store.SOURCE_TEXT}, kept inside this "
-            "folder in files\\runtime-data\\nltk_data. Nothing else is downloaded.\n\n"
+            f"folder in {nltk_store.folder_text()}. Nothing else is downloaded.\n\n"
             "Choose No to stop: this conversion is not started.")
 
 

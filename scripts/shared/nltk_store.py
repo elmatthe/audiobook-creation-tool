@@ -143,11 +143,17 @@ def is_ready(root: Optional[Path] = None) -> bool:
     return problem(root) == ""
 
 
+def folder_text(sep: str = os.sep) -> str:
+    """The data folder as the person reads it on this system: ``files\\runtime-data\\nltk_data`` on Windows,
+    ``files/runtime-data/nltk_data`` on macOS (v0.8.x P2)."""
+    return sep.join(("files", "runtime-data", "nltk_data"))
+
+
 def missing_message(detail: str) -> str:
     """What the person is told when an Edge conversion cannot start for want of the sentence data."""
     return (f"The Edge voices need the app's English sentence data, and {detail}. Nothing was converted. Press "
             f"Start again and choose Yes to download it ({DOWNLOAD_SIZE_TEXT} from {SOURCE_TEXT}); it is kept inside "
-            f"this folder in files\\runtime-data\\nltk_data.")
+            f"this folder in {folder_text()}.")
 
 
 def configure(nltk_module, root: Optional[Path] = None) -> None:

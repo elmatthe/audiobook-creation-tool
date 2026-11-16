@@ -376,6 +376,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Purpose:** supply the sentence splitter the Edge voices need, verified and kept in the app folder.
 - **How to reach it:** first-run step 5. The wizard's intro discloses the size and source before Begin Setup. Otherwise, a TTS Edge conversion that needs the data asks before downloading it.
 - **Behaviour:** one pinned NLTK data commit is used. The archive and every installed file are checked against pinned SHA-256s and installed into `files/runtime-data/nltk_data` with one rename. Anything that does not match installs nothing. NLTK searches only that folder, never the user's profile. A failed fetch during setup is not fatal. Answering No in the TTS prompt starts nothing and downloads nothing.
+- **macOS (v0.8.x P2):** the missing-data message and the download question name the folder as `files/runtime-data/nltk_data`; Windows keeps `files\runtime-data\nltk_data` word for word.
 
 ### Optional voices: review, consent and install
 `ACT.SETUP.OPTIONAL-VOICES`
