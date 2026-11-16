@@ -142,7 +142,8 @@ class ChunkResult:
 
 
 #: What the host keeps of each event (no text, no phonemes): enough to time a Cancel and follow the worker's memory.
-_NOTED = frozenset({"id", "chars", "samples", "gen_s", "load_s", "cached", "kind", "footprint", "peak_footprint"})
+_NOTED = frozenset({"id", "pid", "pgid", "chars", "samples", "gen_s", "load_s", "cached", "kind", "footprint",
+                    "peak_footprint"})
 
 
 @dataclass
@@ -275,7 +276,7 @@ class WorkerHost:
             self.kill("protocol mismatch")
             raise LocalEngineFailed(f"The voice engine's worker is not the one this app expects ({hello}).")
         self.hello = hello
-        self._note("hello", pid=hello.get("pid"), seconds=round(time.monotonic() - began, 3))
+        self._note("ready", pid=hello.get("pid"), pgid=hello.get("pgid"), seconds=round(time.monotonic() - began, 3))
 
     def ensure_started(self, cancel_check: Optional[Callable[[], bool]] = None) -> None:
         with self._lock:

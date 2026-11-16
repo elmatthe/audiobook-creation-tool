@@ -44,6 +44,8 @@ import threading
 import time
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path.cwd()
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -219,7 +221,8 @@ class PanelRun:
 
     def start(self) -> None:
         self.started = time.monotonic()
-        self.worker = self.panel.run_job()
+        self.panel.run_job()
+        self.worker = self.panel._worker  # the run's thread (run_job itself returns nothing)
         if self.worker is None:
             raise RuntimeError("the Start button refused the run")
 
@@ -307,16 +310,56 @@ import json, os, sys
 sys.path.insert(0, sys.argv[1])
 deep_data, use_fix = sys.argv[2], sys.argv[3] == "1"
 import espeakng_loader
-espeakng_loader.get_data_path = lambda: deep_data      # the deep app folder's view of the bundled data
+espeakng_loader.get_data_path = lambda: deep_data      # the deep app folder's own copy of the bundled data
 from shared import espeak_data, paths
 from pathlib import Path
 paths.RESOURCES_DIR = Path(sys.argv[4])
 root = espeak_data.configure() if use_fix else None
 from misaki import espeak
+from phonemizer.backend.espeak.wrapper import EspeakWrapper
+reported = str(EspeakWrapper().data_path)
 fallback = espeak.EspeakFallback(british=False)
 from misaki.en import MToken
 token = MToken(text="Zxqorvian", tag="NNP", whitespace="")
-print(json.dumps({"deep_data_chars": len(deep_data), "configured_root": root, "phonemes": fallback(token)[0]}))
+print(json.dumps({"deep_data_chars": len(deep_data), "configured_root": root, "espeak_reported_path": reported,
+                  "phonemes": fallback(token)[0]}))
+"""
+
+
+EB1_OPENMP = r"""
+import json, sys, ctypes
+order = sys.argv[1]
+import numpy as np
+def sk():
+    from sklearn.cluster import KMeans
+    KMeans(n_clusters=8, n_init=1, random_state=0).fit(np.random.RandomState(0).rand(20000, 8))
+def th():
+    import torch
+    a = torch.randn(1500, 1500)
+    (a @ a).sum()
+    torch.nn.functional.conv1d(torch.randn(4, 64, 24000), torch.randn(64, 64, 9))
+    return torch.get_num_threads()
+def nb():
+    import numba
+    @numba.njit(parallel=True)
+    def total(x):
+        s = 0.0
+        for i in numba.prange(x.shape[0]):
+            s += x[i]
+        return s
+    total(np.arange(1_000_000.0))
+    return numba.threading_layer()
+steps = {"sklearn-then-torch": (sk, th, nb), "torch-then-sklearn": (th, sk, nb)}[order]
+results = [step() for step in steps]
+import threadpoolctl
+libc = ctypes.CDLL(None)
+libc._dyld_image_count.restype = ctypes.c_uint32
+libc._dyld_get_image_name.restype = ctypes.c_char_p
+images = [libc._dyld_get_image_name(i).decode() for i in range(libc._dyld_image_count())]
+print(json.dumps({"order": order, "libomp_images": sorted(p for p in images if p.endswith("libomp.dylib")),
+                  "threadpools": [{k: v for k, v in info.items() if k in ("user_api", "internal_api", "prefix",
+                                   "filepath", "num_threads", "version")} for info in threadpoolctl.threadpool_info()],
+                  "numba_threading_layer": results[-1]}))
 """
 
 
@@ -338,22 +381,56 @@ def cmd_eb1(out: Path) -> dict:
     deep_parent = out / "deep" / ("a-deep-application-folder-" * 4) / ("nested-" * 6)
     deep_parent.mkdir(parents=True, exist_ok=True)
     deep_data = deep_parent / "espeak-ng-data"
+    # A physical copy (19 MB, in this ignored scratch): phonemizer resolves links, so only a real deep folder is a deep
+    # install's view. The wheel's own data stays the only source the app ever uses.
+    if deep_data.is_symlink():
+        deep_data.unlink()
     if not deep_data.exists():
-        os.symlink(real, deep_data, target_is_directory=True)
+        shutil.copytree(real, deep_data)
     runs = {}
     for label, use_fix, resources in (("with the short root", "1", out / "deep-runtime"),
                                       ("runtime data too deep as well (temp root)", "1",
                                        deep_parent / ("runtime-" * 10)),
                                       ("negative control: no short root", "0", out / "deep-runtime-nc")):
         Path(resources).mkdir(parents=True, exist_ok=True)
+        private_temp = out / "deep-temp"  # the temp-root case links here, never in the shared system temp folder
+        private_temp.mkdir(exist_ok=True)
         run = subprocess.run([sys.executable, "-I", "-c", EB1_DEEP, str(SCRIPTS), str(deep_data), use_fix,
-                              str(resources)], capture_output=True, text=True, timeout=300, cwd=str(SCRIPTS))
+                              str(resources)], capture_output=True, text=True, timeout=300, cwd=str(SCRIPTS),
+                             env={**os.environ, "TMPDIR": str(private_temp)})
         row = {"returncode": run.returncode, "stderr_tail": run.stderr[-600:], "resources_chars": len(str(resources))}
         if run.returncode == 0 and run.stdout.strip():
             row.update(json.loads(run.stdout.strip().splitlines()[-1]))
         runs[label] = row
     record["deep_path"] = {"real_data_path_chars": len(str(real)), "deep_data_path_chars": len(str(deep_data)),
                            "runs": runs}
+    record["openmp"] = []
+    for order in ("sklearn-then-torch", "torch-then-sklearn"):
+        run = subprocess.run([sys.executable, "-I", "-c", EB1_OPENMP, order], capture_output=True, text=True,
+                             timeout=600, cwd=str(SCRIPTS))
+        row = {"order": order, "returncode": run.returncode, "stderr_tail": run.stderr[-800:]}
+        if run.returncode == 0 and run.stdout.strip():
+            row.update(json.loads(run.stdout.strip().splitlines()[-1]))
+        record["openmp"].append(row)
+    # The real worker: what it loads once the model is built and a chunk is spoken (lsof of its mapped files).
+    from tts import local_engine_host as hosts
+
+    host = hosts.WorkerHost("kokoro", sample_rate=24000, log=lambda s: None)
+    try:
+        began = time.monotonic()
+        loaded = host.load({"lang_code": "a"})
+        cold = time.monotonic() - began
+        pcm = host.synthesize({"text": "Zxqorvian brindlewhisk gloamtide, said Dr. Marsh at 6:45.", "voice": "af_heart",
+                               "speed": 1.0, "split_pattern": r"\n+", "seed": None}).pcm
+        mapped = subprocess.run(["lsof", "-p", str(host.pid)], capture_output=True, text=True).stdout
+        record["worker"] = {"hello": host.hello, "loaded": loaded, "cold_start_to_loaded_s": round(cold, 3),
+                            "samples": int(pcm.size), "finite": bool(np.isfinite(pcm).all()),
+                            "libomp_mapped": sorted({line.split()[-1] for line in mapped.splitlines()
+                                                     if line.rstrip().endswith("libomp.dylib")}),
+                            "sklearn_mapped": any("/sklearn/" in line for line in mapped.splitlines()),
+                            "numba_mapped": any("/numba/" in line for line in mapped.splitlines())}
+    finally:
+        host.close("eb1 over")
     return record
 
 
@@ -669,7 +746,7 @@ def _cancel_and_time(run: PanelRun, *, bound: float = 2.5) -> dict:
     while time.monotonic() - clicked < 30:
         run.tick()
         if acknowledged is None and run.state() in (JobState.CANCEL_REQUESTED, JobState.CANCELLED) \
-                and "Cancel" in run.panel.jobs.status.status_text():
+                and "Cancel" in run.panel.jobs.status.status_text:
             acknowledged = time.monotonic() - clicked
         if run.state() is JobState.CANCELLED and not run.worker.is_alive():
             break

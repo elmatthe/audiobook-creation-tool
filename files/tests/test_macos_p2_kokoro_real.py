@@ -87,6 +87,19 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _measured(case: str, **values) -> None:
+    """The measured figures, appended to ``$ACT_P2_EVIDENCE/measurements.jsonl`` when that folder is named (the P2
+    evidence runs name it); otherwise nothing. The assertions never depend on it."""
+    folder = os.environ.get("ACT_P2_EVIDENCE")
+    if folder:
+        import json
+
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        with open(Path(folder) / "measurements.jsonl", "a", encoding="utf-8") as sink:
+            sink.write(json.dumps({"case": case, "at": time.strftime("%Y-%m-%dT%H:%M:%S"), **values},
+                                  default=str) + "\n")
+
+
 def _params(voice: str = "af_heart") -> dict:
     """The panel's frozen Kokoro parameters for ``voice``: its preset's speed and pauses, 192k, v1, no overwrite."""
     from tts.speech.pipeline import build_snapshot
@@ -106,14 +119,15 @@ def _one_full_chunk() -> str:
     from tts.speech.pipeline import build_snapshot, prepare
     from tts.speech.profiles import KOKORO
 
-    words = LONGER_STRESS.text.replace("\n\n", " ").split(" ")
+    import re
+
+    snapshot = build_snapshot("v1", user_dir=None)
+    sentences = re.split(r"(?<=[.!?])\s+", LONGER_STRESS.text.replace("\n\n", " "))
     text = ""
-    for word in words:
-        trial = (text + " " + word).strip()
-        if len(prepare(trial, build_snapshot("v1", user_dir=None), KOKORO).text) > 2990:
-            break
-        text = trial
-    text = text[: text.rfind(".") + 1]
+    for sentence in sentences:  # whole sentences, greedily, as long as the prepared text stays one chunk
+        trial = (text + " " + sentence).strip()
+        if len(prepare(trial, snapshot, KOKORO).text) <= 2995:
+            text = trial
     chunks = ks.split_into_chunks(prepare(text, build_snapshot("v1", user_dir=None), KOKORO).text)
     assert len(chunks) == 1 and len(chunks[0]) >= 2900, [len(c) for c in chunks]
     return text
@@ -234,7 +248,7 @@ def test_cx1_cancel_mid_inference_of_a_3000_character_chunk_stops_within_2s_and_
     stopped = time.monotonic()
     host = hosts.current_host()
     killed = [e for e in host.history if e.name == "killed"]
-    spawned = [e for e in host.history if e.name == "hello"]
+    spawned = [e for e in host.history if e.name == "ready"]
     assert latch["at"] is not None and killed, [e.name for e in host.history]
     assert killed[-1].at - latch["at"] <= CANCEL_BOUND_S, f"worker ended {killed[-1].at - latch['at']:.3f} s after"
     assert stopped - latch["at"] <= CANCEL_BOUND_S, f"the run ended {stopped - latch['at']:.3f} s after the latch"
@@ -245,6 +259,9 @@ def test_cx1_cancel_mid_inference_of_a_3000_character_chunk_stops_within_2s_and_
     assert folders and not any(folder.exists() for folder in folders), "the conversion's work-area folder is gone"
     chunk_seconds = latch["at"] - latch["started_at"]
     assert chunk_seconds >= 0.5, "Cancel landed while the chunk was in flight"
+    _measured("CX-1", chunk_chars=len(source.read_text(encoding="utf-8")), latch_after_started_s=chunk_seconds,
+              worker_ended_after_latch_s=killed[-1].at - latch["at"], run_ended_after_latch_s=stopped - latch["at"],
+              kill_and_reap_s=killed[-1].detail.get("seconds"), returncode=killed[-1].detail.get("returncode"))
 
     # CX-7: the same voice again -- a new worker, a cold load said in the log, a published file.
     short = tmp_path / "short.txt"
@@ -256,6 +273,7 @@ def test_cx1_cancel_mid_inference_of_a_3000_character_chunk_stops_within_2s_and_
     assert again.is_file() and again.stat().st_size > 4000
     assert host.starts == 2 and int(host.hello["pid"]) != pid
     assert any("model loaded in its worker process (cold start #2" in line for line in logged), logged
+    _measured("CX-7", restarted_pid=host.hello["pid"], load_line=[line for line in logged if "model loaded" in line])
 
 
 # --------------------------------------------------------------------------- CX-8 (the publication window)
@@ -293,6 +311,7 @@ def test_cx8_cancel_in_the_publication_window(fresh_host, tmp_path, monkeypatch,
     else:
         assert moves and destination.is_file() and _sha(destination) == moves[-1][1], "the whole file, reported"
     assert [p.name for p in destination.parent.iterdir() if p != destination] == [], "nothing else under a name"
+    _measured("CX-8", order=order, outcome=outcome, published=destination.exists())
 
 
 # --------------------------------------------------------------------------- CX-6 (the real panel, real threads)
@@ -322,7 +341,8 @@ def isolated_outputs(tmp_path, monkeypatch):
         shared_config.invalidate()
 
 
-def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_root, isolated_outputs, tmp_path):
+def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_root, isolated_outputs, tmp_path,
+                                                                 monkeypatch):
     from shared.job_control import JobState
     from tts import epub2tts_gui as panel_module
     from tts.voice_registry import VOICES
@@ -338,6 +358,9 @@ def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_
         return real_synthesize(self, request, *args, **kwargs)
 
     hosts.WorkerHost.synthesize = recording
+    for name in ("showwarning", "showinfo", "showerror"):  # a refusal fails here, with the panel's own words
+        monkeypatch.setattr(panel_module.messagebox, name,
+                            lambda title=None, message=None, **_k: pytest.fail(f"the panel said: {title}: {message}"))
     panel = panel_module.TtsPanel(tk_root, choose_files=lambda: (str(first), str(second)))
     def pump_until(predicate, timeout):
         deadline = time.monotonic() + timeout
@@ -356,8 +379,9 @@ def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_
         panel.selected_voice_label.set(heart.display_label)
         panel._on_voice_selected()
         panel.workers_var.set("1")
-        worker = panel.run_job()
-        assert worker is not None
+        panel.run_job()
+        worker = panel._worker  # the run's thread (run_job itself returns nothing)
+        assert worker is not None, "the panel did not start the run"
 
         assert pump_until(lambda: (hosts.current_host() is not None
                                    and any(e.name == "started" for e in hosts.current_host().history)), 120)
@@ -377,7 +401,7 @@ def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_
             panel._pump.tick()
             tk_root.update()
             if (panel._controller.state in (JobState.CANCEL_REQUESTED, JobState.CANCELLED)
-                    and acknowledged is None and "Cancel" in panel.jobs.status.status_text()):
+                    and acknowledged is None and "Cancel" in panel.jobs.status.status_text):
                 acknowledged = time.monotonic() - clicked
             if panel._controller.state is JobState.CANCELLED and _gone(pid, start):
                 break
@@ -387,6 +411,8 @@ def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_
         assert panel._controller.state is JobState.CANCELLED and ended <= CANCEL_BOUND_S, (panel._controller.state,
                                                                                          ended)
         assert _gone(pid, start), "Cancel while paused ended the idle worker"
+        _measured("CX-6", c1_ack_s=acknowledged, c2_cancelled_and_worker_gone_s=ended,
+                  first_published=published[0].name, sent_chunks=len(sent))
         assert _sha(published[0]) == digest and sorted(isolated_outputs.rglob("*.mp3")) == published
         worker.join(10)
     finally:
@@ -418,7 +444,9 @@ def window(tmp_path):
 def _worker_in_flight(app) -> tuple[int, int, tuple]:
     words = app.wait_for("KWORKER", timeout=120)
     pid, pgid = int(words[1]), int(words[2])
+    assert pid > 1 and pgid == pid, f"a real worker leading its own group: {words}"
     start = child_ownership.process_start_time(pid)
+    assert start is not None
     app.wait_for("KCHUNK", timeout=180)
     time.sleep(0.5)  # inference is under way
     assert child_ownership.process_start_time(pid) == start, "the worker is running its chunk"
@@ -441,6 +469,7 @@ def test_kx1a_kx2a_the_window_ends_abnormally_during_real_inference(window, sig)
     pid, pgid, start = _worker_in_flight(app)
     os.kill(app.proc.pid, sig)
     seconds = _wait_gone(pid, start, pgid, ORPHAN_BOUND_S)
+    _measured("KX-1/2(a)", signal=signal.Signals(sig).name, worker_gone_after_s=seconds)
     assert seconds <= ORPHAN_BOUND_S, f"the worker outlived the window by {seconds} s"
     scratch = Path(app.wait_for("KSCRATCH")[1])
     assert not (scratch / "output.mp3").exists(), "nothing was encoded, nothing under a name"
@@ -457,6 +486,7 @@ def test_kx3a_an_orderly_end_during_real_inference_completes_within_5s(window, h
         app.ask("quit")
     app.proc.wait(timeout=ORDERLY_BOUND_S + 5)
     seconds = _wait_gone(pid, start, pgid, ORDERLY_BOUND_S)
+    _measured("KX-3(a)", how=how, window_and_worker_gone_s=time.monotonic() - began, worker_gone_after_exit_s=seconds)
     assert time.monotonic() - began <= ORDERLY_BOUND_S + 0.5 and seconds <= ORDERLY_BOUND_S
 
 
@@ -467,6 +497,7 @@ def test_kx7_without_the_lifeline_the_workers_orphan_is_seen(window):
     pid, pgid, start = _worker_in_flight(app)
     os.kill(app.proc.pid, signal.SIGKILL)
     seconds = _wait_gone(pid, start, pgid, ORPHAN_BOUND_S)
+    _measured("KX-7", orphan_seen=seconds == float("inf") and not _gone(pid, start))
     try:
         assert seconds == float("inf") and not _gone(pid, start), "the orphan is seen"
     finally:

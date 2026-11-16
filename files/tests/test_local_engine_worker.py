@@ -125,6 +125,11 @@ def test_a_worker_is_a_contained_class_a_child_that_loads_once_and_returns_valid
     assert child is not None and child.kind == child_ownership.CLASS_A, "registered with its owner as class A"
     assert os.getpgid(host.pid) == host.pid, "it leads its own process group"
     assert host.hello["pgid"] == host.pid and host.hello["engine"] == "kokoro"
+    # Every record of the worker's identity names the real process (a record without it once sent a containment test
+    # after process 0, which ``killpg`` reads as the caller's own group).
+    identities = [e.detail for e in host.history if e.name in ("hello", "ready")]
+    assert identities and all(d.get("pid") == host.pid for d in identities), identities
+    assert [e.detail.get("pgid") for e in host.history if e.name == "ready"] == [host.pid]
     assert host.load({"lang_code": "a"})["reused"] is True, "a warm worker answers a repeated load at once"
     result = host.synthesize(_request("Hello there."))
     assert result.pcm.dtype == np.float32 and result.pcm.size == 240 * len("Hello there.")

@@ -184,9 +184,8 @@ def _watch_kokoro_worker(stop: threading.Event) -> None:
                 if key in seen:
                     continue
                 seen.add(key)
-                if event.name == "hello":
-                    pid = int(event.detail.get("pid") or 0)
-                    note("KWORKER", pid, os.getpgid(pid) if pid else 0)
+                if event.name == "ready":  # the worker answered and was checked: its own pid and group
+                    note("KWORKER", int(event.detail["pid"]), int(event.detail["pgid"]))
                 elif event.name == "started":
                     note("KCHUNK", event.detail.get("id"), event.detail.get("chars"))
         time.sleep(0.02)
