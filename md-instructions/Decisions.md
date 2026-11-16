@@ -2,6 +2,71 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — Owner decisions Q1=A, Q2=A, Q3=A: Mac-first scope with an approved Edge/Kokoro fallback; one bounded OmniVoice feasibility campaign (P4A) before P3, prepared without acquisition; P3A/P3B skipped by owner decision on macOS; Windows verification deferred, not waived (owner decisions; preparation by Claude Code)
+
+**Owner decisions (final for this development checkpoint; the owner's 2026-11-16 instruction, recorded, not invented).**
+- **Q1=A:** OmniVoice receives one bounded technical feasibility campaign. If it proves impractical or unreliable, or the owner rejects its audio quality, its macOS integration is abandoned.
+- **Q2=A:** when the fallback is activated, unsupported engines are removed completely from the macOS user-facing experience. Shared Windows code, existing assets, voice identities and base dependency pins are kept.
+- **Q3=A:** finish and verify the macOS implementation while HOME-PC is unavailable. Mandatory native Windows verification and the final cross-platform release qualification are deferred until HOME-PC is available. They are not waived.
+- **Engine priorities on macOS:** Kokoro-82M (nine voices), Edge TTS (five voices), the five non-TTS tools, then OmniVoice, only if technically feasible **and** audibly acceptable. Chatterbox Turbo and Qwen3 are no longer required on macOS. They are not implemented there if OmniVoice fails, and not started without new owner authorization if it succeeds.
+- **Quality priorities:** stable long-form narration; calm, natural delivery; minimal emotion or tone fluctuation; accurate pronunciation and low WER; no hallucination, clipping, unexpected silence or voice drift; reliable Cancel and containment. Audio quality outranks speed.
+
+**What this changes in the roadmap (`files/plans/ACT-v0.8.0-MacOS-Compatibility-and-Verification-Implementation-Plan.md`, Revision 2, amended in place; no competing plan).**
+- **Status vocabulary** for delivery: IMPLEMENTED, TESTED, OWNER ACCEPTED, BLOCKED, SKIPPED BY OWNER DECISION, RELEASE READY.
+- **O3 is replaced on macOS:** the Mac offers only the proven, owner-accepted engines, and every other engine is absent from its user-facing experience (no "visible but unavailable"). O4 (assets and identities), O5 and O6 (both gates on one SHA) are unchanged.
+- **P3A and P3B: SKIPPED BY OWNER DECISION on macOS.** Not PASS and not a technical FAIL. Their text stays as the record. D12 is moot on macOS.
+- **P4A is moved before P3** and rewritten as one bounded campaign (§12.E Revision 2), with exactly one outcome: `P4A TECHNICAL PASS — OWNER LISTENING PENDING`, `FALLBACK CONDITION MET` or `P4A BLOCKED`. No tuning loop.
+- **D7-O** is answered in advance by Q1=A, so a failure or an owner rejection goes straight to the fallback.
+- **P4B** needs a proven configuration, the owner's acceptance of its audio and its own authorization. Any macOS OmniVoice install control needs separately verified macOS setup behaviour.
+- **New P4C** (both outcomes): one central, platform-aware capability policy decides the macOS roster at startup from the real platform, with no user toggle. It governs every surface, the runtime dispatch and stale or imported settings (§12.F). Windows keeps the full roster. It never starts before the P4A outcome: no Mac engine control is removed early.
+- **P5** keeps the macOS acceptance: Edge/Kokoro, the five tools, setup, Cancel, Pause, containment, publication and the native UI. The HOME-PC items (E-B2, the Windows focused regression) are PENDING until HOME-PC returns, and due before P6. The Mac can reach `MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING`, never released.
+- **P2 stays IMPLEMENTED and TESTED (automated), not OWNER ACCEPTED.** Still tracked:
+  - listening to the 24-sample pack;
+  - the Andrew disposition;
+  - the D6-K peak (6.0046 GiB) and growth (10.98 %) readings;
+  - the 19 journey pictures;
+  - D15;
+  - the spaCy model in `.venv`;
+  - Windows E-B2 (PENDING, deferred under Q3=A).
+
+**P4A preparation, done without any package or model acquisition (at `d6f21f9`).**
+- **Read-only metadata fetched:** upstream's `uv.lock`, `pyproject.toml` and four source files at `5ba967c4` (text), the PyPI JSON and Hugging Face tree metadata, and upstream and PyTorch issue threads. Stored in the ignored `files/dev-work/omnivoice-feasibility/upstream/`.
+- **Not downloaded:** no wheel, no model file, no Whisper, nothing of Chatterbox or Qwen3.
+- **The lock is the recorded one:** `uv.lock` hashes to ACT's `56f22586…`.
+- **The darwin acquisition set:** `files/dev-tools/macos_p4a_omnivoice_manifest.json`, SHA-256 `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c`, which is the consent token.
+  - **Wheels:** 86, 246,737,206 bytes, all from PyPI. They differ from Windows only in two ways: no `colorama`/`tzdata`, and plain torch/torchaudio 2.8.0. PyPI confirms all 86 by filename, SHA-256 and size, none yanked.
+  - **Model:** ACT's `k2-fsa/OmniVoice@c5fdb5cc`, unchanged: 11 files, 3,267,467,171 bytes. Hugging Face confirms all 11.
+  - **Transfer:** 3,514,204,377 bytes; about 5.2 GB of disk with the environment and outputs (estimated). Nothing on this Mac is reusable.
+- **The tool:** `files/dev-tools/macos_p4a_omnivoice.py` (dev-only).
+  - `derive` re-derives the manifest byte-for-byte.
+  - `check-upstream` does the metadata cross-check.
+  - `op-probe` runs the indicative MPS checks.
+  - `plan` needs no network.
+  - `fetch` refuses without the exact token (shown).
+  - The engine-run stages S0–S4 are written at the start of the authorized run, so they are exercised against the real model, not committed untested.
+- **Findings that shaped the procedure:**
+  1. Upstream itself keeps the audio tokenizer on the CPU under MPS, so Revision 1's optional "tokenizer on MPS" step is dropped (#279 is an unmerged proposal).
+  2. Upstream's Gumbel-noise sampling gives CPU and MPS different random streams. Token agreement with the CPU is therefore only informational, and same-device repeatability is measured.
+  3. The macOS 27 MPSGraph `argmax` corruption (pytorch#187280) was fixed in torch 2.13 and in the OS. OmniVoice pins torch 2.8.0, so the CPU fp32 reference stays mandatory.
+  4. Indicative: with the app's torch 2.6.0 on macOS 27.0.1, MPS gave the CPU's answer in all 28 cases at OmniVoice's shapes. MPS is available in this agent session, so MPS runs are not BLOCKED by the sandbox here.
+  5. ACT's seven OmniVoice suites on macOS: 540 passed, 79 failed, 5 skipped. All 79 failures predate this work and are Windows-installer simulations (`winreg`, `msvcrt`, `_winapi`, the Windows certificate store, Windows text). Under the fallback they become darwin skip rules or platform seams in P4C.
+  6. The 12 Windows-approved OmniVoice tracks are not on this Mac (only their index).
+  7. **The macOS surfaces today** (read-only inventory; plan §12.F):
+     - No central platform policy exists. Qwen3 and OmniVoice show as "visible but unavailable" with a "need Windows" sentence, in the status line, the Voice-unavailable dialog, the wizard descriptions and the review panel.
+     - **Chatterbox has no platform gate at all.** The wizard and Install & Continue offer it on a Mac, and `select_device()` would run it on MPS inside the app's own process, outside the Cancel worker.
+     - Nothing persists a voice, so no stored setting can name one today.
+
+     All of this changes only in P4C, after the P4A outcome (the owner: no early removal of Mac engine controls).
+- **Protected assets:** 18/18 references, both transcript files and 28/28 previews verified. All six OmniVoice references pass ACT's `verify_reference`.
+
+**Still the owner's (nothing is acquired before them).**
+- Consent to the P4A acquisition (token above).
+- D6-O and its practicality line.
+- D15 (WER).
+- The open P2 items above.
+
+P3A, P3B, P4B and P4C have not started. Nothing was merged, tagged or released.
+
 ## 2026-11-16 — macOS P2 (Edge TTS and Kokoro-82M): implementation complete at `38af4fd`; specific acceptance evidence pending the owner (owner budgets and authorization recorded; findings for owner disposition; recorded by Claude Code)
 
 **Owner decisions this phase ran under (the owner's 2026-11-16 instruction, recorded here, not invented).**

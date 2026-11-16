@@ -1,5 +1,50 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS Revision 2 (owner Q1=A, Q2=A, Q3=A) and P4A OmniVoice feasibility PREPARED: STOPPED AT THE OWNER'S ACQUISITION CONSENT (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched). Nothing was downloaded for OmniVoice; P3A, P3B, P4B and P4C have not started; nothing was merged, tagged or released.
+
+- **Branch.** `feature/0.8.0-macos-compatibility` on `d6f21f9` (P2 documents), plus this documents-and-dev-tool commit. Pushed to `origin` only.
+- **Owner decisions recorded** (Decisions, 2026-11-16 Q1–Q3 entry; plan Revision 2):
+  - **Q1=A:** one bounded OmniVoice campaign, abandoned on failure or owner rejection.
+  - **Q2=A:** under the fallback, unsupported engines are removed from the macOS user-facing experience; Windows, assets, identities and pins are kept.
+  - **Q3=A:** the Mac is finished first; Windows verification is deferred, not waived.
+  - **Consequences:** P3A and P3B are **SKIPPED BY OWNER DECISION** on macOS. P4A runs before P3. New phase **P4C** brings in one platform capability policy (both outcomes; §12.F). In P5 the HOME-PC items are PENDING and due before P6. The final gates on one SHA are unchanged.
+- **P2 is unchanged:** IMPLEMENTED and TESTED (automated), not OWNER ACCEPTED. Still the owner's:
+  - listening to `ACT-v0.8.0-macos-p2`;
+  - Andrew (upstream-blocked text A);
+  - the D6-K readings (6.0046 GiB peak, 10.98 % growth);
+  - 19 journey pictures;
+  - D15;
+  - the spaCy model in `.venv`.
+
+  **Windows E-B2 is PENDING (deferred, Q3=A).** The HOME-PC procedure is in the P2 block below.
+- **P4A prepared (no acquisition; §12.E Revision 2 is the procedure).**
+  - **Consent token:** `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c`, the SHA-256 of `files/dev-tools/macos_p4a_omnivoice_manifest.json`.
+  - **Wheels:** 86 darwin arm64 / CPython 3.12 wheels, 246,737,206 bytes from PyPI, derived from upstream's own `uv.lock` (= ACT's `56f22586…`).
+  - **Model:** ACT's pinned `k2-fsa/OmniVoice@c5fdb5cc`, 11 files, 3,267,467,171 bytes.
+  - **Transfer and disk:** 3,514,204,377 bytes in total; about 5.2 GB of disk with the environment (estimated) and outputs.
+  - **Destination:** only `files/dev-work/omnivoice-feasibility/` (ignored).
+  - **Cross-checks:** PyPI and Hugging Face metadata agree for 86/86 and 11/11. Nothing on this Mac is reusable.
+- **Tool.** `files/dev-tools/macos_p4a_omnivoice.py` has `derive`, `check-upstream`, `op-probe`, `plan` and `fetch --consent`. Without the token, `fetch` refuses (shown). The engine stages S0–S4 are written at the start of the authorized run.
+- **Findings.**
+  - Upstream keeps the audio tokenizer on the CPU under MPS, so the tokenizer-on-MPS step is dropped.
+  - Gumbel sampling makes CPU and MPS draw different random streams: token agreement is informational, and same-device repeatability is measured.
+  - pytorch#187280 (the macOS 27 MPSGraph `argmax` corruption) was fixed in torch 2.13 and in the OS, not in OmniVoice's 2.8.0. The CPU fp32 reference stays mandatory.
+  - Indicative op probe (app torch 2.6.0, macOS 27.0.1): 28/28 MPS cases match the CPU. MPS is available in this agent session.
+  - ACT's 7 OmniVoice suites on macOS (`2026-11-16_100729_focused_4489`): 540 passed, 79 failed, 5 skipped. All 79 failures predate this work and are Windows-installer simulations (`winreg`/`msvcrt`/`_winapi`/Windows certificate store/Windows text). None judges macOS synthesis.
+  - The 12 Windows-approved OmniVoice MP3s are not on this Mac.
+  - **Surfaces today** (plan §12.F): no central platform policy; Qwen3 and OmniVoice are visible but unavailable. **Chatterbox has no macOS gate:** the wizard and Install & Continue offer it, and it would run on MPS in-process. P4C changes this, and nothing changes before the P4A outcome.
+- **Protected assets.** 18/18 references, both transcript files and 28/28 previews verified (`files/dev-work/omnivoice-feasibility/protected-pre-p4a.json`). All six OmniVoice references pass `verify_reference`. No new model, no environment change.
+- **Git state.** The owner's 17 tracked deletions and untracked files are untouched and unstaged. Only the plan, Decisions, Handoff and the two dev-tool files were staged.
+- **Next action (the owner's), then one bounded P4A run.**
+  1. The owner consents to the acquisition (token above) and sets **D6-O**. Proposed: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, footprint ≤ 10 GiB, growth < 10 %. "Every passing configuration outside D6-O" is the Q1 practicality line.
+  2. Then: `fetch`, the venv build and stages S0–S4 per §12.E.
+  3. Then STOP with exactly one outcome:
+     - TECHNICAL PASS: the owner listens;
+     - FALLBACK CONDITION MET: P4C, Edge + Kokoro;
+     - BLOCKED.
+
 ## Current checkpoint — macOS P2 (Edge TTS and Kokoro-82M): P2 IMPLEMENTATION COMPLETE — SPECIFIC ACCEPTANCE EVIDENCE PENDING (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched). P2 is **not** owner-accepted; P3A, P3B and P4 have not begun.
