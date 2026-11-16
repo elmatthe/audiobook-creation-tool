@@ -1365,6 +1365,11 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
   - what cannot be automated without a privacy grant is listed as BLOCKED with the grant it needs (choosing files inside the
     native panel's out-of-process browser: Accessibility); later-phase items stay NOT RUN. `fresh-macos` REAL CLEAN is
     unchanged (P7c).
+  - **ACT72-080 approved P1B exception (owner, 2026-11-15; Decisions, P1B final visual remediation):** P1B may close without
+    granting Accessibility or Screen Recording solely to automate a selection inside the native file picker. The selection
+    stays UNVERIFIED (never PASS; `verify.py --evidence` shows APPROVED P1B EXCEPTION); opening, configuring and cancelling
+    the real panels and the in-process returned paths keep their own evidence within their scope. It relaxes no other
+    requirement and is revisited at P5/P7 release qualification.
 - **Exit:**
   - the five tools PASS on focused tests, real media, their acceptance counterparts with real pictures, and the darwin scenarios
     above; the owner's visual review recorded as owner-reported;
