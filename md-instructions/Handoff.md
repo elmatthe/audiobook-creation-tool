@@ -1,5 +1,47 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4A OmniVoice feasibility: P4A TECHNICAL PASS — OWNER LISTENING PENDING; pack delivery waits for the owner (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 is untouched. P4B, P4C, P3A and P3B have not started; nothing was merged, tagged or released. P2 acceptance and Windows E-B2 stay pending.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`, on `bac67d4`, with one commit added: the documents and the dev-only P4A harness. Pushed to `origin` only. No audio or binary was committed.
+- **Owner approvals used** (Decisions, P4A approvals entry):
+  - **ACQUISITION = A:** the manifest token `7932d4ef…62f4c` only;
+  - **D6-O = A:** provisional practicality targets, not rejection thresholds. A safe miss is a PERFORMANCE EXCEPTION for the owner;
+  - **D15 = A:** Whisper deferred. WER: NOT RUN — NO AUTHORIZED ASR MODEL.
+
+  The roadmap's §12.E is now Revision 2a, with four outcome states.
+- **Acquisition and environment.** 97 files, 3,514,204,377 bytes, all verified (97/97). The disposable venv was built offline from the app-owned CPython 3.12.15: `pip check` clean, set equal to the manifest, isolated. torch 2.8.0 with MPS, omnivoice 0.2.1. 4.6 GB in `files/dev-work/omnivoice-feasibility/` (ignored).
+- **Results** (details in Decisions, P4A results entry):
+
+  | | C1 CPU fp32 | C2 MPS fp32 | C3 MPS fp16 |
+  |---|---|---|---|
+  | **F / S** | PASS / PASS | PASS / PASS | bounded: S0, S1 and two samples, all clean |
+  | **P (D6-O)** | within every target: wall RTF 1.31–1.66, peak 4.05 GiB, growth +0.08 % | **PERFORMANCE EXCEPTION:** wall RTF 0.914–1.190 against ≤ 1.0. Peak 9.54 GiB and growth +1.11 % within; MPS driver flat; 50 calls bit-identical | RTF 0.90–1.00, peak 7.31 GiB |
+  | **Q** | PENDING (owner) | PENDING (owner) | PENDING (owner) |
+
+  **S4:** a SIGTERM ends the group in 0.03–0.07 s and the memory is recovered. ACT's supervisor Cancel takes 2.24–2.29 s (within T_stop ≤ 4 s). This is not proof of a P4B Cancel integration.
+- **Listening pack (NOT YET REVIEWED).** `files/dev-work/omnivoice-feasibility/listening-pack/`: 16 MP3s.
+  - Track A, six voices as blind pairs `-X`/`-Y`, with a `-Z` (MPS fp16) for Female 2 and Male 2.
+  - Track B for Female 1 and Male 1 on MPS fp32.
+  - `index.md`/`index.json` are blind; `key.json` reveals configuration, speed and memory.
+  - The ready bundle is `delivery/ACT-P4A-OmniVoice-listening-pack.zip` (21.4 MB).
+- **Delivery is stopped for the owner.** The repository is public, and the audio stays out of every branch's history. A GitHub Actions artifact needs a workflow run with the files on a runner; the repository has no workflow, and `gh` cannot upload artifacts. Without a new workflow, release, tag, repository, tool or upload service, there is no practical GitHub artifact path. The options are in the session report.
+- **Outside-the-experiment writes.** `verify-env` wrote 87 standard-library bytecode caches into the app-owned Python. They were recorded and exactly those were removed; the runtime data is back to 2,434 entries.
+
+  Unchanged before and after:
+  - the 18 references, both transcripts and the 28 previews;
+  - the main `.venv`, the Hugging Face cache, the Downloads outputs, and the owner's test files and audiobooks;
+  - the owner's git state.
+
+  No process is left.
+- **Next action (the owner's):**
+  1. Choose the pack delivery route.
+  2. Listen, open `key.json` after listening, and give Q verdicts per configuration.
+  3. Decide C2's speed exception (or choose C1).
+
+  Then, either P4B with its own authorization, or a negative verdict, which activates the Q1=A fallback (P4C, Edge + Kokoro). Afterwards the local evidence is kept or removed as the owner decides.
+
 ## Current checkpoint — macOS Revision 2 (owner Q1=A, Q2=A, Q3=A) and P4A OmniVoice feasibility PREPARED: STOPPED AT THE OWNER'S ACQUISITION CONSENT (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 stays exactly as released (`master`, tag `v0.8.0` untouched). Nothing was downloaded for OmniVoice; P3A, P3B, P4B and P4C have not started; nothing was merged, tagged or released.

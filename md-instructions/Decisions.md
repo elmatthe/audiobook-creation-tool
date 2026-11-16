@@ -2,6 +2,107 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P4A OmniVoice feasibility executed: P4A TECHNICAL PASS — OWNER LISTENING PENDING (C1 CPU fp32 within every D6-O target; C2 MPS fp32 a narrow PERFORMANCE EXCEPTION on speed; C3 MPS fp16 bounded experiment clean); the listening pack is not on GitHub, so delivery waits for the owner (recorded by Claude Code)
+
+**What ran (bounded, once; no tuning loop, no setting, revision or reference changed).**
+- **Acquisition.** Only the consented manifest (token `7932d4ef…62f4c`): 97 files, 3,514,204,377 bytes, in about 60 s. Every file was accepted by size and SHA-256 and re-hashed afterwards (97/97). There were no other downloads: no Whisper, nothing of Chatterbox or Qwen3.
+- **Environment.** `files/dev-work/omnivoice-feasibility/venv` was built from the app-owned CPython 3.12.15, offline (`--no-index --no-deps --require-hashes --only-binary :all: --isolated`). `pip check` is clean, and the installed set equals the manifest plus the venv's own pip. Nothing on `sys.path` reaches `.venv` or another site-packages, and the user site is off. torch 2.8.0 with MPS available, omnivoice 0.2.1, 1.22 GB.
+- **Harness, dev-only:** `files/dev-tools/macos_p4a_omnivoice_worker.py` and `macos_p4a_omnivoice_run.py`.
+  - It runs ACT's production text and audio path: `v1` speech preparation, `plan_chunks`, `derive_seed`, `GENERATION`, `build_job`, and for the pack the production `omnivoice_file_to_mp3` with its supervisor, chunk reader, assembly, final tail and one encode.
+  - Only device and dtype differ from production.
+  - In the harness process only, `omnivoice_runtime.model_dir`, `engine_lock_path` and `inference_lease` point at the experiment, and the worker environment is the experiment's own. That way nothing goes to `files/runtime-data`.
+  - The worker reuses ACT's network audit hook, reference proof and speech-recognizer refusal from `tts/omnivoice_worker.py`.
+  - It refuses a silent CPU fallback: the MPS fallback switch must be unset and the backbone must be on the requested device.
+  - It writes chunks under a temporary name, and has a parent lifeline.
+  - Production engine code is unchanged.
+- **One harness defect, fixed and S0 rerun once.** The first placement guard counted the audio tokenizer, which is registered under the model, as part of the backbone. Upstream deliberately keeps it on the CPU under MPS. The guard now checks the backbone and the tokenizer separately.
+
+**Results per configuration (evidence: `files/dev-work/omnivoice-feasibility/runs/s0`–`s4`, receipts, logs).**
+- **S0, offline load and smoke:**
+  - all three load and generate finite audio with zero network attempts and no unsupported-op error (fallback unset);
+  - the backbone is on the requested device and dtype, and the tokenizer on the CPU, where upstream places it;
+  - cold load C1 0.51 s, C2 0.96 s, C3 0.95 s; clone prompt about 0.4–0.5 s.
+- **S1, correctness screen:**
+  - neutral `say` reference, then Female 1: an eight-item ladder from 1 word to one 291-character sentence, on C1, C2 and C3;
+  - 57 chunks, all finite: zero clipped samples, no internal silence over 2 s, and no envelope or noise-signature flag against C1;
+  - same-device repeats are bit-identical on all three (9/9);
+  - the only flag is one neutral-reference item at 20.4–21.1 characters per second (the fast synthetic `say` speaker).
+- **S2, listening pack, production path:** 16/16 MP3s PASS and decode with zero errors (24 kHz mono, 160 kbit/s: MPEG-2 Layer III caps the route's 192k at 24 kHz). Integrity notes:
+  - 1–5 full-scale samples in four files, on the CPU reference as well as MPS;
+  - one short track-B chunk per file at about 21.3–21.5 characters per second.
+- **S3, stability:**
+  - **C2:** 50/50 calls finite and bit-identical (one distinct output). Footprint growth after warm-up +1.11 % (6.29 → 6.36 GiB); MPS driver memory flat (4.67 GiB, 0 %). RTF 1.105–1.206 (mean 1.163, +3 % drift over the run). No memory-pressure event, swap unchanged.
+  - **C1:** 10/10, growth +0.08 %, RTF mean 1.601.
+- **S4, termination during active generation:**
+  - SIGTERM to the worker's group: gone in 0.030 s (C1) and 0.074 s (C2), with no SIGKILL needed, no group member left, only completed chunk files (no `.part`), and the MPS memory recovered (available 5.55 → 12.73 GB, against 12.07 GB before).
+  - ACT's existing OmniVoice supervisor (Cancel flag, 2 s grace, group kill): `ConversionCancelled` in 2.24 s (C1) and 2.29 s (C2), within the macOS contract's OmniVoice T_stop ≤ 4 s.
+  - This is experimental evidence, not proof of a P4B Cancel integration.
+
+**Verdicts (F functional / S safety, stability and containment / Q owner audio quality / P D6-O practicality).**
+- **C1 CPU fp32:** F PASS; S PASS; Q **PENDING (owner)**; P **within every target**:
+  - wall RTF 1.31–1.66 (target ≤ 3.5);
+  - peak footprint ≤ 4.05 GiB;
+  - growth +0.08 %.
+- **C2 MPS fp32:** F PASS; S PASS; Q **PENDING (owner)**; P **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**:
+  - wall RTF 0.914–1.111 on track A (three of six over 1.0), 1.148 and 1.190 on track B, and 1.163 in the soak, against a target ≤ 1.0 (up to +19 %);
+  - peak footprint 9.54 GiB, within the 10 GiB target but close;
+  - growth +1.11 % (within).
+- **C3 MPS fp16** (bounded experiment: S0, S1 and two pack samples only, with no soak or termination test): F PASS; S1 screen clean; Q **PENDING (owner)**; P wall RTF 0.903 and 0.998, peak 7.31 GiB.
+- **WER: NOT RUN — NO AUTHORIZED ASR MODEL** (D15 deferred). Low WER is not inferred from the integrity screen.
+- **Campaign state: `P4A TECHNICAL PASS — OWNER LISTENING PENDING`.** C1 is a technical PASS within every target, and C2 is reported separately as a performance exception. In practice, C2 runs at about real time (a 10-hour book in roughly 10–12 hours) and C1 at about 1.3–1.7× real time. A negative owner listening verdict still activates the Q1=A fallback, whatever these results.
+
+**Pack.** `files/dev-work/omnivoice-feasibility/listening-pack/` holds 16 MP3s, all NOT YET REVIEWED:
+- track A for the six voices as blind pairs, CPU against MPS fp32, plus MPS fp16 as a third file for Female 2 and Male 2;
+- track B, multi-chunk, for Female 1 and Male 1 on MPS fp32.
+
+`index.md` and `index.json` give comparison groups, durations, integrity flags and SHA-256s, with nothing that reveals the device. `key.json` names each file's configuration with its speed and memory. A ready bundle is in `delivery/ACT-P4A-OmniVoice-listening-pack.zip` (21.4 MB; SHA-256 `b72ab61d…a9`): no references, transcripts, logs or paths.
+
+**Delivery decision (the owner's clarification of 2026-11-16).** The repository is public, and the audio must not enter the history of any branch.
+- A GitHub Actions artifact can only be produced by a workflow run on a runner. The repository has no workflow, and `gh` can list, download and delete artifacts but not upload one. Getting the files onto a runner would need a commit or another host.
+- There is therefore no practical GitHub artifact path within the owner's constraints (no new workflow, release, tag, repository, tool or external upload service without separate authorization).
+- Delivery STOPS at this checkpoint, and the options go to the owner. Nothing was uploaded.
+
+**Changes outside the experiment, found and undone.** While verifying the environment (`pip check` and the probes), the venv's Python, which shares the app-owned base interpreter, wrote 87 standard-library bytecode caches into `files/runtime-data/python/lib/python3.12/` (86 in `encodings/__pycache__`, 1 for `fileinput`). Python does this on any first import. ACT's integrity checks ignore `__pycache__`, so the files were harmless. Their list was recorded (`receipts/base-python-pyc-written.txt`) and exactly those 87 new files were removed: the runtime data is back to its 2,434 entries, and only directory timestamps differ.
+
+Everything else is unchanged before and after:
+- the 18 references, both transcript files and the 28 previews;
+- the main `.venv` (59,229 entries, same digest) and the Hugging Face cache;
+- the Downloads outputs (299 entries) and the owner's test files and audiobooks;
+- the owner's git state: the 17 deletions and the untracked files.
+
+No P4A process remains. Disk use: 4.6 GB in the area.
+
+**Still the owner's:**
+- listening to the pack (Q for C1, C2 and C3);
+- disposition of C2's speed exception, and the choice of configuration;
+- the pack delivery route;
+- D15;
+- afterwards, P4B authorization, or the fallback (P4C, Edge + Kokoro).
+
+P4B and P4C have not started. P2 acceptance and Windows E-B2 stay pending. Nothing was merged, tagged or released.
+
+## 2026-11-16 — P4A owner approvals: acquisition consent to manifest token `7932d4ef…`; D6-O set as provisional practicality targets, not automatic rejection thresholds; D15 (Whisper) deferred until after the listening verdict (owner decisions; recorded by Claude Code before execution)
+
+**ACQUISITION = A.** The owner authorizes downloading **only** the files that `files/dev-tools/macos_p4a_omnivoice_manifest.json` lists at `bac67d4`, whose raw bytes hash to the consent token `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c`:
+- 86 wheels, 246,737,206 bytes, from PyPI;
+- 11 model files of `k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4`, 3,267,467,171 bytes, from Hugging Face.
+
+That is 3,514,204,377 bytes in total, and everything (environment, receipts, logs, audio) goes into `files/dev-work/omnivoice-feasibility/` only. No other acquisition is authorized. A changed manifest needs a new authorization; the token is never reused for a regenerated one.
+
+**D6-O BUDGET = A: the four proposed values become provisional practicality targets.**
+- The targets: MPS RTF ≤ 1.0; CPU RTF ≤ 3.5; peak process footprint ≤ 10 GiB; growth after warm-up < 10 %. Each is evaluated and reported separately.
+- *Why the earlier line changed:* the Revision 2 roadmap proposed "every technically passing configuration outside D6-O = the Q1 impractical line → fallback". The owner chose a more nuanced rule, in which audio quality and reliability outrank speed.
+- Technical correctness, performance practicality and owner-perceived narration quality are **separate verdicts**.
+- A technically correct configuration outside a target is **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**, unless its resource behaviour is unsafe. A small miss never starts the fallback.
+- Unsafe behaviour fails the safety and reliability gate, and may end that configuration's run at once. That covers a serious memory-pressure event, unsafe growth, running out of memory and instability. A memory-unsafe run is never continued to collect benchmarks.
+- The owner keeps the final decision on speed, footprint and audio quality.
+- The Q1=A fallback stays authorized when OmniVoice is technically impractical or unreliable, or when the owner rejects its narration. Q1, Q2 and Q3 are not reopened.
+- The roadmap's §12.E (Revision 2a) now has four outcome states: TECHNICAL PASS — OWNER LISTENING PENDING; TECHNICAL PASS — PERFORMANCE EXCEPTION / OWNER DECISION PENDING; FALLBACK CONDITION MET — TECHNICAL OR SAFETY FAILURE; BLOCKED. The original proposal is kept there and in §20.3 as history.
+
+**D15 WHISPER = A: deferred.** Whisper is not downloaded, installed or run at this checkpoint. The listening samples come first, then the owner's verdict. WER is reported as **NOT RUN — NO AUTHORIZED ASR MODEL**, and low WER is never inferred from intelligibility or the integrity screen.
+
+**Boundary.** P4A is feasibility only: no P4B, no P4C, no Chatterbox or Qwen3 work or downloads, no shared Windows engine change, no merge, tag or release. P2 acceptance and Windows E-B2 stay pending.
+
 ## 2026-11-16 — Owner decisions Q1=A, Q2=A, Q3=A: Mac-first scope with an approved Edge/Kokoro fallback; one bounded OmniVoice feasibility campaign (P4A) before P3, prepared without acquisition; P3A/P3B skipped by owner decision on macOS; Windows verification deferred, not waived (owner decisions; preparation by Claude Code)
 
 **Owner decisions (final for this development checkpoint; the owner's 2026-11-16 instruction, recorded, not invented).**

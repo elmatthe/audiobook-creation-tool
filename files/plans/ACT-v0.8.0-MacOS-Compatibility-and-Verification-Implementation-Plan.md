@@ -975,22 +975,54 @@ All changes are platform-guarded. Windows code paths, defaults, seeds, tuning an
      - CPU RTF ≤ 3.5;
      - peak footprint ≤ 10 GiB;
      - growth < 10 % after warm-up (fixed).
+   - **D6-O as set by the owner (2026-11-16, Revision 2a; this supersedes the practicality line proposed above).** The four proposed values are adopted as **provisional practicality targets, not automatic rejection thresholds**. Each measurement is evaluated and reported separately.
+     - Technical correctness, performance practicality and owner-perceived narration quality are **separate verdicts**.
+     - A configuration that is technically correct but outside a target is classified **PERFORMANCE EXCEPTION — OWNER DECISION PENDING**, with the measured amount, unless its resource behaviour is unsafe. A small miss never activates the fallback.
+     - Unsafe resource behaviour fails the safety and reliability gate (S), and can end that configuration's run at once. That covers a serious memory-pressure event, unsafe growth, running out of memory and process instability. A memory-unsafe run is never continued just to collect benchmarks.
+     - The owner keeps the final decision on acceptable speed, footprint and audio quality. Audio quality and reliability outrank speed.
+     - **Verdict letters in P4A:** F = functional execution; S = safety, stability and containment; Q = audio quality (the owner's ears only, never inferred from F); P = performance and practicality against the D6-O targets.
+   - **WER: NOT RUN — NO AUTHORIZED ASR MODEL** (D15 deferred by the owner until after the listening verdict). Low WER is never inferred from intelligibility or the integrity screen.
    - **Q is the owner's verdict only.**
 9. **Campaign outcome (exactly one), bounded:**
    - **No tuning loop.** Settings, revisions and references never change. At most one stage rerun after a harness defect; never after an engine defect.
+   - **Revision 2a outcome states (owner, 2026-11-16).** These replace the three states first proposed here, which are kept below as the record. Exactly one applies:
+     1. **`P4A TECHNICAL PASS — OWNER LISTENING PENDING`:** at least one of C1/C2 is a technical PASS (F and S) and within every D6-O target. STOP for the owner's listening.
+     2. **`P4A TECHNICAL PASS — PERFORMANCE EXCEPTION / OWNER DECISION PENDING`:** a technical PASS exists, but every passing configuration misses at least one D6-O target safely. STOP for the owner's listening and practicality decision. If the only passing configurations are substantially impractical, the specific reason is documented for the owner. The fallback is not started automatically unless a technical or safety failure is independently demonstrated.
+     3. **`FALLBACK CONDITION MET — TECHNICAL OR SAFETY FAILURE`:** C1 and C2 both fail F or S (C3 alone never carries OmniVoice), or the pinned set cannot be installed or run on darwin within this scope. Q1=A applies, as below.
+     4. **`P4A BLOCKED — INSUFFICIENT EVIDENCE OR UNAVAILABLE PREREQUISITE`:** a blocker prevents a verdict.
+
+     After 1 or 2, a negative owner listening verdict activates the approved fallback (Q1=A), whatever the technical and performance results. An owner acceptance of a named configuration lets P4B be proposed for its own authorization.
+   - *Revision 2 states, as first proposed (superseded by Revision 2a):*
    - **`P4A TECHNICAL PASS — OWNER LISTENING PENDING`:** at least one of C1/C2 is a technical PASS and within D6-O. STOP for the owner's listening.
      - If the owner accepts a named configuration, P4B can be proposed. It needs the owner's acceptance and its own authorization.
      - If the owner rejects it, the fallback activates (Q1=A).
    - **`FALLBACK CONDITION MET`:** any of the following, recorded with the evidence:
      - C1 and C2 both technical FAIL (C3 alone never carries OmniVoice);
      - the pinned set cannot be installed or run on darwin within this scope;
-     - every technically passing configuration is outside D6-O. This is the proposed practicality line for Q1, confirmed by the owner when D6-O is set.
+     - every technically passing configuration is outside D6-O. This is the proposed practicality line for Q1, confirmed by the owner when D6-O is set. **Superseded by Revision 2a:** a safe budget miss is a PERFORMANCE EXCEPTION for the owner, not the fallback.
 
      Then OmniVoice integration on macOS stops, and P4C follows directly. Chatterbox and Qwen3 are not taken up in its place.
    - **`P4A BLOCKED`:** a blocker above prevents a verdict. It is reported and never used to reject an untested engine.
 10. **Afterwards:** the area (about 5 GB) is kept until the owner decides. If P4B goes ahead, ACT's own installer may adopt the verified model bytes after the same hash checks, by owner decision then.
 
 *Machine time (estimate from REPORTED rates: CPU RTF about 3, MPS about 0.4–1):* about 15 minutes of downloads on a fast link, about 1–1.5 hours of synthesis, run sequentially.
+
+**Executed 2026-11-16 (Decisions, P4A results entry; evidence in `files/dev-work/omnivoice-feasibility/`): `P4A TECHNICAL PASS — OWNER LISTENING PENDING`.**
+- **Acquisition:** only the consented 97 files, verified (97/97). The environment is offline and hash-locked; isolation is verified.
+- **C1 CPU fp32:** F and S PASS, within every D6-O target:
+  - wall RTF 1.31–1.66;
+  - peak 4.05 GiB;
+  - growth +0.08 %.
+- **C2 MPS fp32:** F and S PASS. **PERFORMANCE EXCEPTION — OWNER DECISION PENDING** on speed:
+  - wall RTF 0.914–1.190 against ≤ 1.0;
+  - peak 9.54 GiB (within);
+  - 50-call growth +1.11 %, MPS driver memory flat;
+  - outputs bit-identical across all 50 calls.
+- **C3 MPS fp16** (bounded: S0, S1 and two samples): clean; RTF 0.90–1.00.
+- **S4:** a SIGTERM ends the worker's group in 0.03–0.07 s with the memory recovered. ACT's existing supervisor Cancel takes 2.24–2.29 s (within T_stop ≤ 4 s).
+- **Not yet judged:** Q is the owner's (16-MP3 blind pack, NOT YET REVIEWED). WER: NOT RUN — NO AUTHORIZED ASR MODEL.
+- **Pack delivery:** the pack is not on GitHub (no history commit; no practical artifact path without a workflow). It waits for the owner's choice of route.
+
 
 **P4B integration (only for an owner-accepted P4A configuration).** The call sites to change (`omnivoice_worker.py` unless noted):
 
@@ -1703,6 +1735,8 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 - **Stop:** E-D3 or E-D4 fails on CPU fp32. The Qwen3 macOS gate stays closed (no fake-enable), and the phase waits for D7-Q.
 
 ### P4A — OmniVoice feasibility experiment (owner-gated; no product code)
+> **Status 2026-11-16: EXECUTED — `P4A TECHNICAL PASS — OWNER LISTENING PENDING`** (C2 a speed PERFORMANCE EXCEPTION; §12.E). P4B is not started and needs the owner's listening acceptance and authorization. A negative listening verdict activates the fallback (P4C).
+>
 > **Revision 2 (2026-11-16):** an early, narrowly bounded P4A is authorized **before** P3A/P3B (Q1=A). The procedure is §12.E Revision 2. **Prepared without acquisition** at `d6f21f9`; its findings, tool and evidence are listed in §12.E. Entry is now: the owner's consent to the manifest token `7932d4ef…62f4c` and D6-O set. It no longer waits for P3B. The exit is one of the three campaign outcomes. A negative result or an owner rejection activates the approved fallback (P4C) with no new D7-O question. The Revision 1 text below is superseded where it differs.
 
 - **Entry:**
@@ -1927,7 +1961,8 @@ None of these blocks the *plan*.
 | **Q1** | OmniVoice on macOS | **DECIDED 2026-11-16: A.** One bounded technical feasibility campaign (P4A, §12.E Revision 2, before P3). Abandon its macOS integration if it proves impractical or unreliable, or if the owner rejects its audio |
 | **Q2** | What the Mac shows when the fallback is active | **DECIDED 2026-11-16: A.** Unsupported engines are removed completely from the macOS user-facing experience (§12.F, P4C). Shared Windows code, assets, voice identities and base dependency pins are kept |
 | **Q3** | Windows evidence while HOME-PC is unavailable | **DECIDED 2026-11-16: A.** Finish and verify the Mac implementation now. Native Windows verification (E-B2, the Windows focused regression) and the final cross-platform release qualification are deferred until HOME-PC is available, not waived. D8 and P7 are unchanged |
-| **D6-O** | OmniVoice speed/memory budget and the practicality line | **Due at P4A entry.** Proposed: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, peak footprint ≤ 10 GiB, growth < 10 % after warm-up (fixed). If every technically passing configuration falls outside it, that is the Q1 "impractical" line (§12.E) |
+| **D6-O** | OmniVoice speed/memory budget and the practicality line | Proposed at Revision 2: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, peak footprint ≤ 10 GiB, growth < 10 % after warm-up (fixed). The proposed line then read: if every technically passing configuration falls outside it, that is the Q1 "impractical" line. **SET 2026-11-16 (Revision 2a): the four values are provisional practicality targets, not automatic rejection thresholds.** A technically correct configuration outside a target is a PERFORMANCE EXCEPTION — OWNER DECISION PENDING, unless its resource behaviour is unsafe, which fails S. F, S, Q and P are separate verdicts; the owner decides speed, footprint and quality (§12.E) |
+| **P4A consent** | Acquisition for P4A | **GIVEN 2026-11-16:** only the files of `files/dev-tools/macos_p4a_omnivoice_manifest.json` at `bac67d4`, token `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c` (86 wheels, 246,737,206 bytes; 11 model files, 3,267,467,171 bytes), into `files/dev-work/omnivoice-feasibility/` only. Whisper **not** authorized (D15 deferred until after the owner's listening verdict) |
 | D16 | Release version and strategy | §18 option A (v0.8.1), or D (v0.9.0). **Decided at P5 exit**, because the version identity is release-relevant source finalized in P6a, before review and both gates |
 | D17 | Preemptible Cancel for local engines | On darwin, Kokoro and Chatterbox run in the supervised local-engine worker; accept the Cancel contract C1–C5 and its bounds (§11.2.1). Windows keeps the released in-process path in this programme; adopting the worker on Windows is a later decision with Windows qualification |
 | D18 | REAL CLEAN qualification route | An Apple Silicon Mac that never had Homebrew, the Xcode CLT or python.org (a second Mac, or a freshly erased one), or a macOS virtual machine (needs an approved virtualization tool install and macOS image download). A new user account on this Mac is SIMULATED only. Decided at P5 exit; used at P7c |
