@@ -38,6 +38,12 @@ Each link below is the raw WAV. GitHub serves raw files as downloads, so a click
 | Qwen3 - Male 2 | qwen3 | [qwen3-male-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-2.wav) | Windows Only |
 | Qwen3 - Male 3 | qwen3 | [qwen3-male-3.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-3.wav) | Windows Only |
 | Qwen3 - Male 4 | qwen3 | [qwen3-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/qwen3-male-4.wav) | Windows Only |
+| Omnivoice - Female 1 | Omnivoice | To Be Added | MacOS + Windows |
+| Omnivoice - Female 2 | Omnivoice | To Be Added | MacOS + Windows |
+| Omnivoice - Male 1 | Omnivoice | To Be Added | MacOS + Windows |
+| Omnivoice - Male 2 | Omnivoice | To Be Added | MacOS + Windows |
+| Omnivoice - Male 3 | Omnivoice | To Be Added | MacOS + Windows |
+| Omnivoice - Male 4 | Omnivoice | To Be Added | MacOS + Windows |
 
 ## Publication decision
 
