@@ -13,7 +13,11 @@ A picture is evidence only when all of this holds, and each failure is named:
   * where Tk named solid points (``layout_audit.probes``), most of them are that colour in the picture at that place, which
     ties the image to the window Tk laid out;
   * Tk's own audit at that moment found no defect: no control's text clipped, no control outside the window, no overlapping
-    controls, no text below a 3.0 contrast ratio.
+    controls, no text below a 3.0 contrast ratio;
+  * no native button shows in a box (ACT72-081): where Tk named a native button on a classic surface
+    (``layout_audit.surrounds``), the picture shows the button's own rectangle in that surface's colour. Aqua fills the
+    rectangle in the window colour of the window's appearance, whatever the surface is; the first eye review and this
+    review both passed 27 pictures with a light-grey box around each footer button before this was looked for.
 
 PASS needs every one. A picture that could not be evaluated is UNVERIFIED, which no policy counts as a pass. Advisory findings
 (a clipped label, contrast between 3.0 and 4.5) are recorded for the human reviewer and never decide the status alone.
@@ -206,7 +210,15 @@ def review(png: Path, record: dict) -> dict:
         check("Tk's solid points are where Tk put them", matched >= PROBE_SHARE * len(probes), f"{matched} of {len(probes)} probes")
     elif record.get("subject", "window") == "window":
         found["advisories"].append(f"only {len(probes)} solid points to register the picture against Tk's layout")
-    found["defects"] = layout_defects(audit)
+    boxed = []
+    for item in (audit.get("surrounds") or []) if scale > 0 else []:
+        x, y = round(item["x"] * scale), round((item["y"] + title_bar) * scale)
+        if 0 <= x < width and 0 <= y < height:
+            pixel = image.getpixel((x, y))
+            if max(abs(int(a) - int(b)) for a, b in zip(pixel, item["rgb"])) > PROBE_TOLERANCE:
+                boxed.append(f"a native button in a box of another colour: {item['path']} {item.get('text', '')!r}, its rectangle "
+                             f"{list(pixel[:3])} on its surface {list(item['rgb'])}")
+    found["defects"] = layout_defects(audit) + boxed
     found["advisories"] += layout_advisories(audit)
     failed = [item["name"] for item in found["checks"] if not item["ok"]]
     if failed or found["defects"]:

@@ -11,7 +11,11 @@ For each appearance (the application's own Light/Dark setting, which also sets e
               M4B Maker's Chapter Titles box with 23 tracks, scrolled;
   * work      real runs, pictured while busy and when finished (MP3 Combine, M4B Maker, M4B Converter on long inputs; Cover
               and Metadata finished): progress, publication and status lines;
-  * alerts    the real NSAlert warnings two tools raise when asked to run with nothing imported, answered with Return.
+  * alerts    the real NSAlert warnings two tools raise when asked to run with nothing imported, answered with Return;
+  * toggle    (ACT72-081) the application's own Light/Dark button pressed in the running window, at the minimum: pictured
+              as started, switched, switched back, after four more switches, and switched once more with Preferences &
+              Data opened and closed. The footer follows each switch in place; the review finds any native button in a
+              box of another colour.
 
 Every picture is the window server's image of the application's own window (no Screen Recording grant is needed for that),
 written with its provenance (tool, appearance, size, state, source SHA) and judged by ``helpers/visual_review.py``. A
@@ -41,7 +45,8 @@ LONG_TITLE = "A Very Long Book Title That Should Wrap Or Truncate Gracefully —
 REQUIRED = ([f"shell/{tool}-empty-1120x800" for tool in TOOLS] + [f"shell/{tool}-empty-max" for tool in TOOLS] + ["shell/preferences"]
             + [f"populated/{tool}-populated" for tool in TOOLS] + ["populated/maker-long-list-scrolled"]
             + [f"work/{name}" for name in ("mp3-busy", "mp3-finished", "maker-busy", "maker-finished", "converter-busy",
-                                           "converter-finished", "cover-finished", "metadata-finished")])
+                                           "converter-finished", "cover-finished", "metadata-finished")]
+            + [f"toggle/{name}" for name in ("started", "switched", "switched-back", "after-four-more", "after-preferences")])
 ALERTS: list[str] = []
 
 
@@ -252,6 +257,47 @@ def alerts_case(appearance: str):
     return run
 
 
+def toggle_case(appearance: str):
+    """ACT72-081: the app's own Light/Dark button, pressed in the running window -- no restart -- and pictured after each step."""
+    def run(context):
+        from journeys.common import expect_clean_close, open_tool, wait_until
+
+        report = context.report
+        other = "light" if appearance == "dark" else "dark"
+        session = context.app(last_tool="mp3_tool", settings={"appearance": appearance})
+        open_tool(session, "mp3_tool")
+        _size(session, MINIMUM)
+
+        def picture(name: str, expected: str) -> None:
+            session.settle()
+            session.screenshot(name, tool="mp3_tool", state=f"toggle-{name}")
+            report.equal(f"{name}: the picture is of the {expected} appearance", session.shots[-1]["appearance"], expected)
+
+        def switch(times: int = 1) -> None:
+            for _ in range(times):
+                session.click(None, "appearance_button")
+                session.settle()
+
+        picture("started", appearance)
+        switch()
+        picture("switched", other)
+        switch()
+        picture("switched-back", appearance)
+        switch(4)
+        picture("after-four-more", appearance)
+        switch()
+        before = {item["path"] for item in session.client.call("toplevels")["toplevels"]}
+        session.click(None, "preferences_button")
+        wait_until(lambda: {item["path"] for item in session.client.call("toplevels")["toplevels"]} - before, 15, "Preferences & Data")
+        session.settle()
+        session.key("escape")
+        wait_until(lambda: not ({item["path"] for item in session.client.call("toplevels")["toplevels"]} - before), 15, "Preferences to close")
+        picture("after-preferences", other)
+        expect_clean_close(context, session)
+
+    return run
+
+
 def _alert_record(session, event: dict, appearance: str, tool: str, label: str) -> None:
     """A native alert's picture gets the same provenance record and review as any other picture."""
     from adapters.macos.app_session import source_identity
@@ -285,7 +331,8 @@ def main(argv=None) -> int:
             cases += [macos_common.Case(appearance, "shell", shell_case(appearance), tool="launcher"),
                       macos_common.Case(appearance, "populated", populated_case(appearance), tool="launcher"),
                       macos_common.Case(appearance, "work", work_case(appearance), tool="launcher", budget=1800),
-                      macos_common.Case(appearance, "alerts", alerts_case(appearance), tool="launcher")]
+                      macos_common.Case(appearance, "alerts", alerts_case(appearance), tool="launcher"),
+                      macos_common.Case(appearance, "toggle", toggle_case(appearance), tool="launcher")]
         macos_common.run_cases(q, cases)
         pictures, entries = {}, []
         for sidecar in sorted((q.root / "cases").glob("*/screenshots/*.json")):

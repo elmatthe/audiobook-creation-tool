@@ -90,6 +90,28 @@ def _appearance_toggle_label(current_appearance: str) -> str:
     return "☀ Light mode" if current_appearance == appearance.DARK else "☾ Dark mode"
 
 
+def _aqua_footer_colors(widget: tk.Misc) -> dict[str, str]:
+    """The darwin footer's colours in the appearance its window shows now (ACT72-081, owner-approved).
+
+    Tk Aqua fills each native ``ttk.Button``'s rectangle with the window colour of the window's *current* appearance -- the
+    app's Light/Dark choice, which ``appearance.apply_native_appearance`` sets on the window -- and no ttk style reaches that
+    fill (measured). The rest of the shell keeps the colours ``ui_theme`` resolved from the system at start; the footer,
+    which holds the two native buttons, takes the window colour resolved now, so the buttons sit on their own colour in
+    either appearance. The status text and the link use the shell's own formulas, held to WCAG AA on that colour (Light's
+    system link colour measured 4.45:1 on Light's window colour). In a Dark window these are exactly the shell's Dark
+    palette (``ui_theme._apply_darwin``).
+    """
+    window = ui_theme._resolve_color(widget, "systemWindowBackgroundColor", "#ececec")
+    text = ui_theme._resolve_color(widget, "systemLabelColor", "#000000")
+    link = ui_theme._resolve_color(widget, "systemLinkColor", "#0068da")
+    return {
+        "window": window,
+        "secondary": ui_theme._readable_secondary(text, window, window, 0.45),
+        # The link, moved toward the label colour only as far as AA needs (Light: 1 %).
+        "link": ui_theme._readable_secondary(text, link, window, 1.0),
+    }
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     key: str
@@ -211,6 +233,8 @@ class LauncherApp:
         # focuses it instead of stacking duplicates.
         self.preferences_dialog = None
         self.appearance_button: ttk.Button | None = None
+        #: The darwin footer's classic widgets, recoloured in place for the window's appearance (ACT72-081); None elsewhere.
+        self._footer: dict | None = None
 
         self._build_ui()
         # Told about every future toggle so the one currently-open owned
@@ -462,9 +486,10 @@ class LauncherApp:
         status = tk.Frame(status_outer, bg=c["window"])
         status.pack(fill="x", padx=m["status_pad"][0], pady=m["status_pad"][1])
         self.status_var = tk.StringVar(value="Ready.")
-        tk.Label(status, textvariable=self.status_var, bg=c["window"],
-                 fg=c["secondary"], font=self.theme["font_status"],
-                 anchor="w").pack(side="left")
+        status_label = tk.Label(status, textvariable=self.status_var, bg=c["window"],
+                                fg=c["secondary"], font=self.theme["font_status"],
+                                anchor="w")
+        status_label.pack(side="left")
         log_link = tk.Label(status, text="Open log folder", bg=c["window"],
                             fg=c["link"], cursor="pointinghand",
                             font=self.theme["font_status"])
@@ -484,6 +509,16 @@ class LauncherApp:
             command=self._toggle_appearance, takefocus=True,
         )
         self.appearance_button.pack(side="right", padx=(0, m["row_padx"]))
+        # ACT72-081: the footer follows the appearance its window shows, so the
+        # two native buttons above never sit in a box of another colour. Painted
+        # now, on every appearance change (_on_appearance_changed), and when Tk
+        # reports the window's own appearance changed (the app's choice applied
+        # once the window maps, where Tk defers it). Bound once, here.
+        self._footer = {"surfaces": (status_outer, status), "status": status_label,
+                        "link": log_link}
+        self._paint_footer()
+        for sequence in ("<<LightAqua>>", "<<DarkAqua>>"):
+            self.root.bind(sequence, self._paint_footer, add="+")
 
         outer = tk.Frame(self.root, bg=c["window"])
         outer.pack(fill="both", expand=True)
@@ -632,9 +667,27 @@ class LauncherApp:
             f"Appearance: {self.appearance_bundle['appearance'].capitalize()}."
         )
 
+    def _paint_footer(self, _event=None) -> None:
+        """Recolour the darwin footer, in place, for the appearance its window shows now (ACT72-081). Idempotent.
+
+        A no-op on the Windows and classic shells, whose status bars are ttk-styled and unchanged."""
+        if self._footer is None:
+            return
+        try:
+            colors = _aqua_footer_colors(self.root)
+            for surface in self._footer["surfaces"]:
+                surface.configure(bg=colors["window"])
+            self._footer["status"].configure(bg=colors["window"], fg=colors["secondary"])
+            self._footer["link"].configure(bg=colors["window"], fg=colors["link"])
+        except tk.TclError:  # the window is being destroyed
+            pass
+
     def _on_appearance_changed(self, bundle: dict) -> None:
         """Fan the new bundle out to whichever owned dialog is open right now."""
         self.appearance_bundle = bundle
+        # The bundle has already set the window's native appearance: the
+        # footer follows it in the same pass as the native buttons.
+        self._paint_footer()
         if self.appearance_button is not None:
             self.appearance_button.configure(
                 text=_appearance_toggle_label(bundle["appearance"]))

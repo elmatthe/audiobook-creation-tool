@@ -14,6 +14,10 @@ named by widget path, class and text, so a reviewer can find it in the picture:
     A colour Tk cannot resolve is counted, never guessed.
   * ``probes``: points inside widgets drawn in a solid, known background, uncovered by any child, with that colour. The gate
     finds them in the picture to show it is this window, drawn as Tk laid it out (helpers/visual_review.py).
+  * ``surrounds`` (ACT72-081): for each natively drawn button that sits on a classic Tk surface (a ``Frame``), the surface's
+    colour and a point of the button's own rectangle, just inside its corner and outside the rounded bezel. Aqua fills that
+    rectangle in the window colour of the window's current appearance, which no ttk style reaches (measured); where the
+    surface is another colour the button shows in a box. The gate compares the two in the picture.
 """
 
 from __future__ import annotations
@@ -34,6 +38,8 @@ _OPERABLE = _CONTROLS | frozenset({"TEntry", "Entry", "TCombobox", "TSpinbox", "
 _NATIVE_FACE = frozenset({"TButton", "TMenubutton"})
 DEFECT_CONTRAST, ADVISORY_CONTRAST = 3.0, 4.5
 _SLACK = 2  # points: Tk's own rounding
+#: Classic Tk containers whose ``background`` is what a child is drawn on.
+_CLASSIC_SURFACE = frozenset({"Frame", "Labelframe"})
 
 
 def _all(widget) -> list:
@@ -161,13 +167,31 @@ def _probe(widget, top, children_boxes) -> dict | None:
     return None
 
 
+def _surround(widget, top) -> dict | None:
+    """A natively drawn button on a classic surface: the surface's colour, and a point of the button's own rectangle."""
+    if widget.winfo_class() not in _NATIVE_FACE or str(widget.tk.call("tk", "windowingsystem")) != "aqua":
+        return None
+    surface = widget.master
+    if surface is None or surface.winfo_class() not in _CLASSIC_SURFACE or min(widget.winfo_width(), widget.winfo_height()) < 8:
+        return None
+    try:
+        rgb = _rgb(surface, surface.cget("background"))
+    except tk.TclError:
+        return None
+    if rgb is None:
+        return None
+    left, upper = _box(widget)[:2]
+    return {"path": str(widget), "surface": str(surface), "text": _text(widget), "x": left + 1 - top.winfo_rootx(),
+            "y": upper + 1 - top.winfo_rooty(), "rgb": list(rgb)}
+
+
 def audit(top) -> dict:
     """The findings for one toplevel, with the counts that show how much was looked at."""
     top.update_idletasks()
     window = _box(top)
     widgets = [item for item in _all(top) if item.winfo_ismapped() and item.winfo_viewable()]
     result = {"widgets": len(widgets), "clipped": [], "outside": [], "overlaps": [], "contrast": [], "contrast_checked": 0,
-              "contrast_unresolved": 0, "probes": [], "window_points": [top.winfo_width(), top.winfo_height()]}
+              "contrast_unresolved": 0, "probes": [], "surrounds": [], "window_points": [top.winfo_width(), top.winfo_height()]}
     by_parent: dict = {}
     for widget in widgets:
         cls = widget.winfo_class()
@@ -175,6 +199,9 @@ def audit(top) -> dict:
         if width <= 1 or height <= 1:
             continue
         by_parent.setdefault(str(widget.master), []).append(widget)
+        surround = _surround(widget, top)
+        if surround is not None:
+            result["surrounds"].append(surround)
         if cls in _TEXT:
             try:
                 wraps = int(float(str(widget.cget("wraplength")) or 0)) > 0

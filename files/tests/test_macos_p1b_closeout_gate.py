@@ -84,6 +84,20 @@ def test_a_real_looking_capture_passes_review(tmp_path):
         assert verdict["status"] == "PASS", verdict
 
 
+def _surround(*, rgb, x: int = 30, y: int = 270) -> dict:
+    """A native button's rectangle as ``layout_audit.surrounds`` names it; (30, 270) is the synthetic window's background."""
+    return {"path": ".status.button", "surface": ".status", "text": "Dark mode", "x": x, "y": y, "rgb": rgb}
+
+
+def test_a_native_button_on_its_own_surface_colour_passes_review(tmp_path):
+    """ACT72-081's check passes a button whose rectangle is the colour of the surface it sits on, in either appearance."""
+    for appearance, background in (("dark", [30, 30, 32]), ("light", [236, 236, 236])):
+        path, record = _picture(tmp_path / appearance, appearance=appearance)
+        record["layout"]["surrounds"] = [_surround(rgb=background)]
+        verdict = vr.review(path, record)
+        assert verdict["status"] == "PASS" and not verdict["defects"], verdict
+
+
 @pytest.mark.parametrize("damage, status, words", [
     ("not captured", "UNVERIFIED", "not captured"),
     ("remote content", "UNVERIFIED", "another process"),
@@ -99,6 +113,7 @@ def test_a_real_looking_capture_passes_review(tmp_path):
     ("overlapping controls", "FAIL", "overlapping controls"),
     ("low contrast", "FAIL", "below 3.0"),
     ("tiny placeholder png", "FAIL", "plausible size"),
+    ("button in a box", "FAIL", "in a box of another colour"),
 ])
 def test_an_invalid_capture_or_a_failed_inspection_is_never_a_pass(tmp_path, damage, status, words):
     """Never a pass when captured is false, never a placeholder PNG, never a picture whose review found a defect."""
@@ -132,6 +147,9 @@ def test_an_invalid_capture_or_a_failed_inspection_is_never_a_pass(tmp_path, dam
         record["layout"]["overlaps"] = [{"first": ".a", "second": ".b", "area": 400}]
     elif damage == "low contrast":
         record["layout"]["contrast"] = [{"path": ".l", "class": "TLabel", "text": "faint", "ratio": 1.4, "kind": "defect"}]
+    elif damage == "button in a box":
+        # ACT72-081: Tk's surface is light grey; the picture shows the (dark) window colour there.
+        record["layout"]["surrounds"] = [_surround(rgb=[236, 236, 236])]
     elif damage == "tiny placeholder png":
         from PIL import Image
 
