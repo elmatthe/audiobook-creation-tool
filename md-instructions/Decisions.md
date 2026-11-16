@@ -2,6 +2,31 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — P4A OWNER ACCEPTED: all six OmniVoice voices accepted by the owner's listening; MPS fp32 preferred, CPU fp32 a selectable alternative, MPS fp16 experimental only; C2's speed exception accepted for integration; P4B authorized; the final macOS roster is Edge + Kokoro + OmniVoice (20 voices); six OmniVoice previews added to the final release (owner decisions; recorded by Claude Code)
+
+**Evidence the acceptance rests on (P4A evidence SHA `6fb98e63098981692b5b1508e7f4abafd68f96c4`; local evidence `files/dev-work/omnivoice-feasibility/`, ignored).**
+- **Technical (agent-reported, P4A results entry below):** C1 CPU fp32 and C2 MPS fp32 each F PASS and S PASS; C3 MPS fp16 a bounded experiment only (S0, S1 and two samples).
+- **Owner listening:** the owner listened to all 16 P4A MP3s. All six voices (Female 1, Female 2, Male 1, Male 2, Male 3, Male 4) sound good enough for integration. No meaningful audible difference was heard between the X/Y/Z configurations. No audio-tuning campaign is requested.
+- **Independent Codex review (`P4A-Codex-Independent-Audio-Review.md`, 2026-11-16, read in full by this session).**
+  - *Verdict:* PASS for bounded encoded-audio integrity and for CPU/MPS fp32 integration readiness. No configuration is objectively and consistently worse. MPS fp16 stays CONCERN / experimental.
+  - *Scope:* all 16 MP3s decoded (mpg123) and measured: hashes against the indexes, format, duration, a local BS.1770-style loudness estimate, true-peak estimate, silence, spectra, pitch, discontinuities.
+  - *Not covered:* no independent perceptual listening, no ASR, WER unmeasured, meters not conformance-validated, source PCM not available. It is not full-product verification.
+  - *Nonblocking observations:* six files with less than 1 dB true-peak headroom (possible mastering improvement, not clipping); one unconfirmed CPU Female 2-Z onset transient at 0.234 s; the source-stage clipping counts and the chunk-level speaking-rate flags of the index are not reproducible from the MP3s and stay unverified. None is a proven defect.
+- **WER: NOT RUN — NO AUTHORIZED ASR MODEL** (D15 stays deferred).
+
+**Owner decisions.**
+1. **P4A: OWNER ACCEPTED.** The listening verdict is final and is not reopened.
+2. **MPS fp32 (C2): the preferred and default OmniVoice configuration** on supported Apple Silicon Macs. Technical PASS. **Its speed exception is accepted** for integration (wall RTF 0.914–1.190 against the provisional ≤ 1.0). This waives no memory, safety, Cancel, functional or long-form reliability requirement.
+3. **CPU fp32 (C1): a supported, explicitly selectable alternative.** Technical PASS.
+4. **MPS fp16 (C3): experimental only.** It is not offered as a production choice, and no full stability qualification is claimed.
+5. **P4B is authorized:** production integration of OmniVoice on macOS through the real engine, installer and Cancel paths (plan §12.E, §19 P4B). The P4A acquisition consent covered only the disposable experiment. Any new production download, and any adoption of the P4A bytes into the production runtime, needs its own owner approval, kept apart from accepting the code.
+6. **Final macOS roster (P4C, the configuration "Edge + Kokoro + OmniVoice" of §12.F): exactly 20 voices.** Edge TTS 5, Kokoro-82M 9, OmniVoice 6. Chatterbox Turbo and Qwen3 (CustomVoice and Voice Clone) are absent from every macOS user-facing surface and refused by macOS dispatch, through the one platform policy of §12.F; Windows keeps all 34 voices and every setup option unchanged. The macOS first-run optional TTS choices are the Kokoro model download and the OmniVoice installation; Edge needs none. P4C follows P4B's acceptance and is required before the Mac work is complete or any release.
+7. **New final-release requirement (deferred to P6a): six OmniVoice previews** (`omnivoice-female-1.wav` … `omnivoice-male-4.wav`) join the public preview gallery, making 34. The 28 historical previews stay byte-for-byte; the same short sample text; the real production pipeline; lossless WAV; voice identities, hashes, durations and provenance recorded; the original references and transcripts never published; the model's non-commercial and tokenizer terms reviewed before publication. The owner intends to publish them, subject to that review. Not generated in P4B.
+
+**Protected.** The temporary GitHub draft release `447445728` ("ACT P4A OmniVoice — TEMPORARY LISTENING EVIDENCE — DO NOT PUBLISH", asset `ACT-P4A-OmniVoice-listening-pack.zip`, digest `sha256:b72ab61d…`) delivered the pack. It is not published, changed or deleted without separate authorization. No listening sample, model file or experiment log enters source history.
+
+**Unchanged.** P2 acceptance items, Windows E-B2, the Windows focused regression, D16 (version identity), D18 and both final gates on one SHA stay as recorded. P4A evidence is never relabelled as a P4B result.
+
 ## 2026-11-16 — macOS P4A OmniVoice feasibility executed: P4A TECHNICAL PASS — OWNER LISTENING PENDING (C1 CPU fp32 within every D6-O target; C2 MPS fp32 a narrow PERFORMANCE EXCEPTION on speed; C3 MPS fp16 bounded experiment clean); the listening pack is not on GitHub, so delivery waits for the owner (recorded by Claude Code)
 
 **What ran (bounded, once; no tuning loop, no setting, revision or reference changed).**

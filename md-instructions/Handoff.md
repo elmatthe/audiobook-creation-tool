@@ -1,5 +1,21 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4A OWNER ACCEPTED; P4B authorized and in progress (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Windows v0.8.0 is untouched; nothing merged, tagged or released.
+
+- **P4A: OWNER ACCEPTED** (Decisions, P4A acceptance entry; plan Revision 3). Evidence SHA `6fb98e6`.
+  - Six OmniVoice voices: owner listening accepted.
+  - CPU fp32: technical PASS, accepted alternative (explicitly selectable).
+  - MPS fp32: technical PASS, preferred and default; its speed exception accepted for integration planning.
+  - MPS fp16: experimental, not production-approved.
+  - WER: NOT RUN — no authorized ASR model.
+  - Codex review (`P4A-Codex-Independent-Audio-Review.md`): bounded encoded-audio integrity PASS of the 16 MP3s, not full-product verification.
+- **Protected:** draft release `447445728` (the listening pack; never publish, change or delete without authorization); `files/dev-work/omnivoice-feasibility/` (4.6 GB, ignored; model 11/11 re-verified against the production manifest this session); 18/18 references, both transcripts and 28/28 previews verified (`files/dev-work/macos-p4b/protected-pre-p4b.json`).
+- **Locked for later phases:** the macOS roster is Edge 5 + Kokoro 9 + OmniVoice 6 = 20 (P4C, after P4B acceptance); six OmniVoice previews are a P6a requirement (plan P6a).
+- **Owner's preview README edit (`7842280`, `e4d7378`, pulled by fast-forward):** `files/voice-previews/README.md` now has an `Availability` column and six OmniVoice rows "To Be Added". `voice_previews.py check` therefore reports the README out of date with the manifest (exit 1) until P6a teaches the renderer this format. Do not run `voice_previews.py readme` before then: it would overwrite the owner's edit.
+- **Next:** P4B implementation (plan §12.E call sites, §19 P4B).
+
 ## Current checkpoint — macOS P4A OmniVoice feasibility: P4A TECHNICAL PASS — OWNER LISTENING PENDING; pack delivery waits for the owner (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Windows v0.8.0 is untouched. P4B, P4C, P3A and P3B have not started; nothing was merged, tagged or released. P2 acceptance and Windows E-B2 stay pending.
