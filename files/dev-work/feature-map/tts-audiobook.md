@@ -321,6 +321,9 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   Cancelled only after the work has really stopped and cleaned up. Files already published stay; nothing unfinished is
   saved. A started file is logged as stopped, a not-started one as skipped; Retry Failed offers neither. The run's
   closing line counts the files finished, stopped and not started (ACT72-004, v0.7.2 Phase 6).
+- **macOS Kokoro (v0.8.x P2):** Cancel does not wait for the chunk being rendered: the local-engine worker's whole
+  process group is ended and reaped (within 2 s), also when the run is paused or between files; the next run starts a
+  fresh worker.
 
 ### Cancel clicked for real with requests in flight
 `ACT.TTS.CANCEL.NATIVE`
@@ -459,6 +462,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Persistence:** the loaded pipeline is cached per language for the life of the process.
 - **Differences:** the only engine with a speed control.
 - A speed typed outside 0.5 to 2.0, or not a finite number, is refused at Start with "Kokoro speed" before anything is frozen or reserved (ACT72-047, fixed in v0.7.2 Phase 6). The bitrate ceiling is described under the bitrate (ACT72-021).
+- **macOS (v0.8.x P2):** inference runs in one preemptible worker process (`local_engine_host.py`, `local_engine_worker.py`) started under the app's containment owner. The app sends each prepared chunk and keeps speech preparation, chunking, assembly, the one encode and publication; the PCM the worker hands back is checked (24 kHz, mono, finite, non-empty) before use. A worker that dies fails the file with an accurate message and the next file starts a fresh one. Runs on the CPU in fp32. Windows keeps Kokoro in process, unchanged.
 
 ### Chatterbox Turbo cloned-voice narration
 `ACT.TTS.ENGINE.CHATTERBOX`
@@ -515,6 +519,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Purpose:** keeps the local engines safe and within memory. Their cached model objects cannot be shared, and a second Qwen3 file would double several gigabytes of GPU or RAM use.
 - **Behaviour:** whatever the Workers box asks (up to 100), a Kokoro, Chatterbox, Qwen3 or OmniVoice run converts exactly one file at a time. The run log says "Worker limit: <engine> converts one file at a time."
 - **Differences:** Edge runs many files at once, limited by its service ceiling, the processor count and memory.
+- **macOS (v0.8.x P2):** at most one local-engine worker process exists. It stays loaded between a run's files and while paused; choosing a voice of another engine releases it unless it is serving a run, and closing the app ends it with the app's other owned children.
 
 ### Local engines never download at narration time
 `ACT.TTS.ENGINE.OFFLINE-USE`
@@ -522,6 +527,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Purpose:** choosing a voice and pressing Start never downloads anything.
 - **Behaviour:** Kokoro and Chatterbox load only the pinned, verified local files. If one is missing, the wrong size or the wrong checksum, the run is refused and told "Nothing was downloaded" rather than letting the library fetch it. A Kokoro voice with no pinned file is refused. A missing spaCy English model is refused before Kokoro's pronunciation library could install one itself. Chatterbox loads from the pinned commit's folder only. The Qwen3 worker runs with the model hub offline and every cache inside the app folder.
 - **OmniVoice (v0.8.0):** its worker closes the network before anything heavy loads (an audit hook refuses any non-loopback access), runs with the hub and transformers offline and every cache inside the app folder, and never loads a speech recognizer.
+- **macOS Kokoro worker (v0.8.x P2):** it loads through the same verified-files pipeline, so it reads only the pinned local files and never fetches a model, a voice or spaCy's English model.
 - **Recovery:** Install & Continue or the first-run setup.
 
 ### Installed or missing: local voice availability

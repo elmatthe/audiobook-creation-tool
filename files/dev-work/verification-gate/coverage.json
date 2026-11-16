@@ -537,20 +537,37 @@
           "symbols": [
             "JobController.request_cancel"
           ]
+        },
+        {
+          "path": "scripts/tts/local_engine_host.py",
+          "symbols": [
+            "cancel_requested",
+            "WorkerHost._cancel",
+            "WorkerHost.kill",
+            "WorkerHost._reap_quietly"
+          ]
+        },
+        {
+          "path": "scripts/tts/kokoro_synth.py",
+          "symbols": [
+            "_end_worker_after_cancel"
+          ]
         }
       ],
       "contracts": [
         "Cancel only requests a stop; the run shows Cancelled after a worker acknowledges it at a checkpoint and has cleaned up, never because the button was pressed.",
         "Cancel wakes the FFmpeg watchdog and the memory gate at once, wakes a paused run and outranks the pause.",
         "Files published before the Cancel stay; nothing unfinished is saved; a file that had started is logged as stopped and one that never started as skipped, and Retry Failed offers neither.",
-        "The run's closing line counts the files finished, stopped (nothing unfinished saved) and not started; each file's own line already tells stopped from skipped (v0.7.2, ACT72-004)."
+        "The run's closing line counts the files finished, stopped (nothing unfinished saved) and not started; each file's own line already tells stopped from skipped (v0.7.2, ACT72-004).",
+        "On macOS (v0.8.x P2) a Cancel during a Kokoro chunk does not wait for the chunk: the request's own Cancel poll ends the local-engine worker's whole process group and reaps it (bounded at 2 s), and a paused or between-files run's worker is ended by Cancel itself; nothing unfinished is published and the next run starts a fresh worker."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
         "files/tests/test_cancel_semantics.py",
         "files/tests/test_tts_worker_concurrency.py",
         "files/tests/test_plan4_lifecycle_races.py",
-        "files/tests/test_low_memory.py"
+        "files/tests/test_low_memory.py",
+        "files/tests/test_local_engine_worker.py"
       ],
       "journeys": [
         "tts.cancel-during-narration"
@@ -3285,7 +3302,13 @@
             "_get_pipeline",
             "_load_pipeline",
             "_export_mp3",
-            "_lang_code_for_voice"
+            "_lang_code_for_voice",
+            "_use_worker",
+            "_worker_host",
+            "_worker_render",
+            "_worker_renderer",
+            "_kokoro_chunks_to_mp3",
+            "_worker_load_message"
           ]
         },
         {
@@ -3295,6 +3318,29 @@
             "TtsPanel.run_job",
             "TtsPanel._freeze_run"
           ]
+        },
+        {
+          "path": "scripts/tts/local_engine_host.py",
+          "symbols": [
+            "isolation_enabled",
+            "host_for",
+            "WorkerHost.ensure_started",
+            "WorkerHost.load",
+            "WorkerHost.synthesize",
+            "validate_pcm",
+            "parse_event"
+          ]
+        },
+        {
+          "path": "scripts/tts/local_engine_worker.py",
+          "symbols": [
+            "main",
+            "serve",
+            "KokoroAdapter.load",
+            "KokoroAdapter.synthesize",
+            "_write_pcm",
+            "_take_protocol_channel"
+          ]
         }
       ],
       "contracts": [
@@ -3302,7 +3348,8 @@
         "The chunk pause (default 50 ms) separates rendered chunks only; no closing pause is added whatever end_silence_ms says.",
         "Cancel is honoured between chunks and again just before the single encode; a cancelled file writes nothing.",
         "The first pipeline load in a process is retried once after 2 s (Windows Application Control); any later load failure is reported with a repair hint, never retried.",
-        "The Kokoro speed from the panel is passed to the model unchanged once Start has accepted it: a finite number from 0.5 to 2.0; anything else is refused before anything is frozen or reserved (v0.7.2, ACT72-047)."
+        "The Kokoro speed from the panel is passed to the model unchanged once Start has accepted it: a finite number from 0.5 to 2.0; anything else is refused before anything is frozen or reserved (v0.7.2, ACT72-047).",
+        "On macOS (v0.8.x P2) Kokoro inference runs in one preemptible local-engine worker process started under the app's containment owner: the app sends each prepared chunk (text, voice, speed, split pattern) and keeps speech preparation, chunking, assembly, the one encode and publication; the worker loads through the same verified-files pipeline and hands back float32 PCM that is checked (24 kHz, mono, finite, non-empty) before it is used. A worker that dies or answers out of protocol fails the file with an accurate message and the next file starts a fresh worker. Windows keeps the in-process route unchanged."
       ],
       "selection": [
         "files/tests/test_kokoro_timing_wiring.py",
@@ -3311,7 +3358,8 @@
         "files/tests/test_mp3_finalization.py",
         "files/tests/test_tts_final_tail.py",
         "files/tests/test_chatterbox_longform.py",
-        "files/tests/test_tts_start_values.py"
+        "files/tests/test_tts_start_values.py",
+        "files/tests/test_local_engine_worker.py"
       ],
       "journeys": [
         "tts.kokoro-local"
@@ -4016,7 +4064,8 @@
         {
           "path": "scripts/tts/kokoro_synth.py",
           "symbols": [
-            "_get_pipeline"
+            "_get_pipeline",
+            "_finish_worker_use"
           ]
         },
         {
@@ -4024,17 +4073,35 @@
           "symbols": [
             "_get_model"
           ]
+        },
+        {
+          "path": "scripts/tts/local_engine_host.py",
+          "symbols": [
+            "current_host",
+            "release",
+            "engine_selected",
+            "WorkerHost.busy",
+            "WorkerHost.close"
+          ]
+        },
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "TtsPanel._on_voice_selected"
+          ]
         }
       ],
       "contracts": [
         "Whatever the Workers box asks (up to 100), a Kokoro, Chatterbox, Qwen3 or OmniVoice run converts exactly one file at a time on any machine.",
         "The run log says why: 'Worker limit: <engine> converts one file at a time.'",
-        "No concurrency expansion: the per-process Kokoro pipeline and Chatterbox model caches are not reentrant and are never shared by two files at once."
+        "No concurrency expansion: the per-process Kokoro pipeline and Chatterbox model caches are not reentrant and are never shared by two files at once.",
+        "On macOS (v0.8.x P2) there is at most one local-engine worker process; it stays loaded between the files of a run and while paused, choosing a voice of another engine releases it unless it is serving a run, and closing the app ends it with the app's other owned children."
       ],
       "selection": [
         "files/tests/test_worker_limits.py",
         "files/tests/test_tts_worker_concurrency.py",
-        "files/tests/test_qwen3_gui.py"
+        "files/tests/test_qwen3_gui.py",
+        "files/tests/test_local_engine_worker.py"
       ],
       "journeys": [],
       "verification": {
@@ -4116,6 +4183,12 @@
           "symbols": [
             "install_network_guard"
           ]
+        },
+        {
+          "path": "scripts/tts/local_engine_worker.py",
+          "symbols": [
+            "KokoroAdapter.load"
+          ]
         }
       ],
       "contracts": [
@@ -4123,7 +4196,8 @@
         "A Kokoro voice with no pinned file is refused, not fetched; a missing spaCy English model is refused before misaki could pip-install it.",
         "Chatterbox loads from the pinned commit's folder (from_local), never from_pretrained at a moving branch.",
         "The Qwen3 worker runs with the Hugging Face hub and transformers offline and every cache inside the app folder.",
-        "The OmniVoice worker runs offline: an audit hook refuses any non-loopback network access before anything heavy loads, the hub and transformers are offline with every cache inside the app folder, and no speech recognizer is loaded."
+        "The OmniVoice worker runs offline: an audit hook refuses any non-loopback network access before anything heavy loads, the hub and transformers are offline with every cache inside the app folder, and no speech recognizer is loaded.",
+        "The macOS Kokoro worker (v0.8.x P2) loads through kokoro_synth's own pipeline, so it reads only the pinned, verified local files and never fetches a model, a voice or spaCy's English model."
       ],
       "selection": [
         "files/tests/test_optional_setup_acquisition.py",
@@ -25788,10 +25862,12 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "343a30c23c65b57de34626ad33185a7e2539ecdd1a9c8c03f9fcc7b774b370a8",
+    "scripts/tts/epub2tts_gui.py": "d03cb89ae2784edcdf75d0c5e4226b6fc1ed51acd5bbe5bbca7e8e3196aa43d9",
     "scripts/tts/ffmpeg_watch.py": "3af5ccd8a3aef4be21bf805be1eb808e056a8b9fd862ae2677d51473fe441f64",
     "scripts/tts/generate_voice_samples.py": "b59a47057a671e006c3aae750e1186f9310bfd30ae610f05ceae4c2dac47b26e",
-    "scripts/tts/kokoro_synth.py": "07595a2dcfe343ebce7ae23d4ec3e5ed9d95fe9f08fd260336a7904869471314",
+    "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
+    "scripts/tts/local_engine_host.py": "5d96dfdec9501a156b1f314cb97266a0f4009359bffed48ef95f24867f5cfd7f",
+    "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "cbe53184ea26ee688153ae7c7dcda9494163ff2ec28650a406470f4dfc3a0a3f",
     "scripts/tts/omnivoice_setup.py": "07d2350c8d671bdac8ac47d49a489e6984288a3ebf0342e08abbe29002c93f65",

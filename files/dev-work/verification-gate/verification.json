@@ -235,8 +235,8 @@
       },
       {
         "id": "windows-filesystem-mechanics",
-        "max": 45,
-        "pattern": "^(junctions\\ are\\ a\\ Windows\\ mechanism|junctions\\ are\\ a\\ Windows\\-only\\ facility|a\\ junction\\ is\\ the\\ Windows\\ link\\ that\\ needs\\ no\\ privilege|a\\ directory\\ junction\\ is\\ a\\ Windows\\ link|junctions\\ are\\ a\\ Windows\\ construct|FILE_ATTRIBUTE_HIDDEN\\ is\\ a\\ Windows\\-only\\ facility|Windows\\ long\\ paths\\ exist\\ on\\ Windows\\ only|Windows\\ paths\\ compare\\ without\\ regard\\ to\\ case|only\\ Windows\\ can\\ bind\\ a\\ roll\\-back's\\ move\\ to\\ the\\ file\\ itself;\\ elsewhere\\ a\\ roll\\-back\\ moves\\ nothing.*|an\\ exclusive\\ open\\ is\\ how\\ Windows\\ reports\\ a\\ holder|a\\ junction\\ is\\ the\\ Windows\\ link\\ available\\ without\\ privilege|PurePath\\ is\\ only\\ the\\ Windows\\ flavour\\ on\\ Windows)$",
+        "max": 46,
+        "pattern": "^(junctions\\ are\\ a\\ Windows\\ mechanism|junctions\\ are\\ a\\ Windows\\-only\\ facility|a\\ junction\\ is\\ the\\ Windows\\ link\\ that\\ needs\\ no\\ privilege|a\\ directory\\ junction\\ is\\ a\\ Windows\\ link|junctions\\ are\\ a\\ Windows\\ construct|FILE_ATTRIBUTE_HIDDEN\\ is\\ a\\ Windows\\-only\\ facility|Windows\\ long\\ paths\\ exist\\ on\\ Windows\\ only|Windows\\ paths\\ compare\\ without\\ regard\\ to\\ case|only\\ Windows\\ can\\ bind\\ a\\ roll\\-back's\\ move\\ to\\ the\\ file\\ itself;\\ elsewhere\\ a\\ roll\\-back\\ moves\\ nothing.*|an\\ exclusive\\ open\\ is\\ how\\ Windows\\ reports\\ a\\ holder|a\\ junction\\ is\\ the\\ Windows\\ link\\ available\\ without\\ privilege|PurePath\\ is\\ only\\ the\\ Windows\\ flavour\\ on\\ Windows|NTFS\\ junctions)$",
         "why": "Junctions, the hidden attribute, Windows long paths and case rules, and the handle-bound roll-back: Windows filesystem facilities. macOS's own (APFS and exFAT no-clobber, NFD names, case folding by the volume) are tested natively in test_macos_p1b_platform.py and test_macos_p1b_filesystem.py."
       },
       {
@@ -277,9 +277,9 @@
       },
       {
         "id": "local-fixture-absent",
-        "max": 3,
-        "pattern": "^(files/dev\\-work/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|files/runtime\\-data/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|the\\ Riedl\\ 9\\.0\\.1\\ ZIPs\\ are\\ not\\ downloaded\\ here)$",
-        "why": "Local fixtures that are absent on this computer; the tests run where they are present."
+        "max": 4,
+        "pattern": "^(files/dev\\-work/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|files/runtime\\-data/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|the\\ Riedl\\ 9\\.0\\.1\\ ZIPs\\ are\\ not\\ downloaded\\ here|no\\ development\\ \\.venv)$",
+        "why": "Local fixtures that are absent on this computer; the tests run where they are present. A disposable verification worktree has no development .venv of its own (it runs on its main checkout's), so the Kokoro dependency proof against .venv is run in the main checkout instead (v0.8.x P2)."
       },
       {
         "id": "empty-parameter-set",
