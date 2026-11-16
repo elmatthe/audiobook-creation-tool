@@ -221,7 +221,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 
 - The status-bar button reads "☾ Dark mode" in Light and "☀ Light mode" in Dark. Pressing it repaints every tool interior and open app dialog in place, with nothing moved or rebuilt and nothing typed lost; the status line says "Appearance: Dark." or "Appearance: Light."
 - Saved as `appearance`; first run or an unknown value means Light; a failed save shows the stored value.
-- Difference: the Windows outer shell keeps its fixed dark style; on macOS the native window appearance follows the choice.
+- Difference: the Windows outer shell keeps its fixed dark style; on macOS the native window appearance follows the choice, and so does the footer (status line, Open log folder and the surroundings of its two native buttons), so the buttons never sit in a box of another colour (ACT72-081).
 - Owner checks: the Light/Dark screenshot baselines (none approved yet) and scaling above 100%.
 
 ### Mouse-wheel scrolling over scrollable regions

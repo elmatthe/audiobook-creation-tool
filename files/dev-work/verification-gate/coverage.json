@@ -19533,7 +19533,9 @@
           "symbols": [
             "_appearance_toggle_label",
             "LauncherApp._toggle_appearance",
-            "LauncherApp._on_appearance_changed"
+            "LauncherApp._on_appearance_changed",
+            "_aqua_footer_colors",
+            "LauncherApp._paint_footer"
           ]
         },
         {
@@ -19579,7 +19581,8 @@
         "The choice is saved under 'appearance' in settings.json; a first run or any unrecognised stored value means Light.",
         "If the save fails, the window shows the value actually stored, not the one requested.",
         "Both palettes meet the project's contrast bar.",
-        "On macOS the sidebar's TOOLS heading holds WCAG AA contrast (4.5:1) on the sidebar tint in Light and Dark, and the content card's hairline keeps its separator colour whatever has keyboard focus (v0.8.x P1B remediation)."
+        "On macOS the sidebar's TOOLS heading holds WCAG AA contrast (4.5:1) on the sidebar tint in Light and Dark, and the content card's hairline keeps its separator colour whatever has keyboard focus (v0.8.x P1B remediation).",
+        "On macOS the footer (its surfaces, status line and Open log folder link) follows the appearance its window shows, so the two native buttons never sit in a box of another colour; it changes in place with every switch, its status text and link hold WCAG AA (4.5:1) on it, and in Dark it is the shell's Dark palette (ACT72-081, owner-approved)."
       ],
       "selection": [
         "files/tests/test_appearance.py",
@@ -24130,6 +24133,7 @@
       "binding:scripts/launcher.py::LauncherApp._build_ui_darwin::bind:<Configure>": "ACT.LAUNCHER.WINDOW-SIZE",
       "binding:scripts/launcher.py::LauncherApp._build_ui_darwin::bind:<Enter>": "ACT.LAUNCHER.OPEN-TOOLS",
       "binding:scripts/launcher.py::LauncherApp._build_ui_darwin::bind:<Leave>": "ACT.LAUNCHER.OPEN-TOOLS",
+      "binding:scripts/launcher.py::LauncherApp._build_ui_darwin::bind:sequence": "ACT.SHARED.APPEARANCE",
       "binding:scripts/m4b/converter/m4b_converter.py::M4BConverterUI.__init__::bind:<Configure>": "ACT.CONVERTER.LAYOUT",
       "binding:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._build::bind:<Configure>": "ACT.MAKER.RUN-FOLDER",
       "binding:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._build::bind:<Configure>#2": "ACT.MAKER.LAYOUT",
@@ -25680,7 +25684,7 @@
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "88313c63137869345af59f3389400f7fd80dcc6955474a000afbd5a2dc4cf9ba",
+    "scripts/launcher.py": "4ae53cbf73494dfb32e6e15fcb27b741c1febcefd65110d034c0b2b9108f72c9",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",
