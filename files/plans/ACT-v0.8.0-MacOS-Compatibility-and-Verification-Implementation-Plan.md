@@ -1382,6 +1382,10 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
   - the darwin gate policy and the acceptance map are in place;
   - Windows touchpoints are listed.
 - **Stop:** a GUI crash from the Tk/AppKit thread rule that cannot be fixed narrowly; any invariant break; any orphaned ACT process after a KX test.
+- **Accepted by the owner at `61078f9` (2026-11-16; Decisions, P1B accepted).** The 20 visual FAIL findings of the final eye
+  review are nonblocking P1B visual debt (not passes), reviewed for usability and disposition in P5; the 1120 × 800 minimum
+  is kept; D11c and D11b (ACT72-076) are deferred; MAC-042 is deferred to P6a; ACT72-080 stays the approved P1B exception
+  (selection UNVERIFIED, revisit P5/P7). No P2, P5, P6 or P7 requirement is waived.
 
 ### P2 — Edge TTS and Kokoro (TTS Audiobook panel on macOS)
 - **Entry:** P1B PASS. The owner sets the provisional budgets **D6-E** and **D6-K** (§12.A, §12.B, §15).

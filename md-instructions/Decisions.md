@@ -2,6 +2,29 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P1B accepted by the owner at `61078f9`; visual debt, ACT72-080 and three deferrals carried to named later phases (owner decision; recorded by Claude Code)
+
+**Owner decision (the owner's P1B acceptance and P2 instruction of 2026-11-16, recorded here, not invented).**
+- **A. P1B is accepted at the verified checkpoint `61078f9`** (documents only on the code candidate `b363344`; application code identical to `2ab868d`).
+- **B. The 20 visual FAIL findings of the `847e` eye review are NONBLOCKING P1B visual debt, not visual PASS results.** Their original pictures (`files/dev-work/worktrees/p1b-closeout/files/dev-work/verification-gate/outputs/2026-11-15_221914_qualification_847e/`) and their individual FAIL findings (`files/dev-work/macos-p1b/act72-081/eye/eye-review-847e.{md,json}`) are retained unchanged: OBS-ENTRY-PATH (9), OBS-LOG-WRAP (8), OBS-LIST-ELLIPSIS (6), OBS-TTS-FOCUS (2), OBS-FOCUS-BORDER (1), OBS-ALERT-MATERIAL (1). They are reviewed for usability and disposition in **P5**, before release, and are never silently cleared.
+- **C. The 1120 × 800 Aqua minimum is kept.**
+- **D. D11c (macOS FFmpeg continuous-route qualification) is deferred.** The verified per-chapter fallback stays; the 17 continuous-route proofs stay accurately dispositioned, never passed.
+- **E. D11b (cross-process abandoned work-area cleanup) is deferred.** ACT72-076 and the current safe non-deletion behaviour are retained.
+- **F. MAC-042 (Dock and menu-bar branding) is deferred to P6a packaging.** The development interpreter's "python" identity is accepted provisionally, not as the release's branding.
+- **G. ACT72-080 stays the APPROVED P1B EXCEPTION.** Selection inside the real native file picker stays UNVERIFIED and never counts as a PASS; it is revisited at P5/P7; no Accessibility or Screen Recording change is authorized.
+- **H. The remaining nonblocking visual debt** (cut log and path displays, imperfect focus indicators, the Light Mode native-alert appearance) **stays documented for P5.** Any item found to prevent access to essential information or functionality is escalated, not treated as cosmetic.
+- These decisions permit P1B closure. They waive no P2, P5, P6 or P7 release requirement.
+
+**What the acceptance rests on (each kept in its own evidence class).**
+- **Automated checks — agent-reported evidence at the P1B code candidate `b363344`** (Handoff, P1B ACT72-081 block): focused `221213_focused_c1d7` PASS (566 passed, 16 policy skips); 38 darwin journeys `221546_focused_f1d8` PASS; `macos-native-dialogs` `221850_qualification_fd48` PASS; `macos-visual` `221914_qualification_847e` PASS (machine review); `macos-kx10` `222115_qualification_719a` PASS; the coverage route `222347_focused_04da` at its census baseline. `verify.py --evidence`: every automated P1B requirement AUTOMATED PASS at the candidate. Not rerun for this record (the owner's instruction).
+- **Visual review — 50 PASS and 20 known visual FAIL findings** (Claude Code's eye review of all 70 `847e` pictures; never the owner's own look). The owner accepts the 20 FAILs as debt (B), not as passes.
+- **ACT72-080 — approved exception, selection UNVERIFIED** (G).
+- **Later-phase TTS and real-clean-Mac checks — NOT RUN** (`tts-journeys` P2, `terminal-autoclose` P5, `dock-menu-name` P6, `fresh-macos` P7c).
+- **Canonical macOS and Windows full gates — NOT RUN** (P7a/P7b on one final SHA; mandatory).
+- **The P1B ledger is left as it reads.** No new owner visual record was created: the owner reported no new look of their own, so `owner-visual-dark` keeps reading NEEDS RE-REVIEW against the 2026-11-15 Dark record (`455bf83`) and the ledger's outcome stays `AWAITING THE OWNER'S VISUAL RE-REVIEW`. P1B is closed by this owner decision, with the visual state carried as debt (B, H); the ledger is not edited to read otherwise.
+
+Signed: the owner (A–H, by instruction of 2026-11-16); Claude Code (the record).
+
 ## 2026-11-15 — macOS P1B ACT72-081: the footer follows the app's appearance (owner-approved amendment to the frozen shell); the picture review finds a native button in a box (owner decision recorded by Claude Code; implementation decisions by Claude Code)
 
 **Owner decision (the owner's instruction of 2026-11-15, recorded here, not invented).**
