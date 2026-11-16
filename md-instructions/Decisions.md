@@ -2,6 +2,38 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P2 (Edge TTS and Kokoro-82M): implementation complete at `38af4fd`; specific acceptance evidence pending the owner (owner budgets and authorization recorded; findings for owner disposition; recorded by Claude Code)
+
+**Owner decisions this phase ran under (the owner's 2026-11-16 instruction, recorded here, not invented).**
+- **D6-E (Edge):** no speed budget. Every file of the 2-file and 8-file runs must complete within the existing retry policy; failures, 403s, `NoAudioReceived`, retries and throughput are recorded; an upstream outage is BLOCKED, not FAIL.
+- **D6-K (Kokoro):** RTF ≤ 0.25; peak worker footprint ≤ 6 GiB; memory growth after warm-up < 10 %; cold and warm load measured. Out-of-budget results are reported for the owner's disposition; no tuning.
+- **Owner priorities:** calm narration, low WER, consistent pronunciation and minimal emotional fluctuation over speed.
+- **P2-only download and network authorization:** bounded qualification of ACT's pinned Kokoro-82M model and its nine voices through ACT's own asset identities, hashes, locations and consent; real Edge calls for E-A1–E-A4. Not authorized and not done: Chatterbox weights, Qwen3 models or engine, OmniVoice models or engine, other TTS models, Whisper (D15).
+
+**What was acquired, reused and changed on this Mac (all ACT's pinned identities; nothing in the owner's settings).**
+- **Kokoro (disposable worktree `files/dev-work/worktrees/p2` only):** `kokoro-v1_0.pth`, `config.json` and `af_heart.pt` reused byte-for-byte from the existing Hugging Face snapshot of `hexgrad/Kokoro-82M@f3ff3571791e39611d31c381e3a41a3af07b4987` after size and SHA-256 checks; the eight other voices (≈ 523 KB each, 4.19 MB) fetched by `optional_setup_acquire.RealAcquirer` under a consent derived from ACT's own plan. The owner's checkout keeps the optional voices the owner left unchecked.
+- **spaCy English `en_core_web_sm` 3.8.0 (ACT's pin, 12,806,118 bytes):** fetched from its pinned release URL (size and SHA-256), installed offline (`--no-index --no-deps --require-hashes`) into **the main checkout's `.venv`** (07:07), the interpreter every worktree runs on; the wheel is kept in the worktree. This is the one change to the owner's environment; it is ACT's own pinned version. The owner may keep it or remove it.
+- **English sentence data (NLTK punkt_tab):** the four pinned files were copied from the main checkout's verified copy into the worktree after size and SHA-256 checks; nothing downloaded.
+- **Not changed:** the 34 voice identities, the shared speech preparation, the 18 clone references and both transcript files, the 28 previews (all verified before and after), Kokoro's default-voice behaviour, Windows audio generation, Python/FFmpeg/dependency pins, the owner's Downloads output folder (fingerprint unchanged in every run: 299 entries).
+
+**Implementation decisions.**
+- **macOS Kokoro inference runs in one preemptible local-engine worker** (`tts/local_engine_host.py`, `tts/local_engine_worker.py`): a child of the app's containment owner (P1A/P1B class A, lifeline, own process group), protocol on a private channel, float32 PCM handed back through a file and validated (24 kHz, mono, finite, length) before use. The parent keeps speech preparation, chunking, assembly, the one encode, publication and reporting. CPU fp32; no MPS; no speech-setting change; no pronunciation rule. Windows keeps Kokoro in process, unchanged (`isolation_enabled()` is darwin only). No Chatterbox adapter (P3A).
+- **Cancel** ends the worker's whole group from the request's own poll (no waiting for the chunk) and, when the run is paused or between files, from Cancel itself; the next run starts a fresh worker. Choosing another engine's voice releases an idle worker; app exit ends it with the other owned children.
+- **macOS wording:** the Edge sentence-data question and message name the folder with the system's separator (`files/runtime-data/nltk_data` on macOS; Windows word for word unchanged).
+
+**Findings for the owner (evidence in `files/dev-work/macos-p2/`, ignored).**
+1. **Andrew, track A: BLOCKED (upstream).** The Edge service sends no audio for some short clauses with `en-US-AndrewNeural` (`gone out entirely.` 0/2, `versus gone out entirely.` 0/2, `vs. the storm.` 1/2 called directly with edge-tts 7.3.1, outside ACT), while Steffan and Ava get audio for each; through the panel the A paragraph's clause `vs. gone out entirely.` is closed (1006) without audio on every attempt. Andrew narrates a plain sentence through the panel. Not macOS-specific: Windows sends the same clause.
+2. **D6-K peak footprint: one sample over budget.** `am_michael` track C (two chunks near 3,000 characters) peaked at 6.0046 GiB (6,447,404,864 bytes; budget 6 GiB). Every other sample was within budget (A 2.60–3.19 GiB, C 4.52–5.70 GiB, B 5.02 GiB, the 34-minute chapter 5.63 GiB). Peak follows chunk length.
+3. **D6-K growth after warm-up: 10.98 % by the harness's definition** (the largest post-warm-up footprint against the first one), all of it from the chapter's last chunk; the fitted trend over the 12 post-warm-up chunks is −2.7 % (no leak). The owner decides which reading the budget means.
+4. **Pre-existing test isolation defects (not P2; baseline `b363344` shows them too):** a test among the affected suites creates empty `files/runtime-data/qwen3/{cache,tmp}` in the checkout under test (culprit not identified); `test_kokoro_health::test_the_real_proof_passes_on_the_qualified_environment` writes the eSpeak short-root link into the real runtime data on macOS (the guard reports it; the link was removed).
+5. **eSpeak short-root boundary:** the short root fits while the runtime-data folder is ≤ 134 characters, else the temp-folder root is used (≈ 49 characters on a Mac); only when both are too long does eSpeak fail (the library ends the worker, which is reported). Recorded for P6a/P7.
+6. **Windows-separator wording outside P2:** the bootstrap's Kokoro failure notice (`files\runtime-data\logs`) and OmniVoice notes still use backslashes on every platform — for P5/P6a (bootstrap) and P4 (OmniVoice).
+7. **`coverage.json`'s `macos` census block** still reads `pending P2` for the TTS features; it is re-derived by the census tool, not asserted (later census).
+
+**Evidence at `38af4fd` (agent-reported, AUTOMATED unless named otherwise; detail in Handoff).** Affected suites `2026-11-16_084951_focused_d5c1`: the failure set is exactly the unchanged baseline's at `b363344` (53 + 1 error, `2026-11-16_074230_focused_22d5`), no new failure, every skip named by the policy, inventory reviewed. Ten darwin TTS journeys and the opt-in real-Kokoro suite `2026-11-16_085817_focused_24f3`: PASS (10 journeys, 48 tests). The Cancel and crash cases, Edge E-A1–E-A4 and Kokoro E-B1–E-B3 qualifications are recorded in Handoff with their figures.
+
+**What remains the owner's (P2 is not accepted by this entry).** Listening approval of the pack (`files/test-for-manual-listen-elmatthe/ACT-v0.8.0-macos-p2/`, 24 samples, all NOT YET REVIEWED); disposition of findings 1–3; D15 (Whisper) for WER, which is NOT RUN; the HOME-PC E-B2 run for Windows phoneme parity (PENDING); the 19 journey pictures listed for visual review (none approved).
+
 ## 2026-11-16 — macOS P1B accepted by the owner at `61078f9`; visual debt, ACT72-080 and three deferrals carried to named later phases (owner decision; recorded by Claude Code)
 
 **Owner decision (the owner's P1B acceptance and P2 instruction of 2026-11-16, recorded here, not invented).**

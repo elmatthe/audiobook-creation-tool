@@ -1414,6 +1414,11 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
   - an F, S or Q failure. This **STOPS** the phase for a separate per-engine owner decision (D7-E, D7-K).
 
   An Edge endpoint failure from an upstream outage is BLOCKED, not FAIL, and is recorded.
+- **Implemented at `38af4fd` (2026-11-16; Decisions, P2 entry; Handoff): specific acceptance evidence pending the owner.**
+  Automated: the affected suites give exactly the baseline's failure set, the ten darwin TTS journeys and the real-Kokoro
+  Cancel/containment suite PASS. Pending the owner: listening (pack `ACT-v0.8.0-macos-p2`), WER (D15), Windows phoneme
+  parity (HOME-PC E-B2), the disposition of Andrew's upstream-blocked text A and of two D6-K readings (one 6.0046 GiB
+  peak; 10.98 % growth by the harness's definition, trend −2.7 %). Not owner-accepted.
 
 ### P3A — Chatterbox Turbo
 - **Entry:** P2 PASS. The owner sets the provisional budget **D6-C**.
