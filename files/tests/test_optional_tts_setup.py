@@ -1749,12 +1749,14 @@ def wait_for_pid(path: Path, bound_s: float = 30.0) -> int:
     raise AssertionError(f"{path.name} never appeared")
 
 
-def tree_run(app: Path, tmp_path: Path, then, *, on_event=None) -> tuple[proto.WorkerRun, int, int]:
+def tree_run(app: Path, tmp_path: Path, then, *, on_event=None,
+             request: proto.Request = None) -> tuple[proto.WorkerRun, int, int]:
     """A stand-in worker that starts a grandchild (through the venv launcher, as an installer would) and then does
     *then* -- code, or a function of the request and its launch spec that returns code. Returns the run and the real
-    interpreter PIDs of the worker and of the grandchild."""
-    session = proto.new_token()
-    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    interpreter PIDs of the worker and of the grandchild. The request is a Kokoro plan unless *request* is given."""
+    if request is None:
+        request = proto.new_request(proto.ACTION_PLAN, [K], session=proto.new_token())
+    session = request.session
     path = proto.write_request(app, request)
     spec = proto.worker_launch(app, path, session)
     if callable(then):
@@ -1929,7 +1931,9 @@ def test_a_worker_reaped_behind_the_runs_back_never_has_its_group_signalled(plai
         assert not process_gone(grandchild_pid), "a group whose leader was reaped must never be signalled"
         assert run.group_end == ownership().GROUP_UNPROVED
         assert any("was not signalled" in e for e in run.protocol_errors), run.protocol_errors
-        assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
+        # v0.8.x P5-A-R1: still a failure, now named for what the run could not do; the missing result is kept in it
+        assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_UNPROVED, result
+        assert "without reporting a result" in result["error"]["message"] and result["forced"]
     finally:
         end_by_identity(grandchild)
     deadline = time.monotonic() + 5
@@ -2040,6 +2044,278 @@ def test_a_job_keeps_the_released_windows_path_on_every_platform(plain_app, monk
     assert calls == ["terminate", "accounting", "close"] and run.lingering == 0 and run.members_seen == 3
     assert run.group_end is None and run.process.returncode == 0 and not run.running()
     assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.x P5-A-R1 -- a POSIX run whose worker's group was not confirmed empty is never a success
+# --------------------------------------------------------------------------- #
+def success_code(request: proto.Request, spec: proto.LaunchSpec, verified=()) -> str:
+    """Code for a stand-in worker that publishes its own valid success, as the real worker does, and then exits."""
+    return ("from pathlib import Path\n"
+            "from shared import optional_setup_protocol as p\n"
+            f"p.publish_once(Path({str(spec.result_path)!r}), p.encode(p.make_result({request.request_id!r}, "
+            f"p.SUCCEEDED, plan={{'stand-in': True}}, verified={list(verified)!r})))\n")
+
+
+def published(run: proto.WorkerRun) -> dict:
+    """What the run's result file holds now (the worker's own answer, or the one the run published in its place)."""
+    return proto.decode_result(proto.read_message_file(run.spec.result_path), request_id=run.request.request_id,
+                               request=run.request)
+
+
+def wait_gone(pid: int, bound_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + bound_s
+    while not process_gone(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return process_gone(pid)
+
+
+def no_time_to_confirm(monkeypatch) -> list:
+    """Seam, nothing faked: the run's own ``end_led_group`` -- the same identity proof and a real SIGKILL -- given no
+    time to confirm the group empty. While a member is still alive, its real answer is GROUP_REMAINING. Returns the
+    answers."""
+    child_ownership = ownership()
+    real = child_ownership.end_led_group
+    answers = []
+
+    def zero_bound(proc, start_time, *, bound_s=child_ownership.SHUTDOWN_BOUND_S):
+        answers.append(real(proc, start_time, bound_s=0.0))
+        return answers[-1]
+    monkeypatch.setattr(child_ownership, "end_led_group", zero_bound)
+    return answers
+
+
+def group_end_reported_as(monkeypatch, answer: str) -> list:
+    """Seam: the worker's group is really ended (the real ``end_led_group``), then the run is told *answer* -- for an
+    answer this Mac cannot give on demand (GROUP_SIGNALLED is Linux's; a member SIGKILL does not end). Returns the real
+    answers, so a test can show nothing was left behind by the seam itself."""
+    child_ownership = ownership()
+    real = child_ownership.end_led_group
+    real_answers = []
+
+    def reported(proc, start_time, *, bound_s=child_ownership.SHUTDOWN_BOUND_S):
+        real_answers.append(real(proc, start_time, bound_s=bound_s))
+        return answer
+    monkeypatch.setattr(child_ownership, "end_led_group", reported)
+    return real_answers
+
+
+def stand_in_install_request() -> proto.Request:
+    """A Kokoro install request with a well-formed consent; the stand-in worker never checks it against a plan."""
+    consent = proto.Consent(proto.new_token(), proto.CONTEXT_MAIN, (K,), {K: proto.SCOPE_INSTALL}, ("kokoro-model",),
+                            (), 0, "0" * 64)
+    return proto.new_request(proto.ACTION_INSTALL, [K], session=proto.new_token(), consent=consent)
+
+
+@POSIX_GROUPS
+def test_a_success_whose_group_id_could_not_be_proved_is_a_containment_failure(plain_app, tmp_path):
+    """The worker publishes a valid success and exits, then something reaps it behind the run's back: its id -- the
+    group's -- may be handed on, so nothing may be signalled, and nobody can say whether its grandchild still runs."""
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, success_code)
+    grandchild = identity(grandchild_pid)
+    try:
+        assert run.process.wait(timeout=30) == 0  # someone else reaps it
+        result = run.wait(10)
+        time.sleep(0.2)
+        assert not process_gone(grandchild_pid), "a group whose leader was reaped must never be signalled"
+        assert run.group_end == ownership().GROUP_UNPROVED
+        assert result["state"] == proto.FAILED, (result, run.group_end)
+        assert result["error"]["code"] == proto.CONTAINMENT_UNPROVED and result["forced"] and result["plan"] is None
+        assert "could not be proved" in result["error"]["message"]
+        assert "reported success" in result["error"]["message"]  # the worker's own answer is not lost
+        assert run.result() is result  # settled once; asking again cannot turn it into a success
+        assert published(run)["state"] == proto.SUCCEEDED  # the worker's own file is never overwritten
+    finally:
+        end_by_identity(grandchild)
+    assert wait_gone(grandchild_pid)
+
+
+@POSIX_GROUPS
+def test_a_success_read_directly_after_a_reap_behind_the_runs_back_is_not_a_success(plain_app, tmp_path):
+    """``result()`` on its own -- without ``wait``/``stop`` -- once the worker was reaped elsewhere: the group is still
+    judged first (here: unproved, so not signalled), and the worker's success is not returned."""
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, success_code)
+    grandchild = identity(grandchild_pid)
+    try:
+        assert run.process.wait(timeout=30) == 0
+        result = run.result()
+        time.sleep(0.2)
+        assert not process_gone(grandchild_pid), "a group whose leader was reaped must never be signalled"
+        assert result["state"] == proto.FAILED, (result, run.group_end)
+        assert result["error"]["code"] == proto.CONTAINMENT_UNPROVED and run.group_end == ownership().GROUP_UNPROVED
+        assert run.result() is result
+    finally:
+        end_by_identity(grandchild)
+    assert wait_gone(grandchild_pid)
+
+
+@POSIX_GROUPS
+def test_a_success_whose_group_was_not_confirmed_empty_is_a_containment_failure(plain_app, tmp_path, monkeypatch):
+    """The worker publishes a valid success and exits while its grandchild lives on; the group is SIGKILLed (identity
+    proved) but not confirmed empty in time: GROUP_REMAINING. Unrelated processes are untouched."""
+    answers = no_time_to_confirm(monkeypatch)
+    same_group = subprocess.Popen(["/bin/sleep", "600"])
+    own_session = subprocess.Popen(["/bin/sleep", "600"], start_new_session=True)
+    bystanders = [identity(p.pid) for p in (same_group, own_session)]
+    try:
+        run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, success_code)
+        result = run.wait(60)
+        assert answers == [ownership().GROUP_REMAINING] and run.group_end == ownership().GROUP_REMAINING
+        assert result["state"] == proto.FAILED, (result, run.group_end)
+        assert result["error"]["code"] == proto.CONTAINMENT_INCOMPLETE and result["forced"] and result["plan"] is None
+        assert "had not ended" in result["error"]["message"] and "reported success" in result["error"]["message"]
+        assert any("had not ended in time" in e for e in run.protocol_errors), run.protocol_errors
+        assert run.result() is result and published(run)["state"] == proto.SUCCEEDED
+        assert process_gone(worker_pid) and wait_gone(grandchild_pid)  # the SIGKILL was real
+        assert same_group.poll() is None and own_session.poll() is None
+    finally:
+        end_by_identity(*bystanders)
+        same_group.wait()
+        own_session.wait()
+
+
+@POSIX_GROUPS
+def test_a_group_signalled_where_emptiness_cannot_be_read_is_not_a_success(plain_app, tmp_path, monkeypatch):
+    """GROUP_SIGNALLED (Linux, development only): SIGKILL was sent while the id was proved, but the platform cannot say
+    the group is empty. Without that evidence the run does not vouch for its cleanup: not a success."""
+    real_answers = group_end_reported_as(monkeypatch, ownership().GROUP_SIGNALLED)
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, success_code)
+    result = run.wait(60)
+    assert real_answers == [ownership().GROUP_ENDED]  # the seam only renamed the answer; nothing was left behind
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert result["state"] == proto.FAILED, (result, run.group_end)
+    assert result["error"]["code"] == proto.CONTAINMENT_INCOMPLETE and "cannot confirm" in result["error"]["message"]
+    assert any("cannot confirm" in e for e in run.protocol_errors), run.protocol_errors
+
+
+@POSIX_GROUPS
+def test_an_install_success_with_unconfirmed_cleanup_keeps_what_was_proved_but_is_not_a_success(
+        plain_app, tmp_path, monkeypatch):
+    """What was installed and proved stays named (``verified``: the caller can still use it), but the outcome is a
+    containment failure and its text never reads as an unqualified "Installed and checked"."""
+    from shared import optional_setup_client as client
+
+    no_time_to_confirm(monkeypatch)
+    request = stand_in_install_request()
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, lambda r, s: success_code(r, s, verified=[K]),
+                                               request=request)
+    result = run.wait(60)
+    assert published(run)["state"] == proto.SUCCEEDED and published(run)["verified"] == [K]
+    assert result["state"] == proto.FAILED, (result, run.group_end)
+    assert result["error"]["code"] == proto.CONTAINMENT_INCOMPLETE and result["verified"] == [K]
+    text = client.result_text(result)
+    assert not text.startswith("Installed and checked") and "Kokoro" in text and "had not ended" in text
+    assert process_gone(worker_pid) and wait_gone(grandchild_pid)
+
+
+@POSIX_GROUPS
+def test_a_run_with_no_result_and_unconfirmed_cleanup_publishes_a_containment_failure(plain_app, tmp_path,
+                                                                                         monkeypatch):
+    """No result from the worker and its group not confirmed empty: still a failure, and the one the run publishes in
+    the worker's place says both."""
+    no_time_to_confirm(monkeypatch)
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "")
+    result = run.wait(60)
+    assert run.group_end == ownership().GROUP_REMAINING
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_INCOMPLETE, result
+    assert "without reporting a result" in result["error"]["message"] and result["forced"]
+    assert published(run) == result  # published once, atomically, in the worker's place
+    assert process_gone(worker_pid) and wait_gone(grandchild_pid)
+
+
+@POSIX_GROUPS
+@pytest.mark.parametrize("how", ["cancel", "timeout"])
+def test_cancel_and_timeout_with_confirmed_cleanup_keep_their_outcomes(plain_app, tmp_path, how):
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "time.sleep(120)\n")
+    result = run.stop(grace_s=1.0) if how == "cancel" else run.wait(1.0, cancel_grace_s=1.0)
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert run.group_end == ownership().GROUP_ENDED and run.protocol_errors == [] and run.terminated
+    expected = (proto.CANCELLED_STATE, proto.CANCELLED) if how == "cancel" else (proto.FAILED, proto.TIMED_OUT)
+    assert (result["state"], result["error"]["code"]) == expected and result["forced"]
+    assert published(run) == result
+
+
+@POSIX_GROUPS
+@pytest.mark.parametrize("how", ["cancel", "timeout"])
+def test_cancel_and_timeout_with_unconfirmed_cleanup_are_containment_failures(plain_app, tmp_path, monkeypatch, how):
+    """A Cancel or a time-out whose group end is not confirmed is reported as that, not as a clean cancel: the reason
+    the run was stopped is kept in the text, and the flags say how it was stopped."""
+    real_answers = group_end_reported_as(monkeypatch, ownership().GROUP_REMAINING)
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "time.sleep(120)\n")
+    result = run.stop(grace_s=1.0) if how == "cancel" else run.wait(1.0, cancel_grace_s=1.0)
+    assert real_answers and set(real_answers) == {ownership().GROUP_ENDED}  # nothing was really left
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert run.terminated and run.timed_out == (how == "timeout")
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_INCOMPLETE, result
+    assert ("Cancelled" if how == "cancel" else "took too long") in result["error"]["message"]
+    assert published(run) == result
+
+
+@POSIX_GROUPS
+def test_the_client_reports_a_containment_failure_instead_of_the_workers_success(plain_app, tmp_path, monkeypatch):
+    """The public caller (``optional_setup_client.run``: the wizard and Install & Continue) receives the containment
+    failure, not the success the worker published."""
+    from shared import optional_setup_client as client
+
+    answers = no_time_to_confirm(monkeypatch)
+    grand = tmp_path / "grand.pid"
+    real_launch = proto.worker_launch
+
+    def stand_in_launch(root, path, session, **kwargs):
+        spec = real_launch(root, path, session, **kwargs)
+        _, request_id = proto.check_exchange_path(root, str(spec.request_path), proto.REQUEST_NAME)
+        script = ("import os, subprocess, sys, time\n"
+                  "from pathlib import Path\n"
+                  "from shared import optional_setup_protocol as p\n"
+                  f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD_CODE!r}, {str(grand)!r}])\n"
+                  f"while not (os.path.exists({str(grand)!r}) and open({str(grand)!r}).read()): time.sleep(0.02)\n"
+                  f"p.publish_once(Path({str(spec.result_path)!r}), p.encode(p.make_result({request_id!r}, "
+                  "p.SUCCEEDED, plan={'stand-in': True})))\n")
+        return proto.LaunchSpec((spec.argv[0], "-c", script), spec.cwd, spec.env, spec.request_path, spec.result_path)
+    monkeypatch.setattr(proto, "worker_launch", stand_in_launch)
+    result = client.run(plain_app, proto.ACTION_PLAN, [K], timeout_s=60, poll_s=0.05)
+    assert answers == [ownership().GROUP_REMAINING]
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_INCOMPLETE, result
+    assert result["plan"] is None and "had not ended" in client.result_text(result)
+    assert wait_gone(wait_for_pid(grand))
+
+
+def test_a_job_run_keeps_the_workers_own_success_on_every_platform(plain_app, monkeypatch):
+    """P5-A-R1 leaves the Job Object path alone: with a job (Windows), a worker's valid success is the run's answer as
+    released, and the POSIX group rule -- and its containment verdict -- is never consulted."""
+    child_ownership = ownership()
+    calls = []
+
+    class Job:
+        def terminate(self):
+            calls.append("terminate")
+
+        def accounting(self):
+            calls.append("accounting")
+            return 0, 2
+
+        def close(self):
+            calls.append("close")
+
+    def never(*_args, **_kwargs):
+        raise AssertionError("the POSIX group rule was consulted for a run with a job")
+    for name in ("has_exited", "wait_exited", "end_led_group"):
+        monkeypatch.setattr(child_ownership, name, never)
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    spec = proto.worker_launch(plain_app, proto.write_request(plain_app, request), session)
+    script = success_code(request, spec)
+
+    def spawn(argv, **kwargs):
+        proc = subprocess.Popen([sys.executable, "-c", script], **kwargs)
+        proc.act_job = Job()
+        return proc
+    run = proto.WorkerRun(plain_app, spec, request, spawn=spawn)
+    run.start()
+    result = run.wait(30)
+    assert calls == ["terminate", "accounting", "close"] and run.lingering == 0 and run.members_seen == 2
+    assert run.group_end is None and run.protocol_errors == []
+    assert result["state"] == proto.SUCCEEDED and result["forced"] is False and result["plan"] == {"stand-in": True}
 
 
 # =========================================================================== #

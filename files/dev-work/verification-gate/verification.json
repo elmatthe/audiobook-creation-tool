@@ -234,8 +234,8 @@
       {
         "id": "posix-process-groups-p5a",
         "pattern": "^(POSIX\\ process\\ groups\\ \\(Windows\\ ends\\ its\\ Job\\ Object\\))$",
-        "max": 7,
-        "why": "v0.8.x P5-A: test_optional_tts_setup.py's 7 tests that a POSIX setup worker is never reaped before its process group is ended (a valid result, a cancel it obeys, a crash, a worker reaped behind the run's back, bystanders, the client's loop, fail-closed start without the ownership module). Windows ends the same tree through its Job Object, pinned by the existing tree tests and by the cross-platform test that a run with a job keeps the released path."
+        "max": 18,
+        "why": "v0.8.x P5-A and P5-A-R1: test_optional_tts_setup.py's 18 tests of a POSIX setup worker's process group. P5-A's 7: it is never reaped before its group is ended (a valid result, a cancel it obeys, a crash, a worker reaped behind the run's back, bystanders, the client's loop, fail-closed start without the ownership module). P5-A-R1's 11: a run whose group was not confirmed empty is never a success (unproved by wait and by result(), remaining, signalled, an install success, no result, Cancel and time-out with unconfirmed cleanup, the client), and Cancel and time-out with confirmed cleanup keep their outcomes. Windows ends the same tree through its Job Object, pinned by the existing tree tests and by the cross-platform tests that a run with a job keeps the released path and the worker's own success."
       }
     ],
     "darwin": [

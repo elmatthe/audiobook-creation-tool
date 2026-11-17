@@ -1,5 +1,43 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — P5-A-R1: on a Mac a setup run whose worker's process group was not confirmed ended is never a success; it fails as `containment-unproved` or `containment-incomplete`, and the worker's own result file is never replaced; READY FOR INDEPENDENT RE-REVIEW (2026-11-17, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Nothing was merged, tagged, released or published. P5-B has not started.
+
+- **Status at a glance.**
+  - **P5-A with its R1 remediation: IMPLEMENTED and TESTED (automated, native Mac); independent re-review and owner approval pending.**
+  - **Permissions: findings PENDING THE OWNER.** Nothing was changed; the security issue is not closed.
+  - **First-run window (P5-A residual 2): unchanged.** It is still not a containment owner; this is the recommended P5-B candidate.
+  - **Windows-native regression (HOME-PC): PENDING.**
+  - **The rest of P5: PENDING.**
+- **Branch.** `feature/0.8.0-macos-compatibility`, started at `266d603`, plus one commit (code, tests, gate policy, coverage, feature map, documents), pushed to `origin` only.
+- **Finding (independent review of P5-A), reproduced at `266d603`** (`files/dev-work/macos-p5a-r1/repro-before.txt`, `contract.md`; both recorded before any production change).
+  - `WorkerRun._finish()` ended the group, but on `GROUP_UNPROVED` or `GROUP_REMAINING` it only added a line to `run.protocol_errors`, then returned the worker's own published result. The caller (`optional_setup_client.run`, so the wizard and Install & Continue) got an unqualified `succeeded`. `GROUP_SIGNALLED` recorded nothing.
+  - Second path: `result()` called after a reap outside the run returned the published result without judging the group.
+  - A Cancel with unconfirmed cleanup came back as a clean `cancelled`.
+- **Fix (`shared/optional_setup_protocol.py` only; Decisions, P5-A-R1 entry).**
+  - A POSIX run returns the worker's result, or the cancelled/timed-out/no-result outcome it publishes in the worker's place, only when the group end is `GROUP_ENDED`.
+  - Otherwise the outcome is `failed`, `forced`, with a new run-only code: `containment-unproved` (the group's id could not be proved the worker's, so nothing was signalled) or `containment-incomplete` (signalled, but no evidence that nothing is left: `remaining`, Linux's `signalled`, any unknown answer).
+  - The message keeps the original outcome. `verified` is kept; `plan` is dropped.
+  - A result file the worker published is never replaced; the run's outcome is settled once. With no worker result, the containment failure is published in its place by the same exclusive, atomic publication.
+  - `result()` on POSIX always judges the group (and reaps last) first.
+  - Unchanged: `child_ownership.py`, `GROUP_ENDED` outcomes, Cancel and time-out with confirmed cleanup, consent and installation protections, the Windows Job Object path. No process scan, guessed pid or unverified `killpg`.
+- **Tests (this Mac, native, agent-reported).**
+  - 12 new in `test_optional_tts_setup.py` (11 POSIX-only, 1 on every platform); 10 of them failed against `266d603`. One existing pin changed: a worker reaped behind the run's back now expects `containment-unproved` instead of `no-result` (still a failure).
+  - The 37 affected modules (`files/dev-work/macos-p5a-r1/affected-tests.txt`, P5-A's list) were compared by test id with P5-A's after-run (`files/dev-work/macos-p5a/after/outcomes.json`; its `scripts/` and `files/tests/` are identical to `266d603`): **0 new failures, 0 new skips, 0 removed, 0 changed outcomes; 12 added, all PASS** (`files/dev-work/macos-p5a-r1/comparison.json`). Totals 1,546 passed / 594 failed / 158 errors / 21 skipped (baseline 1,534 / 594 / 158 / 21). Every failure and error has the same outcome by id as in the baseline (the inherited ones P5-A recorded). The run took 1 h 50 min. Afterwards no test process remained.
+  - The 25 modules that read the edited documents (P5-A's `doc-tests.txt`), before and after the document edits: identical by id (1,635 passed, 100 skipped, 15 failed; `files/dev-work/macos-p5a-r1/docs/comparison.json`). The 15 failures are inherited: the four modules that hold them (`test_verification_gate_contract.py` 12, `test_cross_tool_consistency.py`, `test_gate_scratch_exception.py`, `test_macos_p1b_closeout_gate.py` 1 each) give the same 379 outcomes by id at `266d603` in a clean worktree, and none imports the changed code.
+  - Inherited, observed, not changed: after every run of `test_verification_gate_contract.py` (here and at `266d603` alike), two processes from its synthetic gate trees outlive pytest for up to a few minutes and then end by themselves: the inner pytest of `test_killing_the_gate_kills_its_tree_and_leaves_an_incomplete_run` (it SIGKILLs its gate and, on POSIX, ends only the grandchild, so the inner test finishes its 120 s sleep alone) and a synthetic `scaling/qualify.py` from its m4b-scaling tests. Nothing was signalled; after each wait no test process remained.
+- **Focused gate:** `2026-11-17_082412_focused_5388`, **RESULT: PASS**, exit status 0 (P5-A's selection, 1 min 32 s). Journeys, all PASS (9/9): `tts.edge-replay-direct-file`, `tts.edge-replay-folder-mixed`, `tts.service-failure-then-retry`, `tts.cancel-during-narration`, `tts.pause-at-file-boundary`, `tts.pdf-without-text`, `shutdown.tts-close-during-work`, `shutdown.tts-close-forced-landing`, `tts.kokoro-local`. pytest 116/116 (`test_engine_policy.py`, `test_child_ownership.py`); process-ownership, cleanup, skips (0), coverage inventory and tree PASS. It ran on the final code and tests (`266d603` plus this checkpoint's working tree); only the documents changed after it. Focused selection only, not full acceptance. Afterwards no test process remained.
+- **Protected assets.** The 18 reference WAVs, 2 transcript files and 28 previews match; the 11 Kokoro files match by size and SHA-256; the `.venv/engines`, OmniVoice, model and package trees and the P4B–P5-A evidence folders are identical before and after (`files/dev-work/macos-p5a-r1/protected-before.json`/`protected-after.json`); the P4C and P5-A gate runs are untouched. The 17 owner deletions and the 5 untracked owner entries are untouched, and draft release `447445728` is unchanged (same asset, size, digest and update time).
+- **Gate policy (Windows rule).** `posix-process-groups-p5a` 7 → 18 (the 11 new POSIX-only tests).
+- **Residuals for the owner (Decisions, P5-A-R1 entry).**
+  1. Windows: a job whose accounting still shows members at the bound records `lingering` but keeps the worker's result (kill-on-close then ends them). Left unchanged as instructed; to assess with the Windows-native regression.
+  2. The panel heads a containment failure "The voices could not be installed" even when `verified` names installed components; the message under it says what happened. GUI wording, out of scope.
+  3. P5-A's residuals stand: `setsid` escapees; the first-run window is not a containment owner; the unlocked identity check in `Owner.shutdown`; an app killed in the at most 0.2 s after the worker exits.
+- **Windows (P5, HOME-PC).** Add to the P5-A list: `test_optional_tts_setup.py` again (`test_a_job_run_keeps_the_workers_own_success_on_every_platform` runs there; the 11 POSIX-only tests are skipped by `posix-process-groups-p5a`). The job path never consults the new rule.
+- **Next action.** Independent re-review (ChatGPT) of P5-A with R1; then the owner's decision on formal P5-A acceptance and on the permissions correction. P5-B needs its own authorization. Recommended P5-B: make the first-run window a containment owner for the optional-voices worker, with a native forced-Cancel test.
+
 ## Current checkpoint — P4C OWNER ACCEPTED; P5-A IMPLEMENTED and TESTED (automated, this Mac): a setup worker's leftover grandchild now ends with the run (reap last; the group is signalled only while its id is proved the worker's); `pyvenv.cfg` `executable` enforced; permissions audited read-only, correction pending the owner; READY FOR INDEPENDENT REVIEW (2026-11-17, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action.

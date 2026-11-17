@@ -54,6 +54,9 @@ The passing focused gate `2026-11-16_234204_focused_4cf5` is kept. This is not a
 - **C. Permissions.** The checkout's world-writable modes were audited read-only. Any correction is an owner decision, and the security issue is not closed.
 - **Gate:** focused gate `2026-11-17_053703_focused_61f2` **PASS**.
 - **Still PENDING:** the Windows-native regression (HOME-PC) and the rest of P5 (§19 P5-A status; Decisions, P5-A entry).
+**Revision 3k:** 2026-11-17 (Claude Code, Opus 5.5). **P5-A-R1 (independent-review remediation): on POSIX a setup run whose worker's process group was not confirmed ended is never a success.** Before, a worker's own `succeeded` was returned even when its group was `unproved` or `remaining`, and a Cancel with unconfirmed cleanup was a clean `cancelled`. Now such a run fails, `forced`, as `containment-unproved` (identity not proved, nothing signalled) or `containment-incomplete` (signalled, emptiness not confirmed, including Linux's `signalled`). The message keeps the original outcome, `verified` is kept, and the worker's own result file is never replaced. Only `shared/optional_setup_protocol.py` changed; `child_ownership`, `GROUP_ENDED` outcomes and the Windows Job Object path are unchanged.
+- **Gate:** focused gate `2026-11-17_082412_focused_5388` **RESULT: PASS**, exit 0 (9/9 journeys including `tts.kokoro-local`, Cancel and both shutdown journeys; pytest 116/116; process-ownership, cleanup, skips and tree PASS). Protected assets and draft release `447445728` unchanged.
+- **Still PENDING:** independent re-review and owner approval of P5-A, the owner's permissions decision, the Windows-native regression (HOME-PC) and the rest of P5. P5-B has not started (§19 P5-A-R1 status; Decisions, P5-A-R1 entry).
 
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
@@ -2027,6 +2030,14 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 >   - the owner's permissions decision;
 >   - the Windows-native regression on HOME-PC, which adds `child_ownership.py`, `optional_setup_protocol.py`, `optional_setup_client.py` and the Windows skip rules to the touchpoints;
 >   - the rest of P5: long-form runs, D6-final, the darwin acceptance map and KX-10.
+>
+> **Status 2026-11-17 (Revision 3k): P5-A-R1 (independent-review remediation) IMPLEMENTED and TESTED (automated, this Mac); independent re-review and owner approval pending.** Start `266d603`; one commit (Decisions, P5-A-R1 entry; evidence `files/dev-work/macos-p5a-r1/`, ignored).
+> - **Finding (reproduced at `266d603`):** `WorkerRun` returned the worker's own `succeeded` when its group was `unproved` or `remaining` (only `protocol_errors`, which the caller never sees, recorded it). The same happened when `result()` was read after an outside reap, and a Cancel with unconfirmed cleanup was a clean `cancelled`.
+> - **Fix (POSIX only, `shared/optional_setup_protocol.py`):** the run's outcome may be the worker's result, or the cancelled/timed-out/no-result outcome, only when the group end is `GROUP_ENDED`. Otherwise it is `failed`, `forced`: `containment-unproved` (identity uncertainty; nothing signalled) or `containment-incomplete` (termination not confirmed: `remaining`, `signalled`, unknown). The original outcome stays in the message, `verified` is kept, and a published worker result file is never replaced.
+> - **Unchanged:** `child_ownership` (identity proof, waitpid lock, reap last, 15 s bound), `GROUP_ENDED` outcomes, Cancel and time-out with confirmed cleanup, consent and install protections, the Windows Job Object path.
+> - **Tests:** 12 new (11 POSIX-only, 1 every platform); 10 failed before the fix. The 37 affected modules by test id against `266d603`: 0 new failures, 0 new skips, 0 removed, 0 changed; 12 added, all PASS.
+> - **Gate:** focused gate `2026-11-17_082412_focused_5388` **RESULT: PASS**, exit 0 (9/9 journeys including `tts.kokoro-local`, Cancel and both shutdown journeys; pytest 116/116; process-ownership, cleanup, skips and tree PASS). Protected assets and draft release `447445728` unchanged.
+> - **Still PENDING:** the owner's permissions decision; the first-run window as containment owner (the recommended P5-B); the Windows-native regression on HOME-PC; the rest of P5.
 >
 > **Revision 2 (2026-11-16; Q3=A):**
 > - **Entry:** P4C complete. Every engine on the macOS roster is PROVEN; every other engine is SKIPPED BY OWNER DECISION and absent from the macOS experience.

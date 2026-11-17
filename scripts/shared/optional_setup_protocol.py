@@ -206,11 +206,15 @@ CONTAINMENT_UNAVAILABLE = "containment-unavailable"  # the worker could not be p
 TIMED_OUT = "timed-out"
 ACQUISITION_FAILED = "acquisition-failed"  # an acquisition stopped short, failed, or acquired something unexpected
 HEALTH_UNPROVED = "health-unproved"  # the acquisition finished but working components were not proved afterwards
+#: v0.8.x P5-A-R1, POSIX, set only by the run (never by the worker): the worker's process group was not confirmed ended.
+CONTAINMENT_UNPROVED = "containment-unproved"  # its id could not be proved the worker's own, so nothing was signalled
+CONTAINMENT_INCOMPLETE = "containment-incomplete"  # it was signalled, but no evidence that none of it is left
 ERROR_CODES: tuple[str, ...] = (MALFORMED, UNSUPPORTED_VERSION, UNKNOWN_COMPONENT, DUPLICATE_COMPONENT, BAD_CONSENT,
                                 STALE_REQUEST, WRONG_SESSION, UNSAFE_PATH, ALREADY_ANSWERED, WRONG_INTERPRETER,
                                 CONSENT_STALE, ACQUISITION_UNAVAILABLE, CANCELLED, NO_RESULT, INTERNAL, CONSENT_USED,
                                 NOT_ACQUIRABLE, SOURCE_UNPINNED, PUBLICATION_UNAVAILABLE, CONTAINMENT_UNAVAILABLE,
-                                TIMED_OUT, ACQUISITION_FAILED, HEALTH_UNPROVED)
+                                TIMED_OUT, ACQUISITION_FAILED, HEALTH_UNPROVED, CONTAINMENT_UNPROVED,
+                                CONTAINMENT_INCOMPLETE)
 
 
 def canonical_selection(components: Iterable[object]) -> tuple[str, ...]:
@@ -1169,11 +1173,19 @@ class WorkerRun:
       (``child_ownership.end_led_group``: under the ``Popen``'s waitpid lock, unreaped, same kernel start time) is the
       worker reaped. A grandchild left behind by a worker that exited normally therefore ends with the run, and a group
       whose id can no longer be proved the worker's is never signalled -- that is recorded instead.
+    * **No success without a confirmed end (POSIX, v0.8.x P5-A-R1).** The run vouches for the worker's group only when
+      the kernel confirmed it empty (``GROUP_ENDED``). Otherwise its one outcome is ``failed``: ``containment-unproved``
+      when the group's id could not be proved the worker's (nothing was signalled), ``containment-incomplete`` when it
+      was signalled but not confirmed empty (a member still answered at the bound, the signal was refused, or the
+      platform cannot tell -- ``GROUP_SIGNALLED``). Its text keeps what the run would otherwise have answered (the
+      worker's own success, a Cancel, a time-out, no result) and ``verified`` keeps what the worker proved working; a
+      plan is not passed on. The worker's own result file is never replaced.
     * **One terminal result.** The result file is the authority. If the worker exits (or is ended) without publishing
       one, this publishes the terminal result in its place -- ``cancelled`` when it was stopped, ``failed`` with
-      ``timed-out`` when it overran, ``failed`` otherwise -- through the same exclusive, atomic publication, so whichever
-      comes first is the only result there will ever be. When nothing trustworthy can be read or written (a link, a
-      malformed or incomplete success, no atomic publication) the answer is a failure held in memory: never a success.
+      ``timed-out`` when it overran, ``failed`` otherwise, or the containment failure above -- through the same
+      exclusive, atomic publication, so whichever comes first is the only result there will ever be. When nothing
+      trustworthy can be read or written (a link, a malformed or incomplete success, no atomic publication) the answer
+      is a failure held in memory: never a success. Once settled, every later :meth:`result` returns that same outcome.
     * **Never stranded.** A failing event callback is recorded, stops being called, cancels the worker, and its output
       keeps being drained so the worker cannot block on a full pipe.
     """
@@ -1343,6 +1355,12 @@ class WorkerRun:
                     "(the worker had already been reaped or replaced)")
             elif outcome == self._groups.GROUP_REMAINING:
                 self.protocol_errors.append("a process of the worker's group had not ended in time")
+            elif outcome == self._groups.GROUP_SIGNALLED:
+                self.protocol_errors.append(
+                    "the worker's process group was signalled, but this platform cannot confirm that none of it is "
+                    "left")
+            elif outcome != self._groups.GROUP_ENDED:
+                self.protocol_errors.append(f"ending the worker's process group gave no known answer ({outcome!r})")
         elif job is not None:
             job.terminate()  # a grandchild that outlived the worker (it may still hold the output pipe) ends here
             deadline = _time.monotonic() + TERMINATE_WAIT_S
@@ -1367,16 +1385,61 @@ class WorkerRun:
         if self.process.poll() is None:  # pragma: no cover - the OS refused to end it; never pretend it finished
             self._outcome = self._forced(FAILED, INTERNAL, "The setup worker could not be ended.", publish=False)
         else:
-            self._outcome = self.result()
+            self._outcome = self._contained(self._settle())
         return self._outcome
+
+    def _containment_problem(self) -> Optional[tuple[str, str]]:
+        """POSIX (v0.8.x P5-A-R1): ``(code, text)`` when the run cannot vouch that nothing of the worker's process group
+        is left; ``None`` when the kernel confirmed it empty, or when there is no group to judge (a Job Object)."""
+        groups = self._groups
+        if groups is None or self.group_end == groups.GROUP_ENDED:
+            return None
+        if self.group_end == groups.GROUP_UNPROVED:
+            return CONTAINMENT_UNPROVED, (
+                "The setup worker's processes could not be ended safely: its process group's id could not be proved to "
+                "still be the worker's own, so nothing was signalled. Something it started may still be running.")
+        if self.group_end == groups.GROUP_REMAINING:
+            return CONTAINMENT_INCOMPLETE, (
+                f"A process the setup worker started had not ended {TERMINATE_WAIT_S:.0f} s after it was told to end "
+                "(or could not be told to); it may still be running.")
+        if self.group_end == groups.GROUP_SIGNALLED:
+            return CONTAINMENT_INCOMPLETE, (
+                "The setup worker's processes were told to end, but this system cannot confirm that none of them is "
+                "left.")
+        return CONTAINMENT_INCOMPLETE, f"The setup worker's process group was not confirmed ended ({self.group_end!r})."
+
+    def _contained(self, settled: dict) -> dict:
+        """*settled* when the worker's group was confirmed ended (or there is none to judge). Otherwise the containment
+        failure that is the run's answer instead, keeping what *settled* said and the components it verified; its plan
+        is not passed on. Held in memory: a result file the worker published is never replaced."""
+        problem = self._containment_problem()
+        if problem is None:
+            return settled
+        code, text = problem
+        error = settled.get("error") or {}
+        if settled.get("forced") and error.get("code") == code:
+            return settled  # already this failure: published in the worker's place (:meth:`_forced_terms`)
+        if settled.get("state") == SUCCEEDED:
+            proved = ", ".join(LABELS[c] for c in settled.get("verified", ()))
+            said = "The setup worker itself reported success" + (f" (installed and checked: {proved})." if proved
+                                                                  else ".")
+        else:
+            said = f"({error.get('message') or settled.get('state')})"
+        return make_result(self.request.request_id, FAILED, error=(code, f"{text} {said}"), forced=True,
+                           verified=settled.get("verified", ()))
 
     def _forced_terms(self) -> tuple[str, str, str]:
         status = None if self.process is None else self.process.returncode
         if self.timed_out:
-            return FAILED, TIMED_OUT, "The setup worker took too long and was stopped."
-        if self.stop_requested or self.cancel_sent:
-            return CANCELLED_STATE, CANCELLED, "Cancelled. The setup worker was stopped before it reported a result."
-        return FAILED, NO_RESULT, f"The setup worker stopped without reporting a result (exit status {status})."
+            terms = FAILED, TIMED_OUT, "The setup worker took too long and was stopped."
+        elif self.stop_requested or self.cancel_sent:
+            terms = CANCELLED_STATE, CANCELLED, "Cancelled. The setup worker was stopped before it reported a result."
+        else:
+            terms = FAILED, NO_RESULT, f"The setup worker stopped without reporting a result (exit status {status})."
+        problem = self._containment_problem()
+        if problem is None:
+            return terms
+        return FAILED, problem[0], f"{problem[1]} ({terms[2]})"  # POSIX: the group was not confirmed ended
 
     def _forced(self, state: str, code: str, text: str, *, publish: bool = True) -> dict:
         """The terminal result written in the worker's place; held in memory if it cannot be published atomically."""
@@ -1391,18 +1454,26 @@ class WorkerRun:
         except (ProtocolError, OSError) as exc:
             return make_result(rid, state, error=(code, f"{text} (The result could not be recorded: {exc})"),
                                forced=True)
-        return self.result()  # the worker's own result arrived first: it is the one
+        return self._settle()  # the worker's own result arrived first: it is the one
 
     def result(self) -> dict:
-        """The one terminal result (the worker's own when it published a trustworthy one). Never a partial success."""
+        """The one terminal result (the worker's own when it published a trustworthy one). Never a partial success, and
+        on POSIX never one settled before the worker's process group was judged (see the class notes)."""
         if self._outcome is not None:
             return self._outcome
-        if self.process is not None and self._groups is not None and self.process.returncode is None:
+        if self.process is not None and self._groups is not None:
             if self.running():
                 raise RuntimeError("the setup worker is still running")
-            return self._finish()  # POSIX: never settled before the worker's group is ended and the worker reaped
+            # POSIX: the group is ended (or found unprovable) and the worker reaped before anything is settled -- also
+            # when the worker was already reaped behind the run's back, which then is not a success (P5-A-R1).
+            return self._finish()
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("the setup worker is still running")
+        return self._settle()
+
+    def _settle(self) -> dict:
+        """The worker's own trustworthy result, or the terminal result published in its place
+        (:meth:`_forced_terms`)."""
         rid = self.request.request_id
         try:
             path, _ = check_exchange_path(self.repo_root, str(self.spec.result_path), RESULT_NAME)
