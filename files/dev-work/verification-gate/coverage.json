@@ -20976,7 +20976,10 @@
             "run_setup",
             "_contained",
             "_owner",
-            "_child_run"
+            "_child_run",
+            "own_optional_setup",
+            "settle_optional_setup",
+            "OPTIONAL_SETUP_SETTLE_S"
           ]
         },
         {
@@ -21016,11 +21019,13 @@
         "A setup that ran and failed, or was closed part-way, exits 1 and the launcher keeps its window open with the log location",
         "Success exits 0; cancelling never writes a requirements stamp",
         "Closing the window during the optional-voices phase asks 'Stop setup?' and keeps anything already working; No leaves the running check or install alone and launches nothing (v0.7.2, ACT72-038)",
-        "Closing the window during the base install asks 'Stop setup?'. No changes nothing. Yes ends the running pip and everything it started (by its own process id), starts no later step and closes the window once the setup's worker has reported; the exit is 1 (incomplete) and the log says how to finish (v0.7.2, ACT72-039)"
+        "Closing the window during the base install asks 'Stop setup?'. No changes nothing. Yes ends the running pip and everything it started (by its own process id), starts no later step and closes the window once the setup's worker has reported; the exit is 1 (incomplete) and the log says how to finish (v0.7.2, ACT72-039)",
+        "POSIX (v0.8.x P5-B): the first-run window owns the optional-setup workers it starts, as the app window does. Before the panel's first check its setup process becomes the owner (class-A workers on its lifeline; pip and engine probes on each worker's own lifeline); once the window has closed nothing new starts, each run ends and reaps its own worker first (bounded), then the orderly end runs. A forced Cancel, a time-out, closing the window, SIGKILL, a crash or Force Quit of setup leaves no worker, pip or helper of it running, and never ends anything it does not own. Windows takes no new ownership (Job Objects)"
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_cancel.py",
-        "files/tests/test_first_run_setup_close.py"
+        "files/tests/test_first_run_setup_close.py",
+        "files/tests/test_first_run_setup_ownership.py"
       ],
       "journeys": [
         "setup.first-run-choices-and-cancel"
@@ -21050,6 +21055,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_first_run_setup_close.py::test_stop_setup_during_the_optional_voices_check_honours_the_answer[no]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_ownership.py::test_the_window_owns_its_workers_before_the_first_check_and_settles_them_once_it_is_gone"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_setup_ownership.py::test_windows_first_run_window_takes_no_new_ownership"
           },
           {
             "kind": "behavior",
@@ -26200,7 +26213,7 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "35513615614388ffe0a0fc8e35d2e49ac4aab0db2f91960cd37dd22116676c0d",
+    "scripts/shared/bootstrap.py": "a3ba3f9d0c84d0c74c37d65293fe419206905379cd7a66c0532053a8e2aafe04",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",

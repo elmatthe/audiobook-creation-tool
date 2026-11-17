@@ -3369,6 +3369,68 @@ def optional_estimates() -> dict:
 
 
 # ===========================================================================
+#  The first-run window owns its optional-setup workers (v0.8.x P5-B)
+# ===========================================================================
+#: How long this setup process, once its first-run window has closed, lets a voice check or install that is still
+#: running end its worker by itself before the orderly end ends whatever is left. A run asked to stop gives its worker
+#: ``optional_setup_protocol.CANCEL_GRACE_S`` (10 s) and then ends the worker's process group, confirming it empty
+#: within ``TERMINATE_WAIT_S`` (15 s), before it reaps the worker; this bound covers both, with a margin.
+OPTIONAL_SETUP_SETTLE_S = 30.0
+
+
+def own_optional_setup() -> Optional["child_ownership.Owner"]:
+    """Make this setup process the owner of the optional-setup workers its first-run window starts (v0.8.x P5-B).
+
+    POSIX: the ownership the app window gives the workers it starts (``launcher.main`` calls
+    ``subprocess_utils.enable_containment``), held by setup's own owner (:func:`_owner`, which also ends this process's
+    children at exit). ``qwen3_process.spawn`` then starts each worker as a class-A child: its own process group,
+    started through ``child_entry.py`` on this process's lifeline. A worker under a lifeline starts its pip and engine
+    probes the same way on its own lifeline, so each of them -- in a process group of its own -- ends when the worker
+    ends, however the worker ends (a forced Cancel or time-out ends the worker's group), and the worker ends when this
+    process ends, however it ends (SIGKILL, a crash, Force Quit, a closed Terminal window). Before, the first-run window
+    owned nothing: the worker and its pip led sessions of their own, and a forced stop or the window's end left them
+    running. Returns the owner, or ``None`` on Windows, where nothing changes (Job Objects).
+    """
+    if not _contained():
+        return None
+    from shared import subprocess_utils
+
+    owner = _owner()
+    subprocess_utils.enable_containment(LOG.line)  # the same object: both are ``child_ownership.owner()``
+    return owner
+
+
+def settle_optional_setup(owner: "child_ownership.Owner", bound_s: float = OPTIONAL_SETUP_SETTLE_S) -> bool:
+    """The first-run window has closed (v0.8.x P5-B, POSIX): nothing new starts, each worker still running is ended by
+    its own run within *bound_s*, and then the orderly end (bounded) ends whatever this process still owns.
+
+    The order is the point. A worker's own run (``WorkerRun``) ends the worker's process group only while that group's
+    id is proved to be the worker's, confirms it empty and only then reaps the worker (P5-A), and its outcome is a clean
+    one only when that end was confirmed (P5-A-R1). The orderly end (``Owner.shutdown``) signals and reaps without
+    holding that proof, so it waits until every run has reaped its worker. A worker still unreaped when *bound_s* is
+    spent has its group ended the P5-A way first (``child_ownership.end_led_group``: proved, signalled, confirmed, never
+    reaped there), so even then nothing is reaped before its group was judged; its run, if it is still going, then
+    reports what it can prove (never a clean outcome it cannot). This process's lifeline ends anything after that.
+    Returns True when nothing this process owned was still unreaped once the window had closed and *bound_s* allowed.
+    """
+    owner.begin_closing()  # from here no worker, pip or probe starts in this process: a request raises, nothing runs
+    deadline = time.monotonic() + max(0.0, bound_s)
+    while True:
+        running = [child for child in owner.children() if child.proc.returncode is None]
+        if not running or time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    if running:
+        LOG.line(f"Setup is closing: {len(running)} optional-setup process(es) had not ended {bound_s:.0f} s after the "
+                 "window closed; they are being ended now.")
+        for child in running:
+            if child.kind == child_ownership.CLASS_A:
+                child_ownership.end_led_group(child.proc, child.start_time)
+    owner.shutdown()
+    return not running
+
+
+# ===========================================================================
 #  First-run Tk dialog
 # ===========================================================================
 def _append_following(log_box, msg: str) -> None:
@@ -3546,6 +3608,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     # The selection is read once, on the Tk thread, when Begin Setup is pressed; the worker thread never reads a Tk
     # variable.
     selection: list[str] = []
+    # POSIX (v0.8.x P5-B): this process's owner of the optional-setup workers, once the voices' phase has begun.
+    optional_owner: list = []
 
     def worker() -> None:
         ok, final = run_setup(on_progress, LOG)
@@ -3603,6 +3667,9 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
             finish_and_launch()
             return
         from shared.optional_setup_panel import OptionalSetupPanel
+        owner = own_optional_setup()  # before the panel's first check: every worker it starts is owned (P5-B)
+        if owner is not None:
+            optional_owner.append(owner)
         progress_frame.pack_forget()
         panel = OptionalSetupPanel(container, REPO_ROOT, selection, on_done=finish_and_launch,
                                    intro="The app is installed. Next, the voices you chose.")
@@ -3661,6 +3728,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     root.after(120, poll)
     root.mainloop()
+    if optional_owner:  # POSIX (P5-B): the window is gone; its runs end their workers first, then the orderly end
+        settle_optional_setup(optional_owner[0])
     if state.get("relaunch"):
         LOG.line("Windows long paths were switched on and work in a new process; setup starts again in a new process "
                  "so that it uses the setting.")

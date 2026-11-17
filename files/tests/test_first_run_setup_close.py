@@ -284,6 +284,8 @@ def continue_button(window):
                  and str(w.cget("text")).startswith("Continue")), None)
 
 
+# v0.8.x P5-B: the voices' phase makes this process an owner of its workers; a fresh one per test, shut down after.
+@pytest.mark.usefixtures("fresh_containment_owner")
 @pytest.mark.parametrize("answer", [False, True], ids=["no", "yes"])
 def test_stop_setup_during_the_optional_voices_check_honours_the_answer(
         answer, monkeypatch, tk_root, setup_log, native_theme):

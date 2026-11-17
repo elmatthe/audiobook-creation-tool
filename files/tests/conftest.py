@@ -949,3 +949,23 @@ def _no_production_log_writes():
     if changed:
         pytest.fail("this test run mutated real production state: "
                     + "; ".join(changed) + _ADVICE)
+
+
+@pytest.fixture
+def fresh_containment_owner(monkeypatch):
+    """v0.8.x P5-B: this test process starts with no POSIX containment owner and leaves none behind.
+
+    The first-run window makes its setup process an owner (``bootstrap.own_optional_setup``) and, once closed, retires
+    it (``bootstrap.settle_optional_setup``: no new start, lifeline closed). Both are process-wide by design; a test
+    that drives that window in this process gets a fresh owner here, which is shut down afterwards, and the suite's own
+    owner state is put back untouched for the tests that follow.
+    """
+    from shared import bootstrap, child_ownership, subprocess_utils
+
+    monkeypatch.setattr(child_ownership, "_OWNER", None)
+    monkeypatch.setattr(subprocess_utils, "_owner", None)
+    monkeypatch.setattr(bootstrap, "_OWNER_SHUTDOWN_REGISTERED", True)  # no atexit entry per test
+    yield
+    made = child_ownership._OWNER
+    if made is not None:
+        made.shutdown()
