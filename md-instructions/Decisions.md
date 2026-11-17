@@ -2,6 +2,18 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — P4C Kokoro acquisition stopped before any download: the app's setup worker cannot start on macOS; the in-process route used by P2 and P4B was not taken without the owner's say (decision by Claude Code under the owner's acquisition authorization)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS. HEAD `a713789`.
+
+- **Authorized:** the 11 pinned `KOKORO_FILES` only, through the app's existing consented installer, without bypassing its safeguards; stop and report on any blocker.
+- **Found:** `optional_setup_protocol.worker_launch` refuses `.venv/bin/python` because it is a symlink, and `python -m venv` (the app's `bootstrap.create_venv`) always makes it one on POSIX. Both GUI install routes (first-run setup, Install & Continue) go through it. All 11 files were missing; nothing was downloaded.
+- **Why stop rather than call `RealAcquirer` in-process as P2 and P4B did:**
+  - That route keeps the plan, consent, byte budget, scoped opener, hash checks and atomic writes.
+  - It drops the worker launch's interpreter-link refusal and its process-group containment. Those are installer safeguards this authorization did not lift.
+  - Passing the gate either way needs a code change or a new authorization: both are stop conditions.
+- **Recommended fix (needs its own authorization):** on POSIX, accept the venv's interpreter link only when `.venv` itself is not a link and the link resolves to the app's base Python inside this copy. Tests use a real `-m venv` environment. Windows is unchanged.
+
 ## 2026-11-16 — macOS P4C independent-review remediation: the sample helper checks explicit voice patterns once, before anything runs, in ordinary samples, `--quality-suite` and `--final-acceptance`; on a Mac a pattern naming a Chatterbox or Qwen3 voice refuses the whole request (exit 2), and an empty selection is never a success (exit 1, every platform); the Mac's incompatible-Python and engine-lock wording names only offered engines. P4C still owner acceptance pending (implementation decisions by Claude Code)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's P4C remediation task after the independent review of `24398fe`. Start SHA `24398fe`.

@@ -1,5 +1,27 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4C Kokoro acquisition STOPPED before any download: the app's setup worker cannot start on a Mac (`.venv/bin/python` is a symlink, and `worker_launch` refuses links); Kokoro prerequisite STILL BLOCKED; gate still FAIL (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Nothing was downloaded, installed, merged, tagged or released; draft release `447445728` is untouched; P5 has not started. P4B stays OWNER ACCEPTED.
+
+- **Authorization used:** the owner's acquisition of ONLY the 11 pinned `KOKORO_FILES` (`hexgrad/Kokoro-82M@f3ff3571791e39611d31c381e3a41a3af07b4987`) through the app's existing consented installer, then the Kokoro journey and the focused gate.
+- **Inventory before** (`model_assets.assess`, read-only): all 11 files MISSING (331,925,412 bytes); none present, none corrupt; no verified record.
+- **Blocker (a pre-existing Mac defect, not P4C's).** The app's install route is `OptionalSetupPanel` → `optional_setup_client.plan`/`install` → `optional_setup_protocol.worker_launch`, used by both the TTS panel's Install & Continue and the first-run setup. On macOS, `bootstrap.create_venv` (`python -m venv`) always makes `.venv/bin/python` a symlink to `python3.12` and on to the app's base Python. `worker_launch` refuses any link on that path (`venv_layout.unsafe_component`): "the app environment's console Python is missing or reached through a link". So no Mac copy can plan or install an optional voice from the GUI.
+  - The worker's own execution-home check would pass.
+  - P2 and P4B never used this route: they called `RealAcquirer` in-process from dev drivers.
+- **Not done, by design:** the in-process P2/P4B-style route. It skips the worker launch, its link check and its process-group containment, and the authorization forbids bypassing installer safeguards. No code was changed.
+- **Clean state:** the refused attempt left one request folder in `files/runtime-data/optional-setup/`; it was moved to the ignored evidence folder. Before and after (`files/dev-work/macos-p4c-kokoro/`), these are identical: protected assets 18/18, 2/2 and 28/28; and the fingerprints of `.venv/engines`, `files/runtime-data/omnivoice`, `files/runtime-data/models`, `files/runtime-data/python-packages` and the P4A/P4B/P4C evidence. No worker or Kokoro process remained.
+- **Status by item.**
+  1. Kokoro prerequisite: STILL BLOCKED.
+  2. Automated gate: FAIL, last run `2026-11-16_210923_focused_23bf`. It was not rerun: nothing changed, and the Kokoro journey cannot run.
+  3. P4C code review: PASS (independent re-review).
+  4. P4C owner-manual GUI acceptance: PENDING. Do not click Install in the first-run window or Install & Continue: it will fail as above.
+  5. Native Windows qualification: PENDING for P5.
+- **Next action (the owner's), choose one:**
+  - (A, recommended) authorize a bounded fix: `worker_launch` accepts, on POSIX only, the venv's own interpreter link when `.venv` itself is not a link and the interpreter resolves to the app's base Python in this copy; Mac tests use a real `-m venv` environment; Windows unchanged. Then acquire Kokoro through the fixed production route, which also proves it, and rerun the journey and the gate.
+  - (B) authorize the P2/P4B in-process acquisition for this checkout only (the same plan, consent, byte budget, scoped opener, hashes and atomic writes; no worker launch or containment). The production defect stays open.
+
 ## Current checkpoint — macOS P4C independent-review remediation: the sample helper's CLI false success fixed and the Mac wording exceptions closed; P4C READY FOR INDEPENDENT RE-REVIEW, owner acceptance pending (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action.
