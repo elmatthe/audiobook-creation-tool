@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Iterable, Mapping, Sequence
 
+from . import engine_policy
 from . import venv_layout
 
 # --------------------------------------------------------------------------- #
@@ -107,7 +109,8 @@ class AssetDefinition:
     requires_engine_lease: bool = False
 
 
-CATALOG: tuple[AssetDefinition, ...] = (
+#: The catalog as Windows released it (word for word). :data:`CATALOG` is the running platform's (macOS P4C).
+WINDOWS_CATALOG: tuple[AssetDefinition, ...] = (
     AssetDefinition(
         asset_id="virtual_environment",
         display_name="Private Python environment",
@@ -171,6 +174,46 @@ CATALOG: tuple[AssetDefinition, ...] = (
         removes_target_itself=False,
     ),
 )
+
+#: macOS P4C: a Mac's words for the two items that name an engine. The engine a Mac holds in ``.venv/engines`` is
+#: OmniVoice (Qwen3 is not offered there), and its model lives in ``files/runtime-data/omnivoice``, outside both items.
+MAC_WORDING: Mapping[str, tuple[str, str]] = MappingProxyType({
+    "virtual_environment": (
+        "The app's own dependencies rebuild on the next launch. The OmniVoice voice "
+        "engine is not part of this item.",
+        "Private Python environment: the app's own dependencies will be rebuilt "
+        "on the next launch. This may take several minutes and may require a "
+        "network connection. The OmniVoice voice engine is not part of this item "
+        "and is never removed with it.",
+    ),
+    "downloaded_models": (
+        "Kokoro's voice models must be installed again before a Kokoro voice can be "
+        "used: the TTS panel offers Install & Continue. OmniVoice's model is not "
+        "part of this item.",
+        "Downloaded voice models: Kokoro's voice models must be installed again "
+        "(Install & Continue offers them). OmniVoice's model is not part of this "
+        "item.",
+    ),
+})
+
+
+def catalog_for(platform: str) -> tuple[AssetDefinition, ...]:
+    """The catalog *platform* shows: Windows' exactly as released; on a Mac (macOS P4C) the same four items, targets
+    and rules, worded for the engines a Mac offers (``shared.engine_policy``)."""
+    if engine_policy.offered_engines(platform) != engine_policy.MACOS_ENGINES:
+        return WINDOWS_CATALOG
+    worded = []
+    for asset in WINDOWS_CATALOG:
+        consequence, effect_line = MAC_WORDING.get(asset.asset_id, (asset.consequence, asset.effect_line))
+        worded.append(AssetDefinition(
+            asset_id=asset.asset_id, display_name=asset.display_name, relative_target=asset.relative_target,
+            consequence=consequence, effect_line=effect_line, requires_post_exit=asset.requires_post_exit,
+            removes_target_itself=asset.removes_target_itself, requires_engine_lease=asset.requires_engine_lease))
+    return tuple(worded)
+
+
+#: The running platform's catalog, decided once at import from the real platform.
+CATALOG: tuple[AssetDefinition, ...] = catalog_for(sys.platform)
 
 #: Deterministic catalog order — the order rows render, requests serialize and
 #: confirmation lines appear. Never sorted by anything else.

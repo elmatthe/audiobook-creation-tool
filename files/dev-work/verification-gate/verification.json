@@ -273,7 +273,7 @@
         "id": "qwen3-windows-only",
         "max": 8,
         "pattern": "^(the\\ guard\\ is\\ a\\ Windows\\ named\\ mutex;\\ Qwen3\\ is\\ Windows\\-only|the\\ guard\\ is\\ a\\ Windows\\ named\\ mutex|no\\ Qwen3\\ environment\\ or\\ Base\\ model\\ on\\ this\\ machine)$",
-        "why": "Qwen3-TTS is Windows-only (P3B decides macOS)."
+        "why": "Qwen3-TTS is SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16): not offered there, and refused by the P4C engine policy; these tests need a Windows mutex or a Qwen3 environment."
       },
       {
         "id": "local-fixture-absent",

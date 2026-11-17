@@ -289,6 +289,7 @@ class _GatedChatterboxStub:
         return self
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_never_exceeds_one_concurrent_file_even_when_more_are_requested(make_panel, output_base,
                                                                                     tmp_path, monkeypatch):
     from tts import voice_registry as vr
@@ -686,6 +687,7 @@ def test_both_edge_routes_order_every_commit_against_the_runs_own_controller(mak
 
 
 @pytest.mark.parametrize("backend", ["kokoro", "chatterbox", "qwen3"])
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_each_local_engine_orders_its_commit_against_the_runs_own_controller(make_panel, output_base, tmp_path, monkeypatch, backend):
     from tts import voice_registry as vr
     from tts.epub2tts_edge import epub2tts_edge as engine

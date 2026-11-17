@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional
 
+from shared import engine_policy
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from tts import optional_setup
@@ -226,8 +227,10 @@ def _chatterbox_health_once(root: Path, *, cancel_check: CancelCheck, runner: Op
 
 def local_health(root: Path, components: Iterable[str], *, cancel_check: CancelCheck,
                  runner: Optional[Runner] = None) -> dict[str, Optional[bool]]:
-    """Probe each chosen local engine once. Qwen3 health is judged by the planner from the engine's own record."""
-    chosen = set(components)
+    """Probe each chosen local engine once. Qwen3 health is judged by the planner from the engine's own record.
+
+    macOS P4C: an engine this platform does not offer is never probed (its package is never imported)."""
+    chosen = set(engine_policy.offered_components(components))
     health: dict[str, Optional[bool]] = {}
     if proto.KOKORO in chosen:
         health[proto.KOKORO] = kokoro_health(root, cancel_check=cancel_check, runner=runner)[0]

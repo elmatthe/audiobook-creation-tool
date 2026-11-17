@@ -322,6 +322,9 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Inputs and outputs:** the five choices are Kokoro (checked), Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices and, appended last in v0.8.0, OmniVoice — Six Cloned Voices (all unchecked); OmniVoice's note says it needs an NVIDIA GPU and that its model weights are non-commercial. Choosing is not consent: nothing optional is downloaded here. The base install is five steps: locate the app's Python, create `.venv`, install the locked packages, set up FFmpeg, fetch the English sentence data. No voice model is downloaded. Progress goes to `files/runtime-data/logs/setup_<date>.log`. A folder too deep for Windows is refused before anything is touched.
 - **Failure, cancel, retry:** a failed step ends setup with a plain message and the log location; running the launcher again picks up from what is already in place. Cancel and close are described next.
 - **Persistence:** the choices are read once, when Begin Setup is pressed, and are not saved.
+- **macOS (v0.8.x P4C):** two choices only, Kokoro voices (checked, with Kokoro's own consent and skip rule) and
+  OmniVoice — Six Cloned Voices (unchecked, with its Mac line), and no Qwen3 note; Chatterbox Turbo and both Qwen3
+  choices are not offered on a Mac (`ACT.TTS.ENGINE-POLICY`). Windows keeps its five.
 - **Live log (v0.7.2 Phase 6, ACT72-059):** the progress log follows new lines while its reader is at the bottom. A reader who scrolls up keeps their place, to the pixel, while setup keeps writing, and following resumes once they are back at the bottom. Every line is kept, and only the window's own thread writes the log.
 - **Native journeys (v0.7.2 Phase 8, ACT72-055):** `setup.first-run-refuses-a-folder-too-deep` drives the real window and the real `run_setup` on a disposable copy whose folder path is too long for Windows, so the failure is the product's own: Begin Setup, the native "Setup did not complete" box, Open log folder (recorded, not opened), Close, exit status 1, nothing installed. `setup.first-run-choices-and-cancel` reads the choices (four when that journey was written; five since v0.8.0) and their defaults, changes one by a real click, checks every control at the smallest window size and cancels (exit status 2, nothing created). A real base installation is the `fresh-windows` qualification.
 
@@ -478,6 +481,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **How to reach it:** Preferences & Data, "Downloaded data" card, "Repair App Environment…".
 - **Behaviour:** asks for confirmation first; declining changes nothing ("Repair cancelled. Nothing was changed."). Confirming writes one request file inside `.venv` and removes nothing; the running app and any conversion are left alone. On the next start, the health check reads it as "repair requested" and the ordinary rebuild runs. If the request cannot be written, the status line says so and tells the person to close the app and start it again with Setup_and_Run.
 - **Differences:** unlike Clear Downloaded Data's environment item, this keeps the separately installed Qwen3 engine and needs no helper after the app exits.
+- **macOS (v0.8.x P4C):** the confirmation names the OmniVoice voice engine, the separately installed engine a Mac keeps; Qwen3 is not offered there.
 
 ### Preferences: Clear Downloaded Data
 `ACT.SETUP.CLEAR-DOWNLOADED-DATA`
@@ -489,6 +493,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Persistence:** selections are never saved; the result record is retired once shown.
 - **Native journey (v0.7.2 Phase 8, ACT72-055):** `setup.clear-downloaded-data` runs a disposable copy of the application: Preferences, the dialog and its confirmation by real clicks, the application closing itself, the real helper deleting exactly the three items ticked (the fourth, the code and a second installation beside it untouched), and the result shown once at the next launch.
 - **Differences:** Reset Preferences is a separate control and never touches downloaded data.
+- **macOS (v0.8.x P4C):** the same four items, targets and rules; the environment item names the OmniVoice voice engine instead of Qwen3, and the models item says Kokoro's models are installed again through Install & Continue (OmniVoice's model, in `files/runtime-data/omnivoice`, is not part of it).
 
 ### Clear Downloaded Data target safety
 `ACT.SETUP.CLEAR-DOWNLOADED-DATA.SAFETY`

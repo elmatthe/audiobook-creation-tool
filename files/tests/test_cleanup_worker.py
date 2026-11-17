@@ -33,12 +33,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MODULE = Path(worker.__file__)
 UTC = timezone.utc
 
-#: The six modules a coordinator needs, and nothing else. ``venv_layout.py``
+#: The seven modules a coordinator needs, and nothing else. ``venv_layout.py``
 #: joined at v0.7.0 P04A: ``maintenance`` refuses an environment holding an engine.
 #: ``engine_lease.py`` joined at v0.7.0 P04C: the environment and models items are
-#: removed only under this copy's Qwen3 engine lease.
+#: removed only under this copy's Qwen3 engine lease. ``engine_policy.py`` joined
+#: at v0.8.x P4C: ``maintenance`` words its catalog for the engines the platform
+#: offers (standard library only; it acts on nothing).
 COORDINATOR_MODULES = ("__init__.py", "maintenance.py", "cleanup_state.py",
-                       "cleanup_worker.py", "venv_layout.py", "engine_lease.py")
+                       "cleanup_worker.py", "venv_layout.py", "engine_lease.py",
+                       "engine_policy.py")
 #: The lease's lock files, relative to a root (``shared.engine_lease``).
 LEASE_LOCK_FILES = frozenset(f"files/runtime-data/qwen3/{name}"
                              for name in ("setup.lock", "inference.lock", "engine.lock")) | frozenset(

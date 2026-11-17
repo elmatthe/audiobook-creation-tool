@@ -156,10 +156,12 @@ from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_TRIM_SILENCE_DB,
     ensure_punkt,
 )
+from shared import engine_policy
 from tts.voice_registry import (
     default_voice_label,
     get_voice,
     display_labels,
+    offered_labels,
 )
 
 #: How long ``close()`` waits for a conversion worker to unwind.
@@ -424,7 +426,10 @@ def _default_qwen3_hardware() -> str:
 
 
 def qwen3_setup_offered() -> bool:
-    """Whether an "Install / repair Qwen3 voices" action makes sense here (Windows only, for now)."""
+    """Whether an "Install / repair Qwen3 voices" action makes sense here (Windows only, for now; never where the
+    platform does not offer Qwen3 at all, macOS P4C)."""
+    if not engine_policy.is_offered(engine_policy.QWEN3):
+        return False
     try:
         from tts.qwen3_runtime import platform_supported
         return bool(platform_supported())
@@ -1280,7 +1285,8 @@ class TtsPanel(ttk.Frame):
         self.voice_combo = ttk.Combobox(
             voice,
             textvariable=self.selected_voice_label,
-            values=display_labels(),
+            # macOS P4C: the voices this platform offers (all 34 on Windows; Edge, Kokoro and OmniVoice on a Mac).
+            values=offered_labels(),
             state="readonly",
             width=VOICE_COMBO_AQUA_CHARS if self._is_aqua else 44,
             style=st("combobox"),
@@ -1651,6 +1657,16 @@ class TtsPanel(ttk.Frame):
         entry = get_voice(label)
         if entry is None:
             return
+        if not engine_policy.is_offered(entry.backend):
+            # macOS P4C (plan §12.F): the list never shows a voice of an engine this platform does not offer, so this
+            # is a restored, imported or otherwise stale selection. It becomes the default voice and the log says so;
+            # its engine is asked nothing. Start (run_job) and the worker (_RunContext) refuse such a voice as well.
+            entry = get_voice(default_voice_label())
+            self.selected_voice_label.set(entry.display_label)
+            log = getattr(self, "log", None)
+            if log is not None:
+                log.append(f"The voice \"{label}\" is not available on {engine_policy.platform_name()}; the default "
+                           f"voice, {entry.display_label}, is selected instead.")
         # macOS (v0.8.x P2): a warm local-engine worker of another engine is released, off this thread; never one that
         # is serving a run. Nothing happens on Windows, where no worker exists.
         local_engine_host.engine_selected(entry.backend)
@@ -2704,6 +2720,11 @@ class TtsPanel(ttk.Frame):
         result = self._result
         if result is None or self._busy.is_set() or not result.has_retryable:
             return None
+        backend = result.snapshot.tool_options["backend"]
+        if not engine_policy.is_offered(backend):
+            # macOS P4C: a frozen run is never retried with an engine this platform does not offer, nor switched.
+            messagebox.showwarning("Voice unavailable", engine_policy.not_offered_message(backend))
+            return None
         request = result.retry()
         return self._launch(request.snapshot, request.item_ids)
 
@@ -2728,6 +2749,12 @@ class TtsPanel(ttk.Frame):
             # a renamed or reordered registry must not be able to switch the engine behind the person's back.
             messagebox.showwarning("Voice not recognised",
                                    "The selected voice is not in the voice list. Choose a voice, then start again.")
+            return
+        if not engine_policy.is_offered(current_voice_entry.backend):
+            # macOS P4C: a voice of an engine this platform does not offer is refused here, before anything is frozen,
+            # reserved, installed or synthesised, and is never swapped for another voice.
+            messagebox.showwarning("Voice unavailable",
+                                   engine_policy.not_offered_message(current_voice_entry.backend))
             return
         speaker = self.voice_var.get().strip() or DEFAULT_SPEAKER
         backend = "edge" if current_voice_entry is None else current_voice_entry.backend
@@ -3283,6 +3310,10 @@ class _RunContext:
     def execute(self) -> None:
         try:
             try:
+                # macOS P4C: the frozen engine is asked once more, on the worker and before any engine module is
+                # imported, so no route -- a retry, a restored run, a direct call -- runs an engine this platform does
+                # not offer. The refusal settles as a job failure; nothing is converted or published.
+                engine_policy.require_offered(self.params["backend"])
                 if self.params["backend"] == "edge" and any(item["direct"] for item in self.items):
                     # v0.7.0: proves the verified local sentence data (offered at Create); never downloads. Missing
                     # here (removed since), it settles as a job failure whose message says what to do.

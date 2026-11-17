@@ -998,7 +998,8 @@ def test_a_successful_environment_install_clears_the_scratch_folder(sandbox, run
 def test_the_data_cleanup_tool_tells_the_user_the_qwen3_models_do_not_come_back_by_themselves():
     from shared import maintenance
 
-    models = maintenance.asset("downloaded_models")
+    # Windows' words (macOS P4C: a Mac's name no Qwen3 voices, which it does not offer; test_engine_policy.py)
+    models = next(a for a in maintenance.catalog_for("win32") if a.asset_id == "downloaded_models")
     assert models.relative_target == "files/runtime-data/models"  # still covers the Qwen3 model folders
     for text in (models.consequence, models.effect_line):
         assert "Qwen3" in text and "Install / repair Qwen3 voices" in text and "Kokoro" in text

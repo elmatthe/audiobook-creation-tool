@@ -422,6 +422,7 @@ def _text(tmp_path: Path, sentences: int = 40) -> Path:
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_output_is_internally_consistent(chatterbox_ready, tmp_path):
     import tts.chatterbox_synth as cbx
 
@@ -435,6 +436,7 @@ def test_chatterbox_output_is_internally_consistent(chatterbox_ready, tmp_path):
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_honours_the_runs_chosen_bitrate(chatterbox_ready, tmp_path):
     import tts.chatterbox_synth as cbx
 
@@ -445,6 +447,7 @@ def test_chatterbox_honours_the_runs_chosen_bitrate(chatterbox_ready, tmp_path):
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_still_honours_its_pause_contract(chatterbox_ready, tmp_path):
     """Assembly moved to PCM; the configured between-chunk pause must land unchanged.
 
@@ -469,6 +472,7 @@ def test_chatterbox_still_honours_its_pause_contract(chatterbox_ready, tmp_path)
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_progress_and_cancellation_are_unchanged(chatterbox_ready, tmp_path):
     import tts.chatterbox_synth as cbx
     from shared.cancellation import ConversionCancelled

@@ -2,6 +2,59 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P4C: one platform capability policy (`scripts/shared/engine_policy.py`) decides the voice engines; macOS offers Edge 5 + Kokoro 9 + OmniVoice 6 = 20 voices and refuses Chatterbox Turbo and Qwen3-TTS at every surface and entry point; Windows keeps all 34. P4C IMPLEMENTED and TESTED (automated); owner acceptance pending (implementation decisions by Claude Code)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB), under the owner's P4C authorization (2026-11-16) and §12.F Revision 3. Start SHA `d2b2eae`.
+
+**The policy (one module, standard library only).**
+- `shared/engine_policy.py` answers which engines a platform offers. It reads `sys.platform` when asked (`current_platform`, the one seam tests replace); every function also takes an explicit `platform=`. There is no setting, toggle or compatibility mode.
+- macOS (`darwin`) offers `edge`, `kokoro`, `omnivoice`. Every other platform offers all five engines, so Windows is exactly as released and Linux keeps today's behaviour (each engine's own gates).
+- It lives in `shared/` because the first-run setup imports it in the base interpreter before the app's environment exists, as it does `optional_setup_protocol`. It imports nothing of the app, so `tts.voice_registry` can ask it without a cycle.
+- One refusal, `EngineNotOffered`, with one message: "<Engine> voices are not available in this app on macOS, so nothing was started, installed or downloaded. Choose a Microsoft Edge TTS, Kokoro or OmniVoice voice instead."
+
+**Where it is asked (narrow guards; nothing duplicated or deleted).**
+- Registry: `voice_registry.offered_voices`/`offered_labels`; all 34 rows stay, `display_labels()` and every lookup are unchanged. The registry refuses a default voice that either platform would not offer.
+- TTS panel (`epub2tts_gui`): the dropdown lists the offered labels; a restored, imported or stale selection of a non-offered engine becomes the default voice and is logged; Start and Retry Failed refuse such a voice with the message before anything is frozen, reserved, installed or synthesised; the conversion worker (`_RunContext.execute`) asks again before any engine module is imported and settles a refusal as a job failure; the "Install / repair Qwen3 voices" button is never offered where Qwen3 is not.
+- Engine entry points: `chatterbox_file_to_mp3`, `synthesize_text_to_wav`, `synthesize_text_to_mp3` and the model loader `_get_model`; `qwen3_file_to_mp3`, before the source is read or the availability seam is asked.
+- Setup: the wizard's choices (`bootstrap.optional_choices_for("darwin")`: Kokoro checked as released, OmniVoice unchecked, no Qwen3 note); `voice_install.component_for` (so Install & Continue never offers one); `optional_setup.plan`/`estimate` (a non-offered component is UNSUPPORTED with the message, never checked, consented, acquired or repaired; the plan's Mac limits, Qwen3 line and base-package note name no other engine); `RealAcquirer.acquire` refuses any unit of a non-offered component before disk, network or process; `optional_setup_health.local_health` never probes Chatterbox there.
+- Sample helper and CLI (`generate_voice_samples`): offered voices only; a Chatterbox or Qwen3 pattern is reported "NOT OFFERED" and fails the run; the Chatterbox and Qwen3 evaluation modes exit 2; the per-voice dispatch refuses first.
+- Wording: the launcher's TTS line, Clear Downloaded Data's two engine-naming items and Repair App Environment's confirmation have Mac versions naming OmniVoice (the engine a Mac keeps in `.venv/engines`); Windows' words are byte-identical.
+- Coverage of the cleanup coordinator: `maintenance.py` now imports the policy, so the coordinator's module closure is seven files (`test_cleanup_worker.COORDINATOR_MODULES`), as `venv_layout` and `engine_lease` joined it before. The real coordinator runs from the real `scripts/` tree.
+- The planning bridge's reviewed closure (`optional_setup_planning_bridge_v3.SOURCES`) gains `shared/engine_policy.py`.
+
+**Deliberately not changed.**
+- The Mac's base environment keeps `chatterbox-tts` as a dormant pinned dependency, and the base install's import probe (`REQUIRED_IMPORTS`) still checks it (§12.F: no slimming). That probe is base-environment integrity, not an engine install.
+- `qwen3_setup`'s and `qwen3_runtime`'s own Windows-only refusals stay; they agree with the policy.
+- Setup messages for an incompatible Python that name "Kokoro and Chatterbox" (reachable only without CPython 3.11/3.12; a Mac uses the app's own 3.12), and engine-lock messages naming Qwen3 ("the Qwen3 or OmniVoice voices are in use"), are left for P5/P6a wording review. Neither invites choosing or installing an engine.
+- Windows' "Kokoro/Hugging Face data downloads again when needed" (Clear Downloaded Data) predates v0.7.0's consented installs and is stale; it is a Windows wording follow-up, not changed here.
+
+**Tests.**
+- New `files/tests/test_engine_policy.py` (37 tests): both rosters by identity and label, headings, default, the six OmniVoice voices and their recordings; the wizard (data and a real Tk window, with and without Kokoro's skip); plans, estimate, consent, acquirer and health; Install & Continue; the panel's list, stale selection, Start, worker and Retry; the engine entry points; the sample helper; launcher, maintenance and repair wording; no setting carries a voice. Windows rows run through the policy's seam.
+- Adapted (macOS behaviour P4C deliberately changes; every assertion still exact): the five-choice wizard pins now read `optional_choices_for("win32")` and pin a Mac's two; the OmniVoice dropdown test is parametrized 34/20; the darwin Qwen3 plan reason is the policy's; the environment item's wording is pinned for both platforms; the coordinator closure has seven modules. A `windows_engine_policy` fixture (conftest) is available to Windows-behaviour suites.
+- Run evidence is in the P4C Handoff block and the roadmap (§19 P4C).
+
+## 2026-11-16 — P4B OWNER ACCEPTED with its documented memory performance exception: the Mac-GPU worker keeps its 16-chunk bound (48 on Windows CUDA and the Mac's CPU), no `torch.mps.empty_cache()` policy is adopted, and no further P4B memory optimization is authorized; P4C authorized (owner decision; recorded by Claude Code)
+
+Signed: the owner (decision); recorded by Claude Code (Opus 5.5), HOME-MacOS, at `d2b2eae`.
+
+**Decision.**
+- P4B is **OWNER ACCEPTED** with its memory-performance exception.
+- Kept: at most 16 chunks per OmniVoice worker on a Mac's GPU (`omnivoice_synth.MPS_CHUNKS_PER_WORKER`), 48 on Windows CUDA and on a Mac's CPU (`CHUNKS_PER_WORKER`), as committed in `dc7b1ed`.
+- No per-chunk, every-N or threshold `torch.mps.empty_cache()` is adopted (option B, entry below).
+- No further P4B memory optimization is authorized. Work on the per-shape caching would need a new, separate authorization.
+- P4C is authorized (the entry above).
+
+**The exception, as measured (kept on record, not re-measured).**
+- Book-like text (Male 1, 48 long, all-different paragraphs) at the 16-chunk bound peaks at 10,745–11,131 MiB, 5–9 % over the provisional 10 GiB footprint target; worker growth after warm-up is +20 to +31 % there and +10.6 % on the 60-chunk sequence, against the provisional < 10 %.
+- No memory-pressure event and no swap in any 16-chunk run; S is PASS; the audio is bit-identical to the 48-chunk runs.
+- The provisional D6-O targets are unchanged as written (MPS wall RTF ≤ 1.0, CPU wall RTF ≤ 3.5, footprint ≤ 10 GiB, growth < 10 %). They stay practicality targets, not rejection thresholds; this acceptance is an owner exception against them, not a new target.
+- The accepted MPS speed exception (P4A acceptance entry) is unchanged.
+
+**Correction applied with this decision (documents and one code comment only).**
+- The comment above `MPS_CHUNKS_PER_WORKER` (`scripts/tts/omnivoice_synth.py`) and the feature map's macOS OmniVoice bullet (`files/dev-work/feature-map/tts-audiobook.md`) repeated the memory checkpoint's wrong cause ("GPU buffers kept by PyTorch's MPS caching allocator").
+- They now say what option B measured: `torch.mps.empty_cache()` frees one chunk's working space that the next chunk takes back and does not stop the growth; the accumulating memory is GPU memory outside PyTorch's free pool plus the CPU heap. Per-shape MPSGraph resources are the likely cause, stated as inferred, not proven.
+- No production behaviour changed: OmniVoice generation, worker rotation, model pins, reference identities and audio processing are untouched.
+
 ## 2026-11-16 — macOS P4B option B (MPS cache clearing) feasibility: `torch.mps.empty_cache()` gives no meaningful, repeatable memory improvement. Recommendation: keep the present 16-chunk behaviour and adopt no clearing policy. The memory exception stays OWNER DECISION PENDING; P4B is not owner accepted; P4C has not started
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB), under the owner's option-B authorization: one final bounded feasibility experiment, no production change, no new policy without the owner's review. Start SHA `dc7b1ed`.

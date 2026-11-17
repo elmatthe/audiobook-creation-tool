@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from shared import engine_policy
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from tts import model_assets as assets
@@ -448,7 +449,9 @@ def test_unsupported_platform_python_and_architecture(world, monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     data = as_json([CV, B])
     assert [component(data, n)["readiness"] for n in (CV, B)] == [proto.UNSUPPORTED] * 2
-    assert data["units"] == [] and data["hardware"]["qwen3"] == rt.platform_reason()
+    # macOS P4C: Qwen3 is not offered on a Mac, so the plan says so in the policy's words, not "needs Windows"
+    assert data["units"] == [] and data["hardware"]["qwen3"] == engine_policy.not_offered_message("qwen3", "darwin")
+    assert component(data, CV)["reason"] == engine_policy.not_offered_message("qwen3", "darwin")
 
 
 def test_busy_and_bad_bundle_are_reported_and_never_acquire(world, monkeypatch):
@@ -1162,7 +1165,9 @@ FORBIDDEN_PRE_VENV = ("subprocess", "socket", "ssl", "urllib.request", "http.cli
                       "threading", "ctypes", "tts.qwen3_setup", "tts.qwen3_process", "shared.bootstrap")
 #: v0.8.0 Phase 3: estimating OmniVoice reads its shipped manifest through ``tts.omnivoice_runtime`` (and its reference
 #: list module), both standard-library only like the rest of this set -- never the installer, torch or OmniVoice.
-ALLOWED_PROJECT = {"shared", "shared.optional_setup_protocol", "shared.spacy_store", "shared.venv_layout", "tts",
+# macOS P4C: shared.engine_policy (standard library only, process-free) answers which engines a platform offers.
+ALLOWED_PROJECT = {"shared", "shared.engine_policy", "shared.optional_setup_protocol", "shared.spacy_store",
+                   "shared.venv_layout", "tts",
                    "tts.clone_references", "tts.model_assets", "tts.omnivoice_runtime",
                    "tts.optional_setup", "tts.qwen3_runtime", "tts.voice_registry"}
 PRE_VENV_PROBE = '''\

@@ -80,10 +80,12 @@ def test_the_action_buttons_are_still_present():
 
 
 def test_only_kokoro_is_checked_by_default():
-    # v0.8.0 Phase 3: OmniVoice is appended last, unchecked; the four earlier choices keep their order and defaults.
-    assert [(c, d) for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES] == [
+    # v0.8.0 Phase 3: OmniVoice is appended last, unchecked; the four earlier choices keep their order and defaults
+    # (Windows). macOS P4C: a Mac's two choices keep Kokoro checked and OmniVoice unchecked.
+    assert [(c, d) for c, _l, d, _n in bootstrap.optional_choices_for("win32")] == [
         ("kokoro", True), ("chatterbox", False), ("qwen3-customvoice", False), ("qwen3-base", False),
         ("omnivoice", False)]
+    assert [(c, d) for c, _l, d, _n in bootstrap.optional_choices_for("darwin")] == [("kokoro", True), ("omnivoice", False)]
 
 
 def test_the_window_is_not_merely_made_enormous():

@@ -268,16 +268,17 @@ def test_exactly_five_components_the_four_earlier_unchanged_and_omnivoice_last_a
                                      "qwen3-base": False, "omnivoice": False}
     from shared import bootstrap
 
-    assert [c for c, *_ in bootstrap.OPTIONAL_CHOICES] == list(proto.COMPONENTS)
     assert bootstrap.OPTIONAL_CHOICES == bootstrap.optional_choices_for(sys.platform)
     windows = bootstrap.optional_choices_for("win32")
+    assert [c for c, *_ in windows] == list(proto.COMPONENTS)
     assert windows is bootstrap.WINDOWS_OPTIONAL_CHOICES, "Windows' wizard is exactly as released"
     choice = windows[-1]
     assert choice[:3] == ("omnivoice", "OmniVoice — Six Cloned Voices", False)
     assert "NVIDIA GPU" in choice[3] and "NON-COMMERCIAL" in choice[3] and "CC-BY-NC" in choice[3]
-    # macOS P4B: the same five choices and defaults on a Mac; only OmniVoice's own line says what is true there
+    # macOS P4C: a Mac offers Kokoro (Windows' own line, checked) and OmniVoice (unchecked, its own Mac line) only;
+    # the Chatterbox and Qwen3 choices are not offered there (test_engine_policy.py pins the Mac wizard)
     mac = bootstrap.optional_choices_for("darwin")
-    assert [row[:3] for row in mac] == [row[:3] for row in windows] and mac[:-1] == windows[:-1]
+    assert [row[:3] for row in mac] == [windows[0][:3], windows[-1][:3]] and mac[0] == windows[0]
     assert "Apple Silicon" in mac[-1][3] and "NVIDIA" not in mac[-1][3] and "Windows" not in mac[-1][3]
     assert "NON-COMMERCIAL" in mac[-1][3] and "CC-BY-NC" in mac[-1][3]
 
@@ -1009,6 +1010,8 @@ def test_the_first_run_window_shows_five_choices_omnivoice_last_unchecked_and_fi
     run_as_toplevel(monkeypatch, tk_root, script)
     monkeypatch.setattr(bootstrap, "optional_estimates", lambda: {"omnivoice": "6.9 GB"})
     monkeypatch.setattr(bootstrap, "run_setup", lambda *a, **k: pytest.fail("Cancel started setup"))
+    # Windows' five-choice window (macOS P4C: a Mac's two are pinned in test_engine_policy.py)
+    monkeypatch.setattr(bootstrap, "OPTIONAL_CHOICES", bootstrap.optional_choices_for("win32"))
     bootstrap.run_with_gui()
     assert seen["labels"][:4] == ["Kokoro voices", "Chatterbox Turbo voices", "Qwen3 CustomVoice voices (Aiden, Ryan)",
                                   "Qwen3 Cloned Voices (six bundled voices)"]

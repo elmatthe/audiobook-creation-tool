@@ -4245,6 +4245,202 @@
       "exceptions": []
     },
     {
+      "id": "ACT.TTS.ENGINE-POLICY",
+      "tool": "tts-audiobook",
+      "title": "Which voice engines a platform offers (macOS P4C)",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows",
+          "macos"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/shared/engine_policy.py",
+          "symbols": [
+            "current_platform",
+            "offered_engines",
+            "is_offered",
+            "component_offered",
+            "offered_components",
+            "not_offered_message",
+            "require_offered"
+          ]
+        },
+        {
+          "path": "scripts/tts/voice_registry.py",
+          "symbols": [
+            "offered_voices",
+            "offered_labels"
+          ]
+        }
+      ],
+      "contracts": [
+        "One module answers which voice engines the running platform offers, from sys.platform read when asked; there is no setting or toggle. Windows (and any other platform) offers all five engines and 34 voices exactly as released; macOS offers Edge, Kokoro and OmniVoice, 20 voices in registry order, Steffan the default.",
+        "On macOS no surface offers Chatterbox Turbo or Qwen3-TTS: the voice list and its headings, the first-run choices (Kokoro and OmniVoice only), Install & Continue, setup plans and estimates, the acquirer, health probes, the Qwen3 install button, the sample helper, the launcher line and the maintenance and repair wording.",
+        "A voice of an engine not offered is refused at Start, at Retry, on the conversion worker before its engine is imported and at the engine's own entry points, with one plain message; nothing is started, installed, downloaded or published, and no other voice is used. A restored or imported selection becomes the default voice and is logged.",
+        "Nothing is removed: every (backend, voice_id) identity, recording, transcript, preview, manifest and pin stays; Windows behaviour is unchanged."
+      ],
+      "selection": [
+        "files/tests/test_engine_policy.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_policy_knows_every_registered_engine_and_every_setup_component"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_macos_offers_edge_kokoro_and_omnivoice_and_windows_every_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_platform_is_the_real_one_read_at_call_time"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_refusal_says_what_is_not_offered_that_nothing_happened_and_what_to_choose[chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_refusal_says_what_is_not_offered_that_nothing_happened_and_what_to_choose[qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_macos_roster_is_exactly_the_twenty_voices_in_registry_order"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_macos_engine_headings_are_only_the_offered_engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_windows_keeps_all_34_identities_labels_and_order"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_default_voice_is_steffan_and_offered_on_both_platforms"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_default_voice_a_mac_would_not_offer_is_refused"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_nothing_is_removed_every_identity_and_recording_stays_registered"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_all_six_omnivoice_voices_are_offered_on_a_mac_with_their_own_recordings"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_mac_first_run_offers_exactly_kokoro_and_omnivoice"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_windows_first_run_is_exactly_as_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_mac_first_run_window_shows_two_choices_and_names_no_other_engine[False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_mac_first_run_window_shows_two_choices_and_names_no_other_engine[True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_plan_refuses_chatterbox_and_qwen3_and_acquires_nothing_for_them"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_mac_first_run_estimate_refuses_them_too"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_plan_still_offers_chatterbox_and_qwen3"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_acquirer_refuses_an_unoffered_component_before_any_download"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_health_check_never_probes_chatterbox"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_install_and_continue_never_offers_chatterbox_or_qwen3_on_a_mac"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_mac_dropdown_lists_exactly_the_twenty_voices"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_windows_dropdown_keeps_all_34"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_restored_selection_naming_an_unoffered_engine_becomes_the_default_and_is_logged[chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_restored_selection_naming_an_unoffered_engine_becomes_the_default_and_is_logged[qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_selection_is_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_start_refuses_an_unoffered_voice_before_anything_is_frozen_or_reserved[chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_start_refuses_an_unoffered_voice_before_anything_is_frozen_or_reserved[qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_frozen_run_that_reaches_the_worker_is_refused_before_the_engine_is_called"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_retry_of_an_unoffered_engine_is_refused_and_starts_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_chatterbox_entry_points_refuse_on_a_mac_before_reading_or_loading"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_qwen3_entry_point_refuses_on_a_mac_even_when_its_availability_seam_says_yes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_samples_on_a_mac_cover_the_twenty_voices_and_refuse_the_rest"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_launcher_describes_only_the_offered_engines_and_keeps_all_six_tools"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_maintenance_and_repair_wording_on_a_mac_names_no_unoffered_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_no_setting_can_carry_a_voice_or_an_engine"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
       "id": "ACT.TTS.VOICE-STATE",
       "tool": "tts-audiobook",
       "title": "Installed or missing: local voice availability",
@@ -24342,11 +24538,13 @@
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._start_frozen::messagebox.showerror:Output folder#2": "ACT.TTS.OUTPUT-NAMES",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_output_folder::messagebox.showerror:Output folder": "ACT.TTS.OUTPUT-FOLDER",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_qwen3_setup::messagebox.showinfo:Conversion in progress": "ACT.TTS.SETUP.QWEN3",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.retry_failed::messagebox.showwarning:Voice unavailable": "ACT.TTS.ENGINE-POLICY",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Edge speech rate": "ACT.TTS.EDGE-RATE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Kokoro speed": "ACT.TTS.ENGINE.KOKORO",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Missing input": "ACT.TTS.RUN",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice not recognised": "ACT.TTS.VOICE",
-      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice unavailable": "ACT.TTS.VOICE",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice unavailable": "ACT.TTS.ENGINE-POLICY",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Voice unavailable#2": "ACT.TTS.VOICE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.show_qwen3_details::messagebox.showinfo:QWEN3_DETAILS_TITLE": "ACT.TTS.LAYOUT",
       "dialog:scripts/tts/qwen3_install_ui.py::_ask_yes_no::messagebox.askyesno:title": "ACT.TTS.SETUP.QWEN3",
       "tool:cover": "ACT.LAUNCHER.OPEN-TOOLS",
@@ -25766,7 +25964,7 @@
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "4ae53cbf73494dfb32e6e15fcb27b741c1febcefd65110d034c0b2b9108f72c9",
+    "scripts/launcher.py": "a7a1527b31ffdf36f8de4aed94320b89f428bcd5da1007aa3e06e77ac44f1415",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",
@@ -25807,7 +26005,7 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "e7baedb16cef3b856732b8c9f0331b18e3ccda78c2c95e1c3253b455bd395182",
+    "scripts/shared/bootstrap.py": "a0c6ed41853a04bcef721e3885c99e2ff7c9071ed8390e80730fc2f50298bc32",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
@@ -25819,6 +26017,7 @@
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
     "scripts/shared/config.py": "d23bdb1f50944ce6b377005ddf8c311b52b368c08875be9b75f1e778760866c6",
     "scripts/shared/engine_lease.py": "115683703f56744ef5d37930d53fdca5f263783438a0c78c8d9b37d09f56ad57",
+    "scripts/shared/engine_policy.py": "0b821a7a66d9b7f59200dbf35ade9971adca6b8095efc927d6f49de524e6ff5b",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
     "scripts/shared/ffmpeg_health.py": "55d2564cec45e117e7a64c0b25a16715c4b942096976b15cee203ac57ae3c5c7",
     "scripts/shared/ffmpeg_portable.py": "21fe4552e7295b510a2b63af2586773c6cc215156e11783da8f1919ca9a815d2",
@@ -25831,7 +26030,7 @@
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
-    "scripts/shared/maintenance.py": "d389c802e4249e1253fe1e1249c095bb3b813dc7e2c9a2b5228ad8d4a8bd313d",
+    "scripts/shared/maintenance.py": "1a631147cc1021f9d127eda955f5e1c5867c8d3e83108a9312f0fb76ffdb84d8",
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "c7773eddd7987c4faeafb30f5681cb0c3267c8392c0258db0bd7912d1f25f375",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
@@ -25839,7 +26038,7 @@
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
     "scripts/shared/optional_setup_panel.py": "7352386ee257ec16e5ed390f860b2c41924c06a7d9a7797dcee12606187aef97",
-    "scripts/shared/optional_setup_planning_bridge_v3.py": "fa87ae23b0b8cb86bf67ba98d45cbe8f4043b7ff73028e8323a8dcc33ff036ea",
+    "scripts/shared/optional_setup_planning_bridge_v3.py": "bd15e28228f79821e8ac819c60771abeb93e864f9ab3c99320791504d9df6c0e",
     "scripts/shared/optional_setup_protocol.py": "034e48bdd798d88ec42381718d138268a0a1b287444807833a2dcf33e22e5178",
     "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
     "scripts/shared/optional_setup_resource_budget.py": "271a73b61458f77b439f7114ec2063511d14d2fe7fc07b588d48117c7598642b",
@@ -25849,7 +26048,7 @@
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
     "scripts/shared/output_paths.py": "98ae9d47ecab4ba2cfa0a595604a763cc17e66baae7da4abfcdb5e7ad3c8ddd4",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
-    "scripts/shared/preferences_ui.py": "e93ee41cbd08ec6e1e9b1f8a31b0eb9c9b71dda9bb137c609d929182ddcd8acd",
+    "scripts/shared/preferences_ui.py": "eeadf5585035a0ba73bda5efcc7f0aa29f5111b94bd387adf67f5ee1db684682",
     "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
@@ -25862,7 +26061,7 @@
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
     "scripts/tts/audio_tail.py": "d755c5e17d99a31a9b0ba2defd172d5ea3566a55a892ffe792c30a3b5478507a",
     "scripts/tts/batch_convert.py": "40e75a1ed5e592078f5d1badd7ad811f686136bf1905c4d3670492e5d2f89a15",
-    "scripts/tts/chatterbox_synth.py": "bc84cc85063895428c226bfb951b199aff01db5df34da1442cd255072f392d49",
+    "scripts/tts/chatterbox_synth.py": "9247febb4c4361a7eaeb0f8d4701e4203c37da1e4f0b299f353416c22908e996",
     "scripts/tts/clone_references.py": "5689b426c10557d8d22425c93a62e371f3c35fc254388b4531407003245b4179",
     "scripts/tts/disk_assembly.py": "282c7f689a877cd331a7c99c96cf83d002f09d1594558a66fe247b54cff3bcdd",
     "scripts/tts/edge_failures.py": "6935863a33eb1da68cd0521db5b2c0198b28aeae05b36832322303c281a6e2d5",
@@ -25870,21 +26069,21 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "7a7ac0f104e35cd5be5d9803ef4fc23825946f1152859121709062129271e3d9",
+    "scripts/tts/epub2tts_gui.py": "041223b7cea402fd7c6804abe7ff958274beaf1479ea2accae06b5b4b11a7b9c",
     "scripts/tts/ffmpeg_watch.py": "3af5ccd8a3aef4be21bf805be1eb808e056a8b9fd862ae2677d51473fe441f64",
-    "scripts/tts/generate_voice_samples.py": "b59a47057a671e006c3aae750e1186f9310bfd30ae610f05ceae4c2dac47b26e",
+    "scripts/tts/generate_voice_samples.py": "e8daebcb2398f15553f3af3599d3f506e7adb57b2104a5705f84f928de0305c3",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
     "scripts/tts/local_engine_host.py": "5d96dfdec9501a156b1f314cb97266a0f4009359bffed48ef95f24867f5cfd7f",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
-    "scripts/tts/omnivoice_synth.py": "c75a379e4b3d0bb38861f39727b80e7f2c92587304e08ac67d61eed9a45b7a58",
+    "scripts/tts/omnivoice_synth.py": "aea8c073b708b8aa24fc78475a2f32fc5e536898bfdbffce11400277898a2f1e",
     "scripts/tts/omnivoice_worker.py": "f35756992d51fb9dcaf0fa53abddc057764f57adbb18864439ca2634fd10fc5e",
-    "scripts/tts/optional_setup.py": "f5102ec64c6f2fa311c5a315b691161defc5c19d1f730bc7a955298e05264893",
-    "scripts/tts/optional_setup_acquire.py": "98125a5a85e7c6a2e6120042fa6f57ee4073b3e13966963a24a3335cc95c3cfc",
+    "scripts/tts/optional_setup.py": "4d2fb5d341a3006cd83a0c8c686860c1737a2ed909ac465988dee3f8d7544445",
+    "scripts/tts/optional_setup_acquire.py": "56bd53253e40fc1dbf9a73de0372c3ca20189ba0c5b7245e7795e4d55bb755bd",
     "scripts/tts/optional_setup_authority.py": "c3f10e7ac1113ead6ebdc55e815c2b793c4f071e2d60472d4a5e126646bd9276",
-    "scripts/tts/optional_setup_health.py": "fc6e22d36b6794524c8e36232834be4b19ba58fbf8a0c5249adb1ba3294cae2d",
+    "scripts/tts/optional_setup_health.py": "bae4c951e35b4c38c168bc69fd690caa8b4cb0fbf89a2170346ca5f08051606c",
     "scripts/tts/optional_setup_lifecycle.py": "98de2e70d7ff1f3bb0b1ee912648a58a1fd19229a063ca4eafc8de96b80bf8db",
     "scripts/tts/optional_setup_planning_worker_v3.py": "4111a4c45702c700c80e5a15bbfde54c15b87a169634bf8a902e296743ca5e5b",
     "scripts/tts/optional_setup_readonly_worker_v3.py": "6fa9c0cf53ce267eb70c0a4cf12a17185b07d96b757173e8017ef1a57ffb862a",
@@ -25902,7 +26101,7 @@
     "scripts/tts/qwen3_process.py": "121bfe3a62809dca5a1ed63ccfb8e1c0e75b76ec7a4302947d66ba804590bd58",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
     "scripts/tts/qwen3_setup.py": "99d3887374b65319f1391a06f4fad06320ad845cc039af60f47db6b23b784e4e",
-    "scripts/tts/qwen3_synth.py": "ef0385c56d5116268d24ae9eea791cdaba5c9249379356daee6cbfbcc5497bdd",
+    "scripts/tts/qwen3_synth.py": "2d3de07869d2b8ebb0832ef88da6c81b7cdcea1facca9c933a4f93bb0844d7e1",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
     "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",
     "scripts/tts/spacy_consumer.py": "4531483832fcb8bcedcf523ca91b57475bded8429de720673318ee0dd7528768",
@@ -25916,8 +26115,8 @@
     "scripts/tts/speech/pipeline.py": "bf9f5fa72eec994d69eed4429393bae6862ab2db430cbc011ee8bcb56da10752",
     "scripts/tts/speech/profiles.py": "c19d5ecab536546738f1f40b080b72605a03cfc393b073bf904755daba7e3914",
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
-    "scripts/tts/voice_install.py": "0aebc59b519f24ccb6b903151573a5094f7d5783e532d7a2bfef29ce09f08d0e",
-    "scripts/tts/voice_registry.py": "690be4a66faa703fd3bbdc4f4be57973ae0a23932d61ec458f26deb6d441b0c1",
+    "scripts/tts/voice_install.py": "e0f1c1a41c21f9eba22d99ec895e58316a0462ce0f2a470a2d20ee43542a5f74",
+    "scripts/tts/voice_registry.py": "a88702f6de61f934a45275577faa83f164138f667cc53536cf59389963cffc9c",
     "scripts/tts/worker_limits.py": "9b4093fdb86311b4accf5c2bcde58a034acadcf0ef058d4c6e6f8b2eb7e9029c"
   },
   "macos": {
@@ -26378,9 +26577,8 @@
         },
         "skipped_by": {},
         "journeys": {},
-        "class": "pending",
-        "phase": "P3A",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.ENGINE.QWEN3": {
         "tests": {
@@ -26389,9 +26587,8 @@
         },
         "skipped_by": {},
         "journeys": {},
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.ENGINE.QWEN3-WORKER-CONTROL": {
         "tests": {
@@ -26401,9 +26598,8 @@
         "skipped_by": {
           "windows-process-and-job-mechanics": 2
         },
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.ENGINE.QWEN3-EXCLUSIVE": {
         "tests": {
@@ -26418,9 +26614,8 @@
         "failing": [
           "files/tests/test_qwen3_setup.py::test_an_install_cannot_start_while_a_conversion_holds_the_voices_and_a_conversion_cannot_start_during_an_install"
         ],
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.ENGINE.OMNIVOICE": {
         "tests": {
@@ -26502,9 +26697,8 @@
           "files/tests/test_release_installer.py::test_a_chatterbox_file_lost_after_the_plan_cannot_expand_the_confirmed_download"
         ],
         "journeys": {},
-        "class": "pending",
-        "phase": "P3A",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.SETUP.QWEN3": {
         "tests": {
@@ -26518,9 +26712,8 @@
           "files/tests/test_qwen3_setup.py::test_a_cancelled_install_keeps_what_is_done_and_the_next_one_finishes_only_the_rest"
         ],
         "journeys": {},
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.SETUP.QWEN3-REPAIR": {
         "tests": {
@@ -26534,9 +26727,8 @@
           "files/tests/test_qwen3_setup.py::test_an_engine_that_will_not_start_is_rebuilt_even_though_every_record_looks_intact",
           "files/tests/test_qwen3_setup.py::test_repair_refuses_to_delete_a_folder_that_is_not_the_apps_environment"
         ],
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.SETUP.QWEN3-ENVIRONMENT": {
         "tests": {
@@ -26550,9 +26742,8 @@
           "files/tests/test_qwen3_setup.py::test_a_rebuild_on_a_legacy_only_copy_builds_the_canonical_engine_and_never_touches_the_legacy_one"
         ],
         "journeys": {},
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.SETUP.QWEN3-CLONE": {
         "tests": {
@@ -26564,9 +26755,8 @@
           "files/tests/test_qwen3_clone_setup.py::test_drafts_are_made_from_verified_copies_saved_unapproved_and_the_job_folder_is_removed",
           "files/tests/test_qwen3_clone_setup.py::test_approving_in_the_dialog_needs_the_tick_and_then_records_it_locally"
         ],
-        "class": "pending",
-        "phase": "P3B",
-        "why": "TTS on macOS belongs to the engine phases; its pure tests run natively, the panel and engines do not yet"
+        "class": "not-applicable",
+        "why": "SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16; P3A/P3B skipped): not offered there, and refused by the P4C engine policy (ACT.TTS.ENGINE-POLICY). Windows only; its pure tests still run"
       },
       "ACT.TTS.SETUP.OMNIVOICE": {
         "tests": {
@@ -28971,6 +29161,14 @@
         },
         "class": "native",
         "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.TTS.ENGINE-POLICY": {
+        "tests": {
+          "pass": 37
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "macOS P4C: the policy's own suite runs natively on this Mac and passes (37 passed, 0 skipped, in the P4C focused run); its Windows rows are the shared logic through the policy's platform seam, not Windows-native evidence"
       }
     }
   }

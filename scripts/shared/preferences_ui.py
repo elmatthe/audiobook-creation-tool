@@ -35,12 +35,13 @@ and browse flows deterministically without a real message box.
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import appearance, cleanup_state, config, maintenance, output_paths, paths, venv_integrity
+from . import appearance, cleanup_state, config, engine_policy, maintenance, output_paths, paths, venv_integrity
 
 DIALOG_TITLE = "Preferences & Data"
 MENU_LABEL = "Preferences & Data…"
@@ -53,13 +54,31 @@ CLEANUP_BUTTON_LABEL = "Clear Downloaded Data"
 #: v0.7.0 D3: the repair route that removes nothing, so it stays available while the Qwen3 engine is installed.
 REPAIR_BUTTON_LABEL = "Repair App Environment…"
 REPAIR_CONFIRM_TITLE = "Repair the app's environment?"
-REPAIR_CONFIRM_TEXT = (
+WINDOWS_REPAIR_CONFIRM_TEXT = (
     "The app's own Python packages are reinstalled the next time the app starts, from the package files kept on "
     "this computer (nothing is downloaded when they are all here). This takes a few minutes.\n\n"
     "Your audiobooks, settings, voice models and the Qwen3 voice engine are kept.\n\n"
     "Nothing changes now: finish or cancel any conversion, close the app, then start it again with "
     "Setup_and_Run-audiobook-creation-tool.\n\nSchedule the repair?"
 )
+#: macOS P4C: the same confirmation naming the engine a Mac keeps in its environment (Qwen3 is not offered there).
+MAC_REPAIR_CONFIRM_TEXT = (
+    "The app's own Python packages are reinstalled the next time the app starts, from the package files kept on "
+    "this computer (nothing is downloaded when they are all here). This takes a few minutes.\n\n"
+    "Your audiobooks, settings, voice models and the OmniVoice voice engine are kept.\n\n"
+    "Nothing changes now: finish or cancel any conversion, close the app, then start it again with "
+    "Setup_and_Run-audiobook-creation-tool.\n\nSchedule the repair?"
+)
+
+
+def repair_confirm_text(platform: str) -> str:
+    """The repair confirmation on *platform* (``shared.engine_policy``): Windows' as released, or a Mac's."""
+    if engine_policy.offered_engines(platform) == engine_policy.MACOS_ENGINES:
+        return MAC_REPAIR_CONFIRM_TEXT
+    return WINDOWS_REPAIR_CONFIRM_TEXT
+
+
+REPAIR_CONFIRM_TEXT = repair_confirm_text(sys.platform)
 REPAIR_SCHEDULED_TEXT = ("Repair scheduled. Close the app and start it again with "
                          "Setup_and_Run-audiobook-creation-tool to repair the environment.")
 

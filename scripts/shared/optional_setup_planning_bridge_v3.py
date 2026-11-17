@@ -28,6 +28,7 @@ from tts import qwen3_process
 SOURCES = (
     'shared/__init__.py', 'shared/artifact_store.py', 'shared/artifact_transfer.py',
     'shared/optional_setup_protocol.py', 'shared/optional_setup_v3.py',
+    'shared/engine_policy.py',  # v0.8.x P4C: tts.voice_registry and tts.optional_setup ask it (standard library only)
     'shared/optional_setup_wire_v3.py', 'shared/optional_setup_exchange_v3.py',
     'shared/optional_setup_resource_budget.py', 'shared/venv_layout.py',
     'shared/subprocess_utils.py', 'tts/__init__.py', 'tts/optional_setup_authority.py',

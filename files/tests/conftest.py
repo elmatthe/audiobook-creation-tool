@@ -613,6 +613,17 @@ def _no_real_long_path_change(monkeypatch):
 DEVELOPER_CONFIG = "[development]\ndeveloper_mode = true\n"
 
 
+@pytest.fixture
+def windows_engine_policy(monkeypatch):
+    """macOS P4C: ``shared.engine_policy`` answers as on Windows (every engine offered), for a test of Windows'
+    Chatterbox or Qwen3 behaviour through the panel or the setup. On a Mac such a test then exercises the shared code
+    through the policy's platform seam -- never Windows-native evidence. The macOS roster and its refusals are pinned in
+    test_engine_policy.py."""
+    from shared import engine_policy
+
+    monkeypatch.setattr(engine_policy, "current_platform", lambda: "win32")
+
+
 @pytest.fixture()
 def developer_mode(tmp_path_factory, monkeypatch):
     """Developer mode on for one test, through the REAL loader reading a disposable ``config.toml`` (v0.7.0 P03D).

@@ -365,7 +365,10 @@ def test_repair_app_environment_schedules_the_launchers_repair_and_removes_nothi
     assert dialog.button_repair is not dialog.button_cleanup
     assert dialog.repair_environment() is True
     assert calls and calls[0][0] == preferences_ui.REPAIR_CONFIRM_TITLE
-    assert "Qwen3 voice engine are kept" in calls[0][1] and "Setup_and_Run-audiobook-creation-tool" in calls[0][1]
+    # The running platform's words: Windows' name the Qwen3 engine it keeps; a Mac's (P4C) the OmniVoice engine.
+    assert calls[0][1] == preferences_ui.REPAIR_CONFIRM_TEXT and "Setup_and_Run-audiobook-creation-tool" in calls[0][1]
+    assert "Qwen3 voice engine are kept" in preferences_ui.repair_confirm_text("win32")
+    assert "OmniVoice voice engine are kept" in preferences_ui.repair_confirm_text("darwin")
     assert venv_integrity.repair_requested(venv)
     after = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
     assert after == sorted(before + [f".venv/{venv_integrity.REPAIR_REQUEST_NAME}"]), "nothing else changed"

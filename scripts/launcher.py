@@ -71,7 +71,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import appearance, ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
+from shared import appearance, engine_policy, ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
 from shared import settings as app_settings
 from shared import subprocess_utils as sp
 
@@ -120,6 +120,19 @@ class ToolSpec:
     description: str
 
 
+#: The TTS tool's line on Windows (unchanged) and on a Mac (macOS P4C): each names only the engines its platform offers.
+WINDOWS_TTS_DESCRIPTION = (
+    "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro, Chatterbox and Qwen3 voices.")
+MAC_TTS_DESCRIPTION = "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro and OmniVoice voices."
+
+
+def tts_description(platform: str) -> str:
+    """The TTS tool's description on *platform* (``shared.engine_policy``)."""
+    if engine_policy.offered_engines(platform) == engine_policy.MACOS_ENGINES:
+        return MAC_TTS_DESCRIPTION
+    return WINDOWS_TTS_DESCRIPTION
+
+
 # The six-tool sidebar. The Metadata Editor (Phase 6) is registered when its
 # module exists; until then the launcher shows the five shipped tools.
 TOOLS: list[ToolSpec] = [
@@ -127,7 +140,7 @@ TOOLS: list[ToolSpec] = [
         "tts",
         "TTS Audiobook",
         "tts.epub2tts_gui",
-        "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro, Chatterbox and Qwen3 voices.",
+        tts_description(sys.platform),
     ),
     ToolSpec(
         "m4b_converter",

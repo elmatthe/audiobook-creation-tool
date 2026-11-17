@@ -54,6 +54,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+from shared import engine_policy
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from tts import model_assets as assets
@@ -272,9 +273,16 @@ class RealAcquirer:
     # -- the whole plan -------------------------------------------------------------------------------------------
     def acquire(self, plan: dict, consent: proto.Consent, *, progress: Callable[[dict], None],
                 cancel_check: Callable[[], bool]) -> AcquisitionReport:
-        root = rt.repo_root()
         wanted = list(plan["acquire_units"])
         units = {u["id"]: u for u in plan["units"]}
+        # macOS P4C: nothing of an engine this platform does not offer is acquired or repaired, whatever a plan or a
+        # consent names; refused before the disk, the network or a process is touched.
+        for unit_id in wanted:
+            for component in units.get(unit_id, {}).get("components", ()):
+                if not engine_policy.component_offered(component):
+                    raise AcquisitionRefused(engine_policy.not_offered_message(
+                        engine_policy.COMPONENT_ENGINES.get(component, component)))
+        root = rt.repo_root()
         if not set(wanted) <= set(consent.units):
             raise AcquisitionRefused("the plan would acquire something the confirmation does not cover")
         for unit_id in wanted:

@@ -97,6 +97,8 @@ from shared import venv_integrity  # noqa: E402
 from shared import long_paths  # noqa: E402
 # v0.8.x P1A: POSIX ownership of setup's children (lifeline + guardian), so none outlives this process. Stdlib.
 from shared import child_ownership  # noqa: E402
+# v0.8.x P4C: which voice engines this platform offers -- the wizard's choices on a Mac. Standard library only.
+from shared import engine_policy  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -3328,12 +3330,13 @@ OMNIVOICE_MAC_NOTE = ("Six more cloned voices from a separate engine, on this Ma
 
 
 def optional_choices_for(platform: str) -> tuple:
-    """The wizard's optional voice choices on *platform*: Windows' exactly as released; on a Mac the same choices with
-    OmniVoice's own Mac line (which choices a Mac offers at all is P4C's central policy, not this list's)."""
-    if platform != "darwin":
+    """The wizard's optional voice choices on *platform*: Windows' exactly as released. On a Mac (macOS P4C) only the
+    choices ``shared.engine_policy`` offers there -- Kokoro (checked, as released) and OmniVoice (unchecked), in that
+    order -- with OmniVoice's own Mac line; Chatterbox Turbo and both Qwen3 choices are not offered at all."""
+    if platform != engine_policy.MACOS:
         return WINDOWS_OPTIONAL_CHOICES
     return tuple((c, label, default, OMNIVOICE_MAC_NOTE if c == "omnivoice" else note)
-                 for c, label, default, note in WINDOWS_OPTIONAL_CHOICES)
+                 for c, label, default, note in WINDOWS_OPTIONAL_CHOICES if engine_policy.component_offered(c, platform))
 
 
 OPTIONAL_CHOICES = optional_choices_for(sys.platform)
@@ -3373,8 +3376,9 @@ def _append_following(log_box, msg: str) -> None:
 
 
 def run_with_gui(skip_kokoro_default: bool = False) -> int:
-    """Show the first-run setup dialog: five optional voice choices, the base install on a worker thread, then the
-    review-and-install panel for the chosen voices, then launch the app."""
+    """Show the first-run setup dialog: the optional voice choices this platform offers (five on Windows, Kokoro and
+    OmniVoice on a Mac), the base install on a worker thread, then the review-and-install panel for the chosen voices,
+    then launch the app."""
     import queue
     import tkinter as tk
     from tkinter import ttk, messagebox
@@ -3417,7 +3421,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     container.bind("<Configure>", _wrap_to_width)
 
     # The five approved choices: Kokoro checked, Chatterbox, both Qwen3 choices and OmniVoice unchecked (their downloads
-    # are several GB each). Choosing is not consent: nothing optional is downloaded until the review screen's Install.
+    # are several GB each); a Mac's two (P4C): Kokoro checked, OmniVoice unchecked. Choosing is not consent: nothing
+    # optional is downloaded until the review screen's Install.
     choices = {component: tk.BooleanVar(value=(default and not (component == "kokoro" and skip_kokoro_default)))
                for component, _label, default, _note in OPTIONAL_CHOICES}
     state = {"started": False, "done": False, "ok": False, "stopping": False}
@@ -3450,14 +3455,15 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         _note = ttk.Label(intro, text=note, justify="left")
         _note.pack(anchor="w", padx=(22, 0), fill="x")
         _wrapped.append(_note)
-    _qwen_note = ttk.Label(
-        intro,
-        text=("Both Qwen3 choices share one voice engine (about 3.1 GB), downloaded once. Sizes are the most each "
-              "choice could download; files already on this computer are reused."),
-        justify="left",
-    )
-    _qwen_note.pack(anchor="w", fill="x", pady=(12, 0))
-    _wrapped.append(_qwen_note)
+    if any(component.startswith("qwen3") for component, *_rest in OPTIONAL_CHOICES):  # P4C: no Qwen3 note on a Mac
+        _qwen_note = ttk.Label(
+            intro,
+            text=("Both Qwen3 choices share one voice engine (about 3.1 GB), downloaded once. Sizes are the most each "
+                  "choice could download; files already on this computer are reused."),
+            justify="left",
+        )
+        _qwen_note.pack(anchor="w", fill="x", pady=(12, 0))
+        _wrapped.append(_qwen_note)
 
     btn_row = ttk.Frame(intro)
     btn_row.pack(side="bottom", anchor="e", pady=(12, 0), fill="x")

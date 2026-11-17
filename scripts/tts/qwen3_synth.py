@@ -43,6 +43,7 @@ from typing import Callable, Optional
 import numpy as np
 import soundfile as sf
 
+from shared import engine_policy
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
 from tts import audio_tail
@@ -770,6 +771,9 @@ def qwen3_file_to_mp3(
     ``end_silence_ms`` is retained only so existing callers keep working; whatever is passed, no closing silence is
     added. The final-tail policy then shortens the model's own trailing near-silence.
     """
+    # macOS P4C: refused on a platform that does not offer Qwen3-TTS, whatever the availability seam says, before the
+    # source is read, a lock is taken or a worker started.
+    engine_policy.require_offered(engine_policy.QWEN3)
     src = Path(source_path)
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")

@@ -41,7 +41,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import ffmpeg_utils, paths  # noqa: E402
+from shared import engine_policy, ffmpeg_utils, paths  # noqa: E402
 from tts.voice_registry import VOICES  # noqa: E402
 
 SAMPLE_TEXT = (
@@ -97,17 +97,29 @@ def _matches(v, pattern: str) -> bool:
 
 def _select(patterns: list[str]) -> list:
     """Voices matching any pattern (case-insensitive). A pattern equal to a
-    backend name selects that entire backend. No patterns means every voice."""
+    backend name selects that entire backend. No patterns means every voice.
+
+    macOS P4C: only the voices this platform offers (``shared.engine_policy``);
+    :func:`_refused` names the others a pattern matched."""
+    offered = [v for v in VOICES if engine_policy.is_offered(v.backend)]
     if not patterns:
-        return list(VOICES)
+        return offered
     lowered = [p.lower() for p in patterns]
-    return [v for v in VOICES if any(_matches(v, p) for p in lowered)]
+    return [v for v in offered if any(_matches(v, p) for p in lowered)]
+
+
+def _refused(patterns: list[str]) -> list:
+    """Registered voices matching *patterns* whose engine this platform does not offer: reported, never synthesised."""
+    lowered = [p.lower() for p in patterns]
+    return [v for v in VOICES if not engine_policy.is_offered(v.backend) and any(_matches(v, p) for p in lowered)]
 
 
 def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] = print) -> None:
     """Dispatch synthesis to voice ``v``'s backend. The one place backend
     dispatch lives, shared by the ordinary per-voice loop and the
-    ``--quality-suite`` harness so the two cannot drift apart."""
+    ``--quality-suite`` harness so the two cannot drift apart. macOS P4C: an
+    engine this platform does not offer is refused before it is imported."""
+    engine_policy.require_offered(v.backend)
     if v.backend == "kokoro":
         from tts.kokoro_synth import synthesize_text_to_mp3
 
@@ -749,7 +761,7 @@ def run_quality_suite(patterns: list[str], log: Callable[[str], None] = print) -
             except Exception:
                 pass
 
-    selected = _select(patterns) if patterns else list(VOICES)
+    selected = _select(patterns)
     commit_sha = _git_commit_sha()
     identity = qc.corpus_identity()
     out_root = _quality_suite_dir()
@@ -1362,17 +1374,30 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _refuse_mode(engine: str) -> int:
+    """macOS P4C: an evaluation mode of an engine this platform does not offer; says so and synthesises nothing."""
+    print(engine_policy.not_offered_message(engine))
+    return 2
+
+
 def main() -> int:
     args = _build_parser().parse_args()
 
+    # macOS P4C: each Chatterbox or Qwen3 evaluation mode is refused where its engine is not offered.
     if args.qwen_eval:
+        if not engine_policy.is_offered(engine_policy.QWEN3):
+            return _refuse_mode(engine_policy.QWEN3)
         return _run_qwen_eval(args)
 
     if args.chatterbox_eval:
+        if not engine_policy.is_offered(engine_policy.CHATTERBOX):
+            return _refuse_mode(engine_policy.CHATTERBOX)
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_evaluation(run_chatterbox_evaluation())
 
     if args.chatterbox_candidates:
+        if not engine_policy.is_offered(engine_policy.CHATTERBOX):
+            return _refuse_mode(engine_policy.CHATTERBOX)
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_candidate_evaluation(run_chatterbox_candidate_evaluation())
 
@@ -1384,15 +1409,21 @@ def main() -> int:
         rows = run_quality_suite(args.patterns)
         return _report_quality_suite(rows, _quality_suite_dir())
 
+    offered = _select([])
+    refused = _refused(args.patterns)
+    for v in refused:
+        print(f"NOT OFFERED {v.display_label}: {engine_policy.not_offered_message(v.backend)}")
     selected = _select(args.patterns)
     if not selected:
+        if refused:
+            return 1
         print(f"No voice matched: {' '.join(args.patterns)}")
         print("Registered voices:")
-        for v in VOICES:
+        for v in offered:
             print(f"  {v.voice_id:32} {v.display_label}")
         return 1
     if args.patterns:
-        print(f"Filtered to {len(selected)} of {len(VOICES)} voices.\n")
+        print(f"Filtered to {len(selected)} of {len(offered)} voices.\n")
 
     ffmpeg_utils.configure_pydub()
     out = _out_dir()

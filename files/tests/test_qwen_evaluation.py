@@ -16,6 +16,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+#: macOS P4C: this suite tests the Qwen3 evaluation as Windows offers it; on a Mac it runs through the engine policy's
+#: platform seam (conftest ``windows_engine_policy``), never as Windows-native evidence. A Mac's own roster
+#: and refusals are pinned in test_engine_policy.py.
+pytestmark = pytest.mark.usefixtures("windows_engine_policy")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TOOLS = REPO_ROOT / "files" / "dev-tools"
 if str(TOOLS) not in sys.path:

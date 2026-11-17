@@ -78,11 +78,14 @@ OMNIVOICE_MAX_CHUNK_CHARS = 300
 #: cannot accumulate across a long book). Reloading costs a few seconds per batch; the clone prompt is reused from cache.
 #: Windows (CUDA) and a Mac's processor, as released.
 CHUNKS_PER_WORKER = 48
-#: The bound on a Mac's GPU (MPS; macOS P4B memory checkpoint, 2026-11-16). There a worker's footprint grows with every
-#: chunk of a new shape while its live tensors stay flat: PyTorch's MPS allocator keeps the GPU buffers it freed, and
-#: the MPSGraph executables compiled for each new shape stay cached; only the process's end gives them back. On long,
-#: all-different chunks one worker passed 13 GB after 48 (about 120 MiB a chunk), so a fresh worker starts three times
-#: as often. The audio is bit-identical; each extra worker costs about 4 s.
+#: The bound on a Mac's GPU (MPS; macOS P4B memory checkpoint, 2026-11-16; owner accepted with its memory exception).
+#: There a worker's footprint grows with every chunk of a new shape while its live tensors stay flat, and only the
+#: process's end gives the memory back. ``torch.mps.empty_cache()`` does not stop the growth (P4B option B): it frees
+#: one chunk's working space, which the next chunk takes back, while the GPU memory outside PyTorch's free pool and the
+#: CPU heap keep growing. Per-shape MPSGraph resources (executables compiled for each new chunk shape) are the likely
+#: cause; that is inferred, not proven. On long, all-different chunks one worker passed 13 GB after 48 (about 120 MiB a
+#: chunk), so a fresh worker starts three times as often. The audio is bit-identical; each extra worker costs about
+#: 4 s. No cache clearing is done.
 MPS_CHUNKS_PER_WORKER = 16
 #: Bump deliberately whenever a change can alter generated audio (planning, seeding, generation, assembly).
 PIPELINE_REVISION = 1

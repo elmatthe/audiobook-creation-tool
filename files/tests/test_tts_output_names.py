@@ -233,6 +233,7 @@ def test_long_names_in_a_deep_mirrored_tree_leave_room_for_the_suffix(tmp_path):
 
 
 @pytest.mark.parametrize("name", ["shipped", "reversed", "interleaved"])
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_all_28_voices_name_their_file_by_the_selected_label_through_the_panel(
         make_panel, output_base, tmp_path, stubs, monkeypatch, name):
     """Shipped labels, then "1".."28" in reversed and interleaved order: each voice's file carries its own label."""
@@ -327,6 +328,7 @@ def test_case_only_and_unicode_spelling_collisions_get_separate_files(
     assert len(published(params["run_directory"])) == 4
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_a_duplicate_occurrence_on_a_local_engine_gets_its_own_file(
         make_panel, output_base, tmp_path, stubs, monkeypatch):
     calls, _cbx, _qw, kwargs = engines(stubs, monkeypatch)
@@ -423,6 +425,7 @@ def test_a_retry_after_relabelling_and_reordering_keeps_its_label_engine_and_des
     assert published(run) == [f"bad-{STEFFAN}.mp3", f"good-{STEFFAN}.mp3"], "no name from the new labels"
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_a_qwen3_clone_retry_keeps_its_frozen_label_after_a_rename(
         make_panel, output_base, tmp_path, stubs, monkeypatch):
     calls, _cbx, qwen3, kwargs = engines(stubs, monkeypatch)

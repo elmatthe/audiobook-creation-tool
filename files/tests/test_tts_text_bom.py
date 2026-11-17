@@ -73,6 +73,7 @@ def test_kokoro_skips_the_header_with_or_without_a_bom(source, tmp_path, monkeyp
     assert text == "Chapter One\n\nIt was a dark night."
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_skips_the_header_with_or_without_a_bom(source, tmp_path, monkeypatch):
     text = _captured_text(
         monkeypatch, cbx, "split_for_chatterbox",
@@ -137,6 +138,7 @@ def test_a_bom_only_file_on_the_edge_folder_path_is_no_text(tmp_path, monkeypatc
 CP1252 = "Title: Caf\u00e9\n\n# Chapter One\n\nNa\u00efve r\u00e9sum\u00e9.\n".encode("cp1252")
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_a_non_utf8_txt_is_refused_on_every_read_path_never_misread(tmp_path, monkeypatch):
     """The documented limitation, pinned: an "ANSI"/cp1252 file with non-ASCII
     bytes fails its item; no path guesses an encoding and speaks mojibake."""

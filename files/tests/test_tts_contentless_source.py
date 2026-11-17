@@ -68,6 +68,7 @@ def test_edge_direct_still_converts_a_one_sentence_book(tmp_path, monkeypatch):
     assert reached and reached[0][0]["paragraphs"] == ["Hello there."]
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_kokoro_and_chatterbox_already_fail_an_empty_source(tmp_path):
     """The parity the Edge fix restores, pinned so the three stay aligned."""
     source = tmp_path / "empty.txt"

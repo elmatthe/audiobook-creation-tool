@@ -219,6 +219,8 @@ def test_the_daily_fast_path_still_launches_detached_and_console_free():
 
 
 def test_first_run_defaults_are_unchanged():
-    # v0.8.0 Phase 3 appends OmniVoice, unchecked; the four earlier defaults are unchanged.
-    assert {c: d for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES} == {
+    # v0.8.0 Phase 3 appends OmniVoice, unchecked; the four earlier defaults are unchanged (Windows). macOS P4C: a Mac
+    # offers Kokoro (checked) and OmniVoice (unchecked) only.
+    assert {c: d for c, _l, d, _n in bootstrap.optional_choices_for("win32")} == {
         "kokoro": True, "chatterbox": False, "qwen3-customvoice": False, "qwen3-base": False, "omnivoice": False}
+    assert {c: d for c, _l, d, _n in bootstrap.optional_choices_for("darwin")} == {"kokoro": True, "omnivoice": False}
