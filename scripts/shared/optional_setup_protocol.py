@@ -925,7 +925,8 @@ def _venv_link_problem(root: Path, python: Path) -> str:
     4. Every link, folder and file of it belongs to this account, and no other account may change the folders and
        files (no group or world write).
     5. ``pyvenv.cfg`` (a file, not a link) says the environment was built here, from this copy's own Python: ``home``,
-       ``executable`` and ``command`` name this copy, it is isolated, and it is CPython 3.12.
+       ``executable`` and ``command`` name this copy, it is isolated, and it is CPython 3.12. ``home`` and
+       ``executable`` are absolute, and ``executable`` is present and is exactly this copy's ``python3.12`` (P5-A).
     """
     venv = main_venv(root)
     base = app_python(root)
@@ -1017,11 +1018,16 @@ def _pyvenv_problem(venv: Path, roots: tuple) -> str:
     if cfg is None:
         return "the app environment has no readable pyvenv.cfg"
     homes = [r.joinpath(*APP_PYTHON_PARTS, "bin") for r in roots]
-    if not cfg.get("home") or not any(venv_layout.same_path(cfg["home"], h) for h in homes):
+    # v0.8.x P5-A: both must be absolute (a relative one would be judged against wherever the check runs from), and
+    # ``executable`` must be there. CPython 3.12's ``venv`` always writes it -- ``os.path.realpath(sys.executable)``, in
+    # the same step as ``command``, which is required below -- so for this copy it is always its own ``python3.12``,
+    # whichever alias built the environment (proved on this copy's own Python: files/dev-work/macos-p5a/venv-probe).
+    home = cfg.get("home") or ""
+    if not os.path.isabs(home) or not any(venv_layout.same_path(home, h) for h in homes):
         return "the app environment was not built from this copy's own Python (pyvenv.cfg home)"
-    executable = cfg.get("executable")
-    names = _BASE_LINK_NAMES | {POSIX_APP_PYTHON}
-    if executable is not None and not any(venv_layout.same_path(executable, h / n) for h in homes for n in names):
+    executable = cfg.get("executable") or ""
+    if not os.path.isabs(executable) or not any(venv_layout.same_path(executable, h / POSIX_APP_PYTHON)
+                                                for h in homes):
         return "the app environment was not built from this copy's own Python (pyvenv.cfg executable)"
     if cfg.get("include-system-site-packages", "").lower() != "false":
         return "the app environment is not isolated (include-system-site-packages is not false)"
@@ -1141,11 +1147,28 @@ def _contained_spawn(argv: list, **kwargs):
     return _process_control().spawn(argv, require_job=True, **kwargs)
 
 
+def _group_control():
+    """POSIX: ``shared.child_ownership``, which ends a worker's process group only while that group's id is proved to
+    be the worker's own (v0.8.x P5-A). Without it nothing could later prove which group is the worker's, so the worker
+    is never started: :class:`ContainmentUnavailable` is raised before any process exists."""
+    try:
+        from shared import child_ownership
+    except ImportError as exc:
+        raise _process_control().ContainmentUnavailable(
+            f"the app's process-ownership module is unavailable ({exc})") from exc
+    return child_ownership
+
+
 class WorkerRun:
     """One worker process for one request: start it, follow its events, stop it, and get its one terminal result.
 
     * **Contained.** The worker runs inside a Job Object (a process group elsewhere): a cancel, a timeout, or the end of
       the run ends it *and every descendant*, then confirms none is left. A worker that cannot be contained is not run.
+    * **Reaped last (POSIX, v0.8.x P5-A).** The worker leads its own process group, whose id is the worker's own id.
+      Its exit is watched without reaping it, so the kernel keeps that id reserved; only once the group has been ended
+      (``child_ownership.end_led_group``: under the ``Popen``'s waitpid lock, unreaped, same kernel start time) is the
+      worker reaped. A grandchild left behind by a worker that exited normally therefore ends with the run, and a group
+      whose id can no longer be proved the worker's is never signalled -- that is recorded instead.
     * **One terminal result.** The result file is the authority. If the worker exits (or is ended) without publishing
       one, this publishes the terminal result in its place -- ``cancelled`` when it was stopped, ``failed`` with
       ``timed-out`` when it overran, ``failed`` otherwise -- through the same exclusive, atomic publication, so whichever
@@ -1175,6 +1198,11 @@ class WorkerRun:
         self.lingering: Optional[int] = None
         #: Every process that was ever a member of the job (the worker, the venv launcher's interpreter, children).
         self.members_seen: Optional[int] = None
+        #: POSIX: how ending the worker's process group went (a ``child_ownership.GROUP_*`` answer; ``None``: not
+        #: attempted -- a run with a Job Object, or one that never started).
+        self.group_end: Optional[str] = None
+        self._groups = None  # ``shared.child_ownership`` when this run's worker leads a POSIX process group
+        self._start_time: Optional[tuple[int, int]] = None  # the worker's kernel start time, recorded at spawn
         self._reader = None
         self._outcome: Optional[dict] = None
 
@@ -1186,6 +1214,7 @@ class WorkerRun:
             raise RuntimeError("this worker run was already started")
         spawn = self._spawn or _contained_spawn
         try:
+            groups = _group_control() if os.name == "posix" else None
             self.process = spawn(list(self.spec.argv), cwd=str(self.spec.cwd), env=self.spec.env,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, encoding="utf-8", errors="replace")
@@ -1194,8 +1223,20 @@ class WorkerRun:
             code = CONTAINMENT_UNAVAILABLE if contained else INTERNAL
             self._outcome = self._forced(FAILED, code, f"The setup worker was not started: {exc}")
             raise
+        if groups is not None and getattr(self.process, "act_job", None) is None:
+            # Nothing reaps the worker before the run ends it (see the class notes): its id is still its own here.
+            self._groups = groups
+            self._start_time = groups.process_start_time(self.process.pid)
         self._reader = threading.Thread(target=self._read, name="optional-setup-events", daemon=True)
         self._reader.start()
+
+    def running(self) -> bool:
+        """True while the worker has not exited. On POSIX this never reaps it, so its group can still be ended."""
+        if self.process is None:
+            return False
+        if self._groups is not None:
+            return not self._groups.has_exited(self.process, self._start_time)
+        return self.process.poll() is None
 
     def _read(self) -> None:
         try:
@@ -1239,10 +1280,10 @@ class WorkerRun:
         if self.process is None:
             raise RuntimeError("this worker run was never started")
         self.stop_requested = True
-        if self.process.poll() is None:
+        if self.running():
             try:
                 self.cancel()
-                self.process.wait(timeout=grace_s)
+                self._wait_exit(grace_s)
             except (ProtocolError, OSError) as exc:  # the flag could not be written: no point waiting for it
                 self.protocol_errors.append(f"the cancel request could not be written: {exc}")
                 self._terminate()
@@ -1257,15 +1298,33 @@ class WorkerRun:
         if self.process is None:
             raise RuntimeError("this worker run was never started")
         try:
-            self.process.wait(timeout=timeout_s)
+            self._wait_exit(timeout_s)
         except subprocess.TimeoutExpired:
             self.timed_out = True
             return self.stop(cancel_grace_s)
         return self._finish()
 
+    def _wait_exit(self, timeout_s: float) -> None:
+        """Wait at most *timeout_s* for the worker to exit (``TimeoutExpired`` past it). On POSIX it is not reaped."""
+        import subprocess
+
+        if self._groups is None:
+            self.process.wait(timeout=timeout_s)
+        elif not self._groups.wait_exited(self.process, timeout_s, self._start_time):
+            raise subprocess.TimeoutExpired(self.spec.argv, timeout_s)
+
     def _terminate(self) -> None:
         self.terminated = True
-        _process_control().kill_tree(self.process, wait_s=TERMINATE_WAIT_S)
+        if self._groups is not None:
+            self._end_group()  # the worker and every member of its group; the worker is reaped by ``_finish``
+        else:
+            _process_control().kill_tree(self.process, wait_s=TERMINATE_WAIT_S)
+
+    def _end_group(self) -> str:
+        """POSIX: SIGKILL the worker's process group and confirm it is empty -- only while its id is proved to be the
+        worker's (``child_ownership.end_led_group``; bounded, never raises, never reaps)."""
+        self.group_end = self._groups.end_led_group(self.process, self._start_time, bound_s=TERMINATE_WAIT_S)
+        return self.group_end
 
     def _finish(self) -> dict:
         """The run is over: end anything the worker left behind, confirm the job is empty, reap, and settle the result."""
@@ -1275,7 +1334,16 @@ class WorkerRun:
         if self._outcome is not None:
             return self._outcome
         job = getattr(self.process, "act_job", None)
-        if job is not None:
+        if self._groups is not None:
+            # A grandchild that outlived the worker (it may still hold the output pipe) ends here, before the reap.
+            outcome = self._end_group()
+            if outcome == self._groups.GROUP_UNPROVED:
+                self.protocol_errors.append(
+                    "the worker's process group was not signalled: its id could not be proved to be the worker's own "
+                    "(the worker had already been reaped or replaced)")
+            elif outcome == self._groups.GROUP_REMAINING:
+                self.protocol_errors.append("a process of the worker's group had not ended in time")
+        elif job is not None:
             job.terminate()  # a grandchild that outlived the worker (it may still hold the output pipe) ends here
             deadline = _time.monotonic() + TERMINATE_WAIT_S
             try:
@@ -1329,6 +1397,10 @@ class WorkerRun:
         """The one terminal result (the worker's own when it published a trustworthy one). Never a partial success."""
         if self._outcome is not None:
             return self._outcome
+        if self.process is not None and self._groups is not None and self.process.returncode is None:
+            if self.running():
+                raise RuntimeError("the setup worker is still running")
+            return self._finish()  # POSIX: never settled before the worker's group is ended and the worker reaped
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("the setup worker is still running")
         rid = self.request.request_id

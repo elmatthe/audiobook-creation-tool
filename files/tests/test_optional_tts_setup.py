@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -1748,13 +1749,16 @@ def wait_for_pid(path: Path, bound_s: float = 30.0) -> int:
     raise AssertionError(f"{path.name} never appeared")
 
 
-def tree_run(app: Path, tmp_path: Path, then: str, *, on_event=None) -> tuple[proto.WorkerRun, int, int]:
+def tree_run(app: Path, tmp_path: Path, then, *, on_event=None) -> tuple[proto.WorkerRun, int, int]:
     """A stand-in worker that starts a grandchild (through the venv launcher, as an installer would) and then does
-    *then*. Returns the run and the real interpreter PIDs of the worker and of the grandchild."""
+    *then* -- code, or a function of the request and its launch spec that returns code. Returns the run and the real
+    interpreter PIDs of the worker and of the grandchild."""
     session = proto.new_token()
     request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
     path = proto.write_request(app, request)
     spec = proto.worker_launch(app, path, session)
+    if callable(then):
+        then = then(request, spec)
     own, grand = tmp_path / "own.pid", tmp_path / "grand.pid"
     script = ("import os, subprocess, sys, time\n"
               f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD_CODE!r}, {str(grand)!r}])\n"
@@ -1793,6 +1797,8 @@ def test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run(
     assert process_gone(worker_pid) and process_gone(grandchild_pid)
     assert not run.terminated and not run.timed_out
     assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
+    if os.name != "nt":  # v0.8.x P5-A: ended before the worker was reaped, and the kernel confirmed it empty
+        assert run.group_end == ownership().GROUP_ENDED and run.protocol_errors == []
 
 
 def test_a_failing_event_callback_cannot_strand_the_worker(plain_app, tmp_path):
@@ -1846,6 +1852,194 @@ def test_a_worker_that_cannot_be_contained_is_never_run(plain_app, tmp_path, mon
     result = run.result()
     assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_UNAVAILABLE
     assert proto.decode_result(proto.read_message_file(spec.result_path), request_id=request.request_id) == result
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.x P5-A -- POSIX: a worker is never reaped before its process group is ended
+# --------------------------------------------------------------------------- #
+POSIX_GROUPS = pytest.mark.skipif(os.name == "nt", reason="POSIX process groups (Windows ends its Job Object)")
+
+
+def ownership():
+    """``shared.child_ownership``: the module the run's POSIX group rule is (imported where it is used)."""
+    from shared import child_ownership
+
+    return child_ownership
+
+
+def identity(pid: int):
+    return pid, ownership().process_start_time(pid)
+
+
+def end_by_identity(*identities) -> None:
+    """The test's own clean-up of a process it started, by pid and kernel start time (never by name)."""
+    for pid, start in identities:
+        ownership().signal_if_same(pid, start, signal.SIGKILL)
+
+
+@POSIX_GROUPS
+def test_a_valid_result_stays_valid_when_a_grandchild_outlives_the_worker(plain_app, tmp_path):
+    def publish(request, spec):
+        return ("from pathlib import Path\n"
+                "from shared import optional_setup_protocol as p\n"
+                f"p.publish_once(Path({str(spec.result_path)!r}), p.encode(p.make_result({request.request_id!r}, "
+                "p.SUCCEEDED, plan={'stand-in': True})))\n")
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, publish)
+    result = run.wait(60)
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert result["state"] == proto.SUCCEEDED and result["forced"] is False and result["plan"] == {"stand-in": True}
+    assert run.group_end == ownership().GROUP_ENDED and run.protocol_errors == []
+    assert run.process.returncode == 0 and not run.terminated and run.lingering is None
+
+
+@POSIX_GROUPS
+def test_a_worker_that_stops_by_itself_on_cancel_does_not_leave_its_grandchild(plain_app, tmp_path):
+    def obey_cancel(request, spec):
+        cancel = str(proto.exchange_dir(plain_app, request.request_id) / proto.CANCEL_NAME)
+        return f"while not os.path.exists({cancel!r}): time.sleep(0.02)\n"
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, obey_cancel)
+    started = time.monotonic()
+    result = run.stop(grace_s=20)
+    assert time.monotonic() - started < 15 and not run.terminated  # it stopped by itself, well inside the grace
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert result["state"] == proto.CANCELLED_STATE and result["forced"]
+    assert run.group_end == ownership().GROUP_ENDED
+
+
+@POSIX_GROUPS
+def test_a_worker_that_crashes_is_a_failure_and_its_grandchild_is_ended(plain_app, tmp_path):
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "os.kill(os.getpid(), 9)\n")
+    result = run.wait(60)
+    assert process_gone(worker_pid) and process_gone(grandchild_pid)
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT and result["forced"]
+    assert "exit status -9" in result["error"]["message"] and run.group_end == ownership().GROUP_ENDED
+
+
+@POSIX_GROUPS
+def test_a_worker_reaped_behind_the_runs_back_never_has_its_group_signalled(plain_app, tmp_path):
+    """Fail-safe direction: if anything reaps the worker before the run ends, its id -- the group's id -- may be handed
+    on, so nothing is signalled. The grandchild is proved untouched, the run says why, and the result is still a
+    failure (the test then ends the grandchild itself, by identity)."""
+    run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "")
+    grandchild = identity(grandchild_pid)
+    try:
+        assert run.process.wait(timeout=30) == 0  # someone else reaps it
+        result = run.wait(10)
+        time.sleep(0.2)
+        assert not process_gone(grandchild_pid), "a group whose leader was reaped must never be signalled"
+        assert run.group_end == ownership().GROUP_UNPROVED
+        assert any("was not signalled" in e for e in run.protocol_errors), run.protocol_errors
+        assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
+    finally:
+        end_by_identity(grandchild)
+    deadline = time.monotonic() + 5
+    while not process_gone(grandchild_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert process_gone(grandchild_pid)
+
+
+@POSIX_GROUPS
+def test_ending_a_workers_group_leaves_unrelated_processes_alone(plain_app, tmp_path):
+    same_group = subprocess.Popen(["/bin/sleep", "600"])
+    own_session = subprocess.Popen(["/bin/sleep", "600"], start_new_session=True)
+    bystanders = [identity(p.pid) for p in (same_group, own_session)]
+    try:
+        for then in ("", "time.sleep(120)\n"):  # a normal exit, then a time-out
+            folder = tmp_path / f"run-{len(then)}"
+            folder.mkdir()
+            run, worker_pid, grandchild_pid = tree_run(plain_app, folder, then)
+            run.wait(60 if not then else 1.0, cancel_grace_s=1.0)
+            assert process_gone(worker_pid) and process_gone(grandchild_pid)
+        assert same_group.poll() is None and own_session.poll() is None
+    finally:
+        end_by_identity(*bystanders)
+        same_group.wait()
+        own_session.wait()
+
+
+@POSIX_GROUPS
+def test_the_client_does_not_reap_the_worker_before_its_group_is_ended(plain_app, tmp_path, monkeypatch):
+    """What the wizard and Install & Continue call: ``optional_setup_client.run`` watches the worker without reaping
+    it, so the run's end still ends a grandchild the worker left behind."""
+    from shared import optional_setup_client as client
+
+    grand, own = tmp_path / "grand.pid", tmp_path / "own.pid"
+    script = ("import os, subprocess, sys, time\n"
+              f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD_CODE!r}, {str(grand)!r}])\n"
+              f"open({str(own)!r}, 'w').write(str(os.getpid()))\n"
+              f"while not (os.path.exists({str(grand)!r}) and open({str(grand)!r}).read()): time.sleep(0.02)\n")
+    real_launch = proto.worker_launch
+
+    def stand_in_launch(root, path, session, **kwargs):
+        spec = real_launch(root, path, session, **kwargs)
+        return proto.LaunchSpec((spec.argv[0], "-c", script), spec.cwd, spec.env, spec.request_path, spec.result_path)
+    monkeypatch.setattr(proto, "worker_launch", stand_in_launch)
+    started = time.monotonic()
+    result = client.run(plain_app, proto.ACTION_PLAN, [K], timeout_s=60, poll_s=0.05)
+    assert time.monotonic() - started < 30
+    assert process_gone(wait_for_pid(own)) and process_gone(wait_for_pid(grand))
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
+
+
+@POSIX_GROUPS
+def test_without_the_ownership_module_a_posix_worker_is_never_started(plain_app, tmp_path, monkeypatch):
+    """Partial start-up fails closed: nothing could later prove which group is the worker's, so it never runs."""
+    import shared
+    from tts import qwen3_process
+
+    monkeypatch.delattr(shared, "child_ownership", raising=False)
+    monkeypatch.setitem(sys.modules, "shared.child_ownership", None)  # the import now fails
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    spec = proto.worker_launch(plain_app, proto.write_request(plain_app, request), session)
+    marker = tmp_path / "RAN"
+    stand_in = proto.LaunchSpec((spec.argv[0], "-c", f"open({str(marker)!r}, 'w').close()"), spec.cwd, spec.env,
+                                spec.request_path, spec.result_path)
+    run = proto.WorkerRun(plain_app, stand_in, request)
+    with pytest.raises(qwen3_process.ContainmentUnavailable):
+        run.start()
+    time.sleep(1.0)
+    assert not marker.exists() and run.process is None
+    result = run.result()
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_UNAVAILABLE
+
+
+def test_a_job_keeps_the_released_windows_path_on_every_platform(plain_app, monkeypatch):
+    """Windows is unchanged by construction: a run whose process carries a Job Object ends through the job (terminate,
+    accounting, close) and ``poll``/``wait`` exactly as before; the POSIX group rule is never consulted. Pinned here on
+    any platform with a real short-lived process and a recording stand-in job."""
+    child_ownership = ownership()
+    calls = []
+
+    class Job:
+        def terminate(self):
+            calls.append("terminate")
+
+        def accounting(self):
+            calls.append("accounting")
+            return 0, 3
+
+        def close(self):
+            calls.append("close")
+
+    def spawn(argv, **kwargs):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"], **kwargs)
+        proc.act_job = Job()
+        return proc
+
+    def never(*_args, **_kwargs):
+        raise AssertionError("the POSIX group rule was consulted for a run with a job")
+    for name in ("has_exited", "wait_exited", "end_led_group"):
+        monkeypatch.setattr(child_ownership, name, never)
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    spec = proto.worker_launch(plain_app, proto.write_request(plain_app, request), session)
+    run = proto.WorkerRun(plain_app, spec, request, spawn=spawn)
+    run.start()
+    result = run.wait(30)
+    assert calls == ["terminate", "accounting", "close"] and run.lingering == 0 and run.members_seen == 3
+    assert run.group_end is None and run.process.returncode == 0 and not run.running()
+    assert result["state"] == proto.FAILED and result["error"]["code"] == proto.NO_RESULT
 
 
 # =========================================================================== #
@@ -2065,6 +2259,15 @@ def test_a_missing_or_corrupt_base_python_is_refused(linked_copy, case):
     ("<no command>", "pyvenv.cfg command"),
     ("<missing>", "pyvenv.cfg"),
     ("<link>", "pyvenv.cfg is a link"),
+    # v0.8.x P5-A: ``executable`` must be there, absolute, and exactly this copy's own ``python3.12``.
+    ("<no executable>", "pyvenv.cfg executable"),
+    ("executable =", "pyvenv.cfg executable"),
+    ("executable = python3.12", "pyvenv.cfg executable"),
+    ("executable = <root>/files/runtime-data/python/bin/python3", "pyvenv.cfg executable"),
+    ("executable = <root>/files/runtime-data/python/bin/python", "pyvenv.cfg executable"),
+    ("executable = <root>/.venv/bin/python3.12", "pyvenv.cfg executable"),
+    ("executable = <root>/files/runtime-data/python/bin/../bin/python3.12x", "pyvenv.cfg executable"),
+    ("home =", "pyvenv.cfg home"),
 ])
 def test_a_tampered_pyvenv_cfg_is_refused(linked_copy, tmp_path, change, words):
     cfg = linked_copy / ".venv" / "pyvenv.cfg"
@@ -2077,11 +2280,45 @@ def test_a_tampered_pyvenv_cfg_is_refused(linked_copy, tmp_path, change, words):
         relink(cfg, elsewhere)
     elif change == "<no command>":
         cfg.write_text("\n".join(line for line in lines if not line.startswith("command")) + "\n", encoding="utf-8")
+    elif change == "<no executable>":
+        cfg.write_text("\n".join(line for line in lines if not line.startswith("executable")) + "\n",
+                       encoding="utf-8")
     else:
         key = change.split("=")[0].strip()
         kept = [line for line in lines if line.split("=")[0].strip() != key]
-        cfg.write_text("\n".join(kept + [change]) + "\n", encoding="utf-8")
+        cfg.write_text("\n".join(kept + [change.replace("<root>", str(linked_copy))]) + "\n", encoding="utf-8")
     refused(linked_copy, words)
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("key, value", [("home", "files/runtime-data/python/bin"),
+                                        ("executable", "files/runtime-data/python/bin/python3.12")])
+def test_a_relative_home_or_executable_is_refused_even_when_checked_from_the_copys_own_folder(
+        linked_copy, monkeypatch, key, value):
+    """v0.8.x P5-A: the comparison is lexical after ``abspath``, so before, a relative value matched whenever the check
+    ran from the copy's own folder. ``venv`` writes both absolute, so both must be."""
+    monkeypatch.chdir(linked_copy)
+    base = proto.app_python(linked_copy)
+    assert venv_layout.same_path(value, base if key == "executable" else base.parent)  # what let it through before
+    cfg = linked_copy / ".venv" / "pyvenv.cfg"
+    kept = [line for line in cfg.read_text(encoding="utf-8").splitlines() if line.split("=")[0].strip() != key]
+    cfg.write_text("\n".join(kept + [f"{key} = {value}"]) + "\n", encoding="utf-8")
+    refused(linked_copy, f"pyvenv.cfg {key}")
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("name", ["python3.12", "python3", "python"])
+def test_a_venv_made_by_this_copys_python_under_any_of_its_names_records_its_own_python312(tmp_path, name):
+    """The contract the ``executable`` rule relies on (v0.8.x P5-A): CPython 3.12's ``venv`` always writes
+    ``executable`` -- ``os.path.realpath(sys.executable)``, in the same step as ``command`` -- so an environment this
+    copy's Python makes names its own ``python3.12`` whichever of its names made it, and is accepted."""
+    root = tmp_path / "app"
+    base = own_base_python(root)
+    make_venv(base.with_name(name), root / ".venv")
+    cfg = venv_layout.read_pyvenv_cfg(root / ".venv")
+    assert cfg["executable"] == os.path.realpath(base) == str(base) and cfg["home"] == str(base.parent)
+    assert cfg["command"].startswith(f"{base.with_name(name)} -m venv ")
+    assert proto.interpreter_problem(root) == ""
 
 
 @POSIX_ONLY

@@ -40,6 +40,21 @@
 - `pyvenv.cfg` names this copy, isolation and 3.12.
 
 `worker_launch`, the worker's own check (`worker_home_problem`) and the spaCy pip step use it. Windows' rule and `venv_layout.unsafe_component` are unchanged. The 11 pinned `KOKORO_FILES` were installed by `client.plan`/`install` through the real, contained worker and verified 11/11 by size and SHA-256. The gate reads `RESULT: PASS` (§19 P4C status; Decisions, Option A entry). P4C owner acceptance is pending; P5 has not started.
+**Revision 3i:** 2026-11-17 (the owner; recorded by Claude Code). **P4C OWNER ACCEPTED** (Decisions, P4C acceptance entry). The owner's checks on HOME-MacOS:
+- exactly 20 macOS voices (Edge 5, Kokoro 9, OmniVoice 6), and no Chatterbox Turbo or Qwen3 voice;
+- the first run shows Kokoro checked and OmniVoice unchecked, and no other optional choice;
+- Kokoro Heart, and OmniVoice Male 1 on MPS float32, generated MP3s from the GUI;
+- OmniVoice Male 3 was cancelled during narration in 2.303 s, with no incomplete MP3 published;
+- the Preferences & Data wording was accepted.
+
+The passing focused gate `2026-11-16_234204_focused_4cf5` is kept. This is not an approval to merge or release. Only the bounded P5-A checkpoint is authorized.
+**Revision 3j:** 2026-11-17 (Claude Code, Opus 5.5). **P5-A IMPLEMENTED and TESTED (automated, this Mac); independent review and owner approval pending.**
+- **A. Containment.** On POSIX the setup worker is never reaped before its process group is ended. The group is signalled only while its id is proved to be the worker's own (`child_ownership.end_led_group`, §11.2.2). A grandchild left by a worker that exited now ends with the run. Mac containment of the setup worker's group: PASS (automated, native).
+- **B. Interpreter.** `pyvenv.cfg` `executable` is required, absolute and exactly this copy's `python3.12`, and `home` must be absolute.
+- **C. Permissions.** The checkout's world-writable modes were audited read-only. Any correction is an owner decision, and the security issue is not closed.
+- **Gate:** focused gate `2026-11-17_053703_focused_61f2` **PASS**.
+- **Still PENDING:** the Windows-native regression (HOME-PC) and the rest of P5 (§19 P5-A status; Decisions, P5-A entry).
+
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
 **Released baseline:** Windows v0.8.0, tag `v0.8.0` (tag object `0a3653e`) → release-source commit `d1701e987f106ce00f557f267a6761c5370f5968`
@@ -710,6 +725,7 @@ Containment after a crash never depends on this path.
 **Safe termination rules.**
 - **Never kill by name, by a `ps` scan or by a pid alone.** Every registry entry records the pid, the pgid and the start time (`sysctl kern.proc.pid` → `kp_proc.p_starttime`, the same reader as D11b). A signal goes only to a process whose start time still matches.
 - **Signal a group only while its ID cannot have been recycled.** A class-A group is signalled only while its leader is an unreaped child of the owner. The guardian signals only its own group, which cannot be recycled while the guardian lives.
+  - *P5-A (2026-11-17):* the optional-setup worker keeps this rule after it exits. It is not reaped until its group is ended. `child_ownership.end_led_group` signals the group only while three things hold: it holds the `Popen`'s waitpid lock, the worker is unreaped (a zombie keeps its id), and the worker's start time matches the one recorded at spawn. Only then is the worker reaped.
 - **Bounded and quiet.** Every wait is bounded, `ESRCH` counts as success, and nothing raises during shutdown.
 - **Leftovers.** Staging left by a killed child is recovered by the existing owner-identity rules (`work_area` recovery, receipts, §9), never by guessing.
 
@@ -1979,8 +1995,39 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 >   1. On POSIX, a grandchild left by a worker that exited normally is not ended with the run (Windows' job does that). Cancel and time-out end the group. Closing the gap is a containment design decision. `test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run` still fails on the Mac: it was a baseline failure and now fails for this reason.
 >   2. This checkout's root, `scripts/`, `files/` and `files/runtime-data/` are world-writable; the app's own folders are not.
 > - **Still open:** the owner-manual GUI checks (Handoff), independent review, owner acceptance of P4C, and Windows-native verification (P5, HOME-PC; this adds `optional_setup_protocol.py`, `optional_setup_worker.py` and `optional_setup_acquire.py` to the touchpoints).
+>
+> **Status 2026-11-17 (Revision 3i): P4C OWNER ACCEPTED** (Decisions, P4C acceptance entry).
+> - **Owner checks passed:** the 20 voices; the first-run choices; the Kokoro Heart and OmniVoice Male 1 MP3s; the OmniVoice Male 3 Cancel in 2.303 s with no incomplete MP3; the Preferences & Data wording.
+> - **Not an approval to merge or release.**
+> - Findings 1 and 2 above became P5-A's scope (P5 status below).
+> - Windows-native verification stays with P5 (HOME-PC).
 
 ### P5 — Cross-platform integration and macOS acceptance
+> **Status 2026-11-17 (Revision 3j): P5-A IMPLEMENTED and TESTED (automated, this Mac); independent review and owner approval pending.** Start `48fb12b`; one commit (Decisions, P5-A entry; evidence `files/dev-work/macos-p5a/`, ignored). Scope: only A–C below. P5-B and the rest of P5 need their own authorization.
+> - **A. Containment** (finding 1 of P4C):
+>   - **Reproduced at `48fb12b`:** the worker had been reaped, and its grandchild was alive in the worker's old group.
+>   - **Fix (POSIX only):** the worker is never reaped before its group is ended. `child_ownership.end_led_group` signals the group only while three things hold: the `Popen`'s waitpid lock is held, the worker is unreaped, and its start time matches the one recorded at spawn. It then waits, bounded, until macOS reports no member left, and only then is the worker reaped.
+>   - A group that cannot be proved is never signalled.
+>   - Windows' Job Object path is unchanged.
+>   - **Mac containment:** PASS (automated, native).
+> - **B. Interpreter:** `pyvenv.cfg` `executable` is required, absolute and exactly this copy's `python3.12`; `home` must be absolute. This was proved first on disposable venvs. The production `.venv` passes and was not rebuilt.
+> - **C. Permissions (read-only audit; finding 2 of P4C):** the 777/666 modes came with the checkout, and ACT's own folders are 755/644. The correction is PENDING THE OWNER (§20.3). The interpreter-link rule does not close this.
+> - **Tests:**
+>   - The previously failing grandchild test passes natively.
+>   - 28 new tests: 7 in `test_child_ownership.py`, 8 `WorkerRun` lifecycle tests and 13 `pyvenv.cfg` cases.
+>   - The 37 affected modules were compared by test id with `48fb12b`: 0 new failures, 0 new skips, 0 removed; 28 added, all PASS; 1 fixed.
+> - **Gate:** focused gate `2026-11-17_053703_focused_61f2` **RESULT: PASS** (9/9 journeys; pytest 116/116; process-ownership, cleanup, skips and tree PASS).
+> - **Protected:** assets 18/2/28, the 11 Kokoro files, the engine, model and package trees, the P4A–P4C evidence and draft release `447445728` identical before and after.
+> - **Residuals for the owner** (Decisions, P5-A entry):
+>   1. `setsid` escapees;
+>   2. the first-run window is not a containment owner, so the worker's own children survive a forced Cancel there (reproduced);
+>   3. the unlocked identity check in `Owner.shutdown`;
+>   4. an app killed in the at most 0.2 s after the worker exits.
+> - **Still PENDING:**
+>   - the owner's permissions decision;
+>   - the Windows-native regression on HOME-PC, which adds `child_ownership.py`, `optional_setup_protocol.py`, `optional_setup_client.py` and the Windows skip rules to the touchpoints;
+>   - the rest of P5: long-form runs, D6-final, the darwin acceptance map and KX-10.
+>
 > **Revision 2 (2026-11-16; Q3=A):**
 > - **Entry:** P4C complete. Every engine on the macOS roster is PROVEN; every other engine is SKIPPED BY OWNER DECISION and absent from the macOS experience.
 > - **macOS scope:** the Edge/Kokoro (and, if accepted, OmniVoice) application and the five non-TTS tools:
@@ -2150,6 +2197,8 @@ None of these blocks the *plan*.
 | **D6-O** | OmniVoice speed/memory budget and the practicality line | Proposed at Revision 2: MPS RTF ≤ 1.0, CPU RTF ≤ 3.5, peak footprint ≤ 10 GiB, growth < 10 % after warm-up (fixed). The proposed line then read: if every technically passing configuration falls outside it, that is the Q1 "impractical" line. **SET 2026-11-16 (Revision 2a): the four values are provisional practicality targets, not automatic rejection thresholds.** A technically correct configuration outside a target is a PERFORMANCE EXCEPTION — OWNER DECISION PENDING, unless its resource behaviour is unsafe, which fails S. F, S, Q and P are separate verdicts; the owner decides speed, footprint and quality (§12.E). **Revision 3 (2026-11-16): C2 MPS fp32's speed exception is accepted for integration** (no memory, safety, Cancel or reliability requirement waived) |
 | **P4A acceptance** | OmniVoice on macOS | **ACCEPTED 2026-11-16 (Revision 3):** six voices by owner listening; MPS fp32 preferred, CPU fp32 alternative, MPS fp16 experimental; P4B authorized; macOS roster Edge + Kokoro + OmniVoice = 20; six OmniVoice previews added at P6a |
 | **P4B checkpoint** | OmniVoice on macOS, production | **OWNER ACCEPTED 2026-11-16 (Revision 3d)** with its memory performance exception: keep 16 chunks per Mac-GPU worker (48 elsewhere), no `empty_cache` policy, no further memory optimization authorized; P4C authorized. History: **PENDING THE OWNER (2026-11-16):** TECHNICAL PASS (F, S); memory growth inside one worker +28.4 % after warm-up (bounded by the 48-chunk restart, MPS tensors flat) is a PERFORMANCE EXCEPTION against D6-O's provisional < 10 %: (a) accept as bounded, or (b) a Mac-only mitigation experiment. P4C follows the acceptance. **Memory checkpoint (Revision 3b): NOT OWNER ACCEPTED.** The cause is MPS allocator buffer retention plus per-shape MPSGraph caches. A Mac-GPU bound of 16 chunks per worker is implemented: worst measured peak 13.6 → 10.7 GB, growth +28.4 → +10.6 % on the 60-chunk sequence, bit-identical audio. Windows and the Mac's CPU keep 48. The peak (stress text) and growth targets are still missed: PERFORMANCE EXCEPTION — OWNER DECISION PENDING, with options (a) accept, (b) an `empty_cache` experiment, or (c) revert. **Option B ran (Revision 3c): no meaningful improvement.** Keep 16 and adopt no clearing. The exception stays OWNER DECISION PENDING (book-like text peaks 10.7–11.1 GB; growth +20 to +31 %) |
+| **P4C checkpoint** | macOS roster through one capability policy | **OWNER ACCEPTED 2026-11-17 (Revision 3i):** the owner's GUI checks passed. This is not an approval to merge or release; only P5-A is authorized |
+| **P5-A permissions** | The checkout's inherited world-writable modes (P5-A read-only audit, `files/dev-work/macos-p5a/permissions-audit.md`) | **PENDING THE OWNER.** Recommended: the owner runs `chmod -R go-w <repo>` on this checkout, or the audit's targeted list. Normalising ZIP entry modes is a P6/P7 item. Nothing was changed, and the interpreter-link rule does not close this |
 | **P4A consent** | Acquisition for P4A | **GIVEN 2026-11-16:** only the files of `files/dev-tools/macos_p4a_omnivoice_manifest.json` at `bac67d4`, token `7932d4ef5b3ed0e531b958b9729f1de77ce27de37c755de290d5d9b896f62f4c` (86 wheels, 246,737,206 bytes; 11 model files, 3,267,467,171 bytes), into `files/dev-work/omnivoice-feasibility/` only. Whisper **not** authorized (D15 deferred until after the owner's listening verdict) |
 | D16 | Release version and strategy | §18 option A (v0.8.1), or D (v0.9.0). **Decided at P5 exit**, because the version identity is release-relevant source finalized in P6a, before review and both gates |
 | D17 | Preemptible Cancel for local engines | On darwin, Kokoro and Chatterbox run in the supervised local-engine worker; accept the Cancel contract C1–C5 and its bounds (§11.2.1). Windows keeps the released in-process path in this programme; adopting the worker on Windows is a later decision with Windows qualification |

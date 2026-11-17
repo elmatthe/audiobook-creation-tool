@@ -55,7 +55,7 @@ def run(repo_root: Path, action: str, components: Iterable[str], *, consent: Opt
     except Exception as exc:  # noqa: BLE001 - reported to the person, never a crash of the wizard
         raise SetupUnavailable(str(exc)) from exc
     deadline = time.monotonic() + timeout_s
-    while worker.process.poll() is None:
+    while worker.running():  # never reaps the worker (POSIX): its process group is ended before it is reaped
         if cancelled():
             return worker.stop()
         if time.monotonic() >= deadline:

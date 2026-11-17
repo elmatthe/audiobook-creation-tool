@@ -175,6 +175,94 @@ def _wait_exited(pid: int, timeout: float) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+#  A group whose leader has exited (v0.8.x P5-A)
+# --------------------------------------------------------------------------- #
+#: :func:`end_led_group`'s answers.
+GROUP_ENDED = "ended"  # the kernel says no member this account can signal is left (macOS)
+#: SIGKILL sent; this platform cannot say whether the group is empty (Linux, development only).
+GROUP_SIGNALLED = "signalled"
+GROUP_REMAINING = "remaining"  # a member still answered when the bound ran out, or the signal was refused
+GROUP_UNPROVED = "unproved"  # the group's id could not be proved to be the leader's own: nothing was signalled
+
+
+def has_exited(proc: subprocess.Popen, start_time: Optional[tuple[int, int]] = None) -> bool:
+    """True when the child *proc* has exited -- WITHOUT reaping it (v0.8.x P5-A).
+
+    Exited means: reaped already (``returncode`` is set), a zombie or gone (:func:`_has_exited`), or -- when
+    *start_time* is given -- no longer the process recorded at spawn. Because nothing is reaped, a child that exited
+    stays a zombie, and the kernel keeps its id -- which is also the id of the group it leads -- reserved until its
+    owner reaps it, so :func:`end_led_group` can still end what it left behind.
+    """
+    if proc.returncode is not None or _has_exited(proc.pid):
+        return True
+    return start_time is not None and process_start_time(proc.pid) != start_time
+
+
+def wait_exited(proc: subprocess.Popen, timeout: float, start_time: Optional[tuple[int, int]] = None, *,
+                interval: float = 0.05) -> bool:
+    """Wait at most *timeout* seconds for :func:`has_exited`, never reaping. True once it has."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        if has_exited(proc, start_time):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(interval, remaining))
+
+
+def end_led_group(proc: subprocess.Popen, start_time: Optional[tuple[int, int]], *,
+                  bound_s: float = SHUTDOWN_BOUND_S) -> str:
+    """SIGKILL every process in the group *proc* leads and confirm that none is left -- only while the group's id is
+    proved to be *proc*'s own (v0.8.x P5-A: a setup worker that exited normally while a grandchild lived on).
+
+    *proc* must have started its own session (``start_new_session``), as every class-A child and the setup worker do:
+    a group's id is the id of the process that created it, and every member of that session's group descends from it.
+    The proof, held for the whole check-and-signal, never relaxed:
+
+    1. *proc*'s own waitpid lock is held. Every ``Popen.wait``/``poll`` reaps only under it (CPython's guard against
+       signalling a recycled id, bpo-38630), so *proc* cannot be reaped through its ``Popen`` meanwhile. Waiting for
+       the lock is bounded; an object without one is never signalled.
+    2. ``proc.returncode`` is None: nobody has reaped it, so the kernel still reserves its id (a zombie keeps it), no
+       other process can have that id, and no other group can carry it.
+    3. Its kernel start time equals *start_time*, recorded at spawn: no reap outside ``Popen`` handed the id on.
+
+    Then ``killpg(SIGKILL)`` is repeated until the kernel says no member it may signal is left -- on macOS ``EPERM``
+    while the leader is still an unreaped zombie (zombies are not signalled), ``ESRCH`` once the group is gone -- or
+    *bound_s* runs out. A member that belongs to another account would also make the kernel answer ``EPERM``; ACT runs
+    no setuid program, so none can be in the group. The leader is not reaped here: its caller does that afterwards.
+
+    Returns one of :data:`GROUP_ENDED`, :data:`GROUP_SIGNALLED`, :data:`GROUP_REMAINING`, :data:`GROUP_UNPROVED`. Never
+    raises.
+    """
+    lock = getattr(proc, "_waitpid_lock", None)
+    if start_time is None or lock is None:
+        return GROUP_UNPROVED
+    deadline = time.monotonic() + max(0.0, bound_s)
+    if not lock.acquire(timeout=max(0.0, bound_s)):
+        return GROUP_UNPROVED  # another thread may be reaping it right now
+    try:
+        if proc.returncode is not None or process_start_time(proc.pid) != start_time:
+            return GROUP_UNPROVED
+        while True:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                return GROUP_ENDED
+            except PermissionError:
+                return GROUP_ENDED if sys.platform == "darwin" else GROUP_REMAINING
+            except OSError:
+                return GROUP_REMAINING
+            if sys.platform != "darwin":
+                return GROUP_SIGNALLED  # a zombie leader is still a signalled member there: emptiness cannot be read
+            if time.monotonic() >= deadline:
+                return GROUP_REMAINING
+            time.sleep(0.02)
+    finally:
+        lock.release()
+
+
+# --------------------------------------------------------------------------- #
 #  Owned children
 # --------------------------------------------------------------------------- #
 @dataclass

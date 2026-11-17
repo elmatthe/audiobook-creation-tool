@@ -7,6 +7,9 @@ process with another start time is never signalled. Guardian loss: the owner fai
 its guardian, so it is stopped and reported as a failure), starts a new guardian, and the next external program is
 contained when the owner is killed. KX-9: every spawn site in bootstrap.py goes through the containment helpers or is
 on the deliberately-detached allow-list. Windows controls: with ``IS_WINDOWS`` the released spawn paths are used.
+P5-A: a group whose leader exited while a member lived on is ended only while its id is proved to be the leader's
+own (unreaped, under the ``Popen``'s waitpid lock, same start time); after a reap, or for another identity, nothing
+is signalled.
 
 Every process is identified by pid AND kernel start time before it is declared gone; nothing is found by name.
 """
@@ -20,6 +23,7 @@ import signal
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -397,3 +401,157 @@ def test_an_exited_child_is_seen_without_being_reaped():
         assert child_ownership.process_start_time(proc.pid) is not None, "still unreaped: its identity still reads"
     finally:
         proc.wait()
+
+
+# --------------------------------------------------------------------------- #
+#  v0.8.x P5-A: a group whose leader has exited -- ended only while its id is proved
+# --------------------------------------------------------------------------- #
+#: A leader that starts one member of its own process group, prints the member's pid, then exits (or keeps running).
+LEADER_CODE = ("import subprocess, sys, time; "
+               "m = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'], "
+               "stdout=subprocess.DEVNULL); "
+               "print(m.pid, flush=True); time.sleep(float(sys.argv[1]))")
+
+
+def _leader_with_member(linger: float = 0.0):
+    """A real leader of its own session and group (as every class-A child and the setup worker is) that leaves one
+    member behind. Returns ``(leader, leader_start, (member_pid, member_start))``; the leader is never reaped here."""
+    leader = subprocess.Popen([sys.executable, "-I", "-c", LEADER_CODE, str(linger)], start_new_session=True,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
+    start = child_ownership.process_start_time(leader.pid)
+    member = int(leader.stdout.readline())
+    leader.stdout.close()
+    member_identity = (member, child_ownership.process_start_time(member))
+    assert start is not None and member_identity[1] is not None
+    return leader, start, member_identity
+
+
+def _cleanup(leader: subprocess.Popen, *identities) -> None:
+    _kill_identified(identities)
+    if leader.returncode is None:
+        try:
+            leader.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            leader.kill()
+            leader.wait()
+    assert _wait_gone(identities, 5.0) == []
+
+
+@native
+def test_a_group_whose_leader_exited_is_ended_while_the_leader_is_still_unreaped():
+    """The defect P5-A fixes: the leader exits normally and a member of its group lives on. Exit is seen without
+    reaping (the zombie keeps the id), the group is ended, the kernel confirms nothing is left, and only then is the
+    leader reaped -- by its caller."""
+    leader, start, member = _leader_with_member()
+    try:
+        assert child_ownership.wait_exited(leader, 10.0, start) is True
+        assert leader.returncode is None and child_ownership.process_start_time(leader.pid) == start  # unreaped
+        assert os.getpgid(member[0]) == leader.pid and _alive(*member)  # left behind in the leader's group
+        assert child_ownership.end_led_group(leader, start, bound_s=5.0) == child_ownership.GROUP_ENDED
+        assert _wait_gone([member], 2.0) == []
+        assert leader.returncode is None  # end_led_group never reaps
+        assert child_ownership.end_led_group(leader, start, bound_s=5.0) == child_ownership.GROUP_ENDED  # idempotent
+    finally:
+        _cleanup(leader, member)
+    assert leader.returncode == 0
+
+
+@native
+def test_a_running_leaders_group_is_ended_with_the_leader():
+    """Cancel and time-out: the leader is still running; it and every member end, and the leader is left to reap."""
+    leader, start, member = _leader_with_member(linger=600)
+    try:
+        assert child_ownership.has_exited(leader, start) is False
+        assert child_ownership.end_led_group(leader, start, bound_s=5.0) == child_ownership.GROUP_ENDED
+        assert _wait_gone([member], 2.0) == [] and child_ownership.has_exited(leader, start)
+    finally:
+        _cleanup(leader, member)
+    assert leader.returncode == -signal.SIGKILL
+
+
+@native
+def test_a_group_is_never_signalled_once_its_leader_has_been_reaped():
+    """After the reap the id -- the group's id -- may be handed to another process, so nothing is signalled at all:
+    the member left behind is proved untouched (it is then ended by the test, by identity)."""
+    leader, start, member = _leader_with_member()
+    try:
+        assert leader.wait(timeout=10) == 0
+        assert child_ownership.end_led_group(leader, start, bound_s=1.0) == child_ownership.GROUP_UNPROVED
+        time.sleep(0.2)
+        assert _alive(*member), "a group whose leader was reaped must never be signalled"
+    finally:
+        _cleanup(leader, member)
+
+
+@native
+def test_a_leader_that_is_not_the_recorded_process_is_never_signalled():
+    """KX-8 for groups: a recorded start time that no longer matches, no recorded identity, or no ``Popen`` lock to
+    hold off a reap -- each is unprovable, so nothing is signalled, whether the leader is running or has exited."""
+    leader, start, member = _leader_with_member(linger=600)
+    try:
+        other = (start[0] - 1000, start[1])  # as if the id now named another process
+        assert child_ownership.has_exited(leader, start) is False
+        assert child_ownership.has_exited(leader, other) is True  # the recorded process is not there any more
+        no_lock = types.SimpleNamespace(pid=leader.pid, returncode=None)  # not a Popen: no reap can be held off
+        for exited in (False, True):
+            if exited:
+                leader.send_signal(signal.SIGKILL)  # the leader alone (running: not reaped); its member lives on
+                assert child_ownership.wait_exited(leader, 10.0, start)
+            for identity, proc in ((other, leader), (None, leader), (start, no_lock)):
+                assert child_ownership.end_led_group(proc, identity, bound_s=1.0) == child_ownership.GROUP_UNPROVED
+            time.sleep(0.2)
+            assert _alive(*member) and leader.returncode is None
+            assert exited or child_ownership.has_exited(leader, start) is False  # a running leader was not touched
+    finally:
+        _cleanup(leader, member)
+
+
+@native
+def test_a_group_is_not_signalled_while_another_thread_may_be_reaping_its_leader():
+    """``Popen`` reaps only under its waitpid lock. While another thread holds it the leader may be reaped at any
+    moment, so the group is not signalled, and the wait for the lock is bounded."""
+    leader, start, member = _leader_with_member()
+    try:
+        assert child_ownership.wait_exited(leader, 10.0, start)
+        with leader._waitpid_lock:
+            began = time.monotonic()
+            assert child_ownership.end_led_group(leader, start, bound_s=0.3) == child_ownership.GROUP_UNPROVED
+            assert time.monotonic() - began < 2.0
+        assert _alive(*member)
+        assert child_ownership.end_led_group(leader, start, bound_s=5.0) == child_ownership.GROUP_ENDED
+        assert _wait_gone([member], 2.0) == []
+    finally:
+        _cleanup(leader, member)
+
+
+@native
+def test_ending_a_group_never_touches_an_unrelated_process():
+    """Two bystanders: one in this test's own process group, one leading a session of its own. Ending another
+    leader's group (exited, and running) leaves both alone."""
+    same_group = subprocess.Popen(["/bin/sleep", "600"])
+    own_session = subprocess.Popen(["/bin/sleep", "600"], start_new_session=True)
+    bystanders = [(p.pid, child_ownership.process_start_time(p.pid)) for p in (same_group, own_session)]
+    try:
+        for linger in (0.0, 600):
+            leader, start, member = _leader_with_member(linger)
+            try:
+                if not linger:
+                    assert child_ownership.wait_exited(leader, 10.0, start)
+                assert child_ownership.end_led_group(leader, start, bound_s=5.0) == child_ownership.GROUP_ENDED
+            finally:
+                _cleanup(leader, member)
+        assert all(_alive(*b) for b in bystanders)
+    finally:
+        _kill_identified(bystanders)
+        same_group.wait()
+        own_session.wait()
+
+
+def test_the_popen_lock_the_group_proof_relies_on_exists():
+    """``end_led_group`` holds ``Popen._waitpid_lock`` (CPython's own guard against signalling a reaped id, bpo-38630).
+    A Python without it makes every group unprovable -- nothing signalled, a failure reported -- so this pins it."""
+    import threading
+
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    assert type(proc._waitpid_lock) is type(threading.Lock())

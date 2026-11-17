@@ -2,6 +2,83 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-17 — P5-A: on POSIX the setup worker is never reaped before its process group is ended, and that group is signalled only while its id is proved to be the worker's own; `pyvenv.cfg` must carry `executable`, and `home` and `executable` must be absolute and name this copy's own Python; the checkout's world-writable modes are inherited, audited read-only and left for the owner (owner authorization of P5-A; implementation decisions by Claude Code; owner decisions pending)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's P5-A authorization (2026-11-17). Start SHA `48fb12b`. Evidence: `files/dev-work/macos-p5a/` (ignored).
+
+**A. The defect, reproduced at `48fb12b`.**
+- `test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run` failed natively (`repro-before.txt`): the worker (pid 48308) was gone and its grandchild (48309) alive, re-parented to launchd (ppid 1), still in process group 48308.
+- Cause: `WorkerRun.wait()` (`Popen.wait`) reaps the worker the moment it exits, and `optional_setup_client.run` reaps it even earlier (`worker.process.poll()` in its loop). Once reaped, the worker's id, which is also its group's id, may be handed to another process, so `_finish` rightly had nothing safe to signal. Windows' Job Object ends the grandchild instead.
+- The same held for a Cancel the worker obeyed within its grace (reaped by `wait(grace)`), for a crash, and for `kill_tree`'s `poll()`.
+
+**Decision: reap last (POSIX only; Windows unchanged).**
+- `child_ownership` gains `has_exited`/`wait_exited` (exit seen without reaping; macOS reads the zombie state, as `_has_exited` already did) and `end_led_group(proc, start_time)`.
+- `end_led_group` signals only while a three-part proof holds, for the whole check-and-signal:
+  1. the `Popen`'s own waitpid lock is held: every `Popen.wait`/`poll` reaps only under it (CPython bpo-38630), so nothing reaps the worker through its `Popen` meanwhile; the wait for the lock is bounded, and an object without one is never signalled;
+  2. `returncode is None`: nobody has reaped it, so the kernel still reserves its id (a zombie keeps it), and no other process or group can have that id;
+  3. its kernel start time equals the one recorded at spawn: no reap outside `Popen` handed the id on.
+- It then repeats `killpg(SIGKILL)` until macOS answers `EPERM` (only the unreaped zombie leader is left; zombies are not signalled) or `ESRCH`, within 15 s, and never reaps. Linux (development only) answers `signalled`: a zombie leader is still a member there, so emptiness cannot be read.
+- `WorkerRun`:
+  - records the start time at spawn;
+  - `running()` and every wait are non-reaping;
+  - `_terminate` (Cancel past its grace, time-out) and `_finish` end the group through `end_led_group`, then reap;
+  - `result()` on an exited, unfinished POSIX run finishes it first;
+  - a group not proved, or not emptied in time, is recorded in `protocol_errors`, as Windows records lingering members; a group not proved is never signalled.
+- A run whose process carries a Job Object keeps the released path exactly: `poll`, `wait`, `kill_tree`, terminate, accounting, close.
+- `optional_setup_client.run` asks `worker.running()` instead of `process.poll()`.
+- Partial start-up fails closed: on POSIX, `shared.child_ownership` must import before the worker is spawned, or the worker is never started (`containment-unavailable`).
+- Outcomes are unchanged: the worker's own valid result stands; a worker that exits without one is a forced failure (`no-result`, with its exit status); Cancel gives `cancelled`, time-out `timed-out`.
+
+**Why it is safe (measured on this Mac, `kernel_semantics.json`, `kernel_probe2.json`).**
+- With the leader exited and unreaped, `killpg` reaches a live member, and SIGKILL ends it. With only the zombie leader left, `killpg` answers `EPERM`; after the reap, `ESRCH`. `getpgid` fails on the zombie, but its start time still reads.
+- A group's id is its creator's id. The worker made its own session (`start_new_session`), so the group is the worker's, and its members descend from it. While the worker is unreaped, no other process can hold that id.
+- Nothing is found by name, by a process scan or by a bare pid. Every wait is bounded. The existing identity rules of `child_ownership.py` are unchanged.
+
+**Tests (this Mac, native; agent-reported).**
+- `test_child_ownership.py` +7 (6 native): an exited, unreaped leader's group is ended and the kernel confirms it empty; a running leader's group (Cancel, time-out); never after a reap (the member is proved untouched); never for a mismatched or missing identity or an object without the lock; not while another thread holds the lock (bounded); unrelated processes untouched; the CPython lock the proof relies on exists (every platform).
+- `test_optional_tts_setup.py` +8 `WorkerRun` tests on a real disposable app with real processes: a valid result stays valid when a grandchild outlives the worker; a Cancel the worker obeys; a crash (SIGKILL) is a failure, and its grandchild is ended; a worker reaped behind the run's back never has its group signalled (the grandchild is proved alive, then ended by the test by identity); bystanders in the test's own group and in another session survive a normal exit and a time-out; the client's loop no longer reaps; no ownership module, no worker; a run with a job keeps the released Windows path (every platform, recording stand-in job; the POSIX rule is never consulted). The original acceptance test also asserts, on POSIX, that the group was ended and confirmed empty.
+- The 37 affected modules compared by test id with `48fb12b` (`comparison.json`): 0 new failures, 0 new skips, 0 removed; 28 added, all PASS; the grandchild test fixed.
+- Focused gate `2026-11-17_053703_focused_61f2`: **RESULT: PASS** (9/9 journeys; pytest 116/116).
+- After every run, no test process was left.
+
+**B. `pyvenv.cfg` `executable` (decision).**
+- Proved on this copy's bundled CPython 3.12.15 (`venv-probe/`): `venv` writes `executable = os.path.realpath(sys.executable)` unconditionally (`venv/__init__.py`, `create_configuration`), in the same step as `command`, which the rule already requires. Made through `python3.12`, `python3` and `python`, with `--copies`, through `child_entry.py` and after `--upgrade`, it always names `<copy>/files/runtime-data/python/bin/python3.12`. The production `.venv` does too.
+- Rule now: `executable` must be present, absolute and exactly this copy's `python3.12` (either spelling of the copy: its path as given and its real path); `home` must be absolute. No legitimate environment can fail this, because one without `executable` has no `command` either.
+- Also fixed: a relative `home` or `executable` was compared after `abspath`, so it matched whenever the check ran from the copy's own folder.
+- Tests: 8 new tamper cases (no `executable`, empty, relative, this copy's `python3` and `python` aliases, the venv's own `python3.12`, an unnormalised path, an empty `home`), 2 relative-path cases run from the copy's own folder, and 3 contract cases (a venv made under each of the three names records its own `python3.12` and is accepted). Negative control: against the old rule, 5 of the new cases fail (no `executable`, the two aliases, relative `home`, relative `executable`).
+- Windows is unaffected: this rule is reached only through the POSIX link rule. The accepted P4C-A link rules are unchanged.
+
+**C. Permissions (read-only audit; owner decision pending).** `files/dev-work/macos-p5a/permissions-audit.md`.
+- The checkout root, `scripts/`, `.git/`, most of `files/` and every root file are 777/666. They arrived with the checkout on 2026-11-14, as files copied from a Windows file system typically do. Everything made on this Mac since 2026-11-15, including every folder ACT created (`.venv`, the bundled Python, models, packages, OmniVoice), is 755/644. ACT's code never grants group or other write.
+- No ACL beyond `deny delete` on `~` and `~/Desktop`; no foreign-owned entry; no sticky, setuid or setgid; no linked folder on the interpreter chain.
+- The exposure is latent: `~/Desktop` is 700 and this Mac has one local account. It becomes real if the checkout, or a ZIP of it built on a Mac, is moved or copied where other accounts can reach. Through the 777 folders, another account could then change app code, launchers and git hooks, and rename and replace `.venv`, models and packages; the P4C-A launch rule refuses only a swapped interpreter chain. **The interpreter-link validation does not close this.**
+- Proposed (not applied): `chmod -R go-w <repo>`, run by the owner, or the minimal targeted list in the audit; and normalising ZIP entry modes in release packaging (P6/P7).
+
+**Residuals (owner).**
+1. A descendant that leaves the group by itself (`setsid`/`setpgid`) cannot be reached by a group signal; finding it would need a process scan, which the project forbids.
+2. **First-run window (inherited, reproduced, not changed):** `bootstrap.py` makes the first-run window an owner (`child_ownership.owner()`) for setup's own children, but never calls `subprocess_utils.enable_containment`. So `qwen3_process.spawn` starts the optional-voices worker with `start_new_session` only: not class A, not tied to that window's lifeline. The Python children the worker starts through `qwen3_setup.run_command` (pip, probes) lead their own sessions. A forced Cancel or time-out ends the worker's group, but not them (`firstrun-gap/result.jsonl`: child alive after a forced Cancel without an owner, ended with one). A cooperative Cancel still ends them through `run_command`. Install & Continue in the app window is not affected.
+3. `Owner.shutdown` (app close) checks identity, then signals a class-A group without the waitpid lock. A reap in another thread between the two is the window `signal_if_same` has always had; macOS hands out ids sequentially, so a freed id is not reused until the id space wraps. Not changed.
+4. If the app itself is killed in the moment between the worker's exit and the end of the run (one poll interval, at most 0.2 s, plus the bounded end), a grandchild still in the worker's group is left: nothing remains to signal it. Before P5-A this was the whole time after the worker's exit. ACT's own Python children of a class-A worker (app window) have their own lifeline to the worker and end with it regardless.
+
+**Gate policy (`verification.json`, Windows rules only).** `native-macos-p1a` max 46 → 52 (6 new native tests). New `posix-process-groups-p5a` (max 7) for the new POSIX-only reason. New `posix-venv-interpreter-links` (max 56): the P4C-A POSIX-only reason had no Windows rule (43 skips there would have been "unexpected" on HOME-PC; found in P5-A), and P5-A adds 13. Nothing that runs on Windows is skipped by them.
+
+## 2026-11-17 — P4C OWNER ACCEPTED: the macOS roster of 20 voices, the first-run choices, Kokoro and OmniVoice from the GUI, an OmniVoice Cancel and the Preferences & Data wording, checked by the owner; not an approval to merge or release (the owner; recorded by Claude Code)
+
+Signed: the owner (acceptance given with the P5-A authorization, 2026-11-17); recorded by Claude Code (Opus 5.5), HOME-MacOS. Accepted at `48fb12b`.
+
+- **The owner's own checks on HOME-MacOS (M4 Pro, 24 GB):**
+  - exactly 20 macOS voices: 5 Edge, 9 Kokoro, 6 OmniVoice;
+  - no Chatterbox Turbo or Qwen3 voice;
+  - the first run shows Kokoro checked and OmniVoice unchecked, and no other optional choice;
+  - Kokoro Heart generated an MP3 from the GUI;
+  - OmniVoice Male 1 generated an MP3 using MPS float32;
+  - OmniVoice Male 3 was cancelled during narration in 2.303 s, and no incomplete MP3 was published;
+  - the Preferences & Data wording was accepted by hand.
+- **Gate evidence kept:** the passing focused gate `2026-11-16_234204_focused_4cf5` (Option A entry below).
+- **Not an approval to merge or release.** Nothing was merged, tagged, released or published; draft release `447445728` is untouched.
+- **Authorized next:** only the bounded P5-A checkpoint (entry above). The rest of P5 waits for the owner's review of P5-A.
+- P4C's two findings for the owner became P5-A's scope: the POSIX grandchild gap (fixed in P5-A) and the world-writable checkout (audited read-only in P5-A; correction pending the owner).
+
 ## 2026-11-16 — P4C Option A: on POSIX the setup worker's launch accepts the venv's own interpreter link only when the whole chain is proved to be this copy's own environment and Python; Windows' rule unchanged; Kokoro acquired through the fixed production route (owner authorization of Option A; implementation decisions by Claude Code)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS. Start SHA `aa9d3af`. The owner explicitly authorized Option A in this session.

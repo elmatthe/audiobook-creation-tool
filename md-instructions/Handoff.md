@@ -1,5 +1,42 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — P4C OWNER ACCEPTED; P5-A IMPLEMENTED and TESTED (automated, this Mac): a setup worker's leftover grandchild now ends with the run (reap last; the group is signalled only while its id is proved the worker's); `pyvenv.cfg` `executable` enforced; permissions audited read-only, correction pending the owner; READY FOR INDEPENDENT REVIEW (2026-11-17, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Nothing was merged, tagged, released or published; draft release `447445728` is untouched.
+
+- **Status at a glance.**
+  - **P4C: OWNER ACCEPTED (2026-11-17)** (Decisions, P4C acceptance entry). Not an approval to merge or release.
+  - **P5-A: IMPLEMENTED and TESTED (automated, native Mac); independent review and owner approval pending.**
+  - **Mac containment (setup worker's group): PASS (automated, native).** Inherited gap, reproduced, not changed: from the first-run window, the worker's own Python children survive a forced Cancel (residual 2 below).
+  - **Permissions: findings PENDING THE OWNER.** Nothing was changed; the security issue is not closed.
+  - **Windows-native regression (HOME-PC): PENDING.**
+  - **The rest of P5: PENDING** (not started: long-form benchmarks, D6-final, the darwin acceptance map, KX-10, P6).
+- **Branch.** `feature/0.8.0-macos-compatibility`, started at `48fb12b`, plus one commit (code, tests, gate policy, coverage, feature map, documents), pushed to `origin` only.
+- **A. Containment (Decisions, P5-A entry).**
+  - Reproduced at `48fb12b`: the worker was gone, its grandchild alive in the worker's old group. `WorkerRun.wait` and the client's `poll()` loop reaped the worker first, so its group id could no longer be trusted.
+  - Fix, POSIX only: the worker is never reaped before its group is ended. `child_ownership.end_led_group` signals the group only while the `Popen`'s waitpid lock is held, the worker is unreaped and its start time matches the one recorded at spawn; it then waits until macOS reports nothing left (`EPERM`/`ESRCH`), bounded at 15 s, and the worker is reaped afterwards.
+  - Changed: `shared/child_ownership.py` (new `has_exited`, `wait_exited`, `end_led_group`), `shared/optional_setup_protocol.py` (`WorkerRun`), `shared/optional_setup_client.py` (`worker.running()`). Windows' Job Object path is unchanged and pinned.
+- **B. Interpreter validation.** `pyvenv.cfg` `executable` is now required, absolute and exactly this copy's `python3.12`; `home` must be absolute. Proved first on disposable venvs from the bundled 3.12.15 (`files/dev-work/macos-p5a/venv-probe/`): `venv` always writes it. The production `.venv` passes; it was not rebuilt.
+- **C. Permissions (read-only).** `files/dev-work/macos-p5a/permissions-audit.md`. The 777/666 modes came with the checkout; ACT's own folders are 755/644. Latent today (`~/Desktop` is 700, one account). Proposed, for the owner: `chmod -R go-w <repo>`, or the targeted list in the audit; ZIP entry modes normalised in P6/P7.
+- **Tests (this Mac, native, agent-reported).**
+  - The previously failing `test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run` **PASSES**.
+  - New: 7 in `test_child_ownership.py`, 8 `WorkerRun` lifecycle tests and 13 `pyvenv.cfg` cases in `test_optional_tts_setup.py`; all PASS. Negative control: 5 of the `pyvenv.cfg` cases fail against the old rule.
+  - The 37 affected modules (`files/dev-work/macos-p5a/affected-tests.txt`), compared by test id (`files/dev-work/macos-p5a/comparison.json`): **0 new failures, 0 new skips, 0 removed**; 28 added, all PASS; 1 fixed (the grandchild test). Totals 1,534 passed / 594 failed / 158 errors / 21 skipped (baseline 1,505 / 595 / 158 / 21).
+  - Inherited, not caused here: the Windows-only suites that fail on a Mac (`msvcrt`, `winreg`, Windows directory pinning, native Windows qualification), 3 Tk log-follow tests, and 13 gate-contract tests in `test_verification_gate_contract.py`/`test_macos_p1b_gate.py` that fail identically at `48fb12b`. The tests that read the edited documents were also run: their one failure, `test_macos_p1b_closeout_gate.py::test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evidence` (a stale P1B "later phases stay NOT RUN" pin), fails identically at `48fb12b`.
+  - The run took 2 h 26 min (baseline 1 h 46 min), because the Tk tests on the unattended Mac varied widely. One installer-panel test went from 223 s to 2,569 s; it injects its own plan and install, runs no P5-A code, and takes 0.39 s when run alone.
+  - After every run, no test process was left.
+- **Focused gate:** `2026-11-17_053703_focused_61f2`, **RESULT: PASS**. 9/9 journeys, including `tts.kokoro-local`, Cancel and both shutdown journeys; pytest 116/116 (`test_engine_policy.py`, `test_child_ownership.py`); process-ownership, cleanup, skips, coverage inventory and tree PASS. It ran on the final code and tests (`48fb12b` plus this checkpoint's working tree); only the documents changed after it. Focused selection only, not full acceptance.
+- **Protected assets.** The 18 reference WAVs, 2 transcript files and 28 previews match. The 11 Kokoro files match by size and SHA-256. The `.venv/engines`, OmniVoice, model and package trees and the P4A–P4C evidence folders are identical before and after. The 17 owner deletions and the 5 untracked owner entries are untouched, and draft release `447445728` is identical (`files/dev-work/macos-p5a/protected-before.json`/`protected-after.json`, `release-before.json`/`release-after.json`).
+- **Gate policy (Windows rules).** `native-macos-p1a` 46 → 52; new `posix-process-groups-p5a` (7) and `posix-venv-interpreter-links` (56). The last one closes a P4C-A gap: its 43 POSIX-only tests had no Windows rule.
+- **Residuals for the owner (Decisions, P5-A entry).**
+  1. A descendant that leaves the group by itself (`setsid`) is not reachable without a process scan, which the project forbids.
+  2. **First-run window (inherited, reproduced):** it is not a containment owner, so the optional-voices worker is not class A and its pip and probes lead their own sessions; a forced Cancel or time-out ends the worker's group but not them (`files/dev-work/macos-p5a/firstrun-gap/`). Install & Continue in the app window ends them.
+  3. `Owner.shutdown`'s identity check and group signal are not under the waitpid lock (unchanged, inherited).
+  4. If the app is killed in the at most 0.2 s between the worker's exit and the run's end, a grandchild still in the worker's group is left.
+- **Windows (P5, HOME-PC).** Run `test_optional_tts_setup.py`, `test_child_ownership.py`, `test_optional_setup_acquisition.py`, `test_release_installer.py`, `test_omnivoice_setup.py`, the gate-policy tests, plus P4C's list. Touchpoints added: `shared/optional_setup_protocol.py` (`WorkerRun`: unchanged with a job, by construction), `shared/optional_setup_client.py` (`running()` is `poll()` there), `verification.json`'s Windows skip rules.
+- **Next action.** Independent review (ChatGPT) and owner approval of P5-A, and the owner's decision on the permissions correction. P5-B needs its own authorization. Recommended next bounded checkpoint: make the first-run window a containment owner for the optional-voices worker (residual 2), with a native forced-Cancel test.
+
 ## Current checkpoint — macOS P4C Option A: the setup worker now starts on a Mac (the venv's own interpreter link is accepted only when proved to be this copy's own); Kokoro acquired through the production installer and verified 11/11; the Kokoro journey and the focused gate PASS; P4C READY FOR INDEPENDENT REVIEW, owner acceptance pending (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action.

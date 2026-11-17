@@ -204,8 +204,8 @@
       {
         "id": "native-macos-p1a",
         "pattern": "^(native\\ macOS\\ only\\ \\(P1A\\):\\ bash\\ 3\\.2\\ stage\\ 0,\\ POSIX\\ process\\ groups,\\ Mach\\-O\\ and\\ codesign\\ checks)$",
-        "max": 46,
-        "why": "v0.8.x P1A/P1B review: the macOS-native tests of P1A (stage 0 in bash 3.2, POSIX containment, Mach-O, codesign and the adopted Riedl build): 44 marked in test_bootstrap_host_macos.py (29), test_child_ownership.py (10) and test_macos_foundation.py (5), plus the real aac_at decodes of test_macos_xhe_proof.py that skip at run time (1, and the AAC-LC control audiobook test when the owner's local file is present: 46 at most). Their Windows counterparts are the existing Windows suites; nothing Windows ran before is skipped by this rule."
+        "max": 52,
+        "why": "v0.8.x P1A/P1B review: the macOS-native tests of P1A (stage 0 in bash 3.2, POSIX containment, Mach-O, codesign and the adopted Riedl build): 50 marked in test_bootstrap_host_macos.py (29), test_child_ownership.py (16: 10, plus P5-A's 6 tests of ending a group whose leader exited) and test_macos_foundation.py (5), plus the real aac_at decodes of test_macos_xhe_proof.py that skip at run time (1, and the AAC-LC control audiobook test when the owner's local file is present: 52 at most). Their Windows counterparts are the existing Windows suites; nothing Windows ran before is skipped by this rule."
       },
       {
         "id": "native-macos-p1b",
@@ -224,6 +224,18 @@
         "pattern": "^(the\\ owner's\\ local\\ AAC\\-LC\\ control\\ audiobook\\ is\\ not\\ here|set\\ ACT_XHE_PROOF_APPLE_CAF\\ to\\ afconvert's\\ LEI16\\ decode\\ of\\ the\\ owner's\\ xHE\\-AAC\\ fixture\\ \\(about\\ 6\\ GB\\)\\ to\\ run\\ the\\ real\\ proof\\ 8)$",
         "max": 2,
         "why": "v0.8.x P1B review of P1A: two tests of test_macos_xhe_proof.py name the owner's local media or a 6 GB decode by their own skip reason before the platform is asked; on Windows they skip for that reason. At most one each."
+      },
+      {
+        "id": "posix-venv-interpreter-links",
+        "pattern": "^(python\\ \\-m\\ venv\\ makes\\ interpreter\\ links\\ only\\ off\\ Windows)$",
+        "max": 56,
+        "why": "v0.8.x P4C Option A and P5-A: the POSIX launch rule for .venv/bin/python's link into this copy's own python3.12, and the pyvenv.cfg rule behind it. python -m venv makes interpreter links only off Windows, whose rule is unchanged and pinned by its own tests. 43 marked in P4C (test_optional_tts_setup.py 41, test_optional_setup_acquisition.py 2) had no Windows rule here (found in P5-A); P5-A adds 13 (pyvenv.cfg executable/home: 8 tamper cases, 2 relative-path cases, 3 contract cases). Nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "posix-process-groups-p5a",
+        "pattern": "^(POSIX\\ process\\ groups\\ \\(Windows\\ ends\\ its\\ Job\\ Object\\))$",
+        "max": 7,
+        "why": "v0.8.x P5-A: test_optional_tts_setup.py's 7 tests that a POSIX setup worker is never reaped before its process group is ended (a valid result, a cancel it obeys, a crash, a worker reaped behind the run's back, bystanders, the client's loop, fail-closed start without the ownership module). Windows ends the same tree through its Job Object, pinned by the existing tree tests and by the cross-platform test that a run with a job keeps the released path."
       }
     ],
     "darwin": [
