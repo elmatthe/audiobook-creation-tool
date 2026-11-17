@@ -2,6 +2,50 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — macOS P4C independent-review remediation: the sample helper checks explicit voice patterns once, before anything runs, in ordinary samples, `--quality-suite` and `--final-acceptance`; on a Mac a pattern naming a Chatterbox or Qwen3 voice refuses the whole request (exit 2), and an empty selection is never a success (exit 1, every platform); the Mac's incompatible-Python and engine-lock wording names only offered engines. P4C still owner acceptance pending (implementation decisions by Claude Code)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's P4C remediation task after the independent review of `24398fe`. Start SHA `24398fe`.
+
+**The finding, reproduced at `24398fe`.** The engine guards held: no blocked engine could synthesise. The false success was in selection and reporting.
+- On a Mac, `--quality-suite chatterbox`, `--final-acceptance chatterbox` and `--final-acceptance qwen3` selected no voice. Each reported "0/0", exited 0 and (re)wrote its manifest.
+- Mixed requests ran their offered part: `--quality-suite chatterbox kokoro` ran the nine Kokoro voices, and `--final-acceptance qwen3 omnivoice` the six OmniVoice voices.
+- Ordinary `chatterbox Steffan` and `"Female 1"` printed NOT OFFERED, made one sample and exited 0.
+- On every platform, `--quality-suite` or `--final-acceptance` with a pattern that matched nothing reported "0/0" and exited 0.
+
+**Decisions.**
+- **One check.** `generate_voice_samples._explicit_selection` is used by `main()` for all three pattern modes, before any runner, folder or manifest is touched. `run_quality_suite` and `run_final_acceptance` call it too, for other callers. The policy stays in `shared.engine_policy` (`_refused` asks `is_offered`).
+- **Fail before synthesis, the whole request.** A pattern that names any voice the platform does not offer refuses the request, whether it stands alone, sits beside offered patterns, or matches through a shared word ("Female 1" names the OmniVoice, Chatterbox and Qwen3 Female 1 voices). Each such voice is reported NOT OFFERED, the run says nothing was synthesised or written, and it exits 2.
+  - Chosen over "run the offered part and exit nonzero": a partial run would still make samples and rewrite manifests for a request the platform refuses. The documented semantics (substring filters) do not need partial runs.
+  - Exit 2 matches P4C's refusal of the Chatterbox and Qwen3 evaluation modes. P4C's own pin of plain `chatterbox` therefore changes from 1 to 2.
+- **An empty selection is never a success.** In every mode and on every platform, patterns that select no voice exit 1 with "No voice matched", and the two reporters return 1 when there are no rows.
+  - This changes Windows only where Windows reported a false "0/0" success: `--quality-suite` or `--final-acceptance` with a pattern that matched nothing.
+  - Every Windows request that selects voices runs exactly as before. No pattern still means every offered voice (34 on Windows, 20 on a Mac).
+- **Wording: an audit of P4C's two acknowledged exceptions.** Changed only where a Mac reaches the text in ordinary setup, repair or Clear Downloaded Data. Each site takes Windows' words verbatim or the Mac's, chosen through `engine_policy.is_offered`:
+  - `bootstrap.assess_venv_health`, an existing `.venv` on an incompatible Python: a Mac says "the local Kokoro voices".
+  - `bootstrap._take_engine_lease`: when the locks cannot be checked, "whether the OmniVoice voices are in use". The "held still" log line names OmniVoice only. A refusal from the Qwen3 folder is logged as the shared install locks.
+  - `engine_lease.EnvironmentLease`: on a Mac, the Qwen3 folder holds only the shared `setup.lock`. Its "could not check" message is therefore `SHARED_UNAVAILABLE_MESSAGE` ("whether voices of this copy are being installed or repaired").
+  - `maintenance.engine_uncheckable_problem()`: `WINDOWS_` and `MAC_` constants, with `ENGINE_UNCHECKABLE_PROBLEM` the running platform's, as `CATALOG` is. `cleanup_worker.hold_engine_still` returns it at call time, and its note for a Qwen3-folder refusal matches.
+  - `qwen3_setup.InstallLock`: a Mac's Kokoro and spaCy installs meet its two "already being installed" refusals (the in-process lock and `setup.lock`) while another install or a repair runs. A Mac says "Voices of this copy of the app …".
+- **Left unchanged: not reachable in ordinary Mac workflows.**
+  - `find_suitable_python`'s "Kokoro/Chatterbox" log line and setup's "Setup finished with limits" message: a Mac selects only the app's hash-pinned Python 3.12 (P1A).
+  - The inference- and engine-lock sentences of `InstallLock` and `engine_lease.BUSY_MESSAGES`: only a Qwen3 conversion or worker holds those locks.
+  - `qwen3_runtime`'s linked-folder refusal: only a tampered copy reaches it.
+  - Qwen3's Windows-only messages.
+  - Historical documents and implementation comments.
+
+**Tests.**
+- `files/tests/test_engine_policy.py` gains 43 tests (80 in all):
+  - Mac refusals in all three modes, including mixed and shared-word requests: exit 2, no synthesis, nothing written, every refused voice named, no success words;
+  - Mac offered requests and each mode's no-pattern default;
+  - the same requests on Windows;
+  - no-match patterns on both platforms;
+  - the runners' own refusals and the empty reports;
+  - the Mac and Windows texts of each changed message, through the real `assess_venv_health`, `_take_engine_lease`, `EnvironmentLease`, `hold_engine_still` and `InstallLock`.
+- Three existing pins now name their platform:
+  - `test_cleanup_engine_lease`: its sandbox runs as `win32`, so it compares with `engine_uncheckable_problem()` and pins Windows' text.
+  - Two `test_omnivoice_layout` repairs take the `windows_engine_policy` seam for their Windows wording.
+- Run evidence is in the Handoff block and the roadmap (§19 P4C).
+
 ## 2026-11-16 — macOS P4C: one platform capability policy (`scripts/shared/engine_policy.py`) decides the voice engines; macOS offers Edge 5 + Kokoro 9 + OmniVoice 6 = 20 voices and refuses Chatterbox Turbo and Qwen3-TTS at every surface and entry point; Windows keeps all 34. P4C IMPLEMENTED and TESTED (automated); owner acceptance pending (implementation decisions by Claude Code)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS (Apple M4 Pro, 24 GB), under the owner's P4C authorization (2026-11-16) and §12.F Revision 3. Start SHA `d2b2eae`.

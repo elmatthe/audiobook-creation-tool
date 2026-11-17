@@ -851,11 +851,13 @@ def assess_venv_health(*, require_tk: bool = True,
 
     if not is_full_feature_python(version):
         shown = f"{version[0]}.{version[1]}"
+        # macOS P4C: a Mac offers no Chatterbox voice (``shared.engine_policy``), so only Kokoro is named there.
+        local = "Kokoro and Chatterbox" if engine_policy.is_offered(engine_policy.CHATTERBOX) else "Kokoro"
         if compatible_base_available is None or compatible_base_available:
             return VenvHealth(
                 VENV_REPAIRABLE, "incompatible-python",
                 f"The environment runs Python {shown}, which cannot install the "
-                "local Kokoro and Chatterbox voices. A compatible Python is "
+                f"local {local} voices. A compatible Python is "
                 "available, so it can be rebuilt.",
                 version=version, ssl=True, tk=has_tk, executes=True)
         return VenvHealth(
@@ -1771,15 +1773,21 @@ def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.
     takes first too -- then OmniVoice's own ``inference.lock`` and ``engine.lock``. A running OmniVoice conversion or
     worker therefore refuses a repair exactly as a Qwen3 one does.
     """
+    # macOS P4C: a Mac offers no Qwen3 voice (``shared.engine_policy``), so these words name only OmniVoice there;
+    # Qwen3's folder still holds the setup.lock every install and repair shares, and its lease is taken all the same.
+    qwen3 = engine_policy.is_offered(engine_policy.QWEN3)
     lease = engine_lease.EnvironmentLease(VENV_DIR.parent)
     try:
         lease.take()
     except engine_lease.Refused as refused:
         if refused.lock == engine_lease.SETUP_LOCK:  # held by every optional install, whichever voices it is for
             who = "Voices of this copy are being installed or repaired"
+        elif refused.engine == engine_lease.OMNIVOICE:
+            who = "The OmniVoice voice engine of this copy is in use"
+        elif qwen3:
+            who = "The Qwen3 voice engine of this copy is in use"
         else:
-            name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
-            who = f"The {name} voice engine of this copy is in use"
+            who = "The install locks every voice of this copy shares could not be checked"
         log.line(f"  [!!] {who}, so the environment was not touched: {refused}")
         return None, f"{refused_prefix} {refused}"
     except OSError as exc:
@@ -1789,10 +1797,15 @@ def _take_engine_lease(log, refused_prefix: str) -> tuple[Optional[engine_lease.
         detail = exc.strerror or str(exc)
         log.line(f"  [!!] The voice engines' locks could not be checked ({detail}), so the environment was not "
                  "touched.")
-        return None, (f"{refused_prefix} The app could not check whether the Qwen3 or OmniVoice voices are in use "
+        engines = "Qwen3 or OmniVoice" if qwen3 else "OmniVoice"
+        return None, (f"{refused_prefix} The app could not check whether the {engines} voices are in use "
                       f"({detail}), so the environment was left exactly as it was. Nothing was changed.")
-    log.line("  The Qwen3 and OmniVoice voice engines are not in use or being installed; they are held still until "
-             "this is finished.")
+    if qwen3:
+        log.line("  The Qwen3 and OmniVoice voice engines are not in use or being installed; they are held still until "
+                 "this is finished.")
+    else:
+        log.line("  The OmniVoice voice engine is not in use or being installed; it is held still until this is "
+                 "finished.")
     return lease, None
 
 

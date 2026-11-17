@@ -481,7 +481,7 @@ def test_samples_on_a_mac_cover_the_twenty_voices_and_refuse_the_rest(on_platfor
         assert gvs.main() == 2
     monkeypatch.setattr(sys, "argv", ["generate_voice_samples.py", "chatterbox"])
     monkeypatch.setattr(gvs, "_synthesize_for_voice", lambda *a, **k: pytest.fail("synthesised"))
-    assert gvs.main() == 1
+    assert gvs.main() == 2, "refused by the platform policy, as the evaluation modes are"
     out = capsys.readouterr().out
     assert engine_policy.not_offered_message("chatterbox", MAC) in out
     on_platform(WINDOWS)
@@ -526,3 +526,397 @@ def test_no_setting_can_carry_a_voice_or_an_engine():
 
     names = " ".join(str(key) for key in config.USER_STATE_SETTINGS).lower()
     assert not any(word in names for word in ("voice", "engine", "backend", "speaker"))
+
+
+# =========================================================================== #
+# The sample helper's command line: explicit voice patterns (P4C independent-review remediation)
+# =========================================================================== #
+def _named_by(patterns, voices=vr.VOICES) -> list:
+    """The registered voices *patterns* name, by the helper's documented rule (a backend name, or a case-insensitive
+    substring of the voice id or the label), worked out here independently of the code under test."""
+    lowered = [p.lower() for p in patterns]
+    return [v.key for v in voices
+            if any(p == v.backend or p in v.voice_id.lower() or p in v.display_label.lower() for p in lowered)]
+
+
+class _SampleCli:
+    """``generate_voice_samples.main`` with every folder it may write in *tmp_path* and every synthesis recorded."""
+
+    def __init__(self, gvs, tmp_path, capsys, monkeypatch) -> None:
+        self.gvs, self.tmp_path, self._capsys, self._monkeypatch = gvs, tmp_path, capsys, monkeypatch
+        self.calls: list[tuple[str, tuple]] = []
+
+    def main(self, *argv: str) -> int:
+        self._monkeypatch.setattr(sys, "argv", ["generate_voice_samples.py", *argv])
+        return self.gvs.main()
+
+    def voices(self) -> list:
+        """Every voice that reached synthesis, once each, in the order it first did."""
+        return list(dict.fromkeys(key for _route, key in self.calls))
+
+    def written(self) -> list[str]:
+        return sorted(str(p.relative_to(self.tmp_path)) for p in self.tmp_path.rglob("*"))
+
+    def out(self) -> str:
+        return self._capsys.readouterr().out
+
+
+@pytest.fixture
+def sample_cli(monkeypatch, tmp_path, capsys):
+    """The three pattern-taking modes, with nothing real reached: the manual-listen, quality-suite and
+    final-acceptance folders are made in *tmp_path* only when the code asks for them (as the real ones are), and the
+    two synthesis routes -- ``_synthesize_for_voice`` and the production run -- are recorders that keep the policy's
+    own guard in front of them. No engine, network, FFmpeg or Tk window is touched."""
+    from tts import generate_voice_samples as gvs
+
+    cli = _SampleCli(gvs, tmp_path, capsys, monkeypatch)
+
+    def folder(name: str):
+        def make() -> Path:
+            path = tmp_path / name
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+        return make
+
+    monkeypatch.setattr(gvs, "_out_dir", folder("manual-listen"))
+    monkeypatch.setattr(gvs, "_quality_suite_dir", folder("quality-suite"))
+    monkeypatch.setattr(gvs, "_final_acceptance_dir", folder("final-acceptance"))
+    monkeypatch.setattr(gvs, "_git_commit_sha", lambda: "test")
+    monkeypatch.setattr(gvs.ffmpeg_utils, "configure_pydub", lambda: None)
+    monkeypatch.setattr(gvs, "_capture_edge_path_evidence", lambda *a, **k: [])
+    monkeypatch.setattr(gvs, "_measure_audio", lambda path: {"duration_s": 1.0})
+    monkeypatch.setattr(gvs, "protected_reference_state", lambda: {})
+    monkeypatch.setattr(gvs, "measure_final_artifact", lambda path: {"decoded_s": 1.0})
+    monkeypatch.setattr(gvs, "judge_final_artifact", lambda measured, chars: ([], {}))
+
+    def synthesize(v, text, dest, log=print, **kwargs):
+        engine_policy.require_offered(v.backend)  # the real dispatch's guard, kept in front of the recorder
+        cli.calls.append(("sample", v.key))
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"mp3")
+
+    def production(v, sources, log, timeout_s):
+        engine_policy.require_offered(v.backend)  # Start's guard, as the real panel applies it
+        cli.calls.append(("production", v.key))
+        published = {}
+        for source in sources:
+            out = tmp_path / "final-acceptance" / "outputs" / f"{v.voice_id}-{Path(source).stem}.mp3"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"mp3")
+            published[str(source)] = str(out)
+        return {"state": "succeeded", "wall_s": 1.0, "frozen_backend": v.backend, "frozen_voice_id": v.voice_id,
+                "settings": {}, "destinations": published, "transcript": []}
+
+    monkeypatch.setattr(gvs, "_synthesize_for_voice", synthesize)
+    monkeypatch.setattr(gvs, "_run_voice_through_production", production)
+    return cli
+
+
+def _cli_id(argv) -> str:
+    """A test id with no space in it: ``--quality-suite+Female_1``; ``no-pattern`` for none."""
+    return "+".join(a.replace(" ", "_") for a in argv) or "no-pattern"
+
+
+#: What a report or a sample run prints only when it claims something was made.
+SUCCESS_WORDS = ("generated OK", "mechanically clean", "Done:", "Filtered to", "Manifest:")
+
+#: Explicit Mac requests naming Chatterbox or Qwen3 voices, alone or beside offered ones, in each pattern-taking mode.
+#: "Female 1" is one pattern naming OmniVoice - Female 1 and the Chatterbox and Qwen3 Female 1 voices at once.
+MAC_REFUSED_REQUESTS = [
+    ("--quality-suite", "chatterbox"),
+    ("--quality-suite", "qwen3"),
+    ("--final-acceptance", "chatterbox"),
+    ("--final-acceptance", "qwen3"),
+    ("chatterbox",),
+    ("qwen3",),
+    ("--quality-suite", "chatterbox", "kokoro"),
+    ("--final-acceptance", "qwen3", "omnivoice"),
+    ("--final-acceptance", "Steffan", "chatterbox-male-1"),
+    ("chatterbox", "Steffan"),
+    ("Steffan", "qwen3-female-1"),
+    ("Female 1",),
+    ("--quality-suite", "Female 1"),
+]
+
+
+@pytest.mark.parametrize("argv", MAC_REFUSED_REQUESTS, ids=_cli_id)
+def test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written(sample_cli, on_platform,
+                                                                                            argv):
+    """The independent review's finding: such a request selected nothing (or only its offered part) and reported
+    success -- "0/0 OK", exit 0 -- or wrote a manifest. Now it is refused whole, with every refused voice named."""
+    on_platform(MAC)
+    patterns = [a for a in argv if not a.startswith("--")]
+
+    status = sample_cli.main(*argv)
+
+    out = sample_cli.out()
+    assert status == 2, out
+    assert sample_cli.calls == [], "nothing was synthesised, not even the offered part of a mixed request"
+    assert sample_cli.written() == [], "no folder, manifest, input or output was written"
+    refused = [v for v in NOT_ON_MAC if v.key in _named_by(patterns)]
+    assert refused
+    for v in refused:
+        assert f"NOT OFFERED {v.display_label}: {engine_policy.not_offered_message(v.backend, MAC)}" in out
+    assert "Nothing was synthesised or written" in out
+    assert not any(word in out for word in SUCCESS_WORDS), out
+
+
+#: Mac requests for offered voices only, and each mode's no-pattern default (every offered voice).
+MAC_OFFERED_REQUESTS = [
+    ("--quality-suite", "kokoro"),
+    ("--quality-suite", "omnivoice-female-1", "Steffan"),
+    ("--final-acceptance", "omnivoice-male-1"),
+    ("--final-acceptance", "edge"),
+    ("omnivoice", "kokoro"),
+    ("OmniVoice - Female 1",),
+    ("--quality-suite",),
+    ("--final-acceptance",),
+    (),
+]
+
+
+@pytest.mark.parametrize("argv", MAC_OFFERED_REQUESTS, ids=_cli_id)
+def test_a_mac_request_for_offered_voices_runs_exactly_them(sample_cli, on_platform, argv):
+    on_platform(MAC)
+    patterns = [a for a in argv if not a.startswith("--")]
+    mac_voices = [v for v in vr.VOICES if v.backend in engine_policy.MACOS_ENGINES]
+
+    assert sample_cli.main(*argv) == 0
+
+    expected = _named_by(patterns, mac_voices) if patterns else [v.key for v in mac_voices]
+    assert sample_cli.voices() == expected
+    assert "NOT OFFERED" not in sample_cli.out()
+
+
+#: The same requests on Windows, where every engine is offered: each runs every voice it names, as released.
+WINDOWS_REQUESTS = [
+    ("--quality-suite", "chatterbox"),
+    ("--final-acceptance", "qwen3"),
+    ("--final-acceptance", "chatterbox"),
+    ("--quality-suite", "chatterbox", "kokoro"),
+    ("--final-acceptance", "qwen3", "omnivoice"),
+    ("chatterbox", "Steffan"),
+    ("Female 1",),
+    ("--quality-suite",),
+    (),
+]
+
+
+@pytest.mark.parametrize("argv", WINDOWS_REQUESTS, ids=_cli_id)
+def test_on_windows_the_same_requests_run_every_voice_they_name(sample_cli, on_platform, argv):
+    on_platform(WINDOWS)
+    patterns = [a for a in argv if not a.startswith("--")]
+
+    assert sample_cli.main(*argv) == 0
+
+    assert sample_cli.voices() == (_named_by(patterns) if patterns else [v.key for v in vr.VOICES])
+    assert "NOT OFFERED" not in sample_cli.out()
+
+
+@pytest.mark.parametrize("platform", [MAC, WINDOWS])
+@pytest.mark.parametrize("mode", ["--quality-suite", "--final-acceptance", None])
+def test_a_pattern_that_names_no_voice_fails_and_writes_nothing(sample_cli, on_platform, platform, mode):
+    """An empty selection is never a successful run, on either platform: the quality suite and final acceptance used
+    to report "0/0" with exit 0 and rewrite their manifest; ordinary samples already failed, as they still do."""
+    on_platform(platform)
+
+    status = sample_cli.main(*([mode] if mode else []), "no-such-voice")
+
+    out = sample_cli.out()
+    assert status == 1, out
+    assert sample_cli.calls == [] and sample_cli.written() == []
+    assert "No voice matched: no-such-voice" in out
+    assert not any(word in out for word in SUCCESS_WORDS), out
+
+
+def test_the_runners_themselves_refuse_an_unoffered_or_empty_selection_and_write_nothing(sample_cli, on_platform):
+    """The same check guards the two runners for any other caller: nothing runs, no manifest is (re)written."""
+    gvs = sample_cli.gvs
+    on_platform(MAC)
+    quiet = []
+    assert gvs.run_quality_suite(["chatterbox", "kokoro"], log=quiet.append) == []
+    assert gvs.run_quality_suite(["no-such-voice"], log=quiet.append) == []
+    assert gvs.run_final_acceptance(["qwen3"], log=quiet.append) == ([], [])
+    assert gvs.run_final_acceptance(["no-such-voice"], log=quiet.append) == ([], [])
+    assert sample_cli.calls == [] and sample_cli.written() == []
+
+
+def test_an_empty_quality_or_acceptance_report_is_never_a_success(sample_cli):
+    gvs = sample_cli.gvs
+    lines: list[str] = []
+    assert gvs._report_quality_suite([], sample_cli.tmp_path / "quality-suite", log=lines.append) == 1
+    assert gvs._report_final_acceptance([], [], log=lines.append) == 1
+    assert not any(word in line for line in lines for word in SUCCESS_WORDS), lines
+    assert sample_cli.written() == []
+
+
+# =========================================================================== #
+# Wording: an incompatible environment Python, and the engine locks (P4C independent-review remediation)
+# =========================================================================== #
+def test_a_mac_environment_on_an_incompatible_python_names_only_kokoro(on_platform, monkeypatch, tmp_path):
+    """Reachable on a Mac whose existing ``.venv`` was built on another Python (one from before the app's own Python).
+    Chatterbox is not offered there, so it is not named; Windows' words are exactly as released."""
+    from shared import bootstrap
+
+    python = tmp_path / "python3"
+    python.write_text("")
+    monkeypatch.setattr(bootstrap, "venv_python", lambda: python)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda _py: {"version": (3, 13), "ssl": True, "tk": True})
+    monkeypatch.setattr(bootstrap.venv_integrity, "foreign_base_python", lambda *a, **k: None)
+    monkeypatch.setattr(bootstrap, "venv_creation_cut_short", lambda *a, **k: False)
+
+    on_platform(MAC)
+    mac = bootstrap.assess_venv_health(compatible_base_available=True)
+    on_platform(WINDOWS)
+    windows = bootstrap.assess_venv_health(compatible_base_available=True)
+
+    assert mac.reason == windows.reason == "incompatible-python" and mac.state == windows.state
+    assert mac.detail == ("The environment runs Python 3.13, which cannot install the local Kokoro voices. "
+                          "A compatible Python is available, so it can be rebuilt.")
+    assert windows.detail == ("The environment runs Python 3.13, which cannot install the local Kokoro and "
+                              "Chatterbox voices. A compatible Python is available, so it can be rebuilt.")
+
+
+class _Lines:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def line(self, text: str) -> None:
+        self.lines.append(text)
+
+    def __call__(self, text: str) -> None:
+        self.lines.append(text)
+
+    @property
+    def text(self) -> str:
+        return "\n".join(self.lines)
+
+
+@pytest.fixture
+def lease_copy(tmp_path, monkeypatch):
+    """A disposable copy of the app's folder for the engine lease; the repair's ``.venv`` is pointed inside it."""
+    from shared import bootstrap
+
+    root = tmp_path / "copy"
+    (root / "files" / "runtime-data").mkdir(parents=True)
+    monkeypatch.setattr(bootstrap, "VENV_DIR", root / ".venv")
+    return root
+
+
+def _uncheckable_qwen3_folder_lock(monkeypatch) -> None:
+    """``inference.lock`` in ``files/runtime-data/qwen3`` cannot be opened (the folder whose ``setup.lock`` every
+    install and repair shares). Everything else is the real lock code."""
+    from shared import engine_lease
+
+    real = engine_lease.FileLock.acquire
+
+    def acquire(self):
+        if self.path.parent.name == "qwen3" and self.path.name == engine_lease.INFERENCE_LOCK:
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(engine_lease.FileLock, "acquire", acquire)
+
+
+def test_a_mac_repair_or_cleanup_that_cannot_check_the_shared_install_locks_names_no_qwen3(
+        on_platform, monkeypatch, lease_copy):
+    from shared import bootstrap, cleanup_worker, engine_lease, maintenance
+
+    _uncheckable_qwen3_folder_lock(monkeypatch)
+    results = {}
+    for platform in (MAC, WINDOWS):
+        on_platform(platform)
+        with pytest.raises(engine_lease.Refused) as caught:
+            engine_lease.EnvironmentLease(lease_copy).take()
+        repair_log, cleanup_log = _Lines(), _Lines()
+        repair = bootstrap._take_engine_lease(repair_log, "Not repaired.")
+        cleanup = cleanup_worker.hold_engine_still(lease_copy, cleanup_log)
+        results[platform] = (str(caught.value), repair, repair_log.text, cleanup, cleanup_log.text)
+
+    lease, repair, repair_log, cleanup, cleanup_log = results[MAC]
+    assert repair[0] is None and cleanup[0] is None, "refused, holding nothing, on both platforms"
+    for text in (lease, repair[1], repair_log, cleanup[1], cleanup_log):
+        assert "Qwen3" not in text and "Chatterbox" not in text, text
+    assert "Nothing was changed" in repair[1] and "Permission denied" in repair[1]
+    assert cleanup[1] == maintenance.engine_uncheckable_problem(MAC)
+
+    lease, repair, repair_log, cleanup, cleanup_log = results[WINDOWS]
+    assert lease == engine_lease.UNAVAILABLE_MESSAGE.format(detail="inference.lock: Permission denied")
+    assert repair[1] == f"Not repaired. {lease}"
+    assert "The Qwen3 voice engine of this copy is in use" in repair_log
+    assert cleanup[1] == maintenance.engine_uncheckable_problem(WINDOWS) == (
+        "The cleanup helper could not check whether the Qwen3 or OmniVoice voices are in use, so this item was left "
+        "alone. Nothing in it was removed.")
+    assert "the Qwen3 voices of this copy are in use or uncheckable" in cleanup_log
+
+
+def test_a_mac_repair_names_only_omnivoice_when_the_locks_cannot_be_made_or_are_held_still(
+        on_platform, monkeypatch, lease_copy):
+    from shared import bootstrap, cleanup_worker, engine_lease
+
+    def unmakeable(self):
+        raise PermissionError(13, "Permission denied")
+
+    texts = {}
+    for platform in (MAC, WINDOWS):
+        on_platform(platform)
+        monkeypatch.setattr(engine_lease.EnvironmentLease, "take", unmakeable)
+        refused_log = _Lines()
+        refused = bootstrap._take_engine_lease(refused_log, "Not repaired.")
+        cleanup = cleanup_worker.hold_engine_still(lease_copy, _Lines())
+        monkeypatch.setattr(engine_lease.EnvironmentLease, "take", lambda self: None)
+        held_log = _Lines()
+        held = bootstrap._take_engine_lease(held_log, "Not repaired.")
+        assert refused[0] is None and cleanup[0] is None and held[1] is None
+        texts[platform] = (refused[1], cleanup[1], held_log.text)
+
+    refused, cleanup, held = texts[MAC]
+    assert refused == ("Not repaired. The app could not check whether the OmniVoice voices are in use "
+                       "(Permission denied), so the environment was left exactly as it was. Nothing was changed.")
+    assert cleanup == ("The cleanup helper could not check whether the OmniVoice voices are in use, so this item "
+                       "was left alone. Nothing in it was removed.")
+    assert held == ("  The OmniVoice voice engine is not in use or being installed; it is held still until this is "
+                    "finished.")
+
+    refused, cleanup, held = texts[WINDOWS]
+    assert refused == ("Not repaired. The app could not check whether the Qwen3 or OmniVoice voices are in use "
+                       "(Permission denied), so the environment was left exactly as it was. Nothing was changed.")
+    assert cleanup == ("The cleanup helper could not check whether the Qwen3 or OmniVoice voices are in use, so this "
+                       "item was left alone. Nothing in it was removed.")
+    assert held == ("  The Qwen3 and OmniVoice voice engines are not in use or being installed; they are held still "
+                    "until this is finished.")
+
+
+def test_a_mac_kokoro_install_refused_by_another_install_names_no_qwen3(on_platform, monkeypatch, tmp_path):
+    """On a Mac, Kokoro's and spaCy's installs run under Qwen3's ``InstallLock`` (its ``setup.lock`` is the one every
+    install and repair of a copy shares), so its two "already being installed" refusals are reachable there."""
+    from tts import qwen3_runtime as rt
+    from tts import qwen3_setup as su
+
+    monkeypatch.setattr(rt, "repo_root", lambda: tmp_path)
+    texts = {}
+    for platform in (MAC, WINDOWS):
+        on_platform(platform)
+        other = rt.FileLock(rt.setup_lock_path())  # another install or a repair of this copy holds setup.lock
+        assert other.acquire()
+        try:
+            with pytest.raises(su.SetupError) as by_another:
+                su.InstallLock().acquire()
+        finally:
+            other.release()
+        assert su._PROCESS_LOCK.acquire(blocking=False)  # an install already running in this process
+        try:
+            with pytest.raises(su.SetupError) as in_process:
+                su.InstallLock().acquire()
+        finally:
+            su._PROCESS_LOCK.release()
+        texts[platform] = (str(by_another.value), str(in_process.value))
+
+    assert texts[MAC] == (
+        "Voices of this copy of the app are already being installed or repaired, or the app's own environment is "
+        "being repaired. Wait for that to finish.",
+        "Voices of this copy of the app are already being installed or repaired. Wait for that to finish.")
+    assert texts[WINDOWS] == (
+        "The Qwen3 voices of this copy of the app are already being installed or repaired, or the app's own "
+        "environment is being repaired. Wait for that to finish.",
+        "The Qwen3 voices are already being installed or repaired. Wait for that to finish.")

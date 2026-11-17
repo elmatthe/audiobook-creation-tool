@@ -4280,7 +4280,9 @@
         "One module answers which voice engines the running platform offers, from sys.platform read when asked; there is no setting or toggle. Windows (and any other platform) offers all five engines and 34 voices exactly as released; macOS offers Edge, Kokoro and OmniVoice, 20 voices in registry order, Steffan the default.",
         "On macOS no surface offers Chatterbox Turbo or Qwen3-TTS: the voice list and its headings, the first-run choices (Kokoro and OmniVoice only), Install & Continue, setup plans and estimates, the acquirer, health probes, the Qwen3 install button, the sample helper, the launcher line and the maintenance and repair wording.",
         "A voice of an engine not offered is refused at Start, at Retry, on the conversion worker before its engine is imported and at the engine's own entry points, with one plain message; nothing is started, installed, downloaded or published, and no other voice is used. A restored or imported selection becomes the default voice and is logged.",
-        "Nothing is removed: every (backend, voice_id) identity, recording, transcript, preview, manifest and pin stays; Windows behaviour is unchanged."
+        "Nothing is removed: every (backend, voice_id) identity, recording, transcript, preview, manifest and pin stays; Windows behaviour is unchanged.",
+        "The sample helper checks its explicit voice patterns once, before anything runs, in ordinary samples, --quality-suite and --final-acceptance alike: on macOS a pattern naming a Chatterbox or Qwen3 voice (alone, beside offered voices, or through a shared word such as \"Female 1\") reports each such voice NOT OFFERED and refuses the whole request with exit status 2; nothing is synthesised, published or written (no folder, input or manifest). On every platform patterns that select no voice exit 1, and an empty quality or acceptance report is never a success. No patterns still means every offered voice; Windows runs every voice a pattern names, as released.",
+        "On macOS the wording of an environment on an incompatible Python names only Kokoro, the repair's and cleanup's engine-lock refusals and the repair's \"held still\" line name only OmniVoice (the Qwen3 folder's shared install locks are named as such), and the shared install lock's \"already being installed\" refusals name no engine; the choice is engine_policy's. Windows' words are byte-identical."
       ],
       "selection": [
         "files/tests/test_engine_policy.py"
@@ -4435,6 +4437,178 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_engine_policy.py::test_no_setting_can_carry_a_voice_or_an_engine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--quality-suite+chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--quality-suite+qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--final-acceptance+chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--final-acceptance+qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--quality-suite+chatterbox+kokoro]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--final-acceptance+qwen3+omnivoice]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--final-acceptance+Steffan+chatterbox-male-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[chatterbox+Steffan]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[Steffan+qwen3-female-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[Female_1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_naming_chatterbox_or_qwen3_fails_before_anything_runs_or_is_written[--quality-suite+Female_1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[--quality-suite+kokoro]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[--quality-suite+omnivoice-female-1+Steffan]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[--final-acceptance+omnivoice-male-1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[--final-acceptance+edge]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[omnivoice+kokoro]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[OmniVoice_-_Female_1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[--quality-suite]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[--final-acceptance]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_request_for_offered_voices_runs_exactly_them[no-pattern]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--quality-suite+chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--final-acceptance+qwen3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--final-acceptance+chatterbox]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--quality-suite+chatterbox+kokoro]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--final-acceptance+qwen3+omnivoice]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[chatterbox+Steffan]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[Female_1]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--quality-suite]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[no-pattern]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[--quality-suite-darwin]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[--quality-suite-win32]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[--final-acceptance-darwin]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[--final-acceptance-win32]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[None-darwin]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[None-win32]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_the_runners_themselves_refuse_an_unoffered_or_empty_selection_and_write_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_an_empty_quality_or_acceptance_report_is_never_a_success"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_environment_on_an_incompatible_python_names_only_kokoro"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_repair_or_cleanup_that_cannot_check_the_shared_install_locks_names_no_qwen3"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_repair_names_only_omnivoice_when_the_locks_cannot_be_made_or_are_held_still"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_mac_kokoro_install_refused_by_another_install_names_no_qwen3"
           }
         ]
       },
@@ -6127,7 +6301,8 @@
             "measure_final_artifact",
             "_synthesize_omnivoice",
             "omnivoice_speech_prep",
-            "OMNIVOICE_SAMPLE_BITRATE"
+            "OMNIVOICE_SAMPLE_BITRATE",
+            "_explicit_selection"
           ]
         },
         {
@@ -6142,14 +6317,16 @@
       "contracts": [
         "An ordinary run writes one sample per registered voice (34), each through its own backend; one failing voice is reported and the others continue; an OmniVoice sample goes through the production source-to-MP3 path with the v1 speech-preparation snapshot (v0.8.0).",
         "The final-acceptance judge reports each mechanical failure (incomplete decode, duration mismatch, implausible duration, clipping, pathological silence).",
-        "The QA corpus is original text whose identity hash changes whenever any item's wording changes."
+        "The QA corpus is original text whose identity hash changes whenever any item's wording changes.",
+        "Explicit voice patterns are checked once, before anything runs, by ordinary samples, --quality-suite and --final-acceptance alike (P4C independent-review remediation): patterns that select no voice exit 1 and write nothing, and an empty quality or acceptance report is never a success, on every platform; a pattern naming a voice the platform does not offer refuses the whole request with exit 2 (ACT.TTS.ENGINE-POLICY)."
       ],
       "selection": [
         "files/tests/test_chatterbox_evaluation.py",
         "files/tests/test_final_acceptance_harness.py",
         "files/tests/test_quality_corpus.py",
         "files/tests/test_chatterbox_candidates.py",
-        "files/tests/test_omnivoice_synth.py"
+        "files/tests/test_omnivoice_synth.py",
+        "files/tests/test_engine_policy.py"
       ],
       "journeys": [],
       "verification": {
@@ -6173,6 +6350,22 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_omnivoice_synth.py::test_the_sample_helper_narrates_an_omnivoice_voice_through_the_production_path_with_v1"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[--quality-suite-win32]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_a_pattern_that_names_no_voice_fails_and_writes_nothing[--final-acceptance-win32]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_an_empty_quality_or_acceptance_report_is_never_a_success"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_policy.py::test_on_windows_the_same_requests_run_every_voice_they_name[--quality-suite+chatterbox]"
           }
         ]
       },
@@ -26005,7 +26198,7 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "a0c6ed41853a04bcef721e3885c99e2ff7c9071ed8390e80730fc2f50298bc32",
+    "scripts/shared/bootstrap.py": "35513615614388ffe0a0fc8e35d2e49ac4aab0db2f91960cd37dd22116676c0d",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
@@ -26013,10 +26206,10 @@
     "scripts/shared/child_guardian.py": "81afa2fed11a560b56c8e05eaf309a313646f07b20b23b495de8be6100a80bdf",
     "scripts/shared/child_ownership.py": "ad11473341b6d5cd6fead06bb320843849bdf67659d5ab4898eade5032c93ff0",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
-    "scripts/shared/cleanup_worker.py": "97eec2be66062b7ae56bc2ed2a2d967e2deb7ab10041609f1906b1f4ed1919ca",
+    "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
     "scripts/shared/config.py": "d23bdb1f50944ce6b377005ddf8c311b52b368c08875be9b75f1e778760866c6",
-    "scripts/shared/engine_lease.py": "115683703f56744ef5d37930d53fdca5f263783438a0c78c8d9b37d09f56ad57",
+    "scripts/shared/engine_lease.py": "bd6f6fe5e5968895a840226281ce56f767b219384c96ac003ade9ae6224b260b",
     "scripts/shared/engine_policy.py": "0b821a7a66d9b7f59200dbf35ade9971adca6b8095efc927d6f49de524e6ff5b",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
     "scripts/shared/ffmpeg_health.py": "55d2564cec45e117e7a64c0b25a16715c4b942096976b15cee203ac57ae3c5c7",
@@ -26030,7 +26223,7 @@
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
-    "scripts/shared/maintenance.py": "1a631147cc1021f9d127eda955f5e1c5867c8d3e83108a9312f0fb76ffdb84d8",
+    "scripts/shared/maintenance.py": "da4d04832a15f63a65bd2c759832da098df2a4901613062d483027bcff471aa3",
     "scripts/shared/metadata.py": "a9c835dfd88d736921d80efa907bba755bb5f25c70874087cd34f1dfbd0b4f0e",
     "scripts/shared/nltk_store.py": "c7773eddd7987c4faeafb30f5681cb0c3267c8392c0258db0bd7912d1f25f375",
     "scripts/shared/numbering.py": "8d74816c8945c51d8a95be3ec5864581a651eb5a9d3345059b8a6e6438bd391f",
@@ -26071,7 +26264,7 @@
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
     "scripts/tts/epub2tts_gui.py": "041223b7cea402fd7c6804abe7ff958274beaf1479ea2accae06b5b4b11a7b9c",
     "scripts/tts/ffmpeg_watch.py": "3af5ccd8a3aef4be21bf805be1eb808e056a8b9fd862ae2677d51473fe441f64",
-    "scripts/tts/generate_voice_samples.py": "e8daebcb2398f15553f3af3599d3f506e7adb57b2104a5705f84f928de0305c3",
+    "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
     "scripts/tts/local_engine_host.py": "5d96dfdec9501a156b1f314cb97266a0f4009359bffed48ef95f24867f5cfd7f",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
@@ -26100,7 +26293,7 @@
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
     "scripts/tts/qwen3_process.py": "121bfe3a62809dca5a1ed63ccfb8e1c0e75b76ec7a4302947d66ba804590bd58",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
-    "scripts/tts/qwen3_setup.py": "99d3887374b65319f1391a06f4fad06320ad845cc039af60f47db6b23b784e4e",
+    "scripts/tts/qwen3_setup.py": "e8a04e40bf23b70852bb8383da5984f8dfa15a3b66337fc55e059c5b6179a823",
     "scripts/tts/qwen3_synth.py": "2d3de07869d2b8ebb0832ef88da6c81b7cdcea1facca9c933a4f93bb0844d7e1",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
     "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",

@@ -259,10 +259,27 @@ ENGINE_IN_USE_SUFFIX = (
     "close the app that is using it, then clear this item again."
 )
 #: Why one was left alone when the engines' locks (Qwen3's, or since v0.8.0 OmniVoice's) could not be checked at all.
-ENGINE_UNCHECKABLE_PROBLEM = (
+#: Windows' words as released; :data:`ENGINE_UNCHECKABLE_PROBLEM` is the running platform's (macOS P4C).
+WINDOWS_ENGINE_UNCHECKABLE_PROBLEM = (
     "The cleanup helper could not check whether the Qwen3 or OmniVoice voices are in use, so "
     "this item was left alone. Nothing in it was removed."
 )
+#: macOS P4C: the same refusal naming the one leased engine a Mac offers (Qwen3 is not offered there).
+MAC_ENGINE_UNCHECKABLE_PROBLEM = (
+    "The cleanup helper could not check whether the OmniVoice voices are in use, so "
+    "this item was left alone. Nothing in it was removed."
+)
+
+
+def engine_uncheckable_problem(platform: str | None = None) -> str:
+    """The "locks could not be checked" outcome on *platform* (``shared.engine_policy``; ``None`` is the running one,
+    read when asked): Windows' words as released, or a Mac's."""
+    if engine_policy.is_offered(engine_policy.QWEN3, platform):
+        return WINDOWS_ENGINE_UNCHECKABLE_PROBLEM
+    return MAC_ENGINE_UNCHECKABLE_PROBLEM
+
+
+ENGINE_UNCHECKABLE_PROBLEM = engine_uncheckable_problem(sys.platform)
 
 
 def engine_in_use_problem(what_is_running: str) -> str:

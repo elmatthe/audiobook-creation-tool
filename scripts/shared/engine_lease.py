@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from shared import venv_layout
+from shared import engine_policy, venv_layout
 
 SETUP_LOCK = "setup.lock"
 INFERENCE_LOCK = "inference.lock"
@@ -61,6 +61,10 @@ BUSY_MESSAGES = {
 NOTHING_CHANGED = ("Nothing was changed. Let it finish, or cancel it and close the app, then run this again.")
 UNAVAILABLE_MESSAGE = ("The app could not check whether the Qwen3 voices are in use ({detail}), so the environment "
                        "was left exactly as it was. Nothing was changed.")
+#: macOS P4C: a Mac offers no Qwen3 voice (``shared.engine_policy``), so there the folder above holds only the
+#: ``setup.lock`` every install and repair of the copy shares; :class:`EnvironmentLease` says that instead.
+SHARED_UNAVAILABLE_MESSAGE = ("The app could not check whether voices of this copy are being installed or repaired "
+                              "({detail}), so the environment was left exactly as it was. Nothing was changed.")
 
 QWEN3 = "qwen3"
 OMNIVOICE = "omnivoice"
@@ -228,8 +232,10 @@ class EnvironmentLease:
 
     def __init__(self, root) -> None:
         self.root = Path(root)
+        qwen3_offered = engine_policy.is_offered(engine_policy.QWEN3)  # macOS P4C: only the words differ
         self._leases = (
-            Lease(runtime_dir(self.root), root=self.root),
+            Lease(runtime_dir(self.root), root=self.root,
+                  unavailable=UNAVAILABLE_MESSAGE if qwen3_offered else SHARED_UNAVAILABLE_MESSAGE),
             Lease(omnivoice_runtime_dir(self.root), root=self.root, order=OMNIVOICE_ORDER,
                   messages=OMNIVOICE_BUSY_MESSAGES, unavailable=OMNIVOICE_UNAVAILABLE_MESSAGE, engine=OMNIVOICE),
         )

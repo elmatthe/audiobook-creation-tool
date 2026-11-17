@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
-from shared import venv_layout
+from shared import engine_policy, venv_layout
 from tts import qwen3_process
 from tts import qwen3_runtime as rt
 from tts.qwen3_runtime import MODEL_BASE, MODEL_CUSTOMVOICE, MODEL_KEYS, Qwen3Unavailable
@@ -291,11 +291,15 @@ class InstallLock:
 
     def acquire(self) -> None:
         global _HOLDER
+        # macOS P4C: a Mac offers no Qwen3 voice (``shared.engine_policy``) but runs its Kokoro and spaCy installs under
+        # this lock, so its two "already being installed" refusals name no engine there. Windows' words as released.
+        voices = ("The Qwen3 voices", "The Qwen3 voices of this copy of the app") if engine_policy.is_offered(
+            engine_policy.QWEN3) else ("Voices of this copy of the app",) * 2
         if not _PROCESS_LOCK.acquire(blocking=False):
-            raise SetupError("The Qwen3 voices are already being installed or repaired. Wait for that to finish.")
+            raise SetupError(f"{voices[0]} are already being installed or repaired. Wait for that to finish.")
         try:
             if not self._setup.acquire():
-                raise SetupError("The Qwen3 voices of this copy of the app are already being installed or "
+                raise SetupError(f"{voices[1]} are already being installed or "
                                  "repaired, or the app's own environment is being repaired. Wait for that to finish.")
             if not self._inference.acquire():
                 self._setup.release()

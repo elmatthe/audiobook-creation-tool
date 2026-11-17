@@ -1,5 +1,31 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4C independent-review remediation: the sample helper's CLI false success fixed and the Mac wording exceptions closed; P4C READY FOR INDEPENDENT RE-REVIEW, owner acceptance pending (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Nothing was merged, tagged or released; draft release `447445728` is untouched; P5 has not started. P4B stays OWNER ACCEPTED.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`, started at `24398fe`, plus one remediation commit (code, tests, coverage, feature map, documents), pushed to `origin` only.
+- **What changed (Decisions, P4C remediation entry; roadmap Revision 3f).**
+  - `tts/generate_voice_samples.py`: one check, `_explicit_selection`, before anything runs in ordinary samples, `--quality-suite` and `--final-acceptance`. On a Mac a pattern naming any Chatterbox or Qwen3 voice refuses the whole request (exit 2), also when mixed with offered voices or matched through a shared word ("Female 1"); nothing is synthesised or written. Patterns that select no voice exit 1 on every platform, and an empty report is never a success.
+  - Mac wording through `engine_policy` (Windows words byte-identical): an incompatible environment Python names only Kokoro (`bootstrap`); the repair's and Clear Downloaded Data's "could not check whether … are in use" refusals and the repair's "held still" line name only OmniVoice (`bootstrap`, `maintenance`, `cleanup_worker`, `engine_lease`); the shared install lock's "already being installed" refusals name no engine (`qwen3_setup.InstallLock`, which a Mac's Kokoro and spaCy installs use).
+- **1. P4C code verification (this Mac, AUTOMATED, agent-reported).**
+  - CLI defect reproduced at `24398fe`: Mac `--quality-suite chatterbox` and `--final-acceptance chatterbox`/`qwen3` exited 0 with "0/0" and wrote manifests; mixed requests ran their offered part. After the fix: exit 2, no synthesis, nothing written; no-match exits 1; Windows selections unchanged.
+  - `files/tests/test_engine_policy.py`: 80 passed (43 new).
+  - The 200 affected modules (`files/dev-work/macos-p4c-r1/affected-tests.txt`: P4C's 196 plus four direct importers), compared by test id (`files/dev-work/macos-p4c-r1/after/comparison.json`): **0 new failures, 0 new skips, 0 removed tests**; 43 new tests all pass.
+  - Three existing pins adapted to name their platform (Decisions entry); none weakened or skipped.
+  - Gate `2026-11-16_210923_focused_23bf` (`--platform macos`, the same nine journeys plus the policy suite): eight journeys automated PASS (Edge direct and folder, service failure and retry, Cancel during narration, Pause, PDF without text, close during work, forced landing); pytest stage 93/93; skips, coverage inventory (278 features, every source reviewed), cleanup and tree PASS. `RESULT: FAIL` only because of item 3.
+- **2. Baseline test failures (predate this work; unchanged).** At `24398fe`, the same 200 modules: 814 failed, 10,815 passed, 329 skipped, 159 errors; after: 814 failed, 10,858 passed, 329 skipped, 158 errors. 972 of the 973 failing ids fail in both runs: the Windows-simulation suites (`winreg`, `msvcrt`, Windows layouts) and the guarded v3 groups run outside `guarded_pytest.py`. The one difference, `test_voice_previews::test_a_label_sync_whose_result_fails_the_guard_writes_nothing`, was a baseline teardown error from the session's production-state guard (something wrote under `files/runtime-data` during that run, most likely the agent's concurrent read-only checks); it passes 3 of 3 alone.
+- **3. Missing Kokoro-model prerequisite (BLOCKED, not a code result).** `tts.kokoro-local` cannot run on this checkout: there is no Kokoro model snapshot under `files/runtime-data/models/huggingface/hub/models--hexgrad--Kokoro-82M/snapshots/` (pinned `hexgrad/Kokoro-82M` at `f3ff3571791e39611d31c381e3a41a3af07b4987`). The `kokoro` package, spaCy and `en_core_web_sm` are present. Nothing was downloaded or installed: that needs the owner's consent (the app's Install & Continue or the first-run Kokoro choice). The overall gate stays FAIL until it runs.
+- **4. Owner-manual GUI acceptance (not done by the agent; unchanged from P4C).**
+  1. Launch the app on the Mac by double-click; open TTS Audiobook; confirm the dropdown shows exactly the 20 voices with no Chatterbox or Qwen3 entry or heading.
+  2. A first run (or a fresh copy) shows exactly two optional choices: Kokoro (checked) and OmniVoice (unchecked).
+  3. An OmniVoice conversion with a mid-run Cancel by real clicks (carried from P4B).
+  4. Preferences & Data: the repair confirmation and Clear Downloaded Data name OmniVoice, not Qwen3.
+- **5. Native Windows qualification (pending, P5 HOME-PC).** Windows' words and choices are byte-identical by construction and pinned through the policy seam here, which is not Windows-native evidence. Touchpoints this remediation adds to P4C's list: `shared/engine_lease.py`, `shared/cleanup_worker.py`, `tts/qwen3_setup.py` (and again `shared/bootstrap.py`, `shared/maintenance.py`, `tts/generate_voice_samples.py`). One deliberate Windows change: `--quality-suite`/`--final-acceptance` with a pattern matching no voice now exits 1 instead of a "0/0" success. Run there: `test_engine_policy.py`, `test_cleanup_engine_lease.py`, `test_omnivoice_layout.py`, `test_qwen3_setup.py`, `test_qwen3_lifecycle_locks.py`, `test_chatterbox_evaluation.py`, plus P4C's list below.
+- **Protected assets.** Before and after (`files/dev-work/macos-p4c-r1/protected-{before,after}.json`): 18/18 references, 2/2 transcript files, 28/28 previews. Model pins, P4A/P4B evidence, the Mac-GPU 16-chunk bound and the 48-chunk Windows/CPU bound are unchanged.
+- **Next action.** Independent re-review of this remediation (ChatGPT), then the owner accepts or rejects P4C. P5 needs its own authorization.
+
 ## Current checkpoint — macOS P4C engine roster through one capability policy: P4C IMPLEMENTED and TESTED (automated); owner acceptance pending; P4B OWNER ACCEPTED (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action.

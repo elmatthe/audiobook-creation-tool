@@ -768,8 +768,11 @@ def test_a_qwen3_only_repair_changes_nothing_of_omnivoice(omni, tmp_path_factory
 # =========================================================================== #
 # 5. The parent's repair keeps BOTH held engines (shared.bootstrap, shared.engine_lease)
 # =========================================================================== #
-def test_a_repair_brings_both_engines_home_to_their_own_paths_byte_identical(env, monkeypatch):
-    """H. One rename of ``engines/``: each child is whole, in exactly one place, at the path it was built for."""
+def test_a_repair_brings_both_engines_home_to_their_own_paths_byte_identical(env, monkeypatch, windows_engine_policy):
+    """H. One rename of ``engines/``: each child is whole, in exactly one place, at the path it was built for.
+
+    Its log line is Windows' words (the policy's seam); a Mac's, naming only OmniVoice, are pinned in
+    test_engine_policy.py (macOS P4C)."""
     keepsake = _existing_venv(env)
     qwen3, omnivoice = both_engines(env.venv)
     protected = _protected(env)
@@ -1392,8 +1395,12 @@ def test_the_setup_lock_sentence_names_no_engine_and_a_refused_repair_says_what_
     assert ok is False and any("The OmniVoice voice engine of this copy is in use" in line for line in log.lines)
 
 
-def test_locks_that_cannot_even_be_checked_refuse_a_repair_with_nothing_changed(env, monkeypatch):
-    """A lock folder that cannot be made is not permission to go on (there are two such folders now)."""
+def test_locks_that_cannot_even_be_checked_refuse_a_repair_with_nothing_changed(env, monkeypatch,
+                                                                                 windows_engine_policy):
+    """A lock folder that cannot be made is not permission to go on (there are two such folders now).
+
+    Windows' words through the policy's seam; a Mac's, naming only OmniVoice, are pinned in test_engine_policy.py
+    (macOS P4C)."""
     _existing_venv(env)
     before = _tree(env.venv)
 

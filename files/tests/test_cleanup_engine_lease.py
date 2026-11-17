@@ -338,7 +338,9 @@ def test_a_lock_that_cannot_be_checked_leaves_the_item_whole(copy, tmp_path, mon
 
     outcome = worker.process_asset(asset_id, root)
 
-    assert (outcome.status, outcome.bytes_freed, outcome.message) == ("refused", 0, mnt.ENGINE_UNCHECKABLE_PROBLEM)
+    # The words of the platform this runs as (the sandbox's Windows; macOS P4C words it for a Mac's engines).
+    assert (outcome.status, outcome.bytes_freed, outcome.message) == ("refused", 0, mnt.engine_uncheckable_problem())
+    assert outcome.message == mnt.WINDOWS_ENGINE_UNCHECKABLE_PROBLEM
     assert region(root, REGIONS[asset_id]) == before
     if elsewhere.exists():
         assert sorted(p.name for p in elsewhere.iterdir()) == ["keep.txt"]  # nothing created through the junction

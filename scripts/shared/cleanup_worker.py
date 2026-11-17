@@ -51,7 +51,7 @@ IMPORT_ROOT = _THIS.parent.parent
 if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
-from shared import cleanup_state, engine_lease, maintenance  # noqa: E402
+from shared import cleanup_state, engine_lease, engine_policy, maintenance  # noqa: E402
 
 #: How many individual problems a per-asset message quotes before summarising.
 MAX_REPORTED_PROBLEMS = 3
@@ -283,15 +283,17 @@ def hold_engine_still(repo_root, note):
     except engine_lease.Refused as refused:
         if refused.lock == engine_lease.SETUP_LOCK:    # every optional install holds it, whichever voices it is for
             note(f"left alone — voices of this copy are being installed or repaired: {refused}")
-        else:
+        elif refused.engine == engine_lease.OMNIVOICE or engine_policy.is_offered(engine_policy.QWEN3):
             name = "OmniVoice" if refused.engine == engine_lease.OMNIVOICE else "Qwen3"
             note(f"left alone — the {name} voices of this copy are in use or uncheckable: {refused}")
+        else:  # macOS P4C: no Qwen3 there; its folder holds only the install locks every voice shares
+            note(f"left alone — the install locks every voice of this copy shares could not be checked: {refused}")
         if refused.reason == engine_lease.BUSY and refused.busy_sentence:
             return None, maintenance.engine_in_use_problem(refused.busy_sentence)
-        return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM
+        return None, maintenance.engine_uncheckable_problem()
     except OSError as exc:                         # the lock folder itself could not be made
         note(f"left alone — the voice engines' locks could not be checked: {exc.strerror or exc}")
-        return None, maintenance.ENGINE_UNCHECKABLE_PROBLEM
+        return None, maintenance.engine_uncheckable_problem()
     return lease, None
 
 
