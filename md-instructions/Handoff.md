@@ -1,5 +1,70 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — macOS P4C Option A: the setup worker now starts on a Mac (the venv's own interpreter link is accepted only when proved to be this copy's own); Kokoro acquired through the production installer and verified 11/11; the Kokoro journey and the focused gate PASS; P4C READY FOR INDEPENDENT REVIEW, owner acceptance pending (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action.
+- Nothing was merged, tagged or released; draft release `447445728` is untouched; P5 has not started. P4B stays OWNER ACCEPTED.
+
+- **Branch.** `feature/0.8.0-macos-compatibility`, started at `aa9d3af`, plus one commit (code, tests, coverage, feature map, documents), pushed to `origin` only.
+- **Authorization:** the owner explicitly authorized Option A in this session. It covers the bounded `worker_launch` fix, then ONLY the 11 pinned `KOKORO_FILES` through the fixed production route, then the journey and the gate.
+- **What changed (Decisions, Option A entry; roadmap Revision 3h).**
+  - `shared/optional_setup_protocol.py`: new `interpreter_problem` (the launch rule) and `worker_home_problem` (the worker's own check), plus their helpers.
+    - Windows and every non-link interpreter keep the old rule and words: no link anywhere.
+    - On POSIX, the link `.venv/bin/python` is accepted only when the chain is proved to be this copy's own:
+      - expected link names in `.venv/bin` or beside the bundled Python, at most 4 links;
+      - it ends at this copy's `files/runtime-data/python/bin/python3.12`, a regular executable file;
+      - no linked folder on the way;
+      - this account's ownership, and no group or world write on what holds the chain;
+      - `pyvenv.cfg` `home`, `executable`, `command`, isolation and version 3.12.
+    - `venv_layout.unsafe_component` is unchanged.
+  - `worker_launch` uses the rule, and so does `RealAcquirer._acquire_spacy` (the same interpreter, same route).
+  - `optional_setup_worker.main` checks itself with `worker_home_problem`.
+- **1. Reproduced at `aa9d3af`.** A read-only call to `worker_launch` on this Mac gave `wrong-interpreter`: "the app environment's console Python is missing or reached through a link". The chain is `.venv/bin/python -> python3.12 -> files/runtime-data/python/bin/python3.12`.
+- **2. Tests (this Mac, AUTOMATED, agent-reported).**
+  - 48 new tests (46 in `test_optional_tts_setup.py`, 2 in `test_optional_setup_acquisition.py`), all pass. They use real disposable `-m venv` environments built from each copy's own clone of the bundled Python.
+    - Accepted: legitimate chains.
+    - Refused: foreign, moved, redirected, broken, looped, tampered and permission-weakened ones.
+    - Real worker: it checks itself, it refuses itself when started by hand from another copy's Python, and a changed consent is refused with nothing spent.
+    - Containment: killing the owner ends the worker and its grandchild.
+    - Windows: deterministic tests of its unchanged rule and self-check.
+  - The 30 affected modules (`files/dev-work/macos-p4c-a/affected-tests.txt`), compared by test id (`after/comparison.json`):
+    - baseline at `aa9d3af`: 1,317 passed, 603 failed, 158 errors, 9 skipped;
+    - after: 1,373 passed, 595 failed, 158 errors, 9 skipped;
+    - **0 new failures, 0 new skips, 0 removed**; 8 baseline failures now pass (the real worker launch, cancel, timeout, stop, callback and both negative controls).
+  - Four Windows-shaped pins now name their platform (Decisions entry). None was weakened or skipped.
+- **3. Kokoro acquisition (production route, real).** Evidence is in `files/dev-work/macos-p4c-a/` (ignored); the driver `kokoro_acquire.py` calls only the production client.
+  - Inventory before: all 11 MISSING (331,925,412 bytes); none corrupt; no record.
+  - Plan (`client.plan`, real worker): Kokoro only, `missing`, scope `install`, engine `proved`. 10 units (the model plus 9 voices), all `hf:hexgrad/Kokoro-82M@f3ff3571791e39611d31c381e3a41a3af07b4987`, 331,925,412 bytes. spaCy is `ready`, so it was not acquired.
+  - Install (`client.install`, the consent for that plan): **succeeded** in 16.2 s, "Installed and checked: Kokoro"; one consent spent (`40f2de4f…`).
+  - Both worker runs: each worker led its own process group, was started by its owner through `child_entry.py` (class A, as under the app window), and nothing was left running.
+  - Independent check (`verify.json`): **11/11 files match their pinned size and full SHA-256**. The snapshot holds exactly those 11 files, and the verified record was written by the acquirer.
+- **4. Kokoro journey:** `tts.kokoro-local` **PASS**, 16/16 checks (`2026-11-16_234103_focused_9b07`).
+  - Real click on Start, then SUCCEEDED; one MP3, decodes fully, 5.29 s, RMS 0.0448, 160 kbit/s at 24 kHz.
+  - Source untouched; clean close (exit 0, no window and no owned process left).
+- **5. Focused gate:** `2026-11-16_234204_focused_4cf5` (`--platform macos`; the established P4C selection: `test_engine_policy.py` plus nine journeys): **RESULT: PASS**, exit 0, 74 s.
+  - **9/9 journeys automated PASS:** Edge direct and folder, service failure then retry, Cancel during narration, Pause at a file boundary, PDF without text, close during work, forced landing, and `tts.kokoro-local`.
+  - pytest stage 93/93. Process ownership, cleanup, skips, coverage inventory (278 features, every source reviewed) and tree unchanged: all PASS.
+  - Visual baselines NOT RUN (14 candidates for the owner). This is the focused selection only, not full acceptance.
+- **6. Protected assets.** Before and after (`files/dev-work/macos-p4c-a/protected-{before,after}.json`): 18/18 references, 2/2 transcript files, 28/28 previews, rows identical.
+  - Trees (`trees-{before,after}.json`): `.venv/engines`, `files/runtime-data/omnivoice`, `files/runtime-data/python-packages` and the P4A–P4C evidence are identical.
+  - `files/runtime-data/models` gained exactly the 11 Kokoro files and the verified record (13 files, 331,927,337 bytes; it was 1 file of 1 byte).
+  - No setup worker or app process remained. Draft release `447445728` is still a draft, last updated 18:46Z, before this session.
+- **Findings for the owner (not changed here).**
+  1. **On POSIX, a grandchild left by a worker that exited normally is not ended with the run** (Windows' Job Object does this). Cancel and time-out end the whole group, and the production worker waits for its own contained children. `test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run` still fails on the Mac: it was a baseline failure and now fails for this reason. Closing it means signalling a group whose leader is already reaped, a containment design decision.
+  2. **This checkout's root, `scripts/`, `files/` and `files/runtime-data/` are world-writable (`drwxrwxrwx`)**; the app's own folders are `755`. Any account on this Mac could change the app's code. Suggested: `chmod -R go-w` on the checkout (owner's choice; not done).
+- **Owner-manual GUI checks (not done by the agent).**
+  1. Launch by double-click; TTS Audiobook lists exactly the 20 voices, with no Chatterbox or Qwen3 entry.
+  2. The first run (or a fresh copy) shows exactly two choices: Kokoro (checked) and OmniVoice (unchecked).
+  3. A Kokoro voice now converts from the GUI.
+  4. An OmniVoice conversion with a mid-run Cancel by real clicks (carried from P4B).
+  5. Preferences & Data: the repair confirmation and Clear Downloaded Data name OmniVoice, not Qwen3.
+  6. Optionally, Install & Continue for OmniVoice now opens its review on the Mac. Do not press Install unless it is intended.
+- **Windows (P5, HOME-PC).**
+  - Windows' rule, words and self-check are unchanged by construction, and pinned here through deterministic tests that simulate Windows. That is not Windows-native evidence.
+  - Touchpoints: `shared/optional_setup_protocol.py`, `tts/optional_setup_worker.py`, `tts/optional_setup_acquire.py`; on Windows the `app` and `plain_app` fixtures build as before.
+  - Run there: `test_optional_tts_setup.py`, `test_optional_setup_acquisition.py`, `test_release_installer.py`, `test_omnivoice_setup.py`, plus P4C's list.
+- **Next action.** Independent review (ChatGPT), then the owner accepts or rejects P4C. P5 needs its own authorization.
+
 ## Current checkpoint — macOS P4C Kokoro acquisition STOPPED before any download: the app's setup worker cannot start on a Mac (`.venv/bin/python` is a symlink, and `worker_launch` refuses links); Kokoro prerequisite STILL BLOCKED; gate still FAIL (2026-11-16, Claude Code Opus 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action.

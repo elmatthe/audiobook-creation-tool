@@ -89,7 +89,7 @@ def _publish(result_path: Path, result: dict) -> int:
 
 
 def main(argv: Optional[list[str]] = None, *, repo_root: Optional[Path] = None,
-         home_check: Callable[[Path], str] = proto.execution_home_problem,
+         home_check: Callable[[Path], str] = proto.worker_home_problem,
          facts: Optional[optional_setup.Facts] = None, acquirer: Optional[lifecycle.Acquirer] = None,
          health: Optional[Callable[[tuple], Mapping]] = None) -> int:
     parser = argparse.ArgumentParser(prog="optional_setup_worker", allow_abbrev=False)

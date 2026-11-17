@@ -387,7 +387,7 @@ class RealAcquirer:
         if installed is not None:
             raise AcquisitionError(f"spaCy English model {installed} is installed; it is not replaced automatically")
         python = Path(self.python) if self.python is not None else proto.main_console_python(root)
-        if venv_layout.unsafe_component(root, python) is not None or not python.is_file():
+        if proto.interpreter_problem(root, python):  # the launch's rule: on POSIX the venv's own link is judged whole
             raise AcquisitionError("the app's own Python environment could not be found where it belongs")
         exchange = proto.exchange_root(root)
         staging = exchange / "downloads"

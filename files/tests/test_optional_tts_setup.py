@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -988,8 +989,8 @@ HEAVY = ("torch", "kokoro", "chatterbox", "huggingface_hub", "spacy", "numpy", "
 @pytest.fixture(scope="module")
 def app(tmp_path_factory):
     """A disposable copy of the app: its scripts, an empty ``files/``, and a pip-less ``.venv`` built from the base
-    CPython 3.12 with a tripwire ``sitecustomize``. Nothing of the real installation is used or touched."""
-    base = Path(getattr(sys, "_base_executable", "") or sys.executable)
+    CPython 3.12 with a tripwire ``sitecustomize``. Nothing of the real installation is used or touched. On POSIX the
+    copy has its own base Python where setup puts it, and the venv is made from that (:func:`venv_base`)."""
     root = tmp_path_factory.mktemp("disposable-app")
     for package in ("shared", "tts"):
         shutil.copytree(REPO / "scripts" / package, root / "scripts" / package,
@@ -997,9 +998,7 @@ def app(tmp_path_factory):
     shutil.copyfile(REPO / "scripts" / "qwen3-requirements.txt", root / "scripts" / "qwen3-requirements.txt")
     shutil.copyfile(REPO / "scripts" / "qwen3-artifacts.json", root / "scripts" / "qwen3-artifacts.json")
     (root / "files").mkdir()
-    made = subprocess.run([str(base), "-I", "-m", "venv", "--without-pip", str(root / ".venv")], capture_output=True,
-                          text=True, timeout=300)
-    assert made.returncode == 0, made.stderr
+    make_venv(venv_base(root), root / ".venv")
     python = proto.main_console_python(root)
     site = subprocess.run([str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
                           capture_output=True, text=True, timeout=60).stdout.strip()
@@ -1008,8 +1007,14 @@ def app(tmp_path_factory):
 
 
 def child_modules(root: Path, pid: int) -> dict:
-    """What the interpreter started as *pid* imported (*pid* itself, or the child a venv redirector started)."""
-    found = [p for p in (root / ".venv").glob("act-modules-*.json") if str(pid) in p.stem.split("-")[2:]]
+    """What the interpreter started as *pid* imported (*pid* itself, or the child a venv redirector started).
+
+    Each record is named ``act-modules-<parent>-<own>``. POSIX has no redirector, and *pid*'s own children (its engine
+    probes) name it as their parent, so its own record is taken first; Windows' launcher writes none, so there the one
+    record naming it as the parent is the real interpreter's."""
+    records = list((root / ".venv").glob("act-modules-*.json"))
+    found = ([p for p in records if p.stem.split("-")[3:] == [str(pid)]]
+             or [p for p in records if p.stem.split("-")[2:3] == [str(pid)]])
     assert len(found) == 1, found
     return json.loads(found[0].read_text(encoding="utf-8"))
 
@@ -1069,19 +1074,27 @@ def test_the_worker_runs_in_the_apps_environment_and_acquires_nothing(app):
     got = {c["id"]: c["readiness"] for c in plan["components"] if c["selected"]}
     # The copy has no references, no models and a pip-less environment: the real probes prove the Kokoro and
     # Chatterbox packages absent (broken, not "unverified"), nothing is ready and nothing is assumed.
-    assert got == {K: proto.DAMAGED, C: proto.BAD_BUNDLE, CV: proto.MISSING, B: proto.BAD_BUNDLE}
-    assert {c["id"]: c["engine"] for c in plan["components"] if c["selected"]} == {K: "broken", C: "broken", CV: None,
-                                                                                     B: None}
+    readiness = {K: proto.DAMAGED, C: proto.BAD_BUNDLE, CV: proto.MISSING, B: proto.BAD_BUNDLE}
+    engines = {K: "broken", C: "broken", CV: None, B: None}
+    # macOS P4C: the platform does not offer Chatterbox or Qwen3; the worker says so and never probes them (a probe-able
+    # engine that was not probed is "unproved", never "broken" or healthy).
+    offered = {c: engine_policy.component_offered(c) for c in ALL}
+    expected_readiness = {c: readiness[c] if offered[c] else proto.UNSUPPORTED for c in ALL}
+    expected_engines = {c: engines[c] if offered[c] or engines[c] is None else "unproved" for c in ALL}
+    assert got == expected_readiness
+    assert {c["id"]: c["engine"] for c in plan["components"] if c["selected"]} == expected_engines
     assert tripped(app) == ""  # no network
-    probes = started_processes(app)  # the only processes: the two bounded engine probes, in the app's own Python
+    probes = started_processes(app)  # the only processes: the bounded engine probes, in the app's own Python
     head = subprocess.list2cmdline([str(proto.main_console_python(app)), "-E", "-s", "-c"])
-    assert len(probes) == 2 and all(p.startswith(head + " ") for p in probes), probes
+    probed = [c for c in (K, C) if offered[c]]  # Windows: both; a Mac: Kokoro only
+    assert len(probes) == len(probed) and all(p.startswith(head + " ") for p in probes), probes
     modules = child_modules(app, run.process.pid)
     assert not [m for m in modules if m.split(".")[0] in HEAVY]
     ours = {m: f for m, f in modules.items() if m.split(".")[0] in ("shared", "tts") and f}
     assert ours and all(venv_layout.is_within(app / "scripts", f) for f in ours.values())
     assert sorted(p.name for p in (app / "files").iterdir()) == ["runtime-data"]
-    assert sorted(p.name for p in (app / "files" / "runtime-data").iterdir()) == ["optional-setup"]
+    placed = [] if os.name == "nt" else ["python"]  # POSIX: the copy's own base Python, put there by the fixture
+    assert sorted(p.name for p in (app / "files" / "runtime-data").iterdir()) == sorted(["optional-setup"] + placed)
 
 
 def test_a_child_cancelled_before_it_starts_reports_cancelled(app):
@@ -1112,7 +1125,13 @@ def test_a_hung_child_is_ended_within_its_bound_and_given_one_forced_result(app,
     assert time.monotonic() - started < 40 and run.process.poll() is not None
     assert process_gone(int(pid_file.read_text()))  # the real interpreter, not just a venv redirector, is gone
     assert result["state"] == proto.FAILED and result["error"]["code"] == proto.TIMED_OUT and result["forced"] is True
-    assert run.timed_out and run.terminated and run.lingering == 0
+    assert run.timed_out and run.terminated
+    if os.name == "nt":  # the Job Object is measured empty
+        assert run.lingering == 0
+    else:  # no job to measure (``lingering`` stays None): the worker's whole process group is gone instead
+        assert run.lingering is None
+        with pytest.raises(ProcessLookupError):
+            os.killpg(run.process.pid, 0)
     assert proto.publish_once(spec.result_path, b"late") is False  # a late writer can never replace it
     assert run.result() == result
 
@@ -1702,16 +1721,14 @@ def test_the_worker_command_line_cannot_steer_acquisition_and_only_a_consent_can
 @pytest.fixture(scope="module")
 def plain_app(tmp_path_factory):
     """Another disposable copy of the app with a pip-less ``.venv`` and no tripwire: these tests start grandchildren
-    on purpose, to prove that cancelling, timing out or finishing a run ends every one of them."""
-    base = Path(getattr(sys, "_base_executable", "") or sys.executable)
+    on purpose, to prove that cancelling, timing out or finishing a run ends every one of them. Its venv is made as
+    :func:`app`'s is."""
     root = tmp_path_factory.mktemp("disposable-plain-app")
     for package in ("shared", "tts"):
         shutil.copytree(REPO / "scripts" / package, root / "scripts" / package,
                         ignore=shutil.ignore_patterns("__pycache__"))
     (root / "files").mkdir()
-    made = subprocess.run([str(base), "-I", "-m", "venv", "--without-pip", str(root / ".venv")], capture_output=True,
-                          text=True, timeout=300)
-    assert made.returncode == 0, made.stderr
+    make_venv(venv_base(root), root / ".venv")
     return root
 
 
@@ -1829,3 +1846,457 @@ def test_a_worker_that_cannot_be_contained_is_never_run(plain_app, tmp_path, mon
     result = run.result()
     assert result["state"] == proto.FAILED and result["error"]["code"] == proto.CONTAINMENT_UNAVAILABLE
     assert proto.decode_result(proto.read_message_file(spec.result_path), request_id=request.request_id) == result
+
+
+# =========================================================================== #
+# v0.8.x P4C remediation — a POSIX venv's interpreter link into this copy's own Python
+# =========================================================================== #
+#: ``python -m venv`` makes ``.venv/bin/python`` a symlink only off Windows; Windows' rule is pinned further below.
+POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="python -m venv makes interpreter links only off Windows")
+
+
+def clone_tree(source: Path, destination: Path) -> None:
+    """Copy *source* to *destination*, links kept as links: an APFS clone on a Mac (instant), a plain copy elsewhere."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "darwin" and subprocess.run(["/bin/cp", "-cR", str(source), str(destination)],
+                                                   capture_output=True).returncode == 0:
+        return
+    shutil.rmtree(destination, ignore_errors=True)
+    shutil.copytree(source, destination, symlinks=True)
+
+
+def own_base_python(root: Path) -> Path:
+    """Give the disposable copy *root* its own base CPython where setup's stage 0 puts it
+    (``files/runtime-data/python``): a copy of the one running this suite. Returns its ``bin/python3.12``."""
+    clone_tree(Path(sys.base_prefix), root.joinpath(*proto.APP_PYTHON_PARTS))
+    python = proto.app_python(root)
+    assert python.is_file() and not venv_layout.is_link(python), python
+    return python
+
+
+def make_venv(base: Path, venv: Path) -> None:
+    """``<base> -m venv``, as ``bootstrap.create_venv`` builds the app's environment (pip-less: nothing here needs
+    it)."""
+    made = subprocess.run([str(base), "-I", "-m", "venv", "--without-pip", str(venv)], capture_output=True, text=True,
+                          timeout=300)
+    assert made.returncode == 0, made.stderr
+
+
+def venv_base(root: Path) -> Path:
+    """The base Python a disposable copy's ``.venv`` is made from. POSIX: the copy's own -- setup's real layout, and the
+    only base the launch accepts behind the venv's link. Windows: the suite's own base interpreter, as before."""
+    if os.name == "nt":
+        return Path(getattr(sys, "_base_executable", "") or sys.executable)
+    return own_base_python(root)
+
+
+@pytest.fixture
+def linked_copy(tmp_path):
+    """A fresh copy holding what the launch rule reads: its own base Python and a real ``-m venv`` made from it."""
+    root = tmp_path / "app"
+    make_venv(own_base_python(root), root / ".venv")
+    return root
+
+
+def link_chain(python: Path) -> list[tuple[str, str]]:
+    chain, current = [], python
+    while current.is_symlink():
+        target = os.readlink(current)
+        chain.append((str(current), target))
+        current = Path(target) if os.path.isabs(target) else current.parent / target
+    return chain
+
+
+def relink(link: Path, target) -> None:
+    link.unlink()
+    link.symlink_to(target)
+
+
+def refused(root: Path, *words: str) -> str:
+    """The launch rule refuses *root*'s console Python, and ``worker_launch`` refuses it with the same words."""
+    problem = proto.interpreter_problem(root)
+    assert problem, "the launch rule accepted an interpreter it must refuse"
+    for word in words:
+        assert word in problem, problem
+    with pytest.raises(proto.ProtocolError) as caught:
+        proto.worker_launch(root, root / "files" / "request.json", SESSION)
+    assert caught.value.code == proto.WRONG_INTERPRETER and str(caught.value) == problem
+    return problem
+
+
+def new_requests(root: Path, before: set) -> list[Path]:
+    exchange = proto.exchange_root(root)
+    return sorted(p for p in exchange.iterdir() if p.is_dir() and p.name not in before | {proto.CONSENTS_DIR})
+
+
+def request_names(root: Path) -> set:
+    exchange = proto.exchange_root(root)
+    return {p.name for p in exchange.iterdir()} if exchange.is_dir() else set()
+
+
+def test_the_app_python_location_agrees_with_setup_and_the_integrity_check():
+    from shared import bootstrap, venv_integrity
+
+    assert proto.APP_PYTHON_PARTS == venv_integrity.APP_PYTHON_PARTS
+    assert proto.POSIX_APP_PYTHON == "python%d.%d" % proto.MAIN_PYTHON
+    if os.name != "nt":
+        assert proto.app_python(bootstrap.FILES_DIR.parent) == bootstrap.APP_PYTHON
+
+
+def test_the_real_app_environment_on_this_computer_passes_the_launch_rule_and_the_workers_own_check():
+    """Read-only. The suite runs in the real ``.venv``: on a Mac its console Python is the venv link this rule is
+    for."""
+    assert proto.interpreter_problem(REPO) == ""
+    assert proto.worker_home_problem(REPO) == ""
+
+
+@POSIX_ONLY
+def test_a_real_venv_link_into_this_copys_own_python_is_accepted(linked_copy):
+    root, python = linked_copy, proto.main_console_python(linked_copy)
+    chain = link_chain(python)
+    assert chain and chain[-1][1] == str(proto.app_python(root))  # what -m venv really made: links ending at the base
+    assert venv_layout.unsafe_component(root, python) == python  # the general rule still calls it a link (unchanged)
+    assert proto.interpreter_problem(root) == ""
+    worker_file = root / "scripts" / "tts" / "optional_setup_worker.py"
+    worker_file.parent.mkdir(parents=True)
+    worker_file.write_text("", encoding="utf-8")
+    path = proto.write_request(root, proto.new_request(proto.ACTION_PLAN, [K], session=SESSION))
+    spec = proto.worker_launch(root, path, SESSION, base_env={"PATH": "x", "PYTHONPATH": "evil", "VIRTUAL_ENV": "v"})
+    assert spec.argv[:5] == (str(python), "-E", "-s", "-m", "tts.optional_setup_worker") and spec.env == {"PATH": "x"}
+
+
+@POSIX_ONLY
+def test_a_venv_made_through_the_base_pythons_own_alias_is_accepted(tmp_path):
+    """``python3`` beside ``python3.12`` is the standalone build's own alias: a venv made through it is still this
+    copy's."""
+    root = tmp_path / "app"
+    base = own_base_python(root)
+    alias = base.with_name("python3")
+    assert alias.is_symlink() and os.readlink(alias) == "python3.12"
+    make_venv(alias, root / ".venv")
+    assert proto.interpreter_problem(root) == ""
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("case", ["foreign-copy", "direct-foreign", "unexpected-hop", "relative-escape",
+                                  "absolute-unnormalised", "dangling", "loop", "too-long"])
+def test_a_link_that_leaves_or_redirects_this_copys_chain_is_refused(linked_copy, tmp_path, case):
+    root = linked_copy
+    venv_bin = root / ".venv" / "bin"
+    if case == "foreign-copy":  # another copy of the app, with its own perfectly good Python
+        relink(venv_bin / "python3.12", own_base_python(tmp_path / "other-copy"))
+        refused(root, "not this copy's own")
+    elif case == "direct-foreign":
+        relink(venv_bin / "python", Path(sys.base_prefix) / "bin" / "python3.12")  # the suite's own installation
+        refused(root, "not this copy's own")
+    elif case == "unexpected-hop":
+        (venv_bin / "evil").symlink_to(proto.app_python(root))
+        relink(venv_bin / "python", "evil")
+        refused(root, "unexpected link")
+    elif case == "relative-escape":  # lands on the right file, but by a path the rule does not vouch for
+        relink(venv_bin / "python", "../../files/runtime-data/python/bin/python3.12")
+        assert os.path.samefile(venv_bin / "python", proto.app_python(root))
+        refused(root, "unexpected link")
+    elif case == "absolute-unnormalised":
+        relink(venv_bin / "python3.12", f"{root}/files/runtime-data/python/bin/../bin/python3.12")
+        assert os.path.samefile(venv_bin / "python", proto.app_python(root))
+        refused(root, "unexpected link")
+    elif case == "dangling":
+        (venv_bin / "python3.12").unlink()
+        refused(root, "broken link")
+    elif case == "loop":
+        relink(venv_bin / "python", "python3")
+        relink(venv_bin / "python3", "python")
+        refused(root, "more links than")
+    else:  # every name allowed, but longer than any venv makes
+        relink(venv_bin / "python", "python3")
+        relink(venv_bin / "python3", "python3.12")
+        relink(venv_bin / "python3.12", proto.app_python(root).with_name("python"))
+        relink(proto.app_python(root).with_name("python"), "python3")
+        assert os.path.samefile(venv_bin / "python", proto.app_python(root))
+        refused(root, "more links than")
+
+
+@POSIX_ONLY
+def test_a_moved_or_copied_environment_is_refused(linked_copy, tmp_path):
+    """Copied elsewhere (or its folder moved), the venv's links still name the first copy's Python."""
+    moved = tmp_path / "moved"
+    clone_tree(linked_copy, moved)
+    refused(moved, "not this copy's own")
+    # Even pointed at its new copy's Python, pyvenv.cfg still says it was made, and from what, somewhere else.
+    relink(moved / ".venv" / "bin" / "python3.12", proto.app_python(moved))
+    refused(moved, "pyvenv.cfg")
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("case", [".venv", ".venv/bin", "files/runtime-data/python",
+                                  "files/runtime-data/python/bin", "files/runtime-data/python/bin/python3.12"])
+def test_a_redirected_folder_or_base_python_is_refused(linked_copy, case):
+    place = linked_copy / case
+    real = place.with_name(place.name + "-real")
+    place.rename(real)
+    place.symlink_to(real)
+    refused(linked_copy, "link")
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("case", ["missing", "empty", "folder", "not-executable"])
+def test_a_missing_or_corrupt_base_python_is_refused(linked_copy, case):
+    base = proto.app_python(linked_copy)
+    base.unlink()
+    if case == "empty":
+        base.write_bytes(b"")
+        base.chmod(0o755)
+    elif case == "folder":
+        base.mkdir()
+    elif case == "not-executable":
+        base.write_bytes(b"\xcf\xfa\xed\xfe" + b"\0" * 64)
+        base.chmod(0o644)
+    refused(linked_copy, "this copy's own Python")
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("change, words", [
+    ("home = /elsewhere/python/bin", "pyvenv.cfg home"),
+    ("include-system-site-packages = true", "not isolated"),
+    ("version = 3.11.9", "3.12"),
+    ("command = /elsewhere/python/bin/python3.12 -m venv /elsewhere/.venv", "pyvenv.cfg command"),
+    ("executable = /elsewhere/python/bin/python3.12", "pyvenv.cfg executable"),
+    ("<no command>", "pyvenv.cfg command"),
+    ("<missing>", "pyvenv.cfg"),
+    ("<link>", "pyvenv.cfg is a link"),
+])
+def test_a_tampered_pyvenv_cfg_is_refused(linked_copy, tmp_path, change, words):
+    cfg = linked_copy / ".venv" / "pyvenv.cfg"
+    lines = cfg.read_text(encoding="utf-8").splitlines()
+    if change == "<missing>":
+        cfg.unlink()
+    elif change == "<link>":
+        elsewhere = tmp_path / "pyvenv.cfg"
+        elsewhere.write_bytes(cfg.read_bytes())
+        relink(cfg, elsewhere)
+    elif change == "<no command>":
+        cfg.write_text("\n".join(line for line in lines if not line.startswith("command")) + "\n", encoding="utf-8")
+    else:
+        key = change.split("=")[0].strip()
+        kept = [line for line in lines if line.split("=")[0].strip() != key]
+        cfg.write_text("\n".join(kept + [change]) + "\n", encoding="utf-8")
+    refused(linked_copy, words)
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("place", [".venv", ".venv/bin", ".venv/pyvenv.cfg", "files/runtime-data/python",
+                                   "files/runtime-data/python/bin", "files/runtime-data/python/bin/python3.12"])
+def test_a_chain_member_other_accounts_can_change_is_refused(linked_copy, place):
+    path = linked_copy / place
+    mode = stat.S_IMODE(os.lstat(path).st_mode)
+    for extra in (stat.S_IWGRP, stat.S_IWOTH):
+        path.chmod(mode | extra)
+        try:
+            refused(linked_copy, "other accounts")
+        finally:
+            path.chmod(mode)
+    assert proto.interpreter_problem(linked_copy) == ""
+
+
+@POSIX_ONLY
+def test_the_folders_that_only_lead_to_the_base_python_need_to_be_this_accounts_not_closed(linked_copy, monkeypatch):
+    """The trust boundary, pinned: ``files`` and ``files/runtime-data`` are where the person put the copy, with the
+    permissions they gave it (this Mac's checkout has them world-writable), so only their owner is checked. What holds
+    the chain is closed to other accounts (above), and every member must be this account's (below)."""
+    lead = linked_copy / "files" / "runtime-data"
+    mode = stat.S_IMODE(os.lstat(lead).st_mode)
+    lead.chmod(mode | stat.S_IWGRP | stat.S_IWOTH)
+    try:
+        assert proto.interpreter_problem(linked_copy) == ""
+    finally:
+        lead.chmod(mode)
+
+
+@POSIX_ONLY
+def test_a_chain_owned_by_another_account_is_refused(linked_copy, monkeypatch):
+    monkeypatch.setattr(os, "geteuid", lambda: os.getuid() + 4242)
+    refused(linked_copy, "owned by another account")
+
+
+@POSIX_ONLY
+def test_only_the_environments_own_console_python_may_be_a_link(linked_copy):
+    """The acquirer's pip step asks the same rule with its own interpreter: anything but ``.venv/bin/python`` that is a
+    link is refused, even when it reaches this copy's Python."""
+    other = linked_copy / ".venv" / "bin" / "python3"
+    assert proto.interpreter_problem(linked_copy, other) == \
+        "only the app environment's own console Python may be reached through a link"
+
+
+@POSIX_ONLY
+def test_the_worker_started_from_the_venv_link_attests_its_own_home(app):
+    python = proto.main_console_python(app)
+    assert python.is_symlink()
+    code = ("import sys; from pathlib import Path; from shared import optional_setup_protocol as p; "
+            "root = Path(sys.argv[1]); print(repr(p.execution_home_problem(root))); "
+            "print(repr(p.worker_home_problem(root)))")
+    done = subprocess.run([str(python), "-E", "-s", "-c", code, str(app)], cwd=app / "scripts", capture_output=True,
+                          text=True, timeout=60)
+    assert done.returncode == 0 and done.stdout.split() == ["''", "''"], (done.stdout, done.stderr)
+
+
+@POSIX_ONLY
+def test_a_worker_started_by_hand_from_another_copys_python_refuses_itself(app, tmp_path):
+    """Bypassing ``worker_launch`` does not get a worker past the rule: started directly from a venv whose link was
+    turned to another copy's Python (which the running-interpreter check alone would accept), it refuses the request."""
+    rogue = tmp_path / "rogue-app"
+    clone_tree(app, rogue)
+    shutil.rmtree(rogue / ".venv")
+    make_venv(proto.app_python(rogue), rogue / ".venv")
+    relink(rogue / ".venv" / "bin" / "python3.12", proto.app_python(app))
+    python = proto.main_console_python(rogue)
+    show = ("import sys; from pathlib import Path; from shared import optional_setup_protocol as p; "
+            "print(repr(p.execution_home_problem(Path(sys.argv[1]))))")
+    shown = subprocess.run([str(python), "-E", "-s", "-c", show, str(rogue)], cwd=rogue / "scripts",
+                           capture_output=True, text=True, timeout=60)
+    assert shown.stdout.strip() == "''", shown  # the old self-check alone would have let it run
+    session = proto.new_token()
+    request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
+    path = proto.write_request(rogue, request)
+    argv = [str(python), "-E", "-s", "-m", proto.WORKER_MODULE, "--request", str(path), "--result",
+            str(path.with_name(proto.RESULT_NAME)), "--session", session]
+    done = subprocess.run(argv, cwd=rogue / "scripts", capture_output=True, text=True, timeout=120)
+    result = proto.decode_result(proto.read_message_file(path.with_name(proto.RESULT_NAME)),
+                                 request_id=request.request_id)
+    assert done.returncode == proto.EXIT_CODES[proto.REFUSED], (done.stdout, done.stderr)
+    assert result["error"]["code"] == proto.WRONG_INTERPRETER and "not this copy's own" in result["error"]["message"]
+    assert result["plan"] is None
+
+
+def test_the_real_worker_refuses_a_consent_that_is_not_the_reviewed_plan_and_acquires_nothing(app):
+    """Through the real client and worker: a consent whose byte budget or fingerprint differs from the plan that was
+    shown is refused before anything is spent, downloaded or written outside the request folders."""
+    from shared import optional_setup_client as client
+
+    started_processes(app)
+    before = tripped(app)
+    shown = client.plan(app, [K])
+    assert shown["state"] == proto.SUCCEEDED, shown
+    plan = shown["plan"]
+    consent = client.consent_for(plan)
+    assert consent.download_bytes > 0 and client.needs_install(plan)
+    smaller = dataclasses.replace(consent, download_bytes=consent.download_bytes - 1)
+    forged = dataclasses.replace(consent, acquisition_fingerprint="0" * 64)
+    for altered, codes in ((smaller, {proto.BAD_CONSENT}), (forged, {proto.BAD_CONSENT, proto.CONSENT_STALE})):
+        result = client.install(app, plan, altered)
+        assert result["state"] == proto.REFUSED and result["error"]["code"] in codes, result
+        assert result["verified"] == []
+    assert not (proto.exchange_root(app) / proto.CONSENTS_DIR).exists()  # checked, never spent
+    assert tripped(app) == before  # no network
+    assert sorted(p.name for p in (app / "files" / "runtime-data").iterdir()) == \
+        sorted(["optional-setup"] + ([] if os.name == "nt" else ["python"]))  # no model, no download area
+
+
+@POSIX_ONLY
+def test_a_worker_from_the_venv_link_ends_with_its_owner_however_the_owner_ends(plain_app, tmp_path):
+    """The app window owns the worker (class A: its own process group, tied to the owner's lifeline). SIGKILL the
+    owner, which runs no code of its own, and the worker and the grandchild it started end too."""
+    own, grand = tmp_path / "own.pid", tmp_path / "grand.pid"
+    stand_in = ("import os, subprocess, sys, time\n"
+                f"subprocess.Popen([sys.executable, '-c', {GRANDCHILD_CODE!r}, {str(grand)!r}])\n"
+                f"open({str(own)!r}, 'w').write(str(os.getpid()))\n"
+                "time.sleep(120)\n")
+    owner_code = ("import sys, time\n"
+                  "from pathlib import Path\n"
+                  "from shared import optional_setup_protocol as proto, subprocess_utils\n"
+                  "assert subprocess_utils.enable_containment() is not None\n"
+                  f"root = Path({str(plain_app)!r})\n"
+                  "session = proto.new_token()\n"
+                  "request = proto.new_request(proto.ACTION_PLAN, [proto.KOKORO], session=session)\n"
+                  "spec = proto.worker_launch(root, proto.write_request(root, request), session)\n"
+                  f"spec = proto.LaunchSpec((spec.argv[0], '-c', {stand_in!r}), spec.cwd, spec.env, spec.request_path,"
+                  " spec.result_path)\n"
+                  "run = proto.WorkerRun(root, spec, request)\n"
+                  "run.start()\n"
+                  "time.sleep(120)\n")
+    owner = subprocess.Popen([str(proto.main_console_python(plain_app)), "-E", "-s", "-c", owner_code],
+                             cwd=plain_app / "scripts", start_new_session=True, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, text=True)
+    try:
+        worker_pid, grandchild_pid = wait_for_pid(own), wait_for_pid(grand)
+        assert os.getpgid(worker_pid) == worker_pid != os.getpgid(owner.pid)  # the worker leads its own group
+        assert os.getpgid(grandchild_pid) == worker_pid
+    finally:
+        owner.kill()
+        owner.wait(10)
+    deadline = time.monotonic() + 10
+    while not (process_gone(worker_pid) and process_gone(grandchild_pid)) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert process_gone(worker_pid) and process_gone(grandchild_pid), owner.stderr.read()
+
+
+@POSIX_ONLY
+def test_a_base_python_that_is_not_a_program_never_runs_and_the_launch_fails_closed(app, tmp_path):
+    """Bytes the rule cannot judge (an executable file of the right shape that is not a program) are stopped by the OS:
+    the worker never runs as Python, the client never reports success, and the request's one result is a failure."""
+    from shared import optional_setup_client as client
+
+    corrupt = tmp_path / "corrupt-app"
+    clone_tree(app, corrupt)
+    shutil.rmtree(corrupt / ".venv")
+    make_venv(proto.app_python(corrupt), corrupt / ".venv")
+    base = proto.app_python(corrupt)
+    base.unlink()  # a clone: the suite's own Python is never touched
+    base.write_bytes(b"\xcf\xfa\xed\xfe" + b"\0" * 64)  # a Mach-O header and nothing after it
+    base.chmod(0o755)
+    assert proto.interpreter_problem(corrupt) == ""  # its shape is right; only running it can tell
+    before = request_names(corrupt)
+    seen = []
+    try:
+        result = client.plan(corrupt, [K], on_event=seen.append)
+    except client.SetupUnavailable:
+        (folder,) = new_requests(corrupt, before)
+        result = proto.decode_result(proto.read_message_file(folder / proto.RESULT_NAME), request_id=folder.name)
+    assert result["state"] == proto.FAILED and result["forced"] is True and seen == []
+
+
+def test_windows_keeps_its_strict_no_link_rule_and_never_reads_a_chain(tmp_path, monkeypatch):
+    """Deterministic, on any platform: with ``sys.platform`` answering Windows, the console Python is
+    ``Scripts/python.exe``; a real file is accepted, and a link on the way is refused with the words it always had."""
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    def never(*args, **kwargs):
+        raise AssertionError("the POSIX link rule was consulted on Windows")
+
+    monkeypatch.setattr(proto, "_venv_link_problem", never)
+    root = tmp_path / "app"
+    python = proto.main_console_python(root)
+    assert python == root / ".venv" / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"MZ")
+    assert proto.interpreter_problem(root) == ""
+    words = "the app environment's console Python is missing or reached through a link"
+    real = python.with_name("real-python.exe")
+    python.rename(real)
+    python.symlink_to(real)
+    assert proto.interpreter_problem(root) == words
+    with pytest.raises(proto.ProtocolError) as caught:
+        proto.worker_launch(root, root / "request.json", SESSION)
+    assert caught.value.code == proto.WRONG_INTERPRETER and str(caught.value) == words
+    python.unlink()
+    assert proto.interpreter_problem(root) == words  # missing
+    real.rename(python)
+    (root / ".venv").rename(root / "venv-real")
+    (root / ".venv").symlink_to(root / "venv-real")
+    assert proto.interpreter_problem(root) == words  # a linked environment folder
+
+
+def test_windows_worker_checks_itself_exactly_as_before(monkeypatch):
+    import inspect
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    def never(*args, **kwargs):
+        raise AssertionError("the on-disk interpreter rule was added to Windows' self-check")
+
+    monkeypatch.setattr(proto, "interpreter_problem", never)
+    monkeypatch.setattr(proto, "execution_home_problem", lambda root: "")
+    assert proto.worker_home_problem(REPO) == ""
+    monkeypatch.setattr(proto, "execution_home_problem", lambda root: "not the app's environment")
+    assert proto.worker_home_problem(REPO) == "not the app's environment"
+    assert inspect.signature(worker.main).parameters["home_check"].default is proto.worker_home_problem

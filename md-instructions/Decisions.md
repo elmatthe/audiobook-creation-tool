@@ -2,6 +2,84 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-16 — P4C Option A: on POSIX the setup worker's launch accepts the venv's own interpreter link only when the whole chain is proved to be this copy's own environment and Python; Windows' rule unchanged; Kokoro acquired through the fixed production route (owner authorization of Option A; implementation decisions by Claude Code)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS. Start SHA `aa9d3af`. The owner explicitly authorized Option A in this session.
+
+**The defect, reproduced at `aa9d3af` (read-only).**
+- `.venv/bin/python -> python3.12 -> <copy>/files/runtime-data/python/bin/python3.12`, a regular file. Both links were made by `python -m venv`, which setup's `create_venv` runs.
+- `worker_launch` raised `wrong-interpreter`: "the app environment's console Python is missing or reached through a link". The worker's own `execution_home_problem` passed.
+- The same "no link" rule guarded the acquirer's spaCy pip step (`RealAcquirer._acquire_spacy`), so a fresh Mac Kokoro install would also have stopped there.
+- Ten real-child tests in `test_optional_tts_setup.py` already failed on the Mac for the same cause; they were counted among the baseline failures.
+
+**Decision: one dedicated rule, `optional_setup_protocol.interpreter_problem(root, python)`.**
+- **A real file** reached through no link: accepted everywhere, exactly as before (`venv_layout.unsafe_component`, unchanged).
+- **Windows:** any link is refused, with the same words as before.
+- **POSIX, when the interpreter is a link** (`_venv_link_problem`). Accepted only when all of these are proved:
+  1. It is exactly this copy's `.venv/bin/python`.
+  2. Nothing from the copy down to `.venv/bin`, or down to `files/runtime-data/python/bin/python3.12`, is a link. The copy's own folder may itself be reached through one, as everywhere.
+  3. Each link sits in `.venv/bin` (named `python`, `python3` or `python3.12`) or beside the base Python (named `python` or `python3`). Each points to a plain name in the same folder or to a normalised absolute path. There are at most 4 links, so a loop ends.
+  4. The chain ends at this copy's `python3.12`: a non-empty, executable regular file, and `samefile` agrees.
+  5. Every link, folder and file on the way belongs to this account. `.venv`, `.venv/bin`, `pyvenv.cfg`, `files/runtime-data/python`, its `bin` and `python3.12` cannot be written by group or others.
+  6. `pyvenv.cfg` is a file, not a link. Its `home` and `executable` name this copy's base, its `command` names this `.venv`, it is isolated, and it says CPython 3.12. The copy's path may be spelled as given or resolved.
+- **Where it applies.** `worker_launch` uses it, as does the acquirer's spaCy pip step (same interpreter, same route).
+- **The worker's own check.** `optional_setup_worker.main` now defaults to `worker_home_problem`: `execution_home_problem`, plus on POSIX `interpreter_problem` for the interpreter it was started as. A worker started some other way therefore refuses another copy's Python, which `execution_home_problem` alone accepted (tested). Windows' self-check is `execution_home_problem` alone, as before.
+- **Unchanged.** The argv (`-E -s -m`), the environment scrub, containment (`qwen3_process.spawn`, class A through `child_entry.py` when the app owns it, a new process group otherwise), cancellation, the single result, consent, provenance, hashes and path checks.
+
+**Why not the alternatives.**
+- `--copies`, rebuilding `.venv` or changing the bundled Python: forbidden by the task, and they would hide the real layout every Mac copy has.
+- Allowing links in `unsafe_component`: it guards every other path in the app.
+- Comparing only `realpath`: it would accept any path that happens to land on the right file, such as `../../files/...` through other folders.
+
+**The trust boundary, stated exactly.** Trusted:
+- the copy's own folder, wherever it is and however it is reached (as before);
+- the two named links (`.venv/bin`) and the bundled Python's own aliases;
+- this account.
+
+Refused:
+- any link elsewhere on the way;
+- any other Python;
+- a moved or copied environment (its links and `pyvenv.cfg` name the first copy);
+- other accounts' ownership or write access to what holds the chain.
+
+**Why no other path protection is weakened.**
+- `unsafe_component` and every other caller of it are unchanged.
+- The exception covers one file name, in one folder, on POSIX, and only for a chain proved end to end.
+- The exchange folder, request, result, consent and model paths keep their link refusals.
+
+**Residuals (owner).**
+1. **This checkout's folders are writable by any account.** The root, `scripts/`, `files/` and `files/runtime-data/` are `drwxrwxrwx`; the app's own folders (`.venv`, `python/`, models) are `755`. Any account on this Mac could change the app's code, whatever a launch rule says. The rule therefore checks only the owner of `files` and `files/runtime-data` (pinned by a test). It is not tightened here: the owner's permissions were not changed. Suggested owner action: remove group and world write from the checkout (`chmod -R go-w`).
+2. **On POSIX, a grandchild left by a worker that exited normally is not ended with the run.** Windows' Job Object ends it. `WorkerRun._finish` acts only on a job. Cancel and time-out do end the worker's whole process group (`killpg`), and killing the owner ends both (tested).
+   - The existing `test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run` still fails on a Mac. It was a baseline failure (the launch refusal) and now fails for this reason.
+   - Fixing it means signalling a group whose leader has already been reaped. The project deliberately avoids that (`child_ownership`: "a group is signalled only while its leader is an unreaped child"). That is a containment design decision, not taken here.
+   - The production worker waits for its own contained children (probes, pip), so no stray is expected in normal runs.
+3. **Corrupt bytes in an otherwise well-formed executable** cannot be judged by a launch rule. The OS refuses to run them: the worker never starts and the request's one result is a forced failure (tested).
+
+**Tests.**
+- **New in `test_optional_tts_setup.py`: 46 tests.** They use real `-m venv` environments built from each disposable copy's own clone of the bundled Python:
+  - acceptance, including a venv made through the `python3` alias;
+  - links: foreign copy, foreign installation, unexpected hop, relative escape, unnormalised absolute, dangling, loop, too long;
+  - moved or copied environment;
+  - redirected `.venv`, `.venv/bin`, `python/`, `bin/` and `python3.12`;
+  - base Python missing, empty, a folder, or not executable;
+  - eight kinds of `pyvenv.cfg` tampering;
+  - group and world write on six members; another owner; the trust-boundary pin;
+  - a non-console link;
+  - the worker's self-check from the link, and a worker started by hand from another copy's Python refusing itself;
+  - a consent changed after review refused by the real worker, with nothing spent or downloaded;
+  - the owner killed, ending the worker and its grandchild;
+  - a non-program base Python, which never runs;
+  - Windows' rule and self-check, deterministic.
+- **New in `test_optional_setup_acquisition.py`: 2 tests.** The spaCy pip step runs from this copy's venv link and refuses another copy's.
+- **Existing tests adapted, none weakened.**
+  - On POSIX, the `app` and `plain_app` fixtures give the copy its own base Python (setup's real layout). Windows builds as before.
+  - Four Windows-shaped pins now name their platform:
+    - the planned readiness (P4C: Chatterbox and Qwen3 `unsupported`, Chatterbox's engine `unproved`) and the number of probes;
+    - `lingering`, which only a Windows job measures; on POSIX the test proves the worker's process group is gone;
+    - the `files/runtime-data` listing, which on POSIX holds the copy's `python`;
+    - the import-record lookup: on POSIX a process's own record, since there is no venv redirector.
+- Run evidence is in the Handoff block and the roadmap (§19 P4C, Revision 3h).
+
 ## 2026-11-16 — P4C Kokoro acquisition stopped before any download: the app's setup worker cannot start on macOS; the in-process route used by P2 and P4B was not taken without the owner's say (decision by Claude Code under the owner's acquisition authorization)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS. HEAD `a713789`.
