@@ -16,6 +16,7 @@ import subprocess
 import pytest
 
 from shared import bootstrap, spacy_store
+from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 from tts import model_assets as assets
 from tts import qwen3_runtime as rt
 
@@ -68,7 +69,7 @@ def pip(monkeypatch):
 
     fake = Fake()
     fake.calls, fake.requirements = [], []
-    monkeypatch.setattr(bootstrap.subprocess, "run", fake)
+    stand_in_for_setups_python_children(monkeypatch, fake)
     return fake
 
 

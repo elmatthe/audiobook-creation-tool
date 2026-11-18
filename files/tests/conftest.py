@@ -951,6 +951,22 @@ def _no_production_log_writes():
                     + "; ".join(changed) + _ADVICE)
 
 
+def stand_in_for_setups_python_children(monkeypatch, fake) -> None:
+    """Answer every ACT-authored Python child setup runs (``bootstrap._child_run``: its probes, proofs, ``-m venv``
+    and offline pip) with *fake*, called as ``subprocess.run`` would be, with the command line that would run.
+
+    Windows runs those children through ``subprocess.run``. A contained POSIX setup runs them through its owner, and
+    since v0.8.x P5-C ``Owner.run_python`` no longer goes through ``subprocess.run`` (it never reaps a child before its
+    process group has been ended), so *fake* stands in there too -- given ``child_ownership.python_argv`` of the
+    command, exactly what it received through ``subprocess.run`` before.
+    """
+    from shared import bootstrap, child_ownership
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", fake)
+    monkeypatch.setattr(child_ownership.Owner, "run_python",
+                        lambda owner, argv, **kwargs: fake(child_ownership.python_argv(argv), **kwargs))
+
+
 @pytest.fixture
 def fresh_containment_owner(monkeypatch):
     """v0.8.x P5-B: this test process starts with no POSIX containment owner and leaves none behind.

@@ -28,6 +28,12 @@ ran is not contained; see Decisions (P1A).
 (``sysctl kern.proc.pid``). A signal goes only to a process whose start time still matches; a group is signalled only
 while its leader is an unreaped child of this owner, so neither id can have been reused. Never by name, never a scan.
 
+**A leader's normal exit proves nothing about its group** (v0.8.x P5-C). pip or a probe can exit while a helper it
+started -- in its group -- runs on, and can hold its output open. So a class-A child is never reaped before its group
+has been ended (:func:`end_led_group`), and its caller waits for the leader's exit, not for the end of its output
+(:func:`follow_lines`, :func:`communicate_led`); a group that cannot be proved the leader's own, or not confirmed ended,
+is reported as a failure, never as a success.
+
 **Deliberately detached children** (class D: the GUI started by setup, the Finder ``open``, ``close_terminal.py``) do
 not come here; ``files/tests`` pins that list.
 
@@ -38,6 +44,7 @@ on Windows; :func:`supported` is False there and the Windows spawn paths are unc
 from __future__ import annotations
 
 import os
+import queue
 import select
 import signal
 import struct
@@ -263,6 +270,263 @@ def end_led_group(proc: subprocess.Popen, start_time: Optional[tuple[int, int]],
 
 
 # --------------------------------------------------------------------------- #
+#  A class-A child that exits normally (v0.8.x P5-C)
+# --------------------------------------------------------------------------- #
+#: How long the output of a child whose group has been ended may stay silent before it is judged still held open by
+#: something outside that group. Every writer in the group is gone by then, so only what is already in the pipe is left.
+DRAIN_IDLE_S = 5.0
+#: The most time handing on that output may take in all, however much of it is left.
+DRAIN_LIMIT_S = 30.0
+#: How often a followed child's exit (observed, never reaped) and its caller's stop request are looked at.
+FOLLOW_POLL_S = 0.1
+
+
+@dataclass
+class Retired:
+    """How a class-A child -- the leader of its own process group -- was retired (v0.8.x P5-C).
+
+    A leader that exits normally is no proof that what it started has ended: a build backend or helper in its group can
+    outlive it, and can hold its output open. So the leader is reaped only after its group has been ended the P5-A way
+    (:func:`end_led_group`); this records how that went."""
+
+    returncode: Optional[int]  # the leader's exit status; None when it could not be reaped within the bound
+    group: str  # the :func:`end_led_group` answer for the group it led
+    output_open: bool = False  # its output had not reached end-of-file once its group had ended (the drain bounds)
+    stopped: bool = False  # its caller asked it to stop: its group was ended at once
+    timed_out: bool = False  # still running at its caller's deadline: its group was ended then
+
+    def problem(self) -> Optional[str]:
+        """Why nothing can vouch that the child and everything it started have ended -- or None, when the kernel
+        confirmed its group empty, its output ended and it was reaped. A caller never reports success while this says
+        something."""
+        if self.group == GROUP_UNPROVED:
+            return ("its process group's id could not be proved to still be its own (it had already been reaped or "
+                    "replaced), so nothing was signalled; something it started may still be running")
+        if self.group == GROUP_REMAINING:
+            return "a process in its group had not ended in time (or could not be told to); it may still be running"
+        if self.group == GROUP_SIGNALLED:
+            return "its process group was told to end, but this system cannot confirm that none of it is left"
+        if self.group != GROUP_ENDED:
+            return f"ending its process group gave no known answer ({self.group!r})"
+        if self.output_open:
+            return ("its output was still held open after its process group had ended, so a process outside that group "
+                    "may still be running")
+        if self.returncode is None:
+            return "it did not exit in time to be reaped"
+        return None
+
+
+def _reap(proc: subprocess.Popen, bound_s: float) -> Optional[int]:
+    """Reap *proc*, waiting at most *bound_s*: its exit status, or None when it has not exited. Never raises."""
+    try:
+        return proc.wait(timeout=max(0.0, bound_s))
+    except subprocess.TimeoutExpired:
+        return None
+    except ChildProcessError:  # reaped outside its ``Popen``: the status is lost
+        return proc.returncode
+
+
+def retire_led_group(proc: subprocess.Popen, start_time: Optional[tuple[int, int]], *,
+                     bound_s: float = SHUTDOWN_BOUND_S) -> tuple[str, Optional[int]]:
+    """End the group *proc* leads -- proved, signalled, confirmed (:func:`end_led_group`) -- and only then reap *proc*.
+    Returns ``(the group answer, the exit status or None)``. Bounded by twice *bound_s*; never raises.
+
+    For a leader that has exited it ends what the leader left behind; for one still running (a stop, a deadline, an
+    error in its caller) it ends the leader together with its group, at once."""
+    answer = end_led_group(proc, start_time, bound_s=bound_s)
+    return answer, _reap(proc, bound_s)
+
+
+def _wait_leader(proc: subprocess.Popen, start_time: Optional[tuple[int, int]], poll_s: float, *,
+                 stop: Optional[Callable[[], bool]] = None, deadline: Optional[float] = None) -> str:
+    """Wait, never reaping, until *proc* has exited (``"exited"``), *stop* says so (``"stopped"``) or the monotonic
+    *deadline* passes (``"timed-out"``)."""
+    while True:
+        if stop is not None and stop():
+            return "stopped"
+        if has_exited(proc, start_time):
+            return "exited"
+        if deadline is not None and time.monotonic() >= deadline:
+            return "timed-out"
+        time.sleep(poll_s)
+
+
+def follow_lines(proc: subprocess.Popen, start_time: Optional[tuple[int, int]], on_line: Callable[[str], None], *,
+                 stop: Optional[Callable[[], bool]] = None, poll_s: float = FOLLOW_POLL_S,
+                 drain_idle_s: float = DRAIN_IDLE_S, drain_limit_s: float = DRAIN_LIMIT_S,
+                 bound_s: float = SHUTDOWN_BOUND_S) -> Retired:
+    """Hand each line *proc* writes to *on_line* until *proc* exits, then retire it (v0.8.x P5-C, POSIX).
+
+    *proc* is a class-A child (the leader of its own process group) whose stdout is a pipe -- pip, or an engine probe,
+    streamed. What ends the wait is the LEADER's exit, observed without reaping it (:func:`has_exited`), never the end
+    of its output alone: a helper left in its group can hold that pipe open for as long as it runs, and a reader that
+    waited for end-of-file would wait as long. Once the leader has exited -- or *stop* says so, or *on_line* raises --
+    its group is ended the P5-A way (:func:`end_led_group`); after a normal exit what was already written is still
+    handed on (until end-of-file, bounded by *drain_idle_s* of silence and *drain_limit_s* in all); only then is the
+    leader reaped. Lines are handed on from the calling thread; *stop* is asked about every *poll_s*.
+    """
+    lines: "queue.Queue[Optional[str]]" = queue.Queue()
+    stream = proc.stdout
+
+    def pump() -> None:
+        try:
+            if stream is not None:
+                for line in stream:
+                    lines.put(line)
+        except (OSError, ValueError):  # the pipe broke or was closed
+            pass
+        finally:
+            lines.put(None)
+
+    reader = threading.Thread(target=pump, name="act-child-output", daemon=True)
+    reader.start()
+    stopped = eof = False
+    try:
+        while True:
+            if stop is not None and stop():
+                stopped = True
+                break
+            if has_exited(proc, start_time):  # never reaps: its id, and so its group's, stays reserved
+                break
+            try:
+                line = lines.get(timeout=poll_s)
+            except queue.Empty:
+                continue
+            if line is None:
+                eof = True
+                # Its output ended first: the leader is still waited for (unreaped) before anything is judged.
+                stopped = _wait_leader(proc, start_time, poll_s / 2, stop=stop) == "stopped"
+                break
+            on_line(line)
+    except BaseException:
+        retire_led_group(proc, start_time, bound_s=bound_s)
+        raise
+    answer = end_led_group(proc, start_time, bound_s=bound_s)
+    output_open = False
+    if not stopped and not eof:
+        try:
+            output_open = not _drain(lines, on_line, drain_idle_s, drain_limit_s)
+        except BaseException:
+            _reap(proc, bound_s)
+            raise
+    code = _reap(proc, bound_s)
+    if not reader.is_alive() and stream is not None:
+        try:  # never closed under a reader still blocked on it: its descriptor could be reused under that read
+            stream.close()
+        except (OSError, ValueError):
+            pass
+    return Retired(returncode=code, group=answer, output_open=output_open, stopped=stopped)
+
+
+def _drain(lines: "queue.Queue[Optional[str]]", on_line: Callable[[str], None], idle_s: float, limit_s: float) -> bool:
+    """Hand on what is left in *lines* up to its end-of-file mark: True once it came; False when the output stayed
+    silent for *idle_s* without ending, or *limit_s* ran out first."""
+    limit = time.monotonic() + max(0.0, limit_s)
+    while True:
+        remaining = limit - time.monotonic()
+        if remaining <= 0:
+            return False
+        try:
+            line = lines.get(timeout=min(max(0.0, idle_s), remaining))
+        except queue.Empty:
+            return False
+        if line is None:
+            return True
+        on_line(line)
+
+
+#: The exit status :meth:`Owner.run_python` reports for a child that exited 0 (or was not reaped) while its process
+#: group could not be confirmed ended (v0.8.x P5-C): never 0, so no caller can take it for a success.
+UNCONFIRMED_RETURNCODE = -1
+
+
+def _decoded(proc: subprocess.Popen, name: str, data: Optional[bytes]):
+    """What ``communicate`` gives for the stream *name*: the bytes, or in text mode the text -- decoded with that
+    stream's own encoding and errors, newlines translated -- exactly as CPython's ``Popen._translate_newlines`` does."""
+    if data is None or not getattr(proc, "text_mode", False):
+        return data
+    stream = getattr(proc, name)
+    return data.decode(stream.encoding, stream.errors).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def communicate_led(proc: subprocess.Popen, start_time: Optional[tuple[int, int]], input=None,
+                    timeout: Optional[float] = None, *, poll_s: float = 0.02, drain_s: float = DRAIN_IDLE_S,
+                    bound_s: float = SHUTDOWN_BOUND_S) -> tuple[Optional[bytes], Optional[bytes], Retired]:
+    """``Popen.communicate`` for a class-A child, ended by the LEADER's exit rather than by the end of its output
+    (v0.8.x P5-C, POSIX): the probes, proofs, ``-m venv`` and offline pip of :meth:`Owner.run_python`.
+
+    *input* is written to its stdin (when that is a pipe) and stdin is closed, as ``communicate`` does. Its stdout and
+    stderr pipes are read on threads, as raw bytes, while the leader runs; once it has exited, or *timeout* has passed
+    (``Retired.timed_out``; it is then still running), its group is ended the P5-A way, the output already written is
+    collected (at most *drain_s*) and only then is the leader reaped. Returns ``(stdout bytes or None, stderr bytes or
+    None, Retired)``; text decoding is the caller's (:meth:`Owner.run_python`). If waiting is interrupted (an exception
+    in this thread), the group is ended and the leader reaped before it propagates.
+    """
+    chunks: dict = {}
+    readers = []
+    for name in ("stdout", "stderr"):
+        stream = getattr(proc, name)
+        if stream is None:
+            continue
+        chunks[name] = []
+
+        def read_all(fd=stream.fileno(), into=chunks[name]) -> None:
+            while True:
+                try:
+                    block = os.read(fd, 65536)
+                except InterruptedError:
+                    continue
+                except OSError:
+                    return
+                if not block:
+                    return
+                into.append(block)
+
+        reader = threading.Thread(target=read_all, name="act-child-output", daemon=True)
+        reader.start()
+        readers.append((name, reader))
+    writer = None
+    if proc.stdin is not None:
+        def write_input() -> None:
+            try:
+                if input:
+                    proc.stdin.write(input)
+            except (OSError, ValueError):  # it exited (or closed its stdin) without reading everything
+                pass
+            try:
+                proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+
+        writer = threading.Thread(target=write_input, name="act-child-input", daemon=True)
+        writer.start()
+    deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+    try:
+        timed_out = _wait_leader(proc, start_time, poll_s, deadline=deadline) == "timed-out"
+    except BaseException:
+        retire_led_group(proc, start_time, bound_s=bound_s)
+        raise
+    answer = end_led_group(proc, start_time, bound_s=bound_s)
+    drained_by = time.monotonic() + max(0.0, drain_s)
+    output_open = False
+    for _name, reader in readers:
+        reader.join(max(0.0, drained_by - time.monotonic()))
+        output_open = output_open or reader.is_alive()
+    if writer is not None:
+        writer.join(max(0.0, drained_by - time.monotonic()))
+    code = _reap(proc, bound_s)
+    for name, reader in readers:
+        if not reader.is_alive():  # never closed under a reader still blocked on it (see :func:`follow_lines`)
+            try:
+                getattr(proc, name).close()
+            except (OSError, ValueError):
+                pass
+    out = b"".join(list(chunks["stdout"])) if "stdout" in chunks else None  # a copy: a reader may still be appending
+    err = b"".join(list(chunks["stderr"])) if "stderr" in chunks else None
+    return out, err, Retired(returncode=code, group=answer, output_open=output_open, timed_out=timed_out)
+
+
+# --------------------------------------------------------------------------- #
 #  Owned children
 # --------------------------------------------------------------------------- #
 @dataclass
@@ -278,6 +542,30 @@ class OwnedChild:
 
     def running(self) -> bool:
         return self.proc.poll() is None
+
+
+#: How long the orderly end waits for a child's waitpid lock before it leaves that child unsignalled (v0.8.x P5-C). The
+#: lock is held only for a moment -- a ``poll`` or a bounded ``wait`` -- or by a thread that is reaping the child now.
+_LOCK_WAIT_S = 1.0
+
+
+def _signal_proved(child: OwnedChild, sig: int, *, wait_s: float = _LOCK_WAIT_S) -> bool:
+    """:func:`signal_if_same` under *child*'s own ``Popen`` waitpid lock (v0.8.x P5-C): delivered only while nobody has
+    reaped the child (``returncode`` is None, and nobody can until the lock is released) and its kernel start time
+    still matches -- so neither its id nor, class A, its group's id can be handed on between the check and the signal.
+    Waiting for the lock is bounded by *wait_s*; a child whose lock cannot be had in time, or that has none, is left
+    unsignalled (its lifeline or guardian still ends it with this owner). True when a signal was delivered."""
+    lock = getattr(child.proc, "_waitpid_lock", None)
+    if lock is None or child.start_time is None:
+        return False
+    if not lock.acquire(timeout=max(0.0, wait_s)):
+        return False
+    try:
+        if child.proc.returncode is not None:
+            return False
+        return signal_if_same(child.pid, child.start_time, sig, group=child.kind == CLASS_A)
+    finally:
+        lock.release()
 
 
 def python_argv(argv: Sequence[str]) -> list[str]:
@@ -346,11 +634,57 @@ class Owner:
             kw["env"] = env
         return kw
 
-    def run_python(self, argv: Sequence[str], **kwargs) -> subprocess.CompletedProcess:
+    def run_python(self, argv: Sequence[str], *, input=None, capture_output: bool = False,
+                   timeout: Optional[float] = None, check: bool = False, **kwargs) -> subprocess.CompletedProcess:
         """``subprocess.run`` of an ACT-authored Python child, contained. Used for bounded single-process probes,
-        proofs and ``-m venv``; a timeout ends the child as ``subprocess.run`` does, and the owner's exit ends it and
-        everything it started through the lifeline."""
-        return subprocess.run(python_argv(argv), **self.class_a_kwargs(kwargs))
+        proofs, ``-m venv`` and setup's offline pip; the owner's exit ends it and everything it started through the
+        lifeline.
+
+        v0.8.x P5-C: it is a registered class-A child while it runs, and it is never reaped before its group has been
+        ended (:func:`communicate_led`): a helper it left behind when it exited normally ends with it, and one holding
+        its output open no longer keeps this call waiting. ``subprocess.run``'s arguments and results are kept --
+        *input*, *capture_output*, text decoding with universal newlines, ``check`` (``CalledProcessError``) and
+        *timeout* (``TimeoutExpired``, now after its WHOLE group was ended, the child with it). When its group could not
+        be proved its own, or not confirmed ended, the run is never a success: a zero exit status is reported as
+        :data:`UNCONFIRMED_RETURNCODE`, the reason is added to a captured stderr and recorded in :attr:`events` (setup's
+        log), as :meth:`run_external` reports a lost guardian."""
+        if input is not None:
+            if kwargs.get("stdin") is not None:
+                raise ValueError("stdin and input arguments may not both be used.")
+            kwargs["stdin"] = subprocess.PIPE
+        if capture_output:
+            if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
+                raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+            kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
+        proc = self.popen_python(argv, **kwargs)
+        child = self.child(proc)
+        try:
+            out, err, retired = communicate_led(proc, child.start_time if child is not None else None, input, timeout)
+        finally:
+            if proc.returncode is not None:
+                self.forget(proc)
+        out, err = _decoded(proc, "stdout", out), _decoded(proc, "stderr", err)
+        problem = retired.problem()
+        note = None
+        if problem is not None:
+            note = f"[containment: {Path(str(argv[0])).name} (pid {proc.pid}) could not be confirmed ended: {problem}]"
+            self._note(f"Containment: {Path(str(argv[0])).name} (pid {proc.pid}, exit status {retired.returncode}) "
+                       f"could not be confirmed ended: {problem}.")
+        if retired.timed_out:
+            expired = subprocess.TimeoutExpired(proc.args, timeout, output=out, stderr=err)
+            if note is not None:
+                expired.add_note(note)
+            raise expired
+        code = retired.returncode
+        if note is not None:
+            code = code if code else UNCONFIRMED_RETURNCODE
+            if isinstance(err, str):
+                err = f"{err}\n{note}\n" if err else f"{note}\n"
+            elif isinstance(err, bytes):
+                err = err + b"\n" + note.encode("utf-8", "replace") + b"\n" if err else note.encode("utf-8", "replace")
+        if check and code:
+            raise subprocess.CalledProcessError(code, proc.args, output=out, stderr=err)
+        return subprocess.CompletedProcess(proc.args, code, out, err)
 
     def popen_python(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
         """Start a registered class-A child (pip in setup; the optional-setup worker in the app)."""
@@ -540,18 +874,30 @@ class Owner:
         one shared wait of at most ``grace`` seconds, SIGKILL to whatever is left, then each is reaped. The same
         identity rules hold: a class-A group is signalled only while its leader is still this owner's unreaped child (a
         leader that has exited but is not yet reaped still identifies its group, so a grandchild left behind is
-        caught)."""
+        caught).
+
+        v0.8.x P5-C: each check-and-signal is made under the child's own ``Popen`` waitpid lock
+        (:func:`_signal_proved`), and a class-A group is ended the P5-A way (:func:`end_led_group`: signalled until the
+        kernel says nothing is left). A run that reaps its own child at the same moment (a ``WorkerRun`` settling its
+        worker, a pip's follower) therefore cannot have that child's id -- or its group's -- handed on between this
+        check and this signal: once it has reaped the child, nothing is signalled here."""
         live = [c for c in children if c.proc.returncode is None]
         if not live:
             return
         if grace > 0:
             for child in live:
-                signal_if_same(child.pid, child.start_time, signal.SIGTERM, group=child.kind == CLASS_A)
+                _signal_proved(child, signal.SIGTERM)
             deadline = time.monotonic() + grace
-            while time.monotonic() < deadline and not all(_has_exited(c.pid) for c in live):
+            while time.monotonic() < deadline and not all(has_exited(c.proc, c.start_time) for c in live):
                 time.sleep(0.02)
         for child in live:
-            signal_if_same(child.pid, child.start_time, signal.SIGKILL, group=child.kind == CLASS_A)
+            if child.kind == CLASS_A:
+                answer = end_led_group(child.proc, child.start_time, bound_s=2 * TERM_GRACE_S)
+                if answer != GROUP_ENDED and child.proc.returncode is None:
+                    self._note(f"Containment: {child.label or child.pid} (pid {child.pid}): its process group was not "
+                               f"confirmed ended at the orderly end ({answer}).")
+            else:
+                _signal_proved(child, signal.SIGKILL)
         for child in live:
             try:
                 child.proc.wait(timeout=2.0)

@@ -2551,11 +2551,24 @@ def request_setup_stop() -> bool:
     On POSIX (v0.8.x P1A) the stop goes through the containment layer: pip's whole group, identity-checked.
     Returns once the tree is told to end (the setup's worker reaps the child and reports); True if a running pip was
     told to stop.
+
+    v0.8.x P5-C (POSIX): the stop never reaps pip. A pip that has exited but is not yet reaped still names its process
+    group, and a helper it left there may still be running, so asking whether pip runs must not reap it (``poll()``
+    did): its group is ended (:func:`_end_owned_pip`) and the thread following pip reaps it.
     """
     _SETUP_STOP.set()
     with _PIP_LOCK:
         proc = _RUNNING_PIP
-    if proc is None or proc.poll() is not None:
+    if proc is None:
+        return False
+    if _contained():
+        child = _owner().child(proc)
+        if child is None:
+            return False
+        running = not child_ownership.has_exited(proc, child.start_time)
+        _end_owned_pip(proc)
+        return running
+    if proc.poll() is not None:
         return False
     _end_owned_pip(proc)
     return True
@@ -2576,14 +2589,22 @@ def _end_owned_pip(proc: subprocess.Popen) -> None:
     On Windows the tree is ended by ``taskkill /T`` from pip's own process id (the venv's ``python.exe`` is a launcher
     whose child is the real interpreter, and pip may start more), the route ``tts.qwen3_process`` also falls back to;
     the id cannot have been reused while this process holds the child's handle, unreaped. Elsewhere pip leads its own
-    process group. bootstrap imports nothing from ``tts``, so a repair can never reach an engine installer."""
+    process group. bootstrap imports nothing from ``tts``, so a repair can never reach an engine installer.
+
+    v0.8.x P5-C (POSIX, contained): pip's group is ended only while its id is proved pip's own
+    (``child_ownership.end_led_group``: under the ``Popen``'s waitpid lock, unreaped, same kernel start time, signalled
+    until nothing is left) -- also when pip itself has already exited -- and pip is never reaped here: the thread
+    following it (:func:`_pip`) reaps it once its group has ended."""
+    if _contained():
+        child = _owner().child(proc)
+        if child is not None:
+            child_ownership.end_led_group(proc, child.start_time)
+        return
     if proc.poll() is not None:
         return
     try:
         if IS_WINDOWS:
             _run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], timeout=30)
-        elif _contained() and _owner().child(proc) is not None:
-            _owner().kill_now(proc)  # v0.8.x P1A: its group, only while its start time still matches
         else:
             import signal
 
@@ -2604,7 +2625,12 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
 
     The running pip is registered so a stop of the first-run setup can end it with everything it started
     (:func:`request_setup_stop`, v0.7.2, ACT72-039). Before, closing the window during the install left pip running,
-    owned by nobody."""
+    owned by nobody.
+
+    v0.8.x P5-C (POSIX): pip is followed to its own exit, not to the end of its output, and is reaped only after its
+    process group has been ended (``child_ownership.follow_lines``). A build backend pip left running in its group ends
+    with it, and one holding pip's output open no longer keeps setup waiting. A group that could not be proved pip's
+    own, or not confirmed ended, is logged and fails the step (-1), never a success."""
     if _SETUP_STOP.is_set():
         log("  pip was not started: setup is being stopped.")
         return PIP_STOPPED
@@ -2626,22 +2652,35 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
         _RUNNING_PIP = proc
     if _SETUP_STOP.is_set():
         _end_owned_pip(proc)  # a stop that came between the check above and the registration
+
+    def show(raw: str) -> None:
+        line = raw.rstrip()
+        if line:
+            log("  " + line)
+
+    problem = None
     try:
         assert proc.stdout is not None
-        for raw in proc.stdout:
-            line = raw.rstrip()
-            if line:
-                log("  " + line)
-        code = proc.wait()
+        if _contained():
+            child = _owner().child(proc)
+            retired = child_ownership.follow_lines(proc, child.start_time if child is not None else None, show,
+                                                   stop=_SETUP_STOP.is_set)
+            code, problem = retired.returncode, retired.problem()
+        else:
+            for raw in proc.stdout:
+                show(raw)
+            code = proc.wait()
     finally:
         with _PIP_LOCK:
             _RUNNING_PIP = None
-        if _contained():
+        if _contained() and proc.returncode is not None:
             _owner().forget(proc)
+    if problem is not None:
+        log(f"  ERROR: pip ended (exit {code}), but what it started could not be confirmed ended: {problem}.")
     if _SETUP_STOP.is_set():
         log("  pip was stopped because setup is being stopped.")
         return PIP_STOPPED
-    return code
+    return -1 if problem is not None else code
 
 
 def _pip_environment() -> dict:

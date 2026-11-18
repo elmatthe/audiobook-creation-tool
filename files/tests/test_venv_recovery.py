@@ -42,6 +42,7 @@ from types import SimpleNamespace
 import pytest
 
 from shared import bootstrap  # noqa: E402
+from shared import child_ownership  # noqa: E402
 from shared import venv_layout  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -225,6 +226,9 @@ def test_the_whole_assessment_costs_one_subprocess(env, monkeypatch):
             stderr="")
 
     monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+    # A contained POSIX setup runs the probe through its owner (v0.8.x P5-C: ``Owner.run_python`` no longer goes
+    # through ``subprocess.run``); every probe either way is counted.
+    monkeypatch.setattr(child_ownership.Owner, "run_python", lambda self, argv, **kwargs: fake_run(argv, **kwargs))
     bootstrap.assess_venv_health()
     assert len(calls) == 1
 

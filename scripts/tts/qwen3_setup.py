@@ -580,6 +580,11 @@ def run_command(cmd: list[str], *, env: dict, cwd: Path, on_line: Callable[[str]
     except qwen3_process.ContainmentUnavailable as exc:
         raise SetupError("Windows would not let this app keep control of the install, so it was not started "
                          f"(it could not be stopped safely if you cancelled). ({exc})") from exc
+    if sys.platform != "win32" and getattr(proc, "act_job", None) is None:
+        try:
+            return _follow_led_command(cmd, proc, on_line, cancel_check)
+        finally:
+            _command_finished(cmd, proc)
 
     def pump() -> None:
         try:
@@ -612,12 +617,55 @@ def run_command(cmd: list[str], *, env: dict, cwd: Path, on_line: Callable[[str]
         reader.join(timeout=5)
         if not reader.is_alive() and proc.stdout is not None:
             proc.stdout.close()
-        try:
-            from tts import qwen3_packages
-            if len(cmd) > 4 and cmd[1:5] == ['-I', '-B', '-c', qwen3_packages.OFFLINE_BOOTSTRAP]:
-                qwen3_packages.consumer_finished(proc)
-        finally:
-            qwen3_process.release(proc)
+        _command_finished(cmd, proc)
+
+
+def _command_finished(cmd: list[str], proc) -> None:
+    """The end of every :func:`run_command`, whichever way it went: the offline package consumer is told, and the
+    process is released (Windows: its Job Object is closed, which ends any straggler)."""
+    try:
+        from tts import qwen3_packages
+        if len(cmd) > 4 and cmd[1:5] == ['-I', '-B', '-c', qwen3_packages.OFFLINE_BOOTSTRAP]:
+            qwen3_packages.consumer_finished(proc)
+    finally:
+        qwen3_process.release(proc)
+
+
+def _follow_led_command(cmd: list[str], proc, on_line: Callable[[str], None],
+                        cancel_check: Optional[CancelCheck]) -> int:
+    """:func:`run_command` on POSIX (v0.8.x P5-C): the command -- pip or an engine probe, leading its own process group
+    -- is followed to ITS exit, not to the end of its output, and reaped only after its group has been ended
+    (``shared.child_ownership.follow_lines``: proved, signalled, confirmed). Before, a build backend it left running in
+    that group outlived the install, and one that held its output open kept this call waiting as long as it ran.
+
+    Cancel ends the command's whole group at once (:class:`SetupCancelled`). A group that could not be proved the
+    command's own, or not confirmed ended, is a :class:`SetupError` -- never its exit status, never a success, and never
+    a clean Cancel either."""
+    from shared import child_ownership, subprocess_utils
+
+    owner = subprocess_utils.containment_owner()
+    child = owner.child(proc) if owner is not None else None
+    # Recorded at spawn when an owner started it; otherwise now, while this call alone holds it, unreaped.
+    start = child.start_time if child is not None else child_ownership.process_start_time(proc.pid)
+
+    def show(raw: str) -> None:
+        line = raw.rstrip("\r\n")
+        if line:
+            on_line(line)
+
+    try:
+        retired = child_ownership.follow_lines(proc, start, show, stop=cancel_check)
+    finally:
+        if owner is not None and proc.returncode is not None:
+            owner.forget(proc)
+    problem = retired.problem()
+    if problem is not None:
+        happened = "was cancelled" if retired.stopped else f"ended (exit status {retired.returncode})"
+        raise SetupError(f"An installer step ({os.path.basename(str(cmd[0]))}) {happened}, but what it started could "
+                         f"not be confirmed ended: {problem}.")
+    if retired.stopped:
+        raise SetupCancelled()
+    return retired.returncode
 
 
 def installer_environment() -> dict:

@@ -5272,7 +5272,9 @@
             "safe_to_remove_environment",
             "probe_environment",
             "run_command",
-            "installer_environment"
+            "installer_environment",
+            "_follow_led_command",
+            "_command_finished"
           ]
         },
         {
@@ -5319,7 +5321,8 @@
         "Every package is the reviewed manifest's exact wheel (89), fetched and hash-verified once, then installed offline with --no-index --require-hashes --only-binary; pip never reaches an index.",
         "The install is recorded only after the worker's probe imports the whole stack; a failed pip or probe is an incomplete install, with downloaded wheels kept for the retry.",
         "The engine is ready only with its interpreter, a live base Python, a recorded probe and matching requirements; otherwise the status says to rebuild.",
-        "The worker's probe imports the name every conversion imports (Qwen3TTSModel from qwen_tts), so a package folder that lost its own files -- which Python still imports as an empty namespace -- fails the check and 'Check and repair' rebuilds the engine instead of answering that nothing needs repair"
+        "The worker's probe imports the name every conversion imports (Qwen3TTSModel from qwen_tts), so a package folder that lost its own files -- which Python still imports as an empty namespace -- fails the check and 'Check and repair' rebuilds the engine instead of answering that nothing needs repair",
+        "POSIX (v0.8.x P5-C): every installer command run_command starts (pip, an engine probe) is followed to its own exit and reaped only after its process group has been ended, so a helper it left behind ends with it and one holding its output open cannot keep the install waiting; Cancel ends the whole group at once; a group not proved or not confirmed ended is a SetupError, never a success or a clean Cancel. Windows keeps its Job Object path unchanged"
       ],
       "selection": [
         "files/tests/test_qwen3_setup.py",
@@ -5328,7 +5331,8 @@
         "files/tests/test_qwen3_package_manifest.py",
         "files/tests/test_qwen3_environment_layout.py",
         "files/tests/test_qwen3_nested_adoption.py",
-        "files/tests/test_qwen3_worker.py"
+        "files/tests/test_qwen3_worker.py",
+        "files/tests/test_normal_exit_group_retirement.py"
       ],
       "journeys": [],
       "verification": {
@@ -5360,6 +5364,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_qwen3_worker.py::test_probe_reports_a_package_that_lost_its_own_files_as_an_import_failure"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_normal_exit_group_retirement.py::test_windows_run_command_keeps_its_job_object_path"
           }
         ]
       },
@@ -20998,7 +21006,15 @@
             "Owner.kill_now",
             "Owner.shutdown",
             "process_start_time",
-            "signal_if_same"
+            "signal_if_same",
+            "Owner.run_python",
+            "follow_lines",
+            "communicate_led",
+            "retire_led_group",
+            "Retired",
+            "UNCONFIRMED_RETURNCODE",
+            "_signal_proved",
+            "Owner._end_many"
           ]
         },
         {
@@ -21020,12 +21036,14 @@
         "Success exits 0; cancelling never writes a requirements stamp",
         "Closing the window during the optional-voices phase asks 'Stop setup?' and keeps anything already working; No leaves the running check or install alone and launches nothing (v0.7.2, ACT72-038)",
         "Closing the window during the base install asks 'Stop setup?'. No changes nothing. Yes ends the running pip and everything it started (by its own process id), starts no later step and closes the window once the setup's worker has reported; the exit is 1 (incomplete) and the log says how to finish (v0.7.2, ACT72-039)",
-        "POSIX (v0.8.x P5-B): the first-run window owns the optional-setup workers it starts, as the app window does. Before the panel's first check its setup process becomes the owner (class-A workers on its lifeline; pip and engine probes on each worker's own lifeline); once the window has closed nothing new starts, each run ends and reaps its own worker first (bounded), then the orderly end runs. A forced Cancel, a time-out, closing the window, SIGKILL, a crash or Force Quit of setup leaves no worker, pip or helper of it running, and never ends anything it does not own. Windows takes no new ownership (Job Objects)"
+        "POSIX (v0.8.x P5-B): the first-run window owns the optional-setup workers it starts, as the app window does. Before the panel's first check its setup process becomes the owner (class-A workers on its lifeline; pip and engine probes on each worker's own lifeline); once the window has closed nothing new starts, each run ends and reaps its own worker first (bounded), then the orderly end runs. A forced Cancel, a time-out, closing the window, SIGKILL, a crash or Force Quit of setup leaves no worker, pip or helper of it running, and never ends anything it does not own. Windows takes no new ownership (Job Objects)",
+        "POSIX (v0.8.x P5-C): a pip or probe that exits normally is never reaped before its process group has been ended, whichever setup step started it (the base install's pip and probes, the optional-setup worker's pip and engine probes, under the first-run window and the app window's Install & Continue alike): its caller waits for its exit, not for the end of its output, ends its group the P5-A way (proved, signalled, confirmed), hands on the output already written and only then reaps it, so a helper it left in its group ends with it and one holding its output open no longer keeps setup waiting. 'Stop setup?' never reaps pip. A group that could not be proved its own, or not confirmed ended, fails the step (never a success). The orderly end signals a child only under its waitpid lock. Windows is unchanged (Job Objects, taskkill /T)"
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_cancel.py",
         "files/tests/test_first_run_setup_close.py",
-        "files/tests/test_first_run_setup_ownership.py"
+        "files/tests/test_first_run_setup_ownership.py",
+        "files/tests/test_normal_exit_group_retirement.py"
       ],
       "journeys": [
         "setup.first-run-choices-and-cancel"
@@ -21083,6 +21101,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_first_run_setup_close.py::test_closing_during_the_base_install_asks_and_no_keeps_pip_running_then_yes_stops_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_normal_exit_group_retirement.py::test_windows_base_install_keeps_its_released_spawn_paths"
           },
           {
             "kind": "native",
@@ -21579,7 +21601,8 @@
       ],
       "selection": [
         "files/tests/test_base_packages.py",
-        "files/tests/test_bootstrap_import_validation.py"
+        "files/tests/test_bootstrap_import_validation.py",
+        "files/tests/test_normal_exit_group_retirement.py"
       ],
       "journeys": [],
       "verification": {
@@ -26213,13 +26236,13 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "a3ba3f9d0c84d0c74c37d65293fe419206905379cd7a66c0532053a8e2aafe04",
+    "scripts/shared/bootstrap.py": "275c66f85fb108c3d4361c215fc224914aa5e2978e3bfb0280fd6a22160ab0bd",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
     "scripts/shared/child_guardian.py": "81afa2fed11a560b56c8e05eaf309a313646f07b20b23b495de8be6100a80bdf",
-    "scripts/shared/child_ownership.py": "0ed3f6eaeabb8c3a990a6f8ad7cc4bdf825abb4d71a30ad0db61529f228288f7",
+    "scripts/shared/child_ownership.py": "7652db74d08261b8d3b4a8ad351691b5447b3ee93520a6c1c067bbf11d107578",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26308,7 +26331,7 @@
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
     "scripts/tts/qwen3_process.py": "121bfe3a62809dca5a1ed63ccfb8e1c0e75b76ec7a4302947d66ba804590bd58",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
-    "scripts/tts/qwen3_setup.py": "e8a04e40bf23b70852bb8383da5984f8dfa15a3b66337fc55e059c5b6179a823",
+    "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
     "scripts/tts/qwen3_synth.py": "2d3de07869d2b8ebb0832ef88da6c81b7cdcea1facca9c933a4f93bb0844d7e1",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
     "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",

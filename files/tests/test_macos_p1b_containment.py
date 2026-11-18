@@ -360,7 +360,6 @@ _OS_SPAWNS = {"system", "popen", "posix_spawn", "posix_spawnp", "spawnv", "spawn
 #: Every direct ``subprocess``/``os`` spawn in the application, with why it is not (or not yet) a P1B-owned child.
 #: The guard fails on a site that is not here and on an entry whose site is gone, so the list stays exact.
 KX9_ALLOWED = {
-    ("shared/child_ownership.py", "run_python"): "the ownership helper itself (class A)",
     ("shared/child_ownership.py", "popen_python"): "the ownership helper itself (class A)",
     ("shared/child_ownership.py", "_start_guardian"): "the ownership helper itself (the guardian)",
     ("shared/child_ownership.py", "popen_external"): "the ownership helper itself (class B)",

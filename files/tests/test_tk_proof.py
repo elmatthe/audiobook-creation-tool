@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from shared import bootstrap
+from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STAGE_ZERO = REPO_ROOT / "scripts" / "shared" / "bootstrap_host.ps1"
@@ -211,7 +212,7 @@ def test_the_venv_probe_passes_the_shared_tk_bound(monkeypatch):
         seen["timeout"] = kwargs.get("timeout")
         return subprocess.CompletedProcess(cmd, 1, "", "")
 
-    monkeypatch.setattr(bootstrap.subprocess, "run", capture)
+    stand_in_for_setups_python_children(monkeypatch, capture)
     assert bootstrap.probe_venv(Path("python")) is None
     assert seen["timeout"] == bootstrap.TK_PROOF_TIMEOUT_S == 30
 
