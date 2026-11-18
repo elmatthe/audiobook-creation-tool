@@ -16,8 +16,11 @@ runner's own before-and-after digest of the real ``files/runtime-data`` holds ev
 What these do not show: a real base installation (downloads; the ``fresh-windows`` qualification), display scaling other than this
 desktop's, or macOS -- except ``setup.clear-downloaded-data``, which has a macOS counterpart (v0.8.0 P5): the same journey through the
 in-process macOS driver on a disposable copy in a Mac's layout, held first to an isolation preflight computed by the copy's own code
-(``helpers/cleanup_journey.py``; nothing is launched unless it passes) and judged on byte-level digests afterwards. The first-run
-journeys stay Windows-only until their own P5 checkpoints.
+(``helpers/cleanup_journey.py``; nothing is launched unless it passes) and judged on byte-level digests afterwards. So has
+``setup.first-run-choices-and-cancel`` (v0.8.0 P5-F): the real first-run window on a disposable copy, on the app's own base Python,
+judged by ``helpers/first_run_journey.py`` (the approved two-voice roster, clicks, geometry at three sizes, Cancel before Begin Setup:
+status 2, nothing installed, started or left running). ``setup.first-run-refuses-a-folder-too-deep`` stays Windows-only until its
+own P5 checkpoint.
 """
 
 from __future__ import annotations
@@ -29,13 +32,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from helpers import cleanup_journey
+from helpers import cleanup_journey, first_run_journey
 from helpers import scratch as scratch_store
 from journeys.common import AppSession, Context, expect_clean_close, native, scenario, wait_until
 
 GATE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = GATE_DIR.parents[2]
 SETUP_LAUNCHER = GATE_DIR / "adapters" / "windows" / "setup_launcher.py"
+MACOS_SETUP_LAUNCHER = GATE_DIR / "adapters" / "macos" / "setup_launcher.py"
 ROOT_FILES = ("config.toml", "README.md", "Setup_and_Run-audiobook-creation-tool.bat")
 SETUP_TITLE = "Audiobook Creation Tool — Setup"
 #: The first-run window's five choices, in order, with the defaults the owner approved: Kokoro on, the rest off. OmniVoice is the
@@ -224,6 +228,8 @@ def first_run_refusal(context: Context) -> None:
           summary="The real first-run window's five voice choices and their defaults, one changed by a real click, every control on screen "
                   "at the window's smallest size, then Cancel: exit status 2 and nothing created")
 def first_run_cancel(context: Context) -> None:
+    if sys.platform == "darwin":
+        return first_run_cancel_macos(context)
     report = context.report
     copy = make_copy(context.work / "copy" / "app")
     before = listing(copy)
@@ -577,3 +583,209 @@ def clear_downloaded_data_macos(context: Context) -> None:
     (context.evidence / "cleanup-outcome.json").write_text(json.dumps({
         "before": before, "after": after, "outcome_problems": outcome, "result": result, "coordinator": context.notes["coordinator"],
         "protected_after": protected_after}, indent=1, default=str), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# The first-run window on macOS (v0.8.0 P5-F)
+# --------------------------------------------------------------------------- #
+#: The window sizes shown, in order: the window's own minimum (660x600), the size it opens at (760x680) and a larger one.
+MACOS_SIZES = ((660, 600), (760, 680), (900, 700))
+
+
+def _processes_naming(folder: Path) -> list[str]:
+    """``pid pgid command`` for every process the kernel lists whose command line names ``folder``. Read, never acted on."""
+    done = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,pgid=,command="], capture_output=True, text=True, timeout=20)
+    return [line.strip() for line in done.stdout.splitlines() if str(folder) in line]
+
+
+def first_run_cancel_macos(context: Context) -> None:
+    """The Windows journey's steps through the in-process macOS driver, on a disposable copy, on the app's own base Python.
+
+    Before anything is launched, the copy's own code is asked where setup would write and what it would offer, on the interpreter the
+    window will run on, and every answer must be the copy's (the interpreter the app's own base Python, outside the copy and every
+    cleanup target of the real checkout, the copy holding no link at all); otherwise the scenario stops BLOCKED with nothing started.
+    Then the real window opens, its two voice choices are read and clicked, its geometry is judged at three sizes, and Cancel is
+    pressed BEFORE Begin Setup. Nothing may be installed, downloaded, started or left running, the copy must be byte-identical but for
+    its own dated setup log, and a second installation and the real checkout's data must be unchanged."""
+    from adapters.macos import containment
+
+    report = context.report
+    work = Path(os.path.realpath(context.work))
+    copy = make_copy(work / "copy" / "app")
+    bystander = make_copy(work / "bystander" / "app")
+    interpreter = REPO_ROOT / "files" / "runtime-data" / "python" / "bin" / "python3.12"  # the app's own base Python (a first run's)
+    protected = cleanup_journey.protected_locations(REPO_ROOT)
+    protected["runtime_data"] = REPO_ROOT / "files" / "runtime-data"
+
+    # -- the isolation preflight: nothing is launched unless every answer is the copy's own --------------------------------------- #
+    probe_env = {key: value for key, value in os.environ.items()
+                 if key not in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "ACT_STARTUP_NOTICE")}
+    probe_env.update(PYTHONDONTWRITEBYTECODE="1", TMPDIR=str(work))
+    pristine = cleanup_journey.content_digest(copy)
+    facts = first_run_journey.copy_facts(copy, python=interpreter, env=probe_env) if interpreter.is_file() else {}
+    links = cleanup_journey.find_links(copy)
+    problems = first_run_journey.isolation_problems(facts, copy=copy, scratch=work, real_root=REPO_ROOT, protected=protected,
+                                                    interpreter=interpreter, links=links)
+    protected_before = cleanup_journey.protected_state(protected, scratch_store.tree_digest)
+    (context.evidence / "isolation-preflight.json").write_text(json.dumps({
+        "copy": str(copy), "scratch": str(work), "real_root": str(REPO_ROOT), "interpreter": str(interpreter), "copy_facts": facts,
+        "problems": problems, "links": links, "protected": {label: str(path) for label, path in protected.items()},
+        "protected_before": protected_before}, indent=1), encoding="utf-8")
+    context.notes["isolation_preflight"] = {"problems": problems, "interpreter": str(interpreter), "mutable": facts.get("mutable")}
+    report.check("isolation preflight: the copy's own code names only the copy; the window runs on the app's own base Python outside "
+                 "it and every cleanup target; the copy holds no link", not problems, problems[:6])
+    if problems:
+        raise containment.ContainmentUnavailable(f"the isolation preflight failed before anything was launched: {problems[:4]}")
+    report.check("isolation preflight: the read-only probe wrote nothing into the copy", cleanup_journey.content_digest(copy) == pristine)
+    before = cleanup_journey.content_digest(copy)
+    bystander_before = cleanup_journey.content_digest(bystander)
+
+    # -- the real window, on the copy -------------------------------------------------------------------------------------------- #
+    record = context.work / "setup-record.jsonl"
+    session = AppSession(context.evidence, context.work / "setup", script=MACOS_SETUP_LAUNCHER, python=interpreter,
+                         config={"app_root": str(copy), "record": str(record)}, name="setup")
+    context.sessions.append(session)
+    session.start()
+    started = wait_until(lambda: next((item for item in read_record(record) if item["kind"] == "started"), None), 10, "the window's record")
+    command = _process_line(session.pid)
+    report.check("the real first-run window: the copy's own bootstrap.run_with_gui on the app's base Python, as the kernel lists it",
+                 Path(started["app_root"]) == copy and Path(started["bootstrap_file"]) == copy / "scripts" / "shared" / "bootstrap.py"
+                 and started["platform"] == "darwin" and command.split(None, 2)[2:3] == [f"{interpreter} -I -B {MACOS_SETUP_LAUNCHER} "
+                                                                                          f"{session.work / 'setup-config.json'}"],
+                 {"started": started, "ps": command})
+    report.equal("the window is the setup window", session.client.call("window")["title"], SETUP_TITLE)
+
+    def widgets() -> list[dict]:
+        return shown(session)
+
+    def boxes() -> list[dict]:
+        return [item for item in widgets() if item["class"] == "TCheckbutton"]
+
+    def states() -> list[bool]:
+        return [bool(box.get("selected")) for box in sorted(boxes(), key=lambda item: item["y"])]
+
+    def press(target: dict) -> None:
+        """A press and a release at the control's centre, dispatched through Tk's own class bindings (the driver's pointer on a Mac
+        with no Accessibility grant, D9): the control reacts as it does to a mouse, not through a method call."""
+        session.click_path(target["path"], offset=(target["width"] // 2, target["height"] // 2))
+
+    def box_named(label: str) -> dict:
+        return one(session, "TCheckbutton", label, prefix=True)
+
+    # -- the roster, as displayed ------------------------------------------------------------------------------------------------ #
+    labels = [item for item in widgets() if item["class"] == "TLabel"]
+    found = first_run_journey.roster_findings(boxes(), labels, facts=facts)
+    report.check("exactly two choices, Kokoro then OmniVoice, as the copy's own code and the approved roster say", not found["choices"],
+                 found["choices"] or [box["text"] for box in boxes()])
+    report.check("approved estimates: Kokoro up to 344.7 MB, OmniVoice up to 3.5 GB, the copy's own figures", not found["estimates"],
+                 found["estimates"] or [box["text"] for box in boxes()])
+    report.check("default: Kokoro ticked, OmniVoice unticked", not found["defaults"] and states() == [True, False],
+                 found["defaults"] or states())
+    report.check("licensing disclosure and descriptions: OmniVoice is NON-COMMERCIAL (CC-BY-NC weights, a separately licensed tokenizer, "
+                 "terms shown before any download), on this Mac's GPU; Kokoro runs on this computer", not found["descriptions"],
+                 found["descriptions"] or [label["text"][:120] for label in labels])
+    report.check("no engine a Mac does not offer: no Chatterbox Turbo, no Qwen3, nothing of NVIDIA or Windows anywhere in the window",
+                 not found["absent"], found["absent"])
+    names = {item["text"] for item in widgets() if item["class"] == "TButton"}
+    report.check("Begin Setup and Cancel are both offered and enabled", names == {"Begin Setup", "Cancel"}
+                 and not [item for item in widgets() if item["class"] == "TButton" and item.get("disabled")], sorted(names))
+    session.screenshot("first-run-choices")
+    baseline = first_run_journey.window_signature(widgets())
+
+    # -- real clicks: every state of both boxes, then both restored to their defaults ------------------------------------------------ #
+    kokoro, omni = (row["label"] for row in first_run_journey.APPROVED)
+    walk = ((kokoro, [False, False]), (omni, [False, True]), (kokoro, [True, True]), (omni, [True, False]))
+    previous, clicked = [True, False], []
+    for label, expected in walk:
+        press(box_named(label))
+        wait_until(lambda: states() == expected, 5, f"the boxes to read {expected}")
+        clicked.append(f"{label} -> {expected}")
+        flipped = [index for index, (was, now) in enumerate(zip(previous, expected)) if was != now]
+        report.check(f"a real click changes only its own box: {label} -> {expected}",
+                     not first_run_journey.selection_problems(states(), expected, step=label) and flipped == [[kokoro, omni].index(label)],
+                     {"previous": previous, "now": states()})
+        report.check(f"and no other control: {label} -> {expected}",
+                     not first_run_journey.unrelated_problems(baseline, first_run_journey.window_signature(widgets()), step=label),
+                     first_run_journey.unrelated_problems(baseline, first_run_journey.window_signature(widgets()), step=label))
+        previous = expected
+        if expected == [True, True]:
+            session.screenshot("first-run-both-ticked")
+    report.check("both supported states of each box were reached, and both are restored to their defaults (Kokoro ticked, OmniVoice unticked)",
+                 states() == [True, False] and clicked, clicked)
+    report.check("the default text is intact after the clicks: roster, estimates and descriptions are unchanged",
+                 not first_run_journey.roster_problems(boxes(), [item for item in widgets() if item["class"] == "TLabel"], facts=facts))
+
+    # -- the window at three sizes ------------------------------------------------------------------------------------------------- #
+    native.resize_client(session.hwnd, 500, 400)
+    session.settle()
+    smallest = session.client.call("window")
+    report.check("a window dragged below its minimum stops at the application's own 660x600",
+                 (smallest["width"], smallest["height"]) == MACOS_SIZES[0], [smallest["width"], smallest["height"]])
+    for size in MACOS_SIZES:
+        native.resize_client(session.hwnd, *size)
+        wait_until(lambda: tuple(native.client_size(session.hwnd)) == size, 8, f"the window to reach {size}")
+        session.settle()
+        window = session.client.call("window")
+        on_screen = [item for item in widgets() if item["class"] in ("TCheckbutton", "TButton", "TLabel")]
+        problems = first_run_journey.geometry_problems(window, on_screen, size=size)
+        report.check(f"at {size[0]}x{size[1]}: every control and description is wholly on screen, enabled and not overlapped, and "
+                     "the whole window is inside the desktop's visible area", not problems
+                     and within_area(native.client_on_screen(session.hwnd), native.work_area(session.hwnd)),
+                     problems or {"window": [window["x"], window["y"], window["width"], window["height"]], "controls": len(on_screen)})
+        clipped = first_run_journey.text_clip_problems(session.client.call("labels")["labels"])
+        report.check(f"at {size[0]}x{size[1]}: no text is cut: every description and label has the width and height its text asked for "
+                     "(the OmniVoice licence line is read whole)", not clipped, clipped)
+        report.check(f"at {size[0]}x{size[1]}: the boxes still read their defaults and the roster is intact", states() == [True, False]
+                     and not first_run_journey.roster_problems(boxes(), [i for i in widgets() if i["class"] == "TLabel"], facts=facts))
+        session.screenshot(f"first-run-{size[0]}x{size[1]}")
+
+    # -- Cancel, BEFORE Begin Setup ------------------------------------------------------------------------------------------------ #
+    report.check("Cancel before Begin Setup: Begin Setup was never pressed (it is still offered)",
+                 bool([item for item in widgets() if item["class"] == "TButton" and item.get("text") == "Begin Setup"]))
+    watch = session.exit_watch()
+    press(one(session, "TButton", "Cancel"))
+    exit_facts = session.wait_for_exit(watch, timeout=60)
+    events = read_record(record)
+    children = session.job.records()
+    context.notes.setdefault("exits", []).append({key: value for key, value in exit_facts.items() if key != "stderr_tail"})
+    report.check("the process exited", exit_facts["exited"], f"after {exit_facts['seconds']} s")
+    wrong = first_run_journey.exit_problems(exit_facts, events, status_map=facts["status"])
+    report.check("cancelled, not failed: exit status 2, production's cancellation status, distinct from success (0) and failure (1); "
+                 "and the window's own record says 2", not wrong, wrong or {"status": exit_facts["exit_status"], "production": facts["status"]})
+    report.check("nothing was started: no setup, no folder, no launch, no connection, no child process", not
+                 first_run_journey.activity_problems(events, children),
+                 first_run_journey.activity_problems(events, children) or [item["kind"] for item in events])
+    report.check("setup (run_setup) was never called, so no environment, voice, model, repair or package download began",
+                 not [item for item in events if item["kind"] == "run-setup-called"])
+    report.check("no network connection to anything but this computer was attempted",
+                 not [item for item in events if item["kind"] == "network-attempt"])
+
+    # -- nothing left running -------------------------------------------------------------------------------------------------------- #
+    left = first_run_journey.leftover_problems(exit_facts, still_running=session.job.pids(), occupied_groups=session._occupied_groups(),
+                                               processes=_processes_naming(work))
+    report.check("no owned process, worker, helper, process group or window remains, no Tk call came from a worker thread, and no "
+                 "process anywhere names the copy", not left, left)
+
+    # -- the copy, the second installation and the real checkout ------------------------------------------------------------------------ #
+    after = cleanup_journey.content_digest(copy)
+    logs = {name: (copy / name).read_text(encoding="utf-8", errors="replace") for name in set(after) - set(before)
+            if first_run_journey.SETUP_LOG.match(name)}
+    changed = first_run_journey.outcome_problems(before, after, log_texts=logs)
+    report.check("the copy is byte-identical but for the window's own dated setup log (if any), and no installation exists in it",
+                 not changed, changed or {"new": sorted(set(after) - set(before)), "entries": len(after)})
+    report.check("no .venv, files/bin, models, python-packages, nltk_data or optional voice exists in the copy",
+                 not any((copy / name).exists() for name in first_run_journey.INSTALL_MARKS))
+    report.check("a second installation beside it is byte-identical",
+                 not cleanup_journey.tree_problems("the bystander", bystander_before, cleanup_journey.content_digest(bystander)))
+    protected_after = cleanup_journey.protected_state(protected, scratch_store.tree_digest)
+    report.equal("the real checkout's environment, FFmpeg, models, logs, settings, code, runtime data and the default outputs are "
+                 "unchanged", protected_after, protected_before)
+    (context.evidence / "first-run-outcome.json").write_text(json.dumps({
+        "exit": {key: value for key, value in exit_facts.items() if key != "stderr_tail"}, "events": events, "children": children,
+        "clicked": clicked, "new_in_copy": sorted(set(after) - set(before)), "outcome_problems": changed,
+        "processes_naming_the_copy": _processes_naming(work), "protected_after": protected_after}, indent=1, default=str), encoding="utf-8")
+
+
+def within_area(client: tuple, area: tuple) -> bool:
+    """The window's content box wholly inside the desktop's visible area (left, top, right, bottom)."""
+    return area[0] <= client[0] and area[1] <= client[1] and client[2] <= area[2] and client[3] <= area[3]

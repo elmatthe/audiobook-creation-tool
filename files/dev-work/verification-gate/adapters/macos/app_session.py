@@ -150,11 +150,15 @@ class _Job:
 class AppSession:
     """Start with ``start()``; leave with ``close_by_user()`` or ``tear_down()``. ``evidence`` and ``work`` belong to one scenario."""
 
-    def __init__(self, evidence: Path, work: Path, *, script: Path | None = None, config: dict | None = None, name: str = "app") -> None:
+    def __init__(self, evidence: Path, work: Path, *, script: Path | None = None, config: dict | None = None, name: str = "app",
+                 python: str | Path | None = None) -> None:
         self.evidence = Path(evidence).resolve()
         self.work = Path(work).resolve()  # the application runs with this as its working folder
         self.name = name
         self.script = script or HERE / "app_launcher.py"
+        #: The interpreter the instance runs on: this gate's own unless a journey names one (the first-run journey runs the app's
+        #: own base Python, as a first run does, never the checkout's environment).
+        self.python = str(python) if python else sys.executable
         self.config = dict(config or {})
         self.actions = evidence / f"{name}-actions.jsonl"
         self.screenshots = self.evidence / "screenshots"
@@ -194,7 +198,7 @@ class AppSession:
         try:
             # Its own process group: what the application starts without a group of its own stays in this one, so
             # tear-down and the orphan check reach it.
-            self.proc = subprocess.Popen([sys.executable, "-I", "-B", str(self.script), str(config_path)], cwd=self.work, env=env,
+            self.proc = subprocess.Popen([self.python, "-I", "-B", str(self.script), str(config_path)], cwd=self.work, env=env,
                                          stdin=subprocess.DEVNULL, stdout=stderr, stderr=stderr, start_new_session=True)
         finally:
             stderr.close()
