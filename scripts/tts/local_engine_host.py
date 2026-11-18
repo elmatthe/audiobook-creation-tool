@@ -210,7 +210,6 @@ class WorkerHost:
         self._end_lock = threading.Lock()  # one end of a worker at a time (a Cancel and a run's own end can meet)
         #: How the last worker this host ended was retired (``child_ownership.Retired``), or None.
         self.last_end = None
-        self._last_retirement: tuple = (None, None)  # (that worker's Popen, its Retired), set together under _end_lock
 
     # -- state ----------------------------------------------------------------------------------------------------
     def _note(self, name: str, **detail) -> None:
@@ -342,13 +341,13 @@ class WorkerHost:
         except (OSError, ValueError) as exc:
             self._died(f"it could not be sent the request ({exc})")
 
-    def _died(self, how: str):
+    def _died(self, how: str, worker: Optional[subprocess.Popen] = None):
         from shared import child_ownership
 
-        proc = self._proc  # read once: a Cancel hook may retire it meanwhile
+        proc = self._proc if worker is None else worker  # read once: a Cancel hook may retire it meanwhile
         if proc is not None:  # its exit is waited for (bounded) WITHOUT reaping it: its group is ended first
             child_ownership.wait_exited(proc, 2.0, self._start_time)
-        _seconds, retired = self._end("died")
+        _seconds, retired = self._end("died", worker)
         returncode = retired.returncode if retired is not None else None
         tail = self._stderr_tail()  # complete: its group has ended, so its standard error has reached its end
         self._note("died", how=how, returncode=returncode)
@@ -365,9 +364,10 @@ class WorkerHost:
         raises :class:`LocalEngineFailed`; the worker's ``error`` for this request raises :class:`WorkerError`."""
         deadline = time.monotonic() + timeout_s
         exited_at: Optional[float] = None
+        worker = self._proc  # v0.8.x P5-D-R2: the worker this request is using; its own end is asked for by name
         while True:
             if cancel_check is not None and cancel_check():
-                self._cancel()
+                self._cancel(worker)
             now = time.monotonic()
             if now >= deadline:
                 self._note("timeout", seconds=timeout_s)
@@ -383,10 +383,10 @@ class WorkerHost:
                 if self._exited():
                     exited_at = now if exited_at is None else exited_at
                     if now - exited_at >= EXIT_DRAIN_S:
-                        self._died("it exited")
+                        self._died("it exited", worker)
                 continue
             if line is None:
-                self._died("it exited")
+                self._died("it exited", worker)
             event = parse_event(line)
             if event is None:
                 self._stderr.append(line[:300])  # nothing else is written to the protocol channel; kept, not trusted
@@ -401,12 +401,13 @@ class WorkerHost:
             if wanted(event):
                 return event
 
-    def _cancel(self):
-        """Cancel: the worker's group ends now (SIGKILL), is reaped, and the run is told it was cancelled."""
+    def _cancel(self, worker: Optional[subprocess.Popen] = None):
+        """Cancel: the worker's group ends now (SIGKILL), is reaped, and the run is told it was cancelled. *worker*: the
+        one a request in flight is using (v0.8.x P5-D-R2) -- if another caller has already retired it, its answer."""
         from shared.cancellation import ConversionCancelled
 
         self._note("cancel-seen")
-        seconds, retired = self._end("cancel")
+        seconds, retired = self._end("cancel", worker)
         self._note("cancel-stopped", seconds=round(seconds, 4))
         problem = retired.problem() if retired is not None else None
         if problem:  # never a clean Cancel (v0.8.x P5-D): the file fails and says why
@@ -470,17 +471,18 @@ class WorkerHost:
         return Path(folder) / f"{self.engine}-chunk-{os.getpid()}-{self.starts}-{rid}.npy"
 
     # -- end ----------------------------------------------------------------------------------------------------------
-    def _reap_quietly(self):
+    def _reap_quietly(self, expected: Optional[subprocess.Popen] = None):
         """Retire the worker (v0.8.x P5-D): its whole group ended while its id is proved its own -- running or already
         exited -- then its output read to its end, and only then is it reaped. Returns ``child_ownership.Retired`` (None
-        when there was no worker). Bounded by :data:`GROUP_END_BOUND_S` + :data:`REAP_BOUND_S` + :data:`OUTPUT_EOF_S`;
-        never raises. A stream is closed only once its reader has finished: closing it under a reader still blocked on
-        it would wait for that read -- for as long as whatever holds the pipe runs."""
+        when there was no worker, or it is not *expected*), also kept on that worker as ``act_retired``. Bounded by
+        :data:`GROUP_END_BOUND_S` + :data:`REAP_BOUND_S` + :data:`OUTPUT_EOF_S`; never raises. A stream is closed only
+        once its reader has finished: closing it under a reader still blocked on it would wait for that read -- for as
+        long as whatever holds the pipe runs."""
         from shared import child_ownership
 
         with self._end_lock:  # a second caller finds the worker already retired
             proc = self._proc
-            if proc is None:
+            if proc is None or (expected is not None and proc is not expected):
                 return None
             group = child_ownership.end_led_group(proc, self._start_time, bound_s=GROUP_END_BOUND_S)
             with contextlib.suppress(OSError, ValueError, AttributeError):
@@ -506,7 +508,7 @@ class WorkerHost:
             self.loaded.clear()
             retired = child_ownership.Retired(returncode=returncode, group=group, output_open=output_open)
             self.last_end = retired
-            self._last_retirement = (proc, retired)
+            proc.act_retired = retired  # type: ignore[attr-defined]  # v0.8.x P5-D-R2: this worker's own answer
             problem = retired.problem()
             if problem:
                 self._note("unconfirmed", pid=proc.pid, group=group, output_open=output_open)
@@ -515,17 +517,18 @@ class WorkerHost:
                              f"stopped: {problem}.")
             return retired
 
-    def _end(self, reason: str):
+    def _end(self, reason: str, worker: Optional[subprocess.Popen] = None):
         """:meth:`kill`, also returning how the worker was retired (``child_ownership.Retired``, or None when there was
-        none to end)."""
+        none to end). *worker*: the one a request in flight is using (v0.8.x P5-D-R2); without it, the current one."""
         began = time.monotonic()
-        proc = self._proc
+        proc = self._proc if worker is None else worker
         if proc is None:
             return 0.0, None
-        retired = self._reap_quietly()
-        if retired is None:  # v0.8.x P5-D-R1: another caller retired this very worker meanwhile -- its answer stands, so
-            ended, how = self._last_retirement  # an end it could not confirm never turns into a clean Cancel here
-            retired = how if ended is proc else None
+        retired = self._reap_quietly(proc)
+        if retired is None:  # v0.8.x P5-D-R1/R2: another caller retired this very worker -- while this end waited, or
+            # before it began -- so that worker's own answer stands (never another's): an end it could not confirm never
+            # turns into a clean Cancel here.
+            retired = getattr(proc, "act_retired", None)
         seconds = time.monotonic() - began
         self._note("killed", reason=reason, seconds=round(seconds, 4), returncode=proc.returncode)
         return seconds, retired

@@ -863,10 +863,10 @@ def test_a_cancel_meeting_an_unconfirmed_end_by_another_caller_is_never_clean(sc
         real_end(proc, start_time, **kwargs)
         return co.GROUP_REMAINING
 
-    def reap_quietly(self):
+    def reap_quietly(self, *args, **kwargs):
         if threading.current_thread().name == "request":
             waiting.set()
-        return real_retire(self)
+        return real_retire(self, *args, **kwargs)
 
     monkeypatch.setattr(co, "end_led_group", end_led_group)
     monkeypatch.setattr(hosts.WorkerHost, "_reap_quietly", reap_quietly)
@@ -892,6 +892,122 @@ def test_a_cancel_meeting_an_unconfirmed_end_by_another_caller_is_never_clean(sc
     assert "asked to stop, but it could not be confirmed stopped" in str(error) and "had not ended in time" in str(error)
     assert host.last_end.group == co.GROUP_REMAINING and host._proc is None
     assert gone(helper)
+    assert scene.sentinel_alive()
+
+
+def _retired_before_the_request_resumes(scene, monkeypatch, *, helper, answer, retire, then):
+    """v0.8.x P5-D-R2: a request in flight against a known worker is parked inside its own Cancel check -- the top of its
+    wait, before it reads anything -- while another caller retires that worker completely (``_proc`` is None); then it
+    resumes and sees Cancel (``then="cancel"``) or reads on (``"died"``). *answer*: the group answer withheld after the
+    group was really ended (None: the kernel's own). Returns (the request's exception, the retirement)."""
+    host = scene.host(helper, "block")
+    host.load({"lang_code": "a"})
+    if answer is not None:
+        real = co.end_led_group
+
+        def end_led_group(proc, start_time, **kwargs):
+            real(proc, start_time, **kwargs)
+            return answer
+
+        monkeypatch.setattr(co, "end_led_group", end_led_group)
+    armed, parked, released = threading.Event(), threading.Event(), threading.Event()
+
+    def cancel_check() -> bool:
+        if armed.is_set():
+            parked.set()
+            released.wait(PROMPT_S)
+            return then == "cancel"
+        return False
+
+    outcome: dict = {}
+
+    def request() -> None:
+        try:
+            host.synthesize(REQUEST, cancel_check=cancel_check, folder=scene.dir)
+        except BaseException as exc:  # noqa: BLE001 - handed to the test
+            outcome["exc"] = exc
+
+    serving = threading.Thread(target=request, name="request", daemon=True)
+    serving.start()
+    scene.helper()  # the worker is inside the chunk
+    armed.set()
+    assert parked.wait(PROMPT_S), "the request never reached its Cancel check"
+    getattr(host, retire)("another caller")
+    assert host._proc is None, "retired completely before the request resumes"
+    retired = host.last_end
+    released.set()
+    serving.join(PROMPT_S)
+    assert not serving.is_alive()
+    return outcome.get("exc"), retired
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("retire, helper, answer", [("close", "detached", co.GROUP_REMAINING),
+                                                    ("kill", "detached", co.GROUP_UNPROVED),
+                                                    ("kill", "escapee", None)])
+def test_a_cancel_after_another_caller_fully_retired_its_worker_unconfirmed_is_never_clean(scene, monkeypatch, retire,
+                                                                                            helper, answer):
+    """Before (reproduced at ``5954998``, ``files/dev-work/macos-p5d-r2/repro/before/``): once another caller had
+    finished retiring the request's worker, ``_end`` found ``_proc`` None and answered nothing -- P5-D-R1's lookup was
+    never reached -- so an unconfirmed retirement (an answer withheld, or an escapee holding the worker's output, which
+    happens without any injection) became a clean Cancel. Now the request asks for its own worker's end by name, and
+    that worker's own answer stands."""
+    error, retired = _retired_before_the_request_resumes(scene, monkeypatch, helper=helper, answer=answer,
+                                                         retire=retire, then="cancel")
+    assert retired.problem() is not None
+    assert isinstance(error, hosts.LocalEngineFailed), f"never a clean Cancel: {error!r}"
+    assert "asked to stop, but it could not be confirmed stopped" in str(error), str(error)
+    assert retired.problem() in str(error)
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+def test_a_worker_that_died_after_another_caller_retired_it_unconfirmed_says_so(scene, monkeypatch):
+    """The same ordering without Cancel: the request reads its worker's end. Before: "stopped unexpectedly" with nothing
+    about the unconfirmed retirement. Now the file's failure says it could not be confirmed stopped."""
+    error, retired = _retired_before_the_request_resumes(scene, monkeypatch, helper="detached",
+                                                         answer=co.GROUP_REMAINING, retire="close", then="died")
+    assert isinstance(error, hosts.LocalEngineFailed) and "stopped unexpectedly" in str(error), str(error)
+    assert f"It could not be confirmed stopped: {retired.problem()}" in str(error), str(error)
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("retire", ["close", "kill"])
+def test_a_cancel_after_another_caller_retired_its_worker_confirmed_stays_clean(scene, monkeypatch, retire):
+    """Control: the same ordering with the group's end confirmed by the kernel is a clean Cancel, as before."""
+    error, retired = _retired_before_the_request_resumes(scene, monkeypatch, helper="detached", answer=None,
+                                                         retire=retire, then="cancel")
+    assert retired.group == co.GROUP_ENDED and retired.problem() is None
+    assert isinstance(error, ConversionCancelled), repr(error)
+    assert gone(scene.helper_id()) and scene.sentinel_alive()
+
+
+@POSIX_ONLY
+def test_an_end_asked_for_a_retired_worker_answers_for_it_alone(scene, monkeypatch):
+    """Identity (v0.8.x P5-D-R2): an end asked for a worker that was retired, unconfirmed, returns that worker's own
+    answer; it neither retires the worker now current nor takes that one's answer."""
+    real = co.end_led_group
+    answers = iter([co.GROUP_REMAINING])
+
+    def end_led_group(proc, start_time, **kwargs):
+        got = real(proc, start_time, **kwargs)
+        return next(answers, got)  # the first worker's answer withheld; every later one the kernel's own
+
+    monkeypatch.setattr(co, "end_led_group", end_led_group)
+    host = scene.host(None, "ok")
+    host.load({"lang_code": "a"})
+    first = host._proc
+    host.kill("first")
+    assert first.act_retired.group == co.GROUP_REMAINING
+    host.load({"lang_code": "a"})
+    second, second_id = host._proc, (host._proc.pid, host._start_time)
+    assert second is not first and running(second_id)
+    _seconds, answer = host._end("a late end", first)
+    assert answer is first.act_retired, "the first worker's own answer"
+    assert host._proc is second and running(second_id), "the current worker was not touched"
+    host.kill("second")
+    assert second.act_retired.group == co.GROUP_ENDED and second.act_retired is not first.act_retired
     assert scene.sentinel_alive()
 
 

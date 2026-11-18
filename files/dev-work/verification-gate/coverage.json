@@ -569,7 +569,8 @@
         "The run's closing line counts the files finished, stopped (nothing unfinished saved) and not started; each file's own line already tells stopped from skipped (v0.7.2, ACT72-004).",
         "On macOS (v0.8.x P2) a Cancel during a Kokoro chunk does not wait for the chunk: the request's own Cancel poll ends the local-engine worker's whole process group and reaps it (bounded at 2 s), and a paused or between-files run's worker is ended by Cancel itself; nothing unfinished is published and the next run starts a fresh worker.",
         "On macOS (v0.8.x P5-D) the local-engine worker is never reaped before its whole process group has been ended (identity-proved, under its waitpid lock), whether Cancel finds it busy, idle or already exited; a pipe is never closed under a reader still blocked on it; a group not confirmed ended fails the file with a sentence that says so instead of a clean Cancel.",
-        "On macOS (v0.8.x P5-D-R1) a Cancel that meets another caller's end of the same local-engine worker (an engine switch's close, a Cancel hook) reports that end's own answer: an end whose group was not confirmed ended is never turned into a clean Cancel."
+        "On macOS (v0.8.x P5-D-R1) a Cancel that meets another caller's end of the same local-engine worker (an engine switch's close, a Cancel hook) reports that end's own answer: an end whose group was not confirmed ended is never turned into a clean Cancel.",
+        "On macOS (v0.8.x P5-D-R2) a request in flight asks for its own worker's end by name: if another caller has already retired that worker -- even completely, before the request saw Cancel or the worker's end -- that worker's own retirement answer stands, so an unconfirmed end is never a clean Cancel and the file's failure says it could not be confirmed stopped; an end asked for one worker never retires another or takes its answer."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -26346,7 +26347,7 @@
     "scripts/tts/ffmpeg_watch.py": "3af5ccd8a3aef4be21bf805be1eb808e056a8b9fd862ae2677d51473fe441f64",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
-    "scripts/tts/local_engine_host.py": "adbc5a401e0c068930c953c94dc377d00fed18f9cd7a2120858b8122431f3362",
+    "scripts/tts/local_engine_host.py": "e6d5e3d9f3b8af5f3dfd9adec7c73ce5af96ba4e053219c187b3934ffbf616bd",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",

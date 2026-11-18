@@ -336,7 +336,8 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   (v0.8.x P5-D-R1) Choosing a voice of another engine also retires a Kokoro worker that has already exited on its own.
   A worker whose identity could not be recorded when it started is never admitted: the file fails saying the engine
   could not be started under the app's control. A Cancel that meets another end of the same worker reports that end's
-  answer, so an unconfirmed end is never a clean Cancel.
+  answer, so an unconfirmed end is never a clean Cancel -- (v0.8.x P5-D-R2) also when that end had already finished
+  before the Cancel was seen.
 
 ### Cancel clicked for real with requests in flight
 `ACT.TTS.CANCEL.NATIVE`
