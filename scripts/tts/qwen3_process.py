@@ -11,6 +11,13 @@ started without one and the older ``taskkill /T`` route remains.
 Other platforms get a new process group instead (the Qwen3 voices are Windows-only for now; this keeps the module
 honest if that changes). On macOS (v0.8.x P1B) an ACT Python child of the app window, or of one of its own class-A
 children, is started through its owner (``shared.child_ownership``): its own group, tied to the owner's lifeline.
+
+**A leader's exit proves nothing about its group** (v0.8.x P5-D, POSIX). A worker can exit -- normally, on Cancel, or
+by crashing -- while something it started in its group runs on, and can still hold its output open. So a process
+started here carries the kernel start time recorded at spawn (``act_start_time``), its group is ended while its id is
+proved its own (``child_ownership.end_led_group``: waitpid lock held, unreaped, same start time, signalled until the
+kernel says nothing is left), and only then is it reaped. Nothing here polls it first: a ``poll()`` that reaps a leader
+which has already exited loses the only proof of its group's id.
 """
 
 from __future__ import annotations
@@ -185,6 +192,7 @@ def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen
         else:
             proc = subprocess_utils.popen(cmd, start_new_session=True, **kwargs)
         proc.act_job = None  # type: ignore[attr-defined]
+        proc.act_start_time = leader_start_time(proc, owner)  # type: ignore[attr-defined]
         return proc
     job: Optional[ProcessJob] = None
     try:
@@ -218,11 +226,67 @@ def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen
     return proc
 
 
+#: POSIX (v0.8.x P5-D): how long ending a group may take before it counts as not confirmed ended. A SIGKILLed group is
+#: empty within milliseconds; the bound keeps a caller's own stop bound (OmniVoice's 4 s Cancel) honest when it is not.
+GROUP_END_BOUND_S = 1.5
+
+
+def leader_start_time(proc: subprocess.Popen, owner=None) -> Optional[tuple[int, int]]:
+    """POSIX: the kernel start time of *proc*, just started by :func:`spawn` as the leader of its own process group --
+    the one its owner recorded, or read now (nobody can have reaped it yet, so its id is still its own)."""
+    from shared import child_ownership
+
+    child = owner.child(proc) if owner is not None else None
+    if child is not None and child.start_time is not None:
+        return child.start_time
+    return child_ownership.process_start_time(proc.pid)
+
+
+def leads_proved_group(proc: subprocess.Popen) -> bool:
+    """True for a POSIX process :func:`spawn` started as the leader of its own group, its start time recorded: its group
+    can be ended -- whether or not it is still running -- until it is reaped (v0.8.x P5-D)."""
+    return sys.platform != "win32" and isinstance(getattr(proc, "act_start_time", None), tuple)
+
+
+def leader_exited(proc: subprocess.Popen) -> bool:
+    """POSIX: True once *proc* has exited -- observed, NEVER reaped, so its id and its group's stay reserved."""
+    from shared import child_ownership
+
+    return child_ownership.has_exited(proc, proc.act_start_time)  # type: ignore[attr-defined]
+
+
+def end_group(proc: subprocess.Popen, bound_s: float = GROUP_END_BOUND_S) -> str:
+    """POSIX (v0.8.x P5-D): SIGKILL every process in the group *proc* leads and confirm that none is left -- only while
+    its id is proved *proc*'s own (``child_ownership.end_led_group``). Never reaps; never raises. The answer
+    (``child_ownership.GROUP_*``) is kept as ``proc.act_group_end``; once *proc* has been reaped the group can no longer
+    be ended, and the answer given before stands (none at all: ``GROUP_UNPROVED``)."""
+    from shared import child_ownership
+
+    if proc.returncode is None:
+        proc.act_group_end = child_ownership.end_led_group(  # type: ignore[attr-defined]
+            proc, proc.act_start_time, bound_s=bound_s)  # type: ignore[attr-defined]
+    return getattr(proc, "act_group_end", None) or child_ownership.GROUP_UNPROVED
+
+
+def containment_problem(proc: subprocess.Popen, *, output_open: bool = False) -> Optional[str]:
+    """POSIX: why nothing can vouch that *proc* and everything in its group have ended, or None when its group was
+    confirmed ended (:func:`end_group`), its output reached its end and it was reaped (``child_ownership.Retired``)."""
+    from shared import child_ownership
+
+    group = getattr(proc, "act_group_end", None) or child_ownership.GROUP_UNPROVED
+    return child_ownership.Retired(returncode=proc.returncode, group=group, output_open=output_open).problem()
+
+
 def kill_tree(proc: subprocess.Popen, wait_s: float = 15.0) -> None:
-    """Stop the process and every descendant, whether or not the process itself is still running."""
+    """Stop the process and every descendant, whether or not the process itself is still running.
+
+    POSIX, for a process :func:`spawn` started (v0.8.x P5-D): its group is ended while its id is proved its own
+    (:func:`end_group`), then it is reaped; it is never polled first."""
     job: Optional[ProcessJob] = getattr(proc, "act_job", None)
     if job is not None:
         job.terminate()
+    elif leads_proved_group(proc):
+        end_group(proc, min(wait_s, GROUP_END_BOUND_S))
     elif proc.poll() is None:
         if sys.platform == "win32":
             subprocess_utils.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)

@@ -36,6 +36,9 @@ CPU. The worker is a class-A child (``shared.child_ownership``): its own process
 process's own when there is none (a command-line tool). Cancel keeps its released shape (flag file, 2 s grace, the
 whole group killed and reaped), within the macOS contract's OmniVoice bound (plan section 11.2.1: 4 s). On the Mac's
 GPU a worker renders at most :data:`MPS_CHUNKS_PER_WORKER` chunks (the P4B memory checkpoint); the processor keeps 48.
+However a worker ends -- ``done``, Cancel, a crash -- it is never reaped before its whole group has been ended (v0.8.x
+P5-D): what it left in its group ends with it, output held open by such a leftover no longer keeps the run waiting, and
+a group that cannot be confirmed ended makes the file a failure, never a success or a clean Cancel.
 """
 
 from __future__ import annotations
@@ -113,6 +116,10 @@ KILL_WAIT_S = 10.0
 EVENT_TIMEOUT_S = 900.0
 #: After its result, how long a worker gets to exit; one that will not is killed and its result distrusted.
 EXIT_GRACE_S = 20.0
+#: POSIX (v0.8.x P5-D): once a worker's process group has been ended, every writer in it is gone, so what it wrote
+#: reaches its end at once; output that stays silent this long without ending is held open by something outside that
+#: group, and the worker cannot be vouched for.
+OUTPUT_DRAIN_S = 2.0
 STALE_JOB_AGE_S = 24 * 3600.0
 STDERR_TAIL_CHARS = 1500
 
@@ -224,11 +231,13 @@ def spawn_worker(cmd: list, **kwargs) -> subprocess.Popen:
     (``qwen3_process.spawn`` finds it), or of this process's own when there is none -- never a worker without a
     lifeline."""
     if sys.platform != "win32" and qwen3_process._posix_owner(cmd) is None:
+        owner = _private_owner()
         try:
-            proc = _private_owner().popen_python([str(part) for part in cmd], label="omnivoice-worker", **kwargs)
+            proc = owner.popen_python([str(part) for part in cmd], label="omnivoice-worker", **kwargs)
         except RuntimeError as exc:  # child_ownership.ContainmentUnavailable: nothing was started
             raise qwen3_process.ContainmentUnavailable(str(exc)) from exc
         proc.act_job = None  # type: ignore[attr-defined]
+        proc.act_start_time = qwen3_process.leader_start_time(proc, owner)  # type: ignore[attr-defined]
         return proc
     return qwen3_process.spawn(cmd, require_job=True, **kwargs)
 
@@ -242,6 +251,31 @@ def _running_on(event: dict) -> str:
     if device == "cpu":
         return f"OmniVoice is running on the processor: {name}, float32"
     return f"OmniVoice is running on the GPU: {name}"
+
+
+def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
+                       kill: Callable[[subprocess.Popen], None], *, output_open: bool) -> Optional[str]:
+    """POSIX (v0.8.x P5-D): end a finished worker run in the only safe order -- its group ended while its id is proved
+    its own (``qwen3_process.end_group``), its output handed on to its end (bounded), and only then is it reaped -- and
+    say why it cannot be vouched for, or None when its group was confirmed ended, its output ended and it was reaped.
+
+    A worker still running here (its output ended or the run was left early) gets the released 10 s to exit, observed
+    without reaping it, and is then ended with its whole group (*kill*). Never raises."""
+    if proc.returncode is None and not qwen3_process.leader_exited(proc):
+        from shared import child_ownership
+
+        if not child_ownership.wait_exited(proc, 10.0, proc.act_start_time):  # type: ignore[attr-defined]
+            kill(proc)
+    qwen3_process.end_group(proc)  # whatever it left in its group ends now, before it is reaped
+    reader.join(timeout=0.0 if output_open else OUTPUT_DRAIN_S)
+    output_open = reader.is_alive()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    if not output_open and proc.stdout is not None:  # never closed under a reader still blocked on it
+        proc.stdout.close()
+    return qwen3_process.containment_problem(proc, output_open=output_open)
 
 
 def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Path, env: dict,
@@ -289,7 +323,16 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
         chunk_events: list[dict] = []
         terminal: Optional[dict] = None
         terminal_at = cancel_requested_at = killed_at = None
-        last_progress = time.monotonic()
+        last_progress = last_output = time.monotonic()
+        # v0.8.x P5-D (POSIX): a worker that leads its own group, with its identity recorded at spawn. Its exit -- seen
+        # without reaping it -- ends the wait as much as the end of its output does: something it left in its group can
+        # hold that output open for as long as it runs. Its group is ended before it is ever reaped, and a group that
+        # cannot be proved or confirmed ended, or output held open past it, makes the run a failure, never a success
+        # or a clean Cancel.
+        led = qwen3_process.leads_proved_group(proc)
+        group_ended_at: Optional[float] = None
+        output_open = raising = False
+        containment: Optional[str] = None
         try:
             while True:
                 now = time.monotonic()
@@ -307,13 +350,20 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                         f"The OmniVoice voice engine stopped responding and was stopped. {_tail(stderr_path)}".strip())
                 if killed_at is not None and now - killed_at > kill_wait_s:
                     break
+                if group_ended_at is not None and now - max(group_ended_at, last_output) > OUTPUT_DRAIN_S:
+                    output_open = True  # every writer in its group is gone, yet its output has not ended
+                    break
                 try:
                     line = lines.get(timeout=0.2)
                 except queue.Empty:
                     line = ""
+                    if led and group_ended_at is None and (killed_at is not None or qwen3_process.leader_exited(proc)):
+                        qwen3_process.end_group(proc)  # never reaps; what it wrote is still handed on below
+                        group_ended_at = time.monotonic()
                 if line is None:
                     break
                 if line:
+                    last_output = time.monotonic()
                     event = _local.parse_event(line)
                     if event is None:
                         log(f"  [omnivoice] {line[:300]}")
@@ -338,22 +388,35 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                     cancel_requested_at = time.monotonic()
                     cancel_flag.write_text("cancel", encoding="utf-8")
         except BaseException:
+            raising = True
             kill(proc)
             raise
         finally:
-            if proc.poll() is None:
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    kill(proc)
-            reader.join(timeout=5)
-            if reader.is_alive():
-                kill(proc)
+            if led:
+                containment = _settle_led_worker(proc, reader, kill, output_open=output_open)
+                if containment is not None and raising:  # the file is failing already: say why it was not vouched for
+                    log(f"  [omnivoice] the worker could not be confirmed stopped: {containment}")
+            else:
+                if proc.poll() is None:
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        kill(proc)
                 reader.join(timeout=5)
-            if not reader.is_alive() and proc.stdout is not None:
-                proc.stdout.close()
+                if reader.is_alive():
+                    kill(proc)
+                    reader.join(timeout=5)
+                if not reader.is_alive() and proc.stdout is not None:
+                    proc.stdout.close()
             qwen3_process.release(proc)
     returncode = proc.returncode if proc.returncode is not None else -1
+    if containment is not None:
+        log(f"  [omnivoice] the worker could not be confirmed stopped: {containment}")
+        if cancel_requested_at is not None:
+            raise OmniVoiceFailed(f"The OmniVoice voice engine was asked to stop, but it could not be confirmed stopped: "
+                                  f"{containment}.")
+        raise OmniVoiceFailed(f"The OmniVoice voice engine could not be confirmed stopped, so its audio was discarded: "
+                              f"{containment}.")
     if cancel_requested_at is not None:
         raise ConversionCancelled("Conversion cancelled by user.")
     if terminal is None:

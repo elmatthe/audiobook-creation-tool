@@ -26,6 +26,14 @@ stops answering is ended and reported as the file's failure with its own last wo
 owner here. Every signal is identity-checked by the owner: only this worker's group, only while it is this process's
 unreaped child.
 
+**A worker's exit proves nothing about its group** (v0.8.x P5-D). However the worker ends -- Cancel, a crash, an engine
+switch, an exit of its own -- it is never reaped before its whole group has been ended
+(``child_ownership.end_led_group``: under the ``Popen``'s waitpid lock, unreaped, same kernel start time, signalled
+until the kernel says nothing is left), so nothing it left in that group outlives it; nothing here ``poll()``s or
+``wait()``s it first. Its exit is seen without reaping it, so a leftover holding its output cannot keep a request
+waiting for an unrelated timeout, and a pipe is never closed under a reader still blocked on it. A group that cannot be
+confirmed ended is reported: a Cancel then fails the file instead of claiming a clean stop.
+
 **Where.** :func:`isolation_enabled` is true on macOS only. Windows keeps Kokoro and Chatterbox in-process exactly as
 released (D17); nothing here runs there.
 """
@@ -64,6 +72,18 @@ LOAD_TIMEOUT_S = 600.0
 CHUNK_TIMEOUT_S = 1800.0
 #: How much of the worker's standard error is kept for a failure message.
 STDERR_TAIL_CHARS = 2000
+#: v0.8.x P5-D: ending the worker's group (SIGKILL, then the kernel's word that nothing is left) may take this long; a
+#: SIGKILLed group is empty within milliseconds. With :data:`REAP_BOUND_S` and :data:`OUTPUT_EOF_S` it keeps even the
+#: worst case inside :data:`CANCEL_BOUND_S` -- and anything slower is reported, never claimed.
+GROUP_END_BOUND_S = 1.0
+#: How long reaping the worker may take once its group has ended (it is a zombie by then).
+REAP_BOUND_S = 0.5
+#: Once its group has ended every writer is gone, so the worker's output reaches its end at once; output still open
+#: after this is held by something outside that group.
+OUTPUT_EOF_S = 0.4
+#: After the worker has exited on its own (seen without reaping it), how long what it wrote before exiting may take to
+#: arrive before its exit is acted on.
+EXIT_DRAIN_S = 0.5
 
 
 #: How each engine is named in a message.
@@ -186,13 +206,25 @@ class WorkerHost:
         self.history: list[HostEvent] = []
         self.release_when_idle = False
         self._in_use = 0  # requests being made now, from any thread
+        self._start_time: Optional[tuple[int, int]] = None  # the worker's kernel start time, recorded at spawn
+        self._end_lock = threading.Lock()  # one end of a worker at a time (a Cancel and a run's own end can meet)
+        #: How the last worker this host ended was retired (``child_ownership.Retired``), or None.
+        self.last_end = None
 
     # -- state ----------------------------------------------------------------------------------------------------
     def _note(self, name: str, **detail) -> None:
         self.history.append(HostEvent(time.monotonic(), name, detail))
 
+    def _exited(self) -> bool:
+        """True once the worker has exited -- seen WITHOUT reaping it, so its id and its group's stay reserved until its
+        group has been ended (v0.8.x P5-D)."""
+        from shared import child_ownership
+
+        proc = self._proc
+        return proc is None or child_ownership.has_exited(proc, self._start_time)
+
     def alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+        return self._proc is not None and not self._exited()
 
     @property
     def pid(self) -> Optional[int]:
@@ -246,6 +278,11 @@ class WorkerHost:
                                       cwd=str(WORKER.parent))
         except RuntimeError as exc:  # ContainmentUnavailable (the app is closing, or no guardian): nothing started
             raise LocalEngineFailed(f"The voice engine could not be started under the app's control ({exc}).") from exc
+        from shared import child_ownership
+
+        child = owner.child(proc) if hasattr(owner, "child") else None
+        self._start_time = (child.start_time if child is not None and child.start_time is not None
+                            else child_ownership.process_start_time(proc.pid))  # just started: still its own id
         self._proc = proc
         self.starts += 1
         self._note("spawned", pid=proc.pid)
@@ -294,17 +331,19 @@ class WorkerHost:
             self._died(f"it could not be sent the request ({exc})")
 
     def _died(self, how: str):
-        returncode = None
-        if self._proc is not None:
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                returncode = self._proc.wait(timeout=2.0)
-        for reader in self._readers:
-            reader.join(timeout=1.0)
-        tail = self._stderr_tail()
+        from shared import child_ownership
+
+        proc = self._proc  # read once: a Cancel hook may retire it meanwhile
+        if proc is not None:  # its exit is waited for (bounded) WITHOUT reaping it: its group is ended first
+            child_ownership.wait_exited(proc, 2.0, self._start_time)
+        _seconds, retired = self._end("died")
+        returncode = retired.returncode if retired is not None else None
+        tail = self._stderr_tail()  # complete: its group has ended, so its standard error has reached its end
         self._note("died", how=how, returncode=returncode)
-        self.kill("died")
         detail = f" (exit code {returncode})" if returncode is not None else ""
+        problem = retired.problem() if retired is not None else None
         raise LocalEngineFailed(f"The {engine_name(self.engine)} voice engine stopped unexpectedly: {how}{detail}."
+                                + (f" It could not be confirmed stopped: {problem}." if problem else "")
                                 + (f" {tail}" if tail else ""))
 
     def _await(self, wanted: Callable[[dict], bool], timeout_s: float,
@@ -313,6 +352,7 @@ class WorkerHost:
         once and raises ``ConversionCancelled``; an exit, a broken message or ``timeout_s`` without an event ends it and
         raises :class:`LocalEngineFailed`; the worker's ``error`` for this request raises :class:`WorkerError`."""
         deadline = time.monotonic() + timeout_s
+        exited_at: Optional[float] = None
         while True:
             if cancel_check is not None and cancel_check():
                 self._cancel()
@@ -326,6 +366,12 @@ class WorkerHost:
             try:
                 line = self._events.get(timeout=min(CANCEL_POLL_S, max(0.0, deadline - now)))
             except queue.Empty:
+                # v0.8.x P5-D: the worker's exit, seen without reaping it, ends the wait as its end of output does --
+                # something left in its group can hold that output open. What it wrote first is still read.
+                if self._exited():
+                    exited_at = now if exited_at is None else exited_at
+                    if now - exited_at >= EXIT_DRAIN_S:
+                        self._died("it exited")
                 continue
             if line is None:
                 self._died("it exited")
@@ -348,8 +394,12 @@ class WorkerHost:
         from shared.cancellation import ConversionCancelled
 
         self._note("cancel-seen")
-        seconds = self.kill("cancel")
+        seconds, retired = self._end("cancel")
         self._note("cancel-stopped", seconds=round(seconds, 4))
+        problem = retired.problem() if retired is not None else None
+        if problem:  # never a clean Cancel (v0.8.x P5-D): the file fails and says why
+            raise LocalEngineFailed(f"The {engine_name(self.engine)} voice engine was asked to stop, but it could not "
+                                    f"be confirmed stopped: {problem}.")
         raise ConversionCancelled("Conversion cancelled by user.")
 
     def load(self, request: dict, cancel_check: Optional[Callable[[], bool]] = None) -> dict:
@@ -408,46 +458,79 @@ class WorkerHost:
         return Path(folder) / f"{self.engine}-chunk-{os.getpid()}-{self.starts}-{rid}.npy"
 
     # -- end ----------------------------------------------------------------------------------------------------------
-    def _reap_quietly(self) -> None:
-        proc = self._proc
-        if proc is None:
-            return
-        with contextlib.suppress(subprocess.TimeoutExpired, ChildProcessError):
-            proc.wait(timeout=2.0)
-        for stream in (proc.stdin, proc.stdout, proc.stderr):
-            with contextlib.suppress(OSError, ValueError, AttributeError):
-                stream.close()
-        for reader in self._readers:
-            reader.join(timeout=1.0)
-        with contextlib.suppress(Exception):
-            self._containment().forget(proc)
-        self._proc = None
-        self.loaded.clear()
+    def _reap_quietly(self):
+        """Retire the worker (v0.8.x P5-D): its whole group ended while its id is proved its own -- running or already
+        exited -- then its output read to its end, and only then is it reaped. Returns ``child_ownership.Retired`` (None
+        when there was no worker). Bounded by :data:`GROUP_END_BOUND_S` + :data:`REAP_BOUND_S` + :data:`OUTPUT_EOF_S`;
+        never raises. A stream is closed only once its reader has finished: closing it under a reader still blocked on
+        it would wait for that read -- for as long as whatever holds the pipe runs."""
+        from shared import child_ownership
 
-    def kill(self, reason: str = "") -> float:
-        """End the worker's whole group at once (SIGKILL, identity-checked by its owner) and reap it. Returns the
-        seconds it took. Never raises; nothing is waited for beyond the reap's bound."""
+        with self._end_lock:  # a second caller finds the worker already retired
+            proc = self._proc
+            if proc is None:
+                return None
+            group = child_ownership.end_led_group(proc, self._start_time, bound_s=GROUP_END_BOUND_S)
+            with contextlib.suppress(OSError, ValueError, AttributeError):
+                proc.stdin.close()  # type: ignore[union-attr]  # only this host writes to it
+            try:
+                returncode = proc.wait(timeout=REAP_BOUND_S)
+            except subprocess.TimeoutExpired:
+                returncode = None
+            except ChildProcessError:
+                returncode = proc.returncode
+            until = time.monotonic() + OUTPUT_EOF_S
+            for reader in self._readers:
+                reader.join(timeout=max(0.0, until - time.monotonic()))
+            output_open = any(reader.is_alive() for reader in self._readers)
+            for stream, reader in ((proc.stdout, self._readers[0] if self._readers else None),
+                                   (proc.stderr, self._readers[1] if len(self._readers) > 1 else None)):
+                if reader is None or not reader.is_alive():
+                    with contextlib.suppress(OSError, ValueError, AttributeError):
+                        stream.close()  # type: ignore[union-attr]
+            with contextlib.suppress(Exception):
+                self._containment().forget(proc)
+            self._proc = None
+            self.loaded.clear()
+            retired = child_ownership.Retired(returncode=returncode, group=group, output_open=output_open)
+            self.last_end = retired
+            problem = retired.problem()
+            if problem:
+                self._note("unconfirmed", pid=proc.pid, group=group, output_open=output_open)
+                with contextlib.suppress(Exception):
+                    self.log(f"The {engine_name(self.engine)} voice engine (pid {proc.pid}) could not be confirmed "
+                             f"stopped: {problem}.")
+            return retired
+
+    def _end(self, reason: str):
+        """:meth:`kill`, also returning how the worker was retired (``child_ownership.Retired``, or None when there was
+        none to end)."""
         began = time.monotonic()
         proc = self._proc
         if proc is None:
-            return 0.0
-        if proc.poll() is None:
-            with contextlib.suppress(Exception):
-                self._containment().kill_now(proc)
-        self._reap_quietly()
+            return 0.0, None
+        retired = self._reap_quietly()
         seconds = time.monotonic() - began
         self._note("killed", reason=reason, seconds=round(seconds, 4), returncode=proc.returncode)
-        return seconds
+        return seconds, retired
+
+    def kill(self, reason: str = "") -> float:
+        """End the worker's whole group at once (SIGKILL, identity-checked: only while it is this process's unreaped
+        child with its recorded start time) and only then reap it. Returns the seconds it took. Never raises; nothing
+        is waited for beyond its bounds. How it went is :attr:`last_end`."""
+        return self._end(reason)[0]
 
     def close(self, reason: str = "") -> None:
-        """An orderly end (engine switch, tool or test done): ask the worker to exit, give it a second, then end it."""
+        """An orderly end (engine switch, tool or test done): ask the worker to exit, give it a second (its exit is
+        waited for without reaping it), then end its group and reap it."""
+        from shared import child_ownership
+
         proc = self._proc
-        if proc is not None and proc.poll() is None:
+        if proc is not None and not self._exited():
             with contextlib.suppress(OSError, ValueError, AttributeError):
                 proc.stdin.write(b'{"op": "exit"}\n')  # type: ignore[union-attr]
                 proc.stdin.flush()  # type: ignore[union-attr]
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=1.0)
+            child_ownership.wait_exited(proc, 1.0, self._start_time)
         self.kill(reason or "closed")
         if self._scratch is not None:
             import shutil
@@ -493,9 +576,10 @@ def cancel_requested(backend: str) -> None:
     """A run of ``backend`` was cancelled: its worker ends now even when it is not answering a request -- paused
     between files, or the run finishing a file -- so the next run starts a new one, as after a Cancel mid-chunk. A
     worker answering a request is ended by that request's own Cancel poll (within :data:`CANCEL_POLL_S`), so this
-    never races it: it acts only if it can take the request lock at once. Off the caller's thread; never raises."""
+    never races it: it acts only if it can take the request lock at once. Off the caller's thread; never raises. A worker
+    that has already exited on its own is retired too (v0.8.x P5-D): its group is ended before it is reaped."""
     host = _HOST
-    if host is None or host.engine != backend or not host.alive():
+    if host is None or host.engine != backend or host._proc is None:
         return
 
     def end_if_idle() -> None:
