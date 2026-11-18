@@ -1073,14 +1073,19 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "setup.clear-downloaded-data",
-        "pending_phase": "P5",
+        "tool": "setup",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ],
         "tests": [
+          "files/tests/test_macos_p5_clear_downloaded_data.py",
           "files/tests/test_bootstrap_host_macos.py",
           "files/tests/test_child_ownership.py",
           "files/tests/test_macos_foundation.py"
         ],
         "qualification": "fresh-macos",
-        "why": "macOS first run, repair and recovery are proved by P1A's native suites and the mandatory fresh-macos qualification (owner-run procedure, D9b); the journey through the macOS first-run window completes the map in P5. Until then the stage reports NOT RUN."
+        "why": "v0.8.0 P5-E: the macOS counterpart runs the real application on a disposable copy in a Mac's layout (journeys/setup.py, clear_downloaded_data_macos), held first to an isolation preflight computed by the copy's own code (helpers/cleanup_journey.py: nothing is launched unless every target, the state folder and the helper are the copy's, the helper's interpreter outside the copy and every cleanup target, and no link but the two seeded) and judged on byte-level digests: only the ticked items removed, the engine lease's empty locks the only new files, a bystander installation, the links' sentinel and the real checkout unchanged, the real helper identified by its acknowledgement, spawn record and command line. Its evidence is journey checks and real pictures; dialog-contract is not named because the journey answers no file or folder dialog (its confirmation is the application's own window, checked by the journey). The real downloaded-data cleanup of an installation stays with fresh-macos."
       },
       "tts.kokoro-local": {
         "class": "automated",

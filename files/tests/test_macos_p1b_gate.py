@@ -57,7 +57,7 @@ def test_the_five_tools_shutdown_and_behaviour_controls_are_automated_now():
 
 def _tts_and_pending_problems(darwin):
     """TTS and TTS-shutdown scenarios completed (P2 and later): automated, not manual, not pending, with full evidence. What is
-    still pending is exactly the three setup.* scenarios, on P5."""
+    still pending is exactly the two first-run setup.* scenarios, on P5 (P5-E made setup.clear-downloaded-data automated)."""
     problems = []
     for sid, entry in darwin.items():
         if sid.startswith(("tts.", "shutdown.tts-")):
@@ -66,8 +66,7 @@ def _tts_and_pending_problems(darwin):
             elif not {"journey-checks", "real-screenshots", "dialog-contract"} <= set(entry.get("evidence") or []):
                 problems.append(f"{sid}: lacks the required evidence classes")
     pending = {sid: entry["pending_phase"] for sid, entry in darwin.items() if entry.get("pending_phase")}
-    expected = {"setup.first-run-refuses-a-folder-too-deep": "P5", "setup.first-run-choices-and-cancel": "P5",
-                "setup.clear-downloaded-data": "P5"}
+    expected = {"setup.first-run-refuses-a-folder-too-deep": "P5", "setup.first-run-choices-and-cancel": "P5"}
     if pending != expected:
         problems.append(f"pending set is {pending}, expected {expected}")
     return problems
@@ -80,7 +79,8 @@ def test_a_wrong_reclassification_of_a_tts_or_setup_scenario_is_caught():
     for sid, change in (("tts.pdf-without-text", {"pending_phase": "P2"}),
                         ("shutdown.tts-close-during-work", {"manual": True}),
                         ("tts.cancel-during-narration", {"evidence": ["journey-checks"]}),
-                        ("setup.clear-downloaded-data", {"pending_phase": None}),
+                        ("setup.clear-downloaded-data", {"pending_phase": "P5"}),
+                        ("setup.first-run-refuses-a-folder-too-deep", {"pending_phase": None}),
                         ("setup.first-run-choices-and-cancel", {"pending_phase": "P2"})):
         mutated = copy.deepcopy(real)
         mutated[sid].update(change)

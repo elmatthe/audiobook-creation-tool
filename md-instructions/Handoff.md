@@ -1,5 +1,15 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — P5-E: `setup.clear-downloaded-data` on macOS is an automated PASS on a disposable copy; the two first-run journeys stay pending on P5 (2026-11-18, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Start `049a7b4`. Evidence `files/dev-work/macos-p5e/` (ignored). Decisions: P5-E entry.
+- **Implemented:** a macOS branch of the journey (`journeys/setup.py`; Windows body unchanged) and its pure judge (`helpers/cleanup_journey.py`), held first to an isolation preflight from the copy's own code (BLOCKED before any launch if it fails); 22 pure negative-control and transition tests (`files/tests/test_macos_p5_clear_downloaded_data.py`).
+- **Native runs (this Mac, single scenario, real runner):** `run1` FAIL (oracle gap: the engine lease's five empty locks, created in the copy by the helper by design; recorded, corrected narrowly); `run2` PASS (pre-policy); `run3` PASS on the committed map. 42 checks, 4 real screenshots PASS, real `runtime-data` unchanged, no owned process left.
+- **Map:** `setup.clear-downloaded-data` automated (`journey-checks`, `real-screenshots`). Pending on P5: `setup.first-run-refuses-a-folder-too-deep`, `setup.first-run-choices-and-cancel`. Both P1B tests pin those two.
+- **Tests:** P5-E module, both P1B modules, coverage, native-acceptance contract: 179 passed, 8 skipped (the existing Windows-desktop skips). `test_verification_gate_contract.py`: the 12 inherited macOS failures, the same ids as P5-A-R1. Inventory check 0 problems.
+- **Not run:** the full gate, the first-run journeys, any real cleanup of an installation, synthesis, installs.
+- **Next action:** independent review and owner approval of P5-E; then the next bounded P5 checkpoint (recommended: `setup.first-run-choices-and-cancel`).
+
 ## Current checkpoint — HOME-MacOS return: synced to 10a2fc4; owner accepted the bounded Windows launcher remediation; P1B closeout-test assertion corrected (2026-11-18, Claude Code Sonnet 5.5)
 
 This block supersedes the blocks below for status and next action.

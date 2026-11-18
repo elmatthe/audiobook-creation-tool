@@ -73,6 +73,8 @@ The passing focused gate `2026-11-16_234204_focused_4cf5` is kept. This is not a
 - **Gate:** new focused gate `2026-11-18_094125_focused_5cd3` **RESULT: PASS**, exit 0: 9/9 journeys; pytest 352 passed, 13 policy-named skips, 0 failed. Earlier gate results unchanged.
 - **Still PENDING:** independent review of P5-D-R2; owner approval of P5-A, P5-A-R1, P5-B and P5-D with R1/R2 (P5-C owner-accepted); the owner's permissions decision; the Windows-native regression on HOME-PC; the rest of P5.
 
+**Revision 3q:** 2026-11-18 (Claude Code, Opus 5.5). **P5-E: `setup.clear-downloaded-data` has a native macOS counterpart and is an automated PASS; the two first-run journeys stay pending on P5.** The Windows journey assumed a Windows layout. The macOS branch (`journeys/setup.py`, `clear_downloaded_data_macos`) runs the real application on a disposable copy in a Mac's layout under the gate's scratch. Before anything is launched, an isolation preflight asks the copy's own code where it would clean (`helpers/cleanup_journey.py`); otherwise the scenario is BLOCKED. It is judged on byte-level digests, and the real helper is identified by its acknowledgement, spawn record and command line. The first native run FAILED on an oracle gap (the engine lease's five empty locks in the copy, created by the helper by design) and stays recorded; after a narrow correction the second run and a canonical run on the committed map PASS. The map entry is automated with `journey-checks` and `real-screenshots`. Evidence: `files/dev-work/macos-p5e/` (ignored).
+
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
 **Released baseline:** Windows v0.8.0, tag `v0.8.0` (tag object `0a3653e`) → release-source commit `d1701e987f106ce00f557f267a6761c5370f5968`
@@ -2091,6 +2093,13 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 > - **Tests:** 7 new POSIX-only (44 in the module); 5 failed against `5954998` (4 on behaviour, 1 for the new attribute); 44/44 with the fix. 15 affected modules by id: 0 new failures, 0 new skips, 0 removed, 0 changed among 592 ids; 7 added, all PASS. Doc/policy modules identical by id.
 > - **Gate:** focused `2026-11-18_094125_focused_5cd3` **RESULT: PASS**, exit 0. Protected assets, draft release `447445728` and `master` unchanged.
 > - **Still PENDING:** the Windows-native regression on HOME-PC (rule `posix-synthesis-worker-retirement-p5d` now 42); `_send`'s unguarded read (residual); the rest of P5.
+>
+> **Status 2026-11-18 (Revision 3q): P5-E (`setup.clear-downloaded-data` on macOS) IMPLEMENTED and an AUTOMATED PASS (native, this Mac); independent review and owner approval pending.** Start `049a7b4`; one commit (Decisions, P5-E entry; evidence `files/dev-work/macos-p5e/`, ignored).
+> - **Journey:** the real app on a disposable copy; Preferences & Data, Clear Downloaded Data, three of four items ticked, the confirmation in a Mac's words, the app closing itself (exit 0), the copy's own helper removing exactly those items, every other entry byte-identical, a bystander installation and the real checkout unchanged, the result shown once at the next launch, no owned process left.
+> - **Isolation preflight (before any launch):** the copy's own code names only the copy (targets, maintenance folder, helper script). The helper's interpreter (this checkout's base `python3.12`) lies outside the copy and outside every cleanup target. The only links are the two seeded in `.venv`.
+> - **Runs:** `run1` FAIL (oracle gap: the engine lease's empty locks; recorded); `run2` PASS (pre-policy, the map patched in memory for this id only); `run3` PASS on the committed map. 42 checks, 4 real screenshots PASS on review, `judge_darwin` AUTOMATED PASS.
+> - **Map:** `setup.clear-downloaded-data` automated (`journey-checks`, `real-screenshots`; no file dialog, so no `dialog-contract`). `setup.first-run-refuses-a-folder-too-deep` and `setup.first-run-choices-and-cancel` stay pending on P5.
+> - **Still PENDING:** the two first-run journeys; the Windows-native regression; independent review and owner approval of P5-E.
 >
 > **Revision 2 (2026-11-16; Q3=A):**
 > - **Entry:** P4C complete. Every engine on the macOS roster is PROVEN; every other engine is SKIPPED BY OWNER DECISION and absent from the macOS experience.

@@ -14,7 +14,10 @@ runner's own before-and-after digest of the real ``files/runtime-data`` holds ev
     the real helper process deletes exactly what was ticked, in the copy; the next launch shows the result once.
 
 What these do not show: a real base installation (downloads; the ``fresh-windows`` qualification), display scaling other than this
-desktop's, or macOS.
+desktop's, or macOS -- except ``setup.clear-downloaded-data``, which has a macOS counterpart (v0.8.0 P5): the same journey through the
+in-process macOS driver on a disposable copy in a Mac's layout, held first to an isolation preflight computed by the copy's own code
+(``helpers/cleanup_journey.py``; nothing is launched unless it passes) and judged on byte-level digests afterwards. The first-run
+journeys stay Windows-only until their own P5 checkpoints.
 """
 
 from __future__ import annotations
@@ -23,8 +26,10 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
+from helpers import cleanup_journey
 from helpers import scratch as scratch_store
 from journeys.common import AppSession, Context, expect_clean_close, native, scenario, wait_until
 
@@ -302,6 +307,8 @@ def seed_downloaded_data(copy: Path) -> dict[str, bytes]:
           summary="Clear Downloaded Data on a disposable copy: Preferences, the real dialog and its confirmation by real clicks, the "
                   "application closing itself, the real helper deleting exactly what was ticked, and the result shown at the next launch")
 def clear_downloaded_data(context: Context) -> None:
+    if sys.platform == "darwin":
+        return clear_downloaded_data_macos(context)
     report = context.report
     copy = make_copy(context.work / "copy" / "app")
     seeded = seed_downloaded_data(copy)
@@ -384,3 +391,189 @@ def clear_downloaded_data(context: Context) -> None:
                  and not result_file.exists())
     native.acquire_foreground(relaunch.hwnd)
     expect_clean_close(context, relaunch, label="close after the result")
+
+
+# --------------------------------------------------------------------------- #
+# Clear Downloaded Data on macOS (v0.8.0 P5)
+# --------------------------------------------------------------------------- #
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _process_line(pid: int) -> str:
+    """``pid pgid command`` as the kernel has it now (``ps``), or '' when the process is gone. Read, never acted on."""
+    done = subprocess.run(["/bin/ps", "-ww", "-o", "pid=,pgid=,command=", "-p", str(int(pid))], capture_output=True, text=True, timeout=10)
+    return done.stdout.strip()
+
+
+def clear_downloaded_data_macos(context: Context) -> None:
+    """The Windows journey's steps through the in-process macOS driver, on a disposable copy in a Mac's layout.
+
+    Before anything is launched, the copy's own code is asked where it would clean, with which helper and on which interpreter, and
+    every answer must lie inside the copy (the interpreter outside it and outside every cleanup target of the real checkout), with no
+    link in the copy but the two the journey seeded; otherwise the scenario stops BLOCKED with nothing started. Afterwards every entry
+    of the copy is compared byte for byte, and the real helper is identified by its acknowledgement, its spawn record and the kernel's
+    own command line: the copy's ``cleanup_worker.py`` on the interpreter the preflight named, in a session of its own."""
+    from adapters.macos import containment
+
+    report = context.report
+    work = Path(os.path.realpath(context.work))
+    copy = make_copy(work / "copy" / "app")
+    outside = work / "outside"
+    seeded = cleanup_journey.seed(copy, outside)
+    bystander = make_copy(work / "bystander" / "app")
+    cleanup_journey.seed(bystander, work / "bystander-outside")
+    state = copy / "files" / "runtime-data" / "maintenance"
+    protected = cleanup_journey.protected_locations(REPO_ROOT)
+
+    # -- the isolation preflight: nothing is launched or clicked unless every answer is the copy's own ------------------------- #
+    probe_env = {key: value for key, value in os.environ.items()
+                 if key not in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "ACT_STARTUP_NOTICE")}
+    probe_env.update(PYTHONDONTWRITEBYTECODE="1", TMPDIR=str(work))
+    facts = cleanup_journey.copy_facts(copy, env=probe_env)
+    problems = cleanup_journey.isolation_problems(facts, copy=copy, scratch=work, real_root=REPO_ROOT, protected=protected,
+                                                  outside=outside, links=cleanup_journey.find_links(copy))
+    protected_before = cleanup_journey.protected_state(protected, scratch_store.tree_digest)
+    preflight = {"copy": str(copy), "scratch": str(work), "real_root": str(REPO_ROOT), "copy_facts": facts, "problems": problems,
+                 "protected": {label: str(path) for label, path in protected.items()}, "protected_before": protected_before,
+                 "seeded": sorted(seeded), "links": cleanup_journey.find_links(copy)}
+    (context.evidence / "isolation-preflight.json").write_text(json.dumps(preflight, indent=1), encoding="utf-8")
+    context.notes["isolation_preflight"] = {"problems": problems, "interpreter": facts.get("interpreter"),
+                                            "coordinator_script": facts.get("coordinator_script")}
+    report.check("isolation preflight: the copy's own code names only the copy (targets, state, helper; interpreter outside it)",
+                 not problems, problems[:6])
+    if problems:
+        raise containment.ContainmentUnavailable(f"the isolation preflight failed before anything was launched: {problems[:4]}")
+    interpreter, helper = facts["interpreter"], facts["coordinator_script"]
+    bystander_before = cleanup_journey.content_digest(bystander)
+    outside_before = cleanup_journey.content_digest(outside)
+    names = facts["display_names"]
+
+    # -- the real application, on the copy --------------------------------------------------------------------------------------- #
+    # app_launcher refuses to start unless the application it imported is this copy's own, so a session that starts is the copy.
+    session = context.app(name="app", app_root=str(copy))
+    report.check("no cleanup request or result exists before the dialog", not state.exists() or not any(state.iterdir()),
+                 sorted(p.name for p in state.iterdir()) if state.exists() else [])
+    before = cleanup_journey.content_digest(copy)
+    session.click(None, "preferences_button")
+    preferences_hwnd, preferences = toplevel_window(session, "Preferences & Data")
+    session.screenshot("preferences", window=preferences_hwnd)
+    click(session, one(session, "TButton", "Clear Downloaded Data", toplevel=preferences, prefix=True))
+    dialog_hwnd, dialog = toplevel_window(session, "Clear Downloaded Data")
+
+    rows = shown(session, cls="TCheckbutton", toplevel=dialog)
+    report.equal("four items, none ticked when the dialog opens", [bool(row.get("selected")) for row in rows], [False] * 4)
+    by_asset = {}
+    for asset, display, _folder, _ticked in cleanup_journey.MAC_ASSETS:
+        matching = [row for row in rows if row.get("text", "").startswith(display)]
+        report.check(f"the {display!r} row is offered once, as the copy's catalog names it", len(matching) == 1 and names.get(asset) == display,
+                     [row.get("text") for row in rows])
+        if matching:
+            by_asset[asset] = matching[0]
+    report.check("every row can be ticked", all(not row.get("disabled") for row in rows), rows)
+    review = one(session, "TButton", "Review Selected Data…", toplevel=dialog)
+    report.check("nothing can be reviewed until something is ticked", review["disabled"], review)
+    for asset in cleanup_journey.SELECTED:
+        click(session, by_asset[asset])
+    wanted = [row["path"] for asset in cleanup_journey.SELECTED for row in [by_asset[asset]]]
+    wait_until(lambda: sorted(row["path"] for row in shown(session, cls="TCheckbutton", toplevel=dialog) if row.get("selected"))
+               == sorted(wanted), 5, "exactly the three ticks")
+    session.screenshot("clear-downloaded-data", window=dialog_hwnd)
+    click(session, wait_until(lambda: (lambda b: None if b["disabled"] else b)(one(session, "TButton", "Review Selected Data…", toplevel=dialog)),
+                              10, "Review Selected Data to become available"))
+
+    confirm_hwnd, confirm = toplevel_window(session, "Confirm clearing downloaded data")
+    message = " ".join(item.get("text", "") for item in shown(session, cls="TLabel", toplevel=confirm))
+    ticked_names = [display for asset, display, _f, ticked in cleanup_journey.MAC_ASSETS if ticked]
+    report.check("the confirmation names each ticked item and not the one left alone",
+                 all(name in message for name in ticked_names) and "Application logs" not in message, message[:600])
+    report.check("the confirmation speaks a Mac's words: OmniVoice, never Qwen3", "OmniVoice" in message and "Qwen3" not in message,
+                 message[:600])
+    report.check("the confirmation offers Cancel beside the destructive button",
+                 bool([b for b in shown(session, cls="TButton", toplevel=confirm) if b.get("text") == "Cancel"]))
+    during = cleanup_journey.content_digest(copy)
+    touched = sorted(name for name, digest in before.items()
+                     if not name.startswith(cleanup_journey.VOLATILE_PREFIXES) and during.get(name) != digest)
+    report.check("nothing has been touched while the question is open", not touched, touched[:6])
+    report.check("no request exists before the confirmation", not (state / "cleanup-request.json").exists())
+    session.screenshot("clear-downloaded-data-confirm", window=confirm_hwnd)
+
+    watch = session.exit_watch()
+    click(session, one(session, "TButton", "Clear 3 Selected Items and Close", toplevel=confirm))
+    accepted = wait_until(lambda: _read_json(state / "cleanup-accepted.json"), 60, "the cleanup helper's acknowledgement")
+    coordinator = int(accepted["coordinator_process_id"])
+    line = _process_line(coordinator)  # alive: it waits for the application to exit, and the application has not been reaped yet
+    spawned = [item for item in session.job.records() if item.get("pid") == coordinator]
+    request = _read_json(state / "cleanup-request.json") or _read_json(state / "cleanup-request.consumed.json") or {}
+    facts_exit = session.wait_for_exit(watch, timeout=90)
+    context.notes.setdefault("exits", []).append({key: value for key, value in facts_exit.items() if key != "stderr_tail"})
+    context.notes["coordinator"] = {"pid": coordinator, "ps": line, "spawn_record": spawned, "request": request}
+    report.check("the application closed itself", facts_exit["exited"], f"after {facts_exit['seconds']} s")
+    report.equal("with exit status 0", facts_exit["exit_status"], 0)
+    report.check("and left no window", not facts_exit["windows_after"], facts_exit["windows_after"])
+    report.check("no Tk call from a worker thread", not facts_exit["tk_off_thread"], facts_exit["tk_off_thread"][:5])
+    report.check("the only owned process outliving the window is the acknowledged helper",
+                 all(item.get("pid", item.get("pgid")) == coordinator for item in facts_exit["orphans"]), facts_exit["orphans"])
+    parts = line.split(None, 2)
+    report.check("the helper is the copy's own cleanup_worker.py on the preflight's interpreter, for this request",
+                 len(parts) == 3 and int(parts[0]) == coordinator and parts[2].startswith(f"{interpreter} {helper} --run --request-id ")
+                 and parts[2].endswith(str(request.get("request_id"))), line)
+    report.check("the application started it, and it leads a session of its own (detached by design)",
+                 len(spawned) == 1 and spawned[0].get("pgid") == coordinator and len(parts) == 3 and int(parts[1]) == coordinator, spawned)
+    report.equal("the request names the application under test and exactly the three ticked items",
+                 (request.get("process_id"), request.get("asset_ids")), (session.pid, list(cleanup_journey.SELECTED)))
+
+    result_file = state / "cleanup-result.json"
+    wait_until(result_file.is_file, 120, "the helper's result")
+    wait_until(lambda: not session.job.pids(), 60, "the helper to end by itself")
+    report.check("no owned process or process group remains", not session.job.pids() and not session._occupied_groups(),
+                 {"pids": session.job.pids(), "groups": session._occupied_groups()})
+    result = json.loads(result_file.read_text(encoding="utf-8"))
+    outcomes = {item["asset_id"]: item["status"] for item in result["outcomes"]}
+    report.equal("the helper reports exactly the three ticked items, each removed", outcomes, {asset: "removed" for asset in cleanup_journey.SELECTED})
+    report.check("the request was consumed before anything was deleted", (state / "cleanup-request.consumed.json").is_file()
+                 and not (state / "cleanup-request.json").exists())
+    log = (state / "cleanup-coordinator.log").read_text(encoding="utf-8") if (state / "cleanup-coordinator.log").is_file() else ""
+    report.check("the helper's own log, in the copy, is this helper's: accepted, removed, recorded",
+                 f"(pid {coordinator})" in log and f"accepted request {request.get('request_id')}" in log and "result recorded" in log, log[-600:])
+
+    after = cleanup_journey.content_digest(copy)
+    pinned = [name for name in seeded if name.startswith(cleanup_journey.VOLATILE_PREFIXES)]
+    outcome = cleanup_journey.outcome_problems(before, after, pinned=pinned)
+    report.check("only the ticked items were removed: every other entry is byte-identical", not outcome, outcome[:6])
+    report.equal("the helper held this copy's own engine lease: exactly its five empty locks appeared, in the copy",
+                 sorted(name for name in set(after) - set(before) if name in cleanup_journey.LEASE_LOCKS
+                        and after[name] == cleanup_journey.EMPTY_FILE), sorted(cleanup_journey.LEASE_LOCKS))
+    report.check("the environment folder is gone, with its links (removed as links)", not (copy / ".venv").exists()
+                 and not any((copy / link).is_symlink() for link in cleanup_journey.LINKS))
+    for folder in ("files/bin", "files/runtime-data/models"):
+        report.check(f"{folder} is kept, empty", (copy / folder).is_dir() and not any((copy / folder).iterdir()),
+                     sorted(p.name for p in (copy / folder).iterdir()) if (copy / folder).is_dir() else "missing")
+    report.check("what the links pointed at, outside the copy, is untouched",
+                 not cleanup_journey.tree_problems("the links' sentinel", outside_before, cleanup_journey.content_digest(outside)))
+    report.check("a second installation beside it is byte-identical",
+                 not cleanup_journey.tree_problems("the bystander", bystander_before, cleanup_journey.content_digest(bystander)))
+
+    relaunch = context.app(name="relaunch", app_root=str(copy))
+    result_hwnd, shown_result = toplevel_window(relaunch, "Downloaded data cleanup")
+    text = " ".join(item.get("text", "") for item in shown(relaunch, cls="TLabel", toplevel=shown_result))
+    report.check("the next launch names each item that was cleared and not the one left alone",
+                 all(name in text for name in ticked_names) and "Application logs" not in text, text[:600])
+    relaunch.screenshot("cleanup-result", window=result_hwnd)
+    click(relaunch, one(relaunch, "TButton", "Continue", toplevel=shown_result))
+    wait_until(lambda: not [item for item in native.windows_of(relaunch.pid) if item["title"] == "Downloaded data cleanup"], 10,
+               "the result window to close")
+    report.check("the result is shown once: it is retired on disk", (state / "cleanup-result.presented.json").is_file()
+                 and not result_file.exists())
+    native.acquire_foreground(relaunch.hwnd)
+    expect_clean_close(context, relaunch, label="close after the result")
+
+    protected_after = cleanup_journey.protected_state(protected, scratch_store.tree_digest)
+    report.equal("the real checkout's environment, FFmpeg, models, logs, settings, code and outputs are unchanged",
+                 protected_after, protected_before)
+    (context.evidence / "cleanup-outcome.json").write_text(json.dumps({
+        "before": before, "after": after, "outcome_problems": outcome, "result": result, "coordinator": context.notes["coordinator"],
+        "protected_after": protected_after}, indent=1, default=str), encoding="utf-8")
