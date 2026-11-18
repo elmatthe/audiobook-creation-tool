@@ -2,6 +2,16 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-18 — Owner accepts the bounded Windows launcher remediation at 10a2fc4; the P1B closeout test's "later phases stay NOT RUN" assertion is corrected to the map's actual pending set
+
+Signed: Claude Code (Sonnet 5.5), HOME-MacOS, under the owner's return-and-closeout instruction (2026-11-18). Parent `10a2fc4`.
+
+**Owner acceptance (recorded as stated by the owner).** The owner explicitly accepted the bounded Windows launcher remediation at `10a2fc4`. Accepted: the Windows launcher implementation; its targeted automated verification; the development `.bat` GUI smoke test; the verification-map reconciliation. **Not accepted / not covered:** replacing the production distribution; real Windows first-run or repair qualification; Windows-native Phase 5 regression; E-B2 phoneme parity; full cross-platform release qualification. The production distribution is unchanged. This supersedes the "Not accepted by the owner" residual of the entry below for the scope listed here only.
+
+**Test correction.** `test_macos_p1b_closeout_gate.py::test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evidence` required every `tts.`, `shutdown.tts-` and `setup.` scenario to carry `pending_phase`. The map has 12 such scenarios; the nine tts/shutdown ones completed (no `pending_phase`, full `journey-checks`, `real-screenshots`, `dialog-contract` evidence) and only the three `setup.*` scenarios remain pending on P5. The assertion was stale, not a launcher regression (test and `verification.json` byte-identical between `421fb71` and `10a2fc4`). It now pins the pending set to those three (all P5), and requires every non-pending scenario of those families to be an automated, non-manual counterpart with all three evidence classes. `verification.json` is unchanged; no classification or threshold changed.
+
+**Open, not changed.** `test_macos_p1b_gate.py::test_the_five_tools_shutdown_and_behaviour_controls_are_automated_now` carries the same stale premise (tts./shutdown.tts- scenarios equal those pending on P2) and still fails; it is outside this checkpoint's scope and awaits the owner's word.
+
 ## 2026-11-18 — Windows starts the app on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started, because Smart App Control blocks it
 
 Signed: Claude Code (Sonnet 5.5), HOME-PC, under the owner's Windows launcher remediation and closeout instructions (2026-11-18). Parent `421fb71`. Local evidence (untracked): `files/run-temp/s5w/diag-sac-disk-2026-11-18.md`.

@@ -405,6 +405,9 @@ def test_the_map_refuses_a_counterpart_without_evidence_or_with_unknown_evidence
 # --------------------------------------------------------------------------- #
 #  The real policy
 # --------------------------------------------------------------------------- #
+STILL_PENDING_AFTER_P5D = {"setup.first-run-refuses-a-folder-too-deep", "setup.first-run-choices-and-cancel", "setup.clear-downloaded-data"}
+
+
 def test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evidence():
     darwin = ACCEPTANCE["darwin_map"]
     assert ar.darwin_map_problems(darwin, ACCEPTANCE["required_scenarios"], ACCEPTANCE["optional_scenarios"]) == []
@@ -414,8 +417,18 @@ def test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evi
         assert "journey-checks" in evidence and "real-screenshots" in evidence, sid
         if not sid.startswith(("launcher.six-tools", "launcher.settings")):
             assert "dialog-contract" in evidence, sid
+    later_phase_prefixes = ("tts.", "shutdown.tts-", "setup.")
     pending = {sid for sid, entry in darwin.items() if entry.get("pending_phase")}
-    assert pending == {sid for sid in darwin if sid.startswith(("tts.", "shutdown.tts-", "setup."))}, "later phases stay NOT RUN"
+    # What is still pending is exactly the first-run setup journeys (P5); moving one in or out of this set is a deliberate edit here.
+    assert pending == STILL_PENDING_AFTER_P5D, "later phases stay NOT RUN, and only those"
+    assert all(darwin[sid]["pending_phase"] == "P5" for sid in pending)
+    for sid in pending:
+        assert sid.startswith("setup."), sid
+    # Every scenario of those later-phase families that is NOT pending has completed: it must carry full automated evidence.
+    for sid in (s for s in darwin if s.startswith(later_phase_prefixes) and s not in pending):
+        entry = darwin[sid]
+        assert entry["class"] == "automated" and not entry.get("manual"), sid
+        assert {"journey-checks", "real-screenshots", "dialog-contract"} <= set(entry["evidence"]), sid
 
 
 def test_the_darwin_scenarios_have_runners_and_whole_pass_requirements():

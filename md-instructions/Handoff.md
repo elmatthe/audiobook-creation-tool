@@ -1,5 +1,14 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — HOME-MacOS return: synced to 10a2fc4; owner accepted the bounded Windows launcher remediation; P1B closeout-test assertion corrected (2026-11-18, Claude Code Sonnet 5.5)
+
+This block supersedes the blocks below for status and next action.
+- Fast-forwarded `421fb71` to `10a2fc4` (owner's uncommitted plan/release-history moves and untracked files untouched). No P4 or P5 work repeated.
+- **Owner acceptance of the Windows launcher at `10a2fc4`:** implementation, targeted verification, development `.bat` smoke, verification-map reconciliation. NOT covered: production distribution replacement, real Windows first-run/repair qualification, Windows-native Phase 5, E-B2, full release qualification.
+- **Test fix (test only):** the closeout test now expects exactly the three `setup.*` scenarios pending on P5 and full evidence on the nine completed tts/shutdown ones. `verification.json` unchanged. Closeout module 60 passed; `test_macos_p1b_gate.py` and `test_verification_coverage.py` run; inventory check 0 problems.
+- **Still failing, inherited, unchanged:** `test_macos_p1b_gate.py::test_the_five_tools_shutdown_and_behaviour_controls_are_automated_now` (same stale P2-pending premise). Owner to authorize the same narrow fix.
+- **Next action:** owner review; then the next bounded Phase 5 checkpoint. No full gate or GUI journey was run.
+
 ## Current checkpoint — Windows launcher: Smart App Control blocks `pythonw.exe`; the launch now runs on the venv's `python.exe` with a hidden console (implemented, development smoke PASSED; live first-run and repair qualification NOT run)
 
 This block supersedes the blocks below for status and next action on the Windows launcher only. Every P5-A to P5-D-R2 statement below is unchanged.
