@@ -333,6 +333,10 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   exited), a crash, an engine switch, OmniVoice's `done` -- its whole process group is ended before it is reaped, so
   nothing it started outlives it, and output held open by such a leftover no longer delays or hangs the run. A group
   that cannot be confirmed ended fails the file with a sentence saying so, never a success or a clean Cancel.
+  (v0.8.x P5-D-R1) Choosing a voice of another engine also retires a Kokoro worker that has already exited on its own.
+  A worker whose identity could not be recorded when it started is never admitted: the file fails saying the engine
+  could not be started under the app's control. A Cancel that meets another end of the same worker reports that end's
+  answer, so an unconfirmed end is never a clean Cancel.
 
 ### Cancel clicked for real with requests in flight
 `ACT.TTS.CANCEL.NATIVE`

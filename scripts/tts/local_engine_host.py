@@ -210,6 +210,7 @@ class WorkerHost:
         self._end_lock = threading.Lock()  # one end of a worker at a time (a Cancel and a run's own end can meet)
         #: How the last worker this host ended was retired (``child_ownership.Retired``), or None.
         self.last_end = None
+        self._last_retirement: tuple = (None, None)  # (that worker's Popen, its Retired), set together under _end_lock
 
     # -- state ----------------------------------------------------------------------------------------------------
     def _note(self, name: str, **detail) -> None:
@@ -283,6 +284,17 @@ class WorkerHost:
         child = owner.child(proc) if hasattr(owner, "child") else None
         self._start_time = (child.start_time if child is not None and child.start_time is not None
                             else child_ownership.process_start_time(proc.pid))  # just started: still its own id
+        if self._start_time is None and sys.platform != "win32":
+            # v0.8.x P5-D-R1: a worker whose identity could not be recorded is never admitted -- its group could be
+            # neither ended on Cancel nor retired before it is reaped. Its group is not signalled (no proof); the leader
+            # alone is ended through Popen's own guarded kill, before it has run anything of the worker.
+            from tts import qwen3_process
+
+            qwen3_process.end_unadmitted(proc)
+            with contextlib.suppress(Exception):
+                owner.forget(proc)
+            raise LocalEngineFailed("The voice engine could not be started under the app's control (its identity "
+                                    "could not be recorded when it started, so it was stopped before it could run).")
         self._proc = proc
         self.starts += 1
         self._note("spawned", pid=proc.pid)
@@ -494,6 +506,7 @@ class WorkerHost:
             self.loaded.clear()
             retired = child_ownership.Retired(returncode=returncode, group=group, output_open=output_open)
             self.last_end = retired
+            self._last_retirement = (proc, retired)
             problem = retired.problem()
             if problem:
                 self._note("unconfirmed", pid=proc.pid, group=group, output_open=output_open)
@@ -510,6 +523,9 @@ class WorkerHost:
         if proc is None:
             return 0.0, None
         retired = self._reap_quietly()
+        if retired is None:  # v0.8.x P5-D-R1: another caller retired this very worker meanwhile -- its answer stands, so
+            ended, how = self._last_retirement  # an end it could not confirm never turns into a clean Cancel here
+            retired = how if ended is proc else None
         seconds = time.monotonic() - began
         self._note("killed", reason=reason, seconds=round(seconds, 4), returncode=proc.returncode)
         return seconds, retired
@@ -595,9 +611,11 @@ def cancel_requested(backend: str) -> None:
 def engine_selected(backend: str) -> None:
     """The panel's voice now belongs to ``backend``: a warm worker of another engine is released (off the caller's
     thread, so the panel never waits on it). A worker that is serving a run is left to it and released when the next
-    run that does not use it begins (:func:`host_for`). macOS only; nothing happens where there is no worker."""
+    run that does not use it begins (:func:`host_for`). macOS only; nothing happens where there is no worker. A worker
+    that has already exited on its own is released too (v0.8.x P5-D-R1): its exit is no proof that what it left in its
+    group has ended, so its group is ended before it is reaped -- now, not at the next run of its engine."""
     host = _HOST
-    if host is None or host.engine == backend or not host.alive():
+    if host is None or host.engine == backend or host._proc is None:
         return
     if host.busy():
         host.release_when_idle = True

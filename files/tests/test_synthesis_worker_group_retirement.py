@@ -486,8 +486,9 @@ def test_output_held_by_an_escapee_is_reported_not_waited_for(scene):
 
 @POSIX_ONLY
 def test_two_ends_at_once_retire_the_worker_once(scene):
-    """A run's own end and a Cancel hook meeting on the same worker: one retires it (group ended, then reaped), the
-    other finds nothing left to end; neither raises, nothing else is signalled."""
+    """A run's own end and a Cancel hook meeting on the same worker: one retires it (group ended, then reaped); the
+    other finds it retired and reports that same answer (v0.8.x P5-D-R1) -- or, arriving after, finds nothing to end;
+    neither raises, nothing else is signalled."""
     for _round in range(3):
         scene.record.unlink(missing_ok=True)
         host = scene.host("detached", "block")
@@ -510,8 +511,10 @@ def test_two_ends_at_once_retire_the_worker_once(scene):
             thread.start()
         for thread in threads:
             thread.join(PROMPT_S)
-        retired = [r for _s, r in results if r is not None]
-        assert len(results) == 2 and len(retired) == 1, results
+        retired = {id(r): r for _s, r in results if r is not None}
+        assert len(results) == 2 and len(retired) == 1, f"one retirement, the same answer for both: {results}"
+        retired = list(retired.values())
+        assert retired[0] is host.last_end
         assert retired[0].group == co.GROUP_ENDED and retired[0].problem() is None
         assert gone(helper) and host._proc is None
     assert scene.sentinel_alive()
@@ -682,7 +685,9 @@ def test_kill_tree_signals_no_group_it_cannot_prove(scene):
     real = getattr(proc, "act_start_time", None) or co.process_start_time(proc.pid)
     scene.extra.append((proc.pid, real))
     proc.act_start_time = (real[0] - 1, real[1])
+    signals = Signals(scene.monkeypatch)
     qwen3_process.kill_tree(proc, wait_s=0.5)
+    assert signals.made == [], "nothing at all is signalled on a mismatched identity"
     assert running((proc.pid, real)) and proc.returncode is None, "never signalled on an unproved identity"
     assert proc.act_group_end == co.GROUP_UNPROVED
     proc.act_start_time = real
@@ -690,6 +695,203 @@ def test_kill_tree_signals_no_group_it_cannot_prove(scene):
     assert proc.act_group_end == co.GROUP_ENDED and not running((proc.pid, real))
     qwen3_process.kill_tree(proc)  # reaped already: nothing is signalled, the earlier answer stands
     assert proc.act_group_end == co.GROUP_ENDED
+    assert scene.sentinel_alive()
+
+
+# --------------------------------------------------------------------------- #
+#  v0.8.x P5-D-R1: a worker whose identity was not recorded at spawn is never admitted; kill_tree never falls back
+# --------------------------------------------------------------------------- #
+#: The readers that record a process's identity when it is spawned. The injected failure answers None to these alone, so
+#: every later read (``end_led_group``, ``has_exited``, this module's own identity checks) is still the kernel's.
+_SPAWN_READERS = frozenset({"_register", "leader_start_time", "_start"})
+
+
+class Signals:
+    """Every ``os.killpg``/``os.kill`` this test process makes from now on, with the function that made it."""
+
+    def __init__(self, monkeypatch):
+        self.made: list = []
+
+        def recorder(name, real):
+            def call(pid, sig):
+                self.made.append((name, pid, int(sig), sys._getframe(1).f_code.co_name))
+                return real(pid, sig)
+            return call
+
+        monkeypatch.setattr(os, "killpg", recorder("killpg", os.killpg))
+        monkeypatch.setattr(os, "kill", recorder("kill", os.kill))
+
+    def groups(self) -> list:
+        return [made for made in self.made if made[0] == "killpg"]
+
+
+@pytest.fixture
+def unrecorded_identity(monkeypatch):
+    """The kernel start time cannot be read when a worker is spawned (deterministic, injected). Returns the record of
+    every signal this process makes."""
+    real = co.process_start_time
+
+    def lookup(pid):
+        return None if sys._getframe(1).f_code.co_name in _SPAWN_READERS else real(pid)
+
+    monkeypatch.setattr(co, "process_start_time", lookup)
+    return Signals(monkeypatch)
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("then", ["done", "stubborn"])
+def test_an_omnivoice_worker_whose_identity_was_not_recorded_is_never_admitted(scene, unrecorded_identity, then):
+    """Before (reproduced at ``22784cb``, ``files/dev-work/macos-p5d-r1/repro/before/``): with no recorded start time the
+    worker was supervised the released way -- reaped first, so its helper outlived ``done`` (reported a success), an
+    obeyed Cancel (a clean Cancel) and a crash -- and a stubborn one was ended by ``killpg`` on an unproved group. Now it
+    is never admitted: its group is never signalled, its leader alone is ended through ``Popen``'s guarded kill before it
+    runs and is reaped, and the file fails saying why."""
+    started: list = []
+
+    def spawn(cmd, **kwargs):
+        started.append(osy.spawn_worker(cmd, **kwargs))  # the production spawn: a class-A child of a private owner
+        return started[-1]
+
+    error = _settled(scene.bounded(lambda: scene.omnivoice("detached", then, cancel_when_ready=then == "stubborn",
+                                                           spawn=spawn), PROMPT_S), osy.OmniVoiceFailed, within=PROMPT_S)
+    assert "was not started" in str(error) and "identity could not be recorded" in str(error), str(error)
+    proc = started[0]
+    assert proc.act_start_time is None and proc.returncode == -signal.SIGKILL, "ended and reaped, never left running"
+    assert unrecorded_identity.groups() == [], "no group is signalled without its proof"
+    assert [made[3] for made in unrecorded_identity.made] == ["send_signal"], "only Popen's own guarded kill"
+    assert not scene.record.exists() and not scene.ready.exists(), "it was stopped before it ran"
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+def test_a_local_engine_worker_whose_identity_was_not_recorded_is_never_admitted(scene, unrecorded_identity):
+    """Before (``22784cb``): admitted without its identity, a Cancel could neither end its group nor stop it -- the file
+    failed, but the worker and its helper ran on, forgotten by the host. Now it is refused at the start."""
+    host = scene.host("detached", "block")
+    owner = scene.owners[-1]
+    started: list = []
+    real = owner.popen_python
+
+    def popen_python(argv, **kwargs):
+        started.append(real(argv, **kwargs))
+        return started[-1]
+
+    scene.monkeypatch.setattr(owner, "popen_python", popen_python)
+    error = _settled(scene.bounded(lambda: host.load({"lang_code": "a"}), PROMPT_S), hosts.LocalEngineFailed,
+                     within=PROMPT_S)
+    assert "could not be started under the app's control" in str(error), str(error)
+    assert "identity could not be recorded" in str(error), str(error)
+    proc = started[0]
+    assert proc.returncode == -signal.SIGKILL and host._proc is None and owner.child(proc) is None
+    assert unrecorded_identity.groups() == [], "no group is signalled without its proof"
+    assert [made[3] for made in unrecorded_identity.made] == ["send_signal"], "only Popen's own guarded kill"
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("state", ["running", "exited"])
+def test_kill_tree_never_falls_back_to_the_older_route_for_a_group_it_cannot_prove(scene, unrecorded_identity, state):
+    """Before (``22784cb``): a process spawn() started whose start time was not recorded took the older POSIX route --
+    running, ``killpg`` on an unproved group; exited, ``poll()`` reaped it first and its child ran on. Now nothing is
+    signalled and the answer is ``GROUP_UNPROVED``, which a caller reports; it is never vouched for."""
+    marker = scene.dir / "child.json"
+    script = PARENT_THEN_CHILD.format(stdio="stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL",
+                                      tail="time.sleep(300)\n" if state == "running" else "")
+    proc = qwen3_process.spawn([sys.executable, "-I", "-c", script, str(marker), str(SCRIPTS)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    leader = (proc.pid, co.process_start_time(proc.pid))
+    scene.extra.append(leader)
+    assert proc.act_start_time is None
+    child = _child_of(scene, marker)
+    if state == "exited":
+        assert co.wait_exited(proc, PROMPT_S) and proc.returncode is None
+    qwen3_process.kill_tree(proc, wait_s=0.5)
+    assert unrecorded_identity.made == [], "nothing signalled: neither its group nor its leader"
+    assert proc.act_group_end == co.GROUP_UNPROVED and qwen3_process.containment_problem(proc) is not None
+    assert running(child), "out of reach without its proof (the test ends it afterwards, by its recorded identity)"
+    assert state == "exited" or running(leader)
+    assert qwen3_process.identity_unrecorded(proc), "what a synthesis caller refuses to admit"
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("helper", ["detached", None])
+def test_choosing_another_engine_retires_a_worker_that_already_exited(scene, monkeypatch, helper):
+    """Before (``22784cb``, ``repro/before/h2-*``): ``engine_selected`` returned at ``alive()`` for a worker that had
+    exited idle, so what it left in its group ran on -- until the next run of its engine or the app's orderly end, and
+    past a SIGKILL of the app -- and the worker stayed an unreaped zombie. Now the switch retires it at once, off the
+    panel's thread: group ended, then reaped."""
+    host = scene.host(helper, "exit-after")
+    host.load({"lang_code": "a"})
+    host.synthesize(REQUEST, folder=scene.dir)
+    worker = (host.pid, host._start_time)
+    helper_id = scene.helper_id() if helper else None
+    assert co.wait_exited(host._proc, PROMPT_S, host._start_time) and not host.alive() and not host.busy()
+    monkeypatch.setattr(hosts, "_HOST", host)
+    began = time.monotonic()
+    hosts.engine_selected("omnivoice")
+    assert time.monotonic() - began < 0.1, "the panel never waits on it"
+    deadline = time.monotonic() + LOCAL_ENGINE_STOP_S + EXIT_S
+    while host._proc is not None and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert host._proc is None and hosts.current_host() is None
+    assert host.last_end.group == co.GROUP_ENDED and host.last_end.problem() is None and host.last_end.returncode == 0
+    assert co.process_start_time(worker[0]) != worker[1], "reaped, not left a zombie"
+    assert helper_id is None or gone(helper_id)
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("first", ["close", "kill"])
+def test_a_cancel_meeting_an_unconfirmed_end_by_another_caller_is_never_clean(scene, monkeypatch, first):
+    """Before (``22784cb``, ``repro/before/h2-second-caller-*``): a request in flight saw Cancel while another caller (an
+    engine switch's ``close``, a Cancel hook's ``kill``) was retiring its worker and could not confirm the group ended;
+    waiting for the end lock it found the worker gone and reported a clean Cancel. Now it reports that same unconfirmed
+    end. (The group is really ended; only the kernel's confirmation is withheld, as when a member outlasts the bound --
+    which also keeps the first caller in the end lock for the whole bound.)"""
+    host = scene.host("detached", "block")
+    host.load({"lang_code": "a"})
+    latched, waiting = threading.Event(), threading.Event()
+    real_end, real_retire = co.end_led_group, hosts.WorkerHost._reap_quietly
+    calls: list = []
+
+    def end_led_group(proc, start_time, **kwargs):
+        calls.append(threading.current_thread().name)
+        if len(calls) == 1:
+            latched.set()  # Cancel is pressed while this first end is under way ...
+            waiting.wait(PROMPT_S)  # ... and the request's own end waits for the end lock
+        real_end(proc, start_time, **kwargs)
+        return co.GROUP_REMAINING
+
+    def reap_quietly(self):
+        if threading.current_thread().name == "request":
+            waiting.set()
+        return real_retire(self)
+
+    monkeypatch.setattr(co, "end_led_group", end_led_group)
+    monkeypatch.setattr(hosts.WorkerHost, "_reap_quietly", reap_quietly)
+    outcome: dict = {}
+
+    def request() -> None:
+        try:
+            host.synthesize(REQUEST, cancel_check=latched.is_set, folder=scene.dir)
+        except BaseException as exc:  # noqa: BLE001 - handed to the test
+            outcome["exc"] = exc
+
+    serving = threading.Thread(target=request, name="request", daemon=True)
+    serving.start()
+    helper = scene.helper_id()
+    retirer = threading.Thread(target=getattr(host, first), args=("engine switched",), name="retirer", daemon=True)
+    retirer.start()
+    serving.join(PROMPT_S + 2)
+    retirer.join(PROMPT_S)
+    assert not serving.is_alive() and not retirer.is_alive()
+    assert calls == ["retirer"], "retired once, by the first caller"
+    error = outcome.get("exc")
+    assert isinstance(error, hosts.LocalEngineFailed), f"never a clean Cancel: {error!r}"
+    assert "asked to stop, but it could not be confirmed stopped" in str(error) and "had not ended in time" in str(error)
+    assert host.last_end.group == co.GROUP_REMAINING and host._proc is None
+    assert gone(helper)
     assert scene.sentinel_alive()
 
 
@@ -727,6 +929,13 @@ def test_kill_tree_keeps_its_windows_paths(monkeypatch):
     qwen3_process.kill_tree(proc, wait_s=3)
     assert calls == ["poll", ["taskkill", "/PID", "4242", "/T", "/F"], ("wait", 3)]
     assert not hasattr(proc, "act_group_end")
+    calls.clear()  # v0.8.x P5-D-R1: an identity that is not recorded changes nothing there either
+    proc = Proc()
+    proc.act_start_time = None
+    qwen3_process.kill_tree(proc, wait_s=3)
+    assert calls == ["poll", ["taskkill", "/PID", "4242", "/T", "/F"], ("wait", 3)]
+    assert not hasattr(proc, "act_group_end")
+    assert qwen3_process.identity_unrecorded(proc) is False, "never refused on Windows: its Job Object is its control"
 
 
 def test_a_worker_without_a_proved_group_keeps_the_released_supervision(tmp_path, monkeypatch):

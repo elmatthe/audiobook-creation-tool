@@ -22,6 +22,7 @@ which has already exited loses the only proof of its group's id.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import os
 import signal
@@ -248,6 +249,40 @@ def leads_proved_group(proc: subprocess.Popen) -> bool:
     return sys.platform != "win32" and isinstance(getattr(proc, "act_start_time", None), tuple)
 
 
+def _spawned_on_posix(proc: subprocess.Popen) -> bool:
+    """True for a POSIX process :func:`spawn` (or a caller recording its identity the same way) started as the leader of
+    its own group -- whether or not its start time could be recorded (``act_start_time`` present, perhaps None)."""
+    return sys.platform != "win32" and hasattr(proc, "act_start_time")
+
+
+def identity_unrecorded(proc: subprocess.Popen) -> bool:
+    """POSIX (v0.8.x P5-D-R1): True for a process started as the leader of its own group whose kernel start time could
+    not be recorded at spawn. Its group can never be proved its own, so it can neither be ended on Cancel nor retired
+    before it is reaped: a caller never admits it (:func:`end_unadmitted`). A process started any other way (Windows; a
+    test's own ``Popen``) carries no ``act_start_time`` and is not this."""
+    return _spawned_on_posix(proc) and not leads_proved_group(proc)
+
+
+#: POSIX (v0.8.x P5-D-R1): how long a refused process may take to be reaped once it has been killed.
+UNADMITTED_REAP_S = 1.0
+
+
+def end_unadmitted(proc: subprocess.Popen, bound_s: float = UNADMITTED_REAP_S) -> None:
+    """POSIX (v0.8.x P5-D-R1): end a process just started that is not admitted (:func:`identity_unrecorded`).
+
+    Its group is NEVER signalled: that needs the proof it lacks. The leader alone is killed through ``Popen``'s own
+    guarded ``kill`` -- delivered only while ``poll()`` finds it this process's own unexited child -- before it has run
+    anything of its program, then reaped (bounded) and its pipes closed (no reader was started). Never raises."""
+    with contextlib.suppress(OSError):
+        proc.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired, ChildProcessError):
+        proc.wait(timeout=bound_s)
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            if stream is not None:
+                stream.close()
+
+
 def leader_exited(proc: subprocess.Popen) -> bool:
     """POSIX: True once *proc* has exited -- observed, NEVER reaped, so its id and its group's stay reserved."""
     from shared import child_ownership
@@ -281,11 +316,12 @@ def kill_tree(proc: subprocess.Popen, wait_s: float = 15.0) -> None:
     """Stop the process and every descendant, whether or not the process itself is still running.
 
     POSIX, for a process :func:`spawn` started (v0.8.x P5-D): its group is ended while its id is proved its own
-    (:func:`end_group`), then it is reaped; it is never polled first."""
+    (:func:`end_group`), then it is reaped; it is never polled first. One whose start time was not recorded never falls
+    back to the older ``poll()``/``killpg()`` route (v0.8.x P5-D-R1): nothing is signalled (``GROUP_UNPROVED``)."""
     job: Optional[ProcessJob] = getattr(proc, "act_job", None)
     if job is not None:
         job.terminate()
-    elif leads_proved_group(proc):
+    elif _spawned_on_posix(proc):
         end_group(proc, min(wait_s, GROUP_END_BOUND_S))
     elif proc.poll() is None:
         if sys.platform == "win32":

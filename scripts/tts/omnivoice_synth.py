@@ -305,6 +305,13 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                 [str(python), "-I", str(script), str(job_path)], stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=stderr_file, text=True, encoding="utf-8", errors="replace", env=env,
                 cwd=str(job_dir))
+            if qwen3_process.identity_unrecorded(proc):
+                # v0.8.x P5-D-R1 (POSIX): a worker whose identity could not be recorded at spawn is never admitted --
+                # neither ended by a guess at its group nor supervised the released way, which reaps it first and can
+                # report success or a clean Cancel with nothing vouching for what it left behind.
+                qwen3_process.end_unadmitted(proc)
+                raise qwen3_process.ContainmentUnavailable(
+                    "its identity could not be recorded when it started, so it was stopped before it could run")
         except qwen3_process.ContainmentUnavailable as exc:
             who = "Windows would not let this app" if sys.platform == "win32" else "the app could not"
             raise OmniVoiceFailed(f"The OmniVoice voice engine was not started: {who} keep control of it, so it could "

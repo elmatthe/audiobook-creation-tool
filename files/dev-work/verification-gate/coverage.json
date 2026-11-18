@@ -568,7 +568,8 @@
         "Files published before the Cancel stay; nothing unfinished is saved; a file that had started is logged as stopped and one that never started as skipped, and Retry Failed offers neither.",
         "The run's closing line counts the files finished, stopped (nothing unfinished saved) and not started; each file's own line already tells stopped from skipped (v0.7.2, ACT72-004).",
         "On macOS (v0.8.x P2) a Cancel during a Kokoro chunk does not wait for the chunk: the request's own Cancel poll ends the local-engine worker's whole process group and reaps it (bounded at 2 s), and a paused or between-files run's worker is ended by Cancel itself; nothing unfinished is published and the next run starts a fresh worker.",
-        "On macOS (v0.8.x P5-D) the local-engine worker is never reaped before its whole process group has been ended (identity-proved, under its waitpid lock), whether Cancel finds it busy, idle or already exited; a pipe is never closed under a reader still blocked on it; a group not confirmed ended fails the file with a sentence that says so instead of a clean Cancel."
+        "On macOS (v0.8.x P5-D) the local-engine worker is never reaped before its whole process group has been ended (identity-proved, under its waitpid lock), whether Cancel finds it busy, idle or already exited; a pipe is never closed under a reader still blocked on it; a group not confirmed ended fails the file with a sentence that says so instead of a clean Cancel.",
+        "On macOS (v0.8.x P5-D-R1) a Cancel that meets another caller's end of the same local-engine worker (an engine switch's close, a Cancel hook) reports that end's own answer: an end whose group was not confirmed ended is never turned into a clean Cancel."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -3678,7 +3679,11 @@
             "leader_exited",
             "end_group",
             "containment_problem",
-            "GROUP_END_BOUND_S"
+            "GROUP_END_BOUND_S",
+            "_spawned_on_posix",
+            "identity_unrecorded",
+            "UNADMITTED_REAP_S",
+            "end_unadmitted"
           ]
         },
         {
@@ -3701,7 +3706,8 @@
         "Cancel sets a flag the worker checks before loading and before every chunk; a worker that ignores it is killed after a grace period, together with every child process.",
         "A worker that stalls, exits without exactly one terminal event, or reports success and then crashes or hangs is a failed file with its own error text.",
         "Only protocol events count as progress, so flooding output cannot postpone a cancel or the stall watchdog.",
-        "On POSIX (v0.8.x P5-D) a process spawn starts records its kernel start time; kill_tree ends its group while that identity is proved (waitpid lock held, unreaped, same start time) whether or not it is still running, never polls it first, and signals no group it cannot prove. Windows' Job Object and taskkill /T paths are unchanged."
+        "On POSIX (v0.8.x P5-D) a process spawn starts records its kernel start time; kill_tree ends its group while that identity is proved (waitpid lock held, unreaped, same start time) whether or not it is still running, never polls it first, and signals no group it cannot prove. Windows' Job Object and taskkill /T paths are unchanged.",
+        "On POSIX (v0.8.x P5-D-R1) a process spawn started whose kernel start time could not be recorded never falls back to the older poll()/killpg() route: kill_tree signals nothing and answers GROUP_UNPROVED; identity_unrecorded names such a process for the callers that must not admit it, and end_unadmitted ends its leader alone through Popen's guarded kill and reaps it, never signalling its group. Windows' Job Object and taskkill /T paths are unchanged."
       ],
       "selection": [
         "files/tests/test_qwen3_process.py",
@@ -3912,7 +3918,8 @@
         "Cancel asks the worker to stop and kills its contained process tree after a short grace period, during inference or the encode, and wins until the instant of the move; no partial MP3 is published and the job folder (which holds the person's text) is always removed.",
         "No GPU, no installed engine or model, or a changed recording makes only the OmniVoice voices unavailable with one next step; nothing falls back to another voice or engine, and one OmniVoice file converts at a time.",
         "A worker whose packages do not import fails that file, has the engine recorded as damaged and says the one next step (start again and choose Install & Continue); its startup imports are classified where they fail, so a native library Windows will not load (an OSError) counts, while running out of memory there, Smart App Control, the network guard and every later failure condemn nothing.",
-        "On macOS (v0.8.x P5-D) however an OmniVoice worker ends (done, Cancel, a crash) its process group is ended before it is reaped; its exit is seen without reaping it, so output held open by a leftover neither delays nor hangs the run; a group not proved or confirmed ended, or output held open past it, fails the file -- never a success or a clean Cancel. Windows keeps the released supervision."
+        "On macOS (v0.8.x P5-D) however an OmniVoice worker ends (done, Cancel, a crash) its process group is ended before it is reaped; its exit is seen without reaping it, so output held open by a leftover neither delays nor hangs the run; a group not proved or confirmed ended, or output held open past it, fails the file -- never a success or a clean Cancel. Windows keeps the released supervision.",
+        "On macOS (v0.8.x P5-D-R1) an OmniVoice worker whose identity could not be recorded at spawn is never admitted -- neither supervised the released way, which reaps it first and could report a success or a clean Cancel with nothing vouching for what it left, nor ended by a guess at its group: its leader alone is ended through Popen's guarded kill before it runs and reaped, and the file fails saying the engine was not started under the app's control. Windows keeps the released supervision."
       ],
       "selection": [
         "files/tests/test_omnivoice_synth.py",
@@ -4112,7 +4119,8 @@
             "release",
             "engine_selected",
             "WorkerHost.busy",
-            "WorkerHost.close"
+            "WorkerHost.close",
+            "WorkerHost._start"
           ]
         },
         {
@@ -4127,7 +4135,8 @@
         "The run log says why: 'Worker limit: <engine> converts one file at a time.'",
         "No concurrency expansion: the per-process Kokoro pipeline and Chatterbox model caches are not reentrant and are never shared by two files at once.",
         "On macOS (v0.8.x P2) there is at most one local-engine worker process; it stays loaded between the files of a run and while paused, choosing a voice of another engine releases it unless it is serving a run, and closing the app ends it with the app's other owned children.",
-        "On macOS (v0.8.x P5-D) an engine switch's close asks the worker to exit, waits for that exit without reaping it, then ends its process group and only then reaps it: nothing the worker started outlives it, and output held open by a leftover cannot hang the close."
+        "On macOS (v0.8.x P5-D) an engine switch's close asks the worker to exit, waits for that exit without reaping it, then ends its process group and only then reaps it: nothing the worker started outlives it, and output held open by a leftover cannot hang the close.",
+        "On macOS (v0.8.x P5-D-R1) choosing a voice of another engine also retires a worker that has already exited on its own -- its process group is ended, then it is reaped, off the panel's thread -- instead of leaving what it started to the next run of its engine or the app's end; and a worker whose identity could not be recorded when it started is never admitted: its group is never signalled, its leader alone is ended through Popen's guarded kill before it runs and reaped, and the file fails saying the voice engine could not be started under the app's control."
       ],
       "selection": [
         "files/tests/test_worker_limits.py",
@@ -26337,12 +26346,12 @@
     "scripts/tts/ffmpeg_watch.py": "3af5ccd8a3aef4be21bf805be1eb808e056a8b9fd862ae2677d51473fe441f64",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
-    "scripts/tts/local_engine_host.py": "e803c47ab0814446f184de58efa3cc5f8d7e79f6ba7608e20decb7c870b26700",
+    "scripts/tts/local_engine_host.py": "adbc5a401e0c068930c953c94dc377d00fed18f9cd7a2120858b8122431f3362",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
-    "scripts/tts/omnivoice_synth.py": "a9051099aa4b3757e7bc22ae917e91d541c453be8a1f31db2dc01e09227ec4ae",
+    "scripts/tts/omnivoice_synth.py": "c14c50d3cfdabbaf61d982636907462f9a6ae8bae51aefb390dce0f4fc883deb",
     "scripts/tts/omnivoice_worker.py": "f35756992d51fb9dcaf0fa53abddc057764f57adbb18864439ca2634fd10fc5e",
     "scripts/tts/optional_setup.py": "4d2fb5d341a3006cd83a0c8c686860c1737a2ed909ac465988dee3f8d7544445",
     "scripts/tts/optional_setup_acquire.py": "a9fe41855365ad00e37cf6046235c0af6ef6554a1213af61a6d36e98f65683ed",
@@ -26362,7 +26371,7 @@
     "scripts/tts/qwen3_install_ui.py": "a5c5142eb6ece3b05ffabec3db614e3dd0d8d1a5cf8b3ed45bd9a0f041c64f0e",
     "scripts/tts/qwen3_package_manifest.py": "ecbdbe80aabe6379741bb4070bd1e702fff85775236a31d8760d2bd50955a566",
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
-    "scripts/tts/qwen3_process.py": "a91ccef8ee2e4891135dca7b6a4c925c238d5698116fd87ced28e0c7a23776d8",
+    "scripts/tts/qwen3_process.py": "7fce4deeaf29dcad26ceea6665744b8f1e37fbb145d804aac3045f001064f158",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
     "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
     "scripts/tts/qwen3_synth.py": "2d3de07869d2b8ebb0832ef88da6c81b7cdcea1facca9c933a4f93bb0844d7e1",
