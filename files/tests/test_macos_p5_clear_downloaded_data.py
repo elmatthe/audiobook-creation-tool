@@ -231,7 +231,7 @@ def test_clear_downloaded_data_is_an_automated_counterpart_now_with_the_evidence
     assert ar.darwin_map_problems(DARWIN, POLICY["acceptance"]["required_scenarios"], POLICY["acceptance"]["optional_scenarios"]) == []
 
 
-def test_the_two_first_run_journeys_stay_pending_on_p5_and_are_reported_not_run():
+def test_the_folder_depth_first_run_journey_stays_pending_on_p5_and_is_reported_not_run():
     from types import SimpleNamespace
 
     sys.path.insert(0, str(GATE_DIR))
@@ -240,7 +240,7 @@ def test_the_two_first_run_journeys_stay_pending_on_p5_and_are_reported_not_run(
     finally:
         sys.path.remove(str(GATE_DIR))
     pending = {sid: entry["pending_phase"] for sid, entry in DARWIN.items() if entry.get("pending_phase")}
-    assert pending == {"setup.first-run-refuses-a-folder-too-deep": "P5", "setup.first-run-choices-and-cancel": "P5"}
+    assert pending == {"setup.first-run-refuses-a-folder-too-deep": "P5"}  # P5-F-R1 completed setup.first-run-choices-and-cancel
 
     def shape(sid):
         return SimpleNamespace(id=sid, tool="setup", layers=("native",), tier="journey", summary="")

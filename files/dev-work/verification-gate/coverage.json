@@ -20964,7 +20964,8 @@
         "The base install is five steps (Python, environment, packages, FFmpeg, English sentence data) and starts no other process of its own; no voice model is downloaded",
         "A folder too deep for Windows is refused before anything is touched",
         "A failed base install shows 'Setup did not complete' with Open log folder and Close; a successful one moves to the optional-voices review (or launches straight away if none were chosen)",
-        "The progress log follows new lines while its reader is at the bottom, keeps a reader who scrolled up in place to the pixel, follows again once back at the bottom and keeps every line; only the Tk thread writes it"
+        "The progress log follows new lines while its reader is at the bottom, keeps a reader who scrolled up in place to the pixel, follows again once back at the bottom and keeps every line; only the Tk thread writes it",
+        "Every description in the window is wrapped to the width it really has: the container's width less its padding (18 px a side), the description's indent (22 px) and the 4 px Tk lets a wrapped line run past its wraplength, so no label is given less width than its text asks for from the window's minimum (660 px) upward, with either roster and without a control or description overlapping another (v0.8.0 P5-F-R1)"
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_dialog_fit.py",
@@ -20974,7 +20975,8 @@
         "files/tests/test_first_run_contract.py",
         "files/tests/test_sentence_data.py",
         "files/tests/test_setup_log_follow.py",
-        "files/tests/test_omnivoice_setup.py"
+        "files/tests/test_omnivoice_setup.py",
+        "files/tests/test_first_run_wrap_margin.py"
       ],
       "journeys": [
         "setup.first-run-refuses-a-folder-too-deep",
@@ -21005,6 +21007,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_first_run_contract.py::test_a_freshly_extracted_tree_therefore_runs_first_run_setup"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_wrap_margin.py::test_no_description_loses_text_or_overlaps_at_any_supported_width[darwin]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_wrap_margin.py::test_no_description_loses_text_or_overlaps_at_any_supported_width[win32]"
           },
           {
             "kind": "qualification",
@@ -26319,7 +26329,7 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "0bbf95e46cdc7de85f299a7e5d2f66d1a480f1b83190ee8c8d9888fb7cbd36ec",
+    "scripts/shared/bootstrap.py": "f493efe7c1486e62c8e4a9ce96a79c6361f451ae649f2b2ac9413f3357cefe7d",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",

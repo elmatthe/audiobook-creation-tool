@@ -3577,7 +3577,10 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         width = container.winfo_width()
         if width <= 1:  # not yet mapped
             return
-        target = max(320, width - 48)
+        # A description has the container's width less its 18 px of padding on each side and its own 22 px indent (58 px), and
+        # Tk lets a wrapped line run up to 4 px past its wraplength: 62 is the smallest margin at which no label is given less
+        # than it asks for, measured 660-1400 px wide with both rosters (48 cut up to 14 px; 60 still cut 2 px; P5-F).
+        target = max(320, width - 62)
         for label in _wrapped:
             if label.cget("wraplength") != target:
                 label.configure(wraplength=target)

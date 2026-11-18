@@ -1060,14 +1060,20 @@
         "class": "automated",
         "driver": "adapters/macos",
         "journey": "setup.first-run-choices-and-cancel",
-        "pending_phase": "P5",
+        "tool": "setup",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ],
         "tests": [
+          "files/tests/test_macos_p5_first_run_choices.py",
+          "files/tests/test_first_run_wrap_margin.py",
           "files/tests/test_bootstrap_host_macos.py",
           "files/tests/test_child_ownership.py",
           "files/tests/test_macos_foundation.py"
         ],
         "qualification": "fresh-macos",
-        "why": "macOS first run, repair and recovery are proved by P1A's native suites and the mandatory fresh-macos qualification (owner-run procedure, D9b); the journey through the macOS first-run window completes the map in P5. Until then the stage reports NOT RUN."
+        "why": "v0.8.0 P5-F/P5-F-R1: the macOS counterpart runs the real first-run window (bootstrap.run_with_gui, journeys/setup.py first_run_cancel_macos, adapters/macos/setup_launcher.py) on a disposable copy and the app's own base Python, held first to an isolation preflight computed by the copy's own code (helpers/first_run_journey.py: nothing is launched unless the copy's root, every folder setup writes and its interpreter are right and the copy holds no link) and judged on: exactly Kokoro (ticked, up to 344.7 MB) then OmniVoice (unticked, up to 3.5 GB) with the licensing text and no other engine; all four checkbox states exercised and restored by Tk press and release events; every label given the room its text asks for at 660x600, 700x640, 760x680 and 900x700; Cancel before Begin Setup with exit status 2; no child, folder, launch, connection or install; nothing left running; the copy byte-identical; a bystander installation and the real checkout unchanged. Its evidence is journey checks and real pictures; dialog-contract is not named because Cancel before Begin Setup answers no file or folder dialog. The first native run FAILED on a real clipped licence line (bootstrap wrap margin 48), which was corrected in production (62) before this entry passed. A real base installation stays with fresh-macos."
       },
       "setup.clear-downloaded-data": {
         "class": "automated",

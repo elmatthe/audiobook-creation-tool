@@ -18,7 +18,7 @@ desktop's, or macOS -- except ``setup.clear-downloaded-data``, which has a macOS
 in-process macOS driver on a disposable copy in a Mac's layout, held first to an isolation preflight computed by the copy's own code
 (``helpers/cleanup_journey.py``; nothing is launched unless it passes) and judged on byte-level digests afterwards. So has
 ``setup.first-run-choices-and-cancel`` (v0.8.0 P5-F): the real first-run window on a disposable copy, on the app's own base Python,
-judged by ``helpers/first_run_journey.py`` (the approved two-voice roster, clicks, geometry at three sizes, Cancel before Begin Setup:
+judged by ``helpers/first_run_journey.py`` (the approved two-voice roster, clicks, geometry at four sizes, Cancel before Begin Setup:
 status 2, nothing installed, started or left running). ``setup.first-run-refuses-a-folder-too-deep`` stays Windows-only until its
 own P5 checkpoint.
 """
@@ -588,8 +588,9 @@ def clear_downloaded_data_macos(context: Context) -> None:
 # --------------------------------------------------------------------------- #
 # The first-run window on macOS (v0.8.0 P5-F)
 # --------------------------------------------------------------------------- #
-#: The window sizes shown, in order: the window's own minimum (660x600), the size it opens at (760x680) and a larger one.
-MACOS_SIZES = ((660, 600), (760, 680), (900, 700))
+#: The window sizes shown, in order: the window's own minimum (660x600), 700x640 (where P5-F found the licence line cut by 12 px), the size
+#: it opens at (760x680) and a larger one.
+MACOS_SIZES = ((660, 600), (700, 640), (760, 680), (900, 700))
 
 
 def _processes_naming(folder: Path) -> list[str]:
@@ -604,7 +605,7 @@ def first_run_cancel_macos(context: Context) -> None:
     Before anything is launched, the copy's own code is asked where setup would write and what it would offer, on the interpreter the
     window will run on, and every answer must be the copy's (the interpreter the app's own base Python, outside the copy and every
     cleanup target of the real checkout, the copy holding no link at all); otherwise the scenario stops BLOCKED with nothing started.
-    Then the real window opens, its two voice choices are read and clicked, its geometry is judged at three sizes, and Cancel is
+    Then the real window opens, its two voice choices are read and clicked, its geometry is judged at four sizes, and Cancel is
     pressed BEFORE Begin Setup. Nothing may be installed, downloaded, started or left running, the copy must be byte-identical but for
     its own dated setup log, and a second installation and the real checkout's data must be unchanged."""
     from adapters.macos import containment
@@ -715,7 +716,7 @@ def first_run_cancel_macos(context: Context) -> None:
     report.check("the default text is intact after the clicks: roster, estimates and descriptions are unchanged",
                  not first_run_journey.roster_problems(boxes(), [item for item in widgets() if item["class"] == "TLabel"], facts=facts))
 
-    # -- the window at three sizes ------------------------------------------------------------------------------------------------- #
+    # -- the window at four sizes ------------------------------------------------------------------------------------------------- #
     native.resize_client(session.hwnd, 500, 400)
     session.settle()
     smallest = session.client.call("window")

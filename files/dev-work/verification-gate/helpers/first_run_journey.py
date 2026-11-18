@@ -68,7 +68,8 @@ REQUIRED_CHECKS = ("isolation preflight", "the real first-run window", "exactly 
                    "no engine a Mac does not offer", "default", "a real click changes", "restored to their defaults",
                    "wholly on screen", "no text is cut", "Cancel before Begin Setup", "cancelled, not failed", "nothing was started",
                    "no owned process", "copy is byte-identical", "second installation", "real checkout")
-REQUIRED_PICTURES = ("first-run-choices", "first-run-both-ticked", "first-run-660x600", "first-run-760x680", "first-run-900x700")
+REQUIRED_PICTURES = ("first-run-choices", "first-run-both-ticked", "first-run-660x600", "first-run-700x640", "first-run-760x680",
+                     "first-run-900x700")
 
 
 # --------------------------------------------------------------------------------------------------------------------- #

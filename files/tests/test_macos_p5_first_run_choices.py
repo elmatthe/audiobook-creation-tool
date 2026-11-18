@@ -1,4 +1,4 @@
-"""v0.8.0 P5-F -- the macOS counterpart of ``setup.first-run-choices-and-cancel`` cannot PASS on a wrong root or interpreter, a wrong
+"""v0.8.0 P5-F / P5-F-R1 -- the macOS counterpart of ``setup.first-run-choices-and-cancel`` cannot PASS on a wrong root or interpreter, a wrong
 roster or default, a text cut at an edge, missing evidence, an unapproved setup activity, the wrong exit status, a leftover process
 or a changed copy, bystander or checkout.
 
@@ -546,18 +546,27 @@ def test_the_setup_launchers_tripwires_record_and_refuse_without_a_window(tmp_pa
 
 
 # --------------------------------------------------------------------------------------------------------------------- #
-#  The map: this scenario stays pending until a genuine native PASS on the committed code
+#  The map: the transition P5-F-R1 made after a genuine native PASS on the corrected source, and only that one
 # --------------------------------------------------------------------------------------------------------------------- #
 POLICY = json.loads((GATE_DIR / "verification.json").read_text(encoding="utf-8"))
 DARWIN = POLICY["acceptance"]["darwin_map"]
+REQUIRED, OPTIONAL = POLICY["acceptance"]["required_scenarios"], POLICY["acceptance"]["optional_scenarios"]
 
 
-def test_the_scenario_is_a_registered_journey_with_a_mac_branch_and_a_darwin_map_entry():
+def _runner():
     sys.path.insert(0, str(GATE_DIR))
     try:
         import acceptance_runner
+    finally:
+        sys.path.remove(str(GATE_DIR))
+    return acceptance_runner
 
-        scenarios = acceptance_runner.load_scenarios()
+
+def test_the_scenario_is_a_registered_journey_with_a_mac_branch_and_a_darwin_map_entry():
+    runner = _runner()
+    sys.path.insert(0, str(GATE_DIR))
+    try:
+        scenarios = runner.load_scenarios()
     finally:
         sys.path.remove(str(GATE_DIR))
     assert SCENARIO in scenarios and scenarios[SCENARIO].tool == "setup"
@@ -565,30 +574,42 @@ def test_the_scenario_is_a_registered_journey_with_a_mac_branch_and_a_darwin_map
     assert entry["class"] == "automated" and entry["journey"] == SCENARIO and entry["driver"] == "adapters/macos"
 
 
-def test_a_pending_scenario_is_reported_not_run_and_is_not_an_automated_pass(tmp_path):
-    """Until its native run PASSES on the committed code, the runner reports NOT RUN and the darwin judge refuses it."""
+def test_the_scenario_is_an_automated_counterpart_now_with_exactly_the_evidence_its_pass_needs():
+    entry = DARWIN[SCENARIO]
+    assert "pending_phase" not in entry and not entry.get("manual")
+    assert entry["evidence"] == ["journey-checks", "real-screenshots"], "no dialog-contract: Cancel before Begin Setup answers no file dialog"
+    assert {"files/tests/test_macos_p5_first_run_choices.py", "files/tests/test_first_run_wrap_margin.py"} <= set(entry["tests"])
+    assert "fresh-macos" == entry["qualification"], "a real base installation stays with the qualification"
+    assert ar.darwin_map_problems(DARWIN, REQUIRED, OPTIONAL) == []
     from types import SimpleNamespace
 
-    sys.path.insert(0, str(GATE_DIR))
-    try:
-        import acceptance_runner
-    finally:
-        sys.path.remove(str(GATE_DIR))
-    entry = DARWIN[SCENARIO]
-    if not entry.get("pending_phase"):
-        pytest.skip("the scenario has completed: the transition tests own it now")
     shape = SimpleNamespace(id=SCENARIO, tool="setup", layers=("native", "visual"), tier="geometry", summary="")
-    assert acceptance_runner._not_run_on_macos(shape, entry)["status"] == "NOT RUN"
-    required, optional = POLICY["acceptance"]["required_scenarios"], POLICY["acceptance"]["optional_scenarios"]
+    assert _runner()._not_run_on_macos(shape, entry) is None, "it runs now"
+
+
+def test_re_pending_or_a_map_without_evidence_cannot_leave_a_pass_standing(tmp_path):
+    """Negative controls on the entry: put back pending_phase and the runner reports NOT RUN, which the judge refuses; drop the evidence list
+    and the map is itself refused; name dialog-contract and a complete PASS is refused for answering no file dialog."""
+    shape = __import__("types").SimpleNamespace(id=SCENARIO, tool="setup", layers=("native", "visual"), tier="geometry", summary="")
+    pending = copier.deepcopy(DARWIN)
+    pending[SCENARIO]["pending_phase"] = "P5"
+    assert _runner()._not_run_on_macos(shape, pending[SCENARIO])["status"] == "NOT RUN"
     report = tmp_path / "report.json"
-    report.write_text(json.dumps({"schema_version": 1, "token": "t", "finished": True, "registered": required + optional,
+    report.write_text(json.dumps({"schema_version": 1, "token": "t", "finished": True, "registered": REQUIRED + OPTIONAL,
                                   "scenarios": [_entry()], "unknown": []}), encoding="utf-8")
-    verdict = ar.judge_darwin(report, token="t", wanted=[SCENARIO], required=required, optional=optional,
-                              evidence_root=_with_actions(tmp_path / "evidence"), returncode=0, ended="exited", darwin_map=DARWIN,
+    verdict = ar.judge_darwin(report, token="t", wanted=[SCENARIO], required=REQUIRED, optional=OPTIONAL,
+                              evidence_root=_with_actions(tmp_path / "evidence"), returncode=0, ended="exited", darwin_map=pending,
                               manual_evidence=None, sha=SHA)
     assert verdict.status != "PASS", "even a PASS entry is not an automated pass while the map says pending"
+    bare = copier.deepcopy(DARWIN)
+    del bare[SCENARIO]["evidence"]
+    assert ar.darwin_map_problems(bare, REQUIRED, OPTIONAL), "an automated counterpart must name its evidence"
+    dialog = copier.deepcopy(DARWIN)
+    dialog[SCENARIO]["evidence"] = ["journey-checks", "real-screenshots", "dialog-contract"]
+    assert any("answered no file or folder dialog" in p
+               for p in ar._darwin_evidence_problems(_entry(), _with_actions(tmp_path / "e2"), dialog[SCENARIO]["evidence"], SHA))
 
 
-def test_the_pending_set_is_the_two_first_run_journeys():
+def test_the_only_journey_still_pending_on_p5_is_the_folder_depth_one():
     pending = {sid: entry["pending_phase"] for sid, entry in DARWIN.items() if entry.get("pending_phase")}
-    assert pending == {"setup.first-run-refuses-a-folder-too-deep": "P5", "setup.first-run-choices-and-cancel": "P5"}
+    assert pending == {"setup.first-run-refuses-a-folder-too-deep": "P5"}

@@ -406,9 +406,10 @@ def test_the_map_refuses_a_counterpart_without_evidence_or_with_unknown_evidence
 #  The real policy
 # --------------------------------------------------------------------------- #
 #: A completed counterpart that opens no file or folder dialog (its confirmation is the application's own window).
-ANSWERS_NO_FILE_DIALOG = {"setup.clear-downloaded-data"}
-#: P5-E made setup.clear-downloaded-data an automated counterpart; the two first-run journeys stay pending on P5.
-STILL_PENDING_ON_P5 = {"setup.first-run-refuses-a-folder-too-deep", "setup.first-run-choices-and-cancel"}
+ANSWERS_NO_FILE_DIALOG = {"setup.clear-downloaded-data", "setup.first-run-choices-and-cancel"}
+#: P5-E made setup.clear-downloaded-data, and P5-F-R1 setup.first-run-choices-and-cancel (Cancel before Begin Setup), automated
+#: counterparts; the folder-depth first-run journey stays pending on P5.
+STILL_PENDING_ON_P5 = {"setup.first-run-refuses-a-folder-too-deep"}
 
 
 def test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evidence():
@@ -422,7 +423,7 @@ def test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evi
             assert "dialog-contract" in evidence, sid
     later_phase_prefixes = ("tts.", "shutdown.tts-", "setup.")
     pending = {sid for sid, entry in darwin.items() if entry.get("pending_phase")}
-    # What is still pending is exactly the two first-run setup journeys (P5); moving one in or out of this set is a deliberate edit here.
+    # What is still pending is exactly the folder-depth first-run journey (P5); moving one in or out of this set is a deliberate edit here.
     assert pending == STILL_PENDING_ON_P5, "later phases stay NOT RUN, and only those"
     assert all(darwin[sid]["pending_phase"] == "P5" for sid in pending)
     for sid in pending:
