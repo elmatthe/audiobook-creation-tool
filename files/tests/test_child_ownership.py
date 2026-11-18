@@ -139,6 +139,7 @@ ALLOWED_DIRECT = {
     "launch_gui": "class D: the app window, detached into its own session to outlive setup",
     "_open_folder": "class D: Finder's `open` for a folder reveal",
     "relaunch_setup": "Windows-only: setup re-run after the Windows long-path switch",
+    "hand_off_launch_only": "Windows-only: --launch-only restarted with a hidden console so the .bat's window can close",
 }
 #: Helpers whose direct subprocess call is the Windows branch, under `not _contained()`.
 WINDOWS_BRANCH = {"_child_run", "_run", "_pip"}

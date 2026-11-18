@@ -565,10 +565,11 @@ def test_the_proof_window_is_still_one_named_constant():
 # F. The launchers, run for real in a sandbox
 # --------------------------------------------------------------------------- #
 def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True,
-             venv_present: bool = True) -> Path:
+             venv_present: bool = True, launch_exit_code: int | None = None) -> Path:
     """A copy of the real launcher beside a stub bootstrap that answers as told.
 
-    ``exit_code`` is what the stub returns for ``--venv-check``; ``runnable``
+    ``exit_code`` is what the stub returns for ``--venv-check`` (and everything else); ``launch_exit_code``, when
+    given, is what it returns for ``--launch-only`` instead; ``runnable``
     decides whether the venv interpreter is a real one or a file that merely
     exists. A first-run fixture never creates an environment just to delete it.
     """
@@ -582,18 +583,19 @@ def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True,
                         str(root / ".venv")], capture_output=True, check=True)
     elif venv_present:
         (root / ".venv" / "Scripts" / "python.exe").write_bytes(b"not an executable")
-    # pythonw.exe only has to exist for the fast path's launch step.
-    pythonw = root / ".venv" / "Scripts" / "pythonw.exe"
-    if venv_present and not pythonw.exists():
-        pythonw.write_bytes(b"")
-
+    # No pythonw.exe in the sandbox: the launch step runs on python.exe, and a launcher that reached for pythonw.exe
+    # here would find nothing and fail these tests (as Smart App Control makes it fail on a real machine).
+    if venv_present:
+        (root / ".venv" / "Scripts" / "pythonw.exe").unlink(missing_ok=True)
+    base = exit_code if exit_code is not None else 0
+    launch = launch_exit_code if launch_exit_code is not None else base
     stub = root / "scripts" / "shared" / "bootstrap.py"
     stub.write_text(
         "import sys, pathlib\n"
         "log = pathlib.Path(__file__).resolve().parents[2] / 'calls.log'\n"
         "with log.open('a', encoding='utf-8') as fh:\n"
         "    fh.write(' '.join(sys.argv[1:]) + '\\n')\n"
-        f"sys.exit({exit_code if exit_code is not None else 0})\n",
+        f"sys.exit({launch} if '--launch-only' in sys.argv else {base})\n",
         encoding="utf-8")
     (root / BAT.name).write_bytes(BAT.read_bytes())
     return root
@@ -615,6 +617,43 @@ def test_a_healthy_environment_launches_once_and_does_not_repair(tmp_path):
     calls = _calls(root)
     assert "--venv-check" in calls
     assert not any("--repair-venv" in c for c in calls)
+
+
+@WINDOWS_ONLY
+def test_a_healthy_launch_runs_launch_only_on_the_console_interpreter(tmp_path):
+    """The launch step is asked for (on python.exe: the sandbox has no pythonw.exe at all) and ends the .bat cleanly."""
+    root = _sandbox(tmp_path, exit_code=0)
+    assert not (root / ".venv" / "Scripts" / "pythonw.exe").exists()
+
+    r = subprocess.run(["cmd", "/c", str(root / BAT.name)], cwd=root, capture_output=True, text=True, timeout=120)
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "--launch-only" in _calls(root)
+    assert "could not be started" not in r.stdout
+
+
+@WINDOWS_ONLY
+def test_a_launch_that_did_not_start_is_reported_and_fails_the_launcher(tmp_path):
+    """bootstrap exits non-zero when it could not start the hidden launch: never a silent 'started'."""
+    root = _sandbox(tmp_path, exit_code=0, launch_exit_code=1)
+
+    r = subprocess.run(["cmd", "/c", str(root / BAT.name)], cwd=root, capture_output=True, text=True, timeout=120,
+                       input="\r\n")
+
+    assert r.returncode == 1
+    assert "The app could not be started" in r.stdout and "exit code 1" in r.stdout
+    assert not any("--repair-venv" in c for c in _calls(root)), "a failed start is not a repair request"
+
+
+@WINDOWS_ONLY
+def test_a_launch_that_asks_for_a_repair_is_sent_to_the_repair_path(tmp_path):
+    """The code can only come back when --launch-only ran in the .bat's own process; it is honoured, not lost."""
+    root = _sandbox(tmp_path, exit_code=0, launch_exit_code=bootstrap.EXIT_VENV_REPAIR_REQUIRED)
+
+    r = subprocess.run(["cmd", "/c", str(root / BAT.name)], cwd=root, capture_output=True, text=True, timeout=180)
+
+    assert any("--repair-venv" in c for c in _calls(root)), r.stdout
+    assert "repairing the app environment" in r.stdout.lower()
 
 
 @WINDOWS_ONLY
@@ -668,9 +707,13 @@ def test_the_windows_launcher_asks_bootstrap_instead_of_looking_for_a_file():
 
 
 def test_the_windows_launcher_still_launches_without_a_console():
-    """The healthy steady state keeps its instant, console-free start."""
+    """Still console-free, no longer through ``pythonw.exe`` (Smart App Control blocks it): bootstrap's hidden hand-off.
+
+    The name is kept on purpose: the verification gate's feature map names this test id."""
     text = BAT.read_text(encoding="utf-8", errors="replace")
-    assert 'start "" ".venv\\Scripts\\pythonw.exe"' in text
+    assert '".venv\\Scripts\\python.exe" "%BOOTSTRAP%" --launch-only' in text
+    assert "pythonw.exe\" \"%BOOTSTRAP%" not in text and 'start "" ".venv\\Scripts\\pythonw.exe"' not in text
+    assert ":launchfailed" in text and "The app could not be started" in text, "a failed start is never silent"
 
 
 def test_the_windows_launcher_owns_no_python_version_policy():

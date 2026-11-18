@@ -10,8 +10,8 @@ Responsibilities, in order:
 
 1. Platform sanity check (refuse the wrong OS).
 2. **Fast path** — if a valid ``.venv`` already exists, launch the GUI and exit
-   with no setup UI. (The ``.bat`` handles this even faster via ``pythonw`` so a
-   normal launch never spawns a console; ``--launch-only`` routes here.)
+   with no setup UI. (The ``.bat`` routes here through ``--launch-only``; on Windows that step hands itself to a
+   hidden-console process at once, so a normal launch leaves no console on screen -- see ``hand_off_launch_only``.)
 3. **First run** — show a small Tk dialog (intro + Kokoro opt-in checkbox), then
    on a worker thread:
    - locate or install Python 3.11/3.12 (Kokoro wheels require <3.13),
@@ -20,7 +20,7 @@ Responsibilities, in order:
    - ensure ffmpeg (the app's own pinned build in ``files/bin/``, never an install on the computer; v0.8.x P1A:
      macOS too, with no Homebrew),
    - optionally pre-download the Kokoro model (~300 MB).
-4. Launch the unified launcher GUI detached (``pythonw`` on Windows) and exit.
+4. Launch the unified launcher GUI detached (the venv's ``python.exe`` with no visible console on Windows) and exit.
 
 Every step is tee'd to ``files/runtime-data/logs/setup_YYYY-MM-DD.log`` so a non-technical
 user can attach a log when reporting a problem.
@@ -248,12 +248,13 @@ LOG = SetupLog()
 def venv_python(windowed: bool = False) -> Path:
     """Return the path to the venv's interpreter.
 
-    ``windowed=True`` returns ``pythonw.exe`` on Windows (no console window);
-    elsewhere it is the same as the normal interpreter.
+    Always the console interpreter (``python.exe`` on Windows). ``windowed`` is accepted and ignored: it used to select
+    ``pythonw.exe``, which Windows Smart App Control refuses (WinError 4551; the unsigned venv launcher has no
+    reputation) while the same venv's ``python.exe`` runs. A window-free start is made with process-creation flags
+    instead (``launch_gui``, ``hand_off_launch_only``), never by choosing a different executable.
     """
     if IS_WINDOWS:
-        name = "pythonw.exe" if windowed else "python.exe"
-        return VENV_DIR / "Scripts" / name
+        return VENV_DIR / "Scripts" / "python.exe"
     return VENV_DIR / "bin" / "python"
 
 
@@ -3126,8 +3127,9 @@ def launch_gui(log: SetupLog) -> bool:
         log.line(f"  ERROR: no GUI to launch (looked for {LAUNCHER} and "
                  f"{LAUNCHER_FALLBACK}).")
         return False
-    pyw = venv_python(windowed=True)
-    py = pyw if pyw.exists() else venv_python()
+    # Never pythonw.exe: Windows Smart App Control blocks that unsigned launcher (WinError 4551) and a fallback to it
+    # would only fail later, out of sight. The window is kept off the screen by the creation flags below instead.
+    py = venv_python()
     if not py.exists():
         log.line(f"  ERROR: venv interpreter missing at {py}.")
         return False
@@ -3138,6 +3140,7 @@ def launch_gui(log: SetupLog) -> bool:
     # started (this process has no console on Windows). Only a real GUI launch sets it, so --venv-check and
     # --launch-only cannot report it twice, and nothing here may stop the launch.
     env.pop(STARTUP_NOTICE_ENV, None)
+    env.pop(HIDDEN_LAUNCH_ENV, None)  # a marker for the hand-off only; the window and its workers never see it
     try:
         notice = stale_layout_notice()
         if notice:
@@ -3169,8 +3172,11 @@ def launch_gui(log: SetupLog) -> bool:
             kwargs["stdout"] = launch_fh
             kwargs["stderr"] = subprocess.STDOUT
         if IS_WINDOWS:
-            kwargs["creationflags"] = (subprocess.CREATE_NO_WINDOW
-                                       | subprocess.DETACHED_PROCESS)
+            # CREATE_NO_WINDOW alone: the venv python.exe is a console-subsystem launcher that starts the real
+            # interpreter. Under DETACHED_PROCESS (no console at all) that second process was given a fresh, visible
+            # console (measured 2026-11-18, Windows Terminal host); under CREATE_NO_WINDOW it inherits a hidden one.
+            # The GUI's own output goes to the launch log either way, and the process outlives this one regardless.
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             kwargs["close_fds"] = True
         else:
             kwargs["start_new_session"] = True
@@ -3198,6 +3204,50 @@ def launch_gui(log: SetupLog) -> bool:
         log.line(f"  Full launch log: {launch_log_path}")
         return False
     return True
+
+
+#: Set for the process that ``hand_off_launch_only`` starts, so it never hands off again.
+HIDDEN_LAUNCH_ENV = "ACT_LAUNCH_ONLY_HIDDEN"
+
+
+def _has_console_window() -> bool:
+    """Whether this process is attached to a console that has a window (Windows only; never raises)."""
+    if not IS_WINDOWS:
+        return False
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.GetConsoleWindow())
+    except Exception:  # noqa: BLE001 - not knowing means "do not hand off"
+        return False
+
+
+def hand_off_launch_only() -> Optional[int]:
+    """Windows: run ``--launch-only`` in a process with a hidden console, so the batch file's window can close at once.
+
+    The ``.bat`` starts ``--launch-only`` on the venv's ``python.exe`` (a console program) and used to start it on
+    ``pythonw.exe`` so that nothing stayed on screen; Smart App Control refuses ``pythonw.exe``. Everything
+    ``--launch-only`` does (health check, FFmpeg, Kokoro, the repair dialogs, the GUI start) takes seconds, so doing it
+    in the batch file's own console would leave a black window open for all of it. Instead this starts the same command
+    again with ``CREATE_NO_WINDOW`` and returns, and the .bat's console ends with it, as it did before.
+
+    Returns ``None`` when there is nothing to hand off (not Windows, no console window to leave, or this already is the
+    hidden process), ``0`` once the hidden process has started, and ``1`` -- said on the console, which is still there --
+    when it could not be started, so a launch that did not begin is never reported as one that did. What the hidden
+    process then does is in ``setup_<date>.log`` and ``launch_<date>.log``, exactly as it was under ``pythonw.exe``.
+    """
+    if not IS_WINDOWS or os.environ.get(HIDDEN_LAUNCH_ENV) or not _has_console_window():
+        return None
+    env = os.environ.copy()
+    env[HIDDEN_LAUNCH_ENV] = "1"
+    try:
+        subprocess.Popen([sys.executable, str(_THIS), "--launch-only"], cwd=str(REPO_ROOT), env=env,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
+    except Exception as exc:  # noqa: BLE001 - reported, and the launch is declared failed
+        LOG.line(f"  ERROR: the app could not be started ({exc}).")
+        return 1
+    return 0
 
 
 # ===========================================================================
@@ -4323,6 +4373,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         # Fast path from the .bat/.command. Bounded self-heal — environment,
         # packages, FFmpeg, Kokoro — before launching, so a broken or partial
         # install is repaired on every launch and not only on a first run.
+        handed_off = hand_off_launch_only()  # Windows: continue in a hidden-console process; None elsewhere
+        if handed_off is not None:
+            return handed_off
         return _launch_with_kokoro_healthcheck()
 
     # Fast path: a valid venv already exists → health-check Kokoro, then launch.

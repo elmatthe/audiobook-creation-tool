@@ -20778,6 +20778,9 @@
             "_venv_check",
             "_launch_with_kokoro_healthcheck",
             "launch_gui",
+            "hand_off_launch_only",
+            "_has_console_window",
+            "venv_python",
             "_launch_target",
             "_tail_text",
             "_configure_hf_cache",
@@ -20794,10 +20797,11 @@
         }
       ],
       "contracts": [
-        "With a .venv present the Windows launcher asks bootstrap.py --venv-check; exit 0 starts pythonw bootstrap.py --launch-only detached with no console, any non-zero exit takes the repair route",
+        "With a .venv present the Windows launcher asks bootstrap.py --venv-check; exit 0 runs bootstrap.py --launch-only on the venv's python.exe (never pythonw.exe, which Smart App Control blocks), which hands itself to a CREATE_NO_WINDOW process and returns at once so no console stays open; any non-zero venv-check exit takes the repair route",
+        "On Windows the launch hand-off starts exactly one hidden --launch-only process (an environment marker stops a second hand-off), returns non-zero and says so when that process cannot be started, and the .bat reports a non-zero launch result instead of closing silently; a repair code (3) from a launch that ran in the .bat's own process goes to the repair route",
         "Every launch runs one bounded self-heal (environment, packages, FFmpeg, Kokoro) and never runs the full first-run install",
         "Recoverable problems are collected and shown as exactly one warning, and only after launch_gui reports the window started; a fatal environment still reports before any GUI",
-        "launch_gui starts scripts/launcher.py detached with its output captured in files/runtime-data/logs/launch_<date>.log and reports failure if the child exits non-zero inside a 1.5 s grace window",
+        "launch_gui starts scripts/launcher.py on the venv's python.exe (never pythonw.exe) with CREATE_NO_WINDOW alone on Windows, with its output captured in files/runtime-data/logs/launch_<date>.log, without leaking the hand-off marker into the window, and reports failure if the child exits non-zero inside a 1.5 s grace window",
         "A leftover pre-v0.6.7 scripts/Universal folder is reported once through ACT_STARTUP_NOTICE and never deleted",
         "The repair window's live log follows new lines while its reader is at the bottom, keeps a reader who scrolled up in place and follows again once back at the bottom"
       ],
@@ -20874,6 +20878,42 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_launch_crash_detection.py::test_a_missing_window_script_or_interpreter_is_a_failed_launch_before_anything_starts"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_on_windows_the_venv_interpreter_is_always_python_exe_even_when_pythonw_is_there"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_the_windows_window_starts_on_python_exe_with_no_visible_console_and_no_detached_flag"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_windows_window_that_cannot_be_started_is_a_failed_launch_not_a_silent_one"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_on_windows_a_venv_with_only_pythonw_is_a_failed_launch_not_a_fallback_to_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_the_mac_launch_is_unchanged"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_the_launch_is_handed_to_a_hidden_console_process_and_the_batch_file_is_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_a_hand_off_that_cannot_start_says_so_and_fails_instead_of_reporting_a_launch"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_launch_crash_detection.py::test_main_launch_only_continues_in_the_hidden_process_and_does_not_launch_twice"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_venv_recovery.py::test_a_launch_that_did_not_start_is_reported_and_fails_the_launcher"
           }
         ]
       },
@@ -26231,14 +26271,14 @@
     }
   ],
   "source_review": {
-    "Setup_and_Run-audiobook-creation-tool.bat": "05d244791f517ec95068f2a3f3be065248bb983dfe1a74d8692051c688473ca3",
+    "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
     "scripts/artwork/cover_resizer.py": "ae8c5f4859e6eef26a8c1a543d4b2e7b4058ec24cd51977aa618e5291535b484",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
-    "scripts/launcher.py": "a7a1527b31ffdf36f8de4aed94320b89f428bcd5da1007aa3e06e77ac44f1415",
+    "scripts/launcher.py": "c7b92b82c15715cd2b94f1c329a190f22c2da27a8ce51ecaa56d0eddfdca6e76",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
     "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",
@@ -26279,7 +26319,7 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "275c66f85fb108c3d4361c215fc224914aa5e2978e3bfb0280fd6a22160ab0bd",
+    "scripts/shared/bootstrap.py": "0bbf95e46cdc7de85f299a7e5d2f66d1a480f1b83190ee8c8d9888fb7cbd36ec",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",

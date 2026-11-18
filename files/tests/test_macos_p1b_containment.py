@@ -372,6 +372,7 @@ KX9_ALLOWED = {
     ("shared/bootstrap.py", "_run"): "setup side (P1A; Windows branch, contained on macOS)",
     ("shared/bootstrap.py", "_pip"): "setup side (P1A; Windows branch, contained on macOS)",
     ("shared/bootstrap.py", "launch_gui"): "class D: the app window started by setup",
+    ("shared/bootstrap.py", "hand_off_launch_only"): "Windows only: --launch-only restarted with a hidden console",
     ("shared/bootstrap.py", "_open_folder"): "class D: the setup log's folder opened in Finder/Explorer",
     ("shared/cleanup_state.py", "spawn_coordinator"): "class D: the cleanup coordinator must outlive the window",
     ("shared/cleanup_state.py", "_probe_is_non_venv"): "a bounded 30 s probe of a candidate Python (cleanup)",

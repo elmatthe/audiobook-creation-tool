@@ -162,6 +162,169 @@ def test_a_crash_after_the_grace_is_outside_what_the_launch_can_report(launch, m
     assert "late failure" in _launch_log(logs).read_text(encoding="utf-8")
 
 
+# --------------------------------------------------------------------------- #
+#  Smart App Control (2026-11-18): the window is started on python.exe, never pythonw.exe
+# --------------------------------------------------------------------------- #
+NO_WINDOW = 0x08000000
+DETACHED = 0x00000008
+
+
+class _Alive:
+    def poll(self):
+        return None
+
+
+@pytest.fixture()
+def fake_windows(monkeypatch, tmp_path):
+    """A pretend Windows venv holding BOTH interpreters, and a recording ``Popen`` (nothing real is started)."""
+    scripts = tmp_path / ".venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    for name in ("python.exe", "pythonw.exe"):
+        (scripts / name).write_bytes(b"")
+    target = tmp_path / "launcher.py"
+    target.write_text("#", encoding="utf-8")
+    spawned: list = []
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(bootstrap, "_launch_target", lambda: target)
+    monkeypatch.setattr(bootstrap, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(bootstrap, "SCRIPTS_DIR", tmp_path)
+    monkeypatch.setattr(bootstrap, "_LAUNCH_GRACE_SECONDS", 0)
+    monkeypatch.setattr(bootstrap, "_ffmpeg_in_bin", lambda: None)
+    monkeypatch.setattr(bootstrap, "stale_layout_notice", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", NO_WINDOW, raising=False)
+    monkeypatch.setattr(subprocess, "DETACHED_PROCESS", DETACHED, raising=False)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen",
+                        lambda argv, **kwargs: spawned.append((argv, kwargs)) or _Alive())
+    return spawned, _Log(), scripts
+
+
+def test_on_windows_the_venv_interpreter_is_always_python_exe_even_when_pythonw_is_there(fake_windows):
+    _spawned, _log, scripts = fake_windows
+    assert bootstrap.venv_python() == scripts / "python.exe"
+    assert bootstrap.venv_python(windowed=True) == scripts / "python.exe", "the old windowed request no longer means pythonw"
+
+
+def test_the_windows_window_starts_on_python_exe_with_no_visible_console_and_no_detached_flag(fake_windows, monkeypatch):
+    spawned, log, scripts = fake_windows
+    monkeypatch.setenv(bootstrap.HIDDEN_LAUNCH_ENV, "1")
+    assert bootstrap.launch_gui(log) is True
+    (argv, kwargs), = spawned
+    assert argv[0] == str(scripts / "python.exe") and "pythonw" not in " ".join(argv).lower()
+    # DETACHED_PROCESS made the venv launcher's real-interpreter child open a visible console (measured); it is not used.
+    assert kwargs["creationflags"] == NO_WINDOW
+    assert bootstrap.HIDDEN_LAUNCH_ENV not in kwargs["env"], "the hand-off marker is not leaked into the window"
+    assert any(line.startswith("Launching launcher.py via python.exe") for line in log.lines), log.lines
+
+
+def test_a_windows_window_that_cannot_be_started_is_a_failed_launch_not_a_silent_one(fake_windows, monkeypatch):
+    _spawned, log, _scripts = fake_windows
+
+    def refuse(argv, **kwargs):
+        raise OSError(4551, "An Application Control policy has blocked this file")
+
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", refuse)
+    assert bootstrap.launch_gui(log) is False
+    assert any(line.startswith("  ERROR launching GUI:") and "4551" in line for line in log.lines), log.lines
+
+
+def test_on_windows_a_venv_with_only_pythonw_is_a_failed_launch_not_a_fallback_to_it(fake_windows):
+    spawned, log, scripts = fake_windows
+    (scripts / "python.exe").unlink()
+    assert bootstrap.launch_gui(log) is False
+    assert spawned == [], "pythonw.exe was started in place of the missing interpreter"
+    assert any("venv interpreter missing" in line and "python.exe" in line for line in log.lines), log.lines
+
+
+def test_the_mac_launch_is_unchanged(monkeypatch, tmp_path):
+    """macOS: ``.venv/bin/python``, its own session, no Windows creation flags."""
+    (tmp_path / ".venv" / "bin").mkdir(parents=True)
+    (tmp_path / ".venv" / "bin" / "python").write_bytes(b"")
+    target = tmp_path / "launcher.py"
+    target.write_text("#", encoding="utf-8")
+    spawned: list = []
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(bootstrap, "_launch_target", lambda: target)
+    monkeypatch.setattr(bootstrap, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(bootstrap, "SCRIPTS_DIR", tmp_path)
+    monkeypatch.setattr(bootstrap, "_LAUNCH_GRACE_SECONDS", 0)
+    monkeypatch.setattr(bootstrap, "_ffmpeg_in_bin", lambda: None)
+    monkeypatch.setattr(bootstrap, "stale_layout_notice", lambda *a, **k: None)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw)) or _Alive())
+    assert bootstrap.launch_gui(_Log()) is True
+    (argv, kwargs), = spawned
+    assert argv[0] == str(tmp_path / ".venv" / "bin" / "python")
+    assert kwargs["start_new_session"] is True and "creationflags" not in kwargs
+
+
+# ---- the hand-off that keeps the .bat's console from lingering -------------- #
+@pytest.fixture()
+def hand_off(monkeypatch):
+    """``hand_off_launch_only`` on a pretend Windows with a console window and a recording ``Popen``."""
+    spawned: list = []
+    monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
+    monkeypatch.setattr(bootstrap, "_has_console_window", lambda: True)
+    monkeypatch.delenv(bootstrap.HIDDEN_LAUNCH_ENV, raising=False)
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", NO_WINDOW, raising=False)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw)) or _Alive())
+    return spawned
+
+
+def test_the_launch_is_handed_to_a_hidden_console_process_and_the_batch_file_is_released(hand_off):
+    assert bootstrap.hand_off_launch_only() == 0
+    (argv, kwargs), = hand_off
+    assert argv == [sys.executable, str(bootstrap._THIS), "--launch-only"], "same interpreter, same command"
+    assert kwargs["creationflags"] == NO_WINDOW
+    assert kwargs["env"][bootstrap.HIDDEN_LAUNCH_ENV] == "1"
+    assert kwargs["stdin"] is subprocess.DEVNULL and kwargs["stdout"] is subprocess.DEVNULL \
+        and kwargs["stderr"] is subprocess.DEVNULL, "nothing of the hidden process is tied to the .bat's console"
+
+
+@pytest.mark.parametrize("why", ["already-hidden", "no-console-window", "not-windows"])
+def test_no_hand_off_when_there_is_nothing_to_hand_off(hand_off, monkeypatch, why):
+    if why == "already-hidden":
+        monkeypatch.setenv(bootstrap.HIDDEN_LAUNCH_ENV, "1")
+    elif why == "no-console-window":
+        monkeypatch.setattr(bootstrap, "_has_console_window", lambda: False)
+    else:
+        monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
+    assert bootstrap.hand_off_launch_only() is None
+    assert hand_off == [], "a second process was started although none was wanted (a fork loop in the making)"
+
+
+def test_a_hand_off_that_cannot_start_says_so_and_fails_instead_of_reporting_a_launch(hand_off, monkeypatch):
+    lines: list[str] = []
+    monkeypatch.setattr(bootstrap.LOG, "line", lambda text, *a, **k: lines.append(text))
+
+    def refuse(argv, **kwargs):
+        raise OSError(5, "Access is denied")
+
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", refuse)
+    assert bootstrap.hand_off_launch_only() == 1
+    assert any("could not be started" in line and "Access is denied" in line for line in lines), lines
+
+
+def test_main_launch_only_continues_in_the_hidden_process_and_does_not_launch_twice(monkeypatch):
+    monkeypatch.setattr(bootstrap, "_platform_sane", lambda: True)
+    monkeypatch.setattr(bootstrap, "_configure_hf_cache", lambda: None)
+    launched: list[str] = []
+    monkeypatch.setattr(bootstrap, "_launch_with_kokoro_healthcheck", lambda *a, **k: launched.append("launch") or 0)
+    monkeypatch.setattr(bootstrap, "hand_off_launch_only", lambda: 0)
+    assert bootstrap.main(["--launch-only"]) == 0 and launched == [], "the handed-off launch is not also run here"
+    monkeypatch.setattr(bootstrap, "hand_off_launch_only", lambda: 1)
+    assert bootstrap.main(["--launch-only"]) == 1 and launched == [], "a failed hand-off is a failed launch"
+
+
+def test_main_launch_only_runs_the_launch_here_when_there_is_no_hand_off(monkeypatch):
+    """macOS, or the hidden process itself: unchanged behaviour, including the repair-handoff exit code."""
+    monkeypatch.setattr(bootstrap, "_platform_sane", lambda: True)
+    monkeypatch.setattr(bootstrap, "_configure_hf_cache", lambda: None)
+    monkeypatch.setattr(bootstrap, "hand_off_launch_only", lambda: None)
+    monkeypatch.setattr(bootstrap, "_launch_with_kokoro_healthcheck", lambda *a, **k: bootstrap.EXIT_VENV_REPAIR_REQUIRED)
+    assert bootstrap.main(["--launch-only"]) == bootstrap.EXIT_VENV_REPAIR_REQUIRED
+
+
 def test_a_missing_window_script_or_interpreter_is_a_failed_launch_before_anything_starts(launch, monkeypatch, tmp_path):
     _start, log, logs, children = launch
     assert bootstrap.launch_gui(log) is False, "no launcher.py was written for this test"
@@ -171,3 +334,108 @@ def test_a_missing_window_script_or_interpreter_is_a_failed_launch_before_anythi
     assert bootstrap.launch_gui(log) is False
     assert any("venv interpreter missing" in line for line in log.lines)
     assert children == [] and not logs.exists(), "nothing was started and no log was opened"
+
+
+# --------------------------------------------------------------------------- #
+#  The fresh-windows qualification starts the window as the launcher does, and owns only its own
+# --------------------------------------------------------------------------- #
+QUALIFICATION = Path(__file__).resolve().parents[1] / "dev-work" / "verification-gate" / "qualification" / "fresh_windows.py"
+
+
+@pytest.fixture(scope="module")
+def qualification():
+    """The qualification runner's module, loaded from its file (nothing in it runs at import)."""
+    if sys.platform != "win32":
+        pytest.skip("the fresh-windows qualification is Windows-only")
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("act_fresh_windows_contract", QUALIFICATION)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_qualification_runner_starts_no_pythonw_and_uses_the_launchers_creation_flag(qualification):
+    import ast
+
+    tree = ast.parse(QUALIFICATION.read_text(encoding="utf-8"))
+    executed = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and node.value in ("pythonw.exe", "pythonw")]
+    assert executed == [], "the qualification runner still names pythonw.exe as something to start"
+    assert qualification.WINDOW_FLAGS == NO_WINDOW and not qualification.WINDOW_FLAGS & DETACHED
+    launch = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "launch_and_close")
+    constants = {node.value for node in ast.walk(launch) if isinstance(node, ast.Constant)}
+    names = {node.id for node in ast.walk(launch) if isinstance(node, ast.Name)}
+    assert "python.exe" in constants and "WINDOW_FLAGS" in names, "the window is started on python.exe with the shared flag"
+
+
+def _tree(tmp_path):
+    """A copy folder, the launch's own process family inside it, and an unrelated application (the production one) outside."""
+    copy, production = tmp_path / "Audiobook Creation Tool", tmp_path / "Production" / "Audiobook-Creation-Tool-v0.8.0"
+    images = {
+        100: str(copy / ".venv" / "Scripts" / "python.exe"),                        # what the run started: the venv launcher
+        101: str(copy / "files" / "runtime-data" / "python" / "python.exe"),        # its child: the real interpreter
+        102: r"C:\Windows\System32\conhost.exe",                                   # its hidden console
+        200: str(production / ".venv" / "Scripts" / "pythonw.exe"),                 # the production window's launcher
+        201: str(production / "files" / "runtime-data" / "python" / "pythonw.exe"),  # and its interpreter
+    }
+    table = {100: (50, "python.exe"), 101: (100, "python.exe"), 102: (101, "conhost.exe"),
+             200: (60, "pythonw.exe"), 201: (200, "pythonw.exe"), 50: (1, "gate.exe")}
+    return copy, production, images, table
+
+
+def _window(hwnd, owner=0, cls="TkTopLevel", title="Audiobook Creation Tool"):
+    return {"hwnd": hwnd, "title": title, "class": cls, "rect": [0, 0, 1, 1], "owner": owner}
+
+
+def test_descendants_include_the_real_interpreter_behind_the_venv_launcher_and_nothing_else(qualification, tmp_path):
+    _copy, _prod, _images, table = _tree(tmp_path)
+    assert qualification.descendants_of(100, table) == {100, 101, 102}
+    assert qualification.descendants_of(200, table) == {200, 201}, "the production family is a different family"
+
+
+def test_an_image_is_inside_the_copy_only_when_it_is_really_inside_it(qualification, tmp_path):
+    copy, production, images, _table = _tree(tmp_path)
+    assert qualification.inside(images[101], copy) and qualification.inside(images[100], copy)
+    assert not qualification.inside(images[201], copy) and not qualification.inside(images[102], copy)
+    assert not qualification.inside(str(tmp_path / "Audiobook Creation Tool-evil" / "python.exe"), copy), "a sibling that shares the prefix"
+    assert not qualification.inside("?", copy) and not qualification.inside("", copy), "an unreadable image is never inside"
+
+
+def test_the_window_is_the_one_of_the_interpreter_inside_this_copy_below_the_started_process(qualification, tmp_path):
+    copy, _prod, images, table = _tree(tmp_path)
+    shown = {101: [_window(1011)], 201: [_window(2011)]}  # the production application's window is visible too
+    found = qualification.owned_window(100, copy, table, lambda pid: shown.get(pid, []), images.get)
+    assert found and found["hwnd"] == 1011 and found["pid"] == 101 and found["image"] == images[101]
+
+
+@pytest.mark.parametrize("why", ["only-the-production-window", "owned-popup", "not-a-tk-window", "descendant-outside-the-copy"])
+def test_no_other_window_is_ever_a_candidate_for_close(qualification, tmp_path, why):
+    copy, _prod, images, table = _tree(tmp_path)
+    shown = {201: [_window(2011)]}
+    if why == "owned-popup":
+        shown = {101: [_window(1012, owner=1011)]}
+    elif why == "not-a-tk-window":
+        shown = {101: [_window(1013, cls="Chrome_WidgetWin_1")]}
+    elif why == "descendant-outside-the-copy":
+        table[103] = (101, "python.exe")  # started by the window, but a Python that is not the copy's
+        images[103] = r"C:\Python312\python.exe"
+        shown = {103: [_window(1031)]}
+    assert qualification.owned_window(100, copy, table, lambda pid: shown.get(pid, []), images.get) is None
+
+
+def test_stopping_the_launch_ends_only_its_own_processes_deepest_first(qualification, tmp_path):
+    copy, _prod, images, table = _tree(tmp_path)
+    ended: list[int] = []
+    result = qualification.stop_owned(100, copy, table, images.get, ended.append)
+    assert result == ended == [101, 100], "the interpreter before its launcher; not the console, not the production application"
+    assert not {102, 200, 201} & set(ended)
+
+
+def test_a_process_that_cannot_be_ended_is_skipped_not_fatal(qualification, tmp_path):
+    copy, _prod, images, table = _tree(tmp_path)
+
+    def refuse(pid):
+        if pid == 101:
+            raise OSError("access denied")
+
+    assert qualification.stop_owned(100, copy, table, images.get, refuse) == [100]

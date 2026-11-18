@@ -33,7 +33,8 @@ out to whichever owned dialog is open, in place, with no widget destroyed.
 On Aqua the window's native appearance also follows the app choice, preserving
 native control and decoration layouts rather than installing Windows chrome.
 
-Run under ``pythonw.exe`` on Windows so no console window appears; all external
+Started on Windows by ``bootstrap.launch_gui`` as the venv's ``python.exe`` with ``CREATE_NO_WINDOW`` (it used to be
+``pythonw.exe``, which Smart App Control blocks), so no console window appears; all external
 binaries (ffmpeg/ffprobe) are invoked through ``shared.subprocess_utils`` which
 hides their console windows too.
 """

@@ -30,17 +30,34 @@ REM  not work, and every recovery path bootstrap already owned was unreachable.
 REM
 REM  So ask bootstrap first. It answers in about 150ms with an exit code:
 REM      0 = healthy enough to launch      3 = this environment needs rebuilding
-REM  The check runs on python.exe because cmd waits for a console program; the
-REM  real launch still goes through pythonw.exe detached, so the healthy steady
-REM  state is the same instant, console-free start it always was.
+REM  The check runs on python.exe because cmd waits for a console program.
+REM
+REM  The launch runs on python.exe too. It used to run on pythonw.exe so that no
+REM  console stayed open, but Windows Smart App Control refuses that unsigned
+REM  launcher (WinError 4551) while python.exe runs. --launch-only therefore
+REM  hands itself to a hidden-console process and returns at once (see
+REM  hand_off_launch_only in bootstrap.py), so this window closes right away and
+REM  the app starts with no console, as before. It exits non-zero only when that
+REM  hidden process could not even be started, and then says so below.
 REM ---------------------------------------------------------------------------
 if not exist ".venv\Scripts\python.exe" goto firstrun
 
 ".venv\Scripts\python.exe" "%BOOTSTRAP%" --venv-check >nul 2>nul
 if errorlevel 1 goto needsrepair
 
-start "" ".venv\Scripts\pythonw.exe" "%BOOTSTRAP%" --launch-only
-exit /b 0
+".venv\Scripts\python.exe" "%BOOTSTRAP%" --launch-only
+set "LRC=%errorlevel%"
+if "%LRC%"=="0" exit /b 0
+REM 3 = bootstrap asked for an environment repair after all (only seen when it ran here, not handed off).
+if "%LRC%"=="3" goto needsrepair
+
+:launchfailed
+echo.
+echo The app could not be started ^(exit code %LRC%^).
+echo See the log under files\runtime-data\logs\ for details.
+echo.
+pause
+exit /b 1
 
 :needsrepair
 REM Any non-zero answer means repair - including the interpreter failing to

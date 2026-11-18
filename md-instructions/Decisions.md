@@ -2,6 +2,16 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-18 — Windows starts the app on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started, because Smart App Control blocks it
+
+Signed: Claude Code (Sonnet 5.5), HOME-PC, under the owner's Windows launcher remediation and closeout instructions (2026-11-18). Parent `421fb71`. Local evidence (untracked): `files/run-temp/s5w/diag-sac-disk-2026-11-18.md`.
+
+**Finding.** CodeIntegrity/Operational events 3033, 3077 and 3118 (policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`, Smart App Control, enforcing) name the venv `pythonw.exe` itself as the blocked image: unsigned, and its first reputation lookup was not trusted. It was blocked at the development path (12:07 to 12:13) and at the production path (2026-11-17). The venv `python.exe` is not blocked. A direct `python.exe scripts/launcher.py` start opened the six-tool window with no event.
+**Decision.** On Windows the window is started on `python.exe` with `CREATE_NO_WINDOW` alone, and `--launch-only` hands itself to a hidden-console process so the batch window closes at once. There is no fallback to `pythonw.exe`. The `.bat` reports a launch that did not start and sends a returned repair code to the repair route. The fresh-windows qualification follows the same launch and may close only a window that belongs to a process it started and that runs from the extracted copy.
+**Why.** Smart App Control has no per-app exception and must not be weakened; the executable it permits is the one to use. `DETACHED_PROCESS` was measured to give the venv launcher's real-interpreter child a visible console, so it is not used. A fallback to `pythonw.exe` would only fail later and out of sight.
+**Rejected.** Turning Smart App Control off (irreversible on some builds, and a security change); signing a launcher (the only durable alternative, needs a trusted certificate, not done here); a console that stays open for the whole start (a regression of the console-free launch).
+**Residuals.** A failure inside the hidden process after it starts is in the logs only (as before). Live first-run and repair qualification, the Windows-native Phase 5 regression and E-B2 are pending. The production distribution is unchanged and still carries the blocked `pythonw.exe` launch. Not accepted by the owner.
+
 ## 2026-11-18 — P5-D-R2: a request in flight asks for its own local-engine worker's end by name, so a retirement another caller has already completed -- unconfirmed -- is never reported as a clean Cancel; each retirement's answer is kept on its own worker (independent-review remediation; implementation decisions by Claude Code)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's P5-D-R2 instruction (2026-11-18). Start SHA `5954998`. Evidence: `files/dev-work/macos-p5d-r2/` (ignored): `repro/` (harness `test_r2_repro.py`, rows `before/` and `after/`, `source-*.sha256`), `iter/` (red run against `5954998` from an exported tree, green run), `before-set/`, `after-set/`, `comparison.json`, `protected-*.json`, `release-*.json`. Earlier entries and gate results stand unchanged.
