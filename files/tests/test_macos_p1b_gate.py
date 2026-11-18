@@ -52,8 +52,39 @@ def test_the_five_tools_shutdown_and_behaviour_controls_are_automated_now():
                    "control.forced-landing", "control.act-", "control.unmapped"):
         assert any(sid.startswith(prefix) for sid in now), prefix
     assert {sid for sid in REQUIRED if sid.startswith("shutdown.") and "tts" not in sid} <= now
-    assert {sid for sid in darwin if sid.startswith(("tts.", "shutdown.tts-"))} == \
-        {sid for sid, entry in darwin.items() if entry.get("pending_phase") == "P2"}
+    assert _tts_and_pending_problems(darwin) == []
+
+
+def _tts_and_pending_problems(darwin):
+    """TTS and TTS-shutdown scenarios completed (P2 and later): automated, not manual, not pending, with full evidence. What is
+    still pending is exactly the three setup.* scenarios, on P5."""
+    problems = []
+    for sid, entry in darwin.items():
+        if sid.startswith(("tts.", "shutdown.tts-")):
+            if entry.get("class") != "automated" or entry.get("manual") or entry.get("pending_phase"):
+                problems.append(f"{sid}: a completed TTS scenario must be automated, non-manual and not pending")
+            elif not {"journey-checks", "real-screenshots", "dialog-contract"} <= set(entry.get("evidence") or []):
+                problems.append(f"{sid}: lacks the required evidence classes")
+    pending = {sid: entry["pending_phase"] for sid, entry in darwin.items() if entry.get("pending_phase")}
+    expected = {"setup.first-run-refuses-a-folder-too-deep": "P5", "setup.first-run-choices-and-cancel": "P5",
+                "setup.clear-downloaded-data": "P5"}
+    if pending != expected:
+        problems.append(f"pending set is {pending}, expected {expected}")
+    return problems
+
+
+def test_a_wrong_reclassification_of_a_tts_or_setup_scenario_is_caught():
+    import copy
+    real = ACCEPTANCE["darwin_map"]
+    assert _tts_and_pending_problems(real) == []
+    for sid, change in (("tts.pdf-without-text", {"pending_phase": "P2"}),
+                        ("shutdown.tts-close-during-work", {"manual": True}),
+                        ("tts.cancel-during-narration", {"evidence": ["journey-checks"]}),
+                        ("setup.clear-downloaded-data", {"pending_phase": None}),
+                        ("setup.first-run-choices-and-cancel", {"pending_phase": "P2"})):
+        mutated = copy.deepcopy(real)
+        mutated[sid].update(change)
+        assert _tts_and_pending_problems(mutated), (sid, change)
 
 
 def test_every_skip_rule_compiles_and_the_windows_rules_stay_exact():
