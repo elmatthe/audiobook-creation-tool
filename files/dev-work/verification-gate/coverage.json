@@ -26346,7 +26346,7 @@
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
     "scripts/shared/child_guardian.py": "81afa2fed11a560b56c8e05eaf309a313646f07b20b23b495de8be6100a80bdf",
-    "scripts/shared/child_ownership.py": "90b999242afe4437297de1b4a3a7e1d9e0f14a758d1c694c4cd9b0da5630eac9",
+    "scripts/shared/child_ownership.py": "77114f4f269a5e4f3d02b5bb6adaf22609116d25aaff077da4bf1c120a9960a0",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",

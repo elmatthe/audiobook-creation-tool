@@ -1061,6 +1061,170 @@ def test_a_cancel_never_waits_for_a_guardian_to_become_ready(real_owner, monkeyp
 
 
 @needs_ffmpeg
+def test_a_start_is_never_held_by_another_threads_guardian_getting_ready(real_owner, monkeypatch):
+    """Codex re-review 3 (partial run): worker A prepared its FFmpeg for the guardian, the guardian died, and worker B
+    began replacing it. B's wait for the new guardian to be ready held the owner's lock, so A -- inside its counted start
+    -- waited on that lock and a Cancel latched only after B's guardian was ready (0.69 s, past C1's 0.5 s). Now the
+    readiness wait holds a lock of its own: A's start fails at once (its guardian is gone), A waits for B's guardian
+    outside the start, and the Cancel latches at once; A's FFmpeg is never started."""
+    import contextlib
+    import threading
+    import time
+
+    from shared import child_ownership
+
+    controller = JobController("p5h-r1-concurrent-guardian")
+    controller.start()
+    real_owner.ensure_guardian()
+    a_prepared, a_go, a_attempting = threading.Event(), threading.Event(), threading.Event()
+    b_getting_ready, b_may_be_ready = threading.Event(), threading.Event()
+    real_prepare, real_external = subprocess_utils.prepare_popen, real_owner.popen_external
+    real_start = child_ownership.Owner._start_guardian
+
+    def prepare(*args, **kwargs):
+        generation = real_prepare(*args, **kwargs)
+        if threading.current_thread().name == "A" and not a_prepared.is_set():
+            a_prepared.set()
+            assert a_go.wait(10)
+        return generation
+
+    def external(*args, **kwargs):
+        if threading.current_thread().name == "A":
+            a_attempting.set()  # inside A's counted start
+        return real_external(*args, **kwargs)
+
+    def start_guardian(self, spawn_context=None):
+        if threading.current_thread().name != "B":
+            return real_start(self, spawn_context)
+
+        @contextlib.contextmanager
+        def spawn_then_slow():
+            yield
+            b_getting_ready.set()
+            assert b_may_be_ready.wait(10)
+
+        return real_start(self, spawn_then_slow)
+
+    monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare)
+    monkeypatch.setattr(real_owner, "popen_external", external)
+    monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
+    outcome = {}
+
+    def worker_a():
+        with ffmpeg_watch.controlled(controller.cancel_check):
+            try:
+                ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                outcome["started"] = True
+            except ConversionCancelled:
+                outcome["refused"] = True
+            except BaseException as exc:  # pragma: no cover - reported below
+                outcome["error"] = exc
+
+    a = threading.Thread(target=worker_a, name="A", daemon=True)
+    a.start()
+    assert a_prepared.wait(10)
+    guardian = real_owner._guardian
+    guardian.kill()
+    guardian.wait(5)
+    b = threading.Thread(target=real_owner.ensure_guardian, name="B", daemon=True)
+    b.start()
+    assert b_getting_ready.wait(10)
+    a_go.set()
+    assert a_attempting.wait(10)
+    pressing = threading.Thread(target=controller.request_cancel, daemon=True)
+    began = time.monotonic()
+    pressing.start()
+    pressing.join(0.5)
+    latched_in = time.monotonic() - began
+    latched = controller.cancel_check()
+    b_may_be_ready.set()
+    pressing.join(10)
+    a.join(15)
+    b.join(15)
+    assert latched and latched_in < 0.5, f"Cancel waited {latched_in:.3f} s for another thread's guardian"
+    assert outcome == {"refused": True}, outcome
+    assert not ffmpeg_watch._watched and controller._starts_in_progress == 0
+
+
+def test_a_guardian_that_gets_ready_after_the_orderly_end_began_is_not_kept(real_owner, monkeypatch):
+    """The guardian's wait to be ready no longer holds the owner's lock, so the orderly end can begin during it: the
+    guardian is then ended and reaped, never adopted after the end has looked, and nothing is started."""
+    import contextlib
+    import threading
+
+    from shared import child_ownership
+
+    getting_ready, may_be_ready = threading.Event(), threading.Event()
+    made = []
+    real_popen = child_ownership.subprocess.Popen
+    real_start = child_ownership.Owner._start_guardian
+
+    def popen(*args, **kwargs):
+        made.append(real_popen(*args, **kwargs))
+        return made[-1]
+
+    def start_guardian(self, spawn_context=None):
+        @contextlib.contextmanager
+        def spawn_then_slow():
+            yield
+            getting_ready.set()
+            assert may_be_ready.wait(10)
+
+        return real_start(self, spawn_then_slow)
+
+    monkeypatch.setattr(child_ownership.subprocess, "Popen", popen)
+    monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
+    outcome = {}
+
+    def ensure():
+        try:
+            outcome["generation"] = real_owner.ensure_guardian()
+        except child_ownership.ContainmentUnavailable as exc:
+            outcome["refused"] = str(exc)
+
+    t = threading.Thread(target=ensure, daemon=True)
+    t.start()
+    assert getting_ready.wait(10)
+    real_owner.begin_closing()
+    may_be_ready.set()
+    t.join(15)
+    assert "closing" in outcome.get("refused", ""), outcome
+    assert len(made) == 1 and made[0].returncode is not None, "the guardian was ended and reaped"
+    assert real_owner.guardian_pid() is None
+
+
+@needs_ffmpeg
+def test_an_unprepared_start_has_the_new_guardian_when_its_own_is_replaced(real_owner, monkeypatch):
+    """``popen_external`` without a prepared generation has its guardian outside the owner's lock and then starts the
+    child in that guardian's group; a guardian replaced in between is had again (bounded), never started under the lock."""
+    from shared import child_ownership
+
+    first = real_owner.ensure_guardian()
+    real_ensure = real_owner.ensure_guardian
+    calls = []
+
+    def ensure_then_lose_it(spawn_context=None):
+        generation = real_ensure(spawn_context)
+        calls.append(generation)
+        if len(calls) == 1:  # the guardian dies just after it was had for this start
+            guardian = real_owner._guardian
+            guardian.kill()
+            guardian.wait(5)
+        return generation
+
+    monkeypatch.setattr(real_owner, "ensure_guardian", ensure_then_lose_it)
+    proc = real_owner.popen_external(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc.wait(10)
+    real_owner.forget(proc)
+    assert calls[0] == first and len(calls) == 2 and calls[1] > first, calls
+    assert proc.returncode == 0
+
+    monkeypatch.setattr(real_owner, "ensure_guardian", lambda spawn_context=None: -1)  # never the current one
+    with pytest.raises(child_ownership.ContainmentUnavailable, match="kept ending"):
+        real_owner.popen_external(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@needs_ffmpeg
 def test_a_contained_ffmpeg_that_cannot_be_registered_is_ended(real_owner, monkeypatch):
     from shared import child_ownership
 

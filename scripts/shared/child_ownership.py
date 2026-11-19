@@ -66,6 +66,8 @@ CLASS_B = "B"
 
 #: How long a new guardian has to say ``ready``.
 GUARDIAN_READY_TIMEOUT_S = 10.0
+#: How many times an unprepared class-B start has a guardian before it gives up, should each end as it is had.
+GUARDIAN_ATTEMPTS = 3
 #: SIGTERM -> SIGKILL grace for one child in an orderly end.
 TERM_GRACE_S = 1.0
 #: Bound on the whole orderly shutdown.
@@ -595,6 +597,10 @@ class Owner:
         self._lifeline = lifeline
         self._python = python or sys.executable
         self._lock = threading.RLock()
+        # v0.8.x P5-H-R1: one guardian is made at a time, and its wait to be ready is held on this lock alone, never on
+        # ``_lock``, so a start prepared for the current guardian is never kept waiting by another thread's replacement.
+        # Order: this lock, then ``_lock``; never the other way round.
+        self._guardian_creation = threading.Lock()
         self._read: Optional[int] = None
         self._write: Optional[int] = None
         self._children: list[OwnedChild] = []
@@ -724,7 +730,8 @@ class Owner:
     def _start_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
         """Start the guardian and wait for its ready signal. ``spawn_context`` (v0.8.x P5-H-R1), when given, is entered
         around the spawn alone, not the wait for readiness: a run's Cancel ordering, so no guardian process is created for
-        a cancelled run while a Cancel never waits for a guardian to become ready."""
+        a cancelled run while a Cancel never waits for a guardian to become ready. Called holding ``_guardian_creation``
+        and not ``_lock``: the wait for readiness holds up no other start and no registry reader."""
         fd = self._ensure_lifeline()
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
         env[LIFELINE_ENV] = str(fd)
@@ -754,10 +761,18 @@ class Owner:
                 pass
             proc.wait()
             raise ContainmentUnavailable("the ACT guardian did not start (no ready signal); nothing was started")
-        self._generation += 1
-        self._guardian = proc
-        self._guardian_start = process_start_time(proc.pid)
-        generation = self._generation
+        start = process_start_time(proc.pid)
+        with self._lock:
+            if self._retiring:
+                # The orderly end began while it was getting ready: it is not adopted after the end has looked.
+                with contextlib.suppress(OSError):
+                    proc.kill()
+                proc.wait()
+                raise ContainmentUnavailable("the application is closing; nothing was started")
+            self._generation += 1
+            self._guardian = proc
+            self._guardian_start = start
+            generation = self._generation
         threading.Thread(target=self._watch_guardian, args=(proc, generation), name="act-guardian-watch",
                          daemon=True).start()
         return proc.pid
@@ -787,52 +802,68 @@ class Owner:
             self._end(child, grace=TERM_GRACE_S)
             self._note(f"Containment: stopped {child.label or child.pid} (pid {child.pid}): it had lost its guardian.")
 
+    def _current_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> tuple[int, int]:
+        """The running guardian's pid and generation, starting (or replacing) it first if need be. A lost guardian is
+        retired and its replacement made under ``_guardian_creation``; ``_lock`` is held only to read and record state
+        (v0.8.x P5-H-R1)."""
+        with self._guardian_creation:
+            with self._lock:
+                if self._guardian is not None and not self._guardian_alive():
+                    proc, generation = self._guardian, self._generation
+                    proc.wait()
+                    self._guardian_lost(proc, generation)
+                if self._guardian is not None:
+                    return self._guardian.pid, self._generation
+            self._start_guardian(spawn_context)
+            with self._lock:
+                if self._guardian is None:
+                    raise ContainmentUnavailable("the ACT guardian ended as soon as it was ready; nothing was started")
+                return self._guardian.pid, self._generation
+
     def _guardian_group(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
-        with self._lock:
-            if self._guardian is not None and not self._guardian_alive():
-                proc, generation = self._guardian, self._generation
-                proc.wait()
-                self._guardian_lost(proc, generation)
-            if self._guardian is None:
-                return self._start_guardian(spawn_context)
-            return self._guardian.pid
+        return self._current_guardian(spawn_context)[0]
 
     def ensure_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
         """Have the guardian running now, starting (or replacing) it if need be, and return its generation, so that a
         following :meth:`popen_external` with ``require_generation`` starts nothing but its child (v0.8.x P5-H-R1: a start
         made inside the run's Cancel ordering must never wait for a guardian). ``spawn_context``: as for
         :meth:`_start_guardian`. Raises :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
-        with self._lock:
-            self._refuse_if_closing()
-            self._guardian_group(spawn_context)
-            return self._generation
+        self._refuse_if_closing()
+        return self._current_guardian(spawn_context)[1]
 
     def popen_external(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
         """Start a registered class-B child inside the guardian's group. Raises :class:`ContainmentUnavailable`
-        (nothing started) when no guardian can be had."""
+        (nothing started) when no guardian can be had.
+
+        v0.8.x P5-H-R1: the guardian is had first (made if need be) and only then is ``_lock`` taken to start the child
+        in its group, so no start waits on ``_lock`` for a guardian getting ready. With ``require_generation`` nothing
+        is made: a guardian gone or replaced since the start was prepared raises :class:`GuardianChanged` at once."""
         if "start_new_session" in kwargs or "process_group" in kwargs:
             raise ValueError("a class-B child always joins the guardian's group")
         required = kwargs.pop("require_generation", None)
-        with self._lock:
-            self._refuse_if_closing()
-            if required is not None:
-                # v0.8.x P5-H-R1: prepared for this guardian; if it is gone or replaced, say so now rather than start one.
-                if self._guardian is None or self._generation != required or not self._guardian_alive():
-                    raise GuardianChanged("the ACT guardian changed after this start was prepared; nothing was started")
+        self._refuse_if_closing()
+        for _attempt in range(1 if required is not None else GUARDIAN_ATTEMPTS):
+            expected = required if required is not None else self.ensure_guardian()
+            with self._lock:
+                self._refuse_if_closing()
+                if self._guardian is None or self._generation != expected or not self._guardian_alive():
+                    if required is not None:
+                        raise GuardianChanged("the ACT guardian changed after this start was prepared; "
+                                              "nothing was started")
+                    continue  # replaced in between: have the new one, outside this lock
                 group = self._guardian.pid
-            else:
-                group = self._guardian_group()
-            proc = subprocess.Popen([str(a) for a in argv], process_group=group, close_fds=True, **kwargs)
-            try:
-                self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
-            except BaseException:
-                # v0.8.x P5-H-R1: started and not owned (out of memory here, say): it does not run on unowned.
-                with contextlib.suppress(OSError):
-                    proc.kill()
-                with contextlib.suppress(OSError, subprocess.SubprocessError):
-                    proc.wait(TERM_GRACE_S * 2)
-                raise
-        return proc
+                proc = subprocess.Popen([str(a) for a in argv], process_group=group, close_fds=True, **kwargs)
+                try:
+                    self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
+                except BaseException:
+                    # v0.8.x P5-H-R1: started and not owned (out of memory here, say): it does not run on unowned.
+                    with contextlib.suppress(OSError):
+                        proc.kill()
+                    with contextlib.suppress(OSError, subprocess.SubprocessError):
+                        proc.wait(TERM_GRACE_S * 2)
+                    raise
+            return proc
+        raise ContainmentUnavailable("the ACT guardian kept ending as it was started; nothing was started")
 
     def run_external(self, argv: Sequence[str], *, timeout: Optional[float] = None, label: str = "",
                      **kwargs) -> subprocess.CompletedProcess:

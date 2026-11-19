@@ -371,11 +371,14 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
 
 - Any FFmpeg the conversion started is killed within about a quarter of a second of Cancel, even while it is making
   progress.
-- No FFmpeg starts after Cancel (v0.8.x P5-H-R1, R1 re-review): the run's FFmpeg is created holding the lock its Cancel
-  latches under, so a Cancel pressed first refuses the start, and a Cancel pressed during it waits for that one creation
-  (milliseconds) and then kills it. On macOS the containment guardian an FFmpeg needs is readied before that: its spawn
-  is ordered the same way (no guardian is made for a cancelled run), its wait to be ready never holds a Cancel up, and a
-  guardian lost in between is replaced there, never inside the start. Reading, converting, scanning (the audible check
+- No FFmpeg starts after Cancel (v0.8.x P5-H-R1, R1 re-review): the run's FFmpeg is created inside a start its
+  controller counts, so a Cancel pressed first refuses the start, and a Cancel pressed during it waits only for the
+  creations already in progress (each a single spawn, milliseconds) and then kills them. On macOS the containment
+  guardian an FFmpeg needs is readied before that: its spawn is ordered the same way (no guardian is made for a cancelled
+  run); its wait to be ready holds neither a Cancel nor another worker's start up (it has a lock of its own, so a start
+  prepared for the current guardian never waits on another thread's replacement); a guardian lost in between is
+  replaced there, never inside the start; and a guardian that becomes ready after the app began closing is ended, never
+  kept. Reading, converting, scanning (the audible check
   and the final-tail search) and the free-space header reads of a narration on disk stop at the next block or file.
 - An FFmpeg still running 3 s after being killed (the plan's 4 s stop budget) fails its file, is never retried and never
   counts as a clean Cancel; the run then fails as a whole, offers no Retry Failed, and names the process. It never holds
