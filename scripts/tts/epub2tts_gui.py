@@ -3569,6 +3569,12 @@ class _RunContext:
         """
         # v0.8.x P5-I-R3 remediation 3: a Cancel's retirement of an idle local-engine worker is waited for (its stop
         # bound, from the click) before anything is reported; one still running then fails the run.
+        # Remediation 4 (finding 4): a cancelled run begins that retirement itself (idempotent) -- the panel's own call
+        # comes after its Cancel latch and may not have happened yet when the run settles.
+        if self.cancelled or self.cancel_check():
+            backend = getattr(getattr(self.snapshot, "tool_options", None), "get", lambda *_: "")("backend", "")
+            with contextlib.suppress(Exception):  # noqa: BLE001 - the wait below and the settlement still judge it
+                local_engine_host.cancel_requested(str(backend or ""))
         if local_engine_host.cancel_retirement_pending(sp.settle_bound(self.cancel_check, LOCAL_ENGINE_STOP_S)):
             self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
                 "The voice engine was asked to stop and could not be confirmed stopped in time, so this run is not "

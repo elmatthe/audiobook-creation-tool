@@ -64,7 +64,11 @@ def _start_time(pid):
 
 
 def _parse(line, leaders):
+    """One registry line: ``A <pid> <sec> <usec>`` (a leader), ``a <pid>`` (no longer one), ``Q`` (the owner's orderly end:
+    act now, P5-I-R3 remediation 4). True for ``Q``."""
     parts = line.split()
+    if parts == ["Q"]:
+        return True
     try:
         if len(parts) == 4 and parts[0] == "A":
             leaders[int(parts[1])] = (int(parts[2]), int(parts[3]))
@@ -72,6 +76,7 @@ def _parse(line, leaders):
             leaders.pop(int(parts[1]), None)
     except ValueError:
         pass
+    return False
 
 
 def _end_leaders(leaders):
@@ -108,7 +113,10 @@ def _all_pids():
 def _environment(pid):
     """The environment entries *pid* was started with (``KERN_PROCARGS2``; only this account's processes answer), as a
     list of ``b"NAME=value"`` -- never its arguments (remediation 3, finding 1: a marker in an argument, or inside
-    another variable's value, is not the marker). [] when it cannot be read."""
+    another variable's value, is not the marker). [] when it cannot be read -- and for Apple platform binaries (e.g.
+    ``/bin/sleep``), whose environment macOS leaves out of this record: such a process is not recognised by it. The
+    kernel's own ``apple`` strings (``executable_path=...``, ``pfz=...``) may follow the environment unseparated; they
+    never equal an ACT tag, which is only ever looked up as one whole entry."""
     try:
         ctypes, libc = _libc()
         mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
@@ -128,7 +136,14 @@ def _environment(pid):
     end = rest.find(b"\0")
     if argc < 0 or end < 0:
         return []
-    rest = rest[end:].lstrip(b"\0")
+    # The executable path is NUL-padded to an 8-byte boundary (measured on macOS 27: the arguments begin at
+    # roundup(len(path) + 1, 8)). Skipping exactly that keeps an empty first argument (P5-I-R3 remediation 4); padding
+    # that is not all NUL falls back to skipping every NUL, as before.
+    start = (end + 1 + 7) // 8 * 8
+    if start <= len(rest) and not rest[end:start].strip(b"\0"):
+        rest = rest[start:]
+    else:
+        rest = rest[end:].lstrip(b"\0")
     strings = rest.split(b"\0")
     entries = []
     for item in strings[argc:]:
@@ -269,8 +284,11 @@ def main() -> int:
             else:
                 pending += block
                 *lines, pending = pending.split(b"\n")
+                quit_now = False
                 for line in lines:
-                    _parse(line.decode("ascii", "replace"), leaders)
+                    quit_now = _parse(line.decode("ascii", "replace"), leaders) or quit_now
+                if quit_now:
+                    break  # the owner's orderly end (its lifeline may still be held by a child between fork and exec)
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     began = time.monotonic()
     pending = _drain(registry, pending, leaders)

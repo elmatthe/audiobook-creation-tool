@@ -660,6 +660,8 @@ REVOKE_HOLD_S = 0.3
 # The orderly end's wait for grants already past their last look (P5-I-R3 remediation 3, finding 7): each one ends
 # on its own bounds (cut exec wait, revoke, kill confirm) well inside this; one that does not is cut and reported.
 CLOSE_GRANT_WAIT_S = 0.6
+#: The orderly end's word to the guardian on its registry: end the registered leaders and the sweep now, then exit.
+QUIT_LINE = b"Q\n"
 # How long a revocation waits for a file-system call once its G was taken back (only tidiness is left then).
 REVOKE_FS_WAIT_S = 0.05
 #: Starts made for one request: a guardian that changed, or a gate too slow with nothing asking it to stop.
@@ -808,17 +810,9 @@ def _close_fds(fds: list) -> None:
 def _resolve_program(name: str, env: Optional[dict], cwd: Any) -> str:
     """The program ``Popen`` would execute for *name* (``PATH`` of *env*, or relative to *cwd*), resolved to its real
     file. ``FileNotFoundError`` / ``PermissionError`` exactly where ``Popen`` would raise them; nothing is created."""
-    if os.path.dirname(name):
-        path = name if os.path.isabs(name) else os.path.join(os.fspath(cwd) if cwd else os.getcwd(), name)
-    else:
-        search = (os.environ if env is None else env).get("PATH", os.defpath)
-        if cwd:  # the child searches after its chdir: a relative entry is relative to *cwd*, as for Popen
-            search = os.pathsep.join(entry if os.path.isabs(entry) else os.path.join(os.fspath(cwd), entry or ".")
-                                     for entry in search.split(os.pathsep))
-        found = shutil.which(name, path=search)
-        if found is None:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
-        path = found
+    path = _exec_name(name, env, cwd)
+    if not os.path.isabs(path):
+        path = os.path.join(os.fspath(cwd) if cwd else os.getcwd(), path)
     path = os.path.realpath(path)
     if not os.path.isfile(path):
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
@@ -827,11 +821,28 @@ def _resolve_program(name: str, env: Optional[dict], cwd: Any) -> str:
     return path
 
 
-def _interpreted(program: str, argv: list) -> tuple[str, list]:
+def _exec_name(name: str, env: Optional[dict], cwd: Any) -> str:
+    """The path ``Popen`` would hand to ``execve`` for *name*: *name* itself when it has a directory part, else the first
+    executable file along ``PATH`` -- read as ``Popen`` reads it (``os.get_exec_path``: a ``str`` or ``bytes`` key, P5-I-R3
+    remediation 4), each entry as written (a relative one is looked at relative to *cwd*, where the child searches)."""
+    if os.path.dirname(name):
+        return name
+    base = os.fspath(cwd) if cwd else os.getcwd()
+    for entry in os.get_exec_path(os.environ if env is None else env):
+        entry = os.fsdecode(entry)
+        candidate = os.path.join(entry, name)
+        look = candidate if os.path.isabs(candidate) else os.path.join(base, candidate)
+        if os.path.isfile(look) and os.access(look, os.X_OK):
+            return candidate
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
+
+
+def _interpreted(program: str, argv: list, shown: Optional[str] = None) -> tuple[str, list]:
     """What the kernel would execute for *program*: itself, or -- a ``#!`` script -- its interpreter, given the
     script's real path (as ``execve`` does: interpreter, its one optional argument, the script, the remaining
     arguments). The permit then gates the interpreter, and the script is read from its own path, never through the
-    permit (which is revoked as soon as the interpreter runs)."""
+    permit (which is revoked as soon as the interpreter runs). *shown*: the path ``execve`` would have been given (the
+    script's ``$0``, P5-I-R3 remediation 4); its real path when not known."""
     try:
         with open(program, "rb") as handle:
             head = handle.read(512)
@@ -847,7 +858,57 @@ def _interpreted(program: str, argv: list) -> tuple[str, list]:
     if not os.path.isabs(interpreter) or not os.path.isfile(interpreter):
         return program, argv
     extra = [os.fsdecode(parts[1].strip())] if len(parts) > 1 and parts[1].strip() else []
-    return os.path.realpath(interpreter), [interpreter, *extra, program, *argv[1:]]
+    return os.path.realpath(interpreter), [interpreter, *extra, shown or program, *argv[1:]]
+
+
+class _EarlyAnnouncement:
+    """P5-I-R3 remediation 4: a class-A child is announced to the guardian (pid and kernel start time) as soon as its
+    process exists -- read from the pre-attached ``Popen`` while ``__init__`` still waits for the exec -- so a child that
+    stalls between fork and exec (stopped, starved) is still ended by the guardian if its owner dies then. What is
+    announced for a child that turned out not to exist is withdrawn. Best effort; never raises."""
+
+    POLL_S = 0.002
+
+    def __init__(self, owner: "Owner", entry: "OwnedChild") -> None:
+        self.owner, self.entry = owner, entry
+        self.done = threading.Event()
+        self.pid: Optional[int] = None
+        self.thread: Optional[threading.Thread] = None
+
+    def watch(self, attached: subprocess.Popen) -> None:
+        if self.entry.kind != CLASS_A or self.owner._registry is None:
+            return
+
+        def run() -> None:
+            while not self.done.is_set():
+                pid = getattr(attached, "pid", None)
+                if isinstance(pid, int) and pid > 0:
+                    start = process_start_time(pid)
+                    if start is None:
+                        return
+                    with self.owner._state:
+                        fd = self.owner._registry
+                        if self.done.is_set() or fd is None or self.entry.announced:
+                            return
+                        with contextlib.suppress(OSError):
+                            os.write(fd, f"A {pid} {start[0]} {start[1]}\n".encode())
+                            self.entry.announced = True
+                            self.pid = pid
+                    return
+                time.sleep(self.POLL_S)
+
+        with contextlib.suppress(RuntimeError):
+            self.thread = threading.Thread(target=run, name="act-announce-early", daemon=True)
+            self.thread.start()
+
+    def finish(self, *, keep: bool) -> None:
+        with self.owner._state:
+            self.done.set()
+            if not keep and self.pid is not None:
+                self.entry.announced = False
+                if self.owner._registry is not None:
+                    with contextlib.suppress(OSError):
+                        os.write(self.owner._registry, f"a {self.pid}\n".encode())
 
 
 def proc_placeholder():
@@ -1014,9 +1075,11 @@ def _end_group_once(proc: subprocess.Popen, start_time: Optional[tuple[int, int]
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
-            return GROUP_ENDED
+            # P5-I-R3 remediation 4 (finding 1): the owner's own retirement also ends the worker's tagged descendants
+            # that left its group -- one pass, never waiting; one still found makes this look REMAINING.
+            return _swept(proc, time.monotonic())
         except PermissionError:
-            return GROUP_ENDED if sys.platform == "darwin" else GROUP_REMAINING
+            return _swept(proc, time.monotonic()) if sys.platform == "darwin" else GROUP_REMAINING
         except OSError:
             return GROUP_REMAINING
         return GROUP_REMAINING if sys.platform == "darwin" else GROUP_SIGNALLED
@@ -1287,6 +1350,7 @@ class Owner:
         look immediately before it and raises to refuse it. On failure nothing was created and the entry leaves the
         ledger; on success the entry holds the process before anything else is done."""
         attached = None
+        early = _EarlyAnnouncement(self, entry)
         try:
             if not self._admitting:  # the closing latch, at the last look before the process exists
                 raise ContainmentUnavailable(_CLOSING_TEXT)
@@ -1298,13 +1362,18 @@ class Owner:
                 # the pid right after fork, before reading the exec error pipe -- so a Popen that raises (or stalls)
                 # after creating the process never loses it.
                 attached = factory.__new__(factory)
+                early.watch(attached)
                 attached.__init__(argv, **kwargs)
                 proc = attached
             else:  # a test's recording stand-in for Popen
                 proc = factory(argv, **kwargs)
         except BaseException as exc:
+            # A child that Popen itself already reaped (its exec or chdir failed and Popen raised that error) no
+            # longer exists: nothing is kept, and the error is the caller's, as from Popen (remediation 4).
             created = (attached is not None and bool(getattr(attached, "_child_created", False))
-                       and isinstance(getattr(attached, "pid", None), int))
+                       and isinstance(getattr(attached, "pid", None), int)
+                       and getattr(attached, "returncode", None) is None)
+            early.finish(keep=created)
             with self._state:
                 if created:
                     entry.proc, entry.pid, entry.state = attached, attached.pid, STARTED
@@ -1322,6 +1391,7 @@ class Owner:
                                              "was stopped and is still owned until its end is confirmed") from exc
             self._kick()
             raise
+        early.finish(keep=True)
         with self._state:
             entry.proc = proc
             entry.pid = proc.pid
@@ -1872,7 +1942,8 @@ class Owner:
             if guardian is None:
                 continue
             try:
-                executable, exec_argv = _interpreted(program, command)
+                executable, exec_argv = _interpreted(program, command,
+                                                     _exec_name(command[0], kwargs.get("env"), kwargs.get("cwd")))
                 stdio_kwargs, stdio = _own_stdio(kwargs)
                 try:
                     entry = self._admit(CLASS_B, label=label, run=owner_run, guardian=guardian)
@@ -1995,7 +2066,8 @@ class Owner:
                 launch.proc = proc
         except BaseException as exc:
             proc = launch.proc if launch.proc is not None else proc_placeholder()
-            created = bool(getattr(proc, "_child_created", False)) and isinstance(getattr(proc, "pid", None), int)
+            created = (bool(getattr(proc, "_child_created", False)) and isinstance(getattr(proc, "pid", None), int)
+                       and getattr(proc, "returncode", None) is None)  # reaped by Popen: gone (remediation 4)
             with self._state:
                 guardian.spawns -= 1
                 if created:
@@ -2644,9 +2716,16 @@ class Owner:
             write, self._write = self._write, None
             guardians = [e for e in self._entries if e.kind == GUARDIAN_KIND and e.proc is not None
                          and not e.resolved() and e not in owned]
+            registry = self._registry
         if write is not None:
             with contextlib.suppress(OSError):
                 os.close(write)
+        if registry is not None:
+            # P5-I-R3 remediation 4: also said on the registry -- a child caught between fork and exec still holds the
+            # lifeline's write end (its descriptors close only at exec), so the lifeline's end-of-file may never come;
+            # the guardian ends its registered leaders and its sweep on this as on the owner's exit.
+            with contextlib.suppress(OSError):
+                os.write(registry, QUIT_LINE)
         give_up = deadline - 0.25
         while any(not has_exited(g.proc, g.start_time) for g in guardians) and time.monotonic() < give_up:
             time.sleep(RETIRE_POLL_S)
@@ -2673,8 +2752,12 @@ class Owner:
             with contextlib.suppress(OSError):
                 os.close(registry)
         if permits is not None:
-            shutil.rmtree(permits, ignore_errors=True)
+            # Tidiness only (every permit was revoked inside its own start; the guardian removes the folder if this
+            # process dies): never waited for past the orderly end's deadline (P5-I-R3 remediation 4).
+            _bounded_call(lambda: shutil.rmtree(permits, ignore_errors=True), max(0.0, deadline - time.monotonic() - 0.05))
         unconfirmed = sorted({e.pid for e in left if not e.resolved()})
+        with self._state:  # a start still in progress whose process exists (announced early) is not confirmed ended
+            unconfirmed += [-1] * sum(1 for e in self._entries if e.state == SPAWNING and e.announced)
         if unconfirmed:
             self._note(f"Containment: the orderly end could not confirm that {len(unconfirmed)} process(es) ended "
                        f"(pid {', '.join(map(str, unconfirmed))}); they are still being ended.")

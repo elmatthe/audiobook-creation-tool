@@ -620,8 +620,8 @@ def cancel_requested(backend: str) -> None:
 
     global _CANCEL_RETIREMENT
     thread = threading.Thread(target=end_if_idle, name="local-engine-cancel", daemon=True)
+    thread.start()  # started before it is published (remediation 4): a waiter never meets an unstarted thread
     _CANCEL_RETIREMENT = thread
-    thread.start()
 
 
 #: v0.8.x P5-I-R3 remediation 3 (finding 4): the retirement a Cancel began (:func:`cancel_requested`), so the run's
@@ -636,7 +636,10 @@ def cancel_retirement_pending(timeout: float) -> bool:
     thread = _CANCEL_RETIREMENT
     if thread is None:
         return False
-    thread.join(max(0.0, timeout))
+    try:
+        thread.join(max(0.0, timeout))
+    except RuntimeError:  # not started yet (never published so since remediation 4): still to run
+        return True
     return thread.is_alive()
 
 

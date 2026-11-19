@@ -572,7 +572,8 @@
         "On macOS (v0.8.x P5-D-R1) a Cancel that meets another caller's end of the same local-engine worker (an engine switch's close, a Cancel hook) reports that end's own answer: an end whose group was not confirmed ended is never turned into a clean Cancel.",
         "On macOS (v0.8.x P5-D-R2) a request in flight asks for its own worker's end by name: if another caller has already retired that worker -- even completely, before the request saw Cancel or the worker's end -- that worker's own retirement answer stands, so an unconfirmed end is never a clean Cancel and the file's failure says it could not be confirmed stopped; an end asked for one worker never retires another or takes its answer.",
         "After a Cancel the run waits for its items in progress at most ITEM_STOP_S (5 s, the largest route T_stop) from the click; an item still running then fails the run, naming it, and is never reported CANCELLED (v0.8.x P5-I-R3).",
-        "On macOS a voice-engine worker (Qwen3, OmniVoice) is tagged with its run, and a Cancel that arrives while it finishes (its output already ended) is still acted on within the route's grace; a local-engine retirement still in progress makes the run FAILED, never CANCELLED (v0.8.x P5-I-R3 remediation 3)."
+        "On macOS a voice-engine worker (Qwen3, OmniVoice) is tagged with its run, and a Cancel that arrives while it finishes (its output already ended) is still acted on within the route's grace; a local-engine retirement still in progress makes the run FAILED, never CANCELLED (v0.8.x P5-I-R3 remediation 3).",
+        "On macOS a cancelled run begins its local-engine retirement itself before settling, so it is never reported CANCELLED while that worker still runs (v0.8.x P5-I-R3 remediation 4)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -585,7 +586,8 @@
         "files/tests/test_macos_p5i_r3_settlement.py",
         "files/tests/test_macos_p5i_r3_remediation.py",
         "files/tests/test_macos_p5i_r3_remediation2.py",
-        "files/tests/test_macos_p5i_r3_remediation3.py"
+        "files/tests/test_macos_p5i_r3_remediation3.py",
+        "files/tests/test_macos_p5i_r3_remediation4.py"
       ],
       "journeys": [
         "tts.cancel-during-narration"
@@ -13118,7 +13120,8 @@
         "Cancel while a candidate kept from an earlier attempt is being checked or numbered discards it; no Series Part is committed and nothing is published.",
         "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004).",
         "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished.",
-        "On macOS a contained FFmpeg is executed with exactly the caller's environment, and a stalled file-system call never holds the Cancel latch past 0.5 s (v0.8.x P5-I-R3 remediation 3)."
+        "On macOS a contained FFmpeg is executed with exactly the caller's environment, and a stalled file-system call never holds the Cancel latch past 0.5 s (v0.8.x P5-I-R3 remediation 3).",
+        "On macOS a contained launch raises what Popen raises for a missing working folder, reads PATH as Popen does, and gives a #! program the path it was started by (v0.8.x P5-I-R3 remediation 4)."
       ],
       "selection": [
         "files/tests/test_m4b_maker_batch.py",
@@ -13129,7 +13132,8 @@
         "files/tests/test_macos_p5i_r3_settlement.py",
         "files/tests/test_macos_p5i_r3_remediation.py",
         "files/tests/test_macos_p5i_r3_remediation2.py",
-        "files/tests/test_macos_p5i_r3_remediation3.py"
+        "files/tests/test_macos_p5i_r3_remediation3.py",
+        "files/tests/test_macos_p5i_r3_remediation4.py"
       ],
       "journeys": [],
       "verification": {
@@ -18374,7 +18378,8 @@
         "Once the main loop has ended the launcher finishes the closed window's Tk variables, images and fonts on the main thread, so a collection that lands on a worker afterwards makes no Tk call and waits for nothing (v0.7.2, ACT72-017; the forced-landing arms check both).",
         "On macOS (v0.8.x P1B) the window owns the FFmpeg and ffprobe it starts (class B, in its guardian's group) and its optional-setup workers (class A, on its lifeline); closing, Cmd+Q and SIGTERM/SIGHUP/SIGINT take the one close path, and SIGKILL or a crash of the window still ends every one of them.",
         "On macOS (v0.8.x P5-I-R3) the orderly end is one 5 s deadline from the close request: each panel's worker join takes only what is left of it less the containment's reserve (subprocess_utils.close_budget), and the owner's shutdown never waits past it.",
-        "On macOS the orderly end first refuses every new go, follows grants already released to their outcome, and only then publishes CLOSING, so no program executes after the closing latch; a lost guardian is replaced at once while class-A children run (v0.8.x P5-I-R3 remediation 3)."
+        "On macOS the orderly end first refuses every new go, follows grants already released to their outcome, and only then publishes CLOSING, so no program executes after the closing latch; a lost guardian is replaced at once while class-A children run (v0.8.x P5-I-R3 remediation 3).",
+        "On macOS the orderly end tells the guardian on its registry as well as by closing the lifeline (a child between fork and exec still holds the lifeline), never waits past its deadline to remove the permit folder, and Python children are announced to the guardian as soon as their process exists (v0.8.x P5-I-R3 remediation 4)."
       ],
       "selection": [
         "files/tests/test_close_stops_media_children.py",
@@ -18385,7 +18390,8 @@
         "files/tests/test_macos_p5i_r3_settlement.py",
         "files/tests/test_macos_p5i_r3_remediation.py",
         "files/tests/test_macos_p5i_r3_remediation2.py",
-        "files/tests/test_macos_p5i_r3_remediation3.py"
+        "files/tests/test_macos_p5i_r3_remediation3.py",
+        "files/tests/test_macos_p5i_r3_remediation4.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -21212,7 +21218,8 @@
         "POSIX (v0.8.x P5-I-R3): a contained third-party program (FFmpeg, ffprobe, codesign) is started through a launch gate created outside the run's Cancel ordering; the program begins executing only inside the run's counted start, through a one-time permit the owner removes before that counted start ends, so a gate that is late, stopped, or whose acknowledgement was lost can never start it after the Cancel latch. The guardian also watches its owner's exit (kqueue), removes the permit folder and ends the class-A leaders the owner registered, so the owner's death is contained even when a stopped child holds the lifeline open or a class-A leader was stopped before its lifeline ran. Windows is unchanged",
         "v0.8.x P5-I-R3 remediation: a launch gate waits for its go byte in poll() and the owner takes an unread byte back on revocation (definitive even with unlink, rename, chmod and the kill refused); a start that still cannot be kept inside its ordering is a run fault reported by containment_problem after the process is gone; a grant in progress when the app begins closing is cut.",
         "v0.8.x P5-I-R3 remediation 2: every class-A child carries its owner's child token in its environment; once the owner is gone its guardian ends every process of this account carrying it (start time read before and right before the signal), so an unannounced or stopped worker and a descendant that left its group with setsid end too; a worker whose group cannot be confirmed ended is never reaped by its caller (the owner keeps ending it).",
-        "On macOS the guardian's sweep matches an exact environment entry only, and a process created by a Popen that then raised is kept, retired and reported (v0.8.x P5-I-R3 remediation 3)."
+        "On macOS the guardian's sweep matches an exact environment entry only, and a process created by a Popen that then raised is kept, retired and reported (v0.8.x P5-I-R3 remediation 3).",
+        "On macOS the owner's own retirement of a Python worker also ends its tagged descendants that left its session, and the start-up record is parsed exactly (v0.8.x P5-I-R3 remediation 4)."
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_cancel.py",
@@ -21222,7 +21229,8 @@
         "files/tests/test_macos_p5i_r3_launch.py",
         "files/tests/test_macos_p5i_r3_remediation.py",
         "files/tests/test_macos_p5i_r3_remediation2.py",
-        "files/tests/test_macos_p5i_r3_remediation3.py"
+        "files/tests/test_macos_p5i_r3_remediation3.py",
+        "files/tests/test_macos_p5i_r3_remediation4.py"
       ],
       "journeys": [
         "setup.first-run-choices-and-cancel"
@@ -26420,9 +26428,9 @@
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
-    "scripts/shared/child_guardian.py": "ee47be394306bb48451e6c301df0466a25aa06ac0a150a49d3e428158f8e98db",
+    "scripts/shared/child_guardian.py": "5b380fe47cb632fff4bca95c5386772f2aa6f69d457dc239ac26b4ec0d262724",
     "scripts/shared/child_launch.py": "207a47573bb9f5c627cb457a2cc9aa010fe2fd16d37f49ada0a8f41b8e8fdfe5",
-    "scripts/shared/child_ownership.py": "0ca8add3bf5c5c99783b47302cdda2f0d45209884a812bd2ec553be7784dc333",
+    "scripts/shared/child_ownership.py": "5189ae9c9314e6ef6b5a58ca5e9dbda68ec72eb112c8d61eb742f139289c8cdd",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26480,11 +26488,11 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "1de32b938f32a4d02faa056e0538ec6b8eecd3a614e05c9f784b5ae2a06bc185",
+    "scripts/tts/epub2tts_gui.py": "d8fc413fff16844b497b20b1c5907ed336706f27faa823ab2985a868a4fdc03d",
     "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
-    "scripts/tts/local_engine_host.py": "60bbe4635223999b0129a341d7d23cb031f756210fc6c3870bbd2768efccf7f4",
+    "scripts/tts/local_engine_host.py": "256e67ac9a8b2712b362175d6c3adf67a8c9453d87cc233bf537dcb164673d4e",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
