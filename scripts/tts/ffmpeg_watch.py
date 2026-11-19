@@ -202,6 +202,13 @@ def _asked_to_cancel(control: _Control) -> bool:
         return False
 
 
+def _stop_if_asked(control: _Control) -> None:
+    """A wait for something a start needs (macOS: a containment guardian getting ready) stops at a Cancel (v0.8.x
+    P5-H-R1), so a cancelled conversion settles within its budget however slow that is."""
+    if _asked_to_cancel(control):
+        raise ConversionCancelled(CANCELLED_MESSAGE)
+
+
 def _verdict_on(item: _Watched, now: float) -> Optional[BaseException]:
     if item.output is not None:
         with contextlib.suppress(OSError):
@@ -316,14 +323,17 @@ class Supervised:
         last = args[-1] if isinstance(args, (list, tuple)) and args else None
         # FFmpeg's last argument is what it writes, unless that is a pipe. For anything else the size just never changes.
         output = os.fspath(last) if isinstance(last, (str, os.PathLike)) and last != "-" else None
+        unwatched = False
         try:
             for attempt in range(START_ATTEMPTS):
                 # v0.8.x P5-H-R1. Anything slow the start needs (macOS: the containment guardian) happens first, outside the
                 # run's Cancel ordering; only a guardian's spawn, if one is needed, is ordered (no guardian is made for a
-                # cancelled run). Then the start itself, ordered and watched before Cancel may latch, in exactly that
-                # guardian's group: if it changed meanwhile, nothing starts and the start is prepared again. A Cancel
-                # pressed first refuses it; a Cancel pressed during it waits for this one creation and then kills it.
+                # cancelled run), and a Cancel stops the wait for a guardian to be ready (checkpoint). Then the start
+                # itself, ordered and watched before Cancel may latch, in exactly that guardian's group: if it changed
+                # meanwhile, nothing starts and the start is prepared again. A Cancel pressed first refuses it; a Cancel
+                # pressed during it waits for the creations in progress and then kills them.
                 generation = subprocess_utils.prepare_popen(args, spawn_context=lambda: _authorized_start(control),
+                                                            checkpoint=lambda: _stop_if_asked(control),
                                                             stdin=stdin, stdout=stdout, stderr=stderr, **kwargs)
                 extra = {} if generation is None else {"guardian_generation": generation}
                 try:
@@ -340,14 +350,19 @@ class Supervised:
                             with _watched_lock:
                                 _watched.add(self._item)
                         except BaseException:
-                            # Started and not watched (out of memory here, say): it never runs on unowned.
-                            self._end_unregistered()
+                            # Started and not watched (out of memory here, say): it never runs on unowned. Killed now;
+                            # waited for below, once the counted start has let a Cancel through.
+                            with contextlib.suppress(OSError):
+                                self.process.kill()
+                            unwatched = True
                             raise
                     break
                 except subprocess_utils.GuardianChanged:
                     if attempt == START_ATTEMPTS - 1:
                         raise
         except BaseException:
+            if unwatched:
+                self._end_unregistered()
             self._close_errors()
             raise
         self.stdin, self.stdout = self.process.stdin, self.process.stdout

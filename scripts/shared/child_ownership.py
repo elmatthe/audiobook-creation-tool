@@ -46,7 +46,7 @@ from __future__ import annotations
 import contextlib
 import os
 import queue
-import select
+import selectors
 import signal
 import struct
 import subprocess
@@ -68,6 +68,10 @@ CLASS_B = "B"
 GUARDIAN_READY_TIMEOUT_S = 10.0
 #: How many times an unprepared class-B start has a guardian before it gives up, should each end as it is had.
 GUARDIAN_ATTEMPTS = 3
+#: How often a wait for a guardian (its own readiness, or another thread making it) looks at a Cancel and the orderly end.
+GUARDIAN_POLL_S = 0.05
+#: The look an unowned process is given after SIGKILL before it is left to a reaping thread (never a caller's wait).
+STRAY_LOOK_S = 0.05
 #: SIGTERM -> SIGKILL grace for one child in an orderly end.
 TERM_GRACE_S = 1.0
 #: Bound on the whole orderly shutdown.
@@ -601,6 +605,8 @@ class Owner:
         # ``_lock``, so a start prepared for the current guardian is never kept waiting by another thread's replacement.
         # Order: this lock, then ``_lock``; never the other way round.
         self._guardian_creation = threading.Lock()
+        self._pending_guardian: Optional[subprocess.Popen] = None  # made, getting ready, not adopted yet
+        self._strays: list[subprocess.Popen] = []  # started, not owned, killed and not yet seen to end
         self._read: Optional[int] = None
         self._write: Optional[int] = None
         self._children: list[OwnedChild] = []
@@ -727,14 +733,21 @@ class Owner:
     def guardian_pid(self) -> Optional[int]:
         return self._guardian.pid if self._guardian is not None and self._guardian.poll() is None else None
 
-    def _start_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
+    def _start_guardian(self, spawn_context: Optional[Callable[[], Any]] = None,
+                        checkpoint: Optional[Callable[[], None]] = None) -> int:
         """Start the guardian and wait for its ready signal. ``spawn_context`` (v0.8.x P5-H-R1), when given, is entered
         around the spawn alone, not the wait for readiness: a run's Cancel ordering, so no guardian process is created for
         a cancelled run while a Cancel never waits for a guardian to become ready. Called holding ``_guardian_creation``
-        and not ``_lock``: the wait for readiness holds up no other start and no registry reader."""
+        and not ``_lock``: the wait for readiness holds up no other start and no registry reader.
+
+        The wait looks every :data:`GUARDIAN_POLL_S` at the orderly end and at ``checkpoint`` (a run's Cancel, which
+        raises to stop waiting), and reads through a selector (a busy application's pipe can be numbered past
+        ``select``'s limit). Until it is adopted the new guardian is this owner's ``_pending_guardian``; one that is not
+        adopted, for whatever reason, is ended and reaped, or kept to be reaped (:meth:`_retire_unowned`)."""
         fd = self._ensure_lifeline()
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
         env[LIFELINE_ENV] = str(fd)
+        self._refuse_if_closing()
         try:
             with (spawn_context() if spawn_context is not None else contextlib.nullcontext()):
                 proc = subprocess.Popen([self._python, "-I", str(GUARDIAN)], process_group=0, pass_fds=(fd,), env=env,
@@ -742,40 +755,79 @@ class Owner:
                                         close_fds=True)
         except OSError as exc:
             raise ContainmentUnavailable(f"the ACT guardian could not be started: {exc}") from exc
-        ready = b""
-        deadline = time.monotonic() + GUARDIAN_READY_TIMEOUT_S
-        assert proc.stdout is not None
-        while not ready.endswith(b"\n") and time.monotonic() < deadline:
-            readable, _, _ = select.select([proc.stdout], [], [], max(0.0, deadline - time.monotonic()))
-            if not readable:
-                break
-            block = os.read(proc.stdout.fileno(), 64)
-            if not block:
-                break
-            ready += block
-        proc.stdout.close()
-        if ready.strip() != b"ready":
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            proc.wait()
-            raise ContainmentUnavailable("the ACT guardian did not start (no ready signal); nothing was started")
-        start = process_start_time(proc.pid)
         with self._lock:
-            if self._retiring:
-                # The orderly end began while it was getting ready: it is not adopted after the end has looked.
-                with contextlib.suppress(OSError):
-                    proc.kill()
-                proc.wait()
-                raise ContainmentUnavailable("the application is closing; nothing was started")
-            self._generation += 1
-            self._guardian = proc
-            self._guardian_start = start
-            generation = self._generation
+            self._pending_guardian = proc
+        adopted = False
+        try:
+            ready = b""
+            deadline = time.monotonic() + GUARDIAN_READY_TIMEOUT_S
+            assert proc.stdout is not None
+            with selectors.DefaultSelector() as selector:
+                selector.register(proc.stdout, selectors.EVENT_READ)
+                while not ready.endswith(b"\n"):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._refuse_if_closing()
+                    if checkpoint is not None:
+                        checkpoint()
+                    if not selector.select(min(GUARDIAN_POLL_S, remaining)):
+                        continue
+                    block = os.read(proc.stdout.fileno(), 64)
+                    if not block:
+                        break
+                    ready += block
+            if ready.strip() != b"ready":
+                raise ContainmentUnavailable("the ACT guardian did not start (no ready signal); nothing was started")
+            start = process_start_time(proc.pid)
+            with self._lock:
+                # The orderly end may have begun while it was getting ready: it is not adopted after the end has looked.
+                self._refuse_if_closing()
+                self._generation += 1
+                self._guardian = proc
+                self._guardian_start = start
+                self._pending_guardian = None
+                generation = self._generation
+                adopted = True
+        finally:
+            with contextlib.suppress(OSError):
+                proc.stdout.close()
+            if not adopted:
+                with self._lock:
+                    if self._pending_guardian is proc:
+                        self._pending_guardian = None
+                self._retire_unowned(proc)
         threading.Thread(target=self._watch_guardian, args=(proc, generation), name="act-guardian-watch",
                          daemon=True).start()
         return proc.pid
+
+    def _retire_unowned(self, proc: subprocess.Popen) -> None:
+        """End a process this owner started and does not own (a guardian not adopted; a child whose registration failed):
+        SIGKILL and a short look (v0.8.x P5-H-R1). One not seen to end is kept in ``_strays`` and a daemon thread kills and
+        waits for it until it has ended (the orderly end does too), so it is never left unreaped and the caller -- who may
+        be inside a run's counted start -- is not held."""
+        with contextlib.suppress(OSError):
+            proc.kill()
+        with contextlib.suppress(subprocess.TimeoutExpired, OSError, ChildProcessError):
+            proc.wait(STRAY_LOOK_S)
+        if proc.returncode is not None:
+            return
+        with self._lock:
+            self._strays.append(proc)
+        with contextlib.suppress(Exception):  # noqa: BLE001 - it is in _strays either way; the orderly end ends it
+            threading.Thread(target=self._reap_stray, args=(proc,), name="act-stray-reap", daemon=True).start()
+
+    def _reap_stray(self, proc: subprocess.Popen) -> None:
+        while proc.returncode is None:
+            try:
+                proc.wait(STRAY_LOOK_S * 5)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(OSError):
+                    proc.kill()
+            except (OSError, ChildProcessError):
+                break
+        with self._lock:
+            self._strays = [p for p in self._strays if p is not proc]
 
     def _watch_guardian(self, proc: subprocess.Popen, generation: int) -> None:
         proc.wait()
@@ -784,7 +836,8 @@ class Owner:
         self._guardian_lost(proc, generation)
 
     def _guardian_lost(self, proc: subprocess.Popen, generation: int) -> None:
-        """Fail closed: the class-B children of a guardian that is gone are ended, and recorded as uncontained."""
+        """Fail closed: the class-B children of a guardian that is gone are ended, and recorded as uncontained. Never
+        called holding ``_lock``: the children are ended (a grace each) after it is let go (v0.8.x P5-H-R1)."""
         with self._lock:
             if generation in self._handled_generations:
                 return
@@ -802,34 +855,54 @@ class Owner:
             self._end(child, grace=TERM_GRACE_S)
             self._note(f"Containment: stopped {child.label or child.pid} (pid {child.pid}): it had lost its guardian.")
 
-    def _current_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> tuple[int, int]:
-        """The running guardian's pid and generation, starting (or replacing) it first if need be. A lost guardian is
-        retired and its replacement made under ``_guardian_creation``; ``_lock`` is held only to read and record state
-        (v0.8.x P5-H-R1)."""
-        with self._guardian_creation:
+    def _current_guardian(self, spawn_context: Optional[Callable[[], Any]] = None,
+                          checkpoint: Optional[Callable[[], None]] = None) -> tuple[int, int]:
+        """The running guardian's pid and generation, starting (or replacing) it first if need be (v0.8.x P5-H-R1).
+
+        One thread at a time makes or replaces it, under ``_guardian_creation``; ``_lock`` is held only to read and
+        record state, never across a wait, a lost guardian's children being ended, or a new one getting ready. A thread
+        waiting for another's guardian looks at the orderly end and at ``checkpoint`` (a run's Cancel, which raises) every
+        :data:`GUARDIAN_POLL_S`, as the one making it does."""
+        while not self._guardian_creation.acquire(timeout=GUARDIAN_POLL_S):
+            self._refuse_if_closing()
+            if checkpoint is not None:
+                checkpoint()
+        try:
+            self._refuse_if_closing()
+            if checkpoint is not None:
+                checkpoint()
+            lost = None
             with self._lock:
                 if self._guardian is not None and not self._guardian_alive():
-                    proc, generation = self._guardian, self._generation
-                    proc.wait()
-                    self._guardian_lost(proc, generation)
-                if self._guardian is not None:
+                    lost = (self._guardian, self._generation)
+                elif self._guardian is not None:
                     return self._guardian.pid, self._generation
-            self._start_guardian(spawn_context)
+            if lost is not None:
+                with contextlib.suppress(subprocess.TimeoutExpired, OSError, ChildProcessError):
+                    lost[0].wait(TERM_GRACE_S)
+                self._guardian_lost(*lost)
+                if checkpoint is not None:
+                    checkpoint()
+            self._start_guardian(spawn_context, checkpoint)
             with self._lock:
                 if self._guardian is None:
                     raise ContainmentUnavailable("the ACT guardian ended as soon as it was ready; nothing was started")
                 return self._guardian.pid, self._generation
+        finally:
+            self._guardian_creation.release()
 
     def _guardian_group(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
         return self._current_guardian(spawn_context)[0]
 
-    def ensure_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
+    def ensure_guardian(self, spawn_context: Optional[Callable[[], Any]] = None,
+                        checkpoint: Optional[Callable[[], None]] = None) -> int:
         """Have the guardian running now, starting (or replacing) it if need be, and return its generation, so that a
         following :meth:`popen_external` with ``require_generation`` starts nothing but its child (v0.8.x P5-H-R1: a start
-        made inside the run's Cancel ordering must never wait for a guardian). ``spawn_context``: as for
-        :meth:`_start_guardian`. Raises :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
+        made inside the run's Cancel ordering must never wait for a guardian). ``spawn_context`` and ``checkpoint``: as
+        for :meth:`_start_guardian` (a run's Cancel stops the wait, whoever is making the guardian). Raises
+        :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
         self._refuse_if_closing()
-        return self._current_guardian(spawn_context)[1]
+        return self._current_guardian(spawn_context, checkpoint)[1]
 
     def popen_external(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
         """Start a registered class-B child inside the guardian's group. Raises :class:`ContainmentUnavailable`
@@ -837,13 +910,15 @@ class Owner:
 
         v0.8.x P5-H-R1: the guardian is had first (made if need be) and only then is ``_lock`` taken to start the child
         in its group, so no start waits on ``_lock`` for a guardian getting ready. With ``require_generation`` nothing
-        is made: a guardian gone or replaced since the start was prepared raises :class:`GuardianChanged` at once."""
+        is made: a guardian gone or replaced since the start was prepared raises :class:`GuardianChanged` at once. A
+        child whose registration fails is ended without being waited for here (:meth:`_retire_unowned`)."""
         if "start_new_session" in kwargs or "process_group" in kwargs:
             raise ValueError("a class-B child always joins the guardian's group")
         required = kwargs.pop("require_generation", None)
         self._refuse_if_closing()
         for _attempt in range(1 if required is not None else GUARDIAN_ATTEMPTS):
             expected = required if required is not None else self.ensure_guardian()
+            failure: Optional[BaseException] = None
             with self._lock:
                 self._refuse_if_closing()
                 if self._guardian is None or self._generation != expected or not self._guardian_alive():
@@ -855,13 +930,14 @@ class Owner:
                 proc = subprocess.Popen([str(a) for a in argv], process_group=group, close_fds=True, **kwargs)
                 try:
                     self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
-                except BaseException:
+                except BaseException as exc:  # noqa: BLE001 - re-raised below, once the lock is let go
                     # v0.8.x P5-H-R1: started and not owned (out of memory here, say): it does not run on unowned.
                     with contextlib.suppress(OSError):
                         proc.kill()
-                    with contextlib.suppress(OSError, subprocess.SubprocessError):
-                        proc.wait(TERM_GRACE_S * 2)
-                    raise
+                    failure = exc
+            if failure is not None:
+                self._retire_unowned(proc)
+                raise failure
             return proc
         raise ContainmentUnavailable("the ACT guardian kept ending as it was started; nothing was started")
 
@@ -993,6 +1069,10 @@ class Owner:
         (which retires the guardian), then the guardian is reaped. Crash containment never depends on this."""
         deadline = time.monotonic() + SHUTDOWN_BOUND_S
         self._retiring = True
+        # v0.8.x P5-H-R1: a guardian being made sees the latch at its next look (GUARDIAN_POLL_S) and is ended, not
+        # adopted; one adopted just before it is seen below. Waited for, bounded, so nothing is made after this returns.
+        if self._guardian_creation.acquire(timeout=max(0.1, min(3.0, deadline - time.monotonic() - 2.0))):
+            self._guardian_creation.release()
         # Every child not yet reaped -- running, or exited with its group's leftovers still identifiable -- ended
         # together, so the bound holds whatever their number (v0.8.x P1B).
         unreaped = [c for c in self.children() if c.proc.returncode is None]
@@ -1014,6 +1094,16 @@ class Owner:
                     guardian.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
                     pass
+        # v0.8.x P5-H-R1: a guardian still getting ready (its maker had not looked yet) and anything started but never
+        # owned are ended here too, never left to outlive the orderly end.
+        with self._lock:
+            leftovers = [p for p in [self._pending_guardian, *self._strays] if p is not None]
+        for proc in leftovers:
+            with contextlib.suppress(OSError):
+                proc.kill()
+        for proc in leftovers:
+            with contextlib.suppress(subprocess.TimeoutExpired, OSError, ChildProcessError):
+                proc.wait(timeout=max(0.1, min(1.0, deadline - time.monotonic())))
 
 
 _OWNER: Optional[Owner] = None

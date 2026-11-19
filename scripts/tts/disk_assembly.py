@@ -404,6 +404,7 @@ def _room_needed(parts: list) -> int:
             continue
         size = worker_limits.decoded_size([part])  # per file, so their sum is decoded_size of them all, exactly
         decoded += size
+        ffmpeg_watch.checkpoint()  # and again before this file's header is opened a second time
         known = _header_facts(part)
         facts.append((*known, 0) if known is not None else (0.0, 0, 0, size))
     stated = {(rate, channels) for _s, rate, channels, unknown in facts if rate and not unknown}

@@ -191,16 +191,17 @@ def popen(cmd, **kwargs) -> subprocess.Popen:
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
-def prepare_popen(cmd, *, spawn_context=None, **kwargs):
+def prepare_popen(cmd, *, spawn_context=None, checkpoint=None, **kwargs):
     """Do now whatever :func:`popen` of the same arguments would do first that can take a while (v0.8.x P5-H-R1): on
     macOS, have the owner's guardian running, starting or replacing it if need be, and return its generation for
     :func:`popen`'s ``guardian_generation``. ``spawn_context`` is entered around a guardian's spawn alone (the run's Cancel
-    ordering), never around the wait for it to be ready. ``None``, doing nothing, on Windows or for a child that is not
-    contained."""
+    ordering), never around the wait for it to be ready. ``checkpoint`` is called often while waiting for a guardian (its
+    own readiness, or another thread making it) and raises to stop the wait: a run's Cancel. ``None``, doing nothing, on
+    Windows or for a child that is not contained."""
     owner = _media_owner(cmd, kwargs)
     if owner is None:
         return None
-    return owner.ensure_guardian(spawn_context)
+    return owner.ensure_guardian(spawn_context, checkpoint=checkpoint)
 
 
 def check_output(cmd, **kwargs) -> bytes | str:

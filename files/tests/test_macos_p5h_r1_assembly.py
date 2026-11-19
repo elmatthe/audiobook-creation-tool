@@ -985,9 +985,9 @@ def test_a_guardian_replaced_after_preparation_is_never_restarted_inside_the_sta
     starts_counted_during_guardian_start = []
     real_start = child_ownership.Owner._start_guardian
 
-    def start_guardian(self, spawn_context=None):
+    def start_guardian(self, spawn_context=None, checkpoint=None):
         starts_counted_during_guardian_start.append(controller._starts_in_progress)
-        return real_start(self, spawn_context)
+        return real_start(self, spawn_context, *(() if checkpoint is None else (checkpoint,)))
 
     monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
     real_prepare = subprocess_utils.prepare_popen
@@ -1026,7 +1026,7 @@ def test_a_cancel_never_waits_for_a_guardian_to_become_ready(real_owner, monkeyp
     spawned, may_be_ready = threading.Event(), threading.Event()
     real_start = child_ownership.Owner._start_guardian
 
-    def slow_readiness(self, spawn_context=None):
+    def slow_readiness(self, spawn_context=None, checkpoint=None):
         @contextlib.contextmanager
         def spawn_then_slow():
             with spawn_context():
@@ -1034,7 +1034,7 @@ def test_a_cancel_never_waits_for_a_guardian_to_become_ready(real_owner, monkeyp
             spawned.set()  # spawned, the counted start let go: now the long wait for "ready"
             may_be_ready.wait(5)
 
-        return real_start(self, spawn_then_slow)
+        return real_start(self, spawn_then_slow, *(() if checkpoint is None else (checkpoint,)))
 
     monkeypatch.setattr(child_ownership.Owner, "_start_guardian", slow_readiness)
     outcome = {}
@@ -1093,9 +1093,9 @@ def test_a_start_is_never_held_by_another_threads_guardian_getting_ready(real_ow
             a_attempting.set()  # inside A's counted start
         return real_external(*args, **kwargs)
 
-    def start_guardian(self, spawn_context=None):
+    def start_guardian(self, spawn_context=None, checkpoint=None):
         if threading.current_thread().name != "B":
-            return real_start(self, spawn_context)
+            return real_start(self, spawn_context, *(() if checkpoint is None else (checkpoint,)))
 
         @contextlib.contextmanager
         def spawn_then_slow():
@@ -1103,7 +1103,7 @@ def test_a_start_is_never_held_by_another_threads_guardian_getting_ready(real_ow
             b_getting_ready.set()
             assert b_may_be_ready.wait(10)
 
-        return real_start(self, spawn_then_slow)
+        return real_start(self, spawn_then_slow, *(() if checkpoint is None else (checkpoint,)))
 
     monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare)
     monkeypatch.setattr(real_owner, "popen_external", external)
@@ -1163,14 +1163,14 @@ def test_a_guardian_that_gets_ready_after_the_orderly_end_began_is_not_kept(real
         made.append(real_popen(*args, **kwargs))
         return made[-1]
 
-    def start_guardian(self, spawn_context=None):
+    def start_guardian(self, spawn_context=None, checkpoint=None):
         @contextlib.contextmanager
         def spawn_then_slow():
             yield
             getting_ready.set()
             assert may_be_ready.wait(10)
 
-        return real_start(self, spawn_then_slow)
+        return real_start(self, spawn_then_slow, *(() if checkpoint is None else (checkpoint,)))
 
     monkeypatch.setattr(child_ownership.subprocess, "Popen", popen)
     monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
@@ -1203,8 +1203,8 @@ def test_an_unprepared_start_has_the_new_guardian_when_its_own_is_replaced(real_
     real_ensure = real_owner.ensure_guardian
     calls = []
 
-    def ensure_then_lose_it(spawn_context=None):
-        generation = real_ensure(spawn_context)
+    def ensure_then_lose_it(spawn_context=None, checkpoint=None):
+        generation = real_ensure(spawn_context, checkpoint)
         calls.append(generation)
         if len(calls) == 1:  # the guardian dies just after it was had for this start
             guardian = real_owner._guardian
@@ -1219,7 +1219,7 @@ def test_an_unprepared_start_has_the_new_guardian_when_its_own_is_replaced(real_
     assert calls[0] == first and len(calls) == 2 and calls[1] > first, calls
     assert proc.returncode == 0
 
-    monkeypatch.setattr(real_owner, "ensure_guardian", lambda spawn_context=None: -1)  # never the current one
+    monkeypatch.setattr(real_owner, "ensure_guardian", lambda spawn_context=None, checkpoint=None: -1)  # never the current one
     with pytest.raises(child_ownership.ContainmentUnavailable, match="kept ending"):
         real_owner.popen_external(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1346,3 +1346,413 @@ def test_a_file_whose_ffmpeg_will_not_end_fails_and_is_neither_retried_nor_cance
     status, _path, error = batch_convert.convert_single_pdf(source, tmp_path, "v", "+0%", lambda _m: None,
                                                             out_mp3=tmp_path / "book.mp3", cancel_check=pressed.is_set)
     assert (status, tries) == ("failed", [1]) and "had not ended" in error
+
+
+# --------------------------------------------------------------------------- R1 round 5 (Codex re-review 4)
+
+
+def _guardian_spawns(monkeypatch, *, stop=False):
+    """Record (and, with ``stop``, SIGSTOP at once) each guardian process the owner spawns."""
+    import signal
+
+    from shared import child_ownership
+
+    made = []
+    real_popen = child_ownership.subprocess.Popen
+
+    def popen(cmd, *args, **kwargs):
+        proc = real_popen(cmd, *args, **kwargs)
+        if str(child_ownership.GUARDIAN) in [str(part) for part in cmd]:
+            if stop:
+                os.kill(proc.pid, signal.SIGSTOP)  # stalled before it can say "ready"
+            made.append(proc)
+        return proc
+
+    monkeypatch.setattr(child_ownership.subprocess, "Popen", popen)
+    return made
+
+
+def _end_guardians(made):
+    import signal
+
+    for proc in made:
+        if proc.poll() is None:
+            with __import__("contextlib").suppress(OSError):
+                os.kill(proc.pid, signal.SIGCONT)
+                proc.kill()
+            proc.wait(5)
+
+
+def _quietly(call):
+    """Run ``call`` on a thread whose own failure (a guardian ended under it, the app closing) is not the test's."""
+    try:
+        call()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _wait_for(predicate, seconds=10.0):
+    import time
+
+    stop = time.monotonic() + seconds
+    while time.monotonic() < stop:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+@needs_ffmpeg
+def test_a_lost_guardians_children_are_ended_without_holding_up_a_start_or_a_cancel(real_owner, monkeypatch):
+    """Codex re-review 4 (HIGH): worker B, replacing a lost guardian, ended that guardian's surviving child (one that
+    ignores SIGTERM: a 1 s grace) holding the owner's lock; worker A, inside its counted start, waited on that lock, and
+    a Cancel latched after 1.03 s (C1 is 0.5 s). The child is now ended after the lock is let go."""
+    import threading
+    import time
+
+    from shared import child_ownership
+
+    monkeypatch.setattr(child_ownership.Owner, "_watch_guardian", lambda self, proc, generation: None)  # B sees it first
+    controller = JobController("p5h-r1-orphans")
+    controller.start()
+    real_owner.ensure_guardian()
+    orphan = real_owner.popen_external(
+        [sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ok', flush=True);"
+                               " time.sleep(30)"], stdout=subprocess.PIPE, label="orphan")
+    assert orphan.stdout.readline().strip() == b"ok"
+    a_prepared, a_go, a_attempting, b_ending = (threading.Event() for _ in range(4))
+    real_prepare, real_external, real_end = subprocess_utils.prepare_popen, real_owner.popen_external, real_owner._end
+
+    def prepare(*args, **kwargs):
+        generation = real_prepare(*args, **kwargs)
+        if threading.current_thread().name == "A" and not a_prepared.is_set():
+            a_prepared.set()
+            assert a_go.wait(10)
+        return generation
+
+    def external(*args, **kwargs):
+        if threading.current_thread().name == "A":
+            a_attempting.set()
+        return real_external(*args, **kwargs)
+
+    def end(child, *, grace):
+        if threading.current_thread().name == "B":
+            b_ending.set()
+        return real_end(child, grace=grace)
+
+    monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare)
+    monkeypatch.setattr(real_owner, "popen_external", external)
+    monkeypatch.setattr(real_owner, "_end", end)
+    outcome = {}
+
+    def worker_a():
+        with ffmpeg_watch.controlled(controller.cancel_check):
+            try:
+                ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                outcome["started"] = True
+            except ConversionCancelled:
+                outcome["refused"] = True
+            except BaseException as exc:  # pragma: no cover - reported below
+                outcome["error"] = exc
+
+    a = threading.Thread(target=worker_a, name="A", daemon=True)
+    a.start()
+    assert a_prepared.wait(10)
+    guardian = real_owner._guardian
+    guardian.kill()
+    guardian.wait(5)
+    b = threading.Thread(target=real_owner.ensure_guardian, name="B", daemon=True)
+    b.start()
+    assert b_ending.wait(10)
+    a_go.set()
+    assert a_attempting.wait(10)
+    pressing = threading.Thread(target=controller.request_cancel, daemon=True)
+    began = time.monotonic()
+    pressing.start()
+    pressing.join(0.5)
+    latched_in, latched = time.monotonic() - began, controller.cancel_check()
+    pressing.join(10)
+    a.join(15)
+    b.join(15)
+    assert latched and latched_in < 0.5, f"Cancel waited {latched_in:.3f} s for a lost guardian's child to be ended"
+    assert outcome == {"refused": True}, outcome
+    assert orphan.poll() is not None, "the lost guardian's child was ended"
+    assert not ffmpeg_watch._watched and controller._starts_in_progress == 0
+
+
+@needs_ffmpeg
+def test_a_cancel_stops_the_wait_for_a_guardian_that_never_gets_ready(real_owner, monkeypatch):
+    """Codex re-review 4 (HIGH): a guardian stalled before it said "ready" kept a cancelled conversion waiting up to the
+    readiness time-out (10 s; still running at 4.15 s, past C2's 4 s). The wait now looks at Cancel: the conversion
+    stops at once, and the guardian it was waiting for is ended and reaped, never adopted."""
+    import threading
+    import time
+
+    made = _guardian_spawns(monkeypatch, stop=True)
+    controller = JobController("p5h-r1-stalled-guardian")
+    controller.start()
+    outcome, ended = {}, threading.Event()
+
+    def worker():
+        with ffmpeg_watch.controlled(controller.cancel_check):
+            try:
+                ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                outcome["started"] = True
+            except ConversionCancelled:
+                outcome["refused"] = True
+            except BaseException as exc:  # pragma: no cover - reported below
+                outcome["error"] = exc
+        ended.set()
+
+    t = threading.Thread(target=worker, daemon=True)
+    try:
+        t.start()
+        assert _wait_for(lambda: made)
+        time.sleep(0.2)  # well inside the readiness wait
+        began = time.monotonic()
+        controller.request_cancel()
+        stopped = ended.wait(2.0)
+        took = time.monotonic() - began
+        assert stopped and took < 1.0, f"the cancelled conversion was still waiting {took:.2f} s later"
+        assert outcome == {"refused": True}, outcome
+        assert made[0].poll() is not None, "the guardian it waited for was ended and reaped"
+        assert real_owner.guardian_pid() is None and not ffmpeg_watch._watched
+    finally:
+        _end_guardians(made)
+        t.join(15)
+
+
+@needs_ffmpeg
+def test_a_cancel_stops_the_wait_behind_another_threads_guardian(real_owner, monkeypatch):
+    """The same for a run waiting while another thread makes the guardian (one at a time): it stops at its Cancel."""
+    import threading
+    import time
+
+    made = _guardian_spawns(monkeypatch, stop=True)
+    controller = JobController("p5h-r1-queued-guardian")
+    controller.start()
+    maker = threading.Thread(target=_quietly, args=(real_owner.ensure_guardian,), daemon=True)
+    outcome, ended = {}, threading.Event()
+
+    def worker():
+        with ffmpeg_watch.controlled(controller.cancel_check):
+            try:
+                ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                outcome["started"] = True
+            except ConversionCancelled:
+                outcome["refused"] = True
+            except BaseException as exc:  # pragma: no cover - reported below
+                outcome["error"] = exc
+        ended.set()
+
+    t = threading.Thread(target=worker, daemon=True)
+    try:
+        maker.start()
+        assert _wait_for(lambda: made)
+        t.start()
+        time.sleep(0.2)  # queued behind the maker
+        began = time.monotonic()
+        controller.request_cancel()
+        stopped = ended.wait(2.0)
+        took = time.monotonic() - began
+        assert stopped and took < 1.0, f"the cancelled conversion was still waiting {took:.2f} s later"
+        assert outcome == {"refused": True} and len(made) == 1, (outcome, made)
+    finally:
+        _end_guardians(made)
+        t.join(15)
+        maker.join(15)
+
+
+def test_a_child_that_cannot_be_registered_and_will_not_end_never_holds_the_caller(real_owner, monkeypatch):
+    """Codex re-review 4 (MEDIUM): with registration failing and the kill not taking, the rollback waited 2 s (inside
+    a run's counted start) and then left the child alive outside both registries. It is now kept as a stray, killed
+    and waited for by a thread of its own (and by the orderly end), and the caller is not held."""
+    import time
+
+    real_owner.ensure_guardian()
+    monkeypatch.setattr(real_owner, "_register", lambda *a, **k: (_ for _ in ()).throw(MemoryError()))
+    real_kill = subprocess.Popen.kill
+    kill_takes = {"value": False}
+    monkeypatch.setattr(subprocess.Popen, "kill", lambda self: real_kill(self) if kill_takes["value"] else None)
+    began = time.monotonic()
+    with pytest.raises(MemoryError):
+        real_owner.popen_external([sys.executable, "-c", "import time; time.sleep(30)"], stdout=subprocess.DEVNULL)
+    took = time.monotonic() - began
+    assert took < 0.5, f"the caller was held {took:.2f} s"
+    assert len(real_owner._strays) == 1 and real_owner._strays[0].poll() is None, "kept, not dropped"
+    stray = real_owner._strays[0]
+    kill_takes["value"] = True
+    assert _wait_for(lambda: stray.returncode is not None and not real_owner._strays, 5), "reaped once the kill took"
+
+
+@needs_ffmpeg
+def test_a_child_that_cannot_be_watched_is_waited_for_outside_the_counted_start(monkeypatch):
+    """The same for the watch list: an FFmpeg killed after it could not be watched is waited for once the counted start
+    has let a Cancel through, never inside it (the wait is up to ``ABANDON_WAIT_SECONDS``)."""
+    import threading
+    import time
+
+    controller = JobController("p5h-r1-unwatched")
+    controller.start()
+    failing, outcome = threading.Event(), {}
+    real_kill = subprocess.Popen.kill
+    monkeypatch.setattr(subprocess.Popen, "kill", lambda self: None)  # a kill that does not take
+    monkeypatch.setattr(ffmpeg_watch, "ABANDON_WAIT_SECONDS", 1.5)
+
+    def watched(*_a, **_k):
+        failing.set()
+        time.sleep(0.05)  # the Cancel is pressed meanwhile
+        raise MemoryError()
+
+    monkeypatch.setattr(ffmpeg_watch, "_Watched", watched)
+    made = []
+    real_popen = subprocess_utils.popen
+    monkeypatch.setattr(subprocess_utils, "popen", lambda *a, **k: made.append(real_popen(*a, **k)) or made[-1])
+
+    def worker():
+        with ffmpeg_watch.controlled(controller.cancel_check):
+            try:
+                ffmpeg_watch.Supervised([*_ffmpeg_version()[:1], "-hide_banner", "-f", "lavfi", "-i",
+                                         "anullsrc=r=24000:cl=mono", "-f", "null", "-"],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except MemoryError:
+                outcome["memory"] = True
+
+    t = threading.Thread(target=worker, daemon=True)
+    try:
+        t.start()
+        assert failing.wait(10)
+        began = time.monotonic()
+        controller.request_cancel()
+        latched_in = time.monotonic() - began
+        t.join(10)
+        assert latched_in < 0.5, f"Cancel waited {latched_in:.2f} s for an unwatched child"
+        assert outcome == {"memory": True}
+    finally:
+        monkeypatch.setattr(subprocess.Popen, "kill", real_kill)
+        for proc in made:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(5)
+
+
+@needs_ffmpeg
+def test_a_guardian_is_made_with_a_pipe_numbered_past_selects_limit(real_owner):
+    """Codex re-review 4 (MEDIUM): the guardian's readiness was read with ``select()``, which refuses a descriptor above
+    1023, and the guardian it had made was left running."""
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 1200
+    if hard != resource.RLIM_INFINITY and hard < want:
+        pytest.skip("cannot raise the descriptor limit here")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, want), hard))
+    held = []
+    try:
+        while True:
+            fd = os.open(os.devnull, os.O_RDONLY)
+            held.append(fd)
+            if fd >= 1100:
+                break
+        real_owner.ensure_guardian()
+        assert real_owner.guardian_pid() is not None
+    finally:
+        for fd in held:
+            os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_a_start_queued_behind_a_guardian_makes_none_once_closing_began(real_owner, monkeypatch):
+    """Codex re-review 4 (MEDIUM): a start queued behind a guardian getting ready had passed the closing check, so once
+    the first was refused it made a second guardian after closing had begun. Closing is now looked at again by the
+    thread that gets to make one, before it is made."""
+    import threading
+
+    from shared import child_ownership
+
+    made = _guardian_spawns(monkeypatch)
+    getting_ready, may_be_ready = threading.Event(), threading.Event()
+    real_start = child_ownership.Owner._start_guardian
+
+    def start_guardian(self, spawn_context=None, checkpoint=None):
+        if threading.current_thread().name != "first":
+            return real_start(self, spawn_context, *(() if checkpoint is None else (checkpoint,)))
+
+        import contextlib
+
+        @contextlib.contextmanager
+        def spawn_then_slow():
+            yield
+            getting_ready.set()
+            assert may_be_ready.wait(10)
+
+        return real_start(self, spawn_then_slow, *(() if checkpoint is None else (checkpoint,)))
+
+    monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
+    results = {}
+
+    def run(name, call):
+        try:
+            results[name] = call()
+        except child_ownership.ContainmentUnavailable as exc:
+            results[name] = str(exc)
+
+    first = threading.Thread(target=run, args=("first", real_owner.ensure_guardian), name="first", daemon=True)
+    first.start()
+    assert getting_ready.wait(10)
+    queued = threading.Thread(target=run, name="queued", daemon=True, args=(
+        "queued", lambda: real_owner.popen_external([sys.executable, "-c", "pass"], stdout=subprocess.DEVNULL)))
+    queued.start()
+    assert _wait_for(lambda: queued.is_alive(), 1)
+    __import__("time").sleep(0.2)  # queued, past popen_external's first look at closing
+    real_owner.begin_closing()
+    may_be_ready.set()
+    first.join(15)
+    queued.join(15)
+    assert "closing" in str(results.get("first")) and "closing" in str(results.get("queued")), results
+    assert len(made) == 1 and made[0].poll() is not None, "one guardian, ended; none made after closing began"
+
+
+def test_the_orderly_end_does_not_return_with_a_guardian_still_getting_ready(real_owner, monkeypatch):
+    """Codex re-review 4 (MEDIUM): ``shutdown()`` returned while a guardian it had not seen (still getting ready) ran."""
+    import threading
+
+    made = _guardian_spawns(monkeypatch, stop=True)
+    maker = threading.Thread(target=_quietly, args=(real_owner.ensure_guardian,), daemon=True)
+    try:
+        maker.start()
+        assert _wait_for(lambda: made)
+        real_owner.shutdown()
+        assert made[0].poll() is not None, "ended and reaped by the time the orderly end returned"
+    finally:
+        _end_guardians(made)
+        maker.join(15)
+
+
+def test_the_free_space_walk_opens_no_header_after_a_cancel_inside_a_size_estimate(tmp_path, monkeypatch):
+    """Codex re-review 4 (MEDIUM): a Cancel latched inside a file's size estimate was followed by that file's header
+    being opened again before the next look at Cancel."""
+    import threading
+
+    ffmpeg_utils.configure_pydub()
+    parts = []
+    for index in range(3):
+        parts.append(tmp_path / f"p{index}.flac")
+        _tone(24000, 1, 300, 300 + index).export(parts[-1], format="flac")
+    pressed = threading.Event()
+    opened = []
+    real_size, real_facts = wl.decoded_size, disk_assembly._header_facts
+
+    def size(paths):
+        paths = list(paths)
+        if paths == [parts[0]]:
+            pressed.set()  # Cancel inside the first file's estimate
+        return real_size(paths)
+
+    monkeypatch.setattr(wl, "decoded_size", size)
+    monkeypatch.setattr(disk_assembly, "_header_facts",
+                        lambda path: (opened.append((path.name, pressed.is_set())), real_facts(path))[1])
+    with ffmpeg_watch.controlled(pressed.is_set):
+        with pytest.raises(ConversionCancelled):
+            disk_assembly._room_needed(parts)
+    assert [entry for entry in opened if entry[1]] == [], f"opened after the Cancel: {opened}"

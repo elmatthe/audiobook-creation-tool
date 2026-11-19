@@ -376,7 +376,9 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   creations already in progress (each a single spawn, milliseconds) and then kills them. On macOS the containment
   guardian an FFmpeg needs is readied before that: its spawn is ordered the same way (no guardian is made for a cancelled
   run); its wait to be ready holds neither a Cancel nor another worker's start up (it has a lock of its own, so a start
-  prepared for the current guardian never waits on another thread's replacement); a guardian lost in between is
+  prepared for the current guardian never waits on another thread's replacement, nor on a lost guardian's programs
+  being ended); a Cancel stops a run's wait for a guardian at once, whether that guardian is its own or another
+  thread's, and one it was waiting for that never got ready is ended, never kept; a guardian lost in between is
   replaced there, never inside the start; and a guardian that becomes ready after the app began closing is ended, never
   kept. Reading, converting, scanning (the audible check
   and the final-tail search) and the free-space header reads of a narration on disk stop at the next block or file.
