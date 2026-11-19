@@ -581,7 +581,8 @@
         "files/tests/test_low_memory.py",
         "files/tests/test_local_engine_worker.py",
         "files/tests/test_synthesis_worker_group_retirement.py",
-        "files/tests/test_macos_p5i_r3_settlement.py"
+        "files/tests/test_macos_p5i_r3_settlement.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [
         "tts.cancel-during-narration"
@@ -3634,7 +3635,8 @@
         "files/tests/test_qwen3_worker.py",
         "files/tests/test_qwen3_gui.py",
         "files/tests/test_qwen3_runtime.py",
-        "files/tests/test_macos_p5i_r3_routes.py"
+        "files/tests/test_macos_p5i_r3_routes.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -8142,7 +8144,8 @@
         "files/tests/test_mp3_combine.py",
         "files/tests/test_ffmpeg_cancel.py",
         "files/tests/test_mp3_staging_release.py",
-        "files/tests/test_macos_p5i_r3_settlement.py"
+        "files/tests/test_macos_p5i_r3_settlement.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -10770,7 +10773,8 @@
         "files/tests/test_m4b_conversion_plan.py",
         "files/tests/test_m4b_retry.py",
         "files/tests/test_m4b_continuous.py",
-        "files/tests/test_m4b_publication_order.py"
+        "files/tests/test_m4b_publication_order.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [
         "converter.cancel-during-encode"
@@ -13111,7 +13115,8 @@
         "files/tests/test_m4b_combined_hardening.py",
         "files/tests/test_m4b_maker_processing.py",
         "files/tests/test_ffmpeg_cancel.py",
-        "files/tests/test_macos_p5i_r3_settlement.py"
+        "files/tests/test_macos_p5i_r3_settlement.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -15284,7 +15289,8 @@
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_metadata_remux_cancel.py",
         "files/tests/test_macos_p5i_r3_settlement.py",
-        "files/tests/test_ffmpeg_cancel.py"
+        "files/tests/test_ffmpeg_cancel.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -18362,7 +18368,8 @@
         "files/tests/test_import_coordination.py",
         "files/tests/test_job_ui.py",
         "files/tests/test_tk_teardown_on_main_thread.py",
-        "files/tests/test_macos_p5i_r3_settlement.py"
+        "files/tests/test_macos_p5i_r3_settlement.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -21186,14 +21193,16 @@
         "Closing the window during the base install asks 'Stop setup?'. No changes nothing. Yes ends the running pip and everything it started (by its own process id), starts no later step and closes the window once the setup's worker has reported; the exit is 1 (incomplete) and the log says how to finish (v0.7.2, ACT72-039)",
         "POSIX (v0.8.x P5-B): the first-run window owns the optional-setup workers it starts, as the app window does. Before the panel's first check its setup process becomes the owner (class-A workers on its lifeline; pip and engine probes on each worker's own lifeline); once the window has closed nothing new starts, each run ends and reaps its own worker first (bounded), then the orderly end runs. A forced Cancel, a time-out, closing the window, SIGKILL, a crash or Force Quit of setup leaves no worker, pip or helper of it running, and never ends anything it does not own. Windows takes no new ownership (Job Objects)",
         "POSIX (v0.8.x P5-C): a pip or probe that exits normally is never reaped before its process group has been ended, whichever setup step started it (the base install's pip and probes, the optional-setup worker's pip and engine probes, under the first-run window and the app window's Install & Continue alike): its caller waits for its exit, not for the end of its output, ends its group the P5-A way (proved, signalled, confirmed), hands on the output already written and only then reaps it, so a helper it left in its group ends with it and one holding its output open no longer keeps setup waiting. 'Stop setup?' never reaps pip. A group that could not be proved its own, or not confirmed ended, fails the step (never a success). The orderly end signals a child only under its waitpid lock. Windows is unchanged (Job Objects, taskkill /T)",
-        "POSIX (v0.8.x P5-I-R3): a contained third-party program (FFmpeg, ffprobe, codesign) is started through a launch gate created outside the run's Cancel ordering; the program begins executing only inside the run's counted start, through a one-time permit the owner removes before that counted start ends, so a gate that is late, stopped, or whose acknowledgement was lost can never start it after the Cancel latch. The guardian also watches its owner's exit (kqueue), removes the permit folder and ends the class-A leaders the owner registered, so the owner's death is contained even when a stopped child holds the lifeline open or a class-A leader was stopped before its lifeline ran. Windows is unchanged"
+        "POSIX (v0.8.x P5-I-R3): a contained third-party program (FFmpeg, ffprobe, codesign) is started through a launch gate created outside the run's Cancel ordering; the program begins executing only inside the run's counted start, through a one-time permit the owner removes before that counted start ends, so a gate that is late, stopped, or whose acknowledgement was lost can never start it after the Cancel latch. The guardian also watches its owner's exit (kqueue), removes the permit folder and ends the class-A leaders the owner registered, so the owner's death is contained even when a stopped child holds the lifeline open or a class-A leader was stopped before its lifeline ran. Windows is unchanged",
+        "v0.8.x P5-I-R3 remediation: a launch gate waits for its go byte in poll() and the owner takes an unread byte back on revocation (definitive even with unlink, rename, chmod and the kill refused); a start that still cannot be kept inside its ordering is a run fault reported by containment_problem after the process is gone; a grant in progress when the app begins closing is cut."
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_cancel.py",
         "files/tests/test_first_run_setup_close.py",
         "files/tests/test_first_run_setup_ownership.py",
         "files/tests/test_normal_exit_group_retirement.py",
-        "files/tests/test_macos_p5i_r3_launch.py"
+        "files/tests/test_macos_p5i_r3_launch.py",
+        "files/tests/test_macos_p5i_r3_remediation.py"
       ],
       "journeys": [
         "setup.first-run-choices-and-cancel"
@@ -26348,13 +26357,13 @@
     "scripts/launcher.py": "c7b92b82c15715cd2b94f1c329a190f22c2da27a8ce51ecaa56d0eddfdca6e76",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "c64afc4cc6f41ea235db72370118ccb5f99f5eb88bdd1f18a62f91f24c5fa068",
+    "scripts/m4b/converter/m4b_converter.py": "c96e4f1e79474a276b23d263412b1466f1a1308ccfb9409c34765cd32699a858",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "890d063b6a40a7e54b4828d7e420445ac114f72ee9c0a113fbc5f20c9c2e4770",
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
-    "scripts/m4b/m4b_continuous.py": "1cddf21ff8be8cdec42cab19361e1bb47cdc69961184cff0042e33d28eaacc1c",
+    "scripts/m4b/m4b_continuous.py": "63b0e81b65c70dab292762c97eca51ceeee4f079f16a2b1f7466a6049392f68d",
     "scripts/m4b/m4b_execution.py": "2bc058e2f22b8e813a4323e897f98d5d27ff546421114883157c52213528a815",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
@@ -26391,9 +26400,9 @@
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
-    "scripts/shared/child_guardian.py": "d1421a3fcd563b0d2b43a8d30d295efbe641f71b8945ecbb89c2f7759b7a864d",
-    "scripts/shared/child_launch.py": "267b52f0d05fe04747d1d128ada81ee74699276cca63a2a07e29dcd51ca212b7",
-    "scripts/shared/child_ownership.py": "f9a9254297a992d57917bc8cfe8d9a3a35fd8bb71f02d643a0934898b8829491",
+    "scripts/shared/child_guardian.py": "3b550efe57ad69048a615a915869ce5c54287651a1d3a27ecb86df3224684f24",
+    "scripts/shared/child_launch.py": "40785902e01997c0d012a4d1837b94a3cd7a7a20f4bf10e3721e2efb961ef5f6",
+    "scripts/shared/child_ownership.py": "4a1188c95b8e91bcf27c2c1915597c6c6441daddd61b1cc31504af9da9f7696f",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26434,7 +26443,7 @@
     "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "22cfbbb61bc111fc1d12176c33138c41e969a25473814305fdde3cfe630c22fe",
+    "scripts/shared/subprocess_utils.py": "5b0db6a355fbe118096ae7f3c05333df506071e43d2d65e705f5b2e2140bff3a",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
     "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
@@ -26451,8 +26460,8 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "56e17917fde87b50f1a5df3067c813775577bce028626d70db237e4da99c1cd9",
-    "scripts/tts/ffmpeg_watch.py": "de2643b4fee247d2ad8b6d08e2de105fc05d0678b3d5888fde548dedc7f47fa7",
+    "scripts/tts/epub2tts_gui.py": "ee6bc3a034b2baf5923d83e3ca28164c60dd993bf7ea5ef8db2433d9c77888be",
+    "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
     "scripts/tts/local_engine_host.py": "377f7e85815391ab8789fc882d7b958bca5fd86a4e40e13960759f0be549f21c",
@@ -26483,7 +26492,7 @@
     "scripts/tts/qwen3_process.py": "7fce4deeaf29dcad26ceea6665744b8f1e37fbb145d804aac3045f001064f158",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
     "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
-    "scripts/tts/qwen3_synth.py": "f06acc28bb213f49c641787449ce3e6a91401f83d732d630603d3f3f8676e0d1",
+    "scripts/tts/qwen3_synth.py": "dab8b4b54e14d24a74d36d5db15702d076bfe4bf5961e106a642c6ade237b8dd",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
     "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",
     "scripts/tts/spacy_consumer.py": "4531483832fcb8bcedcf523ca91b57475bded8429de720673318ee0dd7528768",

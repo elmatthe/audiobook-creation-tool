@@ -74,7 +74,7 @@ def test_the_settlement_bound_is_measured_from_the_cancel_click():
     assert 3.5 < sp.settle_bound(clicked.cancel_check, 4.0) <= 4.0
     late = _running(JobController("r3-bound-late", cancel_clock=time.monotonic))
     late.request_cancel()
-    assert sp.settle_bound(late.cancel_check, 0.0) == 0.2, "past the bound: one short look, never nothing"
+    assert sp.settle_bound(late.cancel_check, 0.0) == 0.0, "past the bound: nothing more is granted"
 
 
 
@@ -87,7 +87,8 @@ def test_the_controller_reads_no_clock_of_its_own():
     assert stamped.cancel_clicked_at == 41.5
     bare = _running(JobController("r3-no-clock"))
     bare.request_cancel()
-    assert bare.cancel_clicked_at is None and sp.settle_bound(bare.cancel_check) == 1.0
+    assert bare.cancel_clicked_at is None
+    assert sp.settle_bound(bare.cancel_check) == sp.FFMPEG_STOP_S, "cancelled, instant unknown: the whole bound"
 
 # =========================================================================== containment_problem
 

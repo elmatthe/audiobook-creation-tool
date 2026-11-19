@@ -166,10 +166,23 @@ from tts.voice_registry import (
 
 #: How long ``close()`` waits for a conversion worker to unwind.
 WORKER_JOIN_TIMEOUT = 5.0
-#: v0.8.x P5-I-R3: after a Cancel, how long the run waits for its items in progress to stop, measured from the click:
-#: the largest per-route T_stop (plan section 11.2.1, C2: Qwen3's 5 s). An item still running then is never waited for
-#: again: the run fails, naming it, instead of staying "Cancelling" for ever (and is never reported CANCELLED).
-ITEM_STOP_S = 5.0
+#: v0.8.x P5-I-R3 (macOS): after a Cancel, how long the run waits for its items in progress to stop, measured from the
+#: click: each engine's T_stop (plan section 11.2.1, C2). An item still running then is never waited for again: the run
+#: fails, naming it, instead of staying "Cancelling" for ever (and is never reported CANCELLED). Windows waits as
+#: released (no Windows behaviour change).
+ITEM_STOP_S = {"edge": 2.5, "kokoro": 2.0, "chatterbox": 2.0, "qwen3": 5.0, "omnivoice": 4.0}
+#: ... for an engine not in the table: the largest bound.
+ITEM_STOP_DEFAULT_S = 5.0
+
+
+def _ffmpeg_step_bound() -> float:
+    """One FFmpeg step's stop bound (plan section 11.2.1, C2)."""
+    return sp.FFMPEG_STOP_S
+
+
+def _items_wait_bounded() -> bool:
+    """Whether a cancelled run's wait for its items is bounded (macOS); Windows waits for every item, as released."""
+    return sys.platform != "win32"
 #: How often the run looks at its pool while items are in progress.
 POOL_LOOK_S = 0.1
 
@@ -3499,6 +3512,8 @@ class _RunContext:
         # v0.8.x P5-I-R3: never an unbounded wait for an item after a Cancel (``as_completed`` waited for ever on an
         # engine that did not stop). Past ITEM_STOP_S from the click, items not yet started are skipped and those
         # still running are named (``self.unstopped``): the run then fails, and the pool is not joined.
+        stop_s = ITEM_STOP_S.get(backend, ITEM_STOP_DEFAULT_S) if isinstance(ITEM_STOP_S, dict) else ITEM_STOP_S
+        bounded = _items_wait_bounded()  # Windows: every item is waited for, exactly as released
         pool = ThreadPoolExecutor(max_workers=effective)
         try:
             futures = {pool.submit(convert, item): item for item in self.items}
@@ -3510,10 +3525,13 @@ class _RunContext:
                         take(*future.result())
                 except TimeoutError:  # concurrent.futures' own, the built-in one since 3.11
                     pass
-                if pending and self.cancel_check():
+                if pending and bounded and self.cancel_check():
                     self.cancelled = True
                     clicked = self.controller.cancel_clicked_at
-                    if clicked is not None and time.monotonic() - clicked >= ITEM_STOP_S:
+                    # An FFmpeg step of the run still being stopped has its own bound (C2: one FFmpeg step, 4 s).
+                    bound = (max(stop_s, _ffmpeg_step_bound()) if ffmpeg_watch.stopping_for(self.cancel_check)
+                             else stop_s)
+                    if clicked is not None and time.monotonic() - clicked >= bound:
                         for future in list(pending):
                             if future.cancel():  # never started: skipped, exactly as convert() says it
                                 pending.discard(future)
@@ -3553,7 +3571,8 @@ class _RunContext:
             return
         if self.unstopped:
             self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
-                f"{', '.join(self.unstopped)}: still being converted {ITEM_STOP_S:g} s after the Cancel, so this run is "
+                f"{', '.join(self.unstopped)}: still being converted when its engine's stop bound after the Cancel had "
+                "passed, so this run is "
                 "not reported as cancelled or finished. Nothing unfinished was saved. Quit the application before "
                 "converting again."))
             return

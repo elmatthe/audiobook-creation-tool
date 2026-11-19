@@ -591,6 +591,11 @@ def run_worker(job: dict, job_dir: Path, *, python: Path, script: Path, env: dic
 
         reader = threading.Thread(target=pump, daemon=True)
         reader.start()
+        # v0.8.x P5-I-R3 remediation 2 (POSIX): the worker leads its own group; that group is ended -- proved, signalled,
+        # confirmed -- before the worker is reaped, as the OmniVoice worker's is (P5-D). A worker that exits on its own
+        # (Cancel's flag, a result) no longer leaves a helper of its group running behind a clean result.
+        led = qwen3_process.leads_proved_group(proc)
+        containment: Optional[str] = None
 
         loaded: dict = {}
         chunk_events: list[dict] = []
@@ -651,19 +656,26 @@ def run_worker(job: dict, job_dir: Path, *, python: Path, script: Path, env: dic
             raise
         finally:
             # Bounded shutdown: nothing below can wait forever on a worker or on the pipe it holds.
-            if proc.poll() is None:
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    kill(proc)
-            reader.join(timeout=5)
-            if reader.is_alive():  # something still holds the pipe open: stop the whole tree so the read ends
-                kill(proc)
+            if led:
+                containment = _settle_led_worker(proc, reader, kill)
+            else:
+                if proc.poll() is None:
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        kill(proc)
                 reader.join(timeout=5)
-            if not reader.is_alive() and proc.stdout is not None:
-                proc.stdout.close()
+                if reader.is_alive():  # something still holds the pipe open: stop the whole tree so the read ends
+                    kill(proc)
+                    reader.join(timeout=5)
+                if not reader.is_alive() and proc.stdout is not None:
+                    proc.stdout.close()
             qwen3_process.release(proc)
     returncode = proc.returncode if proc.returncode is not None else -1
+    if containment is not None:
+        with contextlib.suppress(Exception):  # no run settles clean while it may still run
+            subprocess_utils.note_unresolved(proc.pid, getattr(proc, "act_start_time", None), "Qwen3 worker")
+        raise Qwen3Failed(f"The Qwen3 voice engine could not be confirmed stopped: {containment}.")
     if cancel_requested_at is not None:
         raise ConversionCancelled("Conversion cancelled by user.")
     if terminal is None:
@@ -675,6 +687,33 @@ def run_worker(job: dict, job_dir: Path, *, python: Path, script: Path, env: dic
             "The Qwen3 voice engine reported success but then did not exit cleanly "
             f"(exit code {returncode}), so its audio was discarded.{_detail(_tail(stderr_path))}")
     return WorkerRun(terminal=terminal, chunk_events=chunk_events, loaded=loaded, returncode=returncode)
+
+
+#: POSIX: how long a finished worker's remaining output is handed on after its group was ended (the OmniVoice value).
+OUTPUT_DRAIN_S = 2.0
+
+
+def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
+                       kill: Callable[[subprocess.Popen], None]) -> Optional[str]:
+    """POSIX (v0.8.x P5-I-R3 remediation 2; the order of ``omnivoice_synth._settle_led_worker``, P5-D): a worker still
+    running gets the released 10 s to exit, observed without reaping it, and is then ended with its group (*kill*);
+    then its group is ended while its id is proved its own (``qwen3_process.end_group``), its output is handed on to
+    its end (bounded), and only then is it reaped. Returns why it cannot be vouched for, or None. Never raises."""
+    if proc.returncode is None and not qwen3_process.leader_exited(proc):
+        from shared import child_ownership
+
+        if not child_ownership.wait_exited(proc, 10.0, proc.act_start_time):  # type: ignore[attr-defined]
+            kill(proc)
+    qwen3_process.end_group(proc)  # whatever it left in its group ends now, before it is reaped
+    reader.join(timeout=OUTPUT_DRAIN_S)
+    output_open = reader.is_alive()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    if not output_open and proc.stdout is not None:  # never closed under a reader still blocked on it
+        proc.stdout.close()
+    return qwen3_process.containment_problem(proc, output_open=output_open)
 
 
 def _detail(text: str) -> str:

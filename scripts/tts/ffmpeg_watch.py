@@ -277,6 +277,16 @@ def unconfirmed_children(cancel_check: Optional[Callable[[], bool]] = None) -> l
     return found
 
 
+def stopping_for(cancel_check: Optional[Callable[[], bool]]) -> bool:
+    """v0.8.x P5-I-R3: an FFmpeg of the run of *cancel_check* is still being watched -- killed or not, not yet seen to
+    end. Its own stop bound (one FFmpeg step, 4 s) then applies to the item it belongs to."""
+    if cancel_check is None:
+        return False
+    with _watched_lock:
+        return any(item.control.cancel_check == cancel_check and item.process is not None
+                   and item.process.returncode is None for item in _watched)
+
+
 def settle_children(cancel_check: Optional[Callable[[], bool]]) -> list[int]:
     """v0.8.x P5-I: what a run's settlement asks before it may report a clean end. The FFmpeg it killed that are still running
     (:func:`unconfirmed_children`), and -- macOS -- every process of the run the containment owner still owes cleanup, once

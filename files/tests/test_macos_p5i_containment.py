@@ -316,6 +316,7 @@ def test_h2_a_cancel_latched_between_gate_creation_and_grant_runs_nothing(owner,
     with pytest.raises(ConversionCancelled):
         start_media(controller, [ff, "-B", "-c", f"open({str(marker)!r}, 'w').close()"])
     gates = [p for p in spawns.all if p not in spawns.guardians()]
+    assert gates, "the launch gate was created (the Cancel came after it)"
     assert _wait_for(lambda: all(p.returncode is not None for p in gates), 3), "the inert gate was retired"
     assert not marker.exists(), "nothing of the program ran"
     assert ffmpeg_watch.settle_children(controller.cancel_check) == []
@@ -349,7 +350,8 @@ def test_h3_a_failed_registration_with_an_ineffective_kill_is_never_a_clean_sett
     assert caller_held < 0.5, f"the caller was held {caller_held:.3f} s"
     assert stuck == [encoder.pid], f"settlement must name the live encoder, got {stuck}"
     assert encoder.poll() is None, "it really is still running (the kill did not take)"
-    assert settled_in < child_ownership.SETTLE_BOUND_S, settled_in
+    # P5-I-R3 remediation 6: the settlement keeps ending it for its whole bound (from the click), never past it.
+    assert settled_in <= child_ownership.SETTLE_BOUND_S + 0.1, settled_in
     entry = owner.child(encoder)
     assert entry is not None and entry.state == child_ownership.UNCONFIRMED and entry.run == controller.cancel_check
     refused.clear()

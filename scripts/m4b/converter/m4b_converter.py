@@ -2151,6 +2151,16 @@ class M4BConverterUI(ttk.Frame):
                     break
 
         containment_failed = False
+        problem = None
+        if snapshot is not None and controller is not None:
+            # v0.8.x P5-I-R3: finished or cancelled only once every contained process of the run is confirmed ended --
+            # asked BEFORE the result is settled (remediation 9), so the one RunResult and the one terminal event agree.
+            problem = sp.containment_problem(controller.cancel_check)
+            if problem is not None:
+                cancelled, containment_failed = False, True
+                failures.append(FailureRecord(
+                    item_id=None, stage=STAGE_CONVERT, display_message=sp.CONTAINMENT_FAILED_MESSAGE,
+                    technical_detail=problem, retryable=False, snapshot_id=snapshot.snapshot_id))
         if snapshot is not None:
             if retrying and prior is not None:
                 # **The run, not the attempt.** A retry re-ran a subset, so
@@ -2168,13 +2178,10 @@ class M4BConverterUI(ttk.Frame):
                     snapshot, log, completed_ids=tuple(completed),
                     cancelled=cancelled)
             if controller is not None:
-                # v0.8.x P5-I-R3: finished or cancelled only once every contained process of the run is confirmed ended.
-                problem = sp.containment_problem(controller.cancel_check)
                 if problem is not None:
                     if reporter is not None:
                         reporter.technical(problem)
                     final = controller.fail(sp.CONTAINMENT_FAILED_MESSAGE, problem)
-                    cancelled, containment_failed = False, True
                 elif cancelled:
                     final = controller.finish_cancelled()
                 elif settled.state is JobState.COMPLETED_WITH_FAILURES:

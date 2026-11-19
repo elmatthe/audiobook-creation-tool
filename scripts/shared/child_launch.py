@@ -15,11 +15,13 @@ executes the real program only:
 
 It executes nothing but ``<permit>``: no ``PATH`` search, no fallback. Protocol on the status pipe: ``P<pid>\\n`` first;
 ``E<errno>\\n`` if ``execve`` fails (exit 126 when the permit was revoked, 127 otherwise); nothing more on success (the
-pipe is close-on-exec). Exit 125: no go (end-of-file or anything but ``G``). Standard library only; writes nothing to
+pipe is close-on-exec). Exit 125: no go (end-of-file or anything but ``G``); the go byte is read only once
+``poll`` says it is there, so the owner can still take back a ``G`` this gate has not read. Standard library only; writes nothing to
 stdio; keeps every descriptor the caller gave the program.
 """
 import errno
 import os
+import select
 import signal
 import sys
 
@@ -34,9 +36,15 @@ def main() -> None:
         os.write(status, b"P%d\n" % os.getpid())
     except OSError:
         os._exit(124)
+    # Wait in poll(), which consumes nothing, and only then read the byte (P5-I-R3 remediation 1): a gate stopped while
+    # waiting -- or starved -- never holds its G, so the owner can take an unread G back out of the pipe on revocation
+    # (a gate blocked inside read() would have the byte copied to it by the kernel even while stopped).
+    poller = select.poll()
+    poller.register(go, select.POLLIN | select.POLLHUP | select.POLLERR)
     while True:
         try:
-            byte = os.read(go, 1)
+            poller.poll()
+            byte = os.read(go, 1)  # never blocks: data is there, or the owner closed its end (end-of-file)
             break
         except InterruptedError:
             continue

@@ -365,7 +365,9 @@ def test_a_bounded_external_run_that_loses_its_guardian_is_a_failure_not_a_succe
             "done", owner.run_external(["/bin/sleep", "30"], timeout=60, label="sleep")))
         worker.start()
         deadline = time.monotonic() + 10
-        while owner.guardian_pid() is None or not owner.children():
+        # v0.8.x P5-I-R3: the program itself running (LIVE), not its launch gate still starting -- a guardian lost
+        # while the gate starts makes the start fail with nothing run, which is a different case.
+        while owner.guardian_pid() is None or not any(c.state == child_ownership.LIVE for c in owner.children()):
             assert time.monotonic() < deadline
             time.sleep(0.02)
         os.kill(owner.guardian_pid(), signal.SIGKILL)

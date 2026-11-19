@@ -426,7 +426,9 @@ def unresolved_children() -> list[int]:
     left = []
     for pid, (start, _what) in items:
         now = child_ownership.process_start_time(pid)
-        gone = now is None or (start is not None and now != start) or child_ownership._has_exited(pid)
+        # P5-I-R3 remediation 5: gone only once reaped (or another process holds the id); a zombie still needs reaping
+        # -- its id and, for a group leader, its group are still reserved.
+        gone = now is None or (start is not None and now != start)
         if gone:
             with _unresolved_lock:
                 if _unresolved.get(pid, (None,))[0] == start:
@@ -437,11 +439,19 @@ def unresolved_children() -> list[int]:
 
 
 def settle_bound(cancel_check, stop_s: float = FFMPEG_STOP_S) -> float:
-    """v0.8.x P5-I-R3: how long a run's settlement may still wait: what is left of *stop_s* after the Cancel click
-    (at least a short look), or one second for a run that was not cancelled."""
+    """v0.8.x P5-I-R3: how long a run's settlement may still wait: what is left of *stop_s* after the Cancel click --
+    nothing once it has passed (the settlement then takes one look: a process still running is not confirmed ended
+    inside the bound) --, all of *stop_s* for a cancelled run whose click instant is unknown (no clock injected), or
+    one second for a run that was not cancelled."""
     controller = getattr(cancel_check, "__self__", None)
     clicked = getattr(controller, "cancel_clicked_at", None)
-    return 1.0 if clicked is None else max(0.2, clicked + stop_s - time.monotonic())
+    if clicked is not None:
+        return max(0.0, clicked + stop_s - time.monotonic())
+    try:
+        cancelled = bool(cancel_check())
+    except Exception:  # noqa: BLE001 - a question that cannot be answered: the longer, cancelled bound
+        cancelled = True
+    return stop_s if cancelled else 1.0
 
 
 def containment_problem(cancel_check, *, stop_s: float = FFMPEG_STOP_S) -> Optional[str]:
@@ -458,10 +468,19 @@ def containment_problem(cancel_check, *, stop_s: float = FFMPEG_STOP_S) -> Optio
         return None
     pids = settle_owned(cancel_check, settle_bound(cancel_check, stop_s)) if owner is not None else []
     pids = sorted(set(pids) | set(unresolved_children()))
-    if not pids:
+    faults: list = []
+    if owner is not None:
+        with contextlib.suppress(Exception):
+            faults = owner.faults(cancel_check)  # P5-I-R3 remediation 1: uncontained starts stay reported
+    if not pids and not faults:
         return None
-    named = ", ".join("a start still in progress" if pid == -1 else f"pid {pid}" for pid in pids)
-    return f"contained process(es) of this run not confirmed ended ({named}); still owned and still being ended"
+    parts = []
+    if pids:
+        named = ", ".join("a start still in progress" if pid == -1 else f"pid {pid}" for pid in pids)
+        parts.append(f"contained process(es) of this run not confirmed ended ({named}); still owned and still being "
+                     "ended")
+    parts.extend(faults)
+    return "; ".join(parts)
 
 
 def containment_lost(process) -> bool:

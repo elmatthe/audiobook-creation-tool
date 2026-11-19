@@ -71,13 +71,39 @@ def _parse(line, leaders):
 
 
 def _end_leaders(leaders):
+    """SIGKILL each registered leader's group (the leader included: it leads it), its identity read again right before
+    the one signal (P5-I-R3 remediation 7: never a second, unchecked signal to the bare pid after the first)."""
     for pid, start in list(leaders.items()):
         if pid > 1 and _start_time(pid) == start:  # still the process the owner recorded
-            for kill in (os.killpg, os.kill):
-                try:
-                    kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
+def _drain(registry, pending, leaders):
+    """Read every registry line already written (non-blocking) before acting: an owner that unregistered a leader it
+    reaped (``a <pid>``) just before it closed its lifeline is heard first."""
+    if registry < 0:
+        return pending
+    try:
+        os.set_blocking(registry, False)
+    except OSError:
+        return pending
+    while True:
+        try:
+            block = os.read(registry, 4096)
+        except (BlockingIOError, InterruptedError):
+            break
+        except OSError:
+            break
+        if not block:
+            break
+        pending += block
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            _parse(line.decode("ascii", "replace"), leaders)
+    return pending
 
 
 def main() -> int:
@@ -148,6 +174,7 @@ def main() -> int:
                     _parse(line.decode("ascii", "replace"), leaders)
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     began = time.monotonic()
+    pending = _drain(registry, pending, leaders)
     _end_leaders(leaders)
     try:
         os.killpg(group, signal.SIGTERM)

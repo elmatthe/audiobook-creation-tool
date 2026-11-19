@@ -1544,4 +1544,30 @@ def test_an_item_that_ignores_cancel_fails_the_run_inside_the_bound_and_is_never
         worker.join(WAIT)
     assert controller.state is JobState.FAILED, controller.state
     assert "stubborn.txt" in controller.snapshot().failure_detail
-    assert settled_in < 0.5 + 3.0, f"settled {settled_in:.2f} s after the click"
+    assert settled_in < 0.5 + 0.6, f"settled {settled_in:.2f} s after the click"
+
+
+def test_on_windows_a_cancelled_run_still_waits_for_every_item_as_released(make_panel, output_base, tmp_path,
+                                                                           gated_stubs, monkeypatch):
+    """v0.8.x P5-I-R3 remediation 10: the item-stop bound is the Mac's. With the Windows branch the run waits for the
+    file that has not stopped yet, however long, and then ends CANCELLED exactly as before."""
+    from shared.job_control import JobState
+
+    monkeypatch.setattr(panel_module, "ITEM_STOP_S", 0.2)
+    monkeypatch.setattr(panel_module, "_items_wait_bounded", lambda: False)
+    gated_stubs.gate_on = ".txt"
+    panel, _chosen = direct_panel(make_panel, tmp_path, "slow.txt")
+    panel.run_job()
+    worker = panel._worker
+    controller = panel._controller
+    try:
+        assert gated_stubs.entered.wait(WAIT)
+        panel.cancel_job()
+        time.sleep(0.8)  # four times the bound: the Mac would have failed the run by now
+        assert not controller.is_terminal, "Windows never gives up on an item"
+        gated_stubs.release.set()
+        wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
+    finally:
+        gated_stubs.release.set()
+        worker.join(WAIT)
+    assert controller.state is JobState.CANCELLED, controller.state

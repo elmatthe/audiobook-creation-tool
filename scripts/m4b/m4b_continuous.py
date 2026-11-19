@@ -365,26 +365,37 @@ def scan_packets(source, *, total: int, priming: int, duration_seconds: float,
 
     reader = threading.Thread(target=read, name="m4b-packet-scan-read", daemon=True)
     reader.start()
+    stop_by = None
     try:
         while reader.is_alive():
             reader.join(poll_seconds)
             if stopped:
-                reader.join(2 * grace_seconds)  # killed: its output ends as soon as it does
+                # v0.8.x P5-I-R3 remediation 6: ONE stop window (the FFmpeg step's 2 x grace) for the output to end
+                # and the child to be reaped together, never one after the other -- measured from the Cancel click
+                # when the run knows it (``subprocess_utils.settle_bound``).
+                window = (sp.settle_bound(cancelled, 2 * grace_seconds) if stopped[0] == "cancelled"
+                          else 2 * grace_seconds)
+                stop_by = time.monotonic() + window
+                reader.join(max(0.0, stop_by - time.monotonic()))  # killed: its output ends as soon as it does
                 break
     finally:
         finished.set()
         if proc.poll() is None:
             sp.kill_child(proc)
+        until = stop_by if stop_by is not None else time.monotonic() + grace_seconds
         try:
-            proc.wait(timeout=grace_seconds)
-        except subprocess.TimeoutExpired:  # pragma: no cover - a child that will not die (still owned, still ended)
+            proc.wait(timeout=max(0.0, until - time.monotonic()))
+        except subprocess.TimeoutExpired:  # a child that will not die: still owned, still ended -- and said below
             pass
         if not reader.is_alive():  # never closed under a reader still blocked on it
             try:
                 proc.stdout.close()
             except (OSError, ValueError):
                 pass
-        watcher.join(timeout=grace_seconds)
+        watcher.join(timeout=max(0.0, until - time.monotonic()))
+    if proc.returncode is None:
+        # Never a cancellation (nor a verdict) while it may still run: the run's settlement names it and fails.
+        return "the packet scan could not be stopped"
     verdict = judged[0] if judged else "the packet scan could not be stopped"
     if stopped:
         return f"the packet scan was {stopped[0]}"

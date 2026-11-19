@@ -159,6 +159,14 @@ def test_control_a_one_way_go_without_revocation_runs_the_program_after_the_latc
     _stop_gate_before_grant(owner, monkeypatch, box)
     monkeypatch.setattr(owner, "_deliver", lambda entry, sig: False)
     monkeypatch.setattr(owner, "_revoke", lambda launch: True)  # "revoked" without removing anything
+
+    def close_only(launch):  # nor is the unread go byte taken back (P5-I-R3 remediation 1): the end is only closed
+        if launch.go_w is not None:
+            os.close(launch.go_w)
+            launch.go_w = None
+        return False
+
+    monkeypatch.setattr(owner, "_take_back_go", close_only)
     worker = threading.Thread(target=lambda: _quiet(lambda: owner.popen_external([str(ffmpeg)], **_ordered(controller))),
                               daemon=True)
     worker.start()
@@ -214,18 +222,21 @@ def test_revocation_refused_by_the_file_system_holds_only_until_the_gate_is_seen
     assert not marker.exists()
 
 
-def test_revocation_and_kill_both_refused_is_bounded_and_reported_never_clean(owner, program, monkeypatch):
-    """The genuine OS-refusal case: the permit cannot be removed AND the gate cannot be killed. The counted start is
-    held at most ``REVOKE_HOLD_S`` (then the latch proceeds), the start is recorded as uncontained, and the run's
-    settlement names it -- never a clean Cancel. (Whether the program then runs depends on an OS that refuses both;
-    this is the stated residual, not a guarantee.)"""
+def test_revocation_and_kill_both_refused_is_still_definitive_through_the_unread_go_byte(owner, program, monkeypatch):
+    """The OS-refusal case: the permit can be neither removed nor renamed nor made unsearchable, AND the gate cannot be
+    killed. The gate waits for its go in ``poll`` (it has not read the byte), so the owner takes the ``G`` back out of
+    the pipe: Cancel latches inside C1, and the gate, resumed after the latch, reads end-of-file and exits 125 without
+    executing anything (P5-I-R3 remediation 1; before it, this case was only reported). The case where even that is
+    impossible -- the gate already read its G -- is test_macos_p5i_r3_remediation's control: reported, never clean."""
     ffmpeg, marker = program
     controller = JobController("r3-double-refusal")
     controller.start()
     box = {"entered": threading.Event()}
     _stop_gate_before_grant(owner, monkeypatch, box)
-    monkeypatch.setattr(child_ownership.os, "unlink", lambda *a, **k: (_ for _ in ()).throw(PermissionError(1, "x")))
-    monkeypatch.setattr(child_ownership.os, "rename", lambda *a, **k: (_ for _ in ()).throw(PermissionError(1, "x")))
+    refuse = lambda *a, **k: (_ for _ in ()).throw(PermissionError(1, "x"))  # noqa: E731
+    monkeypatch.setattr(child_ownership.os, "unlink", refuse)
+    monkeypatch.setattr(child_ownership.os, "rename", refuse)
+    monkeypatch.setattr(child_ownership.os, "chmod", refuse)
     monkeypatch.setattr(owner, "_deliver", lambda entry, sig: False)
     worker = threading.Thread(target=lambda: _quiet(lambda: owner.popen_external([str(ffmpeg)], **_ordered(controller))),
                               daemon=True)
@@ -235,20 +246,32 @@ def test_revocation_and_kill_both_refused_is_bounded_and_reported_never_clean(ow
     controller.request_cancel()
     latched_in = time.monotonic() - began
     worker.join(10)
-    assert latched_in < child_ownership.REVOKE_HOLD_S + 0.5, f"held {latched_in:.3f} s"
-    assert any("could not be removed" in e for e in owner.events), owner.events
-    entry = next(e for e in owner._entries if e.pid == box["gate"])
-    assert entry.exec_unknown
-    assert box["gate"] in owner.settle_run(controller.cancel_check, 0.3), "never a clean settlement"
     monkeypatch.undo()
-    os.kill(box["gate"], signal.SIGKILL)
-    assert _wait_for(lambda: not _alive(box["gate"]), 3)
+    assert latched_in < 0.5, f"C1: the latch took {latched_in:.3f} s"
+    entry = next(e for e in owner._entries if e.pid == box["gate"])
+    assert not entry.exec_unknown and owner.faults(controller.cancel_check) == []
+    os.kill(box["gate"], signal.SIGCONT)
+    assert _wait_for(lambda: entry.proc.poll() is not None, 5)
+    assert entry.proc.returncode == 125, "no go: it read end-of-file"
+    time.sleep(0.2)
+    assert not marker.exists()
 
 
-def test_cancel_racing_the_execution_never_lets_the_program_begin_after_the_latch(owner, tmp_path):
-    """Cancel pressed at random moments around the go: every start either returned a running program before the latch,
-    or was refused/revoked and its program never runs, even after waiting."""
+def test_cancel_racing_the_execution_never_lets_the_program_begin_after_the_latch(owner, tmp_path, monkeypatch):
+    """Cancel pressed at random moments around the go: every start either returned a running program whose execution
+    the kernel reported (``NOTE_EXEC``) BEFORE the latch completed, or was refused/revoked and its program never runs,
+    even after waiting."""
     results = {"ran": 0, "revoked": 0}
+    seen_exec: list = []
+    real_outcome = owner._exec_outcome
+
+    def outcome(launch, wait_s, *, cut):
+        answer = real_outcome(launch, wait_s, cut=cut)
+        if answer == "exec":
+            seen_exec.append(time.monotonic())
+        return answer
+
+    monkeypatch.setattr(owner, "_exec_outcome", outcome)
     for attempt in range(25):
         marker = tmp_path / f"ran-{attempt}"
         folder = tmp_path / f"bin-{attempt}"
@@ -259,12 +282,15 @@ def test_cancel_racing_the_execution_never_lets_the_program_begin_after_the_latc
         out = {}
         worker = threading.Thread(target=lambda: out.update(r=_launch_or_error(owner, ffmpeg, controller)),
                                   daemon=True)
+        seen_exec.clear()
         worker.start()
         time.sleep(random.uniform(0.005, 0.03))
         controller.request_cancel()
+        latched_at = time.monotonic()
         worker.join(10)
         result = out["r"]
         if isinstance(result, subprocess.Popen):
+            assert seen_exec and seen_exec[0] < latched_at, f"attempt {attempt}: executed after the latch"
             result.wait(5)
             owner.forget(result)
             results["ran"] += 1

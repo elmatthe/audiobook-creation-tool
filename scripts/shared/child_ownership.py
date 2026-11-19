@@ -600,7 +600,7 @@ POST_REVOKE_S = 0.02
 #: How long a gate killed inside the counted start has to be seen ended.
 KILL_CONFIRM_LAUNCH_S = 0.1
 #: The most a refused revocation holds the counted start (and so the Cancel latch).
-REVOKE_HOLD_S = 1.0
+REVOKE_HOLD_S = 0.3
 #: Starts made for one request: a guardian that changed, or a gate too slow with nothing asking it to stop.
 LAUNCH_ATTEMPTS = 3
 #: How often a caller waiting for its launch looks at its Cancel and at the orderly end.
@@ -657,6 +657,7 @@ class OwnedChild:
     group_ended: bool = False
     exec_unknown: bool = False  # class B (P5-I-R3): its gate was killed with its execution neither seen nor excluded
     announced: bool = False  # class A (P5-I-R3): registered with the guardian
+    launch: Any = None  # class B (P5-I-R3): its launch while that is in progress (the orderly end may cut it)
 
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -700,6 +701,12 @@ class _Launch:
     revoked_first: bool = False
     unrevoked_but_dead: bool = False
     stdio: list = field(default_factory=list)  # the launch's own duplicates of the caller's stdio descriptors
+    #: The owner's own copy of the go pipe's read end (P5-I-R3 remediation 1): a ``G`` the gate has not read yet is
+    #: taken back out of the pipe on revocation -- a gate that never read it can never execute.
+    go_back: Optional[int] = None
+    go_taken_back: bool = False
+    go_lock: threading.Lock = field(default_factory=threading.Lock)  # the ``G`` write vs. its take-back
+    closing_cut: bool = False  # the orderly end cut this grant (``_cut_grants``)
 
     @property
     def label(self) -> str:
@@ -743,6 +750,9 @@ def _resolve_program(name: str, env: Optional[dict], cwd: Any) -> str:
         path = name if os.path.isabs(name) else os.path.join(os.fspath(cwd) if cwd else os.getcwd(), name)
     else:
         search = (os.environ if env is None else env).get("PATH", os.defpath)
+        if cwd:  # the child searches after its chdir: a relative entry is relative to *cwd*, as for Popen
+            search = os.pathsep.join(entry if os.path.isabs(entry) else os.path.join(os.fspath(cwd), entry or ".")
+                                     for entry in search.split(os.pathsep))
         found = shutil.which(name, path=search)
         if found is None:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
@@ -783,6 +793,14 @@ def proc_placeholder():
     return type("NoChild", (), {"_child_created": False, "pid": None})()
 
 
+def _readable(fd: int, wait_s: float) -> bool:
+    """*fd* is readable (or at end-of-file) within *wait_s*: ``poll``, which -- unlike ``select`` -- takes any
+    descriptor number (a process with more than 1024 open files)."""
+    poller = select.poll()
+    poller.register(fd, select.POLLIN | select.POLLHUP | select.POLLERR)
+    return bool(poller.poll(max(0, int(wait_s * 1000))))
+
+
 def _read_line(fd: int, timeout: float) -> str:
     """One line from *fd* within *timeout* (without its newline), or what arrived before end-of-file or the timeout."""
     until = time.monotonic() + max(0.0, timeout)
@@ -792,7 +810,7 @@ def _read_line(fd: int, timeout: float) -> str:
         if remaining <= 0:
             break
         try:
-            if not select.select([fd], [], [], min(0.05, remaining))[0]:
+            if not _readable(fd, min(0.05, remaining)):
                 continue
             block = os.read(fd, 64 - len(data) if len(data) < 64 else 1)
         except InterruptedError:
@@ -1008,6 +1026,7 @@ class Owner:
         self._reaping = False
         self._step_lock = threading.Lock()
         self._permits: Optional[str] = None  # P5-I-R3: this owner's start-permit folder (made on first use)
+        self._faults: list = []  # P5-I-R3: (run, text) of starts that could not be kept contained
         self._registry: Optional[int] = None  # P5-I-R3: write end of the adopted guardian's class-A registry
         self.events: list[str] = []
         self.degraded = False
@@ -1199,7 +1218,16 @@ class Owner:
 
     def forget(self, proc: subprocess.Popen) -> None:
         """Its caller is done with *proc*. Reaped: it leaves the ledger. Not reaped: the owner keeps it and ends it --
-        a child is never dropped while it may still run (v0.8.x P5-I)."""
+        a child is never dropped while it may still run (v0.8.x P5-I).
+
+        P5-I-R3 remediation 4: a class-B child leaving the ledger has its containment judged first (its guardian found
+        gone is recorded as lost now), so :meth:`containment_held` asked afterwards still says so -- never a success
+        because the guardian's loss had not been recorded yet when the child was forgotten."""
+        if proc.returncode is not None:
+            with contextlib.suppress(Exception):
+                if not self.containment_held(proc):
+                    with self._state:
+                        self._lost_procs.add(proc)
         with self._state:
             entry = self._entry_locked(proc)
             if entry is None:
@@ -1317,6 +1345,25 @@ class Owner:
                 return
             self._state.wait(remaining)
 
+    def _cut_grants(self) -> None:
+        """The orderly end's latch against starts still being granted (P5-I-R3 remediation 3): each one's ``G`` is
+        refused if not yet written, taken back if not yet read, its permit removed, and its gate (or the program it
+        became) SIGKILLed, identity-checked -- so no program begins executing after the closing latch. A gate that
+        cannot be confirmed ended is reported."""
+        with self._state:
+            launches = [e.launch for e in self._entries if e.state == GRANTING and e.launch is not None]
+        for launch in launches:
+            with launch.go_lock:
+                launch.closing_cut = True
+            taken = self._take_back_go(launch)
+            with contextlib.suppress(OSError):
+                os.unlink(launch.permit)
+            if not taken and launch.entry.pid:
+                self._deliver(launch.entry, signal.SIGKILL)
+                if not _wait_exited(launch.entry.pid, KILL_CONFIRM_LAUNCH_S):
+                    self._fault(launch.entry, f"the launch gate of {launch.label} (pid {launch.entry.pid}) was being "
+                                              "granted when the app began closing and could not be confirmed ended")
+
     def begin_closing(self) -> None:
         """The orderly end's latch (window close, Cmd+Q, SIGTERM/SIGHUP/SIGINT): from now on nothing new is admitted --
         no child, no guardian, no adoption (v0.8.x P5-I: set under the same lock that admits them). Starts admitted
@@ -1327,6 +1374,7 @@ class Owner:
                 self._phase = CLOSING
             self._state.notify_all()
             self._wait_spawns_locked(time.monotonic() + START_SETTLE_S)
+        self._cut_grants()
 
     @property
     def closing(self) -> bool:
@@ -1637,6 +1685,7 @@ class Owner:
                 launch = _Launch(entry=entry, guardian=guardian, program=executable, argv=exec_argv,
                                  kwargs=stdio_kwargs, ordering=ordering, pending=pending, cancel_error=cancel_error,
                                  args=command, stdio=stdio)
+                entry.launch = launch
                 return self._dispatch(launch, checkpoint)
             except (GuardianChanged, _Relaunch) as exc:
                 last = exc
@@ -1688,7 +1737,7 @@ class Owner:
             launch.error = exc
         finally:
             _close_fds(launch.stdio)
-            for fd in (launch.status_r, launch.status_w, launch.go_r, launch.go_w):
+            for fd in (launch.status_r, launch.status_w, launch.go_r, launch.go_w, launch.go_back):
                 if fd is not None:
                     with contextlib.suppress(OSError):
                         os.close(fd)
@@ -1699,6 +1748,7 @@ class Owner:
                 os.rmdir(launch.directory)
             with self._state:
                 launch.finished = True
+                launch.entry.launch = None
                 orphaned = launch.abandoned and launch.result is not None
                 if orphaned and launch.entry.state not in (DONE, RETIRING, UNCONFIRMED):
                     self._schedule_locked([launch.entry], grace=0.0)
@@ -1708,12 +1758,20 @@ class Owner:
 
     def _launch_steps(self, launch: "_Launch") -> subprocess.Popen:
         entry, guardian = launch.entry, launch.guardian
-        root = self._permit_root()
-        launch.directory = os.path.join(root, f"{os.getpid()}-{next(_LAUNCH_TOKENS)}-{os.urandom(6).hex()}")
-        os.mkdir(launch.directory, 0o700)  # never reused: a fresh name per launch
-        launch.permit = os.path.join(launch.directory, os.path.basename(launch.program))
-        launch.status_r, launch.status_w = os.pipe()
-        launch.go_r, launch.go_w = os.pipe()
+        try:  # P5-I-R3 remediation 8: a failure here (no space, no descriptors) withdraws the admission like any other
+            root = self._permit_root()
+            launch.directory = os.path.join(root, f"{os.getpid()}-{next(_LAUNCH_TOKENS)}-{os.urandom(6).hex()}")
+            os.mkdir(launch.directory, 0o700)  # never reused: a fresh name per launch
+            launch.permit = os.path.join(launch.directory, os.path.basename(launch.program))
+            launch.status_r, launch.status_w = os.pipe()
+            launch.go_r, launch.go_w = os.pipe()
+            launch.go_back = os.dup(launch.go_r)  # never set non-blocking: the flag would be the gate's too
+        except BaseException:
+            with self._state:
+                guardian.spawns -= 1
+                self._remove_locked(entry)
+                self._state.notify_all()
+            raise
         gate = [self._python, "-I", "-S", str(LAUNCH), str(launch.status_w), str(launch.go_r), launch.permit, "--",
                 *launch.argv]
         kw = dict(launch.kwargs, process_group=guardian.pid, close_fds=True, pass_fds=(launch.status_w, launch.go_r))
@@ -1759,6 +1817,8 @@ class Owner:
             entry.start_time = start
         if hello != f"P{proc.pid}" or start is None:
             self._retire_now([entry], 0.0)  # it never got a go: it ends by itself on end-of-file, and is killed
+            if self._guardian_gone(guardian):  # its guardian's loss ended it: nothing ran, start again under the next
+                raise GuardianChanged(_CHANGED_TEXT)
             raise ContainmentUnavailable(f"the launch gate of {launch.label} did not identify itself; nothing ran")
         launch.kq = _exec_watch(proc.pid)
         try:
@@ -1783,6 +1843,8 @@ class Owner:
                 f"{launch.label} was not started: the start was cancelled before it ran")
         if outcome in ("revoked", "unconfirmed"):
             raise _Relaunch(f"{launch.label} did not begin in time")
+        if outcome == "exit" and self._guardian_gone(guardian):  # ended with its lost guardian's group; nothing ran
+            raise GuardianChanged(_CHANGED_TEXT)
         raise ContainmentUnavailable(f"the launch gate of {launch.label} ended before it ran the program ({outcome})")
 
     def _grant(self, launch: "_Launch") -> str:
@@ -1806,10 +1868,13 @@ class Owner:
                     self._guardian_lost(guardian.proc, guardian.generation)
                     raise GuardianChanged(_CHANGED_TEXT)
                 os.symlink(launch.program, launch.permit)
-                try:
-                    os.write(launch.go_w, b"G")
-                except OSError:
-                    outcome = "exit"  # the gate is gone (EPIPE)
+                with launch.go_lock:  # a one-byte write to an empty pipe: never blocks
+                    if launch.closing_cut or launch.go_w is None:
+                        raise ContainmentUnavailable(_CLOSING_TEXT)
+                    try:
+                        os.write(launch.go_w, b"G")
+                    except OSError:
+                        outcome = "exit"  # the gate is gone (EPIPE)
                 if outcome is None:
                     outcome = self._exec_outcome(launch, EXEC_WAIT_S, cut=True)
             finally:
@@ -1826,11 +1891,11 @@ class Owner:
                     if _wait_exited(entry.pid, KILL_CONFIRM_LAUNCH_S):
                         outcome = outcome or "exit"
                     else:
-                        entry.exec_unknown = outcome is None
+                        if outcome is None and not launch.go_taken_back:
+                            self._fault(entry, f"the launch gate of {launch.label} (pid {entry.pid}) was neither seen "
+                                               "to execute nor confirmed ended inside its run's ordering")
                         outcome = outcome or "unconfirmed"
-                with contextlib.suppress(OSError):
-                    os.close(launch.go_w)
-                launch.go_w = None
+                self._take_back_go(launch)  # closes the write end in every case
                 with self._state:
                     if entry.state == GRANTING:
                         entry.state = STARTED
@@ -1860,7 +1925,7 @@ class Owner:
                 except OSError:
                     launch.kq = None
             try:
-                ready = [] if launch.status_eof else select.select([launch.status_r], [], [], 0)[0]
+                ready = [] if launch.status_eof else ([launch.status_r] if _readable(launch.status_r, 0) else [])
             except (OSError, ValueError):
                 ready = []
             if ready:
@@ -1889,13 +1954,37 @@ class Owner:
                 return None
             time.sleep(min(EXEC_LOOK_S, remaining))
 
+    @staticmethod
+    def _take_back_go(launch: "_Launch") -> bool:
+        """Close the owner's write end of the go pipe, then read what is left in it through the owner's own copy of the
+        read end: ``G`` back means the gate never read it -- it gets end-of-file and exits without executing anything,
+        whatever state it is in (stopped, starved). Never blocks (no writer is left). Idempotent."""
+        with launch.go_lock:
+            go_w, launch.go_w = launch.go_w, None
+            if go_w is not None:
+                with contextlib.suppress(OSError):
+                    os.close(go_w)
+        back = launch.go_back
+        if back is None:
+            return False
+        try:
+            taken = os.read(back, 1) == b"G"
+        except OSError:
+            return False
+        if taken:
+            launch.go_taken_back = True
+        return taken or launch.go_taken_back
+
     def _revoke(self, launch: "_Launch") -> bool:
-        """Remove the launch's permit and confirm it is gone (``lstat``). If the file system refuses, the folder is
-        renamed aside; if that is refused too, the gate is killed and the revocation counts only once the gate is seen
-        ended -- a gate that has ended can execute nothing. Held at most :data:`REVOKE_HOLD_S` (the counted start, and
-        so the Cancel latch, waits for it); False when neither could be established, which is reported."""
+        """Make the permit unusable before the counted start ends, and confirm it. In order: the ``G`` not yet read is
+        taken back (definitive, P5-I-R3 remediation 1); the permit is removed and confirmed gone (``lstat``); if the
+        file system refuses, the folder is renamed aside, then made unsearchable (``chmod 000``: a lookup through it
+        fails); if all of that is refused, the gate is killed and the revocation counts only once it is seen ended.
+        Held at most :data:`REVOKE_HOLD_S` (the counted start, and so the Cancel latch, waits for it); False when
+        nothing could be established -- the run's start is then recorded as uncontained and reported."""
         until = time.monotonic() + REVOKE_HOLD_S
-        moved = False
+        taken = self._take_back_go(launch)
+        moved = locked = False
         while True:
             with contextlib.suppress(FileNotFoundError, OSError):
                 os.unlink(launch.permit)
@@ -1904,23 +1993,47 @@ class Owner:
             except FileNotFoundError:
                 return True
             except OSError:
-                pass
+                if locked:
+                    return True  # the folder is unsearchable: no lookup of the permit can succeed
+            if taken:
+                return True  # the gate never got its go: it can execute nothing, permit or not
             if not moved:
                 with contextlib.suppress(OSError):
                     os.rename(launch.directory, launch.directory + ".revoked")
                     launch.directory += ".revoked"
+                    launch.permit = os.path.join(launch.directory, os.path.basename(launch.permit))
                     moved = True
                     continue
+            if not locked:
+                with contextlib.suppress(OSError):
+                    os.chmod(launch.directory, 0)
+                    locked = not os.access(launch.directory, os.X_OK)
+                    if locked:
+                        continue
             self._deliver(launch.entry, signal.SIGKILL)
             if launch.entry.pid and _has_exited(launch.entry.pid):
                 launch.unrevoked_but_dead = True
                 return True
             if time.monotonic() >= until:
-                launch.entry.exec_unknown = True
-                self._note(f"Containment: the start permit of {launch.label} (pid {launch.entry.pid}) could not be "
-                           "removed and its gate could not be confirmed ended; the start is reported as uncontained.")
+                self._fault(launch.entry, f"the start permit of {launch.label} (pid {launch.entry.pid}) could not be "
+                                          "revoked and its gate could not be confirmed ended: the start is uncontained")
                 return False
             time.sleep(0.01)
+
+    def _fault(self, entry: "OwnedChild", text: str) -> None:
+        """Record a start of *entry*'s run that could not be kept inside its ordering (P5-I-R3 remediation 1): the run
+        is reported FAILED with this text whatever happens to the process afterwards (:meth:`faults`)."""
+        entry.exec_unknown = True
+        with self._state:
+            self._faults.append((entry.run, text))
+        self._note(f"Containment: {text}.")
+
+    def faults(self, run: Any) -> list[str]:
+        """What could not be kept contained for *run* (uncontained starts), kept after the processes are gone."""
+        if run is None:
+            return []
+        with self._state:
+            return [text for owner_run, text in self._faults if owner_run == run]
 
     def _permit_root(self) -> str:
         """This owner's private folder of start permits (0700, every component checked to be a real folder owned by
@@ -2056,6 +2169,10 @@ class Owner:
             if entry.kind == GUARDIAN_KIND and entry.spawns > 0:
                 may_reap = False  # a start is joining its group: its id stays reserved until that is over
             if may_reap and proc.returncode is None:
+                if entry.kind == CLASS_A:
+                    # P5-I-R3 remediation 7: the guardian hears it is no longer a leader to end BEFORE its id is freed.
+                    with self._state:
+                        self._unannounce_locked(entry)
                 with contextlib.suppress(Exception):  # noqa: BLE001 - a failed reap proves nothing; looked at again
                     proc.poll()
             if may_reap and proc.returncode is not None:
@@ -2135,9 +2252,9 @@ class Owner:
 
     def _await(self, entries: Sequence[OwnedChild], until: float, *, patient: bool = False) -> list[OwnedChild]:
         """Drive retirement until every one of *entries* is confirmed ended, or *until* passes, or every one left is past
-        its own deadline. Returns those not confirmed. Bounded by *until*. *patient* (an explicit stop of a child
-        already UNCONFIRMED, P5-I-R3): such a child is looked at -- and killed again -- until *until*, not given up at
-        once because an earlier deadline passed."""
+        its own deadline. Returns those not confirmed. Bounded by *until*. *patient* (P5-I-R3: an explicit stop of a
+        child already UNCONFIRMED, a run's settlement): every child is looked at -- and killed again -- until *until*,
+        never given up earlier because its own confirmation deadline passed."""
         while True:
             self._retire_step()
             now = time.monotonic()
@@ -2145,9 +2262,9 @@ class Owner:
             with self._state:
                 left = [e for e in entries if not e.resolved()]
                 done = (not left or now >= until
-                        or all((e.state == UNCONFIRMED and not patient)
-                               or (e.state != UNCONFIRMED and e.confirm_by is not None and now >= e.confirm_by)
-                               for e in left))
+                        or (not patient and all(e.state == UNCONFIRMED
+                                                or (e.confirm_by is not None and now >= e.confirm_by)
+                                                for e in left)))
                 if done:
                     for entry in left:  # past its deadline: said so now, not at the reaper's next look
                         if entry.state == RETIRING and entry.confirm_by is not None and now >= entry.confirm_by:
@@ -2241,7 +2358,9 @@ class Owner:
         if not mine:
             return []
         self._kick()
-        left = self._await(mine, until=until)
+        # P5-I-R3 remediation 6: retirement is driven (and SIGKILL repeated) until the run's own bound, never given up
+        # earlier because one entry's internal confirmation deadline passed.
+        left = self._await(mine, until=until, patient=True)
         return sorted({e.pid or -1 for e in left})
 
     # -- orderly shutdown ---------------------------------------------------------
@@ -2264,6 +2383,8 @@ class Owner:
                 self._phase = CLOSING
             self._state.notify_all()
             self._wait_spawns_locked(min(children_by, began + START_SETTLE_S))
+        self._cut_grants()
+        with self._state:
             in_flight = sum(1 for e in self._entries if e.state == SPAWNING)
             owned = [e for e in self._entries if e.proc is not None and not e.resolved()
                      and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)]
