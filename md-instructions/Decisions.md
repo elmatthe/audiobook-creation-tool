@@ -2,6 +2,15 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-18 — P5 closeout, independent re-review 3 (Codex): VERDICT PASS; review 2's findings closed, with two wording precisions made after it
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS. Codex ran read-only in a fresh context on `74ba6d4`. Report: `files/dev-work/macos-p5-closeout/codex/review3/report.md` (ignored).
+- **Closed:** the growth wording, the clipping counts and the E-B2 command. Codex recomputed 51.12, 51.10 and 51.12 MiB per further part (about 0.786 MiB of PCM each, about 65 times), and confirmed 29.7 MiB on the disk route and 1.29/10.29 GiB for the screen. `worker_limits.py`'s change is comment-only (identical AST), and all 161 inventory hashes match.
+- **Made after it, not re-reviewed:**
+  1. (MEDIUM, partly open in review 3) Plan Revision 3u said "per paragraph part" beside the native 5.2 GiB. It now separates the native run from the reproduction with stand-in cuts.
+  2. (LOW, new) The review-2 entry's "equal-length cuts (11, 32–232 and 128)" is imprecise. Two sets were prepared, of 11 and of 128 cuts. The scaling runs took the first 32, 64 and 128 cuts of the 128-cut set, and past 128 reused that set in order. The 256-part request stopped at its 10 GiB guard after 232.
+- **Nothing in these reviews was HIGH or BLOCKER.**
+
 ## 2026-11-18 — P5 closeout, independent review 2 (Codex): VERDICT PASS, no HIGH or BLOCKER; four accuracy corrections to the P5-H and P5 closeout entries below (those entries stand as written; this one corrects them)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS. Codex CLI 0.169.0 ran read-only in a fresh context over `bae180c..f7cb65a`. Report: `files/dev-work/macos-p5-closeout/codex/review2/report.md` (ignored). Each finding was checked against the evidence before anything changed; all four are correct.

@@ -89,7 +89,7 @@ The passing focused gate `2026-11-16_234204_focused_4cf5` is kept. This is not a
 - App Nap: measured, no throttling.
 - D6-final: recommended, not decided.
 - KX-10: adapted to Kokoro and OmniVoice without Chatterbox; automated counterparts PASS; the Force Quit window is the owner's checklist.
-- **P5-H (new):** on a Mac a narration reaching the assembly gate is joined on disk. On macOS the in-memory join kept far more memory than the audio it held: 5.2 GiB for a 37-minute Edge file (about 51 MiB per paragraph part of 0.79 MiB once past 64 parts). This is an agent decision for the owner's review.
+- **P5-H (new):** on a Mac a narration reaching the assembly gate is joined on disk. On macOS the in-memory join kept far more memory than the audio it held: the app reached 5.2 GiB on a real 37-minute Edge run. Reproduced separately with equal-length cuts of that run's narration as a stand-in for its deleted paragraph files: about 51 MiB per further cut of 0.79 MiB of audio past 64 cuts. This is an agent decision for the owner's review.
 - Still pending:
   - the Windows HOME-PC regression and E-B2 (commands in Handoff);
   - D16 and D18 (recommendations only);
