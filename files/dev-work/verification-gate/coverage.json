@@ -1818,7 +1818,7 @@
         "Before a whole narration is assembled the gate checks its real size against free memory and commit: in memory if it fits, wait if other files are holding memory, otherwise on disk, which gives the same MP3 to the byte.",
         "If memory runs out after the gate said yes, the same audio is assembled on disk once more without asking the service again; if even that cannot run, the file fails with a reason that names memory and suggests Retry Failed.",
         "Every FFmpeg on these routes is supervised: it cannot deadlock on its pipes, and one making no progress for 300 s is killed and the file fails with a reason.",
-        "On macOS (v0.8.x P5) a narration that reaches the gate (about 16 MB of audio or more) is always assembled on disk, never in memory, with the disk route's own room, reservation, wait, failure and Cancel; the MP3 is the same to the byte. Measured on a Mac, the in-memory join kept every superseded copy's memory, so its footprint grew with the square of the number of parts (4.86 GiB for a 37-minute file's 128 paragraphs). Shorter joins and every other platform are unchanged."
+        "On macOS (v0.8.x P5) a narration that reaches the gate (about 16 MB of audio or more) is always assembled on disk, never in memory, with the disk route's own room, reservation, wait, failure and Cancel; the MP3 is the same to the byte. Measured on a Mac, the in-memory join kept far more memory than the audio it held (4.86 GiB for 128 parts of a 37-minute file's narration, then about 51 MiB more for each further part of 0.79 MiB of audio). Shorter joins and every other platform are unchanged."
       ],
       "selection": [
         "files/tests/test_low_memory.py",
@@ -26452,7 +26452,7 @@
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "e0f1c1a41c21f9eba22d99ec895e58316a0462ce0f2a470a2d20ee43542a5f74",
     "scripts/tts/voice_registry.py": "a88702f6de61f934a45275577faa83f164138f667cc53536cf59389963cffc9c",
-    "scripts/tts/worker_limits.py": "b15ff0be0511443a0fc3dbd30b65969e2d492dceba00fdcacbd6102b5ee54fce"
+    "scripts/tts/worker_limits.py": "75569f298ce20442f963f1c770a36b9dc7047f295825b7d76988823513056028"
   },
   "macos": {
     "about": "v0.8.x P1B (MAC-027): each feature's macOS standing, derived from the per-file census of the P1B-affected suites on macOS at the SHA below (files/dev-work/macos-p1b/tools/macos_feature_map.py), never asserted. native: its routine tests ran natively and passed. native-with-failures: they ran and some fail (baseline failures, listed). pending: a later phase owns it on macOS (the phase). not-applicable: a Windows-only mechanism, with a reviewed reason. Counts are of the feature's routine behaviour test ids; skips are named by their darwin skip rule. This block is evidence for the macOS programme; the Windows gate does not read it.",

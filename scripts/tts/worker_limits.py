@@ -173,11 +173,12 @@ ROUGH_CHARS_PER_PARAGRAPH = 40
 ASSEMBLY_GATE_MIN_PCM_BYTES = 16 * 1024 ** 2
 #: v0.8.x P5 (macOS): whether a narration at or above :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` may be assembled in memory at all.
 #: On a Mac it never is: it goes to the disk route (:mod:`tts.disk_assembly`), which gives the same bytes. Measured on an
-#: Apple Silicon Mac (P5 closeout, the real narration of a 37-minute Edge file): the in-memory join, one
-#: ``combined += AudioSegment.from_file(part)`` per part, kept the memory of each superseded copy in the process, so its
-#: footprint grew with the square of the number of parts: 0.43 GiB for 32 paragraph parts, 4.86 GiB for 128 (101 MiB of
-#: PCM, where :func:`peak_bytes_for_pcm` budgets 0.37 GiB), 10 GiB by 232 (66 minutes). The disk route on the same 128
-#: parts: 28 MiB, the PCM identical. Every other platform keeps the gate's in-memory route, unchanged.
+#: Apple Silicon Mac (P5 closeout), with equal-length parts cut from the published narration of a 37-minute Edge file as a
+#: stand-in for the paragraph files the route deletes: the in-memory join, one ``combined += AudioSegment.from_file(part)``
+#: per part, kept far more memory than the audio it held -- 0.43 GiB for 32 parts, 1.62 for 64, then a steady 51 MiB more
+#: for each further part of 0.79 MiB of audio: 4.86 GiB for 128 (101 MiB of PCM, where :func:`peak_bytes_for_pcm` budgets
+#: 0.37 GiB), 10 GiB by 232 (66 minutes). Why the memory is kept is not established. The disk route on the same 128 parts:
+#: 30 MiB, the PCM identical. Every other platform keeps the gate's in-memory route, unchanged.
 IN_MEMORY_ASSEMBLY = sys.platform != "darwin"
 #: The most audio a file holds in memory while it is being synthesised (about 5.5 minutes): at this much, a paragraph
 #: writes what it has to disk and carries on, and a clip this long is never decoded into memory.

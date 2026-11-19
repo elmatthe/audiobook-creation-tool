@@ -89,7 +89,7 @@ The passing focused gate `2026-11-16_234204_focused_4cf5` is kept. This is not a
 - App Nap: measured, no throttling.
 - D6-final: recommended, not decided.
 - KX-10: adapted to Kokoro and OmniVoice without Chatterbox; automated counterparts PASS; the Force Quit window is the owner's checklist.
-- **P5-H (new):** on a Mac a narration reaching the assembly gate is joined on disk. The in-memory join's footprint grew with the square of the parts on macOS: 5.2 GiB for a 37-minute Edge file. This is an agent decision for the owner's review.
+- **P5-H (new):** on a Mac a narration reaching the assembly gate is joined on disk. On macOS the in-memory join kept far more memory than the audio it held: 5.2 GiB for a 37-minute Edge file (about 51 MiB per paragraph part of 0.79 MiB once past 64 parts). This is an agent decision for the owner's review.
 - Still pending:
   - the Windows HOME-PC regression and E-B2 (commands in Handoff);
   - D16 and D18 (recommendations only);
@@ -2128,11 +2128,11 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 > - **Long-form (real media; text D agent-chosen, owner to confirm):**
 >   - Kokoro whole book: 6.29 h, wall RTF 0.0564, lifetime peak 7.29 GiB (over D6-K).
 >   - Edge: 36.6 min, 806/806 requests.
->   - OmniVoice Male 1 on the Mac GPU: 43.1 min, RTF 0.905, peak 10.94 GiB (the accepted exception's edge; 1–4 full-scale samples in 19 of 144 chunks, as in P4B).
+>   - OmniVoice Male 1 on the Mac GPU: 43.1 min, RTF 0.905, peak 10.94 GiB (the accepted exception's edge; 1–4 samples at |x| ≥ 0.999 in 19 of 144 chunks, 28 in all, as in P4B).
 > - **App Nap:** no throttling measured (Kokoro hidden +1.9 %, inside drift; Edge hidden faster).
 > - **D6-final:** recommended, not decided.
 > - **KX-10:** automated counterparts PASS at `f04075f` (Kokoro real window, OmniVoice KX-1(c), `macos-kx10`); the Force Quit window is the owner's checklist; Chatterbox not re-enabled.
-> - **P5-H (new, agent decision):** a Mac assembles any narration that reaches the gate on disk. The in-memory join grew with the square of the parts: 5.2 GiB for a 37-minute Edge file; 0.34 GiB after.
+> - **P5-H (new, agent decision):** a Mac assembles any narration that reaches the gate on disk. The in-memory join kept far more memory than the audio: 5.2 GiB for a 37-minute Edge file; 0.34 GiB after.
 > - **Codex:** review 1 (P5-G) PASS; review 2 recorded in Handoff.
 > - **Still PENDING:**
 >   - owner acceptance, listening, GUI pass, visual-debt disposition, permissions, D6-final, D11d, D15;

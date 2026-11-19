@@ -288,10 +288,10 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   again; if even that fails, the file fails with a reason that names memory and suggests Retry Failed. Every FFmpeg is
   supervised: it cannot deadlock, and one that makes no progress for 300 s is stopped with a reason.
 - **macOS (v0.8.x P5):** a narration that reaches the gate (about 5.5 minutes of audio or more) is always joined on
-  disk, never in memory; the MP3 is the same, byte for byte. On a Mac the in-memory join kept the memory of every copy
-  it made on the way, so it grew with the square of the number of parts: measured on the real narration of a 37-minute
-  Edge file, 4.86 GiB for its 128 paragraphs (10 GiB by 66 minutes), where the disk route took 28 MB. Shorter joins, and
-  every other platform, are unchanged.
+  disk, never in memory; the MP3 is the same, byte for byte. On a Mac the in-memory join kept far more memory than the
+  audio it held: with 128 parts cut from a 37-minute Edge file's narration, 4.86 GiB, then about 51 MiB more for each
+  further part of 0.79 MiB of audio (10 GiB by 66 minutes), where the disk route took 30 MB. Shorter joins, and every
+  other platform, are unchanged.
 
 ### Activity log, progress and estimate
 `ACT.TTS.ACTIVITY-LOG`

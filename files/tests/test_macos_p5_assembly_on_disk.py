@@ -1,11 +1,12 @@
 """v0.8.x P5 (macOS closeout): on a Mac a narration that reaches the assembly gate is always assembled on disk.
 
-Measured natively on an Apple Silicon Mac (P5 closeout, the real narration of a 37-minute Edge file, evidence
-``files/dev-work/macos-p5-closeout/``): ``read_book``'s in-memory chapter join (``combined += AudioSegment.from_file(part)``)
-kept the memory of every superseded copy in the process, so the footprint grew with the square of the number of parts:
-0.43 GiB for 32 paragraph parts, 4.86 GiB for 128 (101 MiB of PCM, where ``peak_bytes_for_pcm`` budgets 0.37 GiB), 10 GiB by
-232 (66 minutes). In the real 37-minute run the app process reached 5.2 GiB. The disk route on the same 128 parts: 28 MiB,
-the PCM identical.
+Measured natively on an Apple Silicon Mac (P5 closeout, evidence ``files/dev-work/macos-p5-closeout/``): in a real
+37-minute Edge run the app process went from 0.32 to 5.2 GiB at assembly. Reproduced with equal-length parts cut from that
+run's published narration (a stand-in for the paragraph files the route deletes), ``read_book``'s in-memory chapter join
+(``combined += AudioSegment.from_file(part)``) kept far more memory than the audio it held: 0.43 GiB for 32 parts, 1.62 for
+64, then a steady 51 MiB more per further part of 0.79 MiB of audio -- 4.86 GiB for 128 (101 MiB of PCM, where
+``peak_bytes_for_pcm`` budgets 0.37 GiB), 10 GiB by 232 (66 minutes). Why it is kept is not established. The disk route on
+the same 128 parts: 30 MiB, the PCM identical.
 
 The rule (``worker_limits.IN_MEMORY_ASSEMBLY``, false on darwin only): at or above ``ASSEMBLY_GATE_MIN_PCM_BYTES`` the gate
 offers a Mac the disk route alone. Its room, its reservation (``DISK_ASSEMBLY_BYTES``), its wait, its failure and Cancel are

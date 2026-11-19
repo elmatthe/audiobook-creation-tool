@@ -2,6 +2,36 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-18 — P5 closeout, independent review 2 (Codex): VERDICT PASS, no HIGH or BLOCKER; four accuracy corrections to the P5-H and P5 closeout entries below (those entries stand as written; this one corrects them)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS. Codex CLI 0.169.0 ran read-only in a fresh context over `bae180c..f7cb65a`. Report: `files/dev-work/macos-p5-closeout/codex/review2/report.md` (ignored). Each finding was checked against the evidence before anything changed; all four are correct.
+
+1. **(MEDIUM) "grew with the square of the number of parts" overstates the measurement.**
+   - The steps were: 32→64 parts +1.19 GiB (38 MiB per part); then 64→128 +3.195 GiB, 128→192 +3.194 and 192→232 +2.0, each 51.1 MiB per part.
+   - So the growth is superlinear only up to about 64 parts. After that it is linear, at about 51 MiB per further part of 0.79 MiB of audio (about 65 times).
+   - The P5-H entry gave "no linear budget fits a quadratic cost" as the reason for rejecting a darwin budget multiplier. The reason is now: a linear budget would need about 65 times the audio per narration second, where ~3 times is budgeted now, for an effect whose cause is not established. The measured disk route is the safer remedy.
+   - The conclusion stands: the budget was exceeded about 13-fold, and the disk route removes it.
+   - The code comment, test docstring, coverage contract, feature map, Handoff and plan are corrected in place in the commit that adds this entry; `worker_limits.py` is restamped (a comment-only change).
+2. **(MEDIUM) The reproduction's inputs were stand-ins.**
+   - They were not "the 128 paragraph parts the run really held". They were equal-length cuts (11, 32–232 and 128) of the run's published MP3, decoded once to 24 kHz mono 16-bit FLAC. The route deletes its own paragraph files after joining.
+   - The 11- and 128-part join script took the parts in file-name order (`p100` before `p11`); the scaling script took numeric order. Memory does not depend on the order, and the in-memory and disk joins were compared on the same order (identical PCM).
+   - The native evidence for the defect remains the real run's 5.2 GiB.
+3. **(LOW) OmniVoice clipping mixed two counts.** 19 of 144 chunks hold 1–4 samples at |x| ≥ 0.999, 28 in all (the chunk screens). 26 is a separate count: samples at exact int16 full scale in the encoder's input.
+4. **(LOW) The Handoff's E-B2 compare command** now carries its interpreter and path (`.venv\Scripts\python.exe files\dev-tools\macos_p2_qualify.py eb2-compare …`).
+5. **Two figures Codex could not corroborate are now saved:**
+   - The harness's own screen, alone: 1.29 GiB on the Edge MP3, and 10.29 GiB on the 6.3-hour Kokoro MP3 (the first, unsaved reading was 8.37 GiB). Either way it is the harness's peak, not the product's (`screen-peaks.jsonl`).
+   - The disk route on the 128 parts: 29.7 MiB, identical PCM (`edge-join-disk.json`; the first, unsaved reading was 28 MiB).
+
+**What Codex found correct:**
+- P5-H's disk-only place uses the existing room check, reservation, wait, failure and Cancel. Reservations, repeated `to_disk`, exception cleanup and Cancel stay consistent; there is no unexpected caller, deadlock or leak (it also ran 1,280 default-route comparisons and 24 concurrent disk-only waiters).
+- The six pinned modules keep disk-route coverage. The by-id comparisons match.
+- The focused-gate failures are honestly reported, and the KX-10 timings match their records.
+- D6-final, Windows, owner acceptance and release qualification stay pending; no Windows claim is made from Mac evidence. All 55 Windows module names exist.
+- The gate, the policy, the darwin map and `DARWIN_NA_SCOPE` are unchanged since `bae180c`.
+- The App Nap records support "no slowdown observed under the recorded conditions".
+
+Its stated limits: no pytest collection (sandbox scratch); no engine, GUI or Windows run; App Nap activation and idle sleep not exercised independently.
+
 ## 2026-11-18 — P5 closeout: the darwin map is complete; long-form on real media for Kokoro (whole book), Edge and OmniVoice (each ≥30 min); App Nap measured (no throttling); D6-final recommended; KX-10 adapted to Kokoro and OmniVoice; one new Mac defect found and fixed (P5-H). Verdict: MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's FINAL PHASE 5 CLOSEOUT instruction (2026-11-18). Commits: `bae180c` P5-G, `f71f8b7` harness (dev-only), `89189ab` and `f04075f` P5-H, then this documents commit. Evidence (ignored): `files/dev-work/macos-p5-closeout/` (`ledger.md` holds every item and its record), `files/dev-work/macos-p5g/`, `files/dev-work/macos-p4b/q/memory/p5-closeout-book-M1-mps.*`. **Nothing here is owner-signed; every owner item below is still the owner's.**
