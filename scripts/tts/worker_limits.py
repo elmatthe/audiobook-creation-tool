@@ -581,7 +581,10 @@ class AssemblyGate:
                     self._starved_since = None
                 self._condition.notify_all()
         try:
-            if not admitted.in_memory and note is not None:
+            if not admitted.in_memory and note is not None and disk_only:
+                # v0.8.x P5: never "more than this computer has free": on a Mac it goes to disk whatever is free.
+                _say(note, "On a Mac a narration this long is always assembled on disk: the same audio, using little memory.")
+            elif not admitted.in_memory and note is not None:
                 why = "and free memory cannot be read here" if self._read() is None else "more than this computer has free now"
                 _say(note, f"This file's narration needs about {_gb(need)} to assemble, {why}, so it is being assembled on disk: "
                            "the same audio, using little memory.")

@@ -138,6 +138,21 @@ def test_on_a_mac_a_wait_names_the_disk_routes_need_not_the_in_memory_budget(mon
     assert said and "about 0.1 GB" in said[0], said  # DISK_ASSEMBLY_BYTES, never the 3 GB narration's in-memory budget
 
 
+def test_on_a_mac_the_log_says_why_it_went_to_disk_truthfully(monkeypatch, plenty):
+    """Found natively (P5-H): the Windows sentence ("needs about 0.1 GB ... more than this computer has free now") was said on
+    a Mac with 20 GB free. A Mac says its own rule; the in-memory rule still says its own when memory is short."""
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", False)
+    said: list[str] = []
+    _routes(101 * MB, note=said.append)
+    assert said == ["On a Mac a narration this long is always assembled on disk: the same audio, using little memory."]
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", True)  # negative control: free memory, in memory, nothing said
+    said.clear()
+    assert _routes(101 * MB, note=said.append) == ["memory"] and said == []
+    monkeypatch.setattr(wl, "ASSEMBLY_GATE", _gate(1))  # 1 GB free: too little for memory, room for disk; its own sentence
+    assert _routes(101 * MB, note=said.append) == ["disk"]
+    assert len(said) == 1 and "more than this computer has free now" in said[0]
+
+
 # --------------------------------------------------------------------------- C. the Edge routes, end to end
 @pytest.fixture()
 def counted_disk_routes(monkeypatch):
