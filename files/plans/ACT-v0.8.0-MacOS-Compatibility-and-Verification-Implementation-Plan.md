@@ -79,6 +79,24 @@ The passing focused gate `2026-11-16_234204_focused_4cf5` is kept. This is not a
 
 **Revision 3s:** 2026-11-18 (Claude Code, Sonnet 5.5). **P5-F-R1: the first-run descriptions are wrapped to the width they really have, and `setup.first-run-choices-and-cancel` passes natively and is an automated counterpart.** `bootstrap.py` `_wrap_to_width` margin 48 to 62 (the proposed 60 still cut 2 px at some widths in a 660-1400 px sweep with both rosters; the layout takes 58 px and Tk lets a wrapped line run 4 px past its wrap length); a permanent live-Tk regression test; `bootstrap.py` restamped by name. The journey passed pre-policy (`r1-run1`), on the revised map with no override (`r1-run2-revised-map`) and on the committed candidate `4579a1e` (`r1-run3-candidate-4579a1e`), 44 checks and six real pictures each, `judge_darwin` AUTOMATED PASS; zero clipped labels at 660x600, 700x640, 760x680 and 900x700. The map entry is automated with `journey-checks` and `real-screenshots` (no `dialog-contract`: no file dialog is answered); both P1B tests pin only `setup.first-run-refuses-a-folder-too-deep` as pending on P5. Windows is not natively verified. See Decisions (P5-F-R1).
 
+**Revision 3t:** 2026-11-18 (Claude Code, Opus 5.5). **P5-G: `setup.first-run-refuses-a-folder-too-deep` is NOT APPLICABLE ON MACOS under its own reviewed reason, `windows-only-installation-path-limit`, and the darwin acceptance map is complete** (49 automated, 7 not applicable, 0 pending). The owner approved the exception in the FINAL PHASE 5 CLOSEOUT instruction. The reason is scoped to that one scenario and keeps the mandatory `fresh-macos` qualification (`acceptance_report.DARWIN_NA_SCOPE`). The Windows journey is unchanged, and no other scenario may use the reason. 22 new tests carry the negative controls. Codex review 1 (read-only, fresh context): PASS, no finding. See Decisions (P5-G).
+
+**Revision 3u:** 2026-11-18 (Claude Code, Opus 5.5). **P5 closeout: MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING.**
+- Long-form on real media:
+  - Kokoro whole book (text D, agent-chosen; the owner confirms the choice): 6.29 h, wall RTF 0.0564, lifetime peak 7.29 GiB (over D6-K).
+  - Edge: 36.6 min, 806/806 requests.
+  - OmniVoice: Male 1 on the Mac GPU, 43.1 min, RTF 0.905, peak 10.94 GiB (the accepted exception's upper edge).
+- App Nap: measured, no throttling.
+- D6-final: recommended, not decided.
+- KX-10: adapted to Kokoro and OmniVoice without Chatterbox; automated counterparts PASS; the Force Quit window is the owner's checklist.
+- **P5-H (new):** on a Mac a narration reaching the assembly gate is joined on disk. The in-memory join's footprint grew with the square of the parts on macOS: 5.2 GiB for a 37-minute Edge file. This is an agent decision for the owner's review.
+- Still pending:
+  - the Windows HOME-PC regression and E-B2 (commands in Handoff);
+  - D16 and D18 (recommendations only);
+  - the owner's acceptance, listening, GUI pass and decisions;
+  - the complete map at one SHA (P7).
+- See Decisions (P5-H, P5 closeout).
+
 **Repository:** https://github.com/elmatthe/audiobook-creation-tool
 **Working branch:** `feature/0.8.0-macos-compatibility`, created in Phase 0 at `9554bc8461ae00c4b7308f74d989fc0c8cfb9c90` (= `master` = `origin/master`)
 **Released baseline:** Windows v0.8.0, tag `v0.8.0` (tag object `0a3653e`) → release-source commit `d1701e987f106ce00f557f267a6761c5370f5968`
@@ -2104,6 +2122,25 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 > - **Runs:** `run1` FAIL (oracle gap: the engine lease's empty locks; recorded); `run2` PASS (pre-policy, the map patched in memory for this id only); `run3` PASS on the committed map. 42 checks, 4 real screenshots PASS on review, `judge_darwin` AUTOMATED PASS.
 > - **Map:** `setup.clear-downloaded-data` automated (`journey-checks`, `real-screenshots`; no file dialog, so no `dialog-contract`). `setup.first-run-refuses-a-folder-too-deep` and `setup.first-run-choices-and-cancel` stay pending on P5.
 > - **Still PENDING:** the two first-run journeys; the Windows-native regression; independent review and owner approval of P5-E.
+>
+> **Status 2026-11-18 (Revision 3u): P5 closeout — MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING.** Start `a5aaf23`; commits `bae180c` (P5-G), `f71f8b7` (harness, dev-only), `89189ab`, `f04075f`, `b0c2e19` (P5-H), then documents; evidence `files/dev-work/macos-p5-closeout/` (`ledger.md`) and `files/dev-work/macos-p5g/` (ignored).
+> - **Map:** complete — 49 automated, 7 not applicable under reviewed reasons, 0 pending, 0 owner-manual (P5-G). Each automated counterpart passed in its own phase. The proportional focused gate `2026-11-18_205858_focused_e4aa` at `b0c2e19`: 11/11 journeys PASS; RESULT FAIL only on `test_low_memory`'s two inherited Windows `winerror` ids. The whole map at one SHA is P7's job.
+> - **Long-form (real media; text D agent-chosen, owner to confirm):**
+>   - Kokoro whole book: 6.29 h, wall RTF 0.0564, lifetime peak 7.29 GiB (over D6-K).
+>   - Edge: 36.6 min, 806/806 requests.
+>   - OmniVoice Male 1 on the Mac GPU: 43.1 min, RTF 0.905, peak 10.94 GiB (the accepted exception's edge; 1–4 full-scale samples in 19 of 144 chunks, as in P4B).
+> - **App Nap:** no throttling measured (Kokoro hidden +1.9 %, inside drift; Edge hidden faster).
+> - **D6-final:** recommended, not decided.
+> - **KX-10:** automated counterparts PASS at `f04075f` (Kokoro real window, OmniVoice KX-1(c), `macos-kx10`); the Force Quit window is the owner's checklist; Chatterbox not re-enabled.
+> - **P5-H (new, agent decision):** a Mac assembles any narration that reaches the gate on disk. The in-memory join grew with the square of the parts: 5.2 GiB for a 37-minute Edge file; 0.34 GiB after.
+> - **Codex:** review 1 (P5-G) PASS; review 2 recorded in Handoff.
+> - **Still PENDING:**
+>   - owner acceptance, listening, GUI pass, visual-debt disposition, permissions, D6-final, D11d, D15;
+>   - the Windows HOME-PC regression and E-B2 (commands in Handoff);
+>   - D16 and D18 (recommendations recorded);
+>   - the clean Mac before P7c.
+>
+> **Status 2026-11-18 (Revision 3t): P5-G — `setup.first-run-refuses-a-folder-too-deep` NOT APPLICABLE ON MACOS (`windows-only-installation-path-limit`, owner-approved, scoped to that one scenario, `fresh-macos` kept); the darwin map is complete.** Commit `bae180c`; 22 new tests; Codex review 1 PASS, no finding.
 >
 > **Status 2026-11-18 (Revision 3s): P5-F-R1 (first-run text clipping) IMPLEMENTED; `setup.first-run-choices-and-cancel` is an AUTOMATED PASS on the corrected source (native, this Mac); independent review and owner approval pending.** Start `4801b40`; candidate `4579a1e`; evidence `files/dev-work/macos-p5f/` and `files/dev-work/macos-p5f-r1/` (ignored).
 > - **Fix:** `bootstrap.py` wrap margin 48 to 62 (not the proposed 60, which a sweep showed still cut 2 px at some widths); `files/tests/test_first_run_wrap_margin.py`; restamped by name; inventory 0 problems.

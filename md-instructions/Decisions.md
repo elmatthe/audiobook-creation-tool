@@ -2,6 +2,161 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-18 — P5 closeout: the darwin map is complete; long-form on real media for Kokoro (whole book), Edge and OmniVoice (each ≥30 min); App Nap measured (no throttling); D6-final recommended; KX-10 adapted to Kokoro and OmniVoice; one new Mac defect found and fixed (P5-H). Verdict: MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's FINAL PHASE 5 CLOSEOUT instruction (2026-11-18). Commits: `bae180c` P5-G, `f71f8b7` harness (dev-only), `89189ab` and `f04075f` P5-H, then this documents commit. Evidence (ignored): `files/dev-work/macos-p5-closeout/` (`ledger.md` holds every item and its record), `files/dev-work/macos-p5g/`, `files/dev-work/macos-p4b/q/memory/p5-closeout-book-M1-mps.*`. **Nothing here is owner-signed; every owner item below is still the owner's.**
+
+**Decision 1 (run conditions).**
+- One heavy job at a time on mains power. Nothing else heavy ran; Claude Code's own `caffeinate` held off idle sleep, and the display never sleeps on this Mac.
+- `HF_HUB_OFFLINE=1` for Kokoro; OmniVoice's worker enforces offline itself. Edge used Microsoft's service, as the product does.
+- Text D is the whole of Re:Monster volume 1 (`files/test-files/`, 368,650 characters through ACT's PDF extractor, SHA-256 `377d2df8…`). **This book was chosen by the agent, for continuity with P2's 34-minute chapter; the plan says owner-chosen, so the owner's confirmation of the choice is pending.**
+- The ≥30-minute runs use that book's first 33,608 characters (the P2 chapter's own cut, the same text hash `8481a7bd…` for every engine).
+- `files/runtime-data` was digested before and after. No model, voice, environment or FFmpeg file changed; only OmniVoice job folders came and went (row 26 of the ledger).
+
+**Decision 2 (long-form results; AUTOMATED, this Mac).**
+- **Kokoro, text D (af_heart, visible window, `bae180c`).** PASS.
+  - 6.29 h of audio in 1,276.8 s: wall RTF 0.0564, inference 0.0543, 139 chunks, one cold load (4.97 s).
+  - Output screen clean: decode OK, −26.3 dBFS, peak −1.22 dBFS, nothing clipped, longest silence 1.62 s. No swap, no thermal or performance warning, at least 5.89 GiB free throughout.
+  - Worker footprint after each chunk: 2.58–5.48 GiB, with a fitted trend of −8.7 % over the 138 post-warm-up chunks (no growth). Its **lifetime peak was 7.29 GiB**.
+  - Five chunks in fresh workers (the longest-sentence chunk, 728 characters; the chunk with the highest footprint in the run; a typical chunk; two more) peaked at 4.22–5.26 GiB. So the 7.29 GiB is a long-lived worker's effect, not one chunk's length (P2's "peak follows chunk length" does not explain it). Cause not established.
+  - The app process held the book's audio as 32-bit samples, 2.3 GiB in all. A 6.98 GiB reading after the run was the harness's own output screen, measured alone at 8.37 GiB on that MP3 (not the product).
+- **Edge (Steffan).** PASS, three runs on the excerpt: 36.6 min of audio each; 806/806 requests OK; 0 retries, 0 403, 0 NoAudioReceived; screen clean. Speed is the service's request time.
+  - Visible (`bae180c`): 1,099.7 s, RTF 0.50, median request 1.26 s.
+  - Hidden: 770.1 s, RTF 0.35, median request 0.87 s.
+  - Visible on P5-H (`89189ab`): 769.8 s, RTF 0.35, median request 0.87 s.
+  - The first two found P5-H (see its entry). The third shows the app at 0.34 GiB through assembly instead of 5.2 GiB.
+- **OmniVoice (Male 1, Mac GPU, 16-chunk workers, `f04075f`).** PASS.
+  - 43.1 min of audio in 2,337 s: wall RTF 0.905, inference 0.924. 144 chunks in 9 workers, start-up 33.8 s in all.
+  - No swap; memory pressure reached level 2 (warn); the 14 GiB safety ceiling was never hit; no process left.
+  - **Peak 11,201 MiB (10.94 GiB, 9.4 % over 10 GiB).** Growth inside a worker 20–40 % (70 % in the last, from a low warm-up), each worker given back at its restart. This is the owner-accepted P4B memory exception in kind, at its upper edge (P4B recorded 5–9 % over on book-like text).
+  - The integrity screen flagged 1–4 full-scale samples in 19 of 144 chunks (26 samples in all). Male 1 on the GPU has shown this in every book-like run since P4B (10 of 48 chunks there). These flags await the owner's listening confirmation.
+
+**Decision 3 (App Nap / hidden window, D11d; MEASURED).**
+- **Kokoro**, A/B/A/B on the excerpt (`bae180c`). Hidden means the window withdrawn and the app hidden as Cmd+H does; `lsappinfo` confirms "(hidden)" and never in front.
+  - Wall RTF: visible 0.0584 and 0.0596; hidden 0.0592 and 0.0610 (+1.9 % on the mean, inside the run-order drift 0.0584→0.0610).
+  - Chunk overhead about 8 ms in all four runs.
+  - The app at priority 46 hidden and 47 in front; the worker at 31.
+- **Edge** hidden was faster than visible (service time).
+- **No App Nap throttling was measured.** Recommendation for D11d: no `caffeinate` for throughput. Idle system sleep during a long job was not exercised (this Mac's display never sleeps); whether to add `caffeinate -i -w <gui>` for that remains the owner's decision.
+
+**Decision 4 (D6-final — RECOMMENDED; the owner confirms or adjusts; no budget was moved).**
+- **D6-E:** confirm unchanged (no speed budget; completion within the retry policy): 3 × 806 requests, 0 retries.
+- **D6-K, speed and growth:** RTF ≤ 0.25 confirmed (0.0564 on 6.29 h). Load confirmed (3.4–5.0 s cold). Growth < 10 % after warm-up confirmed as a slope (−8.7 % over 138 chunks). The harness's older "largest against the first" reading gives 31.1 %, from chunk-to-chunk variation, not a trend.
+- **D6-K, peak ≤ 6 GiB: OUTSIDE** (7.29 GiB on text D; 5.59–5.91 GiB on the excerpt; P2's 6.0046 GiB). Owner's choice:
+  - (i) keep 6 GiB and record a Kokoro peak performance exception, as P4B did for OmniVoice — **the agent's recommendation**, since the cause is not established; or
+  - (ii) adopt ≤ 8 GiB on this measured basis.
+- **D6-O:** MPS RTF ≤ 1.0 confirmed (0.905 on a real book). Peak and growth remain the owner-accepted exception. Recommend recording its real-book upper edge, 9.4 % over 10 GiB.
+- **App process (no budget exists):** a whole-book Kokoro file holds about 0.33 GiB per hour of audio, as Windows does in its one process. An Edge file's assembly on a Mac is now bounded by the disk route (P5-H).
+
+**Decision 5 (KX-10 resolved for automation without Chatterbox; the Force Quit window stays the owner's).**
+- Chatterbox stays off. Force Quit sends SIGKILL; each half of KX-10 has an automated counterpart, re-run at `f04075f`.
+- **Kokoro on the real window:** `test_macos_p2_kokoro_real.py` KX-1/2/3(a) and KX-7, all PASS.
+  - Worker gone 0.048 s after SIGKILL, 0.323 s after SIGSEGV, 0.339 s after SIGABRT (bound 3 s).
+  - SIGTERM 0.186 s and Quit 0.231 s (bound 5 s).
+  - KX-7: the orphan is seen without the lifeline.
+- **OmniVoice:** `macos_p4b_omnivoice_qualify.py kx1`, PASS: the owner SIGKILLed during generation, worker group gone in 0.096 s, nothing published.
+- **Maker:** `macos-kx10`, RESULT PASS (31 checks, `2026-11-18_205228_qualification_fff4`).
+- The owner's part is `files/dev-work/macos-acceptance/P5-KX10-owner-checklist.md` (Kokoro chapter, Maker build, optional OmniVoice; the read-only process check), bound to this documents commit. **PENDING; not performed by the agent.**
+
+**Decision 6 (the darwin acceptance map and what is re-proved).**
+- The map is complete: 49 automated, 7 not applicable under reviewed reasons, nothing pending, nothing owner-manual.
+- Every automated counterpart passed in its own phase. The incremental ledger at `f04075f` reports 55 items NEED RERUN (the gate's own helpers and `worker_limits.py` reach them) and 18 with no run in this checkout's outputs (their runs are in worktrees).
+- The closeout's proportional focused gate re-proves the subset these changes reach in substance (`2026-11-18_205858_focused_e4aa` at `b0c2e19`: the 11 journeys AUTOMATED PASS (the seven `tts.*` journeys, both `shutdown.tts-*`, `setup.first-run-choices-and-cancel`, `setup.clear-downloaded-data`); pytest 584 collected, 549 passed, 33 skipped (each named by the policy), 2 failed: `test_low_memory`'s Windows `winerror` allocation forms (`failure2`, `failure3`), which fail identically by id before P5-H; RESULT FAIL on those two inherited ids only; process ownership, cleanup, skips, coverage inventory and tree PASS. The first run (`2026-11-18_205425_focused_8463`, at `f04075f`) also failed `test_application_source_boundary` on the new module's raw `rglob`; fixed in `b0c2e19`). **The whole map is not re-proved at one SHA here:** that is the final gate's job on both platforms (P7). It was not run here, per the instruction.
+
+**Decision 7 (Windows; HOME-PC untouched).** The HOME-PC focused regression and E-B2 are **PENDING**. The exact commands, scope (the union of every P1A–P5-H touchpoint list) and required SHA are in Handoff's closeout block. Windows is never claimed verified from Mac evidence.
+
+**Decision 8 (D16 — RECOMMENDATION; owner sign-off required).**
+- **Option A:** one shared v0.8.1 source release, with the Windows and macOS ZIPs built from one commit and tag `v0.8.1`. The published Windows-only `v0.8.0` (tag `0a3653e` → `d1701e9`) and its asset stay untouched.
+- This matches the owner's own v0.8.1 roadmap draft (`b1250d0`, on `origin/master`, not on this branch).
+- **Integration note:** `origin/master` has diverged from this branch by that one documents commit, so a fast-forward of `master` to the final SHA is not possible as things stand. The plan's rule applies: stop for the owner's integration decision.
+- Option D (v0.9.0) is the alternative if the owner prefers minor-version semantics.
+
+**Decision 9 (D18 — RECOMMENDATION; owner sign-off and the machine required before P7c).**
+- A real, clean Apple Silicon Mac (a second Mac, or a freshly erased one) that never had Homebrew, the Xcode CLT or python.org, ideally with at least 16 GB.
+- Preferred over a VM. A VM needs an approved virtualization tool and a macOS image download. A VM's GPU is not the Mac's, so OmniVoice's MPS route could not be qualified in one.
+- A new user account on this Mac is SIMULATED only.
+
+**Verdict: MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING.** The agent-side Mac work of P5 is done. The formal P5 exit is not met. What blocks it:
+1. Owner acceptance: P5-A, A-R1, B, D/D-R1/D-R2, E, F/F-R1, G, H (P5-C is owner-accepted).
+2. Owner manual items:
+   - the six-tool GUI pass;
+   - the P1B visual-debt disposition (20 findings, never cleared);
+   - the owner's Dark look re-review;
+   - listening (the P2 pack's 24 samples, NOT YET REVIEWED; OmniVoice Male 1's clipped-sample flags);
+   - the KX-10 Force Quit window.
+3. Owner decisions:
+   - permissions (P5-A audit);
+   - D6-final (Kokoro peak; OmniVoice exception edge);
+   - D11d;
+   - D15 (WER is NOT RUN until it is decided);
+   - confirmation of text D's book.
+4. Windows HOME-PC focused regression and E-B2.
+5. D16 and D18 recorded, with the clean Mac available before P7c.
+6. The complete map re-proved at one SHA (P7).
+
+## 2026-11-18 — P5-H: on a Mac a narration that reaches the assembly gate is joined on disk, never in memory (found by the P5 closeout's long-form Edge run: the in-memory join's footprint grows with the square of the number of parts on macOS)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's FINAL PHASE 5 CLOSEOUT instruction (2026-11-18). **This product change is an agent decision, not an owner decision: it was not named in the instruction, and is recorded here for the owner's review and veto.** Commits `89189ab` (the rule), `f04075f` (the Mac's own log sentence, found natively) and `b0c2e19` (a test-only fix the focused gate asked for), on `f71f8b7` (the dev-only harness options). Evidence (ignored): `files/dev-work/macos-p5-closeout/` (`edge/`, `edge-assembly*/`, `edge-join-scaling.jsonl`, `tests/`).
+
+**Decision 1 (the finding, measured before anything changed).**
+- In the 37-minute Edge run (`edge/visible`, the 33,608-character Re:Monster excerpt, Steffan), the app process stayed at 0.32 GiB for the whole synthesis, then rose to 5.2 GiB in the six seconds before the run finished, at 16–34 % CPU, and stayed there. The hidden run did the same (5.19 GiB).
+- The harness's own output screen was excluded: alone in a fresh process on that MP3 it peaks at 1.29 GiB, and it runs after the finish.
+- Reproduced in isolation, on parts cut from that run's real narration: `read_book`'s in-memory chapter join, verbatim (`combined += AudioSegment.from_file(part)`), over the 128 paragraph parts the run really held. RSS 4.87 GiB; physical footprint 4.77 GiB after the join and a lifetime peak of 4.86 GiB, so this is real memory, not reclaimable pages. `make_mp3` on the joined chapter: 0.52 GiB.
+- Scaling on the same narration (fresh process per count; a 10 GiB guard): 32 parts 0.43 GiB, 64 1.62, 128 4.81, 192 8.0; 232 parts (66 minutes, 182 MiB of PCM) reached the guard at 10 GiB. `peak_bytes_for_pcm` budgets 0.14, 0.22, 0.37, 0.52 and 0.62 GiB for those. Each part copies everything joined so far, and on this Mac the superseded copies' memory stays with the process.
+- **Mechanism inferred, not proven:** the macOS allocator keeping freed large blocks. The 150 kB per narration second budget fits a heap that returns large blocks on free. **Windows was not measured.**
+
+**Decision 2 (the remedy: the existing disk route, on macOS only).**
+- `worker_limits.IN_MEMORY_ASSEMBLY = sys.platform != "darwin"`. At or above `ASSEMBLY_GATE_MIN_PCM_BYTES` (16 MiB, about 5.5 minutes), `assembly_place` asks the gate for a disk place only, through a new `disk_only` option of `AssemblyGate.place`/`_route` (default off). It reserves and waits for `DISK_ASSEMBLY_BYTES`, and its wait message names that, not the in-memory budget.
+- The disk route's room check, reservation, wait, failure with a reason, and Cancel are the gate's own, unchanged. Below the minimum nothing changes; a short join still happens in memory.
+- Every other platform is unchanged; one module-level flag is the whole difference.
+- The disk routes are the existing `disk_assembly.join_to_flac`/`encode_mp3`, which give the same MP3 to the byte (`test_assembly_on_disk`). On the 128 real parts: 28 MiB peak footprint, 3.0 s, PCM SHA-256 identical to the in-memory join.
+- Rejected:
+  - a darwin budget multiplier (no linear budget fits a quadratic cost);
+  - rewriting the join itself (that changes Windows' code path, which needs Windows evidence);
+  - environment switches for the system allocator (not ACT's to set).
+
+**Decision 3 (tests).**
+- New `files/tests/test_macos_p5_assembly_on_disk.py` (14), covering:
+  - the rule's source line and its value here;
+  - `assembly_place` as the only reader;
+  - the class defaults off;
+  - disk at the minimum, at 101 MiB and at 3 GB with 20 GB free, each with an in-memory negative control;
+  - the small join untouched;
+  - the reservation and its return;
+  - Cancel;
+  - no room even for disk;
+  - the wait message, and the log sentence when it goes to disk;
+  - both Edge routes end to end: no in-memory route runs, two chapter joins and the encode go through `disk_assembly`, and the MP3 equals the in-memory route's MP3 to the byte.
+- Five mutations were each caught: the rule off on a Mac (1 failure), the Mac branch removed (8), `disk_only` ignored (6), the in-memory budget named in the wait (1), the Mac's log sentence removed (1).
+- The six modules that test the in-memory route and its fall back (`test_worker_limits`, `test_low_memory`, `test_assembly_on_disk`, `test_cancel_semantics`, `test_edge_publication`, `test_tts_worker_concurrency`) now pin the flag on with an autouse fixture. They test the same thing on every machine; without it, 24 of their tests took the disk route on this Mac and failed.
+
+**Verification.**
+- By id, the six modules: 540 passed and 2 failed before and after. The 2 are `test_low_memory`'s Windows `winerror` allocation forms, which fail on a Mac before the change too.
+- The 35 other modules that reach the gate (by import), split as in P5-D: 2,675 tests, identical by id before (HEAD's `worker_limits.py` swapped in) and after: 2,614 passed, 56 skipped, 5 failed. The 5 pre-existing are `test_tts_output_names` 1 and `test_voice_previews` 4.
+- Coverage, the new module, P5-G's and both P1B gate modules: 158 passed.
+- Inventory: `worker_limits.py` restamped by name after its five features were reviewed (only `ACT.TTS.LOW-MEMORY` is about the route; it gained a contract, the symbol, the module in its selection and two behaviour checks); 0 problems. The feature map states the macOS rule.
+- **Native, on the committed code:** the 37-minute Edge file, visible, on `89189ab`: the app at 0.34 GiB through assembly (5.2 GiB before), 806/806 requests, screen clean. Its log said the Windows sentence ("needs about 0.1 GB to assemble, more than this computer has free now"), twice, which was untrue on a Mac: corrected in `f04075f` with its own test and a mutation check. Its MP3 cannot be compared to the byte with the earlier runs, because Edge's service gives different audio from run to run (the two in-memory runs differ too), so the identity rests on the tests and the 128-part reproduction. The closeout's focused gate then ran on `b0c2e19` (Decisions, P5 closeout, Decision 6).
+
+**Windows.** Not changed in behaviour, by construction (the flag is true off darwin, and the pinned tests prove the in-memory route unchanged). `worker_limits.py` and the six test modules join the HOME-PC touchpoint list. Windows' own assembly footprint was never measured; its budget is as it was.
+
+## 2026-11-18 — P5-G: `setup.first-run-refuses-a-folder-too-deep` is NOT APPLICABLE ON MACOS under its own reviewed reason (`windows-only-installation-path-limit`), scoped to that one scenario and to the mandatory `fresh-macos` qualification; the darwin acceptance map is complete (49 automated, 7 not applicable, nothing pending)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS, under the owner's FINAL PHASE 5 CLOSEOUT instruction (2026-11-18), which approved this exception and its requirements A–J. Start `a5aaf23`; commit `bae180c`. Evidence (ignored): `files/dev-work/macos-p5g/` (`na-run1`: the real runner on this scenario; `codex/review1`: the independent review).
+
+**Decision 1 (why not an automated counterpart).** The journey's subject is Windows' own installation-path limit: production `bootstrap.install_path_problem` returns `""` on every system but Windows (`if not IS_WINDOWS: return ""`), so a Mac has no refusal to show and a journey that showed one would have to fabricate it. The Windows journey (`journeys/setup.py` `first_run_refusal`: "too long for Windows", Begin Setup, "Setup did not complete", status 1) and its Windows map entry are unchanged and still required on Windows.
+
+**Decision 2 (a dedicated reason, scoped).** `helpers/acceptance_report.py`: `DARWIN_NA_REASONS = ("windows-input-harness",)` became `DARWIN_NA_SCOPE`: `windows-input-harness` keeps its `control.*` prefix rule; `windows-only-installation-path-limit` covers exactly `setup.first-run-refuses-a-folder-too-deep` and requires the entry's `qualification` to stay `fresh-macos`. `darwin_na_problem` returns the reason a not-applicable entry is refused (unknown reason, wrong scenario, prefix outside `control.`, qualification removed or changed); `darwin_map_problems` uses it, so `verify.py`'s darwin policy load and `judge_darwin`'s first step both refuse a map that stretches the exception. No `why` requirement was added (it would have broken the P1B harness-rule fixtures, which the instruction requires preserved).
+
+**Decision 3 (the map).** The entry is `class: not-applicable`, `reason_id: windows-only-installation-path-limit`, `qualification: fresh-macos`, `decided` naming this entry, its tests and a `why`; `pending_phase` is gone and no other entry changed (the 49 automated entries are byte-identical; Codex compared them). `darwin_about` names both reasons. macOS installation, repair and recovery stay with P1A's native suites and the mandatory REAL CLEAN `fresh-macos` qualification (P7c, D18).
+
+**Decision 4 (what the gate does with it).** The runner reports `NOT APPLICABLE ON MACOS (windows-only-installation-path-limit)`; `judge_darwin` counts a justified not-applicable item as `NOT APPLICABLE — JUSTIFIED`, never as PASS, and a stage holding only such items is NOT RUN. A failing automated counterpart still fails the stage.
+
+**Tests.** New `files/tests/test_macos_p5_platform_exception.py` (22): the production basis (both platforms, via the `IS_WINDOWS` seam), the Windows journey source intact, the entry, the complete map (the 49 automated ids pinned), negative controls (the reason on six other scenarios; six other reasons on this one; `fresh-macos` removed or changed; the harness reason off `control.*`; no other `setup.*` scenario under any reviewed reason), the runner and the judge. P1B gate and closeout tests, the P5-E and P5-F modules now pin an empty pending set; five mutations of the scope logic were each caught. Targeted modules: platform exception 22, P1B gate 24, closeout 60, P5-E 22, P5-F 76, native acceptance 34 (+8 Windows-desktop skips), coverage 39, wrap margin 5: all pass; inventory 0 problems.
+
+**Independent review (Codex CLI 0.169.0, read-only, fresh context, `a5aaf23..bae180c`).** VERDICT: PASS, no finding (`files/dev-work/macos-p5g/codex/review1/report.md`). Its limits as it stated them: sandbox-denied pytest temp files (it ran 33 selected cases and 190 in-memory checks instead); no native GUI journey; no Windows.
+
+**Not changed:** Windows behaviour, the Windows journey, any other darwin entry, the harness rules, the `fresh-macos` requirement.
+
 ## 2026-11-18 — P5-F-R1: the first-run window wraps descriptions to the width they really have (margin 48 to 62); `setup.first-run-choices-and-cancel` PASSES natively on the corrected source and is an automated macOS counterpart; `setup.first-run-refuses-a-folder-too-deep` stays pending on P5
 
 Signed: Claude Code (Sonnet 5.5), HOME-MacOS, under the owner's P5-F-R1 instruction (2026-11-18). Start `4801b40`; candidate commit `4579a1e` (production, tests, map, coverage, feature map); this entry is in the documents-only commit after it. Evidence (ignored): `files/dev-work/macos-p5f/` (P5-F's `dev1`, `dev2`, `run1`, `run2-committed-map`, `fix-proof1` are kept unchanged, and `dev2` and `fix-proof1` are NOT acceptance evidence; new: `r1-run1`, `r1-run2-revised-map`, `r1-run3-candidate-4579a1e`) and `files/dev-work/macos-p5f-r1/tests/` (by-id before and after of the first-run modules, the gate-contract run).

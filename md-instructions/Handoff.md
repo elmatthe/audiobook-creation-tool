@@ -1,5 +1,54 @@
 # Audiobook Creation Tool — Handoff
 
+## Current checkpoint — P5 closeout: MAC IMPLEMENTATION COMPLETE — RELEASE QUALIFICATION PENDING. The darwin map is complete (P5-G); long-form on real media and App Nap measured; one new Mac defect found and fixed (P5-H, Edge assembly on disk); KX-10 adapted to Kokoro and OmniVoice; Windows HOME-PC, D16, D18 and the owner's items pending (2026-11-18, Claude Code Opus 5.5, HOME-MacOS)
+
+This block supersedes the blocks below for status and next action. Start `a5aaf23`. Commits: `bae180c` P5-G, `f71f8b7` harness (dev-only), `89189ab`, `f04075f` and `b0c2e19` P5-H, then the documents commit that adds this block. Pushed to `origin` only; nothing merged, tagged, packaged or published. Evidence (ignored): `files/dev-work/macos-p5-closeout/` (`ledger.md`: every Phase 5 item, its status and its record), `files/dev-work/macos-p5g/`. Decisions: P5-G, P5-H and P5 closeout entries.
+
+- **Status.** The agent-side Mac work of P5 is done. **The formal P5 exit is not met:** it needs the owner's acceptance and decisions, the Windows HOME-PC regression with E-B2, and D16 and D18. Nothing was signed on the owner's behalf. P5-C is owner-accepted; P5-A to P5-H otherwise are not.
+- **P5-G (`bae180c`).** `setup.first-run-refuses-a-folder-too-deep` is NOT APPLICABLE ON MACOS under reason `windows-only-installation-path-limit`. The reason is scoped to that one scenario and keeps `fresh-macos`; the Windows journey is unchanged. The map is complete: 49 automated, 7 not applicable, 0 pending. 22 new tests. Codex review 1 (read-only, fresh context): **PASS, no finding**.
+- **P5-H (`89189ab`, `f04075f`, `b0c2e19`; an agent decision for the owner's review).** On a Mac, a narration reaching the assembly gate (about 5.5 minutes of audio or more) is joined on disk, never in memory. The output is the same MP3 to the byte.
+  - Found natively: a 37-minute Edge file took the app from 0.32 to 5.2 GiB at assembly.
+  - Reproduced on its real narration: the in-memory join's footprint grows with the square of the parts (4.86 GiB for 128; 10 GiB by 66 minutes; budget 0.37–0.62 GiB). The disk route took 28 MiB with identical PCM.
+  - Re-run natively on `89189ab`: 0.34 GiB. That run's log showed the Windows sentence ("more than this computer has free now"), which is untrue on a Mac; `f04075f` gives the Mac its own sentence.
+  - Tests: 14 new, five mutations caught. By id, 41 existing modules are identical before and after (6 in-memory-route modules: 540 passed / 2 failed; 35 others: 2,675 tests).
+  - Windows' code path unchanged; `worker_limits.py` joins the HOME-PC touchpoints.
+- **Long-form (AUTOMATED, real media; text D is the agent-chosen Re:Monster vol. 1, owner confirmation pending).**
+  - **Kokoro, whole book:** 6.29 h in 1,276.8 s (wall RTF 0.0564); screen clean; no swap; footprint trend −8.7 %. **Lifetime peak 7.29 GiB, over D6-K's 6 GiB** (single chunks peak 4.2–5.3 GiB in fresh workers; cause not established).
+  - **Edge ≥30 min:** 36.6 min, 806/806 requests, 0 retries, three runs.
+  - **OmniVoice ≥30 min:** Male 1 on the Mac GPU, 43.1 min, RTF 0.905. Peak 10.94 GiB (9.4 % over 10 GiB: the accepted exception's upper edge). 1–4 full-scale samples in 19 of 144 chunks (known for Male 1 since P4B; owner listening).
+- **App Nap (D11d):** no throttling. Kokoro hidden (Cmd+H, not in front) against visible: +1.9 % wall RTF, inside run-order drift; Edge hidden was faster (service time). Recommendation: no `caffeinate` for throughput; idle sleep not exercised.
+- **D6-final (RECOMMENDED, owner confirms).**
+  - D6-E: unchanged.
+  - D6-K: RTF, load and growth confirmed; the peak is outside. The agent recommends recording a Kokoro peak exception and keeping 6 GiB.
+  - D6-O: RTF confirmed; the memory exception recorded at 9.4 %.
+- **KX-10 (Chatterbox not re-enabled).** Automated counterparts at `f04075f`, all PASS:
+  - Kokoro real window: SIGKILL 0.048 s, SIGSEGV 0.323 s, SIGABRT 0.339 s, SIGTERM 0.186 s, Quit 0.231 s; KX-7 negative control seen.
+  - OmniVoice KX-1(c): 0.096 s.
+  - `macos-kx10` (Maker): RESULT PASS, 31 checks (`2026-11-18_205228_qualification_fff4`).
+  - **The real Force Quit window: OWNER, PENDING** — `files/dev-work/macos-acceptance/P5-KX10-owner-checklist.md` (bound to the documents commit that adds this block; sign per its instructions).
+- **Focused gate at `b0c2e19` (proportional; not the full gate):** `2026-11-18_205858_focused_e4aa`. The 11 journeys (seven `tts.*`, both `shutdown.tts-*`, both automated `setup.*`) are AUTOMATED PASS. pytest: 549 passed, 33 skipped (each named by the policy), 2 failed — `test_low_memory`'s Windows `winerror` allocation forms, the same ids before P5-H. **RESULT: FAIL on those two inherited ids only.** The first run, at `f04075f`, also caught the new test's raw `rglob`; fixed in `b0c2e19`. The whole map is NOT re-proved at one SHA: the incremental ledger reports 55 items NEED RERUN and 18 with no run here. That is P7's job, on both platforms.
+- **Protected state.** Models, voices, environments and FFmpeg are unchanged. Assets 18/2/28 verify. No process of the app is left. The default Downloads output folder was absent before and after (found absent at the start; not touched). In `files/runtime-data`, only OmniVoice job folders came and went: three from 2026-11-16 were removed by the app's own 24-hour cleanup; today's KX-1 kill left one job folder and a torch temp folder. The owner's 17 tracked deletions and five untracked entries were never staged.
+- **Windows HOME-PC regression and E-B2: PENDING (prepared, not run; HOME-PC untouched).** Run only after the production job on HOME-PC has finished; never against the production distribution (`%LOCALAPPDATA%\Audiobook-Creation-Tool-v0.8.0`). Use the development checkout on `feature/0.8.0-macos-compatibility` at **the commit that adds this block** (its parent is `b0c2e19`). Program code there equals `f04075f`; since the owner-accepted launcher `10a2fc4`, the shared program changes are `bootstrap.py`'s wrap margin and `worker_limits.py`, whose new branch is darwin-only.
+  1. **Focused tests**, compared by id with the same modules at `v0.8.0` `d1701e9` where they exist. A new module must pass, or skip only by a named Windows rule. Run `.venv\Scripts\python.exe files\dev-work\verification-gate\verify.py --mode focused --platform windows --label p5-windows-regression` with one `--test files\tests\<module>` for each of:
+     `test_synthesis_worker_group_retirement test_normal_exit_group_retirement test_first_run_setup_ownership test_child_ownership test_optional_tts_setup test_optional_setup_acquisition test_release_installer test_omnivoice_setup test_omnivoice_synth test_omnivoice_reference test_omnivoice_layout test_local_engine_worker test_qwen3_process test_qwen3_synth test_qwen3_setup test_qwen3_lifecycle_locks test_chatterbox_bootstrap test_chatterbox_evaluation test_kokoro_health test_tk_proof test_spacy_restore test_bootstrap_requirements_state test_bootstrap_import_validation test_venv_recovery test_venv_integrity test_engine_policy test_cleanup_engine_lease test_cleanup_worker test_cleanup_state test_maintenance test_config test_launch_self_heal test_hardening_matrix test_first_run_contract test_first_run_wrap_margin test_ffmpeg_health test_ffmpeg_runtime_trust test_ffmpeg_portable test_base_packages test_layout_canary test_release_packaging test_worker_limits test_low_memory test_assembly_on_disk test_cancel_semantics test_edge_publication test_tts_worker_concurrency test_macos_p5_assembly_on_disk test_macos_p1b_containment test_macos_p1b_gate test_macos_p1b_closeout_gate test_macos_p5_platform_exception test_macos_p5_first_run_choices test_macos_p5_clear_downloaded_data test_verification_coverage`
+     (`.py` each). This is the union of every P1A–P5-H Windows touchpoint list in the blocks below.
+  2. **Windows journeys** (needs the desktop): the same command with `--journey setup.first-run-refuses-a-folder-too-deep --journey setup.first-run-choices-and-cancel --journey setup.clear-downloaded-data --journey tts.pause-at-file-boundary --journey tts.edge-replay-direct-file --journey tts.edge-replay-folder-mixed`.
+  3. **E-B2:** `.venv\Scripts\python.exe files\dev-tools\macos_p2_qualify.py eb2 --out files\dev-work\macos-p5-eb2-win`, then `macos_p2_qualify.py eb2-compare --out files\dev-work\macos-p5-eb2-win\cmp --first <the Mac's eb2.json> --second files\dev-work\macos-p5-eb2-win\eb2.json`.
+     - The Mac record is `files/dev-work/macos-p2/q-8933113/eb2/eb2.json` (SHA-256 `53aeccab96518b5cfd58fb0a810d2165681dc6f7c2027c13bea2e1db6007a3fb`). It is ignored here, so the owner copies it across.
+     - That `.venv` needs ACT's pins: kokoro 0.9.4, misaki 0.9.4, spaCy 3.8.16, `en_core_web_sm` 3.8.0.
+     - Required: IDENTICAL.
+  4. **Owner check `first-run-scaling`** on Windows display scaling.
+  - **Required result:** no new failure or skip by id; the journeys PASS; `eb2-compare` IDENTICAL.
+- **D16 (RECOMMENDATION, owner sign-off required).** Option A: one shared v0.8.1 source release (Windows and macOS ZIPs from one commit, tag `v0.8.1`); `v0.8.0` untouched. This matches the owner's roadmap draft. **`origin/master` has the owner's one-commit roadmap draft (`b1250d0`) that this branch lacks, so a fast-forward is not possible: an owner integration decision is needed.**
+- **D18 (RECOMMENDATION, owner sign-off required).** A real, clean Apple Silicon Mac, preferably with at least 16 GB, ready before P7c. A VM cannot qualify OmniVoice's GPU route and needs approved downloads.
+- **Owner's next actions:**
+  1. Review and accept or reject P5-A to P5-H, including P5-H's product change.
+  2. Decide permissions, D6-final, D11d, D15, the text D book, D16 and D18.
+  3. Listen to the P2 pack and confirm OmniVoice Male 1's clipped-sample flags.
+  4. Dispose of the P1B visual debt and re-review the Dark look.
+  5. Do the six-tool GUI pass and the KX-10 Force Quit checklist.
+  6. Then, as its own authorization, the Windows HOME-PC regression and E-B2.
+
 ## Current checkpoint — P5-F-R1: the first-run descriptions are wrapped to the width they really have (margin 48 to 62); `setup.first-run-choices-and-cancel` PASSES natively on the corrected source and is an automated macOS counterpart; the folder-depth journey stays pending (2026-11-18, Claude Code Sonnet 5.5, HOME-MacOS)
 
 This block supersedes the blocks below for status and next action. Start `4801b40`; candidate `4579a1e`. Evidence `files/dev-work/macos-p5f/` (`r1-run1`, `r1-run2-revised-map`, `r1-run3-candidate-4579a1e`; P5-F's runs kept, `dev2` and `fix-proof1` are not acceptance evidence) and `files/dev-work/macos-p5f-r1/tests/`. Decisions: P5-F-R1 entry.
