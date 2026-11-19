@@ -385,7 +385,9 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   that counted start ends: no slow or blocked spawn holds a Cancel, a Cancel that latched first refuses the start, and
   a gate that is late, stopped or unacknowledged can never start FFmpeg after the latch (its conversion thread leaves a
   stalled spawn at the Cancel; the start is still counted in the run's
-  settlement). The same holds for a guardian's spawn; a guardian is adopted only inside the run's Cancel ordering
+  settlement). After a Cancel the run waits for its files in progress at most 5 s from the
+  click (the largest route bound); a file still converting then fails the run, naming it, never CANCELLED. The
+  Qwen3/OmniVoice MP3 encode is a contained FFmpeg too (it used to run in a session of its own). The same holds for a guardian's spawn; a guardian is adopted only inside the run's Cancel ordering
   (a guardian made for a run cancelled meanwhile is ended, never kept); a lost guardian's programs are all marked failed
   the moment the loss is seen and are ended together under one shared deadline by the containment owner, never on the
   conversion's thread. Reading, converting, scanning (the audible check

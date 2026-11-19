@@ -570,7 +570,8 @@
         "On macOS (v0.8.x P2) a Cancel during a Kokoro chunk does not wait for the chunk: the request's own Cancel poll ends the local-engine worker's whole process group and reaps it (bounded at 2 s), and a paused or between-files run's worker is ended by Cancel itself; nothing unfinished is published and the next run starts a fresh worker.",
         "On macOS (v0.8.x P5-D) the local-engine worker is never reaped before its whole process group has been ended (identity-proved, under its waitpid lock), whether Cancel finds it busy, idle or already exited; a pipe is never closed under a reader still blocked on it; a group not confirmed ended fails the file with a sentence that says so instead of a clean Cancel.",
         "On macOS (v0.8.x P5-D-R1) a Cancel that meets another caller's end of the same local-engine worker (an engine switch's close, a Cancel hook) reports that end's own answer: an end whose group was not confirmed ended is never turned into a clean Cancel.",
-        "On macOS (v0.8.x P5-D-R2) a request in flight asks for its own worker's end by name: if another caller has already retired that worker -- even completely, before the request saw Cancel or the worker's end -- that worker's own retirement answer stands, so an unconfirmed end is never a clean Cancel and the file's failure says it could not be confirmed stopped; an end asked for one worker never retires another or takes its answer."
+        "On macOS (v0.8.x P5-D-R2) a request in flight asks for its own worker's end by name: if another caller has already retired that worker -- even completely, before the request saw Cancel or the worker's end -- that worker's own retirement answer stands, so an unconfirmed end is never a clean Cancel and the file's failure says it could not be confirmed stopped; an end asked for one worker never retires another or takes its answer.",
+        "After a Cancel the run waits for its items in progress at most ITEM_STOP_S (5 s, the largest route T_stop) from the click; an item still running then fails the run, naming it, and is never reported CANCELLED (v0.8.x P5-I-R3)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -579,7 +580,8 @@
         "files/tests/test_plan4_lifecycle_races.py",
         "files/tests/test_low_memory.py",
         "files/tests/test_local_engine_worker.py",
-        "files/tests/test_synthesis_worker_group_retirement.py"
+        "files/tests/test_synthesis_worker_group_retirement.py",
+        "files/tests/test_macos_p5i_r3_settlement.py"
       ],
       "journeys": [
         "tts.cancel-during-narration"
@@ -3593,7 +3595,8 @@
             "remove_job_dir",
             "cleanup_stale_jobs",
             "record_failure",
-            "_collect_chunks"
+            "_collect_chunks",
+            "_encode_contained"
           ]
         },
         {
@@ -3623,13 +3626,15 @@
         "Chunks are whole sentences that never cross a paragraph, preserve every source character in order, and carry a stable per-chunk seed.",
         "Chunk audio is read back from the files in plan order, validated (mono, finite, same rate), assembled with pauses between chunks only, encoded once and published atomically; cancel wins until the moment of the move.",
         "A reported failure (load, generation, out of memory) fails that file with a plain message, leaves any existing destination untouched and removes the job folder.",
-        "Windows only; on other platforms the voices say 'not yet available' and nothing is offered."
+        "Windows only; on other platforms the voices say 'not yet available' and nothing is offered.",
+        "On macOS with a containment owner the one MP3 encode is a contained FFmpeg (guardian's group, ordered start, stopped by Cancel within the FFmpeg bound); without an owner it runs as released (v0.8.x P5-I-R3)."
       ],
       "selection": [
         "files/tests/test_qwen3_synth.py",
         "files/tests/test_qwen3_worker.py",
         "files/tests/test_qwen3_gui.py",
-        "files/tests/test_qwen3_runtime.py"
+        "files/tests/test_qwen3_runtime.py",
+        "files/tests/test_macos_p5i_r3_routes.py"
       ],
       "journeys": [],
       "verification": {
@@ -3921,6 +3926,13 @@
             "convert_with_omnivoice",
             "omnivoice_status"
           ]
+        },
+        {
+          "path": "scripts/tts/qwen3_synth.py",
+          "symbols": [
+            "encode_mp3",
+            "_encode_contained"
+          ]
         }
       ],
       "contracts": [
@@ -3931,7 +3943,8 @@
         "No GPU, no installed engine or model, or a changed recording makes only the OmniVoice voices unavailable with one next step; nothing falls back to another voice or engine, and one OmniVoice file converts at a time.",
         "A worker whose packages do not import fails that file, has the engine recorded as damaged and says the one next step (start again and choose Install & Continue); its startup imports are classified where they fail, so a native library Windows will not load (an OSError) counts, while running out of memory there, Smart App Control, the network guard and every later failure condemn nothing.",
         "On macOS (v0.8.x P5-D) however an OmniVoice worker ends (done, Cancel, a crash) its process group is ended before it is reaped; its exit is seen without reaping it, so output held open by a leftover neither delays nor hangs the run; a group not proved or confirmed ended, or output held open past it, fails the file -- never a success or a clean Cancel. Windows keeps the released supervision.",
-        "On macOS (v0.8.x P5-D-R1) an OmniVoice worker whose identity could not be recorded at spawn is never admitted -- neither supervised the released way, which reaps it first and could report a success or a clean Cancel with nothing vouching for what it left, nor ended by a guess at its group: its leader alone is ended through Popen's guarded kill before it runs and reaped, and the file fails saying the engine was not started under the app's control. Windows keeps the released supervision."
+        "On macOS (v0.8.x P5-D-R1) an OmniVoice worker whose identity could not be recorded at spawn is never admitted -- neither supervised the released way, which reaps it first and could report a success or a clean Cancel with nothing vouching for what it left, nor ended by a guess at its group: its leader alone is ended through Popen's guarded kill before it runs and reaped, and the file fails saying the engine was not started under the app's control. Windows keeps the released supervision.",
+        "On macOS with a containment owner the one MP3 encode is a contained FFmpeg (guardian's group, ordered start, stopped by Cancel within the FFmpeg bound); without an owner it runs as released (v0.8.x P5-I-R3)."
       ],
       "selection": [
         "files/tests/test_omnivoice_synth.py",
@@ -3939,7 +3952,8 @@
         "files/tests/test_omnivoice_reference.py",
         "files/tests/test_omnivoice_speech.py",
         "files/tests/test_omnivoice_layout.py",
-        "files/tests/test_synthesis_worker_group_retirement.py"
+        "files/tests/test_synthesis_worker_group_retirement.py",
+        "files/tests/test_macos_p5i_r3_routes.py"
       ],
       "journeys": [],
       "verification": {
@@ -8104,7 +8118,11 @@
             "cancellable",
             "_stop",
             "_cancelled",
-            "_tail"
+            "_tail",
+            "containment_problem",
+            "settle_bound",
+            "note_unresolved",
+            "unresolved_children"
           ]
         }
       ],
@@ -8114,7 +8132,8 @@
         "Retry Failed is not offered after a cancelled run.",
         "A stopped step is never a failed or retryable track and never the 999 launch failure; its half-written staged track or combined file is removed. Only that step's own process is stopped: any other FFmpeg, even one this program started, is untouched. Pause never stops or suspends a running step.",
         "A cancelled run keeps no private staging: no Retry Failed is offered after a Cancel, so the run folder's .work goes before the run reports Cancelled (v0.7.2, ACT72-037).",
-        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004)."
+        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004).",
+        "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
@@ -8122,7 +8141,8 @@
         "files/tests/test_mp3_write_id3.py",
         "files/tests/test_mp3_combine.py",
         "files/tests/test_ffmpeg_cancel.py",
-        "files/tests/test_mp3_staging_release.py"
+        "files/tests/test_mp3_staging_release.py",
+        "files/tests/test_macos_p5i_r3_settlement.py"
       ],
       "journeys": [],
       "verification": {
@@ -13068,7 +13088,11 @@
             "cancellable",
             "_stop",
             "_cancelled",
-            "_tail"
+            "_tail",
+            "containment_problem",
+            "settle_bound",
+            "note_unresolved",
+            "unresolved_children"
           ]
         }
       ],
@@ -13078,14 +13102,16 @@
         "A cancel arriving while a Book is publishing keeps that Book and stops at the next boundary.",
         "Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (any other FFmpeg is untouched), and no later step starts. A stopped step is never a failed encode: no FAST-to-Safe fallback and no retryable failure.",
         "Cancel while a candidate kept from an earlier attempt is being checked or numbered discards it; no Series Part is committed and nothing is published.",
-        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004)."
+        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004).",
+        "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished."
       ],
       "selection": [
         "files/tests/test_m4b_maker_batch.py",
         "files/tests/test_m4b_maker_ui.py",
         "files/tests/test_m4b_combined_hardening.py",
         "files/tests/test_m4b_maker_processing.py",
-        "files/tests/test_ffmpeg_cancel.py"
+        "files/tests/test_ffmpeg_cancel.py",
+        "files/tests/test_macos_p5i_r3_settlement.py"
       ],
       "journeys": [],
       "verification": {
@@ -15234,7 +15260,11 @@
             "cancellable",
             "_stop",
             "_cancelled",
-            "_tail"
+            "_tail",
+            "containment_problem",
+            "settle_bound",
+            "note_unresolved",
+            "unresolved_children"
           ]
         }
       ],
@@ -15244,14 +15274,17 @@
         "A Cancel arriving while a Book is being published keeps that Book and stops at the next boundary",
         "Originals are never touched",
         "A stopped remux is never a failed or retryable Book: no failure is reported and Retry Failed is not offered; its half-written .retitle.tmp output and its ffmetadata folder are removed",
-        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004)."
+        "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004).",
+        "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished."
       ],
       "selection": [
         "files/tests/test_m4b_metadata_batch.py",
         "files/tests/test_prototype_regression.py",
         "files/tests/test_m4b_combined_hardening.py",
         "files/tests/test_m4b_metadata_editor_ui.py",
-        "files/tests/test_metadata_remux_cancel.py"
+        "files/tests/test_metadata_remux_cancel.py",
+        "files/tests/test_macos_p5i_r3_settlement.py",
+        "files/tests/test_ffmpeg_cancel.py"
       ],
       "journeys": [],
       "verification": {
@@ -18292,7 +18325,10 @@
         {
           "path": "scripts/shared/subprocess_utils.py",
           "symbols": [
-            "stop_media_children"
+            "stop_media_children",
+            "begin_closing",
+            "close_budget",
+            "shutdown_containment"
           ]
         },
         {
@@ -18317,14 +18353,16 @@
         "Closing during a folder import cancels and joins the scan and adds nothing.",
         "The launcher holds its Tk root for the life of the process, so a closed root is never freed on a worker thread.",
         "Once the main loop has ended the launcher finishes the closed window's Tk variables, images and fonts on the main thread, so a collection that lands on a worker afterwards makes no Tk call and waits for nothing (v0.7.2, ACT72-017; the forced-landing arms check both).",
-        "On macOS (v0.8.x P1B) the window owns the FFmpeg and ffprobe it starts (class B, in its guardian's group) and its optional-setup workers (class A, on its lifeline); closing, Cmd+Q and SIGTERM/SIGHUP/SIGINT take the one close path, and SIGKILL or a crash of the window still ends every one of them."
+        "On macOS (v0.8.x P1B) the window owns the FFmpeg and ffprobe it starts (class B, in its guardian's group) and its optional-setup workers (class A, on its lifeline); closing, Cmd+Q and SIGTERM/SIGHUP/SIGINT take the one close path, and SIGKILL or a crash of the window still ends every one of them.",
+        "On macOS (v0.8.x P5-I-R3) the orderly end is one 5 s deadline from the close request: each panel's worker join takes only what is left of it less the containment's reserve (subprocess_utils.close_budget), and the owner's shutdown never waits past it."
       ],
       "selection": [
         "files/tests/test_close_stops_media_children.py",
         "files/tests/test_root_lifetime.py",
         "files/tests/test_import_coordination.py",
         "files/tests/test_job_ui.py",
-        "files/tests/test_tk_teardown_on_main_thread.py"
+        "files/tests/test_tk_teardown_on_main_thread.py",
+        "files/tests/test_macos_p5i_r3_settlement.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -26303,21 +26341,21 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "ae8c5f4859e6eef26a8c1a543d4b2e7b4058ec24cd51977aa618e5291535b484",
+    "scripts/artwork/cover_resizer.py": "79073685b6f462f2677767d7b97a74744163ac92b495dd801a3f9fa42d3917bb",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
     "scripts/launcher.py": "c7b92b82c15715cd2b94f1c329a190f22c2da27a8ce51ecaa56d0eddfdca6e76",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "b3f91508bf480a920522c0c7ca3c6bdf301438768edadb6a03e585c50374bd5d",
+    "scripts/m4b/converter/m4b_converter.py": "c64afc4cc6f41ea235db72370118ccb5f99f5eb88bdd1f18a62f91f24c5fa068",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "890d063b6a40a7e54b4828d7e420445ac114f72ee9c0a113fbc5f20c9c2e4770",
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
-    "scripts/m4b/m4b_continuous.py": "1be6e837c4e408dea7566131686b5d19111bf4f57640e54ac0f0d9b03c78f94b",
-    "scripts/m4b/m4b_execution.py": "8a5600626e5846dd1b5bdbb60067ca1cff8023e94adca2c2fa024ab53a5f49ee",
+    "scripts/m4b/m4b_continuous.py": "1cddf21ff8be8cdec42cab19361e1bb47cdc69961184cff0042e33d28eaacc1c",
+    "scripts/m4b/m4b_execution.py": "2bc058e2f22b8e813a4323e897f98d5d27ff546421114883157c52213528a815",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
@@ -26326,12 +26364,12 @@
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
     "scripts/m4b/maker/m4b_maker.py": "cac238262f2fb9f3957bd469bbc1d10a90afb688eb8f0208a5e2eaf05f45e6c4",
-    "scripts/m4b/maker/m4b_maker_batch.py": "fbeaee438a052c3f58c9b4840e95db1249498240d537b9b66487870bf832e0e6",
+    "scripts/m4b/maker/m4b_maker_batch.py": "cfec80871ea1f8c1a3435b080d3a07479753f26ef742626c693668d09d292f18",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
-    "scripts/m4b/metadata/m4b_metadata_batch.py": "bca58c374997bc3d1ce3ce52b691c876a2a8d6c23f67ae426e9deda02b10806c",
+    "scripts/m4b/metadata/m4b_metadata_batch.py": "36b5cb2e5acdbe250428d5a9f2b446deb26256898e2f4ef50504f11aa9c177bf",
     "scripts/m4b/metadata/m4b_metadata_editor.py": "d9abf3ed374a5e1215cc3ecb7b350d19b1e3f4644c12eeae2ca93d09bf87e893",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
@@ -26339,7 +26377,7 @@
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "3cd73fb580e6bcd9cf0808fa9d2e79721efa31181c758fb6e8382bf6071efced",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "caabcd7cf8fccdd1461fd1ddd8a396d380c4bf577d1051e152aa40937017ab2e",
+    "scripts/mp3/mp3_tool.py": "d2c5bca0c78a732a2415fcbf4f7cea19779bd71526eed412eac6b4760dbef79e",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "99c038fc2e7bd85f8341922e5a2ff6023d1be72f7e7c9336513a0d082691239b",
@@ -26355,7 +26393,7 @@
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
     "scripts/shared/child_guardian.py": "d1421a3fcd563b0d2b43a8d30d295efbe641f71b8945ecbb89c2f7759b7a864d",
     "scripts/shared/child_launch.py": "267b52f0d05fe04747d1d128ada81ee74699276cca63a2a07e29dcd51ca212b7",
-    "scripts/shared/child_ownership.py": "1327168763e099a606667426244f66c7221f9cb7f330d7ca20a80088419cc381",
+    "scripts/shared/child_ownership.py": "f9a9254297a992d57917bc8cfe8d9a3a35fd8bb71f02d643a0934898b8829491",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26369,7 +26407,7 @@
     "scripts/shared/image_capabilities.py": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
-    "scripts/shared/job_control.py": "92941cca47849106a2548b90d2dbbf26238a0399b0eafc0d47a5dc63f792b9dc",
+    "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
     "scripts/shared/job_ui.py": "902ab2f39059f49be0294f7069263aff52c21ee33202aad5737fd5ae7b4c3093",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
@@ -26396,7 +26434,7 @@
     "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "8bd5e72e7355062e9200e21762a47e6e131e6691ba4187df07500c6b61d102b7",
+    "scripts/shared/subprocess_utils.py": "6e6892a8c88529d140a3ee1c0efcce7cd1419e7119ba29be1da236ae2b7da3bd",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
     "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
@@ -26413,16 +26451,16 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "d138d67769dabcbf3fdf60555d47cc1fccef4c920c7af45ed775b9776590af8a",
-    "scripts/tts/ffmpeg_watch.py": "4213264d5685329378ee3a18de296a71b3fe95355e0a65cadb8081899c7d5a30",
+    "scripts/tts/epub2tts_gui.py": "56e17917fde87b50f1a5df3067c813775577bce028626d70db237e4da99c1cd9",
+    "scripts/tts/ffmpeg_watch.py": "de2643b4fee247d2ad8b6d08e2de105fc05d0678b3d5888fde548dedc7f47fa7",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
-    "scripts/tts/local_engine_host.py": "e6d5e3d9f3b8af5f3dfd9adec7c73ce5af96ba4e053219c187b3934ffbf616bd",
+    "scripts/tts/local_engine_host.py": "377f7e85815391ab8789fc882d7b958bca5fd86a4e40e13960759f0be549f21c",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
-    "scripts/tts/omnivoice_synth.py": "c14c50d3cfdabbaf61d982636907462f9a6ae8bae51aefb390dce0f4fc883deb",
+    "scripts/tts/omnivoice_synth.py": "02ac13e64a1c7486385f8ec9031c16ee0d69c1f27e50c537dd504ec1271b197f",
     "scripts/tts/omnivoice_worker.py": "f35756992d51fb9dcaf0fa53abddc057764f57adbb18864439ca2634fd10fc5e",
     "scripts/tts/optional_setup.py": "4d2fb5d341a3006cd83a0c8c686860c1737a2ed909ac465988dee3f8d7544445",
     "scripts/tts/optional_setup_acquire.py": "a9fe41855365ad00e37cf6046235c0af6ef6554a1213af61a6d36e98f65683ed",
@@ -26445,7 +26483,7 @@
     "scripts/tts/qwen3_process.py": "7fce4deeaf29dcad26ceea6665744b8f1e37fbb145d804aac3045f001064f158",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
     "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
-    "scripts/tts/qwen3_synth.py": "2d3de07869d2b8ebb0832ef88da6c81b7cdcea1facca9c933a4f93bb0844d7e1",
+    "scripts/tts/qwen3_synth.py": "f06acc28bb213f49c641787449ce3e6a91401f83d732d630603d3f3f8676e0d1",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
     "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",
     "scripts/tts/spacy_consumer.py": "4531483832fcb8bcedcf523ca91b57475bded8429de720673318ee0dd7528768",

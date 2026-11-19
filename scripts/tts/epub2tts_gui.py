@@ -166,6 +166,12 @@ from tts.voice_registry import (
 
 #: How long ``close()`` waits for a conversion worker to unwind.
 WORKER_JOIN_TIMEOUT = 5.0
+#: v0.8.x P5-I-R3: after a Cancel, how long the run waits for its items in progress to stop, measured from the click:
+#: the largest per-route T_stop (plan section 11.2.1, C2: Qwen3's 5 s). An item still running then is never waited for
+#: again: the run fails, naming it, instead of staying "Cancelling" for ever (and is never reported CANCELLED).
+ITEM_STOP_S = 5.0
+#: How often the run looks at its pool while items are in progress.
+POOL_LOOK_S = 0.1
 
 #: Visible rows in the imported-file list before it scrolls locally.
 IMPORTER_LIST_HEIGHT = 6
@@ -3074,7 +3080,7 @@ class TtsPanel(ttk.Frame):
         for line in speech_prep_run_lines(options.get("speech_prep")):
             self.log.append_detail(line)
         self._controller = job_control.JobController(
-            snapshot.snapshot_id, listener=self._on_state)
+            snapshot.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
         # Built after the adapter, so it binds *this* attempt's queue, and before
         # the controller is started, so the very first state change is published.
@@ -3186,7 +3192,7 @@ class TtsPanel(ttk.Frame):
             controller.request_cancel()
         worker = self._worker
         if worker is not None and hasattr(worker, "join"):
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         self._worker = None
         importer = getattr(self, "importer", None)
         if importer is not None:
@@ -3265,6 +3271,8 @@ class _RunContext:
         #: NOT_ATTEMPTED in the result (Decisions 2026-11-05); the closing line counts them apart.
         self.stopped = 0
         self.not_started = 0
+        #: v0.8.x P5-I-R3: items still running ITEM_STOP_S after the Cancel click (never waited for again).
+        self.unstopped: list[str] = []
         self._done = 0
         self._total = len(self.items)
         self._counter = threading.Lock()
@@ -3466,30 +3474,54 @@ class _RunContext:
             category = ETA_CATEGORY_DIRECT if item["direct"] else ETA_CATEGORY_FOLDER
             return "success", item, None, (self.clock() - started, category)
 
-        with ThreadPoolExecutor(max_workers=effective) as pool:
-            futures = {pool.submit(convert, item): item for item in self.items}
-            for future in as_completed(futures):
-                status, item, message, extra = future.result()
-                if status == "success":
-                    duration, category = extra
-                    self.record_success(item, duration, category)
-                elif status == "cancelled":
-                    self.cancelled = True
-                    stamp = datetime.now().strftime("%H:%M:%S")
-                    # Two truths, told apart: a file that never started was skipped; one that had started was stopped,
-                    # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
-                    what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
-                            else "skipped (cancelled)")
-                    if message == "stopped":
-                        self.stopped += 1
-                    else:
-                        self.not_started += 1
-                    self.log(f"[{stamp}] {item['source'].name} — {what}")
+        def take(status, item, message, extra):
+            if status == "success":
+                duration, category = extra
+                self.record_success(item, duration, category)
+            elif status == "cancelled":
+                self.cancelled = True
+                stamp = datetime.now().strftime("%H:%M:%S")
+                # Two truths, told apart: a file that never started was skipped; one that had started was stopped,
+                # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
+                what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
+                        else "skipped (cancelled)")
+                if message == "stopped":
+                    self.stopped += 1
                 else:
-                    self.record_failure(item, message or "the conversion failed")
-                self.advance(item)
-                if self.cancel_check():
+                    self.not_started += 1
+                self.log(f"[{stamp}] {item['source'].name} — {what}")
+            else:
+                self.record_failure(item, message or "the conversion failed")
+            self.advance(item)
+            if self.cancel_check():
+                self.cancelled = True
+
+        # v0.8.x P5-I-R3: never an unbounded wait for an item after a Cancel (``as_completed`` waited for ever on an
+        # engine that did not stop). Past ITEM_STOP_S from the click, items not yet started are skipped and those
+        # still running are named (``self.unstopped``): the run then fails, and the pool is not joined.
+        pool = ThreadPoolExecutor(max_workers=effective)
+        try:
+            futures = {pool.submit(convert, item): item for item in self.items}
+            pending = set(futures)
+            while pending:
+                try:
+                    for future in as_completed(pending, timeout=POOL_LOOK_S):  # completion order, as before
+                        pending.discard(future)
+                        take(*future.result())
+                except TimeoutError:  # concurrent.futures' own, the built-in one since 3.11
+                    pass
+                if pending and self.cancel_check():
                     self.cancelled = True
+                    clicked = self.controller.cancel_clicked_at
+                    if clicked is not None and time.monotonic() - clicked >= ITEM_STOP_S:
+                        for future in list(pending):
+                            if future.cancel():  # never started: skipped, exactly as convert() says it
+                                pending.discard(future)
+                                take("cancelled", futures[future], None, None)
+                        self.unstopped = [futures[f]["source"].name for f in pending]
+                        break
+        finally:
+            pool.shutdown(wait=not self.unstopped, cancel_futures=bool(self.unstopped))
         if params["run_directory"] is not None:
             # Each folder item removed its own working folder; nothing else is using this one now.
             with contextlib.suppress(OSError):
@@ -3518,6 +3550,12 @@ class _RunContext:
         stuck = ffmpeg_watch.settle_children(self.cancel_check)
         if stuck:
             self.settle_unstoppable(stuck)
+            return
+        if self.unstopped:
+            self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+                f"{', '.join(self.unstopped)}: still being converted {ITEM_STOP_S:g} s after the Cancel, so this run is "
+                "not reported as cancelled or finished. Nothing unfinished was saved. Quit the application before "
+                "converting again."))
             return
         if self.cancelled and not self.controller.cancel_acknowledged:
             try:
@@ -3559,8 +3597,15 @@ class _RunContext:
             "reported as cancelled or finished. Nothing unfinished was saved. Quit the application before converting again."))
 
     def settle_fatal(self, exc: BaseException) -> None:
-        """The run itself broke. A job failure, and never retryable."""
+        """The run itself broke. A job failure, and never retryable.
+
+        v0.8.x P5-I-R3: the run's contained processes are settled here too (bounded from the Cancel click), so what the
+        run still owns is ended and named in the failure rather than left to the owner's background retirement."""
         detail = f"{type(exc).__name__}: {exc}"
+        with contextlib.suppress(Exception):  # settling must never stop the failure from being reported
+            stuck = ffmpeg_watch.settle_children(self.cancel_check)
+            if stuck:
+                detail += f" [containment: process(es) {', '.join(map(str, stuck))} not confirmed ended; still owned]"
         message = "The conversion run could not be completed."
         fatal = FailureRecord(
             item_id=None, stage=STAGE_CONVERT, display_message=message,

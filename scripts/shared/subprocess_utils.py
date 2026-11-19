@@ -83,23 +83,57 @@ def containment_owner():
     return _owner
 
 
+#: v0.8.x P5-I-R3: the whole orderly end -- from the close request to the guardian reaped -- on POSIX with an owner.
+ORDERLY_END_S = 5.0
+#: ... of which the containment's own end (every child retired, the lifeline closed, the guardian reaped) keeps this
+#: much for itself: the panels' worker joins and the window's teardown get only what is left before it.
+CONTAINMENT_RESERVE_S = 2.5
+_closing_deadline: Optional[tuple] = None  # (the owner that began closing, its deadline)
+
+
+def _closing_by() -> Optional[float]:
+    """The orderly end's deadline, while the owner that started it is still this process's owner."""
+    closing = _closing_deadline
+    if closing is None or _owner is None or closing[0] is not _owner:
+        return None
+    return closing[1]
+
+
 def begin_closing() -> None:
     """The app is closing: from now on no FFmpeg, ffprobe or setup worker starts (a request raises, nothing runs).
-    POSIX with an owner only; nothing on Windows. Never raises."""
+    POSIX with an owner only; nothing on Windows. Never raises.
+
+    v0.8.x P5-I-R3: it also starts the orderly end's one deadline (:data:`ORDERLY_END_S` from the first call): the
+    panels' bounded joins (:func:`close_budget`) and :func:`shutdown_containment` all wait against it, so the end as a
+    whole never takes longer, however many panels are open."""
+    global _closing_deadline
     owner = _owner
     if owner is not None:
+        if _closing_by() is None:
+            _closing_deadline = (owner, time.monotonic() + ORDERLY_END_S)
         with contextlib.suppress(Exception):
             owner.begin_closing()
 
 
+def close_budget(timeout: float) -> float:
+    """How long a panel closing now may wait for its worker: *timeout*, except while the app is closing (POSIX with an
+    owner, :func:`begin_closing`), when it is never past the orderly end's deadline less what the containment keeps for
+    itself (:data:`CONTAINMENT_RESERVE_S`). Unchanged on Windows and whenever the app is not closing."""
+    deadline = _closing_by()
+    if deadline is None:
+        return timeout
+    return max(0.0, min(timeout, deadline - CONTAINMENT_RESERVE_S - time.monotonic()))
+
+
 def shutdown_containment() -> None:
     """The rest of the orderly end (plan section 11.2.2): every child still owned, then the lifeline -- which retires
-    the guardian -- then the guardian is reaped; bounded. POSIX with an owner only; never raises. The containment after
-    SIGKILL or a crash never depends on this."""
+    the guardian -- then the guardian is reaped; bounded, and never past the deadline :func:`begin_closing` started
+    (v0.8.x P5-I-R3). POSIX with an owner only; never raises. The containment after SIGKILL or a crash never depends
+    on this."""
     owner = _owner
     if owner is not None:
         with contextlib.suppress(Exception):
-            owner.shutdown()
+            owner.shutdown(deadline=_closing_by())
 
 
 def _media_owner(cmd, kwargs: dict):
@@ -155,8 +189,7 @@ def _contained_run(owner, cmd, *, input=None, capture_output: bool = False, time
     supervision = _supervision.get()
     if _asked_to_cancel(supervision):
         _cancelled(supervision, None, True, 0.0)
-    launch = _launch_kwargs(supervision.cancel_check) if supervision is not None else {}
-    process = _contained_popen(owner, cmd, **launch, **kwargs)
+    process = _contained_popen(owner, cmd, **_context_launch(), **kwargs)
     deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
     stdout = stderr = None
     try:
@@ -277,6 +310,54 @@ class ChildNotStopped(RuntimeError):
 _LAUNCH_KEYS = ("owner_run", "ordering", "checkpoint", "pending", "cancel_error")
 
 
+_run_context: contextvars.ContextVar = contextvars.ContextVar("subprocess_run_context", default=None)
+
+
+@contextlib.contextmanager
+def run_context(cancel_check):
+    """v0.8.x P5-I-R3: every contained start this thread makes inside the block belongs to the run of *cancel_check*
+    (a ``JobController.cancel_check``): ordered against its Cancel, accounted for by its settlement
+    (:func:`containment_problem`). A start a Cancel revoked raises ``ConversionCancelled``. Nothing changes on Windows
+    or where nothing is contained."""
+    token = _run_context.set(cancel_check)
+    try:
+        yield
+    finally:
+        _run_context.reset(token)
+
+
+def _context_launch() -> dict:
+    """The launch arguments of the innermost :func:`cancellable` or :func:`run_context` of this thread, if any."""
+    supervision = _supervision.get()
+    if supervision is not None:
+        return _launch_kwargs(supervision.cancel_check)
+    run = _run_context.get()
+    return _launch_kwargs(run) if run is not None else {}
+
+
+def stop_child(process, grace_seconds: float) -> bool:
+    """v0.8.x P5-I-R3: stop *process* -- through the owner when it is a contained child (identity-checked SIGTERM,
+    *grace_seconds*, SIGKILL, confirmed by the owner's shared deadline; the owner keeps ending it if not), else through
+    its own handle as released (terminate, kill). True once it was reaped (or had already exited)."""
+    owner = _owner
+    if owner is not None and owner.child(process) is not None:
+        return _stop_contained(owner, process, grace_seconds)
+    if process.poll() is not None:
+        return True
+    return _stop(process, grace_seconds)
+
+
+def kill_child(process) -> None:
+    """v0.8.x P5-I-R3: SIGKILL *process* -- through the owner (proved identity) when contained, else its own handle."""
+    owner = _owner
+    if owner is not None and owner.child(process) is not None:
+        with contextlib.suppress(Exception):
+            owner.kill_now(process)
+        return
+    with contextlib.suppress(OSError):
+        process.kill()
+
+
 def popen(cmd, **kwargs) -> subprocess.Popen:
     """Drop-in replacement for ``subprocess.Popen`` with hidden console on Windows.
 
@@ -289,6 +370,8 @@ def popen(cmd, **kwargs) -> subprocess.Popen:
     launch = {key: kwargs.pop(key) for key in _LAUNCH_KEYS if key in kwargs}
     owner = _media_owner(cmd, kwargs)
     if owner is not None:
+        if not launch:
+            launch = _context_launch()
         return _contained_popen(owner, cmd, **{k: v for k, v in launch.items() if v is not None}, **kwargs)
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
 
@@ -305,6 +388,80 @@ def settle_owned(run, bound_s: Optional[float] = None) -> list[int]:
         return owner.settle_run(run) if bound_s is None else owner.settle_run(run, bound_s)
     except Exception:  # noqa: BLE001 - settlement must not raise; an answer that could not be had is no clean end
         return [-1]
+
+
+#: v0.8.x P5-I-R3: the stopping bound of a cancelled run's contained FFmpeg steps, measured from the Cancel click
+#: (plan section 11.2.1, C2: one FFmpeg step, terminate -> 2 s -> kill -> 2 s).
+FFMPEG_STOP_S = 4.0
+#: What a run whose contained programs could not all be confirmed ended says instead of finished or cancelled.
+CONTAINMENT_FAILED_MESSAGE = ("A program this run started could not be confirmed stopped, so the run did not finish "
+                              "cleanly. Nothing unfinished was saved. Close and reopen the app before trying again.")
+
+
+_unresolved: dict = {}  # pid -> (kernel start time, what) (v0.8.x P5-I-R3)
+_unresolved_lock = threading.Lock()
+
+
+def note_unresolved(pid: int, start_time, what: str) -> None:
+    """v0.8.x P5-I-R3: a process this app owns (a voice-engine worker, say) was told to stop and could not be confirmed
+    ended. Until it is seen gone, no run is reported finished or cleanly cancelled (:func:`containment_problem`,
+    ``ffmpeg_watch.settle_children``). POSIX only; never raises."""
+    if not pid or pid <= 0:
+        return
+    with _unresolved_lock:
+        _unresolved[int(pid)] = (start_time, what)
+
+
+def unresolved_children() -> list[int]:
+    """The pids recorded by :func:`note_unresolved` that may still be running (the recorded process is still there,
+    with its recorded kernel start time; a process whose identity cannot be read is kept). Those seen gone are dropped."""
+    with _unresolved_lock:
+        items = list(_unresolved.items())
+    if not items:
+        return []
+    try:
+        from . import child_ownership
+    except ImportError:  # pragma: no cover - imported bare off scripts/shared
+        import child_ownership  # type: ignore[no-redef]
+    left = []
+    for pid, (start, _what) in items:
+        now = child_ownership.process_start_time(pid)
+        gone = now is None or (start is not None and now != start) or child_ownership._has_exited(pid)
+        if gone:
+            with _unresolved_lock:
+                if _unresolved.get(pid, (None,))[0] == start:
+                    _unresolved.pop(pid, None)
+        else:
+            left.append(pid)
+    return left
+
+
+def settle_bound(cancel_check, stop_s: float = FFMPEG_STOP_S) -> float:
+    """v0.8.x P5-I-R3: how long a run's settlement may still wait: what is left of *stop_s* after the Cancel click
+    (at least a short look), or one second for a run that was not cancelled."""
+    controller = getattr(cancel_check, "__self__", None)
+    clicked = getattr(controller, "cancel_clicked_at", None)
+    return 1.0 if clicked is None else max(0.2, clicked + stop_s - time.monotonic())
+
+
+def containment_problem(cancel_check, *, stop_s: float = FFMPEG_STOP_S) -> Optional[str]:
+    """v0.8.x P5-I-R3: why the run of *cancel_check* may NOT be reported finished or cleanly cancelled, or ``None``.
+
+    Asked by every tool's terminal path before it chooses its terminal event (and before it removes staging for a
+    retry). macOS with an owner: the owner retires whatever contained process the run still owes and waits for each end
+    to be confirmed -- never past *stop_s* after the Cancel click (``JobController.cancel_clicked_at``), or one second
+    when the run was not cancelled. A process not confirmed ended stays owned and keeps being ended; the run must then
+    end FAILED with this text as its detail (never CANCELLED, never a success). ``None`` on Windows, without an owner,
+    and for a run that left nothing."""
+    owner = _owner
+    if cancel_check is None:
+        return None
+    pids = settle_owned(cancel_check, settle_bound(cancel_check, stop_s)) if owner is not None else []
+    pids = sorted(set(pids) | set(unresolved_children()))
+    if not pids:
+        return None
+    named = ", ".join("a start still in progress" if pid == -1 else f"pid {pid}" for pid in pids)
+    return f"contained process(es) of this run not confirmed ended ({named}); still owned and still being ended"
 
 
 def containment_lost(process) -> bool:
@@ -516,6 +673,10 @@ def stop_media_children() -> list[int]:
     if sys.platform != "win32":
         owner = _owner
         if owner is None:
+            return []
+        if _closing_by() is not None:
+            # v0.8.x P5-I-R3: the app is closing. :func:`shutdown_containment`, next, retires them with every other
+            # child in one batch inside the orderly end's one deadline; a separate wait here would come on top of it.
             return []
         try:
             return owner.stop_external(MEDIA_PROGRAMS)

@@ -348,34 +348,44 @@ def scan_packets(source, *, total: int, priming: int, duration_seconds: float,
             reason = "cancelled" if cancelled() else ("timed out" if time.monotonic() > deadline else "")
             if reason:
                 stopped.append(reason)
-                try:
-                    proc.kill()
-                except OSError:
-                    pass
+                sp.kill_child(proc)  # v0.8.x P5-I-R3: contained -> the owner's proved kill
                 return
 
     watcher = threading.Thread(target=watch, name="m4b-packet-scan-watch", daemon=True)
     watcher.start()
+    # v0.8.x P5-I-R3: the lines are judged on a reader thread, so a child that cannot be stopped (and so never ends its
+    # output) holds that thread, never the preflight: this thread waits for the reader against the watcher's verdict.
+    judged: list = []
+
+    def read() -> None:
+        try:
+            judged.append(check_packet_lines(proc.stdout, total=total, priming=priming))
+        except (OSError, ValueError) as exc:
+            judged.append(f"the packet scan could not be read: {type(exc).__name__}: {exc}")
+
+    reader = threading.Thread(target=read, name="m4b-packet-scan-read", daemon=True)
+    reader.start()
     try:
-        verdict = check_packet_lines(proc.stdout, total=total, priming=priming)
-    except (OSError, ValueError) as exc:
-        verdict = f"the packet scan could not be read: {type(exc).__name__}: {exc}"
+        while reader.is_alive():
+            reader.join(poll_seconds)
+            if stopped:
+                reader.join(2 * grace_seconds)  # killed: its output ends as soon as it does
+                break
     finally:
         finished.set()
         if proc.poll() is None:
-            try:
-                proc.kill()
-            except OSError:
-                pass
+            sp.kill_child(proc)
         try:
             proc.wait(timeout=grace_seconds)
-        except subprocess.TimeoutExpired:  # pragma: no cover - a child that will not die
+        except subprocess.TimeoutExpired:  # pragma: no cover - a child that will not die (still owned, still ended)
             pass
-        try:
-            proc.stdout.close()
-        except (OSError, ValueError):
-            pass
+        if not reader.is_alive():  # never closed under a reader still blocked on it
+            try:
+                proc.stdout.close()
+            except (OSError, ValueError):
+                pass
         watcher.join(timeout=grace_seconds)
+    verdict = judged[0] if judged else "the packet scan could not be stopped"
     if stopped:
         return f"the packet scan was {stopped[0]}"
     if proc.returncode != 0 and verdict is None:
@@ -506,18 +516,21 @@ class ContinuousDecoder:
             return True
         reaped = True
         if proc.poll() is None:
-            for step in (proc.terminate, proc.kill):
-                try:
-                    step()
-                except OSError:
-                    pass
-                try:
-                    proc.wait(timeout=self._grace)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-            else:  # pragma: no cover - a child that survives terminate and kill
-                reaped = False
+            if sp.containment_owner() is not None and sp.containment_owner().child(proc) is not None:
+                reaped = sp.stop_child(proc, self._grace)  # v0.8.x P5-I-R3: proved, confirmed, kept if not
+            else:
+                for step in (proc.terminate, proc.kill):
+                    try:
+                        step()
+                    except OSError:
+                        pass
+                    try:
+                        proc.wait(timeout=self._grace)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                else:  # pragma: no cover - a child that survives terminate and kill
+                    reaped = False
         else:
             proc.wait()
         self.returncode = proc.returncode if reaped else None

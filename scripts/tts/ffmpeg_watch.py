@@ -283,8 +283,10 @@ def settle_children(cancel_check: Optional[Callable[[], bool]]) -> list[int]:
     the owner has retired what the run left and waited (bounded, each by its own deadline) for their ends to be confirmed:
     a child whose registration or watch failed, or one created for the run after its Cancel, included. Their process ids;
     a run with any is neither finished nor cleanly cancelled. Without an owner (Windows) exactly :func:`unconfirmed_children`."""
-    found = set(subprocess_utils.settle_owned(cancel_check)) if cancel_check is not None else set()
+    found = (set(subprocess_utils.settle_owned(cancel_check, subprocess_utils.settle_bound(cancel_check)))
+             if cancel_check is not None else set())
     found.update(unconfirmed_children(cancel_check))
+    found.update(subprocess_utils.unresolved_children())  # v0.8.x P5-I-R3: e.g. a voice-engine worker not confirmed ended
     return sorted(found)
 
 

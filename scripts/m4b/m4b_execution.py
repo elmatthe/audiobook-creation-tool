@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from shared import output_paths
+from shared.cancellation import ConversionCancelled
 from shared import subprocess_utils as sp
 
 from m4b import m4b_commands
@@ -234,6 +235,11 @@ def tail_of(path: Path, *, limit: int = DETAIL_TAIL) -> str:
 
 def _stop(proc, *, grace_seconds: float, poll_seconds: float, monotonic, wait) -> bool:
     """Terminate, then kill if it will not go. Returns whether it had to be killed."""
+    if sp.containment_owner() is not None and sp.containment_owner().child(proc) is not None:
+        # v0.8.x P5-I-R3 (macOS): a contained child is stopped by its owner -- identity-checked, its end confirmed by
+        # the owner's deadline and kept being ended if not -- never by a bare handle signal.
+        sp.stop_child(proc, grace_seconds)
+        return proc.returncode == -9 or proc.returncode is None
     try:
         proc.terminate()
     except OSError:  # pragma: no cover - already gone
@@ -292,6 +298,8 @@ def run_argv(
                 proc = spawn(argv, stdout=sink, stderr=subprocess.STDOUT)
         except OSError as exc:
             raise ProcessLaunchError(f"{type(exc).__name__}: {exc}") from exc
+        except ConversionCancelled:  # v0.8.x P5-I-R3: the run's Cancel revoked the start; nothing ran
+            return ProcessResult(returncode=None, cancelled=True, detail="", killed=False, unreaped=False)
 
         killed = False
         stopped = False
@@ -385,6 +393,11 @@ def run_argv_streaming(
                               stderr=subprocess.STDOUT)
         except OSError as exc:
             raise ProcessLaunchError(f"{type(exc).__name__}: {exc}") from exc
+        except ConversionCancelled:  # v0.8.x P5-I-R3: the run's Cancel revoked the start; nothing ran
+            if on_stop is not None:
+                on_stop()
+            return ProcessResult(returncode=None, cancelled=True, detail="", killed=False, unreaped=False,
+                                 producer_failed=False)
 
         def pump() -> None:
             try:
@@ -750,6 +763,11 @@ def convert_segment(
             except ProcessLaunchError as exc:
                 return refuse(f"{destination.name} could not be started.", str(exc))
 
+            if result.unreaped:
+                # v0.8.x P5-I-R3: before "cancelled" -- a stopped child not confirmed ended is never a clean stop.
+                return refuse(
+                    f"{destination.name} could not be stopped cleanly.",
+                    "the ffmpeg child was not confirmed ended after terminate and kill")
             if result.cancelled:
                 return stopped(result.detail)
 

@@ -78,6 +78,7 @@ from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
+from shared import subprocess_utils as sp
 from shared import ui_theme
 from shared.cancellation import ConversionCancelled
 from shared.import_coordination import ImportCoordinator
@@ -1573,7 +1574,7 @@ class CoverBrowser:
         self._pump.remove_drain(self.drain)
         workers, self._workers = self._workers, []
         for worker in workers:
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         try:
             self.canvas.delete("all")
         except tk.TclError:  # pragma: no cover - already destroyed
@@ -2580,7 +2581,7 @@ class CoverResizerUI(ttk.Frame):
         self._result = None
         self._attempt += 1
         self._controller = job_control.JobController(
-            snapshot.snapshot_id, listener=self._on_state)
+            snapshot.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
         self._reporter = job_control.JobReporter.for_run(
             snapshot, clock=self._clock, publish=self._publish)
@@ -3121,7 +3122,7 @@ class CoverResizerUI(ttk.Frame):
             controller.request_cancel()
         worker = self._worker
         if worker is not None and hasattr(worker, "join"):
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         self._worker = None
         jobs = getattr(self, "jobs", None)
         if jobs is not None:

@@ -25,6 +25,7 @@ a GPU that fails fails the file; a worker that dies fails the file.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -45,6 +46,7 @@ import soundfile as sf
 
 from shared import engine_policy
 from shared import ffmpeg_utils
+from shared import subprocess_utils
 from shared.cancellation import ConversionCancelled
 from tts import audio_tail
 from tts import qwen3_process
@@ -384,6 +386,14 @@ def encode_mp3(wav_path: Path, mp3_path: Path, bitrate: Optional[str], *, work_d
     command = [executable, "-y", "-nostdin", "-loglevel", "error", "-f", "wav", "-i", str(wav_path),
                "-f", options["format"], "-codec:a", options["codec"], "-b:a", options["bitrate"], str(mp3_path)]
     stderr_path = work_dir / "ffmpeg-stderr.txt"
+    if subprocess_utils.contained(command):
+        # As Popen(cwd=work_dir) would resolve them: the contained run takes no working directory.
+        here = {str(wav_path): os.path.join(os.path.abspath(work_dir), str(wav_path)),
+                str(mp3_path): os.path.join(os.path.abspath(work_dir), str(mp3_path))}
+        code = _encode_contained([here.get(part, part) for part in command], stderr_path, cancel_check)
+        if code != 0:
+            raise Qwen3Failed(f"The MP3 could not be encoded (ffmpeg exit code {code}). {_tail(stderr_path)}".strip())
+        return
     with open(stderr_path, "w", encoding="utf-8") as stderr_file:
         proc = qwen3_process.spawn(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                    stderr=stderr_file, cwd=str(work_dir))
@@ -399,6 +409,22 @@ def encode_mp3(wav_path: Path, mp3_path: Path, bitrate: Optional[str], *, work_d
     if proc.returncode != 0:
         raise Qwen3Failed(f"The MP3 could not be encoded (ffmpeg exit code {proc.returncode}). "
                           f"{_tail(stderr_path)}".strip())
+
+
+def _encode_contained(command: list, stderr_path: Path, cancel_check: Optional[Callable[[], bool]]) -> int:
+    """v0.8.x P5-I-R3 (macOS with a containment owner): the encode as a contained FFmpeg -- in the guardian's group,
+    begun only inside the run's Cancel ordering, ended with its owner however the owner ends -- instead of a process in
+    a session of its own that nothing contains. A Cancel stops it and raises ``ConversionCancelled``; a stop that
+    cannot be confirmed raises ``subprocess_utils.ChildNotStopped`` (a failure, never a clean Cancel). Every path in
+    *command* is absolute, so it needs no working directory. Returns the exit code; its last standard-error output
+    goes to *stderr_path*."""
+    supervision = (subprocess_utils.cancellable(cancel_check) if cancel_check is not None
+                   else contextlib.nullcontext())
+    with supervision:
+        result = subprocess_utils.run_supervised(command)
+    with contextlib.suppress(OSError):
+        stderr_path.write_bytes(result.stderr or b"")
+    return result.returncode
 
 
 def publish_mp3(arr: np.ndarray, sample_rate: int, output_path: str | Path, bitrate: Optional[str] = None, *,

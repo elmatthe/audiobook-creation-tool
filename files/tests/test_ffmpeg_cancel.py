@@ -921,3 +921,84 @@ def test_both_worker_bodies_hand_their_ffmpeg_steps_the_non_blocking_cancel_chec
     panel = next(node for node in ast.walk(source_probe.module("mp3/mp3_tool.py"))
                  if isinstance(node, ast.FunctionDef) and node.name == "_run_attempt")
     assert "cancel_check=attempt.controller.cancel_check" in ast.unparse(panel)
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.x P5-I-R3: a run whose contained processes are not all confirmed ended is FAILED, never finished or CANCELLED
+# --------------------------------------------------------------------------- #
+
+_UNCONFIRMED = "contained process(es) of this run not confirmed ended (pid 4242); still owned and still being ended"
+
+
+def test_a_maker_run_that_finishes_with_a_contained_process_not_confirmed_ended_fails(tmp_path, monkeypatch):
+    made, run, _sources = _maker_run(tmp_path)
+    asked = []
+    monkeypatch.setattr(sp, "containment_problem", lambda check, **_k: asked.append(check) or _UNCONFIRMED)
+    attempt = run.start()
+    result = attempt.run()
+    assert asked == [attempt.controller.cancel_check], "the terminal path asked the run's own settlement"
+    assert result.state is JobState.FAILED and attempt.controller.state is JobState.FAILED
+    assert attempt.controller.snapshot().failure_detail == _UNCONFIRMED
+
+
+def test_a_cancelled_maker_run_with_a_contained_process_not_confirmed_ended_fails_never_cancelled(
+        tmp_path, monkeypatch, named_ffmpeg, sentinel):
+    options, matcher, _occurrence = _MAKER_STAGES["fast-concat"]
+    made, run, _sources = _maker_run(tmp_path, **options)
+    StandIn(monkeypatch, named_ffmpeg, matcher(made), 1)
+    spawned = Spawned(monkeypatch)
+    monkeypatch.setattr(sp, "containment_problem", lambda check, **_k: _UNCONFIRMED)
+    attempt = run.start()
+    thread, box = _in_thread(attempt.run)
+    _until(lambda: spawned.running(lambda argv: argv[0] == str(named_ffmpeg)) is not None or not thread.is_alive(),
+           what="the fast-concat step")
+    run.cancel()
+    thread.join(PROMPT_SECONDS + 5)
+    assert not thread.is_alive() and "error" not in box, box
+    assert box["value"].state is JobState.FAILED, "never CANCELLED while a contained process may still run"
+    assert attempt.controller.state is JobState.FAILED
+    assert not made.books[0].published.exists()
+
+
+def _calls_in_order(function, first: str, then: tuple[str, ...]) -> bool:
+    """In *function*'s body, every call named in *then* comes after some call named *first* (source order)."""
+    import ast
+
+    names = [(node.lineno, getattr(node.func, "attr", getattr(node.func, "id", "")))
+             for node in ast.walk(function) if isinstance(node, ast.Call)]
+    asked = [line for line, name in names if name == first]
+    later = [line for line, name in names if name in then]
+    return bool(asked) and bool(later) and all(any(a < line for a in asked) for line in later)
+
+
+@pytest.mark.parametrize("module, function", [
+    ("m4b/maker/m4b_maker_batch.py", "run"),
+    ("m4b/metadata/m4b_metadata_batch.py", "run"),
+    ("mp3/mp3_tool.py", "_worker"),
+    ("mp3/mp3_tool.py", "_run_attempt"),
+    ("m4b/converter/m4b_converter.py", "_settle_unexpected"),
+    ("m4b/converter/m4b_converter.py", "_run_conversion"),
+])
+def test_every_terminal_path_consults_containment_before_it_reports_a_clean_end(module, function):
+    """v0.8.x P5-I-R3 (static guard over the tools whose terminal paths live in the window classes): each asks
+    ``containment_problem`` before every ``finish_cancelled`` / ``succeed`` / ``complete_with_failures``."""
+    import ast
+
+    from source_probe import UNIVERSAL
+
+    tree = ast.parse((UNIVERSAL / module).read_text(encoding="utf-8"))
+    body = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function)
+    assert _calls_in_order(body, "containment_problem", ("finish_cancelled", "succeed", "complete_with_failures")), \
+        f"{module}:{function} reports a clean end without asking the run's containment first"
+
+
+def test_the_tts_settlement_asks_containment_before_any_clean_end():
+    import ast
+
+    from source_probe import UNIVERSAL
+
+    tree = ast.parse((UNIVERSAL / "tts/epub2tts_gui.py").read_text(encoding="utf-8"))
+    settle = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "settle"
+                  and any(isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "settle_children"
+                          for c in ast.walk(n)))
+    assert _calls_in_order(settle, "settle_children", ("finish_cancelled", "succeed", "complete_with_failures"))

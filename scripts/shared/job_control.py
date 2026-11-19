@@ -89,7 +89,6 @@ import contextlib
 import dataclasses
 import math
 import threading
-import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -1382,6 +1381,7 @@ class JobController:
         "_run_id", "_condition", "_state", "_revision", "_cancel_requested",
         "_cancel_acknowledged", "_failure_message", "_failure_detail", "_listener",
         "_commits_in_flight", "_starts_in_progress", "_cancel_pending", "_cancel_clicked_at",
+        "_cancel_clock",
     )
 
     def __init__(
@@ -1389,9 +1389,12 @@ class JobController:
         run_id: str,
         *,
         listener: "Callable[[JobSnapshot], Any] | None" = None,
+        cancel_clock: "Callable[[], float] | None" = None,
     ) -> None:
         if listener is not None and not callable(listener):
             raise JobContractError("listener must be callable")
+        if cancel_clock is not None and not callable(cancel_clock):
+            raise JobContractError("cancel_clock must be callable")
         self._run_id = _require_identifier("run_id", run_id)
         # A plain Lock, not the default RLock: re-entering from a listener is a bug,
         # and a bug that deadlocks a test is worth far more than one that does not.
@@ -1408,8 +1411,10 @@ class JobController:
         # latches (``request_cancel``), so that no child of this run is created after the latch. Guarded by the one lock.
         self._starts_in_progress = 0
         self._cancel_pending = False
-        # v0.8.x P5-I-R3: when the first Cancel arrived (``time.monotonic``), before it waited for anything: the
-        # instant every stopping deadline of the run is measured from. Read-only to everyone else; no behaviour uses it here.
+        # v0.8.x P5-I-R3: when the first Cancel arrived, read from the injected *cancel_clock* (the tools give
+        # ``time.monotonic``; this module reads no clock of its own) before it waited for anything: the instant every
+        # stopping deadline of the run is measured from. Read-only to everyone else; no behaviour uses it here.
+        self._cancel_clock = cancel_clock
         self._cancel_clicked_at: "float | None" = None
 
     # -- reading ----------------------------------------------------------- #
@@ -1473,8 +1478,9 @@ class JobController:
 
     @property
     def cancel_clicked_at(self) -> "float | None":
-        """v0.8.x P5-I-R3: ``time.monotonic()`` of the first :meth:`request_cancel` on a run that had not ended, taken
-        before it waited for anything; ``None`` before any. Every route's stopping deadline is measured from it."""
+        """v0.8.x P5-I-R3: the injected ``cancel_clock`` read at the first :meth:`request_cancel` on a run that had not
+        ended, before it waited for anything; ``None`` before any, or with no clock injected. Every route's stopping
+        deadline is measured from it."""
         with self._condition:
             return self._cancel_clicked_at
 
@@ -1538,7 +1544,7 @@ class JobController:
         creations already in progress, which are spawns and nothing longer, and only
         then latches. It never waits for any work.
         """
-        clicked = time.monotonic()
+        clicked = self._cancel_clock() if self._cancel_clock is not None else None  # the caller's clock, never under the lock
         with self._condition:
             if self._state in TERMINAL_STATES:
                 return self._snapshot_locked()

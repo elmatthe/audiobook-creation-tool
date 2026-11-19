@@ -512,6 +512,11 @@ class WorkerHost:
             problem = retired.problem()
             if problem:
                 self._note("unconfirmed", pid=proc.pid, group=group, output_open=output_open)
+                with contextlib.suppress(Exception):  # v0.8.x P5-I-R3: no run settles clean while it may still run
+                    from shared import subprocess_utils
+
+                    subprocess_utils.note_unresolved(proc.pid, self._start_time,
+                                                     f"{engine_name(self.engine)} voice engine worker")
                 with contextlib.suppress(Exception):
                     self.log(f"The {engine_name(self.engine)} voice engine (pid {proc.pid}) could not be confirmed "
                              f"stopped: {problem}.")

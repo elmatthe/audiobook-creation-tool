@@ -1517,3 +1517,31 @@ def test_a_cancelled_run_whose_ffmpeg_will_not_end_fails_and_is_never_reported_c
         ffmpeg_watch.wake()
         time.sleep(0.05)
     assert not ffmpeg_watch._watched, "reaped and forgotten once it ended"
+
+
+def test_an_item_that_ignores_cancel_fails_the_run_inside_the_bound_and_is_never_cancelled(make_panel, output_base,
+                                                                                         tmp_path, gated_stubs,
+                                                                                         monkeypatch):
+    """v0.8.x P5-I-R3: the run used to wait in ``as_completed`` for ever on an engine that did not stop. Past
+    ``ITEM_STOP_S`` from the Cancel click it now stops waiting: the run FAILS naming the file (never CANCELLED, never a
+    success), and the pool is not joined."""
+    from shared.job_control import JobState
+
+    monkeypatch.setattr(panel_module, "ITEM_STOP_S", 0.5)
+    gated_stubs.gate_on = ".txt"  # the file holds inside its conversion, Cancel or not, until released
+    panel, _chosen = direct_panel(make_panel, tmp_path, "stubborn.txt")
+    panel.run_job()
+    worker = panel._worker
+    controller = panel._controller
+    try:
+        assert gated_stubs.entered.wait(WAIT)
+        clicked = time.monotonic()
+        panel.cancel_job()
+        wait_for(lambda: controller.is_terminal, "the run never settled", panel=panel)
+        settled_in = time.monotonic() - clicked
+    finally:
+        gated_stubs.release.set()
+        worker.join(WAIT)
+    assert controller.state is JobState.FAILED, controller.state
+    assert "stubborn.txt" in controller.snapshot().failure_detail
+    assert settled_in < 0.5 + 3.0, f"settled {settled_in:.2f} s after the click"

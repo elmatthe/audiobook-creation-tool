@@ -729,4 +729,6 @@ def test_the_editor_worker_body_hands_the_remux_the_non_blocking_cancel_check():
     assert any(ast.unparse(node) == "self._execute(records)" for node in ast.walk(blocks[0]))
     used = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name) and node.value.id == "sp"}
-    assert used == {"cancellable"}, f"the runner starts no process itself: {sorted(used)}"
+    # v0.8.x P5-I-R3: it also asks the run's settlement (containment_problem) before its terminal event; still no start.
+    assert used <= {"cancellable", "containment_problem", "CONTAINMENT_FAILED_MESSAGE"} and "cancellable" in used, \
+        f"the runner starts no process itself: {sorted(used)}"

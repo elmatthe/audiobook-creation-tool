@@ -43,6 +43,7 @@ a group that cannot be confirmed ended makes the file a failure, never a success
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -419,6 +420,10 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
     returncode = proc.returncode if proc.returncode is not None else -1
     if containment is not None:
         log(f"  [omnivoice] the worker could not be confirmed stopped: {containment}")
+        with contextlib.suppress(Exception):  # v0.8.x P5-I-R3: no run settles clean while it may still run
+            from shared import subprocess_utils
+
+            subprocess_utils.note_unresolved(proc.pid, getattr(proc, "act_start_time", None), "OmniVoice worker")
         if cancel_requested_at is not None:
             raise OmniVoiceFailed(f"The OmniVoice voice engine was asked to stop, but it could not be confirmed stopped: "
                                   f"{containment}.")

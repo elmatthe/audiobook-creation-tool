@@ -58,8 +58,12 @@ def _alive(pid: int) -> bool:
 
 
 def _state(pid: int) -> str:
-    out = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    return out
+    """``T`` for a stopped process, ``Z`` a zombie, ``R`` otherwise, read from the kernel (``sysctl``; no ``ps``, which
+    a sandbox may refuse)."""
+    info = child_ownership._darwin_kinfo(pid)
+    if info is None:
+        return ""
+    return {4: "T", 5: "Z"}.get(info[child_ownership._P_STAT_OFFSET], "R")
 
 
 def _marker_program(folder: Path, marker: Path, *, then: str = "exit 0") -> Path:
@@ -341,6 +345,56 @@ def test_a_stalled_popen_never_holds_its_caller_and_its_process_is_retired_when_
     assert _wait_for(lambda: owner.outstanding(controller.cancel_check) == [], 5), owner.outstanding()
     assert not marker.exists()
 
+
+
+def test_a_caller_leaving_a_stalled_start_cannot_hand_the_program_a_reused_descriptor(owner, program, tmp_path,
+                                                                                    monkeypatch):
+    """Descriptor ownership: the caller passes its own descriptor as stdout, abandons a stalled start (its Cancel),
+    closes that file, and the number is reused by an unrelated file before the launch thread's ``Popen`` runs. The
+    launch hands the gate the caller's ORIGINAL file (its own duplicate), never the unrelated one."""
+    ffmpeg, marker = program
+    controller = JobController("r3-fds")
+    controller.start()
+    held, release, seen = threading.Event(), threading.Event(), {}
+    real = subprocess.Popen.__init__
+
+    def init(self, args, *rest, **kw):
+        if any(str(child_ownership.LAUNCH) == str(a) for a in args):
+            held.set()
+            assert release.wait(20)
+            with contextlib.suppress(OSError):
+                seen["inode"] = os.fstat(kw["stdout"]).st_ino
+        return real(self, args, *rest, **kw)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", init)
+    mine = open(tmp_path / "mine.log", "wb")
+    fd, mine_inode = mine.fileno(), os.fstat(mine.fileno()).st_ino
+    kwargs = _ordered(controller)
+    kwargs["checkpoint"] = lambda: (_ for _ in ()).throw(ConversionCancelled("Cancelled.")) if controller.cancel_check() \
+        else None
+    kwargs["stdout"] = fd
+    out = {}
+    worker = threading.Thread(target=lambda: out.update(r=_launch_kw(owner, ffmpeg, kwargs)), daemon=True)
+    worker.start()
+    assert held.wait(10)
+    controller.request_cancel()
+    worker.join(5)
+    assert not worker.is_alive() and isinstance(out["r"], ConversionCancelled)
+    mine.close()  # the caller has left: it closes its file, and the number is reused
+    other = open(tmp_path / "other.log", "wb")
+    if other.fileno() != fd:  # usually the very number is handed out again; make sure of it
+        os.dup2(other.fileno(), fd)
+    try:
+        release.set()
+        assert _wait_for(lambda: "inode" in seen, 10)
+        assert seen["inode"] == mine_inode != os.fstat(fd).st_ino, "the gate got an unrelated file as its stdout"
+        monkeypatch.undo()
+        assert _wait_for(lambda: owner.outstanding(controller.cancel_check) == [], 5), owner.outstanding()
+        assert not marker.exists()
+    finally:
+        if other.fileno() != fd:
+            os.close(fd)
+        other.close()
 
 def _launch_kw(owner, ffmpeg, kwargs):
     try:

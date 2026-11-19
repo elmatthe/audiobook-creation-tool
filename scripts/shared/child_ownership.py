@@ -699,10 +699,41 @@ class _Launch:
     revoked: bool = False
     revoked_first: bool = False
     unrevoked_but_dead: bool = False
+    stdio: list = field(default_factory=list)  # the launch's own duplicates of the caller's stdio descriptors
 
     @property
     def label(self) -> str:
         return self.entry.label or os.path.basename(self.program)
+
+
+def _own_stdio(kwargs: dict) -> tuple[dict, list]:
+    """The launch's own duplicates of the descriptors the caller hands ``Popen`` as stdin/stdout/stderr (v0.8.x
+    P5-I-R3): a caller that leaves a start in progress (its Cancel) closes its files at once, and a descriptor number
+    it closed may be reused by an unrelated file before the launch thread's ``Popen`` runs -- the program would then
+    read or write that file. The duplicates are the launch's, closed once its ``Popen`` has returned (or failed).
+    ``PIPE``/``DEVNULL``/``STDOUT``/``None`` are left as they are."""
+    owned: list = []
+    out = dict(kwargs)
+    try:
+        for key in ("stdin", "stdout", "stderr"):
+            value = out.get(key)
+            if value is None or (isinstance(value, int) and value < 0):
+                continue
+            fd = value if isinstance(value, int) else value.fileno()
+            dup = os.dup(fd)  # not inheritable; Popen dup2s it onto the child's 0/1/2
+            owned.append(dup)
+            out[key] = dup
+    except (OSError, ValueError, AttributeError) as exc:
+        _close_fds(owned)
+        raise ContainmentUnavailable(f"the program's standard streams could not be taken over ({exc}); nothing ran") \
+            from exc
+    return out, owned
+
+
+def _close_fds(fds: list) -> None:
+    while fds:
+        with contextlib.suppress(OSError):
+            os.close(fds.pop())
 
 
 def _resolve_program(name: str, env: Optional[dict], cwd: Any) -> str:
@@ -1596,10 +1627,16 @@ class Owner:
             if guardian is None:
                 continue
             try:
-                entry = self._admit(CLASS_B, label=label, run=owner_run, guardian=guardian)
                 executable, exec_argv = _interpreted(program, command)
-                launch = _Launch(entry=entry, guardian=guardian, program=executable, argv=exec_argv, kwargs=kwargs,
-                                 ordering=ordering, pending=pending, cancel_error=cancel_error, args=command)
+                stdio_kwargs, stdio = _own_stdio(kwargs)
+                try:
+                    entry = self._admit(CLASS_B, label=label, run=owner_run, guardian=guardian)
+                except BaseException:
+                    _close_fds(stdio)
+                    raise
+                launch = _Launch(entry=entry, guardian=guardian, program=executable, argv=exec_argv,
+                                 kwargs=stdio_kwargs, ordering=ordering, pending=pending, cancel_error=cancel_error,
+                                 args=command, stdio=stdio)
                 return self._dispatch(launch, checkpoint)
             except (GuardianChanged, _Relaunch) as exc:
                 last = exc
@@ -1614,6 +1651,7 @@ class Owner:
             threading.Thread(target=self._launch_thread, args=(launch,), daemon=True,
                              name=f"act-launch:{threading.current_thread().name}").start()
         except BaseException as exc:
+            _close_fds(launch.stdio)
             with self._state:
                 self._remove_locked(launch.entry)
                 launch.guardian.spawns -= 1
@@ -1649,6 +1687,7 @@ class Owner:
         except BaseException as exc:  # noqa: BLE001 - handed to the caller (or to nobody: the ledger keeps the process)
             launch.error = exc
         finally:
+            _close_fds(launch.stdio)
             for fd in (launch.status_r, launch.status_w, launch.go_r, launch.go_w):
                 if fd is not None:
                     with contextlib.suppress(OSError):
@@ -1709,6 +1748,7 @@ class Owner:
             with contextlib.suppress(OSError):
                 os.close(getattr(launch, name))
             setattr(launch, name, None)
+        _close_fds(launch.stdio)  # the gate has its own copies now
         with self._state:
             entry.proc, entry.pid, entry.state = proc, proc.pid, STARTED
             guardian.spawns -= 1
@@ -2093,9 +2133,11 @@ class Owner:
             with self._state:
                 self._reaping = False
 
-    def _await(self, entries: Sequence[OwnedChild], until: float) -> list[OwnedChild]:
+    def _await(self, entries: Sequence[OwnedChild], until: float, *, patient: bool = False) -> list[OwnedChild]:
         """Drive retirement until every one of *entries* is confirmed ended, or *until* passes, or every one left is past
-        its own deadline. Returns those not confirmed. Bounded by *until*."""
+        its own deadline. Returns those not confirmed. Bounded by *until*. *patient* (an explicit stop of a child
+        already UNCONFIRMED, P5-I-R3): such a child is looked at -- and killed again -- until *until*, not given up at
+        once because an earlier deadline passed."""
         while True:
             self._retire_step()
             now = time.monotonic()
@@ -2103,7 +2145,8 @@ class Owner:
             with self._state:
                 left = [e for e in entries if not e.resolved()]
                 done = (not left or now >= until
-                        or all(e.state == UNCONFIRMED or (e.confirm_by is not None and now >= e.confirm_by)
+                        or all((e.state == UNCONFIRMED and not patient)
+                               or (e.state != UNCONFIRMED and e.confirm_by is not None and now >= e.confirm_by)
                                for e in left))
                 if done:
                     for entry in left:  # past its deadline: said so now, not at the reaper's next look
@@ -2120,9 +2163,14 @@ class Owner:
     def _retire_and_wait(self, entries: Sequence[OwnedChild], *, grace: float) -> list[OwnedChild]:
         with self._state:
             self._schedule_locked(entries, grace=grace)
-            until = max([e.confirm_by for e in entries if e.confirm_by is not None], default=time.monotonic())
+            until = max([e.confirm_by for e in entries if e.confirm_by is not None and e.state == RETIRING],
+                        default=time.monotonic())
+            # P5-I-R3: one already UNCONFIRMED (its deadline passed earlier) gets this request's own bounded look.
+            again = [e for e in entries if e.state == UNCONFIRMED]
+            if again:
+                until = max(until, time.monotonic() + max(0.0, grace) + KILL_CONFIRM_S)
         self._kick()
-        return self._await(entries, until=until)
+        return self._await(entries, until=until, patient=bool(again))
 
     def _end(self, child: OwnedChild, *, grace: float) -> None:
         """SIGTERM, at most ``grace`` seconds, SIGKILL, confirmed reaped by the shared deadline -- or reported
@@ -2197,16 +2245,19 @@ class Owner:
         return sorted({e.pid or -1 for e in left})
 
     # -- orderly shutdown ---------------------------------------------------------
-    def shutdown(self) -> list[int]:
+    def shutdown(self, deadline: Optional[float] = None) -> list[int]:
         """Orderly end, bounded by :data:`SHUTDOWN_BOUND_S` from its call, every wait against that one deadline (v0.8.x
         P5-I): nothing new is admitted; starts in progress get at most :data:`START_SETTLE_S`; every process in the
         ledger but the adopted guardian -- children, guardians never adopted, children whose registration failed, a
         lost guardian's children -- is retired as one batch (SIGTERM, one shared grace, SIGKILL), confirmed by the
         deadline less :data:`GUARDIAN_END_S`; then the lifeline is closed (the guardian ends its group and itself) and
         the guardian reaped, SIGKILLed with its group (proved) if it has not ended in time. Returns the pids NOT
-        confirmed ended (recorded in :attr:`events`); they stay in the ledger. Crash containment never depends on this."""
+        confirmed ended (recorded in :attr:`events`); they stay in the ledger. Crash containment never depends on this.
+
+        *deadline* (``time.monotonic``; v0.8.x P5-I-R3): the orderly end's own deadline, started at the close request;
+        never waited past, even when what came before it used most of it (what is left is then SIGKILLed at once)."""
         began = time.monotonic()
-        deadline = began + SHUTDOWN_BOUND_S
+        deadline = began + SHUTDOWN_BOUND_S if deadline is None else min(began + SHUTDOWN_BOUND_S, deadline)
         children_by = deadline - GUARDIAN_END_S
         with self._state:
             if self._phase == ACTIVE:
