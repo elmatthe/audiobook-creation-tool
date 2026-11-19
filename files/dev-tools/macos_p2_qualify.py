@@ -21,7 +21,13 @@ Commands:
   voices       E-A2/E-B3: text A for all 14 Edge and Kokoro voices; Kokoro's short multi-chunk text for its nine; the B
                track for af_heart and en-US-SteffanNeural. RTF, load, memory, the automated correctness screen.
   chapter      E-B3: one >=30-minute real-book chapter with af_heart: RTF, cold/warm load, peak footprint and its
-               growth after warm-up, output integrity.
+               growth after warm-up, output integrity. P5 (v0.8.0 closeout) options: ``--voice`` (any Kokoro or Edge
+               voice), ``--whole`` (the whole book: text D), ``--chars`` (the excerpt's minimum length), ``--timeout``,
+               ``--visible`` (the window is shown and raised instead of withdrawn: the plan's control; without it the
+               window stays hidden), ``--hide-app`` (the application hides itself as Cmd+H does, so it is neither
+               visible nor in front: the App Nap case), ``--label`` (the record's name). The 1 Hz sampler also reads
+               this process's and the worker's CPU and scheduling priority, and whether the application is in front;
+               the record gives each chunk's overhead (time between the worker's results less its inference time).
   edge-load    E-A1 and E-A3: the live voice list; 2 and 8 files at once with bounded inputs: requests, retries,
                403s, NoAudioReceived, throughput.
   edge-cancel  E-A4: Cancel with requests in flight (8 files), Cancel during finalization, Pause then Cancel:
@@ -153,9 +159,10 @@ def texts() -> dict:
             "C": quality_corpus.SUSTAINED_NARRATION.text}
 
 
-def chapter_text(minimum_chars: int = 33000) -> tuple[str, dict]:
+def chapter_text(minimum_chars: int | None = 33000) -> tuple[str, dict]:
     """A real book's opening, cut at a paragraph end once it holds ``minimum_chars`` (at Kokoro's measured pace, more
-    than 30 minutes): Re:Monster volume 1 through ACT's own PDF extractor. Local only; never committed."""
+    than 30 minutes): Re:Monster volume 1 through ACT's own PDF extractor. Local only; never committed.
+    ``minimum_chars=None``: the whole book (P5's text D)."""
     from tts.pdf_extractor import pdf_to_txt
 
     source = ROOT / "files" / "test-files" / "Re_Monster - Volume 01.pdf"
@@ -169,11 +176,12 @@ def chapter_text(minimum_chars: int = 33000) -> tuple[str, dict]:
     for paragraph in paragraphs:
         kept.append(paragraph)
         total += len(paragraph) + 2
-        if total >= minimum_chars:
+        if minimum_chars is not None and total >= minimum_chars:
             break
     text = "\n\n".join(kept).strip()
     return text, {"source": str(source), "source_sha256": sha256_file(source), "chars": len(text),
-                  "text_sha256": sha256_text(text), "paragraphs": len(kept)}
+                  "text_sha256": sha256_text(text), "paragraphs": len(kept), "whole_book": minimum_chars is None,
+                  "book_chars": len(whole.strip()), "book_paragraphs": len(paragraphs)}
 
 
 # --------------------------------------------------------------------------- the real panel
@@ -246,11 +254,51 @@ class PanelRun:
         self.panel.close()
 
 
-def tk_root():
+def hide_application() -> dict:
+    """What Cmd+H does: the application hides itself (``[NSApp hide:nil]``, on the Tk thread, through the Objective-C
+    runtime; no permission is involved and nothing outside this process is touched). A withdrawn window alone can leave
+    the process the frontmost application, which App Nap never naps."""
+    import ctypes
+    import ctypes.util
+
+    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    objc.objc_getClass.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = [ctypes.c_char_p]
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    send = objc.objc_msgSend
+    send.restype = ctypes.c_void_p
+    send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    app = send(objc.objc_getClass(b"NSApplication"), objc.sel_registerName(b"sharedApplication"), None)
+    send(app, objc.sel_registerName(b"hide:"), None)
+    send.restype = ctypes.c_bool
+    hidden = bool(send(app, objc.sel_registerName(b"isHidden"), None))
+    active = bool(send(app, objc.sel_registerName(b"isActive"), None))
+    return {"isHidden": hidden, "isActive": active}
+
+
+def app_state(pid: int) -> str:
+    """``lsappinfo``'s line for this process (front or not, type), read-only."""
+    text = subprocess.run(["lsappinfo", "info", "-all", str(pid)], capture_output=True, text=True).stdout
+    for block in text.split("\n\n"):
+        if f"pid = {pid} " in block:
+            return " ".join(line.strip() for line in block.splitlines()[:1] + [l for l in block.splitlines() if "pid =" in l])
+    return ""
+
+
+def tk_root(visible: bool = False):
+    """The harness's root. Hidden (withdrawn) by default; ``visible``: shown at a normal size and raised, as a person's
+    window is during a run (the plan's control for the long-form runs; hidden is the App Nap case)."""
     import tkinter as tk
 
     root = tk.Tk()
-    root.withdraw()
+    if visible:
+        root.geometry("1120x800")
+        root.deiconify()
+        root.lift()
+        root.update()
+    else:
+        root.withdraw()
     return root
 
 
@@ -511,7 +559,9 @@ def _kokoro_metrics(events: list, decoded_s: float) -> dict:
     return {"chunks": len(results), "inference_s": round(gen, 3),
             "rtf_inference": round(gen / decoded_s, 4) if decoded_s else None,
             "loads": [{"load_s": e.detail.get("load_s"), "cached": e.detail.get("cached")} for e in loads],
-            "peak_footprint_bytes": max(peaks) if peaks else None, "footprints_bytes": feet}
+            "peak_footprint_bytes": max(peaks) if peaks else None, "footprints_bytes": feet,
+            # P5: the worker's lifetime peak after each chunk (where a long run's peak was reached)
+            "peak_footprints_bytes": [int(e.detail["peak_footprint"]) for e in results if e.detail.get("peak_footprint")]}
 
 
 def run_voice(root, voice_id: str, name: str, text: str, folder: Path, *, timeout: float = 3600) -> dict:
@@ -573,18 +623,37 @@ def cmd_voices(out: Path, pack: Path | None, only: list[str] | None) -> dict:
 
 
 # --------------------------------------------------------------------------- E-B3: the chapter
-def cmd_chapter(out: Path) -> dict:
+def _chunk_overheads(events: list) -> dict:
+    """Per chunk: the time between one result and the next less the next chunk's inference time (the parent's share:
+    the request, the hand-back, the pump). App Nap would stretch this, not the worker's inference."""
+    results = [e for e in events if e.name == "result"]
+    gaps = [round((b.at - a.at) - float(b.detail.get("gen_s") or 0), 4) for a, b in zip(results, results[1:])]
+    if not gaps:
+        return {"count": 0}
+    ordered = sorted(gaps)
+    return {"count": len(gaps), "median_s": ordered[len(ordered) // 2], "max_s": ordered[-1], "total_s": round(sum(gaps), 3),
+            "p90_s": ordered[int(0.9 * (len(ordered) - 1))]}
+
+
+def cmd_chapter(out: Path, *, voice: str = "af_heart", whole: bool = False, chars: int = 33000,
+                timeout: float = 7200, visible: bool = False, label: str | None = None, hide_app: bool = False) -> dict:
     isolate(out)
     owner = contain()
-    root = tk_root()
-    text, identity = chapter_text()
+    root = tk_root(visible)
+    hidden = None
+    if hide_app:
+        root.update()
+        hidden = hide_application()
+        root.update()
+    text, identity = chapter_text(None if whole else chars)
     from tts import local_engine_host as hosts
 
     hosts.release("a cold start for the chapter")
     sampler_stop = threading.Event()
     samples: list[dict] = []
+    me = os.getpid()
 
-    def sample() -> None:  # 1 Hz: the worker's footprint from outside, swap and thermal state
+    def sample() -> None:  # 1 Hz: the worker's and this process's footprint from outside, swap and thermal state
         from tts import worker_limits
 
         while not sampler_stop.is_set():
@@ -595,6 +664,18 @@ def cmd_chapter(out: Path) -> dict:
                     row["rss_kb"] = int(subprocess.run(["ps", "-o", "rss=", "-p", str(host.pid)], capture_output=True,
                                                        text=True).stdout.strip() or 0)
             with contextlib.suppress(Exception):
+                rss, cpu, pri = subprocess.run(["ps", "-o", "rss=,pcpu=,pri=", "-p", str(me)], capture_output=True,
+                                               text=True).stdout.split()
+                row["parent_rss_kb"], row["parent_cpu"], row["parent_pri"] = int(rss), float(cpu), int(pri)
+            if host is not None and host.pid:
+                with contextlib.suppress(Exception):
+                    cpu, pri = subprocess.run(["ps", "-o", "pcpu=,pri=", "-p", str(host.pid)], capture_output=True,
+                                              text=True).stdout.split()
+                    row["worker_cpu"], row["worker_pri"] = float(cpu), int(pri)
+            if len(samples) % 30 == 0:  # every 30 s: is this application in front, as App Nap sees it
+                with contextlib.suppress(Exception):
+                    row["app_state"] = app_state(me)
+            with contextlib.suppress(Exception):
                 row["swap"] = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True,
                                              text=True).stdout.strip()
             with contextlib.suppress(Exception):
@@ -604,9 +685,24 @@ def cmd_chapter(out: Path) -> dict:
             sampler_stop.wait(1.0)
 
     threading.Thread(target=sample, daemon=True).start()
+    name = label or f"chapter-{voice}"
+    since = time.monotonic()
+    row: dict = {}
+    recorder = EdgeRecorder() if voice in EDGE else None  # every Edge request: count, outcome, 403, NoAudioReceived
     try:
-        row = run_voice(root, "af_heart", "chapter-af_heart", text, out / "sources", timeout=7200)
+        row = run_voice(root, voice, name, text, out / "sources", timeout=timeout)
+        if recorder is not None:
+            row["edge_requests"] = recorder.summary()
+            spans = [r["end"] - r["start"] for r in recorder.rows if "end" in r]
+            row["edge_requests"]["request_s"] = {"median": round(sorted(spans)[len(spans) // 2], 3),
+                                                 "max": round(max(spans), 3), "total": round(sum(spans), 1)} if spans else None
+        row["chunk_overheads"] = _chunk_overheads(host_events(since)) if voice in KOKORO else None
+        row["window"] = {"visible_requested": visible, "viewable_at_end": bool(root.winfo_viewable()),
+                         "state_at_end": str(root.state()), "hide_app": hide_app, "hidden_at_start": hidden,
+                         "app_state_at_end": app_state(me)}
     finally:
+        if recorder is not None:
+            recorder.restore()
         sampler_stop.set()
         root.destroy()
         with contextlib.suppress(Exception):
@@ -619,6 +715,14 @@ def cmd_chapter(out: Path) -> dict:
         warm = feet[1]  # after the first chunk (the warm-up)
         row["growth_after_warmup"] = round((max(feet[1:]) - warm) / warm, 4)
         row["last_vs_warm"] = round((feet[-1] - warm) / warm, 4)
+        if len(feet) >= 3:  # the least-squares trend over the post-warm-up chunks, as a fraction of the warm figure
+            xs = list(range(len(feet) - 1))
+            ys = feet[1:]
+            mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+            slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sum((x - mx) ** 2 for x in xs) or 1)
+            row["fitted_trend_over_run"] = round(slope * (len(feet) - 2) / warm, 4)
+    parents = [s["parent_rss_kb"] for s in samples if s.get("parent_rss_kb")]
+    row["parent_peak_rss_kb"] = max(parents) if parents else None
     return {"environment": environment_facts(), "chapter": identity, "row": row, "samples": samples}
 
 
@@ -862,6 +966,13 @@ def main() -> int:
     parser.add_argument("--only", nargs="*")
     parser.add_argument("--first", type=Path)
     parser.add_argument("--second", type=Path)
+    parser.add_argument("--voice", default="af_heart", help="chapter: the voice (Kokoro or Edge)")
+    parser.add_argument("--whole", action="store_true", help="chapter: the whole book (text D)")
+    parser.add_argument("--chars", type=int, default=33000, help="chapter: the excerpt's minimum length")
+    parser.add_argument("--timeout", type=float, default=7200, help="chapter: seconds before the run is abandoned")
+    parser.add_argument("--visible", action="store_true", help="chapter: show the window (default: hidden)")
+    parser.add_argument("--label", help="chapter: the source/record name")
+    parser.add_argument("--hide-app", action="store_true", help="chapter: the application hides itself (Cmd+H) at start")
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -876,7 +987,8 @@ def main() -> int:
     elif args.command == "voices":
         record = cmd_voices(out, args.pack, args.only)
     elif args.command == "chapter":
-        record = cmd_chapter(out)
+        record = cmd_chapter(out, voice=args.voice, whole=args.whole, chars=args.chars, timeout=args.timeout,
+                             visible=args.visible, label=args.label, hide_app=args.hide_app)
     elif args.command == "edge-load":
         record = cmd_edge_load(out)
     else:

@@ -3,7 +3,8 @@
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py voices [--device mps|cpu] [--track A|B]
                                                                               [--voice <id> ...]
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py long [--chunks 60] [--voice <id>]
-                     [--text short|paragraphs] [--chunks-per-worker N] [--footprint-at I ...] [--ceiling-mib M]
+                     [--text short|paragraphs|book] [--book-chars N] [--chunks-per-worker N] [--footprint-at I ...]
+                     [--ceiling-mib M]
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py cancel [--device mps|cpu]
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py kx1
     .venv/bin/python -I -B files/dev-tools/macos_p4b_omnivoice_qualify.py assets
@@ -30,7 +31,9 @@ config file itself is not edited (its parsing has its own tests). Outputs, recor
   ``chunks_per_worker`` seam (``--chunks-per-worker``), a stress text of long, all-different paragraphs
   (``--text paragraphs``), per-worker growth and start-up, per-chunk SHA-256 of the audio, swap and memory-pressure
   readings, ``footprint -p`` by category at chosen chunks, and a safety ceiling that cancels a run whose worker passes
-  ``--ceiling-mib`` (default 14 GiB on this 24 GB Mac). Its records go to ``q/memory/``.
+  ``--ceiling-mib`` (default 14 GiB on this 24 GB Mac). Its records go to ``q/memory/``. P5 (v0.8.0 closeout) adds
+  ``--text book``: the opening of Re:Monster volume 1 cut at a paragraph end past ``--book-chars`` (the P2 chapter's
+  own cut, through ACT's PDF extractor; local only), the >=30-minute real-book run the plan asks of each engine.
 * ``cancel``  CX-3: Cancel 1 s after the first chunk finished (the next chunk is being generated): the time to
   ``ConversionCancelled``, the worker's group empty, nothing published, the job folder gone.
 * ``kx1``     KX-1(c): an owner process (containment enabled exactly as the app window enables it) runs a conversion;
@@ -328,7 +331,13 @@ def cmd_long(args) -> int:
     label = args.label or f"long-{args.text}-{args.chunks}-{args.voice}-{args.device}-w{bound}"
     folder = OUT / "memory" if args.label or args.chunks_per_worker or args.text != "short" else OUT / "long"
     dest = folder / f"{label}.mp3"
-    text = long_text(args.chunks) if args.text == "short" else paragraph_text(args.chunks)
+    book = None
+    if args.text == "book":  # P5: a real book's opening (the P2 chapter's own cut: same extractor, same text hash)
+        from macos_p2_qualify import chapter_text
+
+        text, book = chapter_text(args.book_chars)
+    else:
+        text = long_text(args.chunks) if args.text == "short" else paragraph_text(args.chunks)
     planned = osy.plan_chunks(osy.prepare(text, gvs.omnivoice_speech_prep(), osy.OMNIVOICE_ROUTE).text)
     state: dict = {"times": [], "pids": [], "pressure": [], "categories": {}, "ceiling_hit": None}
     sample_at = set(args.footprint_at or [])
@@ -382,6 +391,8 @@ def cmd_long(args) -> int:
     facts["chunk_system"] = [{k: t.get(k) for k in ("index", "worker", "pressure", "swapouts")} for t in state["times"]]
     facts["text"] = {"kind": args.text, "paragraphs": args.chunks, "planned_chunks": len(planned),
                      "chunk_chars": [len(c.text) for c in planned]}
+    if book is not None:
+        facts["text"].update({"paragraphs": book["paragraphs"], "book": book})
     facts["chunks_per_worker"] = args.chunks_per_worker or "production default"
     # One row per worker: its chunks, memory over its life, and its start-up (spawn -> first chunk, less that chunk).
     per_worker, rows = [], facts["chunk_memory"]
@@ -557,7 +568,8 @@ def main(argv=None) -> int:
     p.add_argument("--device", default="mps")
     p.add_argument("--chunks", type=int, default=60)
     p.add_argument("--voice", default="omnivoice-female-2")
-    p.add_argument("--text", default="short", choices=("short", "paragraphs"))
+    p.add_argument("--text", default="short", choices=("short", "paragraphs", "book"))
+    p.add_argument("--book-chars", type=int, default=33000, help="--text book: the real book's excerpt, minimum length")
     p.add_argument("--chunks-per-worker", type=int, help="the test seam; omitted: the production default")
     p.add_argument("--heap-at", type=int, action="append", help="chunk index at which to read heap --sortBySize")
     p.add_argument("--footprint-at", type=int, action="append", help="chunk index at which to read footprint -p")
