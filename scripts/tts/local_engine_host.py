@@ -487,12 +487,17 @@ class WorkerHost:
             group = child_ownership.end_led_group(proc, self._start_time, bound_s=GROUP_END_BOUND_S)
             with contextlib.suppress(OSError, ValueError, AttributeError):
                 proc.stdin.close()  # type: ignore[union-attr]  # only this host writes to it
-            try:
-                returncode = proc.wait(timeout=REAP_BOUND_S)
-            except subprocess.TimeoutExpired:
+            if group not in (child_ownership.GROUP_ENDED, child_ownership.GROUP_SIGNALLED) and proc.returncode is None:
+                # v0.8.x P5-I-R3 remediation 2: never reaped with its group not confirmed ended -- its id keeps the group
+                # reserved; the owner (``forget`` below) keeps ending the group and reaps it once the group is gone.
                 returncode = None
-            except ChildProcessError:
-                returncode = proc.returncode
+            else:
+                try:
+                    returncode = proc.wait(timeout=REAP_BOUND_S)
+                except subprocess.TimeoutExpired:
+                    returncode = None
+                except ChildProcessError:
+                    returncode = proc.returncode
             until = time.monotonic() + OUTPUT_EOF_S
             for reader in self._readers:
                 reader.join(timeout=max(0.0, until - time.monotonic()))

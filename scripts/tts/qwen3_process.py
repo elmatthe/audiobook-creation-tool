@@ -303,6 +303,23 @@ def end_group(proc: subprocess.Popen, bound_s: float = GROUP_END_BOUND_S) -> str
     return getattr(proc, "act_group_end", None) or child_ownership.GROUP_UNPROVED
 
 
+def group_confirmed_ended(proc: subprocess.Popen) -> bool:
+    """POSIX: :func:`end_group` confirmed the group empty (or, development platforms, signalled it)."""
+    from shared import child_ownership
+
+    return getattr(proc, "act_group_end", None) in (child_ownership.GROUP_ENDED, child_ownership.GROUP_SIGNALLED)
+
+
+def hand_over(proc: subprocess.Popen) -> None:
+    """POSIX (v0.8.x P5-I-R3 remediation 2, finding 2): a worker whose group could not be confirmed ended is NOT reaped
+    by its caller -- an unreaped leader keeps its id, and so its group's, reserved -- and is handed to the containment
+    owner, which keeps ending its group (proved) and reaps it only once the group is gone. Never raises."""
+    with contextlib.suppress(Exception):
+        owner = subprocess_utils.containment_owner()
+        if owner is not None and owner.child(proc) is not None:
+            owner.forget(proc)
+
+
 def containment_problem(proc: subprocess.Popen, *, output_open: bool = False) -> Optional[str]:
     """POSIX: why nothing can vouch that *proc* and everything in its group have ended, or None when its group was
     confirmed ended (:func:`end_group`), its output reached its end and it was reaped (``child_ownership.Retired``)."""

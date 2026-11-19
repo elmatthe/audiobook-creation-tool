@@ -189,7 +189,7 @@ def _contained_run(owner, cmd, *, input=None, capture_output: bool = False, time
     supervision = _supervision.get()
     if _asked_to_cancel(supervision):
         _cancelled(supervision, None, True, 0.0)
-    process = _contained_popen(owner, cmd, **_context_launch(), **kwargs)
+    process = _start_acknowledged(supervision, lambda: _contained_popen(owner, cmd, **_context_launch(), **kwargs))
     deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
     stdout = stderr = None
     try:
@@ -443,7 +443,7 @@ def settle_bound(cancel_check, stop_s: float = FFMPEG_STOP_S) -> float:
     nothing once it has passed (the settlement then takes one look: a process still running is not confirmed ended
     inside the bound) --, all of *stop_s* for a cancelled run whose click instant is unknown (no clock injected), or
     one second for a run that was not cancelled."""
-    controller = getattr(cancel_check, "__self__", None)
+    controller = getattr(cancel_check, "__self__", None) or getattr(cancel_check, "controller", None)
     clicked = getattr(controller, "cancel_clicked_at", None)
     if clicked is not None:
         return max(0.0, clicked + stop_s - time.monotonic())
@@ -452,6 +452,19 @@ def settle_bound(cancel_check, stop_s: float = FFMPEG_STOP_S) -> float:
     except Exception:  # noqa: BLE001 - a question that cannot be answered: the longer, cancelled bound
         cancelled = True
     return stop_s if cancelled else 1.0
+
+
+def run_faults(cancel_check) -> list:
+    """v0.8.x P5-I-R3: what the containment owner recorded as not kept contained for the run of *cancel_check* (a start
+    that could not be withdrawn); kept after the processes are gone. A run with any is FAILED, never CANCELLED or a
+    success. ``[]`` on Windows and without an owner. Never raises."""
+    owner = _owner
+    if owner is None or cancel_check is None:
+        return []
+    try:
+        return list(owner.faults(cancel_check))
+    except Exception:  # noqa: BLE001 - an answer that could not be had is no clean end
+        return ["the containment owner could not say whether every start of this run was kept contained"]
 
 
 def containment_problem(cancel_check, *, stop_s: float = FFMPEG_STOP_S) -> Optional[str]:
@@ -468,10 +481,7 @@ def containment_problem(cancel_check, *, stop_s: float = FFMPEG_STOP_S) -> Optio
         return None
     pids = settle_owned(cancel_check, settle_bound(cancel_check, stop_s)) if owner is not None else []
     pids = sorted(set(pids) | set(unresolved_children()))
-    faults: list = []
-    if owner is not None:
-        with contextlib.suppress(Exception):
-            faults = owner.faults(cancel_check)  # P5-I-R3 remediation 1: uncontained starts stay reported
+    faults = run_faults(cancel_check)  # P5-I-R3 remediation 1: uncontained starts stay reported
     if not pids and not faults:
         return None
     parts = []
@@ -578,6 +588,19 @@ def _tail(stream, limit: int) -> bytes:
     return stream.read()
 
 
+def _start_acknowledged(supervision: Optional["_Supervision"], start: Callable[[], subprocess.Popen]) -> subprocess.Popen:
+    """Run *start*; a start the run's Cancel refused (its counted start latched first: ``ConversionCancelled`` from the
+    ordering, P5-I-R3) is acknowledged through the block like every other Cancel before it is raised (remediation 2,
+    finding 6: the tools' Cancel handlers rely on that acknowledgement)."""
+    try:
+        return start()
+    except Exception as exc:  # noqa: BLE001 - only a cancellation is handled; anything else is re-raised as it is
+        if supervision is None or type(exc).__name__ != "ConversionCancelled":
+            raise
+        _cancelled(supervision, None, True, 0.0)
+        raise  # pragma: no cover - _cancelled always raises
+
+
 def _cancelled(supervision: _Supervision, child: Optional[subprocess.Popen], reaped: bool,
                grace_seconds: float) -> None:
     """Acknowledge a Cancel that stopped (or prevented) a child and raise it. Never a failure code."""
@@ -631,7 +654,8 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
     owner = _media_owner(argv, {})
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         launch = _launch_kwargs(supervision.cancel_check) if owner is not None and supervision is not None else {}
-        child = popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err, **launch)
+        child = _start_acknowledged(supervision, lambda: popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                                                               **launch))
         started = time.monotonic()
         stopped = timed_out = False
         reaped = True

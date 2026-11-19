@@ -1692,6 +1692,9 @@ class M4BConverterUI(ttk.Frame):
                 return True
             return controller is not None and controller.cancel_check()
 
+        # v0.8.x P5-I-R3 remediation 2: settle_bound finds the Cancel click through it (the packet scan's stop window).
+        asked_to_stop.controller = controller
+
         try:
             for entry in (() if retrying else imported):
                 checkpoint()

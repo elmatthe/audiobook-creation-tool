@@ -163,6 +163,15 @@ def scene(tmp_path):
 
 
 @pytest.fixture
+def group_rule_only(monkeypatch):
+    """v0.8.x P5-I-R3: these tests prove the P5-A group rule -- an owner signals a group only while its id is proved
+    the leader's own. Since remediation 2 the guardian also ends, once its owner is gone, every descendant carrying the
+    owner's child token (a separate identity proof), which would end the helper these tests watch survive. Here the
+    guardian is given no token, so what is observed is the group rule alone."""
+    monkeypatch.setattr(co, "SWEEP_TOKEN_ENV", "ACT_SWEEP_TOKEN_NOT_GIVEN")
+
+
+@pytest.fixture
 def sentinel():
     """An unrelated process of this account, in a session of its own: no test may touch it."""
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"], start_new_session=True,
@@ -583,7 +592,7 @@ def test_the_orderly_end_ends_what_an_exited_unreaped_leader_left_and_then_reaps
 
 
 @POSIX_ONLY
-def test_the_orderly_end_never_signals_a_leader_reaped_while_it_waited_for_the_lock(scene, sentinel):
+def test_the_orderly_end_never_signals_a_leader_reaped_while_it_waited_for_the_lock(scene, sentinel, group_rule_only):
     """``Owner.shutdown`` checks a child's identity and signals it only under the ``Popen``'s waitpid lock. A thread
     that holds that lock and reaps the leader meanwhile (a run settling its own worker) makes the id unprovable, and the
     orderly end must then signal nothing. Before P5-C it checked and signalled without the lock."""
@@ -769,7 +778,11 @@ def test_an_optional_setup_whose_pip_cannot_be_proved_ended_fails_once_and_says_
                                         request_id=run.request.request_id, request=run.request)
         assert published == result and not result["forced"], "the worker's own result, published once, is the answer"
         assert run.group_end == co.GROUP_ENDED
-        assert not scene.gone("helper", bound=1.0), "nothing was signalled"
+        # The group rule signalled nothing (the message above: its group "could not be proved"). v0.8.x P5-I-R3
+        # remediation 2: the helper no longer outlives the worker that started its pip, though -- that worker is an
+        # owner in turn, and once it has exited its guardian ends every descendant carrying its child token (a
+        # separate identity proof: its own random token in the helper's environment, start time read right before).
+        assert scene.gone("helper", bound=10.0), "a descendant of the app's pip outlived the worker that owned it"
         if window == "first-run":
             assert bootstrap.settle_optional_setup(owner) is True
         assert same(sentinel)

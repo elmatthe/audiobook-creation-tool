@@ -3569,6 +3569,12 @@ class _RunContext:
         if stuck:
             self.settle_unstoppable(stuck)
             return
+        faults = sp.run_faults(self.cancel_check)  # v0.8.x P5-I-R3: a start that could not be kept contained
+        if faults:
+            self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+                "A program of this run may have started after it was cancelled, so this run is not reported as "
+                f"cancelled or finished ({'; '.join(faults)}). Quit the application before converting again."))
+            return
         if self.unstopped:
             self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
                 f"{', '.join(self.unstopped)}: still being converted when its engine's stop bound after the Cancel had "

@@ -233,12 +233,30 @@ def tail_of(path: Path, *, limit: int = DETAIL_TAIL) -> str:
     return raw.decode("utf-8", "replace").strip()
 
 
+#: v0.8.x P5-I-R3 (macOS, contained children): one FFmpeg step's stop (plan section 11.2.1, C2: terminate -> 2 s ->
+#: kill -> 2 s, at most 4 s from the Cancel): the SIGTERM grace, and after the stop the wait to collect it.
+CONTAINED_TERM_GRACE_S = 2.0
+CONTAINED_COLLECT_S = 1.0
+
+
+def _contained(proc) -> bool:
+    owner = sp.containment_owner()
+    return owner is not None and owner.child(proc) is not None
+
+
+def _collect_bound(proc, grace_seconds: float) -> float:
+    """How long the run waits to collect *proc* (or its feed) after it ended or was stopped: the released grace, or for
+    a contained child the C2 schedule's remainder (remediation 2, finding 7)."""
+    return min(grace_seconds, CONTAINED_COLLECT_S) if _contained(proc) else grace_seconds
+
+
 def _stop(proc, *, grace_seconds: float, poll_seconds: float, monotonic, wait) -> bool:
     """Terminate, then kill if it will not go. Returns whether it had to be killed."""
-    if sp.containment_owner() is not None and sp.containment_owner().child(proc) is not None:
+    if _contained(proc):
         # v0.8.x P5-I-R3 (macOS): a contained child is stopped by its owner -- identity-checked, its end confirmed by
-        # the owner's deadline and kept being ended if not -- never by a bare handle signal.
-        sp.stop_child(proc, grace_seconds)
+        # the owner's deadline and kept being ended if not -- never by a bare handle signal; on the C2 schedule, not
+        # the released 5 s grace (remediation 2, finding 7).
+        sp.stop_child(proc, min(grace_seconds, CONTAINED_TERM_GRACE_S))
         return proc.returncode == -9 or proc.returncode is None
     try:
         proc.terminate()
@@ -318,7 +336,7 @@ def run_argv(
         finally:
             # Unconditional, on every route out of the loop including an
             # exception: a child this function started is a child it collects.
-            reaped = _reap(proc, timeout=grace_seconds)
+            reaped = _reap(proc, timeout=_collect_bound(proc, grace_seconds))
 
         return ProcessResult(
             returncode=proc.returncode,
@@ -432,9 +450,10 @@ def run_argv_streaming(
                     break
                 wait(poll_seconds)
         finally:
-            reaped = _reap(proc, timeout=grace_seconds)
+            collect = _collect_bound(proc, grace_seconds)
+            reaped = _reap(proc, timeout=collect)
             if producer is not None and hasattr(producer, "join"):
-                producer.join(timeout=grace_seconds)
+                producer.join(timeout=collect)
                 if getattr(producer, "is_alive", lambda: False)():
                     failure.append("the audio feed did not finish after the encoder ended")
 

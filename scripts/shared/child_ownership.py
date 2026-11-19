@@ -60,6 +60,7 @@ import select
 import selectors
 import shutil
 import signal
+import socket
 import stat
 import struct
 import subprocess
@@ -78,6 +79,12 @@ LAUNCH = Path(__file__).resolve().with_name("child_launch.py")
 LIFELINE_ENV = "ACT_LIFELINE_FD"
 PERMIT_ENV = "ACT_PERMIT_ROOT"
 OWNER_ENV = "ACT_OWNER_PID"
+#: P5-I-R3 remediation 2 (finding 3, escaping descendants): every class-A child carries ``ACT_CHILD_TOKEN_<token>=1`` in
+#: its environment (its descendants inherit it); the guardian, told the token as ``ACT_SWEEP_TOKEN``, ends every process
+#: of this account whose kernel-recorded environment carries it once the owner is gone -- registered or not, stopped or
+#: not, in the leader's group or one of its own.
+CHILD_TOKEN_ENV = "ACT_CHILD_TOKEN"
+SWEEP_TOKEN_ENV = "ACT_SWEEP_TOKEN"
 
 CLASS_A = "A"
 CLASS_B = "B"
@@ -1027,6 +1034,7 @@ class Owner:
         self._step_lock = threading.Lock()
         self._permits: Optional[str] = None  # P5-I-R3: this owner's start-permit folder (made on first use)
         self._faults: list = []  # P5-I-R3: (run, text) of starts that could not be kept contained
+        self._child_token = os.urandom(16).hex()  # P5-I-R3: carried by every class-A child and its descendants
         self._registry: Optional[int] = None  # P5-I-R3: write end of the adopted guardian's class-A registry
         self.events: list[str] = []
         self.degraded = False
@@ -1107,7 +1115,19 @@ class Owner:
         done = [e for e in self._entries if e.kind != GUARDIAN_KIND and e.proc is not None
                 and e.proc.returncode is not None and e.state in (STARTED, LIVE)]
         for entry in done:
+            if entry.kind == CLASS_B and self._lost_locked(entry):
+                self._lost_procs.add(entry.proc)  # remediation 2, finding 9: the evidence outlives the entry
             self._remove_locked(entry)
+
+    def _lost_locked(self, entry: OwnedChild) -> bool:
+        """Under ``_state``: *entry* (class B) lost its guardian -- recorded, or its guardian seen gone now (never
+        waits; the loss itself is recorded by the guardian's watcher)."""
+        if entry.lost_containment or entry.generation in self._lost_generations:
+            return True
+        guardian = self._current
+        if guardian is None or guardian.generation != entry.generation:
+            return True
+        return has_exited(guardian.proc, guardian.start_time)
 
     def _admit(self, kind: str, *, label: str, run: Any = None, guardian: Optional[OwnedChild] = None) -> OwnedChild:
         """Admit one start, ordered against closing (and, class B, against its guardian's replacement): its entry is in
@@ -1258,6 +1278,8 @@ class Owner:
             kw["pass_fds"] = tuple(kw.get("pass_fds", ())) + (fd,)
             env = dict(os.environ if kw.get("env") is None else kw["env"])
             env[LIFELINE_ENV] = str(fd)
+            # One variable per owner (an owner's class-A child may become an owner itself; both sweeps must find it).
+            env[f"{CHILD_TOKEN_ENV}_{self._child_token}"] = "1"  # the guardian's sweep finds it and its descendants
             kw["env"] = env
         return kw
 
@@ -1373,8 +1395,9 @@ class Owner:
             if self._phase == ACTIVE:
                 self._phase = CLOSING
             self._state.notify_all()
+        self._cut_grants()  # at once (remediation 2, finding 5): a grant's queued G may not wait out a settle period
+        with self._state:
             self._wait_spawns_locked(time.monotonic() + START_SETTLE_S)
-        self._cut_grants()
 
     @property
     def closing(self) -> bool:
@@ -1434,6 +1457,7 @@ class Owner:
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
         env[LIFELINE_ENV] = str(fd)
         env[OWNER_ENV] = str(os.getpid())
+        env[SWEEP_TOKEN_ENV] = self._child_token
         with contextlib.suppress(ContainmentUnavailable, OSError):
             env[PERMIT_ENV] = self._permit_root()
         ordering = spawn_context if spawn_context is not None else contextlib.nullcontext
@@ -1764,8 +1788,12 @@ class Owner:
             os.mkdir(launch.directory, 0o700)  # never reused: a fresh name per launch
             launch.permit = os.path.join(launch.directory, os.path.basename(launch.program))
             launch.status_r, launch.status_w = os.pipe()
-            launch.go_r, launch.go_w = os.pipe()
-            launch.go_back = os.dup(launch.go_r)  # never set non-blocking: the flag would be the gate's too
+            # A socket pair, not a pipe (remediation 2, finding 4): the owner takes an unread G back with
+            # recv(MSG_DONTWAIT) -- a per-call flag, so it never blocks (a fork of another thread's Popen may still hold
+            # the writer) and never changes the gate's own descriptor.
+            ours, gates = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+            launch.go_w, launch.go_r = ours.detach(), gates.detach()
+            launch.go_back = os.dup(launch.go_r)
         except BaseException:
             with self._state:
                 guardian.spawns -= 1
@@ -1965,15 +1993,23 @@ class Owner:
                 with contextlib.suppress(OSError):
                     os.close(go_w)
         back = launch.go_back
-        if back is None:
-            return False
+        if back is None or launch.go_taken_back:
+            return launch.go_taken_back
         try:
-            taken = os.read(back, 1) == b"G"
+            reader = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, fileno=os.dup(back))
         except OSError:
             return False
+        try:
+            taken = reader.recv(1, socket.MSG_DONTWAIT) == b"G"
+        except (BlockingIOError, InterruptedError):
+            taken = False  # nothing unread (the gate has it), and some process still holds the writer
+        except OSError:
+            taken = False
+        finally:
+            reader.close()
         if taken:
             launch.go_taken_back = True
-        return taken or launch.go_taken_back
+        return taken
 
     def _revoke(self, launch: "_Launch") -> bool:
         """Make the permit unusable before the counted start ends, and confirm it. In order: the ``G`` not yet read is
@@ -2144,9 +2180,13 @@ class Owner:
             self._await(entries, until=time.monotonic() + look_s)
 
     def _deliver(self, entry: OwnedChild, sig: int) -> bool:
+        if entry.start_time is None and entry.proc is not None and entry.proc.returncode is None:
+            entry.start_time = process_start_time(entry.pid)  # read again now (remediation 2, finding 11)
         if entry.start_time is not None:
             return _signal_proved(entry, sig, wait_s=RETIRE_LOCK_WAIT_S)
-        return _signal_own(entry.proc, sig)  # identity never read: the process only, under its waitpid lock
+        # Identity still unreadable: the process only, through its own Popen under its waitpid lock with it unreaped --
+        # the kernel reserves an unreaped child's id, so no other process can carry it (the bpo-38630 guard).
+        return _signal_own(entry.proc, sig)
 
     def _advance(self, entry: OwnedChild, now: float, notes: list[str]) -> None:
         """One look at one entry being retired. Never waits; signals with no owner lock held."""
@@ -2382,9 +2422,9 @@ class Owner:
             if self._phase == ACTIVE:
                 self._phase = CLOSING
             self._state.notify_all()
-            self._wait_spawns_locked(min(children_by, began + START_SETTLE_S))
-        self._cut_grants()
+        self._cut_grants()  # at once, before any settle wait (remediation 2, finding 5)
         with self._state:
+            self._wait_spawns_locked(min(children_by, began + START_SETTLE_S))
             in_flight = sum(1 for e in self._entries if e.state == SPAWNING)
             owned = [e for e in self._entries if e.proc is not None and not e.resolved()
                      and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)]

@@ -270,10 +270,13 @@ def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
     qwen3_process.end_group(proc)  # whatever it left in its group ends now, before it is reaped
     reader.join(timeout=0.0 if output_open else OUTPUT_DRAIN_S)
     output_open = reader.is_alive()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+    if qwen3_process.group_confirmed_ended(proc):
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    else:  # v0.8.x P5-I-R3 remediation 2: never reaped with its group not confirmed ended; the owner keeps ending it
+        qwen3_process.hand_over(proc)
     if not output_open and proc.stdout is not None:  # never closed under a reader still blocked on it
         proc.stdout.close()
     return qwen3_process.containment_problem(proc, output_open=output_open)

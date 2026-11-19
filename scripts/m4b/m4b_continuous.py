@@ -325,6 +325,67 @@ def scan_argv(ffprobe: str, source) -> list[str]:
             "-of", "csv=p=0", str(source)]
 
 
+def _scan_packets_released(source, *, total: int, priming: int, duration_seconds: float,
+                 cancelled: Callable[[], bool], ffprobe: str | None = None, popen=None,
+                 poll_seconds: float = _POLL_SECONDS, grace_seconds: float = _GRACE_SECONDS) -> str | None:
+    """The packet scan exactly as released (Windows, and wherever the scan is not a contained child): v0.8.x P5-I-R3
+    remediation 2 keeps the new reader thread and stop window to the contained (macOS) scan.
+
+    Run the packet scan as an owned child and judge it as it streams. ``None`` when proven, else why not.
+
+    A watcher stops the child at once on Cancel or at its deadline, so a scan never holds the preflight longer than a
+    poll; the child is always reaped. Nothing is written to disk: each line is judged and dropped.
+    """
+    spawn = sp.popen if popen is None else popen
+    argv = scan_argv(ffprobe or ffmpeg_utils.ffprobe_cmd(), source)
+    try:
+        proc = spawn(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        return f"the packet scan could not start: {type(exc).__name__}: {exc}"
+    deadline = time.monotonic() + SCAN_BASE_SECONDS + SCAN_SECONDS_PER_HOUR * max(0.0, duration_seconds) / 3600.0
+    stopped: list[str] = []
+    finished = threading.Event()
+
+    def watch() -> None:
+        while not finished.wait(poll_seconds):
+            reason = "cancelled" if cancelled() else ("timed out" if time.monotonic() > deadline else "")
+            if reason:
+                stopped.append(reason)
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                return
+
+    watcher = threading.Thread(target=watch, name="m4b-packet-scan-watch", daemon=True)
+    watcher.start()
+    try:
+        verdict = check_packet_lines(proc.stdout, total=total, priming=priming)
+    except (OSError, ValueError) as exc:
+        verdict = f"the packet scan could not be read: {type(exc).__name__}: {exc}"
+    finally:
+        finished.set()
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:  # pragma: no cover - a child that will not die
+            pass
+        try:
+            proc.stdout.close()
+        except (OSError, ValueError):
+            pass
+        watcher.join(timeout=grace_seconds)
+    if stopped:
+        return f"the packet scan was {stopped[0]}"
+    if proc.returncode != 0 and verdict is None:
+        return f"the packet scan exited {proc.returncode}"
+    return verdict
+
+
 def scan_packets(source, *, total: int, priming: int, duration_seconds: float,
                  cancelled: Callable[[], bool], ffprobe: str | None = None, popen=None,
                  poll_seconds: float = _POLL_SECONDS, grace_seconds: float = _GRACE_SECONDS) -> str | None:
@@ -333,8 +394,13 @@ def scan_packets(source, *, total: int, priming: int, duration_seconds: float,
     A watcher stops the child at once on Cancel or at its deadline, so a scan never holds the preflight longer than a
     poll; the child is always reaped. Nothing is written to disk: each line is judged and dropped.
     """
-    spawn = sp.popen if popen is None else popen
     argv = scan_argv(ffprobe or ffmpeg_utils.ffprobe_cmd(), source)
+    if popen is not None or not sp.contained(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                             stderr=subprocess.DEVNULL):
+        return _scan_packets_released(source, total=total, priming=priming, duration_seconds=duration_seconds,
+                                      cancelled=cancelled, ffprobe=ffprobe, popen=popen, poll_seconds=poll_seconds,
+                                      grace_seconds=grace_seconds)
+    spawn = sp.popen
     try:
         proc = spawn(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except OSError as exc:
@@ -526,8 +592,10 @@ class ContinuousDecoder:
         if proc is None:
             return True
         reaped = True
+        contained = False
         if proc.poll() is None:
             if sp.containment_owner() is not None and sp.containment_owner().child(proc) is not None:
+                contained = True
                 reaped = sp.stop_child(proc, self._grace)  # v0.8.x P5-I-R3: proved, confirmed, kept if not
             else:
                 for step in (proc.terminate, proc.kill):
@@ -545,10 +613,14 @@ class ContinuousDecoder:
         else:
             proc.wait()
         self.returncode = proc.returncode if reaped else None
-        try:
-            proc.stdout.close()
-        except (OSError, ValueError):
-            pass
+        if reaped or not contained:
+            try:
+                proc.stdout.close()
+            except (OSError, ValueError):
+                pass
+        # else (v0.8.x P5-I-R3 remediation 2, finding 8): a contained decoder not confirmed ended keeps its output
+        # open -- a feed thread blocked reading it holds the buffer's lock, so closing it would wait for as long as the
+        # decoder lives. The owner keeps ending it; its end closes the pipe and releases that reader.
         if self._diagnostics is not None:
             output_paths.discard_temporary(self._diagnostics)
             self._diagnostics = None

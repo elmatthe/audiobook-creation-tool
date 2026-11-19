@@ -36,6 +36,10 @@ import time
 LIFELINE_ENV = "ACT_LIFELINE_FD"
 PERMIT_ENV = "ACT_PERMIT_ROOT"
 OWNER_ENV = "ACT_OWNER_PID"
+SWEEP_TOKEN_ENV = "ACT_SWEEP_TOKEN"
+CHILD_TOKEN_ENV = "ACT_CHILD_TOKEN"
+#: How long the sweep keeps looking for token holders (a holder may fork while it is being ended).
+SWEEP_BOUND_S = 1.0
 #: How long the group has to end after SIGTERM before SIGKILL.
 TERM_GRACE_S = 1.0
 
@@ -81,6 +85,79 @@ def _end_leaders(leaders):
                 pass
 
 
+def _libc():
+    import ctypes
+
+    return ctypes, ctypes.CDLL(None, use_errno=True)
+
+
+def _all_pids():
+    """Every process id on the system (``proc_listallpids``), or [] where it cannot be had."""
+    try:
+        ctypes, libc = _libc()
+        count = libc.proc_listallpids(None, 0)
+        if count <= 0:
+            return []
+        buffer = (ctypes.c_int * (count + 64))()
+        count = libc.proc_listallpids(buffer, ctypes.sizeof(buffer))
+        return [buffer[i] for i in range(max(0, count)) if buffer[i] > 1]
+    except (OSError, AttributeError, ValueError):
+        return []
+
+
+def _environment(pid):
+    """The environment *pid* was started with (``KERN_PROCARGS2``; only this account's processes answer), or b""."""
+    try:
+        ctypes, libc = _libc()
+        mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or size.value <= 4:
+            return b""
+        buffer = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buffer, ctypes.byref(size), None, 0) != 0:
+            return b""
+        return buffer.raw[:size.value]
+    except (OSError, AttributeError, ValueError):
+        return b""
+
+
+def _sweep(token):
+    """SIGKILL every process (and the group it leads) that carries this owner's child token -- an ACT Python child of
+    the dead owner or one of its descendants, registered or not, stopped or not, wherever its group or session is
+    (P5-I-R3 remediation 2). Each one's start time is read before the token is looked for and again right before the
+    signal: a process that ended and handed its id on in between is not signalled. Repeated until none is found or
+    :data:`SWEEP_BOUND_S` passes (a holder may fork while it is being ended)."""
+    if not token:
+        return 0
+    needle = ("%s_%s=1" % (CHILD_TOKEN_ENV, token)).encode("ascii")
+    me = os.getpid()
+    ended = 0
+    until = time.monotonic() + SWEEP_BOUND_S
+    while True:
+        found = 0
+        for pid in _all_pids():
+            if pid == me:
+                continue
+            before = _start_time(pid)
+            if before is None or needle not in _environment(pid):
+                continue
+            found += 1
+            if _start_time(pid) != before:
+                continue
+            for kill in (os.killpg, os.kill):  # the group it leads (if it leads one), then the process itself
+                try:
+                    if kill is os.killpg and os.getpgid(pid) != pid:
+                        continue
+                    if _start_time(pid) == before:
+                        kill(pid, signal.SIGKILL)
+                        ended += 1
+                except OSError:
+                    pass
+        if not found or time.monotonic() >= until:
+            return ended
+        time.sleep(0.02)
+
+
 def _drain(registry, pending, leaders):
     """Read every registry line already written (non-blocking) before acting: an owner that unregistered a leader it
     reaped (``a <pid>``) just before it closed its lifeline is heard first."""
@@ -113,6 +190,7 @@ def main() -> int:
     except (KeyError, ValueError, OSError):
         return 2
     permits = os.environ.pop(PERMIT_ENV, "")
+    token = os.environ.pop(SWEEP_TOKEN_ENV, "")
     try:
         owner = int(os.environ.pop(OWNER_ENV, "0"))
     except ValueError:
@@ -139,12 +217,16 @@ def main() -> int:
     leaders = {}
     registry = sys.stdin.fileno() if sys.stdin is not None else -1
     pending = b""
-    watched = [fd] + ([registry] if registry >= 0 else []) + ([kq.fileno()] if kq is not None else [])
+    # poll(), not select() (P5-I-R3 remediation 2, finding 10): any descriptor number -- an owner with more than 1024
+    # files open hands this process a lifeline above FD_SETSIZE.
+    poller = select.poll()
+    for each in [fd] + ([registry] if registry >= 0 else []) + ([kq.fileno()] if kq is not None else []):
+        poller.register(each, select.POLLIN | select.POLLHUP | select.POLLERR)
     while True:
         if owner > 1 and os.getppid() != owner:
             break  # the owner is no longer this process's parent: it has died
         try:
-            ready, _, _ = select.select(watched, [], [], 0.5)
+            ready = [each for each, _event in poller.poll(500)]
         except InterruptedError:
             continue
         except (OSError, ValueError):
@@ -165,7 +247,7 @@ def main() -> int:
             except OSError:
                 block = b""
             if not block:
-                watched.remove(registry)  # the owner closed it (or is gone): the other triggers remain
+                poller.unregister(registry)  # the owner closed it (or is gone): the other triggers remain
                 registry = -1
             else:
                 pending += block
@@ -176,6 +258,7 @@ def main() -> int:
     began = time.monotonic()
     pending = _drain(registry, pending, leaders)
     _end_leaders(leaders)
+    _sweep(token)
     try:
         os.killpg(group, signal.SIGTERM)
     except OSError:
@@ -184,6 +267,7 @@ def main() -> int:
         shutil.rmtree(permits, ignore_errors=True)  # no launch can look its program up any more
     time.sleep(max(0.0, TERM_GRACE_S - (time.monotonic() - began)))
     _end_leaders(leaders)
+    _sweep(token)
     os.killpg(group, signal.SIGKILL)  # ends the guardian too
     return 0
 
