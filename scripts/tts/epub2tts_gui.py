@@ -173,6 +173,8 @@ WORKER_JOIN_TIMEOUT = 5.0
 ITEM_STOP_S = {"edge": 2.5, "kokoro": 2.0, "chatterbox": 2.0, "qwen3": 5.0, "omnivoice": 4.0}
 #: ... for an engine not in the table: the largest bound.
 ITEM_STOP_DEFAULT_S = 5.0
+#: A local-engine worker's stop bound (C2: Kokoro, Chatterbox -- immediate SIGKILL, 2 s).
+LOCAL_ENGINE_STOP_S = 2.0
 
 
 def _ffmpeg_step_bound() -> float:
@@ -3565,6 +3567,14 @@ class _RunContext:
         Cancel latched), after the owner has retired them and waited, bounded, for
         their ends to be confirmed.
         """
+        # v0.8.x P5-I-R3 remediation 3: a Cancel's retirement of an idle local-engine worker is waited for (its stop
+        # bound, from the click) before anything is reported; one still running then fails the run.
+        if local_engine_host.cancel_retirement_pending(sp.settle_bound(self.cancel_check, LOCAL_ENGINE_STOP_S)):
+            self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+                "The voice engine was asked to stop and could not be confirmed stopped in time, so this run is not "
+                "reported as cancelled or finished. Nothing unfinished was saved. Quit the application before "
+                "converting again."))
+            return
         stuck = ffmpeg_watch.settle_children(self.cancel_check)
         if stuck:
             self.settle_unstoppable(stuck)

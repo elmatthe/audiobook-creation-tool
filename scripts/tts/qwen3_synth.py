@@ -576,7 +576,7 @@ def run_worker(job: dict, job_dir: Path, *, python: Path, script: Path, env: dic
             proc = qwen3_process.spawn(
                 [str(python), str(script), str(job_path)], require_job=True, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=stderr_file, text=True, encoding="utf-8", errors="replace", env=env,
-                cwd=str(job_dir))
+                cwd=str(job_dir), run=cancel_check)
         except qwen3_process.ContainmentUnavailable as exc:
             raise Qwen3Failed(
                 "The Qwen3 voice engine was not started: Windows would not let this app keep control of it, so it "
@@ -604,6 +604,21 @@ def run_worker(job: dict, job_dir: Path, *, python: Path, script: Path, env: dic
         cancel_requested_at: Optional[float] = None
         last_progress = time.monotonic()
         killed_at: Optional[float] = None
+        controller = getattr(cancel_check, "__self__", None)
+
+        def must_stop() -> bool:
+            # The finishing worker's Cancel (remediation 3, finding 10): noticed, flagged, and its grace counted from
+            # the click when the run's controller recorded one.
+            nonlocal cancel_requested_at
+            if cancel_requested_at is None and cancel_check is not None and cancel_check():
+                cancel_requested_at = time.monotonic()
+                with contextlib.suppress(OSError):
+                    cancel_flag.write_text("cancel", encoding="utf-8")
+            if cancel_requested_at is None:
+                return False
+            began = getattr(controller, "cancel_clicked_at", None)
+            return time.monotonic() - (began if isinstance(began, (int, float)) else cancel_requested_at) > grace_s
+
         try:
             while True:
                 now = time.monotonic()
@@ -657,7 +672,7 @@ def run_worker(job: dict, job_dir: Path, *, python: Path, script: Path, env: dic
         finally:
             # Bounded shutdown: nothing below can wait forever on a worker or on the pipe it holds.
             if led:
-                containment = _settle_led_worker(proc, reader, kill)
+                containment = _settle_led_worker(proc, reader, kill, must_stop)
             else:
                 if proc.poll() is None:
                     try:
@@ -694,16 +709,13 @@ OUTPUT_DRAIN_S = 2.0
 
 
 def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
-                       kill: Callable[[subprocess.Popen], None]) -> Optional[str]:
+                       kill: Callable[[subprocess.Popen], None], must_stop: Optional[Callable[[], bool]] = None) -> Optional[str]:
     """POSIX (v0.8.x P5-I-R3 remediation 2; the order of ``omnivoice_synth._settle_led_worker``, P5-D): a worker still
     running gets the released 10 s to exit, observed without reaping it, and is then ended with its group (*kill*);
     then its group is ended while its id is proved its own (``qwen3_process.end_group``), its output is handed on to
     its end (bounded), and only then is it reaped. Returns why it cannot be vouched for, or None. Never raises."""
     if proc.returncode is None and not qwen3_process.leader_exited(proc):
-        from shared import child_ownership
-
-        if not child_ownership.wait_exited(proc, 10.0, proc.act_start_time):  # type: ignore[attr-defined]
-            kill(proc)
+        qwen3_process.await_leader_exit(proc, kill, must_stop)  # Cancel is still acted on here (finding 10)
     qwen3_process.end_group(proc)  # whatever it left in its group ends now, before it is reaped
     reader.join(timeout=OUTPUT_DRAIN_S)
     output_open = reader.is_alive()

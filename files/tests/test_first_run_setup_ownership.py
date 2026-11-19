@@ -558,6 +558,11 @@ def test_a_run_still_stopping_when_the_bound_runs_out_is_never_reported_clean(mo
         assert result["state"] != proto.SUCCEEDED
         if result["state"] == proto.CANCELLED_STATE:
             assert run.group_end == child_ownership.GROUP_ENDED
+        elif result["error"]["code"] == proto.NO_RESULT:
+            # v0.8.x P5-I-R3 remediation 3: the run ended its worker's group itself (confirmed) before the orderly end
+            # reaped it, but the window's end had killed the worker before the run sent its cancel: a failure that
+            # says the worker gave no result -- never a success or a clean Cancel, and only with the group confirmed.
+            assert result["state"] == proto.FAILED and run.group_end == child_ownership.GROUP_ENDED, result
         else:
             assert result["state"] == proto.FAILED and result["error"]["code"] in (
                 proto.CONTAINMENT_UNPROVED, proto.CONTAINMENT_INCOMPLETE), result

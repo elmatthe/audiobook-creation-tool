@@ -106,19 +106,36 @@ def _all_pids():
 
 
 def _environment(pid):
-    """The environment *pid* was started with (``KERN_PROCARGS2``; only this account's processes answer), or b""."""
+    """The environment entries *pid* was started with (``KERN_PROCARGS2``; only this account's processes answer), as a
+    list of ``b"NAME=value"`` -- never its arguments (remediation 3, finding 1: a marker in an argument, or inside
+    another variable's value, is not the marker). [] when it cannot be read."""
     try:
         ctypes, libc = _libc()
         mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
         size = ctypes.c_size_t(0)
         if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or size.value <= 4:
-            return b""
+            return []
         buffer = ctypes.create_string_buffer(size.value)
         if libc.sysctl(mib, 3, buffer, ctypes.byref(size), None, 0) != 0:
-            return b""
-        return buffer.raw[:size.value]
+            return []
+        data = buffer.raw[:size.value]
     except (OSError, AttributeError, ValueError):
-        return b""
+        return []
+    # Layout: int argc; the executable path, NUL-terminated and NUL-padded; argc arguments; the environment entries
+    # (each NUL-terminated); then an empty string or the end.
+    argc = struct.unpack_from("=i", data, 0)[0]
+    rest = data[4:]
+    end = rest.find(b"\0")
+    if argc < 0 or end < 0:
+        return []
+    rest = rest[end:].lstrip(b"\0")
+    strings = rest.split(b"\0")
+    entries = []
+    for item in strings[argc:]:
+        if not item:
+            break
+        entries.append(item)
+    return entries
 
 
 def _sweep(token):
@@ -139,7 +156,7 @@ def _sweep(token):
             if pid == me:
                 continue
             before = _start_time(pid)
-            if before is None or needle not in _environment(pid):
+            if before is None or needle not in _environment(pid):  # an exact entry of the environment
                 continue
             found += 1
             if _start_time(pid) != before:

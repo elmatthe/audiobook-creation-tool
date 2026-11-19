@@ -64,7 +64,8 @@ OMNIVOICE_STOP_S = 4.0
 #: Starts a helper -- a plain child, so a member of the worker's own process group -- and records its identity (and
 #: the worker's) before returning. ``stdio``: ``detached`` (no pipe of the worker's), ``inherit`` (the worker's fds 1
 #: and 2), ``channel:<fd>`` (also the descriptor <fd>, as a forked helper would hold it), ``escapee`` (it leaves the
-#: group with setsid and holds fds 1 and 2: the documented limit no group end reaches).
+#: group with setsid, clears its environment and holds fds 1 and 2: the documented limit nothing reaches -- v0.8.x
+#: P5-I-R3 remediation 3), ``escapee-marked`` (setsid only: it keeps the worker's leader token, so the end sweeps it).
 HELPER = r'''
 import json, os, subprocess, sys
 from pathlib import Path
@@ -78,6 +79,8 @@ def start_helper(stdio, record, scripts):
     if stdio == "detached":
         kwargs.update(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif stdio == "escapee":
+        kwargs.update(start_new_session=True, env={})
+    elif stdio == "escapee-marked":
         kwargs.update(start_new_session=True)
     elif stdio.startswith("channel:"):
         kwargs.update(pass_fds=(int(stdio.split(":", 1)[1]),))
@@ -472,7 +475,8 @@ def test_a_cancel_whose_group_end_is_not_confirmed_fails_the_file_instead(scene,
 
 @POSIX_ONLY
 def test_output_held_by_an_escapee_is_reported_not_waited_for(scene):
-    """The documented limit: a helper that leaves the group (``setsid``) is not reached by a group end. Holding the
+    """The documented limit: a helper that leaves the group (``setsid``) and clears its environment is reached by
+    neither the group end nor the leader-token sweep (v0.8.x P5-I-R3 remediation 3). Holding the
     worker's stderr it once hung the host; now the end returns within its bounds and reports the open output."""
     host = scene.host("escapee", "crash")
     host.load({"lang_code": "a"})
@@ -481,6 +485,19 @@ def test_output_held_by_an_escapee_is_reported_not_waited_for(scene):
     assert "could not be confirmed stopped" in str(error) and "output was still held open" in str(error)
     assert host.last_end.output_open
     assert running(scene.helper_id()), "an escapee is outside the group: reported, never signalled by a guess"
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+def test_an_escapee_that_keeps_the_leader_token_is_swept_with_the_group(scene):
+    """v0.8.x P5-I-R3 remediation 3 (finding 3): a helper that left the group with ``setsid`` but kept its environment
+    carries the worker's leader token; the group's end sweeps it, so its output closes and nothing is left."""
+    host = scene.host("escapee-marked", "crash")
+    host.load({"lang_code": "a"})
+    error = _settled(scene.bounded(lambda: host.synthesize(REQUEST, folder=scene.dir), PROMPT_S),
+                     hosts.LocalEngineFailed, within=PROMPT_S)
+    assert "stopped unexpectedly" in str(error) and "could not be confirmed stopped" not in str(error), str(error)
+    assert not running(scene.helper_id()), "the marked escapee was ended with its worker"
     assert scene.sentinel_alive()
 
 
@@ -591,12 +608,23 @@ def test_an_omnivoice_group_end_not_confirmed_is_never_success_or_a_clean_cancel
 
 @POSIX_ONLY
 def test_omnivoice_output_held_by_an_escapee_is_reported_within_the_bound(scene):
-    """An escapee (``setsid``) holding the worker's output: its group's end cannot reach it, so the run is a failure
-    that says so -- promptly, never a success after waiting on it."""
+    """An escapee (``setsid``, environment cleared) holding the worker's output: neither its group's end nor the
+    leader-token sweep can reach it, so the run is a failure that says so -- promptly, never a success after waiting
+    on it."""
     error = _settled(scene.bounded(lambda: scene.omnivoice("escapee", "done"), PROMPT_S + 2),
                      osy.OmniVoiceFailed, within=PROMPT_S + 2)
     assert "could not be confirmed stopped" in str(error) and "output was still held open" in str(error)
     assert running(scene.helper_id()), "outside the group: reported, never signalled by a guess"
+    assert scene.sentinel_alive()
+
+
+@POSIX_ONLY
+def test_omnivoice_escapee_that_keeps_the_leader_token_is_swept(scene):
+    """v0.8.x P5-I-R3 remediation 3 (finding 3): the marked escapee is swept when the group ends, so its output closes,
+    the run is vouched for, and it is not left running."""
+    outcome, value = scene.bounded(lambda: scene.omnivoice("escapee-marked", "done"), PROMPT_S + 2)
+    assert outcome == "returned", (outcome, value)
+    assert not running(scene.helper_id()), "the marked escapee was ended with its worker"
     assert scene.sentinel_alive()
 
 

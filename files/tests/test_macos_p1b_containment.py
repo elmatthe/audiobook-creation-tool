@@ -362,6 +362,8 @@ _OS_SPAWNS = {"system", "popen", "posix_spawn", "posix_spawnp", "spawnv", "spawn
 KX9_ALLOWED = {
     # v0.8.x P5-I: class A, class B and the guardian all spawn through the one admitted spawn of the ownership helper.
     ("shared/child_ownership.py", "_spawn"): "the ownership helper itself (class A, class B and the guardian)",
+    ("shared/child_ownership.py", "_launch_steps"): "v0.8.x P5-I-R3: the ownership helper's permit-gated launch of a "
+                                                    "class-B gate (in the guardian's group)",
     ("shared/child_launch.py", "main"): "v0.8.x P5-I-R3: the launch gate; it executes only the one-time permit its "
                                         "owner created inside the run's counted start",
     ("shared/subprocess_utils.py", "run"): "the wrapper: FFmpeg/ffprobe routed to class B when the window owns them",
@@ -390,6 +392,15 @@ KX9_ALLOWED = {
 _BYPASS = {"start_new_session", "process_group", "preexec_fn", "shell"}
 
 
+def _built_through_new(node, name, parents) -> bool:
+    """True when the function holding *node* calls ``<name>.__new__`` (a handle made before ``__init__`` runs)."""
+    cursor = node
+    while cursor in parents and not isinstance(cursor, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        cursor = parents[cursor]
+    return any(isinstance(n, ast.Attribute) and n.attr == "__new__" and isinstance(n.value, ast.Name)
+               and n.value.id == name for n in ast.walk(cursor))
+
+
 def _direct_spawn_sites():
     from source_probe import UNIVERSAL, application_python_files
 
@@ -398,10 +409,18 @@ def _direct_spawn_sites():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            # v0.8.x P5-I-R3 remediation 3: a spawn function taken as a value (``factory = subprocess.Popen``, then
+            # ``factory.__new__`` / ``__init__`` so the handle exists before ``__init__`` returns) counts as a spawn.
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Attribute)
+                    and isinstance(node.value.value, ast.Name) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name) and _built_through_new(node, node.targets[0].id, parents)):
+                target = node.value
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and isinstance(node.func.value, ast.Name)):
+                target = node.func
+            else:
                 continue
-            module, name = node.func.value.id, node.func.attr
+            module, name = target.value.id, target.attr
             if (module == "subprocess" and name in _SPAWNS) or (module == "os" and name in _OS_SPAWNS):
                 cursor, function = node, "<module>"
                 while cursor in parents:

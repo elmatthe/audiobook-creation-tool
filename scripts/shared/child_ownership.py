@@ -84,6 +84,10 @@ OWNER_ENV = "ACT_OWNER_PID"
 #: of this account whose kernel-recorded environment carries it once the owner is gone -- registered or not, stopped or
 #: not, in the leader's group or one of its own.
 CHILD_TOKEN_ENV = "ACT_CHILD_TOKEN"
+#: P5-I-R3 remediation 3 (finding 3): each class-A child also carries ``ACT_LEADER_TOKEN_<token>=1``, its own; when its
+#: group is ended (:func:`end_led_group`) every process of this account carrying it -- a descendant that left the group
+#: or the session -- is ended too, so a worker's Cancel leaves none of them running.
+LEADER_TOKEN_ENV = "ACT_LEADER_TOKEN"
 SWEEP_TOKEN_ENV = "ACT_SWEEP_TOKEN"
 
 CLASS_A = "A"
@@ -205,7 +209,17 @@ def _has_exited(pid: int) -> bool:
     ``os.waitid`` on macOS, so the kernel's process state is read instead (``p_stat == SZOMB``)."""
     if sys.platform == "darwin":
         info = _darwin_kinfo(pid)
-        return info is None or info[_P_STAT_OFFSET] == _SZOMB
+        if info is not None:
+            return info[_P_STAT_OFFSET] == _SZOMB
+        # Unreadable (P5-I-R3 remediation 3, finding 12): only "no such process" counts as an exit; anything else is
+        # treated as still running, so a stop goes on to signal it (identity-checked) rather than wait for a reap.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
     waitid = getattr(os, "waitid", None)
     if waitid is None:
         return False
@@ -300,9 +314,9 @@ def end_led_group(proc: subprocess.Popen, start_time: Optional[tuple[int, int]],
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
-                return GROUP_ENDED
+                return _swept(proc, deadline)
             except PermissionError:
-                return GROUP_ENDED if sys.platform == "darwin" else GROUP_REMAINING
+                return _swept(proc, deadline) if sys.platform == "darwin" else GROUP_REMAINING
             except OSError:
                 return GROUP_REMAINING
             if sys.platform != "darwin":
@@ -312,6 +326,41 @@ def end_led_group(proc: subprocess.Popen, start_time: Optional[tuple[int, int]],
             time.sleep(0.02)
     finally:
         lock.release()
+
+
+def _swept(proc: subprocess.Popen, deadline: float) -> str:
+    """The group *proc* leads is gone; now every process of this account that carries *proc*'s own leader token (a
+    descendant that left the group or the session, P5-I-R3 remediation 3) is SIGKILLed -- each one's start time read
+    before its environment is looked at and again right before the signal -- until none is left or *deadline*.
+    ``GROUP_ENDED`` when none is left; ``GROUP_REMAINING`` otherwise."""
+    token = getattr(proc, "act_leader_token", None)
+    if not token:
+        return GROUP_ENDED
+    try:
+        from . import child_guardian as sweep
+    except ImportError:  # pragma: no cover - imported bare off scripts/shared
+        import child_guardian as sweep  # type: ignore[no-redef]
+    marker = f"{LEADER_TOKEN_ENV}_{token}=1".encode("ascii")
+    while True:
+        found = 0
+        for pid in sweep._all_pids():
+            if pid in (os.getpid(), proc.pid):
+                continue
+            before = sweep._start_time(pid)
+            if before is None or marker not in sweep._environment(pid):
+                continue
+            found += 1
+            with contextlib.suppress(OSError):
+                if os.getpgid(pid) == pid and sweep._start_time(pid) == before:
+                    os.killpg(pid, signal.SIGKILL)
+            with contextlib.suppress(OSError):
+                if sweep._start_time(pid) == before:
+                    os.kill(pid, signal.SIGKILL)
+        if not found:
+            return GROUP_ENDED
+        if time.monotonic() >= deadline:
+            return GROUP_REMAINING
+        time.sleep(0.02)
 
 
 # --------------------------------------------------------------------------- #
@@ -608,6 +657,11 @@ POST_REVOKE_S = 0.02
 KILL_CONFIRM_LAUNCH_S = 0.1
 #: The most a refused revocation holds the counted start (and so the Cancel latch).
 REVOKE_HOLD_S = 0.3
+# The orderly end's wait for grants already past their last look (P5-I-R3 remediation 3, finding 7): each one ends
+# on its own bounds (cut exec wait, revoke, kill confirm) well inside this; one that does not is cut and reported.
+CLOSE_GRANT_WAIT_S = 0.6
+# How long a revocation waits for a file-system call once its G was taken back (only tidiness is left then).
+REVOKE_FS_WAIT_S = 0.05
 #: Starts made for one request: a guardian that changed, or a gate too slow with nothing asking it to stop.
 LAUNCH_ATTEMPTS = 3
 #: How often a caller waiting for its launch looks at its Cancel and at the orderly end.
@@ -691,6 +745,7 @@ class _Launch:
     proc: Optional[subprocess.Popen] = None
     directory: str = ""
     permit: str = ""
+    environment: str = ""  # the program's exact environment, for the gate's execve (remediation 3, finding 13)
     status_r: Optional[int] = None
     status_w: Optional[int] = None
     go_r: Optional[int] = None
@@ -798,6 +853,51 @@ def _interpreted(program: str, argv: list) -> tuple[str, list]:
 def proc_placeholder():
     """Something with no child behind it (a Popen stand-in that raised before handing one back)."""
     return type("NoChild", (), {"_child_created": False, "pid": None})()
+
+
+def _write_environment(path: str, env: Any) -> None:
+    """The environment the program is to get, exactly as ``Popen`` would give it (*env*, or this process's own when
+    None), as NUL-separated ``KEY=VALUE`` entries in a new 0600 file (P5-I-R3 remediation 3, finding 13): the gate
+    executes the program with these, never with its own interpreter's environment (which Python and the system amend,
+    e.g. ``LC_CTYPE`` and ``__CF_USER_TEXT_ENCODING``)."""
+    if env is None:
+        entries = [k + b"=" + v for k, v in os.environb.items()]
+    else:
+        entries = []
+        for key, value in env.items():
+            key, value = os.fsencode(key), os.fsencode(value)
+            if b"=" in key or b"\0" in key or b"\0" in value:
+                raise ValueError("illegal environment variable name or value")
+            entries.append(key + b"=" + value)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600)
+    try:
+        data = b"\0".join(entries)
+        while data:
+            data = data[os.write(fd, data):]
+    finally:
+        os.close(fd)
+
+
+def _bounded_call(fn: Callable[[], Any], wait_s: float) -> tuple[bool, Any]:
+    """Run *fn* on its own daemon thread and wait for it at most *wait_s* (P5-I-R3 remediation 3, finding 9): returns
+    (finished, result); an exception counts as finished with result None. A call still running is left to finish."""
+    done = threading.Event()
+    box: list[Any] = [None]
+
+    def run() -> None:
+        try:
+            box[0] = fn()
+        except BaseException:  # noqa: BLE001 - the caller acts on "not established"
+            box[0] = None
+        finally:
+            done.set()
+
+    try:
+        threading.Thread(target=run, name="act-bounded-fs", daemon=True).start()
+    except RuntimeError:
+        return False, None
+    finished = done.wait(max(0.0, wait_s))
+    return finished, box[0] if finished else None
 
 
 def _readable(fd: int, wait_s: float) -> bool:
@@ -1021,6 +1121,7 @@ class Owner:
         self._python = python or sys.executable
         self._state = threading.Condition(threading.Lock())
         self._phase = ACTIVE
+        self._closing_pending = False  # set before CLOSING: no new G; grants in progress finish first
         self._entries: list[OwnedChild] = []
         self._current: Optional[OwnedChild] = None  # the adopted guardian
         self._creating = False  # a thread is making a guardian
@@ -1066,6 +1167,36 @@ class Owner:
     @property
     def _retiring(self) -> bool:
         return self._phase != ACTIVE
+
+    @property
+    def _admitting(self) -> bool:
+        """Nothing new is admitted, granted or released once the orderly end is pending (P5-I-R3 remediation 3)."""
+        return self._phase == ACTIVE and not self._closing_pending
+
+    def _latch_closing(self, until: float) -> None:
+        """Publish CLOSING only after every grant in progress has ended (finding 7): first no new ``G`` is written (the
+        pending flag, looked at under each launch's ``go_lock``) and every grant in progress is cut at once -- its
+        unread ``G`` taken back, its permit removed, its gate killed (finding 5 of remediation 2); then the grant
+        threads are waited for, at most :data:`CLOSE_GRANT_WAIT_S`, and only then is CLOSING published. A grant still
+        in progress then is cut again and, if its gate is not confirmed ended, reported."""
+        with self._state:
+            if self._phase == ACTIVE:
+                self._closing_pending = True
+            self._state.notify_all()
+        # At once, before any wait (remediation 2, finding 5): a G already written but not yet read is taken back, its
+        # permit removed and its gate killed -- a stalled grant thread cannot leave it queued while this waits.
+        self._cut_grants()
+        with self._state:
+            end = min(until, time.monotonic() + CLOSE_GRANT_WAIT_S)
+            while any(e.state == GRANTING for e in self._entries):
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._state.wait(remaining)
+            if self._phase == ACTIVE:
+                self._phase = CLOSING
+            self._state.notify_all()
+        self._cut_grants()
 
     @property
     def phase(self) -> str:
@@ -1135,7 +1266,7 @@ class Owner:
         when *guardian* is no longer the adopted one. Nothing is spawned here."""
         with self._state:
             self._prune_locked()  # children their callers reaped leave the ledger (P5-I-R3: at every admission)
-            if self._phase != ACTIVE:
+            if not self._admitting:
                 raise ContainmentUnavailable(_CLOSING_TEXT)
             if guardian is not None and (guardian is not self._current or guardian.state != ADOPTED):
                 raise GuardianChanged(_CHANGED_TEXT)
@@ -1155,17 +1286,40 @@ class Owner:
         """The ``Popen`` of an admitted entry, with no owner lock held. ``spawn_check`` (a run's Cancel) gets the last
         look immediately before it and raises to refuse it. On failure nothing was created and the entry leaves the
         ledger; on success the entry holds the process before anything else is done."""
+        attached = None
         try:
-            if self._phase != ACTIVE:  # the closing latch, at the last look before the process exists
+            if not self._admitting:  # the closing latch, at the last look before the process exists
                 raise ContainmentUnavailable(_CLOSING_TEXT)
             if spawn_check is not None:
                 spawn_check()
-            proc = subprocess.Popen(argv, **kwargs)
-        except BaseException:
+            factory = subprocess.Popen
+            if isinstance(factory, type):
+                # P5-I-R3 remediation 3 (finding 5): the handle is attached before __init__ runs -- CPython publishes
+                # the pid right after fork, before reading the exec error pipe -- so a Popen that raises (or stalls)
+                # after creating the process never loses it.
+                attached = factory.__new__(factory)
+                attached.__init__(argv, **kwargs)
+                proc = attached
+            else:  # a test's recording stand-in for Popen
+                proc = factory(argv, **kwargs)
+        except BaseException as exc:
+            created = (attached is not None and bool(getattr(attached, "_child_created", False))
+                       and isinstance(getattr(attached, "pid", None), int))
             with self._state:
-                self._remove_locked(entry)
+                if created:
+                    entry.proc, entry.pid, entry.state = attached, attached.pid, STARTED
+                    if entry.kind != CLASS_B:
+                        entry.pgid = attached.pid
+                else:
+                    self._remove_locked(entry)
                 if guardian is not None:
                     guardian.spawns -= 1
+                self._state.notify_all()
+            if created:  # it exists: owned, retired at once (its group, the P5-A way), reported if not confirmed
+                entry.start_time = process_start_time(attached.pid)
+                self._retire_now([entry], 0.0)
+                raise ContainmentUnavailable(f"starting {entry.label} failed after its process was created ({exc}); it "
+                                             "was stopped and is still owned until its end is confirmed") from exc
             self._kick()
             raise
         with self._state:
@@ -1194,7 +1348,7 @@ class Owner:
             start = process_start_time(proc.pid)
             with self._state:
                 entry.start_time = start
-                closing = self._phase != ACTIVE
+                closing = not self._admitting
                 lost = guardian is not None and guardian.state != ADOPTED
             if guardian is not None and not lost and has_exited(guardian.proc, guardian.start_time):
                 self._guardian_lost(guardian.proc, guardian.generation)
@@ -1280,7 +1434,10 @@ class Owner:
             env[LIFELINE_ENV] = str(fd)
             # One variable per owner (an owner's class-A child may become an owner itself; both sweeps must find it).
             env[f"{CHILD_TOKEN_ENV}_{self._child_token}"] = "1"  # the guardian's sweep finds it and its descendants
+            leader = os.urandom(12).hex()
+            env[f"{LEADER_TOKEN_ENV}_{leader}"] = "1"  # its own: end_led_group's sweep finds its descendants
             kw["env"] = env
+            kw["_act_leader_token"] = leader
         return kw
 
     def run_python(self, argv: Sequence[str], *, input=None, capture_output: bool = False,
@@ -1347,8 +1504,10 @@ class Owner:
                 self._current_guardian()
             except (ContainmentUnavailable, GuardianChanged) as exc:
                 self._note(f"Containment: no ACT guardian for {label or Path(str(argv[0])).name}: {exc}")
+        leader_token = kw.pop("_act_leader_token", None)
         entry = self._admit(CLASS_A, label=label or Path(str(argv[0])).name, run=run)
         proc = self._spawn(entry, command, kw)
+        proc.act_leader_token = leader_token  # type: ignore[attr-defined]
         proc = self._take_on(entry, proc)
         self._announce_leaders()
         return proc
@@ -1357,7 +1516,7 @@ class Owner:
     def _refuse_if_closing(self) -> None:
         """Once the orderly end has begun nothing new starts: a worker thread that asks for another program while the
         app is closing gets an error, never a child that the closing owner would no longer see (v0.8.x P1B)."""
-        if self._phase != ACTIVE:
+        if not self._admitting:
             raise ContainmentUnavailable(_CLOSING_TEXT)
 
     def _wait_spawns_locked(self, until: float) -> None:
@@ -1378,8 +1537,7 @@ class Owner:
             with launch.go_lock:
                 launch.closing_cut = True
             taken = self._take_back_go(launch)
-            with contextlib.suppress(OSError):
-                os.unlink(launch.permit)
+            _bounded_call(lambda: os.unlink(launch.permit), REVOKE_FS_WAIT_S)
             if not taken and launch.entry.pid:
                 self._deliver(launch.entry, signal.SIGKILL)
                 if not _wait_exited(launch.entry.pid, KILL_CONFIRM_LAUNCH_S):
@@ -1391,17 +1549,13 @@ class Owner:
         no child, no guardian, no adoption (v0.8.x P5-I: set under the same lock that admits them). Starts admitted
         before it are waited for at most :data:`START_SETTLE_S`; one still in progress then is stopped as soon as its
         process exists, never registered, and the orderly end sees it in the ledger."""
-        with self._state:
-            if self._phase == ACTIVE:
-                self._phase = CLOSING
-            self._state.notify_all()
-        self._cut_grants()  # at once (remediation 2, finding 5): a grant's queued G may not wait out a settle period
+        self._latch_closing(time.monotonic() + CLOSE_GRANT_WAIT_S)  # never waits out a settle period (finding 5)
         with self._state:
             self._wait_spawns_locked(time.monotonic() + START_SETTLE_S)
 
     @property
     def closing(self) -> bool:
-        return self._phase != ACTIVE
+        return not self._admitting
 
     # -- class B ---------------------------------------------------------------
     @staticmethod
@@ -1488,7 +1642,7 @@ class Owner:
                 entry.start_time = start
             with ordering():
                 with self._state:
-                    if self._phase != ACTIVE:
+                    if not self._admitting:
                         raise ContainmentUnavailable(_CLOSING_TEXT)
                     if entry.state != PENDING:  # it ended (its watch saw it) or was retired by the orderly end
                         raise ContainmentUnavailable("the ACT guardian ended as soon as it was ready; nothing was "
@@ -1595,7 +1749,26 @@ class Owner:
             self._note(f"Containment: the ACT guardian (pid {proc.pid}) ended on its own (exit {proc.returncode}); "
                        f"{len(running)} running external program(s) in its group are being stopped, and a new guardian "
                        "is started before the next one.")
+            self._replace_for_leaders()
         self._kick()
+
+    def _replace_for_leaders(self) -> None:
+        """P5-I-R3 remediation 3 (finding 6): with class-A children running, a lost guardian is replaced now (off this
+        thread), and the running leaders are announced to the new one -- so this owner's death still ends a worker
+        that is stopped and cannot act on its own lifeline, and the new guardian's sweep finds their descendants."""
+        with self._state:
+            wanted = self._lifeline and self._phase == ACTIVE and any(
+                e.kind == CLASS_A and e.proc is not None and e.proc.returncode is None for e in self._entries)
+        if not wanted:
+            return
+
+        def replace() -> None:
+            with contextlib.suppress(Exception):  # best effort: the next start replaces it anyway
+                self._current_guardian()
+                self._announce_leaders()
+
+        with contextlib.suppress(Exception):
+            threading.Thread(target=replace, name="act-guardian-replace", daemon=True).start()
 
     def _guardian_gone(self, guardian: OwnedChild) -> bool:
         """The guardian a start was admitted into is no longer the adopted, running one (its loss is recorded)."""
@@ -1617,7 +1790,7 @@ class Owner:
             if checkpoint is not None:
                 checkpoint()
             with self._state:
-                if self._phase != ACTIVE:
+                if not self._admitting:
                     raise ContainmentUnavailable(_CLOSING_TEXT)
                 current = self._current
                 if current is None:
@@ -1761,13 +1934,19 @@ class Owner:
             launch.error = exc
         finally:
             _close_fds(launch.stdio)
-            for fd in (launch.status_r, launch.status_w, launch.go_r, launch.go_w, launch.go_back):
+            with launch.go_lock:  # never closed under a take-back that is reading it (finding 8)
+                go_w, go_back, launch.go_w, launch.go_back = launch.go_w, launch.go_back, None, None
+            for fd in (launch.status_r, launch.status_w, launch.go_r, go_w, go_back):
                 if fd is not None:
                     with contextlib.suppress(OSError):
                         os.close(fd)
             if launch.kq is not None:
                 with contextlib.suppress(OSError):
                     launch.kq.close()
+            for leftover in (launch.permit, launch.environment):  # e.g. a grant refused before its ordering's try
+                if leftover:
+                    with contextlib.suppress(OSError):
+                        os.unlink(leftover)
             with contextlib.suppress(OSError):
                 os.rmdir(launch.directory)
             with self._state:
@@ -1787,6 +1966,8 @@ class Owner:
             launch.directory = os.path.join(root, f"{os.getpid()}-{next(_LAUNCH_TOKENS)}-{os.urandom(6).hex()}")
             os.mkdir(launch.directory, 0o700)  # never reused: a fresh name per launch
             launch.permit = os.path.join(launch.directory, os.path.basename(launch.program))
+            launch.environment = os.path.join(launch.directory, ".environment")
+            _write_environment(launch.environment, launch.kwargs.get("env"))
             launch.status_r, launch.status_w = os.pipe()
             # A socket pair, not a pipe (remediation 2, finding 4): the owner takes an unread G back with
             # recv(MSG_DONTWAIT) -- a per-call flag, so it never blocks (a fork of another thread's Popen may still hold
@@ -1800,8 +1981,8 @@ class Owner:
                 self._remove_locked(entry)
                 self._state.notify_all()
             raise
-        gate = [self._python, "-I", "-S", str(LAUNCH), str(launch.status_w), str(launch.go_r), launch.permit, "--",
-                *launch.argv]
+        gate = [self._python, "-I", "-S", str(LAUNCH), str(launch.status_w), str(launch.go_r), launch.permit,
+                launch.environment, "--", *launch.argv]
         kw = dict(launch.kwargs, process_group=guardian.pid, close_fds=True, pass_fds=(launch.status_w, launch.go_r))
         factory = subprocess.Popen
         try:
@@ -1881,9 +2062,16 @@ class Owner:
         ``exit`` (the gate ended first), ``revoked`` (it looked too late), or ``unconfirmed``."""
         entry, guardian = launch.entry, launch.guardian
         ordering = launch.ordering if launch.ordering is not None else contextlib.nullcontext
+        # The permit is made before the counted start (P5-I-R3 remediation 3, finding 9): a file-system call that stalls
+        # here holds no Cancel latch, and the permit alone runs nothing -- the gate executes only on its G, written only
+        # inside the ordering below.
+        try:
+            os.symlink(launch.program, launch.permit)
+        except OSError as exc:
+            raise ContainmentUnavailable(f"the start permit of {launch.label} could not be made ({exc}); nothing ran")
         with ordering():
             with self._state:
-                if self._phase != ACTIVE:
+                if not self._admitting:
                     raise ContainmentUnavailable(_CLOSING_TEXT)
                 if launch.abandoned:
                     raise ContainmentUnavailable("its caller left before it ran; nothing ran")
@@ -1895,9 +2083,10 @@ class Owner:
                 if has_exited(guardian.proc, guardian.start_time):
                     self._guardian_lost(guardian.proc, guardian.generation)
                     raise GuardianChanged(_CHANGED_TEXT)
-                os.symlink(launch.program, launch.permit)
                 with launch.go_lock:  # a one-byte write to an empty pipe: never blocks
-                    if launch.closing_cut or launch.go_w is None:
+                    # The closing latch looked at under go_lock (remediation 3, finding 7): once the orderly end is
+                    # pending no G is written; one written before it is waited for before CLOSING is published.
+                    if launch.closing_cut or launch.go_w is None or not self._admitting:
                         raise ContainmentUnavailable(_CLOSING_TEXT)
                     try:
                         os.write(launch.go_w, b"G")
@@ -1939,7 +2128,7 @@ class Owner:
         shortened = False
         buffer = b""
         while True:
-            if cut and not shortened and (self._phase != ACTIVE or launch.abandoned
+            if cut and not shortened and (not self._admitting or launch.abandoned
                                           or (launch.pending is not None and _asks(launch.pending))):
                 shortened = launch.cut = True
                 until = min(until, time.monotonic() + EXEC_CUT_S)
@@ -1992,12 +2181,20 @@ class Owner:
             if go_w is not None:
                 with contextlib.suppress(OSError):
                     os.close(go_w)
-        back = launch.go_back
-        if back is None or launch.go_taken_back:
-            return launch.go_taken_back
+            # Duplicated under go_lock, which the launch thread holds to close it (remediation 3, finding 8): the number
+            # is never looked at after the launch closed it -- it could by then name an unrelated descriptor.
+            back = launch.go_back
+            if back is None or launch.go_taken_back:
+                return launch.go_taken_back
+            try:
+                back = os.dup(back)
+            except OSError:
+                return False
         try:
-            reader = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, fileno=os.dup(back))
+            reader = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, fileno=back)
         except OSError:
+            with contextlib.suppress(OSError):
+                os.close(back)
             return False
         try:
             taken = reader.recv(1, socket.MSG_DONTWAIT) == b"G"
@@ -2020,6 +2217,28 @@ class Owner:
         nothing could be established -- the run's start is then recorded as uncontained and reported."""
         until = time.monotonic() + REVOKE_HOLD_S
         taken = self._take_back_go(launch)
+        # File-system steps run on their own thread, waited for only until the hold ends (finding 9): a stalled call
+        # (network home, slow disk) cannot hold the Cancel latch; the kill below needs no file system.
+        finished, unusable = _bounded_call(lambda: self._make_permit_unusable(launch),
+                                           REVOKE_FS_WAIT_S if taken
+                                           else max(0.0, until - time.monotonic() - KILL_CONFIRM_LAUNCH_S))
+        if taken or (finished and unusable):
+            return True  # taken back: the gate never got its go and can execute nothing, permit or not
+        while True:
+            self._deliver(launch.entry, signal.SIGKILL)
+            if launch.entry.pid and _has_exited(launch.entry.pid):
+                launch.unrevoked_but_dead = True
+                return True
+            if time.monotonic() >= until:
+                self._fault(launch.entry, f"the start permit of {launch.label} (pid {launch.entry.pid}) could not be "
+                                          "revoked and its gate could not be confirmed ended: the start is uncontained")
+                return False
+            time.sleep(0.01)
+
+    @staticmethod
+    def _make_permit_unusable(launch: "_Launch") -> bool:
+        """The permit removed and confirmed gone (``lstat``); if refused, its folder renamed aside, then made
+        unsearchable (``chmod 000``). True once no lookup of the permit can succeed."""
         moved = locked = False
         while True:
             with contextlib.suppress(FileNotFoundError, OSError):
@@ -2031,8 +2250,6 @@ class Owner:
             except OSError:
                 if locked:
                     return True  # the folder is unsearchable: no lookup of the permit can succeed
-            if taken:
-                return True  # the gate never got its go: it can execute nothing, permit or not
             if not moved:
                 with contextlib.suppress(OSError):
                     os.rename(launch.directory, launch.directory + ".revoked")
@@ -2046,15 +2263,7 @@ class Owner:
                     locked = not os.access(launch.directory, os.X_OK)
                     if locked:
                         continue
-            self._deliver(launch.entry, signal.SIGKILL)
-            if launch.entry.pid and _has_exited(launch.entry.pid):
-                launch.unrevoked_but_dead = True
-                return True
-            if time.monotonic() >= until:
-                self._fault(launch.entry, f"the start permit of {launch.label} (pid {launch.entry.pid}) could not be "
-                                          "revoked and its gate could not be confirmed ended: the start is uncontained")
-                return False
-            time.sleep(0.01)
+            return False
 
     def _fault(self, entry: "OwnedChild", text: str) -> None:
         """Record a start of *entry*'s run that could not be kept inside its ordering (P5-I-R3 remediation 1): the run
@@ -2418,11 +2627,7 @@ class Owner:
         began = time.monotonic()
         deadline = began + SHUTDOWN_BOUND_S if deadline is None else min(began + SHUTDOWN_BOUND_S, deadline)
         children_by = deadline - GUARDIAN_END_S
-        with self._state:
-            if self._phase == ACTIVE:
-                self._phase = CLOSING
-            self._state.notify_all()
-        self._cut_grants()  # at once, before any settle wait (remediation 2, finding 5)
+        self._latch_closing(min(children_by, began + CLOSE_GRANT_WAIT_S))  # before any settle wait (finding 5)
         with self._state:
             self._wait_spawns_locked(min(children_by, began + START_SETTLE_S))
             in_flight = sum(1 for e in self._entries if e.state == SPAWNING)

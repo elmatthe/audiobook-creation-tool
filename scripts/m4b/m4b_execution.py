@@ -274,6 +274,31 @@ def _stop(proc, *, grace_seconds: float, poll_seconds: float, monotonic, wait) -
     return True
 
 
+def _concurrently(fn):
+    """Start *fn* on its own thread; return ``finish(timeout) -> bool`` that waits for it at most *timeout*, re-raises
+    what it raised, and says whether it finished (v0.8.x P5-I-R3 remediation 3)."""
+    import threading
+
+    box: list = []
+
+    def run() -> None:
+        try:
+            fn()
+        except BaseException as exc:  # noqa: BLE001 - handed back to the caller
+            box.append(exc)
+
+    thread = threading.Thread(target=run, name="act-decoder-stop", daemon=True)
+    thread.start()
+
+    def finish(timeout: float) -> bool:
+        thread.join(timeout)
+        if box:
+            raise box[0]
+        return not thread.is_alive()
+
+    return finish
+
+
 def _reap(proc, *, timeout: float) -> bool:
     """Always wait. Returns whether the child was actually collected."""
     try:
@@ -441,11 +466,19 @@ def run_argv_streaming(
                 if code is not None:
                     break
                 if cancelled():
+                    stopping = None
+                    if on_stop is not None and _contained(proc):
+                        # v0.8.x P5-I-R3 remediation 3 (finding 11): a contained encoder and its decoder are stopped
+                        # together, so one stop window covers both; uncontained (Windows) keeps the released order.
+                        stopping = _concurrently(on_stop)
                     killed = _stop(proc, grace_seconds=grace_seconds,
                                    poll_seconds=poll_seconds,
                                    monotonic=monotonic, wait=wait)
                     stopped = True
-                    if on_stop is not None:
+                    if stopping is not None:
+                        if not stopping(CONTAINED_TERM_GRACE_S + CONTAINED_COLLECT_S):
+                            failure.append("the audio decoder did not stop in time after Cancel")
+                    elif on_stop is not None:
                         on_stop()
                     break
                 wait(poll_seconds)
@@ -782,8 +815,9 @@ def convert_segment(
             except ProcessLaunchError as exc:
                 return refuse(f"{destination.name} could not be started.", str(exc))
 
-            if result.unreaped:
-                # v0.8.x P5-I-R3: before "cancelled" -- a stopped child not confirmed ended is never a clean stop.
+            if result.unreaped and sp.containment_owner() is not None:
+                # v0.8.x P5-I-R3: contained (macOS) only, before "cancelled" -- a stopped child not confirmed ended is
+                # never a clean stop. Uncontained (Windows) keeps the released order (remediation 3, finding 13).
                 return refuse(
                     f"{destination.name} could not be stopped cleanly.",
                     "the ffmpeg child was not confirmed ended after terminate and kill")

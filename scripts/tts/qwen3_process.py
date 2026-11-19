@@ -28,6 +28,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from ctypes import wintypes
 from typing import Optional
 
@@ -164,7 +165,7 @@ def _posix_owner(cmd: list):
     return owner
 
 
-def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen:
+def spawn(cmd: list, *, require_job: bool = False, run=None, **kwargs) -> subprocess.Popen:
     """``subprocess.Popen`` (hidden console) that returns a process whose whole tree can be stopped.
 
     The returned object carries the job as ``proc.act_job`` (``None`` when there is none). Pass it to
@@ -184,7 +185,9 @@ def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen
             # everything it started end with its owner however the owner ends; the window's end therefore reaches
             # the worker's pip through the worker. Once the window is closing nothing new starts.
             try:
-                proc = owner.popen_python([str(part) for part in cmd], label=os.path.basename(str(cmd[0])),
+                # *run* (v0.8.x P5-I-R3 remediation 3): the run's ``cancel_check``, so the run's settlement accounts
+                # for this worker as it does for its FFmpeg. Contained (macOS) only; nothing changes on Windows.
+                proc = owner.popen_python([str(part) for part in cmd], label=os.path.basename(str(cmd[0])), run=run,
                                           **kwargs)
             except RuntimeError as exc:
                 if type(exc).__name__ != "ContainmentUnavailable":
@@ -290,6 +293,24 @@ def leader_exited(proc: subprocess.Popen) -> bool:
     return child_ownership.has_exited(proc, proc.act_start_time)  # type: ignore[attr-defined]
 
 
+#: How long a worker's own exit is awaited at the end of its run before it is ended with its group (as released).
+LEADER_EXIT_WAIT_S = 10.0
+
+
+def await_leader_exit(proc: subprocess.Popen, kill, must_stop=None, wait_s: float = LEADER_EXIT_WAIT_S) -> None:
+    """POSIX: wait for *proc* to exit, observed without reaping it, at most *wait_s*, then end it with its group
+    (*kill*). *must_stop* (v0.8.x P5-I-R3 remediation 3, finding 10) is asked on every look: a run's Cancel arriving
+    while its worker finishes (its output already ended) is acted on here -- the worker is told and, past the route's
+    grace, ended -- instead of waiting out the whole exit allowance."""
+    from shared import child_ownership
+
+    end = time.monotonic() + wait_s
+    while not child_ownership.wait_exited(proc, 0.05, proc.act_start_time):  # type: ignore[attr-defined]
+        if (must_stop is not None and must_stop()) or time.monotonic() >= end:
+            kill(proc)
+            return
+
+
 def end_group(proc: subprocess.Popen, bound_s: float = GROUP_END_BOUND_S) -> str:
     """POSIX (v0.8.x P5-D): SIGKILL every process in the group *proc* leads and confirm that none is left -- only while
     its id is proved *proc*'s own (``child_ownership.end_led_group``). Never reaps; never raises. The answer
@@ -340,6 +361,11 @@ def kill_tree(proc: subprocess.Popen, wait_s: float = 15.0) -> None:
         job.terminate()
     elif _spawned_on_posix(proc):
         end_group(proc, min(wait_s, GROUP_END_BOUND_S))
+        if not group_confirmed_ended(proc) and proc.returncode is None:
+            # v0.8.x P5-I-R3 remediation 3 (finding 2): never reaped with its group not confirmed ended -- its unreaped
+            # id keeps the group reserved, and the owner keeps ending the group and reaps it afterwards.
+            hand_over(proc)
+            return
     elif proc.poll() is None:
         if sys.platform == "win32":
             subprocess_utils.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)

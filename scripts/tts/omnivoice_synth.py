@@ -234,7 +234,7 @@ def spawn_worker(cmd: list, **kwargs) -> subprocess.Popen:
     if sys.platform != "win32" and qwen3_process._posix_owner(cmd) is None:
         owner = _private_owner()
         try:
-            proc = owner.popen_python([str(part) for part in cmd], label="omnivoice-worker", **kwargs)
+            proc = owner.popen_python([str(part) for part in cmd], label="omnivoice-worker", **kwargs)  # incl. run
         except RuntimeError as exc:  # child_ownership.ContainmentUnavailable: nothing was started
             raise qwen3_process.ContainmentUnavailable(str(exc)) from exc
         proc.act_job = None  # type: ignore[attr-defined]
@@ -255,7 +255,8 @@ def _running_on(event: dict) -> str:
 
 
 def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
-                       kill: Callable[[subprocess.Popen], None], *, output_open: bool) -> Optional[str]:
+                       kill: Callable[[subprocess.Popen], None], *, output_open: bool,
+                       must_stop: Optional[Callable[[], bool]] = None) -> Optional[str]:
     """POSIX (v0.8.x P5-D): end a finished worker run in the only safe order -- its group ended while its id is proved
     its own (``qwen3_process.end_group``), its output handed on to its end (bounded), and only then is it reaped -- and
     say why it cannot be vouched for, or None when its group was confirmed ended, its output ended and it was reaped.
@@ -263,10 +264,7 @@ def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
     A worker still running here (its output ended or the run was left early) gets the released 10 s to exit, observed
     without reaping it, and is then ended with its whole group (*kill*). Never raises."""
     if proc.returncode is None and not qwen3_process.leader_exited(proc):
-        from shared import child_ownership
-
-        if not child_ownership.wait_exited(proc, 10.0, proc.act_start_time):  # type: ignore[attr-defined]
-            kill(proc)
+        qwen3_process.await_leader_exit(proc, kill, must_stop)  # Cancel is still acted on here (finding 10)
     qwen3_process.end_group(proc)  # whatever it left in its group ends now, before it is reaped
     reader.join(timeout=0.0 if output_open else OUTPUT_DRAIN_S)
     output_open = reader.is_alive()
@@ -308,7 +306,7 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
             proc = (spawn or spawn_worker)(
                 [str(python), "-I", str(script), str(job_path)], stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=stderr_file, text=True, encoding="utf-8", errors="replace", env=env,
-                cwd=str(job_dir))
+                cwd=str(job_dir), **({"run": cancel_check} if spawn is None and cancel_check is not None else {}))
             if qwen3_process.identity_unrecorded(proc):
                 # v0.8.x P5-D-R1 (POSIX): a worker whose identity could not be recorded at spawn is never admitted --
                 # neither ended by a guess at its group nor supervised the released way, which reaps it first and can
@@ -344,6 +342,21 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
         group_ended_at: Optional[float] = None
         output_open = raising = False
         containment: Optional[str] = None
+        controller = getattr(cancel_check, "__self__", None)
+
+        def must_stop() -> bool:
+            # The finishing worker's Cancel (v0.8.x P5-I-R3 remediation 3, finding 10): noticed, flagged, and its grace
+            # counted from the click when the run's controller recorded one.
+            nonlocal cancel_requested_at
+            if cancel_requested_at is None and cancel_check is not None and cancel_check():
+                cancel_requested_at = time.monotonic()
+                with contextlib.suppress(OSError):
+                    cancel_flag.write_text("cancel", encoding="utf-8")
+            if cancel_requested_at is None:
+                return False
+            began = getattr(controller, "cancel_clicked_at", None)
+            return time.monotonic() - (began if isinstance(began, (int, float)) else cancel_requested_at) > grace_s
+
         try:
             while True:
                 now = time.monotonic()
@@ -404,7 +417,7 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
             raise
         finally:
             if led:
-                containment = _settle_led_worker(proc, reader, kill, output_open=output_open)
+                containment = _settle_led_worker(proc, reader, kill, output_open=output_open, must_stop=must_stop)
                 if containment is not None and raising:  # the file is failing already: say why it was not vouched for
                     log(f"  [omnivoice] the worker could not be confirmed stopped: {containment}")
             else:

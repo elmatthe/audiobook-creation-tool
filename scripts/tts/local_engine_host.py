@@ -618,7 +618,26 @@ def cancel_requested(backend: str) -> None:
             finally:
                 host._lock.release()
 
-    threading.Thread(target=end_if_idle, name="local-engine-cancel", daemon=True).start()
+    global _CANCEL_RETIREMENT
+    thread = threading.Thread(target=end_if_idle, name="local-engine-cancel", daemon=True)
+    _CANCEL_RETIREMENT = thread
+    thread.start()
+
+
+#: v0.8.x P5-I-R3 remediation 3 (finding 4): the retirement a Cancel began (:func:`cancel_requested`), so the run's
+#: settlement can wait for it before it reports anything.
+_CANCEL_RETIREMENT: Optional[threading.Thread] = None
+
+
+def cancel_retirement_pending(timeout: float) -> bool:
+    """Wait at most *timeout* for the idle-worker retirement a Cancel began; True when it is still running then (the
+    worker may still be at work: no run may be reported cancelled or finished). A worker it could not confirm ended is
+    recorded as unresolved by the retirement itself. False when there was none. Never raises."""
+    thread = _CANCEL_RETIREMENT
+    if thread is None:
+        return False
+    thread.join(max(0.0, timeout))
+    return thread.is_alive()
 
 
 def engine_selected(backend: str) -> None:

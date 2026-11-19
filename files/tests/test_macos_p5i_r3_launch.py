@@ -104,7 +104,17 @@ def _stop_gate_before_grant(owner, monkeypatch, box):
         os.kill(launch.entry.pid, signal.SIGSTOP)
         assert _wait_for(lambda: _state(launch.entry.pid).startswith("T"), 5)
         box["gate"] = launch.entry.pid
-        box["entered"].set()
+        inner = launch.ordering
+        if inner is None:
+            box["entered"].set()
+        else:
+            @contextlib.contextmanager
+            def ordering():  # "entered" once inside the run's counted start (the permit is made before it since
+                with inner():  # remediation 3, so a Cancel pressed earlier would simply refuse the start)
+                    box["entered"].set()
+                    yield
+
+            launch.ordering = ordering
         return real(launch)
 
     monkeypatch.setattr(owner, "_grant", grant)
@@ -167,6 +177,14 @@ def test_control_a_one_way_go_without_revocation_runs_the_program_after_the_latc
         return False
 
     monkeypatch.setattr(owner, "_take_back_go", close_only)
+    real_unlink = os.unlink
+
+    def keep_permits(path, *args, **kwargs):  # nor is the permit tidied away when the launch ends (remediation 3)
+        if "ACT-permits" in os.fspath(path):
+            return None
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", keep_permits)
     worker = threading.Thread(target=lambda: _quiet(lambda: owner.popen_external([str(ffmpeg)], **_ordered(controller))),
                               daemon=True)
     worker.start()
