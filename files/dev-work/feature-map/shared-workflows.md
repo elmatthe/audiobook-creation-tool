@@ -88,6 +88,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Running offers Pause and Cancel; Pause requested and Paused offer Resume and Cancel; other states offer nothing, except Retry Failed after "Completed with failures" when a retryable failure exists.
 - Pause and Cancel are requests: "Pause requested" is shown until the worker reaches a checkpoint. Cancel outranks Pause and wakes a paused worker. A run ends exactly once; Cancel and a result being made final race under one lock and exactly one wins.
 - Retry Failed re-runs only the retryable failures, with the original frozen settings. A run that broke as a whole is Failed and not retryable.
+- A child process a run starts under its controller (v0.8.x P5-H-R1: the TTS tool's FFmpeg) is created on the lock Cancel latches under: started before the latch, Cancel stops it; asked for after, it never starts. Cancel waits at most for one creation in progress.
 - Workers never touch the window directly; their events are drawn on the main thread.
 - Differences: what Pause and Cancel can actually interrupt is each tool's own contract.
 

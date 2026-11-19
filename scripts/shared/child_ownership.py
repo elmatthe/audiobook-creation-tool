@@ -787,6 +787,14 @@ class Owner:
                 return self._start_guardian()
             return self._guardian.pid
 
+    def ensure_guardian(self) -> None:
+        """Have the guardian running now, starting it if there is none, so that a following :meth:`popen_external` does
+        not (v0.8.x P5-H-R1: a start made under the run's Cancel lock must not wait for a guardian to start). Raises
+        :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
+        with self._lock:
+            self._refuse_if_closing()
+            self._guardian_group()
+
     def popen_external(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
         """Start a registered class-B child inside the guardian's group. Raises :class:`ContainmentUnavailable`
         (nothing started) when no guardian can be had."""

@@ -190,3 +190,78 @@ def test_negative_control_an_owner_already_reaped_is_refused(kx):
     refused = module.kill_boundary(owner, birth, worker)
     assert any("owner" in reason for reason in refused), refused
     assert not module.child_ownership.signal_if_same(owner.pid, None, signal.SIGKILL), "no identity: no signal"
+
+
+# --------------------------------------------------------------------------- re-review: the real oracles, end to end
+
+
+def _capture(rows: dict) -> dict:
+    return {"packages": {"kokoro": {"version": "0.9.4"}}, "texts": rows}
+
+
+def _row(prepared: str = "p", phonemes: str = "ph") -> dict:
+    return {"prepared_sha256": prepared, "phonemes_sha256": phonemes,
+            "chunks": [{"segments": [{"graphemes": "g", "phonemes": phonemes}]}]}
+
+
+ALL_ROWS = [f"{n}-{l}" for n in ("A", "B", "C") for l in ("a", "b")]
+
+
+@pytest.mark.parametrize("first,second,expected", [
+    ({k: _row() for k in ALL_ROWS}, {k: _row() for k in ALL_ROWS}, "IDENTICAL"),
+    ({}, {}, "DIFFERENT"),                                                          # two empty captures
+    ({k: _row() for k in ALL_ROWS[:-1]}, {k: _row() for k in ALL_ROWS[:-1]}, "DIFFERENT"),  # a row missing on both
+    ({k: _row() for k in ALL_ROWS}, {**{k: _row() for k in ALL_ROWS}, "C-b": _row(prepared="other")}, "DIFFERENT"),
+    ({k: _row() for k in ALL_ROWS}, {**{k: _row() for k in ALL_ROWS}, "A-a": _row(phonemes="other")}, "DIFFERENT"),
+], ids=["identical", "empty", "missing-row", "other-input-same-phonemes", "other-phonemes"])
+def test_the_real_eb2_comparator_passes_only_a_complete_identical_comparison(p2, monkeypatch, tmp_path, first, second,
+                                                                            expected):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps(_capture(first)))
+    b.write_text(json.dumps(_capture(second)))
+    status, record = _main(p2, monkeypatch, tmp_path, "eb2-compare", "--first", str(a), "--second", str(b))
+    assert record["verdict"] == expected and status == (0 if expected == "IDENTICAL" else 4)
+
+
+# Ends once its owner has died (reparented to launchd), whenever it began to look: it cannot miss an owner that died first.
+FOLLOWER = "import os, time\nwhile os.getppid() != 1:\n    time.sleep(0.05)\n"
+
+
+def test_the_kx1_drill_passes_a_worker_live_at_the_signal_that_retires_with_its_owner(kx, tmp_path):
+    module, start = kx
+    owner, birth, worker = start("live", FOLLOWER)  # a worker that ends when its owner does, as a guarded one must
+    status, result = module.drill(owner, birth, worker, tmp_path / "never.mp3")
+    assert status == 0, json.dumps(result, default=str)
+    assert result["live_at_kill"] and result["owner_returncode"] == -signal.SIGKILL and result["survivors"] == []
+
+
+def test_negative_control_the_kx1_drill_fails_on_a_worker_gone_before_the_signal(kx, tmp_path):
+    module, start = kx
+    owner, birth, worker = start("worker-gone", "pass")
+    status, result = module.drill(owner, birth, worker, tmp_path / "never.mp3")
+    assert status == 1 and not result["live_at_kill"] and "worker" in result["refused"][0], result
+
+
+def test_negative_control_the_kx1_drill_fails_on_a_worker_that_ends_between_the_check_and_the_signal(kx, tmp_path,
+                                                                                                    monkeypatch):
+    """The reviewer's case: the worker retired after the liveness check and before the owner's signal; ``live_at_kill``
+    was recorded true and the drill exited 0. Now the worker must still be present just after the signal."""
+    module, start = kx
+    owner, birth, worker = start("live", FOLLOWER)
+    real = module.child_ownership.signal_if_same
+
+    ended = []
+
+    def worker_ends_first(pid, start_time, sig, **kwargs):
+        if pid == owner.pid and not ended:  # the drill's own signal only, not its cleanup's
+            ended.append(1)
+            os.killpg(worker["worker_pgid"], signal.SIGKILL)
+            deadline = time.monotonic() + 5
+            while module.worker_present(worker) and time.monotonic() < deadline:
+                time.sleep(0.01)
+        return real(pid, start_time, sig, **kwargs)
+
+    monkeypatch.setattr(module.child_ownership, "signal_if_same", worker_ends_first)
+    assert module.kill_boundary(owner, birth, worker) == [], "it passed the check before the signal"
+    status, result = module.drill(owner, birth, worker, tmp_path / "never.mp3")
+    assert status == 1 and not result["live_at_kill"] and "just after the signal" in result["refused"][0], result

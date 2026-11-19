@@ -571,36 +571,56 @@ def cmd_kx1(args) -> int:
         owner.kill()
         raise SystemExit("the owner never reported a running worker")
     time.sleep(1.0)  # the next chunk is being generated
-    refused = kill_boundary(owner, owner_birth, data)
+    status, result = drill(owner, owner_birth, data, dest)
+    write_json(folder / "kx1.json", result)
+    print(json.dumps(result, indent=1), flush=True)
+    return status
+
+
+def worker_present(worker: dict) -> bool:
+    """The worker recorded at spawn still exists as that process and has not exited (not a zombie, not a reused id)."""
+    birth = worker.get("worker_start")
+    pid = worker.get("worker_pid", -1)
+    return birth is not None and child_ownership.process_start_time(pid) == tuple(birth) and not child_ownership._has_exited(pid)
+
+
+def drill(owner: subprocess.Popen, owner_birth, worker: dict, dest: Path, *, bound_s: float = 3.0) -> tuple[int, dict]:
+    """KX-1 (v0.8.x P5-H-R1, Codex MEDIUM 2 and its re-review): kill the owner by SIGKILL while its worker is live, and time
+    the worker group's retirement. Live at the signal is shown on both sides of it: the same live worker in its group just
+    before (``kill_boundary``), and still present just after, before its retirement could have begun. The owner must be
+    the process started for the drill and must die of that SIGKILL. Status 0 only for a drill that shows all of it."""
+    base = {"worker_pid": worker.get("worker_pid"), "worker_pgid": worker.get("worker_pgid"),
+            "worker_start": worker.get("worker_start"), "chunks_before_kill": worker.get("chunks"), "owner_signal": "SIGKILL"}
+    refused = kill_boundary(owner, owner_birth, worker)
     killed_at = time.monotonic()
-    # Through the identity check: only the owner started for this drill is signalled, never a reused id.
-    if not refused and not child_ownership.signal_if_same(owner.pid, owner_birth, signal.SIGKILL):
+    signalled = not refused and child_ownership.signal_if_same(owner.pid, owner_birth, signal.SIGKILL)
+    present_after = signalled and worker_present(worker)
+    if not refused and not signalled:
         refused = ["the owner could not be signalled as the process started for this drill"]
+    if not refused and not present_after:
+        refused = ["the worker was not present just after the signal: live at the signal is not shown"]
     if refused:
         child_ownership.signal_if_same(owner.pid, owner_birth, signal.SIGKILL)
         owner.wait()
-        result = {"refused": refused, "worker_pid": data.get("worker_pid"), "worker_pgid": data.get("worker_pgid"),
-                  "processes_after": act_processes()}
-        write_json(folder / "kx1.json", result)
-        print(json.dumps(result, indent=1), flush=True)
-        return 1
+        result = {**base, "refused": refused, "live_at_kill": False, "processes_after": act_processes()}
+        result["survivors"] = attributable(result["processes_after"], worker, owner.pid)
+        return 1, result
     owner.wait()
     gone_at = None
     while time.monotonic() - killed_at < 10:
-        if group_gone(data["worker_pgid"]):
+        if group_gone(worker["worker_pgid"]):
             gone_at = time.monotonic()
             break
         time.sleep(0.01)
-    result = {"worker_pid": data["worker_pid"], "worker_pgid": data["worker_pgid"], "chunks_before_kill": data["chunks"],
-              "owner_signal": "SIGKILL", "worker_group_gone_s": None if gone_at is None else round(gone_at - killed_at, 3),
-              "bound_s": 3.0, "published": dest.exists(),
+    result = {**base, "live_at_kill": True, "owner_returncode": owner.returncode,
+              "worker_group_gone_s": None if gone_at is None else round(gone_at - killed_at, 3), "bound_s": bound_s,
+              "published": dest.exists(),
               "job_folders_left": sorted(p.name for p in ov.jobs_root().glob("*") if p.is_dir()),
-              "processes_after": act_processes(), "worker_start": data.get("worker_start"), "live_at_kill": True}
-    result["survivors"] = attributable(result["processes_after"], data, owner.pid)
-    write_json(folder / "kx1.json", result)
-    print(json.dumps(result, indent=1), flush=True)
-    return 0 if (gone_at is not None and gone_at - killed_at <= 3.0 and not dest.exists()
-                 and not result["survivors"]) else 1
+              "processes_after": act_processes()}
+    result["survivors"] = attributable(result["processes_after"], worker, owner.pid)
+    ok = (owner.returncode == -signal.SIGKILL and gone_at is not None and gone_at - killed_at <= bound_s
+          and not dest.exists() and not result["survivors"])
+    return (0 if ok else 1), result
 
 
 def cmd_assets(args) -> int:

@@ -321,12 +321,59 @@ def test_converting_a_long_held_stretch_stays_small_in_memory(tmp_path):
     assert AudioSegment.from_file(tmp_path / "out.flac").frame_count() == pytest.approx(expected, abs=4)
 
 
-def test_the_room_needed_counts_every_part_at_the_joined_format_and_the_copy(tmp_path, monkeypatch):
-    monkeypatch.setattr(disk_assembly, "_formats", lambda paths: {(11025, 1), (24000, 1)})
-    monkeypatch.setattr(wl, "decoded_size", lambda paths: 1000)
-    assert disk_assembly._room_needed(["a", "b"]) == 2 * 1000 * 24000 // 11025
-    monkeypatch.setattr(disk_assembly, "_formats", lambda paths: {(24000, 1)})
-    assert disk_assembly._room_needed(["a", "b"]) == 1000, "one format: exactly as before"
+@needs_ffmpeg
+def test_the_room_needed_follows_the_join_and_does_not_refuse_one_that_fits(tmp_path, monkeypatch):
+    """Codex re-review: 10 s at 24 kHz then 50 ms at 11,025 Hz needs no rewrite and decodes to about 482 kB; with 962 kB
+    free the earlier estimate (2 x every part at the largest format) refused it. Now the estimate follows the join."""
+    ffmpeg_utils.configure_pydub()
+    speech, silence = tmp_path / "speech.flac", tmp_path / "silence.flac"
+    _tone(24000, 1, 10_000, 300).export(speech, format="flac")
+    AudioSegment.silent(duration=50).export(silence, format="flac")
+    need = disk_assembly._room_needed([speech, silence])
+    assert need == pytest.approx(10.05 * 24000 * 2, rel=0.001)
+    monkeypatch.setattr(disk_assembly.shutil, "disk_usage", lambda _p: type("U", (), {"free": 962_204})())
+    disk_assembly.join_to_flac([speech, silence], tmp_path / "out.flac", tmp_path / "spool.wav")
+    assert (tmp_path / "out.flac").exists()
+
+
+@needs_ffmpeg
+def test_the_room_needed_counts_what_is_held_twice_while_it_is_converted(tmp_path):
+    ffmpeg_utils.configure_pydub()
+    low, high = tmp_path / "low.flac", tmp_path / "high.flac"
+    _tone(11025, 1, 10_000, 300).export(low, format="flac")
+    _tone(24000, 1, 1_000, 300).export(high, format="flac")
+    held, converted, final = 10 * 11025 * 2, 10 * 24000 * 2, 11 * 24000 * 2
+    assert disk_assembly._room_needed([low, high]) == pytest.approx(max(held + converted, final), rel=0.001)
+    assert disk_assembly._room_needed([high, high]) == wl.decoded_size([high, high]), "one format: exactly as before"
+    pause = AudioSegment.silent(duration=50)  # the folder route's pause, at 11,025 Hz, between 24 kHz chunks
+    assert disk_assembly._room_needed([high, pause, high]) == wl.decoded_size([high, high]), "as before"
+
+
+@needs_ffmpeg
+def test_cancel_during_the_final_tail_scan_stops_it_at_the_next_block(tmp_path, monkeypatch):
+    """Codex re-review: the tail policy scanned a long silent ending to its start after a Cancel."""
+    import threading
+
+    from tts import audio_tail
+
+    monkeypatch.setattr(audio_tail, "_SCAN_BLOCK_WINDOWS", 10)  # 100 ms blocks: a 20 s silence is 200 of them
+    looks = {"n": 0}
+    pressed = threading.Event()
+    real = ffmpeg_watch.checkpoint
+
+    def counted():
+        looks["n"] += 1
+        pressed.set()  # Cancel at the first block of the scan
+        real()
+
+    with disk_assembly.WavSpool(tmp_path / "spool.wav") as spool:
+        spool.append_segment(AudioSegment.silent(duration=20_000, frame_rate=24000))
+        spool.finish()
+        with ffmpeg_watch.controlled(pressed.is_set):
+            monkeypatch.setattr(ffmpeg_watch, "checkpoint", counted)
+            with pytest.raises(ConversionCancelled):
+                spool.apply_final_tail()
+    assert looks["n"] == 1, f"{looks['n']} blocks looked at after the Cancel"
 
 
 # --------------------------------------------------------------------------- D. Cancel, at every point
@@ -494,6 +541,33 @@ def test_cancel_at_the_instant_before_ffmpeg_is_created(mac_folder, monkeypatch)
 
 
 @needs_ffmpeg
+def test_cancel_pressed_while_the_encoder_is_being_created_never_follows_it(mac_folder, monkeypatch):
+    """The reviewer's ``folder_launch_race``: Cancel pressed on another thread at the instant before the real encoder is
+    created. At 94e200f the latch went through and the encoder was created after it; now the Cancel waits for the creation
+    in progress, the encoder exists before the latch, and it is stopped at once."""
+    import threading
+
+    starts = mac_folder["starts"]
+    real = subprocess_utils.popen
+    pressing = {}
+
+    def popen(args, **kwargs):
+        if str(args[-1]).endswith(".part") and "pressing" not in pressing:
+            pressing["thread"] = threading.Thread(target=starts.cancel)
+            pressing["thread"].start()
+            pressing["thread"].join(0.5)
+            pressing["waited"] = pressing["thread"].is_alive()
+        return real(args, **kwargs)
+
+    # Outermost: the fixture's recorder (beneath this) looks at the latch only once the barrier has passed.
+    monkeypatch.setattr(subprocess_utils, "popen", popen)
+    result = mac_folder["run"]()
+    pressing["thread"].join(5)
+    assert pressing["waited"], "the Cancel waited for the creation in progress"
+    _assert_cancelled_cleanly(mac_folder, result)
+
+
+@needs_ffmpeg
 def test_cancel_between_two_parts(mac_folder, monkeypatch):
     _arm(monkeypatch, disk_assembly.WavSpool, "append_file", after=mac_folder["starts"].cancel)
     _assert_cancelled_cleanly(mac_folder, mac_folder["run"]())
@@ -567,19 +641,24 @@ def test_cancel_after_the_final_tail_before_the_encode(mac_folder, monkeypatch):
 
 
 @needs_ffmpeg
-def test_cancel_during_the_encode_kills_it_at_once(mac_folder):
+def test_cancel_during_the_encode_kills_it_at_once(mac_folder, monkeypatch):
+    """Cancel once the encoder is running (its start has finished, so the latch is free): the watchdog kills it at its
+    next look, which ``wake`` makes now. (A Cancel pressed while the encoder is being created waits for that creation:
+    ``test_cancel_pressed_while_the_encoder_is_being_created_never_follows_it``.)"""
     starts = mac_folder["starts"]
+    real = ffmpeg_watch.Supervised.communicate
+    pressed = []
 
-    def on_start(args):
-        if "-b:a" in args or args[-2:-1] == ["mp3"] or str(args[-1]).endswith(".part"):
-            starts.on_start = None
-            starts.cancel()  # the encoder exists and is about to be watched
+    def communicate(self, *args, **kwargs):
+        if str(self.args[-1]).endswith(".part") and not pressed:
+            pressed.append(self.process)
+            starts.cancel()
+        return real(self, *args, **kwargs)
 
-    starts.on_start = on_start
+    monkeypatch.setattr(ffmpeg_watch.Supervised, "communicate", communicate)
     result = mac_folder["run"]()
-    encoder = starts.processes[-1]
-    assert encoder.returncode is not None and encoder.returncode < 0, "killed, not left to finish"
-    starts.after_cancel = []  # the encoder was started before the latch, by construction
+    assert pressed, "the encoder ran"
+    assert pressed[0].returncode is not None and pressed[0].returncode < 0, "killed, not left to finish"
     _assert_cancelled_cleanly(mac_folder, result)
 
 
@@ -671,30 +750,110 @@ def test_a_cancelled_run_starts_no_process_and_makes_no_file_for_one(monkeypatch
     assert started == [] and files == [] and controller.commits_in_flight == 0 and not ffmpeg_watch._watched
 
 
-def test_a_cancel_landing_while_the_process_starts_kills_it_at_once(monkeypatch):
+def test_a_cancel_pressed_while_a_process_is_being_created_waits_for_it_and_then_stops_it(monkeypatch):
+    """Codex re-review (HIGH): the start's authorization let go of the latch's lock before ``popen``, so a Cancel pressed
+    between them latched first and the process was created after it. Now Cancel waits for the creation in progress (it
+    holds the start lock for the spawn and registration only) and then finds the process to stop: at the moment of
+    creation the run was not cancelled, and once the latch is set the process is stopped at once."""
+    import threading
+
     controller = JobController("p5h-r1-raced")
     controller.start()
     real = subprocess_utils.popen
+    seen = {}
 
     def popen(args, **kwargs):
+        pressing = threading.Thread(target=controller.request_cancel)
+        pressing.start()  # Cancel pressed at the last instant before the process exists
+        pressing.join(0.5)
+        seen["cancel_waited"] = pressing.is_alive()
+        seen["latched_at_creation"] = controller.cancel_check()
         process = real(args, **kwargs)
-        assert controller.commits_in_flight == 1, "the start holds the latch's authorization while it happens"
-        controller.request_cancel()  # it lost to this start: the start must still be stopped
+        seen["pressing"] = pressing
         return process
 
     monkeypatch.setattr(subprocess_utils, "popen", popen)
-    monkeypatch.setattr(ffmpeg_watch, "_wake", type("Asleep", (), {"set": lambda self: None, "wait": lambda self, t=None: None,
-                                                                    "clear": lambda self: None})())
     with ffmpeg_watch.controlled(controller.cancel_check):
         child = ffmpeg_watch.Supervised(_sleeper(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        seen["pressing"].join(5)
         try:
-            # Killed by the start itself, with the watchdog asleep: not at its next look.
-            assert child.process.wait(5) < 0
+            assert seen == {"cancel_waited": True, "latched_at_creation": False, "pressing": seen["pressing"]}
+            assert not seen["pressing"].is_alive() and controller.cancel_check(), "the Cancel then went through"
+            ffmpeg_watch.wake()
+            assert child.process.wait(5) < 0, "and the process it waited for is stopped"
             with pytest.raises(ConversionCancelled):
                 child.finish()
         finally:
             child.abandon()
     assert controller.commits_in_flight == 0 and not ffmpeg_watch._watched
+
+
+def test_a_cancel_check_is_never_kept_waiting_by_a_guardian_start(monkeypatch):
+    """What can be slow before a start (macOS: the containment guardian) happens before the Cancel lock is taken."""
+    controller = JobController("p5h-r1-guardian")
+    controller.start()
+    held_during_preparation = []
+    monkeypatch.setattr(subprocess_utils, "prepare_popen",
+                        lambda *a, **k: held_during_preparation.append(controller._starts_in_progress > 0))
+    with ffmpeg_watch.controlled(controller.cancel_check):
+        child = ffmpeg_watch.Supervised(_sleeper(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        child.abandon()
+    assert held_during_preparation == [False]
+
+
+def test_a_process_started_and_not_registered_is_ended_not_left_unowned(monkeypatch):
+    started = []
+    real = subprocess_utils.popen
+
+    def popen(args, **kwargs):
+        started.append(real(args, **kwargs))
+        return started[-1]
+
+    def no_memory(*_a, **_k):
+        raise MemoryError()
+
+    monkeypatch.setattr(subprocess_utils, "popen", popen)
+    monkeypatch.setattr(ffmpeg_watch, "_Watched", no_memory)
+    with pytest.raises(MemoryError):
+        ffmpeg_watch.Supervised(_sleeper(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    assert len(started) == 1 and started[0].poll() is not None, "killed and reaped"
+    assert not ffmpeg_watch._watched
+
+
+@pytest.mark.parametrize("stage", ["wait", "read"])
+def test_a_killed_process_that_will_not_end_never_holds_the_conversion(monkeypatch, stage):
+    """Codex re-review: with the kill ineffective, ``finish`` (and a read of a silent pipe) waited for ever. Now each gives
+    up :data:`ABANDON_WAIT_SECONDS` after the kill, the process stays watched, and the watchdog reaps and forgets it once it
+    does end."""
+    import time
+
+    if stage == "read" and os.name != "posix":
+        pytest.skip("Windows reads its pipes as before")
+    monkeypatch.setattr(ffmpeg_watch, "ABANDON_WAIT_SECONDS", 0.5)
+    child = ffmpeg_watch.Supervised(_sleeper(), stdout=subprocess.PIPE if stage == "read" else subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE)
+    real_kill = child.process.kill
+    monkeypatch.setattr(child.process, "kill", lambda: None)  # as if the kill had not taken
+    child._item.decide(ConversionCancelled("Conversion cancelled by user."))  # what the watchdog does at a Cancel
+    began = time.monotonic()
+    try:
+        with pytest.raises(ffmpeg_watch.ProcessNotStopped):
+            if stage == "read":
+                list(child.blocks())
+            else:
+                child.finish()
+        assert time.monotonic() - began < 5
+        assert child._item.unconfirmed and child._item in ffmpeg_watch._watched
+        child.abandon()  # its caller's cleanup: no second wait, nothing hidden
+        assert child._item in ffmpeg_watch._watched
+    finally:
+        real_kill()
+    deadline = time.monotonic() + 10
+    while child._item in ffmpeg_watch._watched and time.monotonic() < deadline:
+        ffmpeg_watch.wake()
+        time.sleep(0.05)
+    assert child._item not in ffmpeg_watch._watched, "reaped and forgotten once it ended"
+    assert child.process.returncode is not None
 
 
 def test_a_process_that_will_not_end_is_not_reported_as_a_clean_end(monkeypatch):
@@ -710,7 +869,7 @@ def test_a_process_that_will_not_end_is_not_reported_as_a_clean_end(monkeypatch)
         real_kill()
         child.process.wait(10)
         child._stop_watching()
-    assert not ffmpeg_watch._watched
+    assert child._item not in ffmpeg_watch._watched
 
 
 @pytest.mark.parametrize("predicate", [lambda: True, "event"], ids=["lambda", "event"])
@@ -742,3 +901,38 @@ def test_a_cancel_check_that_fails_does_not_refuse_the_start(monkeypatch):
     finally:
         child.abandon()
     assert not ffmpeg_watch._watched
+
+
+def test_a_waiting_cancel_refuses_new_starts_and_latches_when_the_one_in_progress_ends():
+    """The controller's side of the start ordering, with no process at all: one start in progress holds the latch back; a
+    Cancel then waits for it without latching; a second start asked for meanwhile is refused (so starts cannot keep a Cancel
+    waiting); the latch lands the moment the first start ends; and nothing is left counted."""
+    import threading
+
+    controller = JobController("p5h-r1-pending")
+    controller.start()
+    inside, release = threading.Event(), threading.Event()
+
+    def first_start():
+        with controller.starting():
+            inside.set()
+            release.wait(10)
+
+    starter = threading.Thread(target=first_start)
+    starter.start()
+    assert inside.wait(5)
+    pressing = threading.Thread(target=controller.request_cancel)
+    pressing.start()
+    pressing.join(0.3)
+    assert pressing.is_alive() and not controller.cancel_check(), "waiting for the start in progress, not latched"
+    with pytest.raises(ConversionCancelled):
+        with controller.starting():
+            pass  # pragma: no cover - refused
+    release.set()
+    starter.join(5)
+    pressing.join(5)
+    assert not pressing.is_alive() and controller.cancel_check()
+    assert controller._starts_in_progress == 0 and controller.commits_in_flight == 0
+    with pytest.raises(ConversionCancelled):
+        with controller.starting():
+            pass  # pragma: no cover - refused

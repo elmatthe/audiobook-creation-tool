@@ -523,6 +523,10 @@ def cmd_eb2(out: Path) -> dict:
     return record
 
 
+#: The rows ``cmd_eb2`` records: texts A, B and C, each in American (a) and British (b) English.
+EB2_EXPECTED_ROWS = frozenset(f"{name}-{lang}" for name in ("A", "B", "C") for lang in ("a", "b"))
+
+
 def cmd_eb2_compare(first: Path, second: Path) -> dict:
     a, b = json.loads(first.read_text(encoding="utf-8")), json.loads(second.read_text(encoding="utf-8"))
     result = {"first": str(first), "second": str(second), "packages": {}, "texts": {}}
@@ -544,7 +548,11 @@ def cmd_eb2_compare(first: Path, second: Path) -> dict:
                                   "first": sa["phonemes"], "second": sb["phonemes"]})
         result["texts"][key] = {"same_prepared_input": same_input, "identical": ta["phonemes_sha256"] ==
                                 tb["phonemes_sha256"], "differences": diffs[:50]}
-    result["verdict"] = ("IDENTICAL" if all(isinstance(v, dict) and v["identical"] for v in result["texts"].values())
+    # v0.8.x P5-H-R1 (Codex re-review): IDENTICAL needs every expected row on both sides, each from the same prepared input
+    # with the same phonemes. Two empty captures, a missing row, or different inputs that phonemise alike are not a pass.
+    result["missing"] = sorted(EB2_EXPECTED_ROWS - (set(a["texts"]) & set(b["texts"])))
+    result["verdict"] = ("IDENTICAL" if not result["missing"] and all(
+        isinstance(v, dict) and v["identical"] and v["same_prepared_input"] for v in result["texts"].values())
                          else "DIFFERENT")
     return result
 

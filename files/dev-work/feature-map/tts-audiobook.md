@@ -371,9 +371,12 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
 
 - Any FFmpeg the conversion started is killed within about a quarter of a second of Cancel, even while it is making
   progress.
-- No FFmpeg starts after Cancel (v0.8.x P5-H-R1): each start is decided on the run's Cancel lock, so Cancel either refuses
-  it or finds it running and kills it. Reading, scanning or converting a narration on disk between FFmpeg steps stops at
-  the next block. An FFmpeg that is still running after being killed is never reported as a clean Cancel.
+- No FFmpeg starts after Cancel (v0.8.x P5-H-R1, R1 re-review): the run's FFmpeg is created holding the lock its Cancel
+  latches under, so a Cancel pressed first refuses the start, and a Cancel pressed during it waits for that one creation
+  (milliseconds; anything slower, such as starting the macOS containment guardian, happens before the lock) and then
+  kills it. Reading, converting, scanning (the audible check and the final-tail search) and the free-space header reads of
+  a narration on disk stop at the next block or file. An FFmpeg still running after being killed is never reported as a
+  clean Cancel, never holds the conversion waiting (macOS and Linux) and is reaped once it ends.
 
 ### Cancel and the final rename are ordered
 `ACT.TTS.CANCEL.PUBLICATION`

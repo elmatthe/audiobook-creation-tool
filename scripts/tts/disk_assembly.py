@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import math
 import os
 import shutil
 import struct
@@ -253,7 +254,7 @@ class WavSpool:
             return ""
         ffmpeg_watch.checkpoint()
         pcm = np.memmap(self.path, dtype="<i2", mode="r", offset=WAV_HEADER_BYTES)
-        tail = audio_tail.apply_final_tail_policy(pcm.reshape(-1, self.channels), self.rate)
+        tail = audio_tail.apply_final_tail_policy(pcm.reshape(-1, self.channels), self.rate, checkpoint=ffmpeg_watch.checkpoint)
         kept, summary = len(tail.pcm) * SAMPLE_WIDTH * self.channels, tail.summary()
         del tail, pcm  # the mapping goes first: Windows will not shorten a mapped file
         if kept < self.pcm_bytes:
@@ -360,35 +361,76 @@ def _naming_a_full_disk(folder):
             "for it. It needs about as much free space as the uncompressed audio. Free some space, then use Retry Failed.") from exc
 
 
-def _formats(paths: Iterable) -> set[tuple[int, int]]:
-    """``(rate, channels)`` of each file that states them in its header. Decodes nothing."""
+def _header_facts(path) -> Optional[tuple[float, int, int]]:
+    """``(seconds, rate, channels)`` from a finished file's header, or ``None`` when it states them not. Decodes nothing."""
     import mutagen
 
+    with contextlib.suppress(Exception):
+        info = mutagen.File(path).info
+        return float(info.length), int(info.sample_rate), int(info.channels)
+    return None
+
+
+def _formats(paths: Iterable) -> set[tuple[int, int]]:
+    """``(rate, channels)`` of each file that states them in its header. Decodes nothing."""
     found = set()
     for path in paths:
-        with contextlib.suppress(Exception):
-            info = mutagen.File(path).info
-            found.add((int(info.sample_rate), int(info.channels)))
+        ffmpeg_watch.checkpoint()
+        facts = _header_facts(path)
+        if facts is not None:
+            found.add(facts[1:])
     return found
 
 
-def _room_needed(files: list) -> int:
-    """About what the working file can come to. Parts of different formats all end up in the largest, and while what is held
-    is converted it is there twice (v0.8.x P5-H-R1)."""
+def _pcm(seconds: float, rate: int, channels: int) -> int:
+    return math.ceil(seconds * rate * channels) * SAMPLE_WIDTH
+
+
+def _room_needed(parts: list) -> int:
+    """About the most the working files come to while these parts are joined in order (v0.8.x P5-H-R1).
+
+    Parts all in one format: what they decode to, exactly as before. Otherwise the join is followed as :class:`WavSpool`
+    makes it: everything at the format held so far, and, at each rise of that format, what is held twice over (the file
+    and its conversion) for as long as the conversion takes. A file whose header states nothing counts at its own size
+    estimate (``worker_limits.decoded_size``)."""
     from tts import worker_limits
 
-    need = worker_limits.decoded_size(files)
-    formats = _formats(files)
-    if len(formats) > 1:
-        largest = max(rate for rate, _ in formats) * max(channels for _, channels in formats)
-        need = 2 * need * largest // min(rate * channels for rate, channels in formats)
-    return need
+    files = [part for part in parts if not isinstance(part, AudioSegment)]
+    facts = []
+    for part in parts:
+        ffmpeg_watch.checkpoint()
+        if isinstance(part, AudioSegment):
+            facts.append((part.duration_seconds, part.frame_rate, part.channels, 0))
+        else:
+            known = _header_facts(part)
+            facts.append((*known, 0) if known is not None else (0.0, 0, 0, worker_limits.decoded_size([part])))
+    stated = {(rate, channels) for _s, rate, channels, unknown in facts if rate and not unknown}
+    file_formats = {(rate, channels) for (_s, rate, channels, unknown), part in zip(facts, parts)
+                    if rate and not unknown and not isinstance(part, AudioSegment)}
+    if len(file_formats) <= 1 and all(rate <= max((r for r, _c in file_formats), default=rate)
+                                      and channels <= max((c for _r, c in file_formats), default=channels)
+                                      for rate, channels in stated):
+        return worker_limits.decoded_size(files)
+    held_rate = held_channels = 0
+    held_seconds, unknown_bytes, peak = 0.0, 0, 0
+    for seconds, rate, channels, unknown in facts:
+        if unknown:
+            unknown_bytes += unknown
+            continue
+        if not held_rate:
+            held_rate, held_channels = rate, channels
+        elif (rate, channels) != (held_rate, held_channels) and (rate > held_rate or channels > held_channels):
+            target = (max(held_rate, rate), max(held_channels, channels))
+            peak = max(peak, _pcm(held_seconds, held_rate, held_channels) + _pcm(held_seconds, *target) + unknown_bytes)
+            held_rate, held_channels = target
+        held_seconds += seconds
+    return max(peak, _pcm(held_seconds, held_rate, held_channels) + unknown_bytes if held_rate else unknown_bytes)
 
 
 def _require_room(parts: Iterable[Part], spool_path) -> None:
     """Refuse before starting when the working file can be seen not to fit: the alternative is finding out at the end."""
     folder = Path(spool_path).resolve().parent
-    need = _room_needed([part for part in parts if not isinstance(part, AudioSegment)])
+    need = _room_needed(list(parts))
     free = shutil.disk_usage(folder).free
     if need > free:
         raise publication.PublicationError(

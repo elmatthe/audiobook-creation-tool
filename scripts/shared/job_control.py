@@ -85,11 +85,12 @@ outcome is recorded, and that lock is never held while the result is being made 
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import math
 import threading
 from collections import deque
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePath
@@ -1379,7 +1380,7 @@ class JobController:
     __slots__ = (
         "_run_id", "_condition", "_state", "_revision", "_cancel_requested",
         "_cancel_acknowledged", "_failure_message", "_failure_detail", "_listener",
-        "_commits_in_flight",
+        "_commits_in_flight", "_starts_in_progress", "_cancel_pending",
     )
 
     def __init__(
@@ -1402,6 +1403,10 @@ class JobController:
         self._failure_detail = ""
         self._listener = listener
         self._commits_in_flight = 0
+        # v0.8.x P5-H-R1: child processes being created right now (``starting``), and a Cancel waiting for them before it
+        # latches (``request_cancel``), so that no child of this run is created after the latch. Guarded by the one lock.
+        self._starts_in_progress = 0
+        self._cancel_pending = False
 
     # -- reading ----------------------------------------------------------- #
 
@@ -1508,8 +1513,19 @@ class JobController:
         checkpoint after :meth:`start` will honour it. Requested **after** the run
         has ended it does nothing at all, because a finished run must not start
         describing itself as cancelled.
+
+        v0.8.x P5-H-R1: a child process being created (:meth:`starting`) is created
+        before the latch, and is the Cancel's to stop, or is refused. Cancel first
+        refuses any new start, then waits on the condition (the lock let go) for the
+        creations already in progress, which are spawns and nothing longer, and only
+        then latches. It never waits for any work.
         """
         with self._condition:
+            if self._state in TERMINAL_STATES:
+                return self._snapshot_locked()
+            self._cancel_pending = True
+            while self._starts_in_progress:
+                self._condition.wait()
             if self._state in TERMINAL_STATES:
                 return self._snapshot_locked()
             changed = not self._cancel_requested
@@ -1549,6 +1565,32 @@ class JobController:
                 return False
             self._commits_in_flight += 1
             return True
+
+    @contextlib.contextmanager
+    def starting(self, message: str = "Cancelled.") -> Iterator[None]:
+        """Start one child process of this run, ordered against Cancel (v0.8.x P5-H-R1).
+
+        The body (the spawn, and whatever must be in place before anyone may stop it) runs
+        with the lock let go but counted as a start in progress, and :meth:`request_cancel`
+        does not latch while one is. If cancellation was requested first, or is waiting to
+        latch, :class:`ConversionCancelled` is raised and the body never runs; otherwise the
+        latch cannot be set until the body has finished, so the child exists, and can be
+        found and stopped, before it is. :meth:`authorize_commit`'s count does not hold
+        Cancel back, which is right for a commit that must not hold Cancel up and wrong for
+        a start that must never follow it. The body must be short (a Cancel waits for it)
+        and must never request Cancel itself, which would wait for its own start.
+        """
+        with self._condition:
+            if self._cancel_requested or self._cancel_pending:
+                raise ConversionCancelled(message)
+            self._starts_in_progress += 1
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._starts_in_progress -= 1
+                if not self._starts_in_progress:
+                    self._condition.notify_all()
 
     def commit_finished(self) -> None:
         """The authorized attempt is over, whether or not the result became final."""

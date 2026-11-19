@@ -174,6 +174,15 @@ def popen(cmd, **kwargs) -> subprocess.Popen:
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
+def prepare_popen(cmd, **kwargs) -> None:
+    """Do now whatever :func:`popen` of the same arguments would do first that can take a while: on macOS, start the
+    owner's guardian if it has none (v0.8.x P5-H-R1). ``tts.ffmpeg_watch`` calls it before taking the run's Cancel lock,
+    so that lock is held for the spawn alone. Nothing at all on Windows, or for a child that is not contained."""
+    owner = _media_owner(cmd, kwargs)
+    if owner is not None:
+        owner.ensure_guardian()
+
+
 def check_output(cmd, **kwargs) -> bytes | str:
     """Drop-in replacement for ``subprocess.check_output`` with hidden console."""
     owner = _media_owner(cmd, kwargs)
