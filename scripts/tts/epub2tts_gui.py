@@ -3505,7 +3505,15 @@ class _RunContext:
         chapter/chunk checkpoint, the acknowledgement has not happened yet — so it
         is taken here, *after* this attempt's cleanup, which is exactly the order
         ``finish_cancelled`` insists on.
+
+        v0.8.x P5-H-R1: a run with an FFmpeg it killed that is still running is
+        neither cancelled nor finished: it fails as a whole, not retryable, naming
+        the process, so nothing reports a clean end while it may still be at work.
         """
+        stuck = ffmpeg_watch.unconfirmed_children(self.cancel_check)
+        if stuck:
+            self.settle_unstoppable(stuck)
+            return
         if self.cancelled and not self.controller.cancel_acknowledged:
             try:
                 self.controller.checkpoint()
@@ -3537,6 +3545,12 @@ class _RunContext:
         else:
             done = f"Conversion finished: {len(self.completed)} ok, {len(self.failures)} failed."
         self.log_q.put(("done", done))
+
+    def settle_unstoppable(self, pids: list) -> None:
+        """v0.8.x P5-H-R1: the run's ending when an FFmpeg it killed did not end (``ffmpeg_watch.ProcessNotStopped``)."""
+        self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+            f"FFmpeg (process {', '.join(map(str, pids))}) was stopped and is still running, so this run is not reported as "
+            "cancelled or finished. Nothing unfinished was saved. Quit the application before converting again."))
 
     def settle_fatal(self, exc: BaseException) -> None:
         """The run itself broke. A job failure, and never retryable."""

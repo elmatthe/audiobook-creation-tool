@@ -1449,3 +1449,71 @@ def test_every_edge_voice_converts_eight_direct_files_at_once(make_panel, output
         worker.join(WAIT)
     wait_for(lambda: "Requested workers: 8 | Effective workers: 8" in log_text(panel), "no worker line", panel=panel)
     assert {job["speaker"] for job in gated_stubs.conversion_jobs} == {voice.voice_id}
+
+
+@needs_ffmpeg
+def test_a_cancelled_run_whose_ffmpeg_will_not_end_fails_and_is_never_reported_cancelled(make_panel, output_base, tmp_path,
+                                                                                        monkeypatch):
+    """v0.8.x P5-H-R1 (Codex re-review 2, HIGH): with the encoder's kill made ineffective, the folder route turned the
+    unconfirmed stop into an ordinary Cancel at its retry back-off, and the run settled CANCELLED (one file stopped, no
+    failure) while FFmpeg was still running; the worker also waited 30 s, past the 4 s FFmpeg stop budget. Now the file
+    fails within ABANDON_WAIT_SECONDS of the kill and the run fails as a whole, not retryable, naming the process."""
+    from shared.job_control import JobAction, JobState, is_available
+    from tts import disk_assembly, ffmpeg_watch
+
+    monkeypatch.setattr(worker_limits, "IN_MEMORY_ASSEMBLY", False)
+    monkeypatch.setattr(worker_limits, "ASSEMBLY_GATE_MIN_PCM_BYTES", 0)
+    FakeService().install(monkeypatch)
+    root = tmp_path / "Library"
+    book(root, "b.txt", "FolderB")
+    panel = real_panel(make_panel, folders=(root,))
+    panel.workers_var.set("1")
+    stuck = {}
+    real_communicate = ffmpeg_watch.Supervised.communicate
+
+    def communicate(self, *args, **kwargs):
+        if str(self.args[-1]).endswith(".part") and "process" not in stuck:
+            stuck["process"], stuck["kill"] = self.process, self.process.kill
+            self.process.kill = lambda: None  # as if the kill had not taken
+            # The encoder is long-lived for this test: it reads a WAV that never ends (stdin), so it is still at work.
+            stuck["controller"].request_cancel()
+            ffmpeg_watch.wake()
+            stuck["cancelled_at"] = time.monotonic()
+        return real_communicate(self, *args, **kwargs)
+
+    real_export = disk_assembly.WavSpool.export
+
+    def export(self, output, **kwargs):
+        # A real encoder that keeps running: real-time input that never ends.
+        command = [disk_assembly.AudioSegment.converter, "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-re", "-i",
+                   "/dev/zero", "-f", "mp3", str(output)]
+        done = ffmpeg_watch.run(command)
+        raise AssertionError(f"the encoder was meant to be cancelled, not to finish ({done.returncode})")
+
+    monkeypatch.setattr(ffmpeg_watch.Supervised, "communicate", communicate)
+    monkeypatch.setattr(disk_assembly.WavSpool, "export", export)
+
+    def remember_controller(captured):
+        stuck["controller"] = captured["params"]["controller"]
+
+    try:
+        run_attempt(panel, before_worker=remember_controller)
+        settled_at = time.monotonic()
+        result = panel._result
+        assert "process" in stuck, "the encoder was reached"
+        assert result.state is JobState.FAILED and not result.cancelled, result.state
+        assert not is_available(JobAction.RETRY_FAILED, result.state, has_retryable=result.has_retryable), (
+            "a run that may still have FFmpeg at work offers no Retry Failed")
+        assert settled_at - stuck["cancelled_at"] < ffmpeg_watch.ABANDON_WAIT_SECONDS + 1.0
+        assert ffmpeg_watch.ABANDON_WAIT_SECONDS + ffmpeg_watch.WATCH_SECONDS <= 4.0, "inside the 4 s FFmpeg stop budget"
+        assert stuck["process"].poll() is None, "it really was still running when the run settled"
+        assert "still running" in log_text(panel)
+    finally:
+        if "process" in stuck:
+            stuck["kill"]()
+            stuck["process"].wait(10)
+    deadline = time.monotonic() + 10
+    while ffmpeg_watch._watched and time.monotonic() < deadline:
+        ffmpeg_watch.wake()
+        time.sleep(0.05)
+    assert not ffmpeg_watch._watched, "reaped and forgotten once it ended"

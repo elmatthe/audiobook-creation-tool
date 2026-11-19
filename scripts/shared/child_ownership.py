@@ -43,6 +43,7 @@ on Windows; :func:`supported` is False there and the Windows spawn paths are unc
 
 from __future__ import annotations
 
+import contextlib
 import os
 import queue
 import select
@@ -54,7 +55,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 ENTRY = Path(__file__).resolve().with_name("child_entry.py")
 GUARDIAN = Path(__file__).resolve().with_name("child_guardian.py")
@@ -72,6 +73,11 @@ SHUTDOWN_BOUND_S = 5.0
 
 #: Interpreter options that take a value as the next argument (``python -X dev -W error ...``).
 _OPTIONS_WITH_VALUE = frozenset({"-X", "-W", "--check-hash-based-pycs"})
+
+
+class GuardianChanged(RuntimeError):
+    """v0.8.x P5-H-R1: the guardian a start was prepared for is gone or replaced. Raised at once instead of starting a new
+    guardian where the start may not wait (inside the run's Cancel ordering); the caller prepares again and retries."""
 
 
 class ContainmentUnavailable(RuntimeError):
@@ -715,14 +721,18 @@ class Owner:
     def guardian_pid(self) -> Optional[int]:
         return self._guardian.pid if self._guardian is not None and self._guardian.poll() is None else None
 
-    def _start_guardian(self) -> int:
+    def _start_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
+        """Start the guardian and wait for its ready signal. ``spawn_context`` (v0.8.x P5-H-R1), when given, is entered
+        around the spawn alone, not the wait for readiness: a run's Cancel ordering, so no guardian process is created for
+        a cancelled run while a Cancel never waits for a guardian to become ready."""
         fd = self._ensure_lifeline()
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
         env[LIFELINE_ENV] = str(fd)
         try:
-            proc = subprocess.Popen([self._python, "-I", str(GUARDIAN)], process_group=0, pass_fds=(fd,), env=env,
-                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    close_fds=True)
+            with (spawn_context() if spawn_context is not None else contextlib.nullcontext()):
+                proc = subprocess.Popen([self._python, "-I", str(GUARDIAN)], process_group=0, pass_fds=(fd,), env=env,
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        close_fds=True)
         except OSError as exc:
             raise ContainmentUnavailable(f"the ACT guardian could not be started: {exc}") from exc
         ready = b""
@@ -777,34 +787,51 @@ class Owner:
             self._end(child, grace=TERM_GRACE_S)
             self._note(f"Containment: stopped {child.label or child.pid} (pid {child.pid}): it had lost its guardian.")
 
-    def _guardian_group(self) -> int:
+    def _guardian_group(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
         with self._lock:
             if self._guardian is not None and not self._guardian_alive():
                 proc, generation = self._guardian, self._generation
                 proc.wait()
                 self._guardian_lost(proc, generation)
             if self._guardian is None:
-                return self._start_guardian()
+                return self._start_guardian(spawn_context)
             return self._guardian.pid
 
-    def ensure_guardian(self) -> None:
-        """Have the guardian running now, starting it if there is none, so that a following :meth:`popen_external` does
-        not (v0.8.x P5-H-R1: a start made under the run's Cancel lock must not wait for a guardian to start). Raises
-        :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
+    def ensure_guardian(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
+        """Have the guardian running now, starting (or replacing) it if need be, and return its generation, so that a
+        following :meth:`popen_external` with ``require_generation`` starts nothing but its child (v0.8.x P5-H-R1: a start
+        made inside the run's Cancel ordering must never wait for a guardian). ``spawn_context``: as for
+        :meth:`_start_guardian`. Raises :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
         with self._lock:
             self._refuse_if_closing()
-            self._guardian_group()
+            self._guardian_group(spawn_context)
+            return self._generation
 
     def popen_external(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
         """Start a registered class-B child inside the guardian's group. Raises :class:`ContainmentUnavailable`
         (nothing started) when no guardian can be had."""
         if "start_new_session" in kwargs or "process_group" in kwargs:
             raise ValueError("a class-B child always joins the guardian's group")
+        required = kwargs.pop("require_generation", None)
         with self._lock:
             self._refuse_if_closing()
-            group = self._guardian_group()
+            if required is not None:
+                # v0.8.x P5-H-R1: prepared for this guardian; if it is gone or replaced, say so now rather than start one.
+                if self._guardian is None or self._generation != required or not self._guardian_alive():
+                    raise GuardianChanged("the ACT guardian changed after this start was prepared; nothing was started")
+                group = self._guardian.pid
+            else:
+                group = self._guardian_group()
             proc = subprocess.Popen([str(a) for a in argv], process_group=group, close_fds=True, **kwargs)
-            self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
+            try:
+                self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
+            except BaseException:
+                # v0.8.x P5-H-R1: started and not owned (out of memory here, say): it does not run on unowned.
+                with contextlib.suppress(OSError):
+                    proc.kill()
+                with contextlib.suppress(OSError, subprocess.SubprocessError):
+                    proc.wait(TERM_GRACE_S * 2)
+                raise
         return proc
 
     def run_external(self, argv: Sequence[str], *, timeout: Optional[float] = None, label: str = "",

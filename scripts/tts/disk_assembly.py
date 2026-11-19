@@ -60,7 +60,8 @@ def _read_exactly(stream, count: int) -> bytes:
 
 
 def _wav_format(stream) -> tuple[int, int]:
-    """``(rate, channels)`` of the WAV stream FFmpeg is writing, leaving the stream at the start of its audio."""
+    """``(rate, channels)`` of the WAV stream FFmpeg is writing, leaving the stream at the start of its audio. ``stream``
+    is the :class:`~tts.ffmpeg_watch.Supervised` itself (v0.8.x P5-H-R1), whose ``read`` is held to its kill deadline."""
     head = _read_exactly(stream, 12)
     if head[:4] != b"RIFF" or head[8:12] != b"WAVE":
         raise CouldntDecodeError("Decoding failed: FFmpeg did not write a WAV stream.")
@@ -200,7 +201,7 @@ class WavSpool:
         child = ffmpeg_watch.Supervised(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             try:
-                convert = self._begin(*_wav_format(child.stdout))
+                convert = self._begin(*_wav_format(child))
                 for block in child.blocks(BLOCK_BYTES):
                     self._write(block if convert is None else convert(block))
             except CouldntDecodeError:
@@ -395,22 +396,23 @@ def _room_needed(parts: list) -> int:
     estimate (``worker_limits.decoded_size``)."""
     from tts import worker_limits
 
-    files = [part for part in parts if not isinstance(part, AudioSegment)]
-    facts = []
+    facts, decoded = [], 0
     for part in parts:
-        ffmpeg_watch.checkpoint()
+        ffmpeg_watch.checkpoint()  # one walk over the headers, each file after a look at Cancel
         if isinstance(part, AudioSegment):
             facts.append((part.duration_seconds, part.frame_rate, part.channels, 0))
-        else:
-            known = _header_facts(part)
-            facts.append((*known, 0) if known is not None else (0.0, 0, 0, worker_limits.decoded_size([part])))
+            continue
+        size = worker_limits.decoded_size([part])  # per file, so their sum is decoded_size of them all, exactly
+        decoded += size
+        known = _header_facts(part)
+        facts.append((*known, 0) if known is not None else (0.0, 0, 0, size))
     stated = {(rate, channels) for _s, rate, channels, unknown in facts if rate and not unknown}
     file_formats = {(rate, channels) for (_s, rate, channels, unknown), part in zip(facts, parts)
                     if rate and not unknown and not isinstance(part, AudioSegment)}
     if len(file_formats) <= 1 and all(rate <= max((r for r, _c in file_formats), default=rate)
                                       and channels <= max((c for _r, c in file_formats), default=channels)
                                       for rate, channels in stated):
-        return worker_limits.decoded_size(files)
+        return decoded
     held_rate = held_channels = 0
     held_seconds, unknown_bytes, peak = 0.0, 0, 0
     for seconds, rate, channels, unknown in facts:

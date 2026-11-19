@@ -166,21 +166,41 @@ def run(cmd, **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
+class GuardianChanged(RuntimeError):
+    """v0.8.x P5-H-R1: the containment guardian a start was prepared for (:func:`prepare_popen`) is gone or replaced, so
+    nothing was started; prepare again and retry. Never raised on Windows or for a child that is not contained."""
+
+
 def popen(cmd, **kwargs) -> subprocess.Popen:
-    """Drop-in replacement for ``subprocess.Popen`` with hidden console on Windows."""
+    """Drop-in replacement for ``subprocess.Popen`` with hidden console on Windows.
+
+    ``guardian_generation`` (v0.8.x P5-H-R1; macOS, contained children only): what :func:`prepare_popen` returned. The
+    child is then started in exactly that guardian's group, or :class:`GuardianChanged` is raised at once; no guardian is
+    ever started or replaced by this call. Ignored where nothing is contained."""
+    generation = kwargs.pop("guardian_generation", None)
     owner = _media_owner(cmd, kwargs)
     if owner is not None:
-        return _contained_popen(owner, cmd, **kwargs)
+        if generation is None:
+            return _contained_popen(owner, cmd, **kwargs)
+        try:
+            return _contained_popen(owner, cmd, require_generation=generation, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - only the containment layer's own "guardian changed" is translated
+            if type(exc).__name__ == "GuardianChanged":
+                raise GuardianChanged(str(exc)) from exc
+            raise
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
-def prepare_popen(cmd, **kwargs) -> None:
-    """Do now whatever :func:`popen` of the same arguments would do first that can take a while: on macOS, start the
-    owner's guardian if it has none (v0.8.x P5-H-R1). ``tts.ffmpeg_watch`` calls it before taking the run's Cancel lock,
-    so that lock is held for the spawn alone. Nothing at all on Windows, or for a child that is not contained."""
+def prepare_popen(cmd, *, spawn_context=None, **kwargs):
+    """Do now whatever :func:`popen` of the same arguments would do first that can take a while (v0.8.x P5-H-R1): on
+    macOS, have the owner's guardian running, starting or replacing it if need be, and return its generation for
+    :func:`popen`'s ``guardian_generation``. ``spawn_context`` is entered around a guardian's spawn alone (the run's Cancel
+    ordering), never around the wait for it to be ready. ``None``, doing nothing, on Windows or for a child that is not
+    contained."""
     owner = _media_owner(cmd, kwargs)
-    if owner is not None:
-        owner.ensure_guardian()
+    if owner is None:
+        return None
+    return owner.ensure_guardian(spawn_context)
 
 
 def check_output(cmd, **kwargs) -> bytes | str:

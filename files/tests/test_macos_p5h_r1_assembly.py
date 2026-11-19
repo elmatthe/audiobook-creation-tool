@@ -363,7 +363,8 @@ def test_cancel_during_the_final_tail_scan_stops_it_at_the_next_block(tmp_path, 
 
     def counted():
         looks["n"] += 1
-        pressed.set()  # Cancel at the first block of the scan
+        if looks["n"] == 2:
+            pressed.set()  # Cancel once the scan has read its first block (the first look is before the scan)
         real()
 
     with disk_assembly.WavSpool(tmp_path / "spool.wav") as spool:
@@ -373,7 +374,7 @@ def test_cancel_during_the_final_tail_scan_stops_it_at_the_next_block(tmp_path, 
             monkeypatch.setattr(ffmpeg_watch, "checkpoint", counted)
             with pytest.raises(ConversionCancelled):
                 spool.apply_final_tail()
-    assert looks["n"] == 1, f"{looks['n']} blocks looked at after the Cancel"
+    assert looks["n"] == 2, f"{looks['n'] - 2} blocks looked at after the Cancel"
 
 
 # --------------------------------------------------------------------------- D. Cancel, at every point
@@ -936,3 +937,248 @@ def test_a_waiting_cancel_refuses_new_starts_and_latches_when_the_one_in_progres
     with pytest.raises(ConversionCancelled):
         with controller.starting():
             pass  # pragma: no cover - refused
+
+
+
+# --------------------------------------------------------------------------- R1 round 3 (Codex re-review 2)
+
+
+def _ffmpeg_version() -> list[str]:
+    ffmpeg_utils.configure_pydub()
+    return [AudioSegment.converter, "-hide_banner", "-version"]
+
+
+@pytest.fixture()
+def real_owner(monkeypatch):
+    """A real containment owner (macOS): FFmpeg is started in its guardian's group, as in the app window."""
+    if sys.platform != "darwin":
+        pytest.skip("containment is the Mac's")
+    from shared import child_ownership
+
+    owner = child_ownership.Owner(lifeline=False)
+    monkeypatch.setattr(subprocess_utils, "_owner", owner)
+    yield owner
+    owner.shutdown()
+
+
+@needs_ffmpeg
+def test_a_cancelled_run_makes_no_guardian_and_no_ffmpeg(real_owner):
+    """Codex re-review 2: with no guardian yet, a run already cancelled created one before its FFmpeg was refused."""
+    controller = JobController("p5h-r1-cold")
+    controller.start()
+    controller.request_cancel()
+    with ffmpeg_watch.controlled(controller.cancel_check):
+        with pytest.raises(ConversionCancelled):
+            ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    assert real_owner.guardian_pid() is None and not ffmpeg_watch._watched
+
+
+@needs_ffmpeg
+def test_a_guardian_replaced_after_preparation_is_never_restarted_inside_the_start(real_owner, monkeypatch):
+    """Codex re-review 2 (HIGH): a guardian that died between preparation and the start was replaced inside the counted
+    start, so a Cancel waited for the new guardian to be ready (0.662 s, past C1). Now the start fails at once (the
+    guardian it was prepared for is gone), and preparation, outside the start, replaces it."""
+    from shared import child_ownership
+
+    controller = JobController("p5h-r1-guardian-lost")
+    controller.start()
+    starts_counted_during_guardian_start = []
+    real_start = child_ownership.Owner._start_guardian
+
+    def start_guardian(self, spawn_context=None):
+        starts_counted_during_guardian_start.append(controller._starts_in_progress)
+        return real_start(self, spawn_context)
+
+    monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
+    real_prepare = subprocess_utils.prepare_popen
+    prepared = []
+
+    def prepare_then_lose_the_guardian(*args, **kwargs):
+        generation = real_prepare(*args, **kwargs)
+        if not prepared:  # the first time only: the guardian dies just after the start was prepared for it
+            guardian = real_owner._guardian
+            guardian.kill()
+            guardian.wait(5)
+        prepared.append(generation)
+        return generation
+
+    monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare_then_lose_the_guardian)
+    with ffmpeg_watch.controlled(controller.cancel_check):
+        child = ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        child.communicate()
+    assert len(prepared) == 2 and prepared[1] > prepared[0], "prepared again, for a new guardian"
+    assert starts_counted_during_guardian_start == [0, 0], "no guardian was ever started inside a counted start"
+    assert child.returncode == 0 and controller._starts_in_progress == 0
+
+
+@needs_ffmpeg
+def test_a_cancel_never_waits_for_a_guardian_to_become_ready(real_owner, monkeypatch):
+    """The guardian's spawn is ordered against Cancel; its readiness is not. A Cancel pressed while a new guardian is
+    getting ready latches at once (well inside C1's 0.5 s), and the FFmpeg it was being readied for never starts."""
+    import contextlib
+    import threading
+    import time
+
+    from shared import child_ownership
+
+    controller = JobController("p5h-r1-slow-guardian")
+    controller.start()
+    spawned, may_be_ready = threading.Event(), threading.Event()
+    real_start = child_ownership.Owner._start_guardian
+
+    def slow_readiness(self, spawn_context=None):
+        @contextlib.contextmanager
+        def spawn_then_slow():
+            with spawn_context():
+                yield
+            spawned.set()  # spawned, the counted start let go: now the long wait for "ready"
+            may_be_ready.wait(5)
+
+        return real_start(self, spawn_then_slow)
+
+    monkeypatch.setattr(child_ownership.Owner, "_start_guardian", slow_readiness)
+    outcome = {}
+
+    def starting():
+        with ffmpeg_watch.controlled(controller.cancel_check):
+            try:
+                ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                outcome["started"] = True
+            except ConversionCancelled:
+                outcome["refused"] = True
+
+    worker = threading.Thread(target=starting)
+    worker.start()
+    assert spawned.wait(10)
+    began = time.monotonic()
+    controller.request_cancel()
+    latched_in = time.monotonic() - began
+    may_be_ready.set()
+    worker.join(15)
+    assert latched_in < 0.5 and controller.cancel_check(), latched_in
+    assert outcome == {"refused": True}, outcome
+    assert not ffmpeg_watch._watched, "no FFmpeg was started for it"
+
+
+@needs_ffmpeg
+def test_a_contained_ffmpeg_that_cannot_be_registered_is_ended(real_owner, monkeypatch):
+    from shared import child_ownership
+
+    created = []
+    real_popen = child_ownership.subprocess.Popen
+
+    def popen(*args, **kwargs):
+        created.append(real_popen(*args, **kwargs))
+        return created[-1]
+
+    real_owner.ensure_guardian()  # the guardian first, unrecorded below
+    monkeypatch.setattr(child_ownership.subprocess, "Popen", popen)
+    monkeypatch.setattr(real_owner, "_register", lambda *a, **k: (_ for _ in ()).throw(MemoryError()))
+    with pytest.raises(MemoryError):
+        ffmpeg_watch.Supervised(_ffmpeg_version() + ["-loglevel", "quiet"], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+    assert len(created) == 1 and created[0].poll() is not None, "killed and reaped, not left outside both registries"
+    assert not ffmpeg_watch._watched
+
+
+@needs_ffmpeg
+def test_a_pipe_numbered_past_selects_limit_is_read(tmp_path):
+    """Codex re-review 2: ``select()`` refused a descriptor above 1023; a busy app's FFmpeg pipe can be one."""
+    import resource
+
+    if os.name != "posix":
+        pytest.skip("POSIX reads")
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 1200
+    if hard != resource.RLIM_INFINITY and hard < want:
+        pytest.skip("cannot raise the descriptor limit here")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, want), hard))
+    held = []
+    try:
+        while True:
+            fd = os.open(os.devnull, os.O_RDONLY)
+            held.append(fd)
+            if fd >= 1100:
+                break
+        child = ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert child.stdout.fileno() > 1024
+        output, _errors = child.communicate()
+        assert b"ffmpeg version" in output
+    finally:
+        for fd in held:
+            os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_the_wav_header_read_is_held_to_the_kill_deadline(monkeypatch):
+    """Codex re-review 2: the header was read straight from the pipe, past the bound the audio read keeps."""
+    import time
+
+    if os.name != "posix":
+        pytest.skip("POSIX reads")
+    monkeypatch.setattr(ffmpeg_watch, "ABANDON_WAIT_SECONDS", 0.5)
+    child = ffmpeg_watch.Supervised(_sleeper(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    real_kill = child.process.kill
+    monkeypatch.setattr(child.process, "kill", lambda: None)
+    child._item.decide(ConversionCancelled("Conversion cancelled by user."))
+    began = time.monotonic()
+    try:
+        with pytest.raises(ffmpeg_watch.ProcessNotStopped):
+            disk_assembly._wav_format(child)
+        assert time.monotonic() - began < 5
+    finally:
+        real_kill()
+        child.process.wait(10)
+        child._stop_watching()
+
+
+@needs_ffmpeg
+def test_the_free_space_reads_stop_at_cancel_for_parts_in_one_format(tmp_path, monkeypatch):
+    """Codex re-review 2: for parts in one format, every header was read a second time, unchecked, after the first walk;
+    a Cancel during the first walk's last read was followed by that whole second walk. Now there is one walk."""
+    import threading
+
+    ffmpeg_utils.configure_pydub()
+    parts = []
+    for index in range(4):
+        parts.append(tmp_path / f"p{index}.flac")
+        _tone(24000, 1, 300, 300 + index).export(parts[-1], format="flac")
+    pressed = threading.Event()
+    opened = []
+    real_size, real_facts = wl.decoded_size, disk_assembly._header_facts
+
+    def facts(path):
+        opened.append(("facts", path.name, pressed.is_set()))
+        if path == parts[-1]:
+            pressed.set()  # Cancel while the last header is read
+        return real_facts(path)
+
+    monkeypatch.setattr(wl, "decoded_size",
+                        lambda paths: (opened.append(("size", len(list(paths)), pressed.is_set())), real_size(paths))[1])
+    monkeypatch.setattr(disk_assembly, "_header_facts", facts)
+    with ffmpeg_watch.controlled(pressed.is_set):
+        try:
+            disk_assembly._room_needed(parts)
+        except ConversionCancelled:
+            pass
+    assert [entry for entry in opened if entry[-1]] == [], f"read after the Cancel: {opened}"
+
+
+def test_a_file_whose_ffmpeg_will_not_end_fails_and_is_neither_retried_nor_cancelled(tmp_path, monkeypatch):
+    """Codex re-review 2 (HIGH): the folder route turned ProcessNotStopped into a Cancel at its retry back-off."""
+    tries = []
+
+    def unstoppable(*_a, **_k):
+        tries.append(1)
+        raise ffmpeg_watch.ProcessNotStopped("FFmpeg (process 1) was stopped and had not ended")
+
+    monkeypatch.setattr(wl, "assemble", unstoppable)
+    monkeypatch.setattr(batch_convert, "synthesize_chunk_mp3",
+                        lambda text, path, voice, rate: Path(path).write_bytes(b"x"))
+    monkeypatch.setattr(batch_convert, "INTER_CHUNK_DELAY_SEC", 0)
+    source = tmp_path / "book.txt"
+    source.write_text("One sentence to say.", encoding="utf-8")
+    pressed = __import__("threading").Event()
+    status, _path, error = batch_convert.convert_single_pdf(source, tmp_path, "v", "+0%", lambda _m: None,
+                                                            out_mp3=tmp_path / "book.mp3", cancel_check=pressed.is_set)
+    assert (status, tries) == ("failed", [1]) and "had not ended" in error
