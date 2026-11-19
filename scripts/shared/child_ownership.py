@@ -52,24 +52,32 @@ on Windows; :func:`supported` is False there and the Windows spawn paths are unc
 from __future__ import annotations
 
 import contextlib
+import errno
+import itertools
 import os
 import queue
 import select
 import selectors
+import shutil
 import signal
+import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 ENTRY = Path(__file__).resolve().with_name("child_entry.py")
 GUARDIAN = Path(__file__).resolve().with_name("child_guardian.py")
+LAUNCH = Path(__file__).resolve().with_name("child_launch.py")
 LIFELINE_ENV = "ACT_LIFELINE_FD"
+PERMIT_ENV = "ACT_PERMIT_ROOT"
+OWNER_ENV = "ACT_OWNER_PID"
 
 CLASS_A = "A"
 CLASS_B = "B"
@@ -98,6 +106,14 @@ class GuardianChanged(RuntimeError):
 
 class ContainmentUnavailable(RuntimeError):
     """A contained spawn could not be made (no guardian could be started). Nothing was started."""
+
+
+class LaunchRevoked(ContainmentUnavailable):
+    """v0.8.x P5-I-R3: a pending Cancel (or the orderly end) revoked a start before its program ran."""
+
+
+class _Relaunch(RuntimeError):
+    """Internal: a gate looked its program up too late with nothing asking it to stop (a slow machine); start again."""
 
 
 def supported(platform: Optional[str] = None) -> bool:
@@ -568,6 +584,28 @@ ADOPTED = "adopted"  # guardian only: the one class-B children join
 RETIRING = "retiring"  # being ended by the owner, under one shared deadline
 UNCONFIRMED = "unconfirmed"  # its deadline passed and its end is not confirmed: still owned, still being ended
 DONE = "done"  # its exit is confirmed (reaped); no longer in the ledger
+GRANTING = "granting"  # class B (P5-I-R3): its gate may execute the program now, inside the run's counted start
+
+# The permit-gated launch (v0.8.x P5-I-R3; ``child_launch.py``).
+#: How long a new gate has to identify itself (outside any ordering; a caller's Cancel stops the wait).
+HELLO_TIMEOUT_S = 10.0
+#: How long a gate that was told to go has to execute its program while nothing asks it to stop.
+EXEC_WAIT_S = 2.0
+#: ... and once a Cancel is pending, the owner is closing, or the caller left: then its permit is revoked.
+EXEC_CUT_S = 0.02
+#: How often the counted start looks for that evidence.
+EXEC_LOOK_S = 0.002
+#: After revocation, how long an execution already past its lookup has to show itself.
+POST_REVOKE_S = 0.02
+#: How long a gate killed inside the counted start has to be seen ended.
+KILL_CONFIRM_LAUNCH_S = 0.1
+#: The most a refused revocation holds the counted start (and so the Cancel latch).
+REVOKE_HOLD_S = 1.0
+#: Starts made for one request: a guardian that changed, or a gate too slow with nothing asking it to stop.
+LAUNCH_ATTEMPTS = 3
+#: How often a caller waiting for its launch looks at its Cancel and at the orderly end.
+CALLER_POLL_S = 0.02
+_LAUNCH_TOKENS = itertools.count(1)
 
 #: How long the owner's closing (``begin_closing``/``shutdown``) and a run's settlement wait for spawns already admitted to
 #: produce their processes. A spawn takes milliseconds; one that takes longer is not waited for: its process, once it
@@ -617,6 +655,8 @@ class OwnedChild:
     termed: bool = False
     last_kill: float = 0.0
     group_ended: bool = False
+    exec_unknown: bool = False  # class B (P5-I-R3): its gate was killed with its execution neither seen nor excluded
+    announced: bool = False  # class A (P5-I-R3): registered with the guardian
 
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -628,14 +668,134 @@ class OwnedChild:
 
 
 @dataclass(eq=False)
-class Admission:
-    """A class-B start admitted into a guardian and not yet spawned (v0.8.x P5-I): what a run admits inside its Cancel
-    ordering and spawns after it (:meth:`Owner.popen_external` with ``admission=``), or gives back (:meth:`Owner.release`).
-    Its entry is in the ledger, SPAWNING, until one of those happens."""
+class _Launch:
+    """One class-B start in progress (v0.8.x P5-I-R3): what its launch thread and its waiting caller share."""
 
     entry: "OwnedChild"
     guardian: "OwnedChild"
-    used: bool = False
+    program: str
+    argv: list
+    kwargs: dict
+    ordering: Optional[Callable[[], Any]] = None
+    pending: Optional[Callable[[], bool]] = None
+    cancel_error: Optional[Callable[[], BaseException]] = None
+    args: Optional[list] = None  # what the caller asked for (the Popen's public ``args``)
+    proc: Optional[subprocess.Popen] = None
+    directory: str = ""
+    permit: str = ""
+    status_r: Optional[int] = None
+    status_w: Optional[int] = None
+    go_r: Optional[int] = None
+    go_w: Optional[int] = None
+    kq: Any = None
+    done: threading.Event = field(default_factory=threading.Event)
+    result: Optional[subprocess.Popen] = None
+    error: Optional[BaseException] = None
+    abandoned: bool = False
+    finished: bool = False
+    cut: bool = False
+    exited: bool = False
+    status_eof: bool = False
+    revoked: bool = False
+    revoked_first: bool = False
+    unrevoked_but_dead: bool = False
+
+    @property
+    def label(self) -> str:
+        return self.entry.label or os.path.basename(self.program)
+
+
+def _resolve_program(name: str, env: Optional[dict], cwd: Any) -> str:
+    """The program ``Popen`` would execute for *name* (``PATH`` of *env*, or relative to *cwd*), resolved to its real
+    file. ``FileNotFoundError`` / ``PermissionError`` exactly where ``Popen`` would raise them; nothing is created."""
+    if os.path.dirname(name):
+        path = name if os.path.isabs(name) else os.path.join(os.fspath(cwd) if cwd else os.getcwd(), name)
+    else:
+        search = (os.environ if env is None else env).get("PATH", os.defpath)
+        found = shutil.which(name, path=search)
+        if found is None:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
+        path = found
+    path = os.path.realpath(path)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
+    if not os.access(path, os.X_OK):
+        raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), name)
+    return path
+
+
+def _interpreted(program: str, argv: list) -> tuple[str, list]:
+    """What the kernel would execute for *program*: itself, or -- a ``#!`` script -- its interpreter, given the
+    script's real path (as ``execve`` does: interpreter, its one optional argument, the script, the remaining
+    arguments). The permit then gates the interpreter, and the script is read from its own path, never through the
+    permit (which is revoked as soon as the interpreter runs)."""
+    try:
+        with open(program, "rb") as handle:
+            head = handle.read(512)
+    except OSError:
+        return program, argv
+    if not head.startswith(b"#!"):
+        return program, argv
+    line = head[2:].split(b"\n", 1)[0].strip()
+    if not line:
+        return program, argv
+    parts = line.split(None, 1)
+    interpreter = os.fsdecode(parts[0])
+    if not os.path.isabs(interpreter) or not os.path.isfile(interpreter):
+        return program, argv
+    extra = [os.fsdecode(parts[1].strip())] if len(parts) > 1 and parts[1].strip() else []
+    return os.path.realpath(interpreter), [interpreter, *extra, program, *argv[1:]]
+
+
+def proc_placeholder():
+    """Something with no child behind it (a Popen stand-in that raised before handing one back)."""
+    return type("NoChild", (), {"_child_created": False, "pid": None})()
+
+
+def _read_line(fd: int, timeout: float) -> str:
+    """One line from *fd* within *timeout* (without its newline), or what arrived before end-of-file or the timeout."""
+    until = time.monotonic() + max(0.0, timeout)
+    data = b""
+    while not data.endswith(b"\n"):
+        remaining = until - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            if not select.select([fd], [], [], min(0.05, remaining))[0]:
+                continue
+            block = os.read(fd, 64 - len(data) if len(data) < 64 else 1)
+        except InterruptedError:
+            continue
+        except (OSError, ValueError):
+            break
+        if not block:
+            break
+        data += block
+    return data.decode("ascii", "replace").strip()
+
+
+def _exec_watch(pid: int):
+    """A kqueue watching *pid* for ``NOTE_EXEC`` and ``NOTE_EXIT`` (never reaping), or None where none can be had."""
+    if not hasattr(select, "kqueue"):
+        return None
+    try:
+        kq = select.kqueue()
+    except OSError:
+        return None
+    try:
+        kq.control([select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD,
+                                  select.KQ_NOTE_EXEC | select.KQ_NOTE_EXIT)], 0, 0)
+    except OSError:
+        kq.close()
+        return None
+    return kq
+
+
+def _asks(predicate: Callable[[], bool]) -> bool:
+    try:
+        return bool(predicate())
+    except Exception:  # noqa: BLE001 - a question that cannot be answered asks nothing
+        return False
 
 
 #: How long the orderly end waits for a child's waitpid lock before it leaves that child unsignalled (v0.8.x P5-C). The
@@ -816,6 +976,8 @@ class Owner:
         self._write: Optional[int] = None
         self._reaping = False
         self._step_lock = threading.Lock()
+        self._permits: Optional[str] = None  # P5-I-R3: this owner's start-permit folder (made on first use)
+        self._registry: Optional[int] = None  # P5-I-R3: write end of the adopted guardian's class-A registry
         self.events: list[str] = []
         self.degraded = False
 
@@ -883,6 +1045,7 @@ class Owner:
         return next((e for e in self._entries if e.proc is proc and e.kind != GUARDIAN_KIND), None)
 
     def _remove_locked(self, entry: OwnedChild) -> None:
+        self._unannounce_locked(entry)
         entry.state = DONE
         with contextlib.suppress(ValueError):
             self._entries.remove(entry)
@@ -901,6 +1064,7 @@ class Owner:
         the ledger from here on. Raises :class:`ContainmentUnavailable` once closing has begun, :class:`GuardianChanged`
         when *guardian* is no longer the adopted one. Nothing is spawned here."""
         with self._state:
+            self._prune_locked()  # children their callers reaped leave the ledger (P5-I-R3: at every admission)
             if self._phase != ACTIVE:
                 raise ContainmentUnavailable(_CLOSING_TEXT)
             if guardian is not None and (guardian is not self._current or guardian.state != ADOPTED):
@@ -1090,14 +1254,23 @@ class Owner:
             raise subprocess.CalledProcessError(code, proc.args, output=out, stderr=err)
         return subprocess.CompletedProcess(proc.args, code, out, err)
 
-    def popen_python(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
+    def popen_python(self, argv: Sequence[str], *, label: str = "", run: Any = None, **kwargs) -> subprocess.Popen:
         """Start a registered class-A child (pip in setup; the optional-setup worker in the app). Admitted under the
         owner's state lock, spawned with none held (v0.8.x P5-I)."""
         command = python_argv(argv)
         kw = self.class_a_kwargs(kwargs)
-        entry = self._admit(CLASS_A, label=label or Path(str(argv[0])).name)
+        if self._lifeline:
+            # P5-I-R3: the guardian also ends class-A leaders when this owner dies (a leader stopped before its lifeline
+            # thread runs cannot end itself). Best effort: without one the leader's own lifeline still applies.
+            try:
+                self._current_guardian()
+            except (ContainmentUnavailable, GuardianChanged) as exc:
+                self._note(f"Containment: no ACT guardian for {label or Path(str(argv[0])).name}: {exc}")
+        entry = self._admit(CLASS_A, label=label or Path(str(argv[0])).name, run=run)
         proc = self._spawn(entry, command, kw)
-        return self._take_on(entry, proc)
+        proc = self._take_on(entry, proc)
+        self._announce_leaders()
+        return proc
 
     # -- closing -----------------------------------------------------------------
     def _refuse_if_closing(self) -> None:
@@ -1107,7 +1280,7 @@ class Owner:
             raise ContainmentUnavailable(_CLOSING_TEXT)
 
     def _wait_spawns_locked(self, until: float) -> None:
-        while any(e.state == SPAWNING for e in self._entries):
+        while any(e.state in (SPAWNING, GRANTING) for e in self._entries):
             remaining = until - time.monotonic()
             if remaining <= 0:
                 return
@@ -1181,6 +1354,9 @@ class Owner:
         fd = self._ensure_lifeline()
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
         env[LIFELINE_ENV] = str(fd)
+        env[OWNER_ENV] = str(os.getpid())
+        with contextlib.suppress(ContainmentUnavailable, OSError):
+            env[PERMIT_ENV] = self._permit_root()
         ordering = spawn_context if spawn_context is not None else contextlib.nullcontext
         entry: Optional[OwnedChild] = None
         proc: Optional[subprocess.Popen] = None
@@ -1190,7 +1366,7 @@ class Owner:
                 entry = self._admit(GUARDIAN_KIND, label="guardian", run=self._creating_run)
             try:
                 proc = self._spawn(entry, [self._python, "-I", str(GUARDIAN)],
-                                   dict(process_group=0, pass_fds=(fd,), env=env, stdin=subprocess.DEVNULL,
+                                   dict(process_group=0, pass_fds=(fd,), env=env, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True),
                                    spawn_check=checkpoint)
             except OSError as exc:
@@ -1217,17 +1393,69 @@ class Owner:
                     entry.state = ADOPTED
                     self._current = entry
                     adopted = True
+                    self._adopt_registry_locked(proc)
                     self._state.notify_all()
+            self._announce_leaders()
         finally:
             if proc is not None and proc.stdout is not None:
                 with contextlib.suppress(OSError):
                     proc.stdout.close()
+            if not adopted and proc is not None and proc.stdin is not None:
+                with contextlib.suppress(OSError):
+                    proc.stdin.close()
             if not adopted and entry is not None:
                 if proc is None:
                     self._drop_unspawned(entry)
                 else:
                     self._retire_now([entry], UNADOPTED_LOOK_S)
         return proc.pid
+
+    def _adopt_registry_locked(self, proc: subprocess.Popen) -> None:
+        """The adopted guardian's class-A registry (its stdin) becomes the one leaders are announced on (P5-I-R3).
+        Non-blocking: a guardian that stops reading can never hold this owner up."""
+        old, self._registry = self._registry, None
+        if old is not None:
+            with contextlib.suppress(OSError):
+                os.close(old)
+        if proc.stdin is None:
+            return
+        try:
+            fd = os.dup(proc.stdin.fileno())
+            os.set_blocking(fd, False)
+        except OSError:
+            return
+        with contextlib.suppress(OSError):
+            proc.stdin.close()
+        self._registry = fd
+        for entry in self._entries:  # leaders started before this guardian are announced to it
+            entry.announced = False
+
+    def _announce_leaders(self) -> None:
+        """Tell the guardian every running class-A leader not yet announced to it (pid and kernel start time), so it
+        can end them if this owner dies -- even one stopped before its own lifeline could run (P5-I-R3)."""
+        with self._state:
+            fd = self._registry
+            if fd is None:
+                return
+            todo = [e for e in self._entries if e.kind == CLASS_A and not e.announced and e.start_time is not None
+                    and e.proc is not None and e.proc.returncode is None]
+            for entry in todo:
+                line = f"A {entry.pid} {entry.start_time[0]} {entry.start_time[1]}\n".encode()
+                try:
+                    os.write(fd, line)
+                    entry.announced = True
+                except BlockingIOError:
+                    self.degraded = True
+                    break
+                except OSError:
+                    break
+
+    def _unannounce_locked(self, entry: "OwnedChild") -> None:
+        if entry.kind != CLASS_A or not entry.announced or self._registry is None:
+            return
+        entry.announced = False
+        with contextlib.suppress(OSError):
+            os.write(self._registry, f"a {entry.pid}\n".encode())
 
     def _watch_guardian(self, proc: subprocess.Popen, generation: int) -> None:
         _wait_for_exit(proc)
@@ -1324,83 +1552,360 @@ class Owner:
         self._refuse_if_closing()
         return self._current_guardian(spawn_context, checkpoint, run)[1]
 
-    def popen_external(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
-        """Start a registered class-B child inside the guardian's group. Raises :class:`ContainmentUnavailable`
-        (nothing started) when no guardian can be had.
+    # -- class B: the permit-gated launch (v0.8.x P5-I-R3) ---------------------
+    def popen_external(self, argv: Sequence[str], *, label: str = "", owner_run: Any = None,
+                       ordering: Optional[Callable[[], Any]] = None, checkpoint: Optional[Callable[[], None]] = None,
+                       pending: Optional[Callable[[], bool]] = None,
+                       cancel_error: Optional[Callable[[], BaseException]] = None, **kwargs) -> subprocess.Popen:
+        """Start a contained class-B child: the program runs in the guardian's group, and it begins executing only
+        inside *ordering* (a run's counted start, :meth:`JobController.starting`), through a one-time permit that is
+        revoked before that counted start ends (v0.8.x P5-I-R3; ``child_launch.py`` documents the gate).
 
-        v0.8.x P5-I: the guardian is had first (made if need be); the start is then admitted into exactly that guardian
-        and spawned with no owner lock held. With ``require_generation`` nothing is made: a guardian gone or replaced
-        since the start was prepared -- or one found gone when the child's join of its group fails, or once the child
-        exists -- raises :class:`GuardianChanged` (any child made is stopped). Unprepared, that is retried, bounded.
-        ``owner_run``: the run the child belongs to (its settlement accounts for it). ``spawn_check``: called immediately
-        before the spawn, raising to refuse it (a run's Cancel latched meanwhile). ``admission``: an
-        :meth:`admit_external` ticket -- the start was admitted inside the run's Cancel ordering, and this spawns it,
-        outside that ordering, so a slow spawn never holds a Cancel. A child whose registration fails is retired, never
-        dropped, and the caller is not held."""
-        if "start_new_session" in kwargs or "process_group" in kwargs:
-            raise ValueError("a class-B child always joins the guardian's group")
-        required = kwargs.pop("require_generation", None)
-        run = kwargs.pop("owner_run", None)
-        spawn_check = kwargs.pop("spawn_check", None)
-        admission = kwargs.pop("admission", None)
-        label = label or Path(str(argv[0])).name
-        command = [str(a) for a in argv]
-        if admission is not None:
-            return self._spawn_admitted(admission, command, kwargs, spawn_check)
+        * *owner_run*: the run the child belongs to (its settlement accounts for it).
+        * *ordering*: a zero-argument callable returning the run's Cancel ordering context; ``None`` for a start that
+          belongs to no run (it is still ordered against the orderly end).
+        * *checkpoint*: called every :data:`CALLER_POLL_S` while this caller waits; raising (a run's Cancel) abandons
+          the start -- the caller leaves at once and the owner keeps whatever was created.
+        * *pending*: True once a Cancel has been requested and is waiting to latch: an execution not yet confirmed is
+          then given at most :data:`EXEC_CUT_S` before its permit is revoked.
+        * *cancel_error*: what to raise when a pending Cancel revoked the start (default :class:`LaunchRevoked`).
+
+        Returns the ``Popen`` of the running program (its ``args`` are *argv*). Raises ``FileNotFoundError`` for a
+        program that does not exist (nothing is created), :class:`ContainmentUnavailable` when the start could not be
+        contained, or what *ordering*/*checkpoint* raise. Whatever was created stays in the ledger until its end is
+        confirmed."""
+        for key in ("start_new_session", "process_group", "preexec_fn", "executable", "pass_fds"):
+            if kwargs.get(key) not in (None, (), False):
+                raise ValueError(f"a contained external program cannot be started with {key}=")
+        if kwargs.get("shell"):
+            raise ValueError("a contained external program cannot be started through a shell")
+        if kwargs.get("restore_signals") is False:
+            raise ValueError("a contained external program always has its signals restored")
+        for key in ("start_new_session", "process_group", "preexec_fn", "executable", "pass_fds", "shell",
+                    "restore_signals", "close_fds"):
+            kwargs.pop(key, None)
+        command = [os.fspath(a) for a in argv]
+        program = _resolve_program(command[0], kwargs.get("env"), kwargs.get("cwd"))
+        label = label or os.path.basename(command[0])
         self._refuse_if_closing()
-        for _attempt in range(1 if required is not None else GUARDIAN_ATTEMPTS):
+        last: Optional[BaseException] = None
+        for _attempt in range(LAUNCH_ATTEMPTS):
+            self._current_guardian(ordering, checkpoint, owner_run)
+            with self._state:
+                guardian = self._current
+            if guardian is None:
+                continue
             try:
-                if required is not None:
-                    expected = required
-                else:
-                    expected = self.ensure_guardian(**({"run": run} if run is not None else {}))
-                ticket = self.admit_external(label=label, run=run, require_generation=expected)
-                return self._spawn_admitted(ticket, command, kwargs, spawn_check)
-            except GuardianChanged:
-                if required is not None:
-                    raise
-        raise ContainmentUnavailable("the ACT guardian kept ending as it was started; nothing was started")
+                entry = self._admit(CLASS_B, label=label, run=owner_run, guardian=guardian)
+                executable, exec_argv = _interpreted(program, command)
+                launch = _Launch(entry=entry, guardian=guardian, program=executable, argv=exec_argv, kwargs=kwargs,
+                                 ordering=ordering, pending=pending, cancel_error=cancel_error, args=command)
+                return self._dispatch(launch, checkpoint)
+            except (GuardianChanged, _Relaunch) as exc:
+                last = exc
+                continue
+        raise ContainmentUnavailable(f"{label} could not be started in a contained way ({last}); nothing ran")
 
-    def admit_external(self, *, label: str, run: Any = None, require_generation: int) -> Admission:
-        """Admit one class-B start into exactly the guardian of ``require_generation`` (v0.8.x P5-I): under ``_state``
-        only, never waiting on anything else -- the part of a start that a run's Cancel is ordered against. Raises
-        :class:`GuardianChanged` (that guardian is gone or replaced) or :class:`ContainmentUnavailable` (closing). Spawn
-        it with ``popen_external(..., admission=)``, or give it back with :meth:`release`."""
-        with self._state:
-            guardian = self._current
-            usable = guardian is not None and guardian.generation == require_generation
-        if not usable or self._guardian_gone(guardian):
-            raise GuardianChanged(_CHANGED_TEXT)
-        return Admission(self._admit(CLASS_B, label=label, run=run, guardian=guardian), guardian)
-
-    def release(self, admission: Optional[Admission]) -> None:
-        """Give back an admission that was never spawned (nothing to do once its spawn was attempted)."""
-        if admission is None or admission.used:
-            return
-        admission.used = True
-        with self._state:
-            if admission.entry.state == SPAWNING:
-                self._remove_locked(admission.entry)
-                admission.guardian.spawns -= 1
-        self._kick()
-
-    def _spawn_admitted(self, admission: Admission, command: list, kwargs: dict,
-                        spawn_check: Optional[Callable[[], None]]) -> subprocess.Popen:
-        """Spawn an admitted class-B start in its guardian's group (no owner lock held), then take it on. A failed join
-        because that guardian has died is its loss (:class:`GuardianChanged`, the start is prepared again); any other
-        spawn error is the caller's."""
-        if admission.used:
-            raise RuntimeError("an admission is spawned once")
-        admission.used = True
-        entry, guardian = admission.entry, admission.guardian
+    def _dispatch(self, launch: "_Launch", checkpoint: Optional[Callable[[], None]]) -> subprocess.Popen:
+        """Run *launch* on its own thread and wait for it here, looking at *checkpoint* and the orderly end every
+        :data:`CALLER_POLL_S`. A stalled ``Popen`` therefore never holds this caller past its Cancel: it abandons the
+        start and leaves; the launch thread finishes whatever it can and the ledger keeps the rest."""
         try:
-            proc = self._spawn(entry, command, dict(process_group=guardian.pid, close_fds=True, **kwargs), guardian,
-                               spawn_check)
-        except OSError as exc:
-            if self._guardian_gone(guardian):  # its group could not be joined because it had ended
+            threading.Thread(target=self._launch_thread, args=(launch,), daemon=True,
+                             name=f"act-launch:{threading.current_thread().name}").start()
+        except BaseException as exc:
+            with self._state:
+                self._remove_locked(launch.entry)
+                launch.guardian.spawns -= 1
+            raise ContainmentUnavailable(f"no thread could be started for the launch: {exc}") from exc
+        try:
+            while not launch.done.wait(CALLER_POLL_S):
+                if self._phase != ACTIVE:
+                    raise ContainmentUnavailable(_CLOSING_TEXT)
+                if checkpoint is not None:
+                    checkpoint()
+        except BaseException:
+            self._abandon(launch)
+            raise
+        if launch.error is not None:
+            raise launch.error
+        return launch.result
+
+    def _abandon(self, launch: "_Launch") -> None:
+        """Its caller has gone. A launch still in progress refuses to start the program (or, already started, its
+        program is retired by the launch thread when it finishes); a finished one's program is retired now."""
+        with self._state:
+            launch.abandoned = True
+            finished = launch.finished
+            entry = launch.entry
+            if finished and launch.result is not None and entry.state not in (DONE, RETIRING, UNCONFIRMED):
+                self._schedule_locked([entry], grace=0.0)
+        if finished:
+            self._kick()
+
+    def _launch_thread(self, launch: "_Launch") -> None:
+        try:
+            launch.result = self._launch_steps(launch)
+        except BaseException as exc:  # noqa: BLE001 - handed to the caller (or to nobody: the ledger keeps the process)
+            launch.error = exc
+        finally:
+            for fd in (launch.status_r, launch.status_w, launch.go_r, launch.go_w):
+                if fd is not None:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+            if launch.kq is not None:
+                with contextlib.suppress(OSError):
+                    launch.kq.close()
+            with contextlib.suppress(OSError):
+                os.rmdir(launch.directory)
+            with self._state:
+                launch.finished = True
+                orphaned = launch.abandoned and launch.result is not None
+                if orphaned and launch.entry.state not in (DONE, RETIRING, UNCONFIRMED):
+                    self._schedule_locked([launch.entry], grace=0.0)
+            if orphaned:
+                self._kick()
+            launch.done.set()
+
+    def _launch_steps(self, launch: "_Launch") -> subprocess.Popen:
+        entry, guardian = launch.entry, launch.guardian
+        root = self._permit_root()
+        launch.directory = os.path.join(root, f"{os.getpid()}-{next(_LAUNCH_TOKENS)}-{os.urandom(6).hex()}")
+        os.mkdir(launch.directory, 0o700)  # never reused: a fresh name per launch
+        launch.permit = os.path.join(launch.directory, os.path.basename(launch.program))
+        launch.status_r, launch.status_w = os.pipe()
+        launch.go_r, launch.go_w = os.pipe()
+        gate = [self._python, "-I", "-S", str(LAUNCH), str(launch.status_w), str(launch.go_r), launch.permit, "--",
+                *launch.argv]
+        kw = dict(launch.kwargs, process_group=guardian.pid, close_fds=True, pass_fds=(launch.status_w, launch.go_r))
+        factory = subprocess.Popen
+        try:
+            if isinstance(factory, type):
+                proc = factory.__new__(factory)
+                launch.proc = proc  # reachable before __init__ returns: _fork_exec publishes its pid before the error pipe
+                proc.__init__(gate, **kw)
+            else:  # a test's recording stand-in for Popen: called as Popen is (no handle before it returns)
+                proc = factory(gate, **kw)
+                launch.proc = proc
+        except BaseException as exc:
+            proc = launch.proc if launch.proc is not None else proc_placeholder()
+            created = bool(getattr(proc, "_child_created", False)) and isinstance(getattr(proc, "pid", None), int)
+            with self._state:
+                guardian.spawns -= 1
+                if created:
+                    entry.proc, entry.pid, entry.state = proc, proc.pid, STARTED
+                else:
+                    self._remove_locked(entry)
+            if created:  # it exists and nobody may reap it but its Popen: owned, retired, reported if not confirmed
+                entry.start_time = process_start_time(proc.pid)
+                self._retire_now([entry], 0.0)
+                raise ContainmentUnavailable(f"starting {launch.label} failed after its process was created ({exc}); "
+                                             "it was stopped and is still owned until its end is confirmed") from exc
+            self._kick()
+            if self._guardian_gone(guardian):
                 raise GuardianChanged(_CHANGED_TEXT) from exc
             raise
-        return self._take_on(entry, proc, guardian)
+        for name in ("status_w", "go_r"):  # the child's ends: only the gate holds them now
+            with contextlib.suppress(OSError):
+                os.close(getattr(launch, name))
+            setattr(launch, name, None)
+        with self._state:
+            entry.proc, entry.pid, entry.state = proc, proc.pid, STARTED
+            guardian.spawns -= 1
+            self._state.notify_all()
+        hello = _read_line(launch.status_r, HELLO_TIMEOUT_S)
+        start = process_start_time(proc.pid)
+        with self._state:
+            entry.start_time = start
+        if hello != f"P{proc.pid}" or start is None:
+            self._retire_now([entry], 0.0)  # it never got a go: it ends by itself on end-of-file, and is killed
+            raise ContainmentUnavailable(f"the launch gate of {launch.label} did not identify itself; nothing ran")
+        launch.kq = _exec_watch(proc.pid)
+        try:
+            outcome = self._grant(launch)
+        except BaseException:
+            self._retire_now([entry], 0.0)  # refused or failed before it ran: the gate ends on end-of-file, and is killed
+            raise
+        if outcome == "exec":
+            proc.args = list(launch.args if launch.args is not None else launch.argv)
+            try:
+                self._register(proc, entry.kind, entry.pgid, entry.label)  # LIVE: its caller runs it from here
+            except BaseException:
+                self._retire_now([entry], 0.0)  # running and not registered: owned, ended, reported if not confirmed
+                raise
+            return proc
+        self._retire_now([entry], 0.0)
+        if outcome.startswith("E") and not launch.revoked_first:
+            code = int(outcome[1:] or 0)
+            raise OSError(code, os.strerror(code), launch.program)
+        if launch.cut:
+            raise launch.cancel_error() if launch.cancel_error is not None else LaunchRevoked(
+                f"{launch.label} was not started: the start was cancelled before it ran")
+        if outcome in ("revoked", "unconfirmed"):
+            raise _Relaunch(f"{launch.label} did not begin in time")
+        raise ContainmentUnavailable(f"the launch gate of {launch.label} ended before it ran the program ({outcome})")
+
+    def _grant(self, launch: "_Launch") -> str:
+        """Let the gate execute the program, inside the run's Cancel ordering, and revoke its permit before that ordering
+        ends, whatever happens in between. Returns ``exec`` (the program is running), ``E<errno>`` (execve failed),
+        ``exit`` (the gate ended first), ``revoked`` (it looked too late), or ``unconfirmed``."""
+        entry, guardian = launch.entry, launch.guardian
+        ordering = launch.ordering if launch.ordering is not None else contextlib.nullcontext
+        with ordering():
+            with self._state:
+                if self._phase != ACTIVE:
+                    raise ContainmentUnavailable(_CLOSING_TEXT)
+                if launch.abandoned:
+                    raise ContainmentUnavailable("its caller left before it ran; nothing ran")
+                if guardian is not self._current or guardian.state != ADOPTED:
+                    raise GuardianChanged(_CHANGED_TEXT)
+                entry.state = GRANTING
+            outcome: Optional[str] = None
+            try:
+                if has_exited(guardian.proc, guardian.start_time):
+                    self._guardian_lost(guardian.proc, guardian.generation)
+                    raise GuardianChanged(_CHANGED_TEXT)
+                os.symlink(launch.program, launch.permit)
+                try:
+                    os.write(launch.go_w, b"G")
+                except OSError:
+                    outcome = "exit"  # the gate is gone (EPIPE)
+                if outcome is None:
+                    outcome = self._exec_outcome(launch, EXEC_WAIT_S, cut=True)
+            finally:
+                launch.revoked = self._revoke(launch)  # every path out, exceptions included
+                if outcome is None:
+                    launch.revoked_first = True
+                    outcome = self._exec_outcome(launch, POST_REVOKE_S, cut=False)
+                    if outcome is not None and outcome.startswith("E"):
+                        outcome = "revoked"
+                if outcome is None or not launch.revoked:
+                    # Neither ran nor ended: the gate is stopped or starved. It is killed (identity-checked) and its end
+                    # looked for, inside the ordering; whatever is not confirmed stays owned and is reported.
+                    self._deliver(entry, signal.SIGKILL)
+                    if _wait_exited(entry.pid, KILL_CONFIRM_LAUNCH_S):
+                        outcome = outcome or "exit"
+                    else:
+                        entry.exec_unknown = outcome is None
+                        outcome = outcome or "unconfirmed"
+                with contextlib.suppress(OSError):
+                    os.close(launch.go_w)
+                launch.go_w = None
+                with self._state:
+                    if entry.state == GRANTING:
+                        entry.state = STARTED
+                    self._state.notify_all()
+        return outcome
+
+    def _exec_outcome(self, launch: "_Launch", wait_s: float, *, cut: bool) -> Optional[str]:
+        """Evidence of what the gate did: ``exec`` (kqueue ``NOTE_EXEC``, or the status pipe closed by a successful
+        exec while the process lives), ``E<errno>``, ``exit``; None when nothing was seen within *wait_s*. With *cut*,
+        the wait shrinks to :data:`EXEC_CUT_S` once a Cancel is pending, the owner is closing, or the caller left."""
+        now = time.monotonic()
+        until = now + max(0.0, wait_s)
+        shortened = False
+        buffer = b""
+        while True:
+            if cut and not shortened and (self._phase != ACTIVE or launch.abandoned
+                                          or (launch.pending is not None and _asks(launch.pending))):
+                shortened = launch.cut = True
+                until = min(until, time.monotonic() + EXEC_CUT_S)
+            if launch.kq is not None:
+                try:
+                    for event in launch.kq.control(None, 4, 0):
+                        if event.fflags & select.KQ_NOTE_EXEC:
+                            return "exec"
+                        if event.fflags & select.KQ_NOTE_EXIT:
+                            launch.exited = True
+                except OSError:
+                    launch.kq = None
+            try:
+                ready = [] if launch.status_eof else select.select([launch.status_r], [], [], 0)[0]
+            except (OSError, ValueError):
+                ready = []
+            if ready:
+                try:
+                    block = os.read(launch.status_r, 64)
+                except OSError:
+                    block = b""
+                if block:
+                    buffer += block
+                    if buffer.startswith(b"E") and buffer.endswith(b"\n"):
+                        return buffer.strip().decode("ascii", "replace")
+                elif launch.kq is None:
+                    # No kqueue: end-of-file from close-on-exec, with the process still there a moment later, is the
+                    # evidence (a gate that is dying also closes it, so it is looked at again first).
+                    time.sleep(EXEC_LOOK_S)
+                    if has_exited(launch.entry.proc):
+                        launch.exited = True
+                    else:
+                        return "exec"
+                else:
+                    launch.status_eof = True
+            if launch.exited:
+                return "exit"
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                return None
+            time.sleep(min(EXEC_LOOK_S, remaining))
+
+    def _revoke(self, launch: "_Launch") -> bool:
+        """Remove the launch's permit and confirm it is gone (``lstat``). If the file system refuses, the folder is
+        renamed aside; if that is refused too, the gate is killed and the revocation counts only once the gate is seen
+        ended -- a gate that has ended can execute nothing. Held at most :data:`REVOKE_HOLD_S` (the counted start, and
+        so the Cancel latch, waits for it); False when neither could be established, which is reported."""
+        until = time.monotonic() + REVOKE_HOLD_S
+        moved = False
+        while True:
+            with contextlib.suppress(FileNotFoundError, OSError):
+                os.unlink(launch.permit)
+            try:
+                os.lstat(launch.permit)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                pass
+            if not moved:
+                with contextlib.suppress(OSError):
+                    os.rename(launch.directory, launch.directory + ".revoked")
+                    launch.directory += ".revoked"
+                    moved = True
+                    continue
+            self._deliver(launch.entry, signal.SIGKILL)
+            if launch.entry.pid and _has_exited(launch.entry.pid):
+                launch.unrevoked_but_dead = True
+                return True
+            if time.monotonic() >= until:
+                launch.entry.exec_unknown = True
+                self._note(f"Containment: the start permit of {launch.label} (pid {launch.entry.pid}) could not be "
+                           "removed and its gate could not be confirmed ended; the start is reported as uncontained.")
+                return False
+            time.sleep(0.01)
+
+    def _permit_root(self) -> str:
+        """This owner's private folder of start permits (0700, every component checked to be a real folder owned by
+        this account): ``<temp>/ACT-permits-<uid>/<pid>-<start sec>-<start usec>``. Created once; the guardian removes
+        it when the owner dies, :meth:`shutdown` when it closes."""
+        with self._state:
+            if self._permits is not None:
+                return self._permits
+        base = os.path.join(os.path.realpath(tempfile.gettempdir()), f"ACT-permits-{os.getuid()}")
+        with contextlib.suppress(FileExistsError):
+            os.mkdir(base, 0o700)
+        info = os.lstat(base)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise ContainmentUnavailable(f"the start-permit folder {base} is not a private folder of this account")
+        own = process_start_time(os.getpid()) or (0, 0)
+        root = os.path.join(base, f"{os.getpid()}-{own[0]}-{own[1]}")
+        with contextlib.suppress(FileExistsError):
+            os.mkdir(root, 0o700)
+        info = os.lstat(root)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise ContainmentUnavailable(f"the start-permit folder {root} is not a private folder of this account")
+        with self._state:
+            if self._permits is None:
+                self._permits = root
+            return self._permits
 
     def containment_held(self, proc: subprocess.Popen) -> bool:
         """False when *proc* (a class-B child) lost its guardian -- recorded now if its guardian is found gone -- or
@@ -1652,9 +2157,10 @@ class Owner:
     def kill_now(self, proc: subprocess.Popen) -> bool:
         """End a registered child (and, for class A, its group) at once with SIGKILL. True if a signal was sent."""
         child = self.child(proc)
-        if child is None or child.proc.poll() is not None:
+        if child is None:
             return False
-        return signal_if_same(child.pid, child.start_time, signal.SIGKILL, group=child.kind == CLASS_A)
+        # P5-I-R3: the check and the signal under one waitpid lock (a reap between them can no longer hand the id on).
+        return _signal_proved(child, signal.SIGKILL, wait_s=RETIRE_LOCK_WAIT_S)
 
     # -- a run's settlement ----------------------------------------------------------
     def outstanding(self, run: Any = None) -> list[OwnedChild]:
@@ -1744,6 +2250,13 @@ class Owner:
             if self._phase == CLOSING:
                 self._phase = CLOSED
             self._state.notify_all()
+            permits, self._permits = self._permits, None
+            registry, self._registry = self._registry, None
+        if registry is not None:
+            with contextlib.suppress(OSError):
+                os.close(registry)
+        if permits is not None:
+            shutil.rmtree(permits, ignore_errors=True)
         unconfirmed = sorted({e.pid for e in left if not e.resolved()})
         if unconfirmed:
             self._note(f"Containment: the orderly end could not confirm that {len(unconfirmed)} process(es) ended "

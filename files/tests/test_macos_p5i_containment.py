@@ -36,6 +36,11 @@ REAL_POPEN = subprocess.Popen
 REAL_SIGNAL = child_ownership.signal_if_same
 
 
+def _caller() -> str:
+    """The thread a start was asked from (v0.8.x P5-I-R3: a contained start runs on ``act-launch:<caller>``)."""
+    return threading.current_thread().name.removeprefix("act-launch:")
+
+
 def _wait_for(predicate, seconds=10.0, step=0.01) -> bool:
     stop = time.monotonic() + seconds
     while time.monotonic() < stop:
@@ -51,14 +56,17 @@ class Spawns:
     def __init__(self, monkeypatch):
         self.all: list[subprocess.Popen] = []
         self.hooks = []
+        self.after = []  # v0.8.x P5-I-R3: called with each created process (class-B gates are created through this)
         monkeypatch.setattr(subprocess, "Popen", self._popen)
 
     def _popen(self, cmd, *args, **kwargs):
         for hook in list(self.hooks):
             hook(cmd)
         proc = REAL_POPEN(cmd, *args, **kwargs)
-        proc.act_thread = threading.current_thread().name
+        proc.act_thread = threading.current_thread().name.removeprefix("act-launch:")  # P5-I-R3 launch thread
         self.all.append(proc)
+        for hook in list(self.after):
+            hook(proc)
         return proc
 
     def guardians(self):
@@ -176,7 +184,7 @@ def test_h1_five_term_ignoring_children_of_a_lost_guardian_never_hold_the_run_pa
 
     def lost(proc, generation):
         real_lost(proc, generation)
-        if threading.current_thread().name == "A" and not noticed.is_set():
+        if _caller() == "A" and not noticed.is_set():
             seen["flags"] = [owner.child(k).lost_containment for k in kids]
             seen["alive"] = [k.poll() is None for k in kids]
             seen["at"] = time.monotonic()
@@ -224,7 +232,7 @@ def test_h2_a_blocked_spawn_holds_neither_the_registry_nor_another_runs_start_no
     held, release = threading.Event(), threading.Event()
 
     def hold_setup(cmd):
-        if threading.current_thread().name == "setup":
+        if _caller() == "setup":
             held.set()
             assert release.wait(10)
 
@@ -267,7 +275,7 @@ def test_h2_a_runs_own_spawn_held_in_popen_never_holds_its_cancel_and_its_late_c
     held, release = threading.Event(), threading.Event()
 
     def hold(cmd):
-        if cmd and str(cmd[0]) == ff and threading.current_thread().name == "A":
+        if cmd and ff in [str(a) for a in cmd] and _caller() == "A":
             held.set()
             assert release.wait(10)
 
@@ -284,26 +292,33 @@ def test_h2_a_runs_own_spawn_held_in_popen_never_holds_its_cancel_and_its_late_c
     assert latched_in < 0.5, f"C1: {latched_in:.3f} s"
     assert isinstance(out.get("error"), ConversionCancelled), out
     late = [p for p in spawns.all if p.act_thread == "A" and p not in spawns.guardians()]
-    assert len(late) == 1 and late[0].returncode is not None, "created after the latch, stopped at once"
+    # P5-I-R3: what the held spawn created is the inert launch gate; its launch thread refuses to let it run (its caller
+    # left at the Cancel) and retires it -- asynchronously, so it is waited for, bounded.
+    assert len(late) == 1 and _wait_for(lambda: late[0].returncode is not None, 2), "created after the latch, stopped"
     assert ffmpeg_watch.settle_children(controller.cancel_check) == [] and owner.outstanding(controller.cancel_check) == []
 
 
-def test_h2_a_cancel_latched_between_admission_and_spawn_refuses_the_spawn(owner, ff, spawns, monkeypatch):
-    """A Cancel that lands after the start was admitted and before its process exists: the spawn's last look refuses it,
-    nothing is created, and the admission leaves the ledger."""
+def test_h2_a_cancel_latched_between_gate_creation_and_grant_runs_nothing(owner, ff, spawns, monkeypatch, tmp_path):
+    """v0.8.x P5-I-R3 (was: between admission and spawn). A Cancel that latches after the launch gate exists and before
+    it is allowed to run: the counted start refuses, the gate -- which never executed anything -- is retired, nothing
+    of the program runs, and the run owes nothing."""
     owner.ensure_guardian()
     controller = JobController("p5i-h2-gap")
     controller.start()
-    real = owner._spawn_admitted
+    marker = tmp_path / "ran"
+    real = owner._grant
 
-    def spawn_admitted(*args, **kwargs):
-        controller.request_cancel()  # not inside the counted start: the latch does not wait for this start
-        return real(*args, **kwargs)
+    def grant(launch):
+        controller.request_cancel()  # not inside a counted start: the latch does not wait for this one
+        return real(launch)
 
-    monkeypatch.setattr(owner, "_spawn_admitted", spawn_admitted)
+    monkeypatch.setattr(owner, "_grant", grant)
     with pytest.raises(ConversionCancelled):
-        start_media(controller, [ff, "-B", "-c", SLEEP])
-    assert [p for p in spawns.all if p not in spawns.guardians()] == [], "nothing was created after the latch"
+        start_media(controller, [ff, "-B", "-c", f"open({str(marker)!r}, 'w').close()"])
+    gates = [p for p in spawns.all if p not in spawns.guardians()]
+    assert _wait_for(lambda: all(p.returncode is not None for p in gates), 3), "the inert gate was retired"
+    assert not marker.exists(), "nothing of the program ran"
+    assert ffmpeg_watch.settle_children(controller.cancel_check) == []
     assert owner.outstanding(controller.cancel_check) == [] and not ffmpeg_watch._watched
 
 
@@ -321,14 +336,7 @@ def test_h3_a_failed_registration_with_an_ineffective_kill_is_never_a_clean_sett
     refused: set = set()
     refuse_sigkill(monkeypatch, refused)
     monkeypatch.setattr(owner, "_register", lambda *a, **k: (_ for _ in ()).throw(MemoryError("injected")))
-    real_spawn = owner._spawn
-
-    def spawn(entry, argv, kwargs, guardian=None, spawn_check=None):
-        proc = real_spawn(entry, argv, kwargs, guardian, spawn_check)
-        refused.add(proc.pid)
-        return proc
-
-    monkeypatch.setattr(owner, "_spawn", spawn)
+    spawns.after.append(lambda proc: refused.add(proc.pid) if proc not in spawns.guardians() else None)
     began = time.monotonic()
     with pytest.raises(MemoryError):
         start_media(controller, [ff, "-B", "-c", SLEEP])
@@ -375,7 +383,7 @@ def test_m1_closing_during_a_guardian_spawn_admits_nothing_after_it_and_retires_
     held, release = threading.Event(), threading.Event()
 
     def hold_guardian(cmd):
-        if str(child_ownership.GUARDIAN) in [str(a) for a in cmd] and threading.current_thread().name == "creator":
+        if str(child_ownership.GUARDIAN) in [str(a) for a in cmd] and _caller() == "creator":
             held.set()
             assert release.wait(10)
 
@@ -409,7 +417,7 @@ def test_m1_closing_while_a_guardian_is_being_adopted_refuses_the_adoption(owner
 
     def birth(pid):
         pending = owner._pending_guardian
-        if threading.current_thread().name == "creator" and pending is not None and pending.pid == pid and not at.is_set():
+        if _caller() == "creator" and pending is not None and pending.pid == pid and not at.is_set():
             at.set()
             assert release.wait(10)
         return born(pid)
@@ -476,14 +484,7 @@ def test_m2_seven_unregistered_children_of_a_lost_guardian_do_not_stretch_shutdo
     monkeypatch.setattr(owner, "_register", lambda *a, **k: (_ for _ in ()).throw(MemoryError("injected")))
     refused: set = set()
     refuse_sigkill(monkeypatch, refused)
-    real_spawn = owner._spawn
-
-    def spawn(entry, argv, kwargs, guardian=None, spawn_check=None):
-        proc = real_spawn(entry, argv, kwargs, guardian, spawn_check)
-        refused.add(proc.pid)
-        return proc
-
-    monkeypatch.setattr(owner, "_spawn", spawn)
+    spawns.after.append(lambda proc: refused.add(proc.pid) if proc not in spawns.guardians() else None)
     for _ in range(7):
         with pytest.raises(MemoryError):
             owner.popen_external([ff, "-B", "-c", SLEEP])
@@ -509,27 +510,25 @@ def test_m3_a_reap_that_raises_never_drops_a_live_child(owner, ff, spawns, monke
     refused: set = set()
     refuse_sigkill(monkeypatch, refused)
     faulty = {"on": True}
-    real_spawn = owner._spawn
-
-    def spawn(entry, argv, kwargs, guardian=None, spawn_check=None):
-        proc = real_spawn(entry, argv, kwargs, guardian, spawn_check)
+    def spawn(proc):
+        if proc in spawns.guardians():
+            return
         refused.add(proc.pid)
         real_poll, real_wait = proc.poll, proc.wait
 
         def poll():
-            if faulty["on"] and threading.current_thread().name == "act-owner-reaper":
+            if faulty["on"] and _caller() == "act-owner-reaper":
                 raise OSError("injected poll error")
             return real_poll()
 
         def wait(*a, **k):
-            if faulty["on"] and threading.current_thread().name == "act-owner-reaper":
+            if faulty["on"] and _caller() == "act-owner-reaper":
                 raise OSError("injected wait error")
             return real_wait(*a, **k)
 
         proc.poll, proc.wait = poll, wait
-        return proc
 
-    monkeypatch.setattr(owner, "_spawn", spawn)
+    spawns.after.append(spawn)
     with pytest.raises(MemoryError):
         owner.popen_external([ff, "-B", "-c", SLEEP])
     child = [p for p in spawns.all if p not in spawns.guardians()][0]
@@ -557,7 +556,7 @@ def test_m4_a_cancel_during_provisional_adoption_leaves_no_guardian_running_for_
 
     def birth(pid):
         pending = owner._pending_guardian
-        if threading.current_thread().name == "A" and pending is not None and pending.pid == pid and not at.is_set():
+        if _caller() == "A" and pending is not None and pending.pid == pid and not at.is_set():
             at.set()
             assert release.wait(10)
         return born(pid)
@@ -620,7 +619,8 @@ def test_m6_a_setup_child_that_exits_normally_after_its_guardian_died_is_not_a_s
     owner.ensure_guardian()
     go = tmp_path / "go"
     b, out = run_in_thread(lambda: owner.run_external([ff, "-B", "-c", ON_CUE, str(go)], timeout=10), "setup")
-    assert _wait_for(lambda: owner.children(), 5)
+    # P5-I-R3: a start is in the ledger from its gate's creation; the child is running once it is LIVE.
+    assert _wait_for(lambda: [c for c in owner.children() if c.state == child_ownership.LIVE], 5)
     kill_guardian_unreaped(owner)
     assert not owner.degraded, "not recorded yet: nobody has looked"
     go.touch()
@@ -637,7 +637,7 @@ def test_m6_every_child_of_a_lost_guardian_is_marked_before_any_is_waited_for(ow
     stubborn = stubborn_children(owner, ff, 1)[0]
     go = tmp_path / "go"
     b, out = run_in_thread(lambda: owner.run_external([ff, "-B", "-c", ON_CUE, str(go)], timeout=10), "setup")
-    assert _wait_for(lambda: len(owner.children()) == 2, 5)
+    assert _wait_for(lambda: len([c for c in owner.children() if c.state == child_ownership.LIVE]) == 2, 5)
     second = [c for c in owner.children() if c.proc is not stubborn][0]
     kill_guardian_unreaped(owner)
     assert _wait_for(lambda: owner.degraded, 5)
@@ -665,7 +665,7 @@ def test_m7_a_guardian_that_dies_as_a_child_joins_its_group_is_replaced_and_the_
     attempts = []
 
     def kill_on_join(cmd):
-        if cmd and str(cmd[0]) == ff:
+        if cmd and ff in [str(a) for a in cmd]:
             attempts.append(owner._guardian)
             if first.poll() is None and first.returncode is None and not child_ownership.has_exited(first):
                 os.kill(first.pid, signal.SIGKILL)
@@ -723,7 +723,7 @@ def test_concurrent_starts_and_a_cancel_from_other_threads_create_nothing_after_
     created_after_latch = []
 
     def note(cmd):
-        if cmd and str(cmd[0]) == ff and controller.cancel_check():
+        if cmd and ff in [str(a) for a in cmd] and controller.cancel_check():
             created_after_latch.append(cmd)
 
     spawns.hooks.append(note)

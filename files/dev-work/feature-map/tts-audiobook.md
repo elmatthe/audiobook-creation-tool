@@ -380,11 +380,12 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   being ended); a Cancel stops a run's wait for a guardian at once, whether that guardian is its own or another
   thread's, and one it was waiting for that never got ready is ended, never kept; a guardian lost in between is
   replaced there, never inside the start; and a guardian that becomes ready after the app began closing is ended, never
-  kept. Since v0.8.x P5-I (macOS) only a start's admission -- a record in the containment owner's ledger, never a wait
-  on another start -- is inside the Cancel ordering; the spawn follows it, so no slow or blocked spawn (the run's own or
-  another's) holds a Cancel. A Cancel that latched after the admission is seen at the spawn's last look and the start is
-  refused; one that latched during the spawn itself finds the process stopped at once and counted in the run's
-  settlement. The same holds for a guardian's spawn; a guardian is adopted only inside the run's Cancel ordering
+  kept. Since v0.8.x P5-I-R3 (macOS) a contained FFmpeg is started as an inert launch gate outside the Cancel
+  ordering, and FFmpeg begins executing only inside the run's counted start, through a one-time permit removed before
+  that counted start ends: no slow or blocked spawn holds a Cancel, a Cancel that latched first refuses the start, and
+  a gate that is late, stopped or unacknowledged can never start FFmpeg after the latch (its conversion thread leaves a
+  stalled spawn at the Cancel; the start is still counted in the run's
+  settlement). The same holds for a guardian's spawn; a guardian is adopted only inside the run's Cancel ordering
   (a guardian made for a run cancelled meanwhile is ended, never kept); a lost guardian's programs are all marked failed
   the moment the loss is seen and are ended together under one shared deadline by the containment owner, never on the
   conversion's thread. Reading, converting, scanning (the audible check

@@ -362,6 +362,8 @@ _OS_SPAWNS = {"system", "popen", "posix_spawn", "posix_spawnp", "spawnv", "spawn
 KX9_ALLOWED = {
     # v0.8.x P5-I: class A, class B and the guardian all spawn through the one admitted spawn of the ownership helper.
     ("shared/child_ownership.py", "_spawn"): "the ownership helper itself (class A, class B and the guardian)",
+    ("shared/child_launch.py", "main"): "v0.8.x P5-I-R3: the launch gate; it executes only the one-time permit its "
+                                        "owner created inside the run's counted start",
     ("shared/subprocess_utils.py", "run"): "the wrapper: FFmpeg/ffprobe routed to class B when the window owns them",
     ("shared/subprocess_utils.py", "popen"): "the wrapper: FFmpeg/ffprobe routed to class B when the window owns them",
     ("shared/subprocess_utils.py", "check_output"): "the wrapper: FFmpeg/ffprobe routed to class B when owned",

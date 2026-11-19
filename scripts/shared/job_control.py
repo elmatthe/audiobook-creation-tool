@@ -89,6 +89,7 @@ import contextlib
 import dataclasses
 import math
 import threading
+import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -1380,7 +1381,7 @@ class JobController:
     __slots__ = (
         "_run_id", "_condition", "_state", "_revision", "_cancel_requested",
         "_cancel_acknowledged", "_failure_message", "_failure_detail", "_listener",
-        "_commits_in_flight", "_starts_in_progress", "_cancel_pending",
+        "_commits_in_flight", "_starts_in_progress", "_cancel_pending", "_cancel_clicked_at",
     )
 
     def __init__(
@@ -1407,6 +1408,9 @@ class JobController:
         # latches (``request_cancel``), so that no child of this run is created after the latch. Guarded by the one lock.
         self._starts_in_progress = 0
         self._cancel_pending = False
+        # v0.8.x P5-I-R3: when the first Cancel arrived (``time.monotonic``), before it waited for anything: the
+        # instant every stopping deadline of the run is measured from. Read-only to everyone else; no behaviour uses it here.
+        self._cancel_clicked_at: "float | None" = None
 
     # -- reading ----------------------------------------------------------- #
 
@@ -1459,6 +1463,20 @@ class JobController:
         """The run as it is right now. Reading changes nothing and blocks nobody."""
         with self._condition:
             return self._snapshot_locked()
+
+    @property
+    def cancel_pending(self) -> bool:
+        """v0.8.x P5-I-R3: a Cancel has arrived (latched, or waiting for the starts in progress to finish). A counted
+        start reads it to stop waiting and let the latch through. Reading changes nothing; never blocks for long."""
+        with self._condition:
+            return self._cancel_pending or self._cancel_requested
+
+    @property
+    def cancel_clicked_at(self) -> "float | None":
+        """v0.8.x P5-I-R3: ``time.monotonic()`` of the first :meth:`request_cancel` on a run that had not ended, taken
+        before it waited for anything; ``None`` before any. Every route's stopping deadline is measured from it."""
+        with self._condition:
+            return self._cancel_clicked_at
 
     def cancel_check(self) -> bool:
         """Whether cancellation has been requested — the existing ``CancelCheck`` shape.
@@ -1520,9 +1538,12 @@ class JobController:
         creations already in progress, which are spawns and nothing longer, and only
         then latches. It never waits for any work.
         """
+        clicked = time.monotonic()
         with self._condition:
             if self._state in TERMINAL_STATES:
                 return self._snapshot_locked()
+            if self._cancel_clicked_at is None:
+                self._cancel_clicked_at = clicked
             self._cancel_pending = True
             while self._starts_in_progress:
                 self._condition.wait()

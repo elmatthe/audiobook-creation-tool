@@ -21132,6 +21132,12 @@
           "symbols": [
             "main"
           ]
+        },
+        {
+          "path": "scripts/shared/child_launch.py",
+          "symbols": [
+            "main"
+          ]
         }
       ],
       "contracts": [
@@ -21141,13 +21147,15 @@
         "Closing the window during the optional-voices phase asks 'Stop setup?' and keeps anything already working; No leaves the running check or install alone and launches nothing (v0.7.2, ACT72-038)",
         "Closing the window during the base install asks 'Stop setup?'. No changes nothing. Yes ends the running pip and everything it started (by its own process id), starts no later step and closes the window once the setup's worker has reported; the exit is 1 (incomplete) and the log says how to finish (v0.7.2, ACT72-039)",
         "POSIX (v0.8.x P5-B): the first-run window owns the optional-setup workers it starts, as the app window does. Before the panel's first check its setup process becomes the owner (class-A workers on its lifeline; pip and engine probes on each worker's own lifeline); once the window has closed nothing new starts, each run ends and reaps its own worker first (bounded), then the orderly end runs. A forced Cancel, a time-out, closing the window, SIGKILL, a crash or Force Quit of setup leaves no worker, pip or helper of it running, and never ends anything it does not own. Windows takes no new ownership (Job Objects)",
-        "POSIX (v0.8.x P5-C): a pip or probe that exits normally is never reaped before its process group has been ended, whichever setup step started it (the base install's pip and probes, the optional-setup worker's pip and engine probes, under the first-run window and the app window's Install & Continue alike): its caller waits for its exit, not for the end of its output, ends its group the P5-A way (proved, signalled, confirmed), hands on the output already written and only then reaps it, so a helper it left in its group ends with it and one holding its output open no longer keeps setup waiting. 'Stop setup?' never reaps pip. A group that could not be proved its own, or not confirmed ended, fails the step (never a success). The orderly end signals a child only under its waitpid lock. Windows is unchanged (Job Objects, taskkill /T)"
+        "POSIX (v0.8.x P5-C): a pip or probe that exits normally is never reaped before its process group has been ended, whichever setup step started it (the base install's pip and probes, the optional-setup worker's pip and engine probes, under the first-run window and the app window's Install & Continue alike): its caller waits for its exit, not for the end of its output, ends its group the P5-A way (proved, signalled, confirmed), hands on the output already written and only then reaps it, so a helper it left in its group ends with it and one holding its output open no longer keeps setup waiting. 'Stop setup?' never reaps pip. A group that could not be proved its own, or not confirmed ended, fails the step (never a success). The orderly end signals a child only under its waitpid lock. Windows is unchanged (Job Objects, taskkill /T)",
+        "POSIX (v0.8.x P5-I-R3): a contained third-party program (FFmpeg, ffprobe, codesign) is started through a launch gate created outside the run's Cancel ordering; the program begins executing only inside the run's counted start, through a one-time permit the owner removes before that counted start ends, so a gate that is late, stopped, or whose acknowledgement was lost can never start it after the Cancel latch. The guardian also watches its owner's exit (kqueue), removes the permit folder and ends the class-A leaders the owner registered, so the owner's death is contained even when a stopped child holds the lifeline open or a class-A leader was stopped before its lifeline ran. Windows is unchanged"
       ],
       "selection": [
         "files/tests/test_bootstrap_setup_cancel.py",
         "files/tests/test_first_run_setup_close.py",
         "files/tests/test_first_run_setup_ownership.py",
-        "files/tests/test_normal_exit_group_retirement.py"
+        "files/tests/test_normal_exit_group_retirement.py",
+        "files/tests/test_macos_p5i_r3_launch.py"
       ],
       "journeys": [
         "setup.first-run-choices-and-cancel"
@@ -26345,8 +26353,9 @@
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
-    "scripts/shared/child_guardian.py": "81afa2fed11a560b56c8e05eaf309a313646f07b20b23b495de8be6100a80bdf",
-    "scripts/shared/child_ownership.py": "8288fa692c73b3351c8ffd76e95150e3f696fbe39bfc6c38b17cb104c531779c",
+    "scripts/shared/child_guardian.py": "d1421a3fcd563b0d2b43a8d30d295efbe641f71b8945ecbb89c2f7759b7a864d",
+    "scripts/shared/child_launch.py": "267b52f0d05fe04747d1d128ada81ee74699276cca63a2a07e29dcd51ca212b7",
+    "scripts/shared/child_ownership.py": "1327168763e099a606667426244f66c7221f9cb7f330d7ca20a80088419cc381",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26360,7 +26369,7 @@
     "scripts/shared/image_capabilities.py": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
-    "scripts/shared/job_control.py": "12d4e4b9bfc1ec70fd589c53aba500ef46545a258a15e3f4ea77adad2e16cbb4",
+    "scripts/shared/job_control.py": "92941cca47849106a2548b90d2dbbf26238a0399b0eafc0d47a5dc63f792b9dc",
     "scripts/shared/job_ui.py": "902ab2f39059f49be0294f7069263aff52c21ee33202aad5737fd5ae7b4c3093",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
@@ -26387,7 +26396,7 @@
     "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "d595ec95eae39d1a95db51efb2fbf7b367938cc6493685bba53b1d29cc52a125",
+    "scripts/shared/subprocess_utils.py": "8bd5e72e7355062e9200e21762a47e6e131e6691ba4187df07500c6b61d102b7",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
     "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
@@ -26405,7 +26414,7 @@
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
     "scripts/tts/epub2tts_gui.py": "d138d67769dabcbf3fdf60555d47cc1fccef4c920c7af45ed775b9776590af8a",
-    "scripts/tts/ffmpeg_watch.py": "98527fd4aa967393e829abd98ebf2654cc96c0785a5ba1cd5822c980afe6347e",
+    "scripts/tts/ffmpeg_watch.py": "4213264d5685329378ee3a18de296a71b3fe95355e0a65cadb8081899c7d5a30",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
     "scripts/tts/local_engine_host.py": "e6d5e3d9f3b8af5f3dfd9adec7c73ce5af96ba4e053219c187b3934ffbf616bd",

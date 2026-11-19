@@ -789,15 +789,23 @@ def test_a_cancel_pressed_while_a_process_is_being_created_waits_for_it_and_then
     assert controller.commits_in_flight == 0 and not ffmpeg_watch._watched
 
 
-def test_a_cancel_check_is_never_kept_waiting_by_a_guardian_start(monkeypatch):
-    """What can be slow before a start (macOS: the containment guardian) happens before the Cancel lock is taken."""
+@needs_ffmpeg
+def test_a_cancel_check_is_never_kept_waiting_by_a_guardian_start(real_owner, monkeypatch):
+    """What can be slow before a start (macOS: the containment guardian) happens before the Cancel lock is taken.
+    (v0.8.x P5-I-R3: the guardian is had by ``Owner._current_guardian``, outside the run's counted start.)"""
     controller = JobController("p5h-r1-guardian")
     controller.start()
     held_during_preparation = []
-    monkeypatch.setattr(subprocess_utils, "prepare_popen",
-                        lambda *a, **k: held_during_preparation.append(controller._starts_in_progress > 0))
+    real = real_owner._current_guardian
+
+    def prepare(spawn_context=None, checkpoint=None, run=None):
+        held_during_preparation.append(controller._starts_in_progress > 0)
+        return real(spawn_context, checkpoint, run)
+
+    monkeypatch.setattr(real_owner, "_current_guardian", prepare)
     with ffmpeg_watch.controlled(controller.cancel_check):
-        child = ffmpeg_watch.Supervised(_sleeper(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        child = ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        child.communicate()
         child.abandon()
     assert held_during_preparation == [False]
 
@@ -1063,19 +1071,19 @@ def test_a_guardian_replaced_after_preparation_is_never_restarted_inside_the_sta
         return real_start(self, spawn_context, *(() if checkpoint is None else (checkpoint,)))
 
     monkeypatch.setattr(child_ownership.Owner, "_start_guardian", start_guardian)
-    real_prepare = subprocess_utils.prepare_popen
+    real_prepare = real_owner._current_guardian  # P5-I-R3: what prepares a start (outside its counted start)
     prepared = []
 
-    def prepare_then_lose_the_guardian(*args, **kwargs):
-        generation = real_prepare(*args, **kwargs)
+    def prepare_then_lose_the_guardian(spawn_context=None, checkpoint=None, run=None):
+        pid, generation = real_prepare(spawn_context, checkpoint, run)
         if not prepared:  # the first time only: the guardian dies just after the start was prepared for it
             guardian = real_owner._guardian
             guardian.kill()
             guardian.wait(5)
         prepared.append(generation)
-        return generation
+        return pid, generation
 
-    monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare_then_lose_the_guardian)
+    monkeypatch.setattr(real_owner, "_current_guardian", prepare_then_lose_the_guardian)
     with ffmpeg_watch.controlled(controller.cancel_check):
         child = ffmpeg_watch.Supervised(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         child.communicate()
@@ -1148,33 +1156,35 @@ def test_a_start_is_never_held_by_another_threads_guardian_getting_ready(real_ow
     real_owner.ensure_guardian()
     a_prepared, a_go, a_attempting = threading.Event(), threading.Event(), threading.Event()
     b_getting_ready, b_may_be_ready = threading.Event(), threading.Event()
-    real_prepare, real_admit = subprocess_utils.prepare_popen, real_owner.admit_external
+    real_prepare, real_admit = real_owner._current_guardian, real_owner._grant  # P5-I-R3: preparation; counted start
     real_start = child_ownership.Owner._start_guardian
 
-    def prepare(*args, **kwargs):
-        generation = real_prepare(*args, **kwargs)
-        if threading.current_thread().name == "A" and not a_prepared.is_set():
+    def prepare(spawn_context=None, checkpoint=None, run=None):
+        if _caller() == "A" and a_prepared.is_set():
+            a_attempting.set()  # P5-I-R3: A's start, refused for the lost guardian, has its guardian again (outside)
+        answer = real_prepare(spawn_context, checkpoint, run)
+        if _caller() == "A" and not a_prepared.is_set():
             a_prepared.set()
             assert a_go.wait(10)
-        return generation
+        return answer
 
-    def admit(*args, **kwargs):
-        if threading.current_thread().name == "A":
+    def admit(launch):
+        if _caller() == "A":
             a_attempting.set()  # inside A's counted start (P5-I: the admission is what it holds)
-        return real_admit(*args, **kwargs)
+        return real_admit(launch)
 
     real_ready = child_ownership.Owner._await_ready
     assert real_start and contextlib  # (the earlier form held the spawn's ordering)
 
     def start_guardian(self, proc, checkpoint):
-        if threading.current_thread().name == "B":
+        if _caller() == "B":
             # v0.8.x P5-I: only a guardian's admission is in the ordering now, so "getting ready" is held where it happens.
             b_getting_ready.set()
             assert b_may_be_ready.wait(10)
         return real_ready(self, proc, checkpoint)
 
-    monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare)
-    monkeypatch.setattr(real_owner, "admit_external", admit)
+    monkeypatch.setattr(real_owner, "_current_guardian", prepare)
+    monkeypatch.setattr(real_owner, "_grant", admit)
     monkeypatch.setattr(child_ownership.Owner, "_await_ready", start_guardian)
     outcome = {}
 
@@ -1268,27 +1278,30 @@ def test_an_unprepared_start_has_the_new_guardian_when_its_own_is_replaced(real_
     from shared import child_ownership
 
     first = real_owner.ensure_guardian()
-    real_ensure = real_owner.ensure_guardian
+    real_ensure = real_owner._current_guardian  # P5-I-R3: how popen_external has its guardian
     calls = []
 
-    def ensure_then_lose_it(spawn_context=None, checkpoint=None):
-        generation = real_ensure(spawn_context, checkpoint)
+    def ensure_then_lose_it(spawn_context=None, checkpoint=None, run=None):
+        pid, generation = real_ensure(spawn_context, checkpoint, run)
         calls.append(generation)
         if len(calls) == 1:  # the guardian dies just after it was had for this start
             guardian = real_owner._guardian
             guardian.kill()
             guardian.wait(5)
-        return generation
+        return pid, generation
 
-    monkeypatch.setattr(real_owner, "ensure_guardian", ensure_then_lose_it)
+    monkeypatch.setattr(real_owner, "_current_guardian", ensure_then_lose_it)
     proc = real_owner.popen_external(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     proc.wait(10)
     real_owner.forget(proc)
     assert calls[0] == first and len(calls) == 2 and calls[1] > first, calls
     assert proc.returncode == 0
 
-    monkeypatch.setattr(real_owner, "ensure_guardian", lambda spawn_context=None, checkpoint=None: -1)  # never the current one
-    with pytest.raises(child_ownership.ContainmentUnavailable, match="kept ending"):
+    def changed(*_a, **_k):
+        raise child_ownership.GuardianChanged("injected: never the current one")
+
+    monkeypatch.setattr(real_owner, "_admit", changed)
+    with pytest.raises(child_ownership.ContainmentUnavailable, match="contained way"):
         real_owner.popen_external(_ffmpeg_version(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -1459,6 +1472,13 @@ def _quietly(call):
         pass
 
 
+def _caller() -> str:
+    """The thread a start was asked from (v0.8.x P5-I-R3: a contained start runs on ``act-launch:<caller>``)."""
+    import threading
+
+    return threading.current_thread().name.removeprefix("act-launch:")
+
+
 def _wait_for(predicate, seconds=10.0):
     import time
 
@@ -1493,28 +1513,30 @@ def test_a_lost_guardians_children_are_ended_without_holding_up_a_start_or_a_can
                                " time.sleep(30)"], stdout=subprocess.PIPE, label="orphan")
     assert orphan.stdout.readline().strip() == b"ok"
     a_prepared, a_go, a_attempting, b_ending = (threading.Event() for _ in range(4))
-    real_prepare, real_admit = subprocess_utils.prepare_popen, real_owner.admit_external
+    real_prepare, real_admit = real_owner._current_guardian, real_owner._grant  # P5-I-R3: preparation; counted start
     real_lost = real_owner._guardian_lost
 
-    def prepare(*args, **kwargs):
-        generation = real_prepare(*args, **kwargs)
-        if threading.current_thread().name == "A" and not a_prepared.is_set():
+    def prepare(spawn_context=None, checkpoint=None, run=None):
+        if _caller() == "A" and a_prepared.is_set():
+            a_attempting.set()  # P5-I-R3: A's start, refused for the lost guardian, has its guardian again (outside)
+        answer = real_prepare(spawn_context, checkpoint, run)
+        if _caller() == "A" and not a_prepared.is_set():
             a_prepared.set()
             assert a_go.wait(10)
-        return generation
+        return answer
 
-    def admit(*args, **kwargs):
-        if threading.current_thread().name == "A":
+    def admit(launch):
+        if _caller() == "A":
             a_attempting.set()  # P5-I: the admission is what A's counted start holds now
-        return real_admit(*args, **kwargs)
+        return real_admit(launch)
 
     def lost(proc, generation):
         real_lost(proc, generation)
-        if threading.current_thread().name == "B":
+        if _caller() == "B":
             b_ending.set()  # B recorded the loss; the orphan is now being retired (SIGTERM, a 1 s grace, SIGKILL)
 
-    monkeypatch.setattr(subprocess_utils, "prepare_popen", prepare)
-    monkeypatch.setattr(real_owner, "admit_external", admit)
+    monkeypatch.setattr(real_owner, "_current_guardian", prepare)
+    monkeypatch.setattr(real_owner, "_grant", admit)
     monkeypatch.setattr(real_owner, "_guardian_lost", lost)
     outcome = {}
 
@@ -1778,7 +1800,7 @@ def test_a_start_queued_behind_a_guardian_makes_none_once_closing_began(real_own
     assert real_start  # (the earlier form held the spawn's ordering)
 
     def start_guardian(self, proc, checkpoint):
-        if threading.current_thread().name == "first":
+        if _caller() == "first":
             # v0.8.x P5-I: only a guardian's admission is in the ordering now, so "getting ready" is held where it happens.
             getting_ready.set()
             assert may_be_ready.wait(10)

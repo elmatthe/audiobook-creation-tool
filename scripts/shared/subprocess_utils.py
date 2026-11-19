@@ -121,10 +121,28 @@ def _contained_popen(owner, cmd, **kwargs) -> subprocess.Popen:
     return owner.popen_external(argv, label=os.path.basename(argv[0]), **kwargs)
 
 
+#: v0.8.x P5-I-R3: after a contained child of :func:`run`/:func:`check_output` has been told to stop, how long its
+#: remaining output is collected before the pipes are given up (the owner keeps the child until its end is confirmed).
+_DRAIN_AFTER_STOP_S = 1.0
+_LOST_NOTE = "[lost containment: its guardian ended, so it was stopped]"
+
+
+def _close_streams(process: subprocess.Popen) -> None:
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is not None:
+            with contextlib.suppress(OSError, ValueError):
+                stream.close()
+
+
 def _contained_run(owner, cmd, *, input=None, capture_output: bool = False, timeout=None, check: bool = False,
                    **kwargs) -> subprocess.CompletedProcess:
     """``subprocess.run`` with the child started as class B: the same arguments and the same results (a timeout
-    kills the child -- by identity -- and raises ``TimeoutExpired``; ``check`` raises ``CalledProcessError``)."""
+    kills the child -- by identity -- and raises ``TimeoutExpired``; ``check`` raises ``CalledProcessError``).
+
+    v0.8.x P5-I-R3: every wait is bounded once the child has been told to stop (never ``Popen.__exit__``'s or a bare
+    ``communicate``'s unbounded wait); inside a :func:`cancellable` block the start is ordered against the run's Cancel and
+    a Cancel stops the child (identity-checked) and raises; a child whose guardian was lost, or whose end could not be
+    confirmed, is never a success (a non-zero status with a note, ``CalledProcessError`` under ``check``)."""
     if input is not None:
         if kwargs.get("stdin") is not None:
             raise ValueError("stdin and input arguments may not both be used.")
@@ -134,26 +152,108 @@ def _contained_run(owner, cmd, *, input=None, capture_output: bool = False, time
             raise ValueError("stdout and stderr arguments may not be used with capture_output.")
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
-    process = _contained_popen(owner, cmd, **kwargs)
+    supervision = _supervision.get()
+    if _asked_to_cancel(supervision):
+        _cancelled(supervision, None, True, 0.0)
+    launch = _launch_kwargs(supervision.cancel_check) if supervision is not None else {}
+    process = _contained_popen(owner, cmd, **launch, **kwargs)
+    deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+    stdout = stderr = None
     try:
-        with process:
+        while True:
+            step = SUPERVISED_POLL_SECONDS if deadline is None else max(0.0, min(SUPERVISED_POLL_SECONDS,
+                                                                                 deadline - time.monotonic()))
             try:
-                # v0.8.x P5-I: in short slices, never a blocking wait holding the child's waitpid lock, so the owner
-                # can always prove and signal it (a lost guardian's children are retired while their callers wait).
-                stdout, stderr = owner.communicate(process, input, timeout)
-            except subprocess.TimeoutExpired as exc:
-                owner.kill_now(process)
-                exc.stdout, exc.stderr = process.communicate()
-                raise
-            except BaseException:
-                owner.kill_now(process)
-                raise
-            retcode = process.poll()
+                stdout, stderr = owner.communicate(process, input, step)
+                break
+            except subprocess.TimeoutExpired:
+                input = None  # sent once
+            if _asked_to_cancel(supervision):
+                stopped = _stop_contained(owner, process, 0.0)
+                _close_streams(process)
+                if not stopped:
+                    raise ChildNotStopped(f"{os.path.basename(str(process.args[0]))} (pid {process.pid}) was told to "
+                                          "stop and could not be confirmed ended; it is still owned")
+                _cancelled(supervision, process, stopped, 0.0)
+            if deadline is not None and time.monotonic() >= deadline:
+                stopped = _stop_contained(owner, process, 0.0)
+                out = err = None
+                with contextlib.suppress(subprocess.TimeoutExpired, OSError, ValueError):
+                    out, err = owner.communicate(process, None, _DRAIN_AFTER_STOP_S)
+                _close_streams(process)
+                expired = subprocess.TimeoutExpired(process.args, timeout, output=out, stderr=err)
+                if not stopped:
+                    expired.add_note(f"process {process.pid} was told to stop and is not confirmed ended")
+                raise expired
+    except BaseException:
+        if process.returncode is None:
+            _stop_contained(owner, process, 0.0)
+        _close_streams(process)
+        raise
     finally:
         owner.forget(process)
+    retcode = process.returncode
+    if not owner.containment_held(process):
+        stderr = _with_note(stderr, _LOST_NOTE)
+        retcode = retcode if retcode else -15
     if check and retcode:
         raise subprocess.CalledProcessError(retcode, process.args, output=stdout, stderr=stderr)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
+
+def _with_note(stream, note: str):
+    if isinstance(stream, bytes):
+        return stream + b"\n" + note.encode("utf-8", "replace") if stream else note.encode("utf-8", "replace")
+    if isinstance(stream, str):
+        return f"{stream}\n{note}" if stream else note
+    return stream
+
+
+def _stop_contained(owner, process: subprocess.Popen, grace_seconds: float) -> bool:
+    """End a contained child through its owner (identity-checked SIGTERM, *grace_seconds*, SIGKILL, confirmed reaped by
+    the owner's shared deadline). True once it was reaped; False when its end is not confirmed (it stays owned)."""
+    if process.returncode is not None:
+        return True
+    with contextlib.suppress(Exception):  # noqa: BLE001 - a stop that fails proves nothing; the answer below is read
+        owner.end(process, grace=grace_seconds)
+    return process.returncode is not None
+
+
+def _launch_kwargs(cancel_check) -> dict:
+    """v0.8.x P5-I-R3: what orders a contained start against the run of *cancel_check*: its counted start
+    (``JobController.starting``) when the check is a controller's, the Cancel that may be pending while it waits, the
+    error a revoked start raises, the run it belongs to, and a checkpoint that lets the caller leave on a latched Cancel."""
+    if cancel_check is None:
+        return {}
+    controller = getattr(cancel_check, "__self__", None)
+    out = {"owner_run": cancel_check}
+
+    def checkpoint() -> None:
+        if cancel_check():
+            raise _cancellation_error()
+
+    out["checkpoint"] = checkpoint
+    out["cancel_error"] = _cancellation_error
+    if hasattr(controller, "starting") and hasattr(controller, "cancel_pending"):
+        out["ordering"] = lambda: controller.starting("Cancelled.")
+        out["pending"] = lambda: controller.cancel_pending
+    else:
+        out["pending"] = cancel_check
+    return out
+
+
+def _cancellation_error() -> BaseException:
+    try:
+        from .cancellation import ConversionCancelled
+    except ImportError:  # pragma: no cover - imported bare off scripts/shared
+        from cancellation import ConversionCancelled  # type: ignore[no-redef]
+    return ConversionCancelled("Cancelled.")
+
+
+def contained(cmd, **kwargs) -> bool:
+    """v0.8.x P5-I-R3: True when :func:`popen` of these arguments starts a contained class-B child (macOS, with an
+    owner): its start is then ordered by :func:`popen` itself. False on Windows and wherever it starts as released."""
+    return _media_owner(cmd, kwargs) is not None
 
 
 def run(cmd, **kwargs) -> subprocess.CompletedProcess:
@@ -168,86 +268,29 @@ def run(cmd, **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
-class GuardianChanged(RuntimeError):
-    """v0.8.x P5-H-R1: the containment guardian a start was prepared for (:func:`prepare_popen`) is gone or replaced, so
-    nothing was started; prepare again and retry. Never raised on Windows or for a child that is not contained."""
+class ChildNotStopped(RuntimeError):
+    """v0.8.x P5-I-R3: a contained child was told to stop (a Cancel, a deadline) and its end could not be confirmed
+    within its bound. A failure, never a clean Cancel: the run must not be reported CANCELLED or finished, and the owner
+    keeps the child (and keeps ending it) until its end is confirmed."""
+
+
+_LAUNCH_KEYS = ("owner_run", "ordering", "checkpoint", "pending", "cancel_error")
 
 
 def popen(cmd, **kwargs) -> subprocess.Popen:
     """Drop-in replacement for ``subprocess.Popen`` with hidden console on Windows.
 
-    ``guardian_generation`` (v0.8.x P5-H-R1; macOS, contained children only): what :func:`prepare_popen` returned. The
-    child is then started in exactly that guardian's group, or :class:`GuardianChanged` is raised at once; no guardian is
-    ever started or replaced by this call. ``owner_run`` (v0.8.x P5-I): the run the child belongs to (its cancel check),
-    whose settlement accounts for it (:func:`settle_owned`). ``admission``: a ticket from :func:`admit_popen` -- the start
-    was admitted inside the run's Cancel ordering and is spawned now, after it. ``spawn_check`` (POSIX): called
-    immediately before the process is created, raising to refuse it (a run's Cancel that latched after the admission).
-    All of these are ignored where nothing is contained (Windows; no owner): those starts are made as released."""
-    generation = kwargs.pop("guardian_generation", None)
-    run = kwargs.pop("owner_run", None)
-    spawn_check = kwargs.pop("spawn_check", None)
-    admission = kwargs.pop("admission", None)
+    v0.8.x P5-I-R3 (macOS, contained children only; ignored -- the start made as released -- on Windows and wherever
+    nothing is contained): ``owner_run`` (the run the child belongs to, accounted for by :func:`settle_owned`),
+    ``ordering`` (a zero-argument callable giving the run's Cancel ordering, e.g. ``controller.starting``), ``checkpoint``
+    (raises to make the caller leave a start in progress), ``pending`` (a Cancel is waiting to latch) and
+    ``cancel_error`` (what a start revoked by it raises): see ``child_ownership.Owner.popen_external``. The program begins
+    executing only inside ``ordering``, through a one-time permit revoked before that ordering ends."""
+    launch = {key: kwargs.pop(key) for key in _LAUNCH_KEYS if key in kwargs}
     owner = _media_owner(cmd, kwargs)
     if owner is not None:
-        tag = {} if run is None else {"owner_run": run}
-        if spawn_check is not None:
-            tag["spawn_check"] = spawn_check
-        if admission is not None:
-            tag["admission"] = admission
-        elif generation is not None:
-            tag["require_generation"] = generation
-        try:
-            return _contained_popen(owner, cmd, **tag, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - only the containment layer's own "guardian changed" is translated
-            if type(exc).__name__ == "GuardianChanged":
-                raise GuardianChanged(str(exc)) from exc
-            raise
+        return _contained_popen(owner, cmd, **{k: v for k, v in launch.items() if v is not None}, **kwargs)
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
-
-
-def admit_popen(cmd, *, guardian_generation=None, owner_run=None, **kwargs):
-    """v0.8.x P5-I (macOS, contained children only): admit the start :func:`popen` of the same arguments would make into
-    exactly the guardian of ``guardian_generation`` (what :func:`prepare_popen` returned), and return the ticket to pass
-    to :func:`popen` as ``admission``. It only records the start in the owner's ledger -- it never spawns and never waits
-    on another start -- so a run makes it inside its Cancel ordering and spawns after. Raises :class:`GuardianChanged` (nothing
-    admitted) when that guardian is gone or replaced. ``None`` where nothing is contained (Windows; no owner; not a media
-    program): then :func:`popen` is made as released, inside the ordering."""
-    owner = _media_owner(cmd, kwargs)
-    if owner is None or guardian_generation is None:
-        return None
-    try:
-        return owner.admit_external(label=os.path.basename(os.fspath(list(cmd)[0])), run=owner_run,
-                                    require_generation=guardian_generation)
-    except Exception as exc:  # noqa: BLE001 - only the containment layer's own "guardian changed" is translated
-        if type(exc).__name__ == "GuardianChanged":
-            raise GuardianChanged(str(exc)) from exc
-        raise
-
-
-def release_admission(admission) -> None:
-    """Give back an :func:`admit_popen` ticket whose :func:`popen` was never made. Nothing to do for ``None``, or once its
-    spawn was attempted. Never raises."""
-    owner = _owner
-    if owner is not None and admission is not None:
-        with contextlib.suppress(Exception):
-            owner.release(admission)
-
-
-def prepare_popen(cmd, *, spawn_context=None, checkpoint=None, **kwargs):
-    """Do now whatever :func:`popen` of the same arguments would do first that can take a while (v0.8.x P5-H-R1): on
-    macOS, have the owner's guardian running, starting or replacing it if need be, and return its generation for
-    :func:`popen`'s ``guardian_generation``. ``spawn_context`` is entered around a guardian's spawn alone (the run's Cancel
-    ordering), never around the wait for it to be ready. ``checkpoint`` is called often while waiting for a guardian (its
-    own readiness, or another thread making it) and raises to stop the wait: a run's Cancel. ``None``, doing nothing, on
-    Windows or for a child that is not contained. ``owner_run``: as for :func:`popen` (a guardian made for a run that is
-    then cancelled is that run's to account for)."""
-    run = kwargs.pop("owner_run", None)
-    owner = _media_owner(cmd, kwargs)
-    if owner is None:
-        return None
-    if run is None:
-        return owner.ensure_guardian(spawn_context, checkpoint=checkpoint)
-    return owner.ensure_guardian(spawn_context, checkpoint=checkpoint, run=run)
 
 
 def settle_owned(run, bound_s: Optional[float] = None) -> list[int]:
@@ -409,8 +452,10 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
     supervision = _supervision.get()
     if _asked_to_cancel(supervision):
         _cancelled(supervision, None, True, grace_seconds)
+    owner = _media_owner(argv, {})
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        child = popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
+        launch = _launch_kwargs(supervision.cancel_check) if owner is not None and supervision is not None else {}
+        child = popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err, **launch)
         started = time.monotonic()
         stopped = timed_out = False
         reaped = True
@@ -430,8 +475,13 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
         finally:
             # Every route out, an exception in the loop included: a child started here is stopped and collected here.
             if child.returncode is None:
-                reaped = _stop(child, grace_seconds)
+                reaped = (_stop_contained(owner, child, grace_seconds) if owner is not None
+                          else _stop(child, grace_seconds))
         _forget(child)
+        if owner is not None and not reaped:
+            # v0.8.x P5-I-R3: never a clean Cancel (or a deadline) with the child not confirmed ended: a failure.
+            raise ChildNotStopped(f"{os.path.basename(argv[0])} (pid {child.pid}) was told to stop and could not be "
+                                  "confirmed ended; it is still owned and still being ended")
         if stopped:
             _cancelled(supervision, child, reaped, grace_seconds)
         if timed_out:
@@ -439,7 +489,10 @@ def run_supervised(args, *, poll_seconds: float = SUPERVISED_POLL_SECONDS,
             if not reaped:
                 expired.add_note(f"process {child.pid} did not exit within {2 * grace_seconds:g} s of being stopped")
             raise expired
-        return subprocess.CompletedProcess(argv, child.returncode, _tail(out, tail_bytes), _tail(err, tail_bytes))
+        code, stderr_tail = child.returncode, _tail(err, tail_bytes)
+        if owner is not None and not owner.containment_held(child):
+            code, stderr_tail = (code if code else -15), _with_note(stderr_tail, _LOST_NOTE)
+        return subprocess.CompletedProcess(argv, code, _tail(out, tail_bytes), stderr_tail)
 
 
 #: What :func:`stop_media_children` may end. Never a detached helper: repair and cleanup deliberately outlive the window that started them.
