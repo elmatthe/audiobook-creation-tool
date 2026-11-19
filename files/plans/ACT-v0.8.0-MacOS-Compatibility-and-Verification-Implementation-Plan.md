@@ -2133,7 +2133,7 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 > - **D6-final:** recommended, not decided.
 > - **KX-10:** automated counterparts PASS at `f04075f` (Kokoro real window, OmniVoice KX-1(c), `macos-kx10`); the Force Quit window is the owner's checklist; Chatterbox not re-enabled.
 > - **P5-H (new, agent decision):** a Mac assembles any narration that reaches the gate on disk. The in-memory join kept far more memory than the audio: 5.2 GiB for a 37-minute Edge file; 0.34 GiB after.
-> - **Codex:** review 1 (P5-G) PASS; review 2 recorded in Handoff.
+> - **Codex (read-only, fresh context):** review 1 (P5-G) PASS; review 2 PASS with four accuracy findings, corrected in `74ba6d4`; re-review 3 PASS.
 > - **Still PENDING:**
 >   - owner acceptance, listening, GUI pass, visual-debt disposition, permissions, D6-final, D11d, D15;
 >   - the Windows HOME-PC regression and E-B2 (commands in Handoff);
