@@ -651,12 +651,15 @@ def assemble(pcm_bytes: int, in_memory: Callable, on_disk: Callable, *, cancel_c
     they were until they have succeeded. The disk route is tried at most twice, the second time after :meth:`AssemblyPlace.wait_for_room`,
     and if it runs out then too, :class:`AssemblyMemoryError` says so. Either way every reservation goes back.
 
-    A Cancel wins at every step (v0.7.2): before the gate, before any fall back to disk and before any further attempt, it ends
-    this with :class:`ConversionCancelled` and nothing more is tried; an assembly already running is killed by
-    :mod:`tts.ffmpeg_watch`, which raises the same.
+    A Cancel wins at every step (v0.7.2): before the gate, once admitted, before any fall back to disk and before any further
+    attempt, it ends this with :class:`ConversionCancelled` and nothing more is tried; an assembly already running is killed by
+    :mod:`tts.ffmpeg_watch`, which raises the same, starts no further FFmpeg after it and stops its own reading and writing
+    between processes at the next block (v0.8.x P5-H-R1).
     """
     _raise_if_cancelled(cancel_check)
     with assembly_place(pcm_bytes, cancel_check=cancel_check, note=note) as admitted:
+        # v0.8.x P5-H-R1: a Cancel while the place was being given starts neither route (the disk route looks again below).
+        _raise_if_cancelled(cancel_check)
         if admitted.in_memory:
             try:
                 return in_memory()

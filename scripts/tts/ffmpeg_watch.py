@@ -26,6 +26,13 @@ so a killed program's are recognised as its own and removed by a later run; befo
 * Cancelled: killed within one :data:`WATCH_SECONDS`, whatever it was doing and however well it was going (v0.7.2). A Cancel stops
   active work; it does not let finished narration be assembled or encoded first. :func:`wake` lets the Cancel be noticed before
   the watchdog's next look. Nothing unfinished ever reaches a destination: that is :mod:`tts.publication`'s contract.
+
+**Never started after a Cancel (v0.8.x P5-H-R1).** Killing is for work already running. A process is started only under the
+run's own Cancel latch (:func:`_authorized_start`, the controller's lock): a Cancel that came first refuses the
+start with :class:`ConversionCancelled` and nothing is spawned; a start that came first is watched before the latch is free again,
+so the Cancel kills it like any other. A cancel check with no latch (a bare predicate) gets a look before the start and another
+once it is watched. :func:`checkpoint` is the same look for work between processes. A process that does not end when killed is
+never reported as a clean end (:class:`ProcessNotStopped`).
 """
 
 from __future__ import annotations
@@ -54,8 +61,17 @@ BLOCK_BYTES = 1024 * 1024
 CANCELLED_MESSAGE = "Conversion cancelled by user."
 
 
+#: How long a killed FFmpeg is given to be gone before that is reported as a failure, not a clean end.
+ABANDON_WAIT_SECONDS = 30
+
+
 class ProcessingStalled(RuntimeError):
     """FFmpeg stopped making progress and was killed. Nothing unfinished reaches a destination."""
+
+
+class ProcessNotStopped(RuntimeError):
+    """FFmpeg was killed and had still not ended :data:`ABANDON_WAIT_SECONDS` later (v0.8.x P5-H-R1). It stays watched, and the
+    file fails rather than ending as cleanly cancelled or finished while it may still be running."""
 
 
 class _Scratch:
@@ -112,6 +128,15 @@ def current_cancel_check() -> Optional[Callable[[], bool]]:
     watchdog does. ``parallel_edgespeak`` copies the context into its executor threads for the same reason.
     """
     return _control.get().cancel_check
+
+
+def checkpoint() -> None:
+    """Raise :class:`ConversionCancelled` if this thread's conversion has been cancelled (v0.8.x P5-H-R1). Work done between
+    FFmpeg processes (reading, scanning or converting a narration on disk) asks this per block, so a Cancel stops it as the
+    watchdog stops a process. Outside a :func:`controlled` block it does nothing."""
+    cancel_check = _control.get().cancel_check
+    if cancel_check is not None and cancel_check():
+        raise ConversionCancelled(CANCELLED_MESSAGE)
 
 
 def _named_temporary_file(*args, **kwargs):
@@ -180,6 +205,30 @@ def _verdict_on(item: _Watched, now: float) -> Optional[BaseException]:
     return None
 
 
+@contextlib.contextmanager
+def _authorized_start(control: _Control) -> Iterator[None]:
+    """A process may be started, ordered against the run's Cancel (v0.8.x P5-H-R1).
+
+    The run's controller (a :class:`~shared.job_control.JobController`, whose bound ``cancel_check`` every Cancel button
+    hands over) decides under the lock its Cancel latches under: :meth:`authorize_commit`, the same order
+    :func:`tts.publication.authorized_commit` gives a commit. Refused raises :class:`ConversionCancelled` and the body never
+    runs; granted, the body starts and registers the process, and the authorization is given back when it ends. A bare
+    predicate has no latch: it gets a look, and one that fails is not a Cancel, as the watchdog reads it.
+    """
+    owner = getattr(control.cancel_check, "__self__", None)
+    if not hasattr(owner, "authorize_commit"):
+        if _asked_to_cancel(control):
+            raise ConversionCancelled(CANCELLED_MESSAGE)
+        yield
+        return
+    if not owner.authorize_commit():
+        raise ConversionCancelled(CANCELLED_MESSAGE)
+    try:
+        yield
+    finally:
+        owner.commit_finished()
+
+
 def _watch_once() -> None:
     now = time.monotonic()
     with _watched_lock:
@@ -226,27 +275,36 @@ class Supervised:
 
     def __init__(self, args, stdin=None, stdout=None, stderr=None, **kwargs) -> None:
         _ensure_watchdog()
+        control = _control.get()
         self.args = args
         self._errors = None
-        if stderr == subprocess.PIPE:
-            self._errors = tempfile.TemporaryFile()
-            stderr = self._errors
+        last = args[-1] if isinstance(args, (list, tuple)) and args else None
+        # FFmpeg's last argument is what it writes, unless that is a pipe. For anything else the size just never changes.
+        output = os.fspath(last) if isinstance(last, (str, os.PathLike)) and last != "-" else None
         try:
-            # The same Popen call as before on Windows (hidden console, the caller's arguments winning); on macOS the
-            # app window owns the FFmpeg it starts, so it ends with the window however that ends (v0.8.x P1B).
-            self.process = subprocess_utils.popen(args, stdin=stdin, stdout=stdout, stderr=stderr, **kwargs)
+            # v0.8.x P5-H-R1: started only if Cancel has not latched, decided under the latch's own lock, and watched before
+            # that decision is given back, so a Cancel either refuses this start or finds the process to kill. Nothing is
+            # started, and no file is made for it, after a Cancel.
+            with _authorized_start(control):
+                if stderr == subprocess.PIPE:
+                    self._errors = tempfile.TemporaryFile()
+                    stderr = self._errors
+                # The same Popen call as before on Windows (hidden console, the caller's arguments winning); on macOS the
+                # app window owns the FFmpeg it starts, so it ends with the window however that ends (v0.8.x P1B).
+                self.process = subprocess_utils.popen(args, stdin=stdin, stdout=stdout, stderr=stderr, **kwargs)
+                self._item = _Watched(self.process, output, control)
+                with _watched_lock:
+                    _watched.add(self._item)
         except BaseException:
             self._close_errors()
             raise
         self.stdin, self.stdout = self.process.stdin, self.process.stdout
         self.stderr = None
         self.pid = self.process.pid
-        last = args[-1] if isinstance(args, (list, tuple)) and args else None
-        # FFmpeg's last argument is what it writes, unless that is a pipe. For anything else the size just never changes.
-        output = os.fspath(last) if isinstance(last, (str, os.PathLike)) and last != "-" else None
-        self._item = _Watched(self.process, output, _control.get())
-        with _watched_lock:
-            _watched.add(self._item)
+        if _asked_to_cancel(control):
+            # A cancel check with no latch to be ordered against, latched while this started: killed now, not at the next look.
+            self._item.verdict = ConversionCancelled(CANCELLED_MESSAGE)
+            self.kill()
         _wake.set()
 
     @property
@@ -296,14 +354,24 @@ class Supervised:
             _watched.discard(self._item)
 
     def abandon(self) -> None:
-        """However this ended: nothing of this process stays running, open or watched."""
+        """However this ended: nothing of this process stays running, open or watched. If it is still running after being
+        killed and :data:`ABANDON_WAIT_SECONDS`, that is not hidden (v0.8.x P5-H-R1): it stays watched, and
+        :class:`ProcessNotStopped` replaces whatever was ending this, a Cancel included."""
         self.kill()
         for pipe in (self.process.stdout, self.process.stdin):
             if pipe is not None:
                 with contextlib.suppress(OSError, ValueError):
                     pipe.close()
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            self.process.wait(30)
+        try:
+            self.process.wait(ABANDON_WAIT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            self._close_errors()
+            raise ProcessNotStopped(
+                f"FFmpeg (process {self.pid}) was stopped and had not ended {ABANDON_WAIT_SECONDS} seconds later, so this file "
+                "is not reported as finished or cancelled. Nothing unfinished was saved. If it is still running, quit the "
+                "application before using Retry Failed.") from exc
+        except (OSError, subprocess.SubprocessError):
+            pass
         self._stop_watching()
         self._close_errors()
 

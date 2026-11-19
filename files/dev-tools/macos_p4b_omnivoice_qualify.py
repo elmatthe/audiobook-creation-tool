@@ -61,6 +61,7 @@ sys.path.insert(0, str(HERE))
 import numpy as np  # noqa: E402
 import soundfile as sf  # noqa: E402
 
+from shared import child_ownership  # noqa: E402
 from shared.cancellation import ConversionCancelled  # noqa: E402
 from tts import generate_voice_samples as gvs  # noqa: E402
 from tts import omnivoice_runtime as ov  # noqa: E402
@@ -114,6 +115,45 @@ def group_gone(pgid: int) -> bool:
     except PermissionError:
         return False
     return False
+
+
+def worker_is_live(pid: int, pgid: int, birth) -> bool:
+    """The worker recorded at spawn, by its kernel start time, is still running (not exited, not a zombie, not an id reused)
+    and still leads the group it was recorded in."""
+    if birth is None or child_ownership.process_start_time(pid) != tuple(birth):
+        return False
+    if child_ownership._has_exited(pid):  # macOS reads the kernel's state for any pid: a zombie has exited
+        return False
+    try:
+        return os.getpgid(pid) == pgid and not group_gone(pgid)
+    except OSError:
+        return False
+
+
+def kill_boundary(owner: subprocess.Popen, owner_birth, worker: dict) -> list[str]:
+    """v0.8.x P5-H-R1 (Codex MEDIUM 2): why the owner may NOT be killed now as a KX-1 drill (empty: it may). The drill times
+    the retirement of a worker that is live when its owner dies; a worker or group already gone, or an owner already ended
+    (or reaped, its id free for reuse), would make the timing and the absence checks prove nothing."""
+    problems = []
+    if owner.returncode is not None or owner_birth is None or child_ownership.process_start_time(owner.pid) != owner_birth:
+        problems.append("the owner is no longer the process started for this drill")
+    if not worker_is_live(worker.get("worker_pid", -1), worker.get("worker_pgid", -1), worker.get("worker_start")):
+        problems.append("the worker recorded at spawn is not live in its group at the kill boundary")
+    return problems
+
+
+def attributable(rows: list[str], worker: dict, owner_pid: int) -> list[str]:
+    """``act_processes`` rows that belong to this drill: its owner, its worker, or the worker's group."""
+    mine = []
+    for row in rows:
+        fields = row.split(None, 2)
+        try:
+            pid, pgid = int(fields[0]), int(fields[1])
+        except (IndexError, ValueError):
+            continue
+        if pid in (owner_pid, worker.get("worker_pid")) or pgid == worker.get("worker_pgid"):
+            mine.append(row)
+    return mine
 
 
 def act_processes() -> list[str]:
@@ -483,14 +523,15 @@ import json, os, sys, time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1] + "/scripts")
 sys.path.insert(0, sys.argv[1] + "/files/dev-tools")
-from shared import subprocess_utils
+from shared import child_ownership, subprocess_utils
 subprocess_utils.enable_containment()  # exactly what the app window does at start
 from tts import generate_voice_samples as gvs, omnivoice_synth as osy
 report = Path(sys.argv[2])
 original_spawn, original_run = osy.spawn_worker, osy.run_worker
 def spawn(cmd, **kwargs):
     proc = original_spawn(cmd, **kwargs)
-    report.write_text(json.dumps({"worker_pid": proc.pid, "worker_pgid": os.getpgid(proc.pid)}))
+    report.write_text(json.dumps({"worker_pid": proc.pid, "worker_pgid": os.getpgid(proc.pid),
+                                  "worker_start": child_ownership.process_start_time(proc.pid)}))
     return proc
 def run_worker(*a, **k):
     on_chunk = k.get("on_chunk")
@@ -515,6 +556,7 @@ def cmd_kx1(args) -> int:
             path.unlink()
     owner = subprocess.Popen([sys.executable, "-I", "-B", "-c", OWNER, str(REPO), str(report), texts()["B"], str(dest)],
                              cwd=str(REPO), start_new_session=True)
+    owner_birth = child_ownership.process_start_time(owner.pid)
     deadline = time.monotonic() + 600
     data: dict = {}
     while time.monotonic() < deadline and owner.poll() is None:
@@ -529,8 +571,19 @@ def cmd_kx1(args) -> int:
         owner.kill()
         raise SystemExit("the owner never reported a running worker")
     time.sleep(1.0)  # the next chunk is being generated
+    refused = kill_boundary(owner, owner_birth, data)
     killed_at = time.monotonic()
-    os.kill(owner.pid, signal.SIGKILL)
+    # Through the identity check: only the owner started for this drill is signalled, never a reused id.
+    if not refused and not child_ownership.signal_if_same(owner.pid, owner_birth, signal.SIGKILL):
+        refused = ["the owner could not be signalled as the process started for this drill"]
+    if refused:
+        child_ownership.signal_if_same(owner.pid, owner_birth, signal.SIGKILL)
+        owner.wait()
+        result = {"refused": refused, "worker_pid": data.get("worker_pid"), "worker_pgid": data.get("worker_pgid"),
+                  "processes_after": act_processes()}
+        write_json(folder / "kx1.json", result)
+        print(json.dumps(result, indent=1), flush=True)
+        return 1
     owner.wait()
     gone_at = None
     while time.monotonic() - killed_at < 10:
@@ -542,10 +595,12 @@ def cmd_kx1(args) -> int:
               "owner_signal": "SIGKILL", "worker_group_gone_s": None if gone_at is None else round(gone_at - killed_at, 3),
               "bound_s": 3.0, "published": dest.exists(),
               "job_folders_left": sorted(p.name for p in ov.jobs_root().glob("*") if p.is_dir()),
-              "processes_after": act_processes()}
+              "processes_after": act_processes(), "worker_start": data.get("worker_start"), "live_at_kill": True}
+    result["survivors"] = attributable(result["processes_after"], data, owner.pid)
     write_json(folder / "kx1.json", result)
     print(json.dumps(result, indent=1), flush=True)
-    return 0 if gone_at is not None and gone_at - killed_at <= 3.0 and not dest.exists() else 1
+    return 0 if (gone_at is not None and gone_at - killed_at <= 3.0 and not dest.exists()
+                 and not result["survivors"]) else 1
 
 
 def cmd_assets(args) -> int:

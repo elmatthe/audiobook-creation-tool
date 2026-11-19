@@ -957,6 +957,66 @@ def cmd_edge_cancel(out: Path) -> dict:
 
 
 # --------------------------------------------------------------------------- main
+def _row_problems(label: str, row: dict) -> list[str]:
+    """What, in one produced file's row, means it is not a good result: the job, the file, or the screen."""
+    problems = []
+    if not row.get("finished", False):
+        problems.append(f"{label}: the run did not finish")
+    if row.get("state") != "succeeded":
+        problems.append(f"{label}: the job ended {row.get('state')!r}, not 'succeeded'")
+    output = row.get("output")
+    if not output or not Path(output).is_file():
+        problems.append(f"{label}: no output file")
+    screened = row.get("screen")
+    if not isinstance(screened, dict):
+        problems.append(f"{label}: the output was not screened")
+    elif screened.get("problems"):
+        problems.append(f"{label}: the screen found {screened['problems']}")
+    return problems
+
+
+def command_problems(command: str, record: dict) -> list[str]:
+    """v0.8.x P5-H-R1 (Codex MEDIUM 1): what in the command's own record means it did not pass. ``main`` used to return 0 on
+    the Downloads guard alone, so a failed chapter or a DIFFERENT E-B2 comparison exited 0. ``eb2`` and ``edge-cancel`` are
+    captures read by a person or by ``eb2-compare``: a capture that completes has nothing of its own to fail on."""
+    if command == "eb2-compare":
+        return [] if record.get("verdict") == "IDENTICAL" else [f"E-B2 comparison verdict {record.get('verdict')!r}"]
+    if command == "chapter":
+        return _row_problems("chapter", record.get("row") or {})
+    if command == "voices":
+        rows = record.get("rows") or []
+        return [problem for row in rows for problem in _row_problems(f"{row.get('voice')} {row.get('text')}", row)] or (
+            [] if rows else ["no voice was run"])
+    if command == "edge-load":
+        problems = []
+        for key, value in record.items():
+            if not key.startswith("E-A3-") or not isinstance(value, dict):
+                continue
+            if not value.get("finished") or value.get("state") != "succeeded":
+                problems.append(f"{key}: the job ended {value.get('state')!r}")
+            if value.get("published") != value.get("files"):
+                problems.append(f"{key}: {value.get('published')} of {value.get('files')} files published")
+            problems += [f"{key} {name}: the screen found {screened['problems']}"
+                         for name, screened in (value.get("screens") or {}).items() if screened.get("problems")]
+        return problems
+    if command == "eb1":
+        imports = record.get("imports") or {}
+        problems = [] if imports.get("returncode") == 0 else [f"eb1: the imports exited {imports.get('returncode')}"]
+        if not (record.get("espeak_fallback") or {}).get("all_spoken"):
+            problems.append("eb1: not every out-of-dictionary word was spoken")
+        if "worker" in record and not record["worker"].get("finite"):
+            problems.append("eb1: the worker's audio is not finite")
+        return problems
+    return []
+
+
+def exit_status(record_run: dict) -> int:
+    """0: passed. 3: Downloads changed (the guard, as before, whatever else happened). 4: the command's own result failed."""
+    if not record_run["downloads_unchanged"]:
+        return 3
+    return 0 if not record_run["problems"] else 4
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["eb1", "eb2", "eb2-compare", "voices", "chapter", "edge-load",
@@ -997,9 +1057,11 @@ def main() -> int:
     record["run"] = {"command": args.command, "began": began, "ended": time.strftime("%Y-%m-%dT%H:%M:%S"),
                      "downloads_before": downloads_before, "downloads_after": downloads_after,
                      "downloads_unchanged": downloads_before == downloads_after}
+    record["run"]["problems"] = command_problems(args.command, record)
+    record["run"]["outcome"] = "PASS" if not record["run"]["problems"] else "FAIL"
     write(out / f"{args.command}.json", record)
     print(json.dumps(record["run"], indent=1))
-    return 0 if record["run"]["downloads_unchanged"] else 3
+    return exit_status(record["run"])
 
 
 if __name__ == "__main__":

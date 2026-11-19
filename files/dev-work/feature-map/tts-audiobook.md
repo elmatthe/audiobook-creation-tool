@@ -292,6 +292,11 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   audio it held: with 128 parts cut from a 37-minute Edge file's narration, 4.86 GiB, then about 51 MiB more for each
   further part of 0.79 MiB of audio (10 GiB by 66 minutes), where the disk route took 30 MB. Shorter joins, and every
   other platform, are unchanged.
+- **Parts in different formats (v0.8.x P5-H-R1):** one narration can hold Edge's 24 kHz speech and the 11,025 Hz silence
+  written for a sentence with nothing to say (for example "É."). The disk join converts them exactly as the in-memory join
+  does (the larger rate and channel count; a higher one arriving converts everything joined so far), a block at a time,
+  so the MP3 is the same, byte for byte, and memory stays small. Before this, the disk join refused the mix, and on a Mac
+  that failed the whole file after its synthesis (independent review of P5-H, HIGH 1).
 
 ### Activity log, progress and estimate
 `ACT.TTS.ACTIVITY-LOG`
@@ -366,6 +371,9 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
 
 - Any FFmpeg the conversion started is killed within about a quarter of a second of Cancel, even while it is making
   progress.
+- No FFmpeg starts after Cancel (v0.8.x P5-H-R1): each start is decided on the run's Cancel lock, so Cancel either refuses
+  it or finds it running and kills it. Reading, scanning or converting a narration on disk between FFmpeg steps stops at
+  the next block. An FFmpeg that is still running after being killed is never reported as a clean Cancel.
 
 ### Cancel and the final rename are ordered
 `ACT.TTS.CANCEL.PUBLICATION`
