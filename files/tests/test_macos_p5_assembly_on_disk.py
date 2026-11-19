@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from source_probe import application_python_files
 from shared.cancellation import ConversionCancelled
 from tts import disk_assembly
 from tts import worker_limits as wl
@@ -72,8 +73,9 @@ def test_only_the_gates_entry_point_reads_the_rule():
     readers = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
                and any(isinstance(n, ast.Name) and n.id == "IN_MEMORY_ASSEMBLY" for n in ast.walk(node))}
     assert readers == {"assembly_place"}
-    scripts = Path(wl.__file__).resolve().parents[1]
-    elsewhere = [str(p.relative_to(scripts)) for p in scripts.rglob("*.py")
+    sources = application_python_files()
+    assert Path(wl.__file__).resolve() in {p.resolve() for p in sources}, "the walk covers the application's own tree"
+    elsewhere = [p.name for p in sources
                  if p.name != "worker_limits.py" and "IN_MEMORY_ASSEMBLY" in p.read_text(encoding="utf-8", errors="replace")]
     assert elsewhere == []
 
