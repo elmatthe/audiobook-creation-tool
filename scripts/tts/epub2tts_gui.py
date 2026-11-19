@@ -3509,8 +3509,13 @@ class _RunContext:
         v0.8.x P5-H-R1: a run with an FFmpeg it killed that is still running is
         neither cancelled nor finished: it fails as a whole, not retryable, naming
         the process, so nothing reports a clean end while it may still be at work.
+
+        v0.8.x P5-I: on a Mac this includes every process of the run the containment
+        owner still owes cleanup (a child whose registration failed, one created as the
+        Cancel latched), after the owner has retired them and waited, bounded, for
+        their ends to be confirmed.
         """
-        stuck = ffmpeg_watch.unconfirmed_children(self.cancel_check)
+        stuck = ffmpeg_watch.settle_children(self.cancel_check)
         if stuck:
             self.settle_unstoppable(stuck)
             return
@@ -3547,10 +3552,11 @@ class _RunContext:
         self.log_q.put(("done", done))
 
     def settle_unstoppable(self, pids: list) -> None:
-        """v0.8.x P5-H-R1: the run's ending when an FFmpeg it killed did not end (``ffmpeg_watch.ProcessNotStopped``)."""
+        """v0.8.x P5-H-R1: the run's ending when an FFmpeg it killed did not end (``ffmpeg_watch.ProcessNotStopped``);
+        v0.8.x P5-I: or any process of the run whose end the containment owner could not confirm."""
         self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
-            f"FFmpeg (process {', '.join(map(str, pids))}) was stopped and is still running, so this run is not reported as "
-            "cancelled or finished. Nothing unfinished was saved. Quit the application before converting again."))
+            f"FFmpeg (process {', '.join(map(str, pids))}) was stopped and has not been confirmed ended, so this run is not "
+            "reported as cancelled or finished. Nothing unfinished was saved. Quit the application before converting again."))
 
     def settle_fatal(self, exc: BaseException) -> None:
         """The run itself broke. A job failure, and never retryable."""

@@ -18,11 +18,19 @@ so each joins the owner's *guardian* group at spawn (``process_group=``; the chi
 guardian (``child_guardian.py``) holds the lifeline's read end and ends its group when it reads end-of-file.
 
 **If the guardian dies on its own** (killed by hand), the owner fails closed rather than claim containment it no longer
-has: a thread waiting on the guardian ends every class-B child still running in that guardian's group (identity-checked,
-SIGTERM then SIGKILL), marks each one ``lost_containment`` so its caller reports a failure, records the event, and the
-next class-B spawn starts a new guardian first. No class-B child is ever started without a guardian that answered
-``ready``. The residual: a class-B child whose guardian died *and* whose owner died (or was stopped) before that thread
-ran is not contained; see Decisions (P1A).
+has: the loss is recorded once, at once, by whoever sees it first (the guardian's own watch, or a start that finds it
+gone) -- every class-B child of that guardian is marked ``lost_containment`` before anything waits, so its caller
+reports a failure -- and those still running are retired together under one shared deadline (identity-checked, SIGTERM
+then SIGKILL) without holding up whoever noticed; the next class-B spawn starts a new guardian first. No class-B child is
+ever started without a guardian that answered ``ready`` and whose identity was read. The residual: a class-B child whose
+guardian died *and* whose owner died (or was stopped) before the loss was recorded is not contained; see Decisions (P1A).
+
+**One ledger, one lifecycle (v0.8.x P5-I).** Every process the owner must still clean up -- a start in progress, a
+registered child, a guardian getting ready, a child whose registration failed, a lost guardian's child, one whose end is
+not confirmed -- is an entry of one ledger, from its admission until its reaping. The owner is ACTIVE, CLOSING or CLOSED;
+admission, adoption and the closing latch are decided under one short lock that is never held across a spawn, a wait or
+a signal (:class:`Owner` documents the lock order). Ending is one retirement mechanism with one shared deadline per
+batch; a process not confirmed ended by its deadline is reported, kept and still ended -- never dropped or called clean.
 
 **Termination is identity-checked.** Every registered child records its pid, process group and kernel start time
 (``sysctl kern.proc.pid``). A signal goes only to a process whose start time still matches; a group is signalled only
@@ -46,6 +54,7 @@ from __future__ import annotations
 import contextlib
 import os
 import queue
+import select
 import selectors
 import signal
 import struct
@@ -53,6 +62,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
@@ -539,11 +549,58 @@ def communicate_led(proc: subprocess.Popen, start_time: Optional[tuple[int, int]
 
 
 # --------------------------------------------------------------------------- #
-#  Owned children
+#  Owned children: one ownership record, one lifecycle (v0.8.x P5-I)
 # --------------------------------------------------------------------------- #
-@dataclass
+#: The kind of a ledger entry that is a guardian (class A and class B are :data:`CLASS_A` and :data:`CLASS_B`).
+GUARDIAN_KIND = "G"
+
+# The owner's phases. ACTIVE -> CLOSING (``begin_closing``/``shutdown``) -> CLOSED (``shutdown`` has returned).
+ACTIVE = "active"
+CLOSING = "closing"
+CLOSED = "closed"
+
+# A ledger entry's states.
+SPAWNING = "spawning"  # admitted; its ``Popen`` is in progress, so there is no handle yet
+STARTED = "started"  # created; not yet registered (or its registration failed)
+LIVE = "live"  # registered; its caller runs it
+PENDING = "pending"  # guardian only: created, not yet ready and adopted
+ADOPTED = "adopted"  # guardian only: the one class-B children join
+RETIRING = "retiring"  # being ended by the owner, under one shared deadline
+UNCONFIRMED = "unconfirmed"  # its deadline passed and its end is not confirmed: still owned, still being ended
+DONE = "done"  # its exit is confirmed (reaped); no longer in the ledger
+
+#: How long the owner's closing (``begin_closing``/``shutdown``) and a run's settlement wait for spawns already admitted to
+#: produce their processes. A spawn takes milliseconds; one that takes longer is not waited for: its process, once it
+#: exists, is never registered or adopted and is stopped at once. (A run's Cancel waits only for admissions, never spawns.)
+START_SETTLE_S = 0.2
+#: After SIGKILL, how long a retirement has to confirm the end (reap the process) before it is reported unconfirmed.
+KILL_CONFIRM_S = 1.0
+#: How often a retirement in progress is looked at; how often SIGKILL is repeated to a process that has not ended.
+RETIRE_POLL_S = 0.02
+KILL_REPEAT_S = 0.1
+#: How often an unconfirmed process is killed again until it ends.
+UNCONFIRMED_POLL_S = 0.25
+#: How long a retirement may wait for a child's waitpid lock in one look (it looks again at the next).
+RETIRE_LOCK_WAIT_S = 0.02
+#: The part of the orderly end's bound kept for the guardian: lifeline end-of-file, its own 1 s grace, its reaping.
+GUARDIAN_END_S = 1.5
+#: How long the thread that made a guardian it then did not adopt looks for that guardian's end.
+UNADOPTED_LOOK_S = 0.5
+#: The most a run's settlement waits for its own processes still owed cleanup (each has its own, shorter, deadline).
+SETTLE_BOUND_S = 4.0
+
+_CLOSING_TEXT = "the application is closing; nothing was started"
+_CHANGED_TEXT = "the ACT guardian changed after this start was prepared; nothing was started"
+
+
+@dataclass(eq=False)
 class OwnedChild:
-    proc: subprocess.Popen
+    """One process this owner is responsible for, from its admission until its exit is confirmed (v0.8.x P5-I).
+
+    Class A and class B children and the guardians are all entries of the one ledger. An entry leaves it only when its
+    process has been reaped (``proc.returncode`` set); a wait, poll or signal that fails proves nothing and leaves it."""
+
+    proc: Optional[subprocess.Popen]
     kind: str
     pid: int
     pgid: int
@@ -551,9 +608,34 @@ class OwnedChild:
     generation: int = 0
     lost_containment: bool = False
     label: str = ""
+    run: Any = None  # the run that started it (its cancel check), or None
+    state: str = LIVE
+    spawns: int = 0  # guardian only: class-B starts in progress into its group (it is not reaped while there are any)
+    kill_at: Optional[float] = None
+    confirm_by: Optional[float] = None
+    term_wanted: bool = False
+    termed: bool = False
+    last_kill: float = 0.0
+    group_ended: bool = False
 
     def running(self) -> bool:
-        return self.proc.poll() is None
+        return self.proc is not None and self.proc.poll() is None
+
+    def resolved(self) -> bool:
+        """No cleanup is owed any more: it is out of the ledger, or (a child) its caller has reaped it."""
+        return self.state == DONE or (self.kind != GUARDIAN_KIND and self.proc is not None
+                                      and self.proc.returncode is not None)
+
+
+@dataclass(eq=False)
+class Admission:
+    """A class-B start admitted into a guardian and not yet spawned (v0.8.x P5-I): what a run admits inside its Cancel
+    ordering and spawns after it (:meth:`Owner.popen_external` with ``admission=``), or gives back (:meth:`Owner.release`).
+    Its entry is in the ledger, SPAWNING, until one of those happens."""
+
+    entry: "OwnedChild"
+    guardian: "OwnedChild"
+    used: bool = False
 
 
 #: How long the orderly end waits for a child's waitpid lock before it leaves that child unsignalled (v0.8.x P5-C). The
@@ -561,12 +643,13 @@ class OwnedChild:
 _LOCK_WAIT_S = 1.0
 
 
-def _signal_proved(child: OwnedChild, sig: int, *, wait_s: float = _LOCK_WAIT_S) -> bool:
+def _signal_proved(child: OwnedChild, sig: int, *, wait_s: float = _LOCK_WAIT_S, group: Optional[bool] = None) -> bool:
     """:func:`signal_if_same` under *child*'s own ``Popen`` waitpid lock (v0.8.x P5-C): delivered only while nobody has
     reaped the child (``returncode`` is None, and nobody can until the lock is released) and its kernel start time
     still matches -- so neither its id nor, class A, its group's id can be handed on between the check and the signal.
     Waiting for the lock is bounded by *wait_s*; a child whose lock cannot be had in time, or that has none, is left
-    unsignalled (its lifeline or guardian still ends it with this owner). True when a signal was delivered."""
+    unsignalled (its lifeline or guardian still ends it with this owner). True when a signal was delivered. *group*:
+    signal the group it leads (default: class A)."""
     lock = getattr(child.proc, "_waitpid_lock", None)
     if lock is None or child.start_time is None:
         return False
@@ -575,9 +658,104 @@ def _signal_proved(child: OwnedChild, sig: int, *, wait_s: float = _LOCK_WAIT_S)
     try:
         if child.proc.returncode is not None:
             return False
-        return signal_if_same(child.pid, child.start_time, sig, group=child.kind == CLASS_A)
+        return signal_if_same(child.pid, child.start_time, sig, group=child.kind == CLASS_A if group is None else group)
     finally:
         lock.release()
+
+
+def _signal_own(proc: subprocess.Popen, sig: int, *, wait_s: float = RETIRE_LOCK_WAIT_S) -> bool:
+    """Signal this process's own child *proc* whose kernel start time could not be read (v0.8.x P5-I): under its
+    waitpid lock, only while it is unreaped -- the kernel keeps an unreaped child's id reserved, so the id is still its
+    own (CPython's ``send_signal`` guard, bpo-38630). The process only, never a group. True when delivered."""
+    lock = getattr(proc, "_waitpid_lock", None)
+    if lock is None or not lock.acquire(timeout=max(0.0, wait_s)):
+        return False
+    try:
+        if proc.returncode is not None:
+            return False
+        os.kill(proc.pid, sig)
+        return True
+    except OSError:
+        return False
+    finally:
+        lock.release()
+
+
+def _end_group_once(proc: subprocess.Popen, start_time: Optional[tuple[int, int]], *,
+                    wait_s: float = RETIRE_LOCK_WAIT_S) -> str:
+    """One look of :func:`end_led_group` (v0.8.x P5-I): SIGKILL to the group *proc* leads, under the same three-part proof,
+    and the kernel's answer -- :data:`GROUP_ENDED` once nothing it may signal is left, :data:`GROUP_REMAINING` while a
+    member still answers (or the lock is busy: look again), :data:`GROUP_UNPROVED` when the id is no longer provably
+    its own, :data:`GROUP_SIGNALLED` where emptiness cannot be read (Linux, development only). Never waits."""
+    lock = getattr(proc, "_waitpid_lock", None)
+    if start_time is None or lock is None:
+        return GROUP_UNPROVED
+    if not lock.acquire(timeout=max(0.0, wait_s)):
+        return GROUP_REMAINING
+    try:
+        if proc.returncode is not None or process_start_time(proc.pid) != start_time:
+            return GROUP_UNPROVED
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return GROUP_ENDED
+        except PermissionError:
+            return GROUP_ENDED if sys.platform == "darwin" else GROUP_REMAINING
+        except OSError:
+            return GROUP_REMAINING
+        return GROUP_REMAINING if sys.platform == "darwin" else GROUP_SIGNALLED
+    finally:
+        lock.release()
+
+
+def _wait_for_exit(proc: subprocess.Popen) -> None:
+    """Return once this process's child *proc* has exited -- WITHOUT reaping it (v0.8.x P5-I): a guardian's exit is seen
+    while its id, and so its group's, stays reserved. macOS: a kqueue ``NOTE_EXIT`` watch, with a look every half second
+    as well; elsewhere a look every :data:`GUARDIAN_POLL_S`."""
+    kq = None
+    if sys.platform == "darwin" and hasattr(select, "kqueue"):
+        with contextlib.suppress(OSError):
+            kq = select.kqueue()
+    try:
+        if kq is not None:
+            event = select.kevent(proc.pid, filter=select.KQ_FILTER_PROC,
+                                  flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT, fflags=select.KQ_NOTE_EXIT)
+            try:
+                kq.control([event], 0, 0)
+            except OSError:
+                kq.close()
+                kq = None  # already a zombie or gone (ESRCH): the looks below see it at once
+        while not has_exited(proc):
+            if kq is not None:
+                with contextlib.suppress(OSError):
+                    kq.control(None, 1, 0.5)
+            else:
+                time.sleep(GUARDIAN_POLL_S)
+    finally:
+        if kq is not None:
+            with contextlib.suppress(OSError):
+                kq.close()
+
+
+def _communicate_bounded(proc: subprocess.Popen, timeout: Optional[float], input=None):
+    """``proc.communicate(input, timeout)`` taken in short slices (v0.8.x P5-I), so this thread never sits in a blocking
+    ``waitpid`` holding the child's waitpid lock: the owner's retirement can always take that lock to prove and signal
+    the child. Raises ``TimeoutExpired`` as ``communicate`` does once *timeout* has passed."""
+    deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+    while True:
+        remaining = None if deadline is None else deadline - time.monotonic()
+        step = 0.1 if remaining is None else max(0.0, min(0.1, remaining))
+        try:
+            return proc.communicate(input, timeout=step)
+        except subprocess.TimeoutExpired:
+            input = None  # sent once; a later call may not send it again
+            if remaining is not None and remaining <= step:
+                raise subprocess.TimeoutExpired(proc.args, timeout) from None
+
+
+def _unconfirmed_text(entry: "OwnedChild") -> str:
+    return (f"Containment: {entry.label or entry.pid} (pid {entry.pid}) was told to end and is not confirmed ended; it is "
+            "still owned and is still being ended.")
 
 
 def python_argv(argv: Sequence[str]) -> list[str]:
@@ -592,7 +770,32 @@ def python_argv(argv: Sequence[str]) -> list[str]:
 
 
 class Owner:
-    """The children of one owning process, its lifeline, and its guardian."""
+    """The children of one owning process, its lifeline, and its guardian (v0.8.x P5-I: one ledger, one lifecycle).
+
+    **Lock order.** ``_state`` (a plain lock under a condition) guards the phase, the ledger and the guardian record. It
+    is held only to read and change them: never across ``Popen``, a wait for a process, a guardian's readiness, a signal
+    or a log line. A ``Popen``'s waitpid lock is taken (bounded) only with ``_state`` let go. ``_step_lock`` is taken
+    without blocking, never inside ``_state``. A run's controller lock is never held when this owner is called (a counted
+    start lets it go before its body), and this owner never calls a controller holding ``_state``.
+
+    **Spawn admission.** A start is admitted under ``_state`` (refused once closing has begun; a class-B start only into
+    the adopted guardian it was prepared for) and its entry is in the ledger from that moment, in state SPAWNING. The
+    ``Popen`` runs with no owner lock held. The entry then holds the process (STARTED) before anything else can fail,
+    and is registered (LIVE) -- or, if anything went wrong, retired: a created process is never dropped from the ledger.
+
+    **Retirement.** Ending is one mechanism with one shared deadline per batch: SIGTERM to all at once (when a grace is
+    given), SIGKILL to whatever is left when the grace ends, and confirmation -- the process reaped -- by the batch's
+    deadline. A process not confirmed ended by then becomes UNCONFIRMED: still owned, still killed again, reaped when it
+    ends, and reported as such. One reaper thread of this owner drives retirements nobody waits for; a caller that must
+    know (a run's settlement, the orderly end, ``stop_external``) drives the same steps itself.
+
+    **Guardian lifecycle.** One guardian is made at a time (``_creating``). Its spawn is admitted like any child; its
+    exit is watched from birth without reaping it; it is adopted only after it said ``ready``, its identity was read,
+    the owner is still ACTIVE and -- inside the run's Cancel ordering -- the run was not cancelled. A guardian that
+    ends while adopted is a *loss*, recorded once under ``_state``: every class-B child of its generation is marked
+    ``lost_containment`` at that moment, before anything waits, and handed to retirement; the caller that noticed goes
+    on. A guardian is reaped only while no start is joining its group, so its group's id cannot be handed on meanwhile.
+    """
 
     def __init__(self, log: Optional[Callable[[str], None]] = None, *, lifeline: bool = True,
                  python: Optional[str] = None) -> None:
@@ -600,27 +803,67 @@ class Owner:
         self._log = log or (lambda _text: None)
         self._lifeline = lifeline
         self._python = python or sys.executable
-        self._lock = threading.RLock()
-        # v0.8.x P5-H-R1: one guardian is made at a time, and its wait to be ready is held on this lock alone, never on
-        # ``_lock``, so a start prepared for the current guardian is never kept waiting by another thread's replacement.
-        # Order: this lock, then ``_lock``; never the other way round.
-        self._guardian_creation = threading.Lock()
-        self._pending_guardian: Optional[subprocess.Popen] = None  # made, getting ready, not adopted yet
-        self._strays: list[subprocess.Popen] = []  # started, not owned, killed and not yet seen to end
+        self._state = threading.Condition(threading.Lock())
+        self._phase = ACTIVE
+        self._entries: list[OwnedChild] = []
+        self._current: Optional[OwnedChild] = None  # the adopted guardian
+        self._creating = False  # a thread is making a guardian
+        self._creating_run: Any = None  # the run that guardian is being made for
+        self._generation = 0
+        self._lost_generations: set[int] = set()
+        self._lost_procs: "weakref.WeakSet[subprocess.Popen]" = weakref.WeakSet()  # outlives their ledger entries
         self._read: Optional[int] = None
         self._write: Optional[int] = None
-        self._children: list[OwnedChild] = []
-        self._guardian: Optional[subprocess.Popen] = None
-        self._guardian_start: Optional[tuple[int, int]] = None
-        self._generation = 0
-        self._handled_generations: set[int] = set()
-        self._retiring = False
+        self._reaping = False
+        self._step_lock = threading.Lock()
         self.events: list[str] = []
         self.degraded = False
 
+    # -- diagnostics (read-only views of the ledger) ---------------------------
+    @property
+    def _guardian(self) -> Optional[subprocess.Popen]:
+        current = self._current
+        return current.proc if current is not None else None
+
+    @property
+    def _guardian_start(self) -> Optional[tuple[int, int]]:
+        current = self._current
+        return current.start_time if current is not None else None
+
+    @property
+    def _pending_guardian(self) -> Optional[subprocess.Popen]:
+        with self._state:
+            return next((e.proc for e in self._entries
+                         if e.kind == GUARDIAN_KIND and e.state in (STARTED, PENDING) and e.proc is not None), None)
+
+    @property
+    def _strays(self) -> list[subprocess.Popen]:
+        """Processes this owner created that no caller runs any more and that are not yet confirmed ended."""
+        with self._state:
+            return [e.proc for e in self._entries if e.kind != GUARDIAN_KIND and e.proc is not None
+                    and e.state in (STARTED, RETIRING, UNCONFIRMED)]
+
+    @property
+    def _retiring(self) -> bool:
+        return self._phase != ACTIVE
+
+    @property
+    def phase(self) -> str:
+        return self._phase
+
+    def retiring(self) -> list[OwnedChild]:
+        """Entries being ended, or whose end is not confirmed."""
+        with self._state:
+            return [e for e in self._entries if e.state in (RETIRING, UNCONFIRMED)]
+
+    def unconfirmed(self) -> list[OwnedChild]:
+        """Entries whose retirement deadline passed with their end not confirmed (still owned, still being ended)."""
+        with self._state:
+            return [e for e in self._entries if e.state == UNCONFIRMED]
+
     # -- lifeline ------------------------------------------------------------
     def _ensure_lifeline(self) -> int:
-        with self._lock:
+        with self._state:
             if self._read is None:
                 self._read, self._write = os.pipe()  # both non-inheritable (PEP 446)
             return self._read
@@ -634,6 +877,149 @@ class Owner:
             self._log(text)
         except Exception:  # noqa: BLE001 - a log sink never stops containment
             pass
+
+    # -- the ledger -------------------------------------------------------------
+    def _entry_locked(self, proc: subprocess.Popen) -> Optional[OwnedChild]:
+        return next((e for e in self._entries if e.proc is proc and e.kind != GUARDIAN_KIND), None)
+
+    def _remove_locked(self, entry: OwnedChild) -> None:
+        entry.state = DONE
+        with contextlib.suppress(ValueError):
+            self._entries.remove(entry)
+        self._state.notify_all()
+
+    def _prune_locked(self) -> None:
+        """Children their callers have reaped leave the ledger: an app that runs thousands of FFmpeg steps keeps a
+        ledger of what is running. Nothing whose end is not confirmed ever leaves it."""
+        done = [e for e in self._entries if e.kind != GUARDIAN_KIND and e.proc is not None
+                and e.proc.returncode is not None and e.state in (STARTED, LIVE)]
+        for entry in done:
+            self._remove_locked(entry)
+
+    def _admit(self, kind: str, *, label: str, run: Any = None, guardian: Optional[OwnedChild] = None) -> OwnedChild:
+        """Admit one start, ordered against closing (and, class B, against its guardian's replacement): its entry is in
+        the ledger from here on. Raises :class:`ContainmentUnavailable` once closing has begun, :class:`GuardianChanged`
+        when *guardian* is no longer the adopted one. Nothing is spawned here."""
+        with self._state:
+            if self._phase != ACTIVE:
+                raise ContainmentUnavailable(_CLOSING_TEXT)
+            if guardian is not None and (guardian is not self._current or guardian.state != ADOPTED):
+                raise GuardianChanged(_CHANGED_TEXT)
+            entry = OwnedChild(proc=None, kind=kind, pid=0, pgid=guardian.pid if guardian is not None else 0,
+                               start_time=None, generation=guardian.generation if guardian is not None else 0,
+                               label=label, run=run, state=SPAWNING)
+            self._entries.append(entry)
+            if kind == GUARDIAN_KIND:
+                self._generation += 1
+                entry.generation = self._generation
+            if guardian is not None:
+                guardian.spawns += 1
+            return entry
+
+    def _spawn(self, entry: OwnedChild, argv: list, kwargs: dict, guardian: Optional[OwnedChild] = None,
+               spawn_check: Optional[Callable[[], None]] = None) -> subprocess.Popen:
+        """The ``Popen`` of an admitted entry, with no owner lock held. ``spawn_check`` (a run's Cancel) gets the last
+        look immediately before it and raises to refuse it. On failure nothing was created and the entry leaves the
+        ledger; on success the entry holds the process before anything else is done."""
+        try:
+            if self._phase != ACTIVE:  # the closing latch, at the last look before the process exists
+                raise ContainmentUnavailable(_CLOSING_TEXT)
+            if spawn_check is not None:
+                spawn_check()
+            proc = subprocess.Popen(argv, **kwargs)
+        except BaseException:
+            with self._state:
+                self._remove_locked(entry)
+                if guardian is not None:
+                    guardian.spawns -= 1
+            self._kick()
+            raise
+        with self._state:
+            entry.proc = proc
+            entry.pid = proc.pid
+            if entry.kind != CLASS_B:
+                entry.pgid = proc.pid
+            entry.state = STARTED
+            if guardian is not None:
+                guardian.spawns -= 1
+            self._state.notify_all()
+        if guardian is not None and guardian.state != ADOPTED:
+            self._kick()  # a lost guardian is reaped once no start is joining its group
+        return proc
+
+    def _drop_unspawned(self, entry: OwnedChild) -> None:
+        with self._state:
+            if entry.state == SPAWNING:
+                self._remove_locked(entry)
+
+    def _take_on(self, entry: OwnedChild, proc: subprocess.Popen,
+                 guardian: Optional[OwnedChild] = None) -> subprocess.Popen:
+        """After the spawn: the child's identity, then its registration -- or, if closing began or its guardian was
+        lost meanwhile, or anything fails, its retirement (it stays in the ledger until its end is confirmed)."""
+        try:
+            start = process_start_time(proc.pid)
+            with self._state:
+                entry.start_time = start
+                closing = self._phase != ACTIVE
+                lost = guardian is not None and guardian.state != ADOPTED
+            if guardian is not None and not lost and has_exited(guardian.proc, guardian.start_time):
+                self._guardian_lost(guardian.proc, guardian.generation)
+                lost = True
+            if closing or lost:
+                if lost:
+                    entry.lost_containment = True
+                self._retire_now([entry], STRAY_LOOK_S)
+                if lost:
+                    raise GuardianChanged("the ACT guardian ended while this start joined its group; the child was "
+                                          "stopped")
+                raise ContainmentUnavailable(_CLOSING_TEXT)
+            self._register(proc, entry.kind, entry.pgid, entry.label)
+        except BaseException:
+            if entry.state in (STARTED, LIVE):
+                self._retire_now([entry], STRAY_LOOK_S)
+            raise
+        return proc
+
+    def _register(self, proc: subprocess.Popen, kind: str, pgid: int, label: str) -> OwnedChild:
+        """Registration: the entry admitted for *proc* becomes LIVE (one is made if *proc* was never admitted)."""
+        start = None
+        if self.child(proc) is None:
+            start = process_start_time(proc.pid)
+        with self._state:
+            self._prune_locked()
+            entry = self._entry_locked(proc)
+            if entry is None:
+                current = self._current
+                entry = OwnedChild(proc=proc, kind=kind, pid=proc.pid, pgid=pgid, start_time=start,
+                                   generation=current.generation if kind == CLASS_B and current is not None else 0,
+                                   label=label, state=LIVE)
+                self._entries.append(entry)
+            elif entry.state == STARTED:
+                entry.state = LIVE
+            return entry
+
+    def child(self, proc: subprocess.Popen) -> Optional[OwnedChild]:
+        with self._state:
+            return self._entry_locked(proc)
+
+    def forget(self, proc: subprocess.Popen) -> None:
+        """Its caller is done with *proc*. Reaped: it leaves the ledger. Not reaped: the owner keeps it and ends it --
+        a child is never dropped while it may still run (v0.8.x P5-I)."""
+        with self._state:
+            entry = self._entry_locked(proc)
+            if entry is None:
+                return
+            if proc.returncode is not None:
+                self._remove_locked(entry)
+                return
+            if entry.state in (RETIRING, UNCONFIRMED):
+                return
+            self._schedule_locked([entry], grace=0.0)
+        self._kick()
+
+    def children(self) -> list[OwnedChild]:
+        with self._state:
+            return [e for e in self._entries if e.kind != GUARDIAN_KIND and e.proc is not None]
 
     # -- class A ---------------------------------------------------------------
     def class_a_kwargs(self, kwargs: dict) -> dict:
@@ -705,351 +1091,558 @@ class Owner:
         return subprocess.CompletedProcess(proc.args, code, out, err)
 
     def popen_python(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
-        """Start a registered class-A child (pip in setup; the optional-setup worker in the app)."""
-        with self._lock:
-            proc = subprocess.Popen(python_argv(argv), **self.class_a_kwargs(kwargs))
-            self._register(proc, CLASS_A, proc.pid, label or Path(str(argv[0])).name)
-        return proc
+        """Start a registered class-A child (pip in setup; the optional-setup worker in the app). Admitted under the
+        owner's state lock, spawned with none held (v0.8.x P5-I)."""
+        command = python_argv(argv)
+        kw = self.class_a_kwargs(kwargs)
+        entry = self._admit(CLASS_A, label=label or Path(str(argv[0])).name)
+        proc = self._spawn(entry, command, kw)
+        return self._take_on(entry, proc)
 
+    # -- closing -----------------------------------------------------------------
     def _refuse_if_closing(self) -> None:
         """Once the orderly end has begun nothing new starts: a worker thread that asks for another program while the
         app is closing gets an error, never a child that the closing owner would no longer see (v0.8.x P1B)."""
-        if self._retiring:
-            raise ContainmentUnavailable("the application is closing; nothing was started")
+        if self._phase != ACTIVE:
+            raise ContainmentUnavailable(_CLOSING_TEXT)
+
+    def _wait_spawns_locked(self, until: float) -> None:
+        while any(e.state == SPAWNING for e in self._entries):
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                return
+            self._state.wait(remaining)
 
     def begin_closing(self) -> None:
-        """The orderly end's latch (window close, Cmd+Q, SIGTERM/SIGHUP/SIGINT): from now on nothing new starts."""
-        self._retiring = True
+        """The orderly end's latch (window close, Cmd+Q, SIGTERM/SIGHUP/SIGINT): from now on nothing new is admitted --
+        no child, no guardian, no adoption (v0.8.x P5-I: set under the same lock that admits them). Starts admitted
+        before it are waited for at most :data:`START_SETTLE_S`; one still in progress then is stopped as soon as its
+        process exists, never registered, and the orderly end sees it in the ledger."""
+        with self._state:
+            if self._phase == ACTIVE:
+                self._phase = CLOSING
+            self._state.notify_all()
+            self._wait_spawns_locked(time.monotonic() + START_SETTLE_S)
 
     @property
     def closing(self) -> bool:
-        return self._retiring
+        return self._phase != ACTIVE
 
     # -- class B ---------------------------------------------------------------
+    @staticmethod
+    def _entry_alive(entry: Optional[OwnedChild]) -> bool:
+        """A guardian entry whose process is running and still the one recorded (never reaps)."""
+        return (entry is not None and entry.proc is not None and entry.start_time is not None
+                and not has_exited(entry.proc, entry.start_time))
+
     def _guardian_alive(self) -> bool:
-        g = self._guardian
-        return g is not None and g.poll() is None and signal_if_same(g.pid, self._guardian_start, 0)
+        return self._entry_alive(self._current)
 
     def guardian_pid(self) -> Optional[int]:
-        return self._guardian.pid if self._guardian is not None and self._guardian.poll() is None else None
+        current = self._current
+        return current.pid if self._entry_alive(current) else None
+
+    def _await_ready(self, proc: subprocess.Popen, checkpoint: Optional[Callable[[], None]]) -> None:
+        """Wait for a new guardian's ``ready``, looking every :data:`GUARDIAN_POLL_S` at the orderly end and at
+        ``checkpoint`` (a run's Cancel, which raises), through a selector (a busy application's pipe can be numbered
+        past ``select``'s limit)."""
+        ready = b""
+        deadline = time.monotonic() + GUARDIAN_READY_TIMEOUT_S
+        assert proc.stdout is not None
+        with selectors.DefaultSelector() as selector:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            while not ready.endswith(b"\n"):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._refuse_if_closing()
+                if checkpoint is not None:
+                    checkpoint()
+                if not selector.select(min(GUARDIAN_POLL_S, remaining)):
+                    continue
+                block = os.read(proc.stdout.fileno(), 64)
+                if not block:
+                    break
+                ready += block
+        if ready.strip() != b"ready":
+            raise ContainmentUnavailable("the ACT guardian did not start (no ready signal); nothing was started")
 
     def _start_guardian(self, spawn_context: Optional[Callable[[], Any]] = None,
                         checkpoint: Optional[Callable[[], None]] = None) -> int:
-        """Start the guardian and wait for its ready signal. ``spawn_context`` (v0.8.x P5-H-R1), when given, is entered
-        around the spawn alone, not the wait for readiness: a run's Cancel ordering, so no guardian process is created for
-        a cancelled run while a Cancel never waits for a guardian to become ready. Called holding ``_guardian_creation``
-        and not ``_lock``: the wait for readiness holds up no other start and no registry reader.
+        """Make the guardian and adopt it (v0.8.x P5-I). Called by the one thread making a guardian (``_creating``),
+        holding no lock.
 
-        The wait looks every :data:`GUARDIAN_POLL_S` at the orderly end and at ``checkpoint`` (a run's Cancel, which
-        raises to stop waiting), and reads through a selector (a busy application's pipe can be numbered past
-        ``select``'s limit). Until it is adopted the new guardian is this owner's ``_pending_guardian``; one that is not
-        adopted, for whatever reason, is ended and reaped, or kept to be reaped (:meth:`_retire_unowned`)."""
+        Its admission is ordered inside ``spawn_context`` (a run's Cancel ordering: no guardian is admitted for a
+        cancelled run); its spawn follows outside it, after a last look at the run's Cancel (``checkpoint``) and at
+        closing, so a slow spawn never holds a Cancel. Its exit is watched from birth, never reaped by the watch. Its readiness is
+        waited for outside any ordering, looking at the orderly end and at ``checkpoint`` (a run's Cancel). It is adopted
+        only with its identity read, the owner still ACTIVE and -- inside ``spawn_context`` again -- the run still not
+        cancelled. A guardian not adopted, for whatever reason, is retired (it stays in the ledger until it has ended)."""
         fd = self._ensure_lifeline()
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
         env[LIFELINE_ENV] = str(fd)
-        self._refuse_if_closing()
-        try:
-            with (spawn_context() if spawn_context is not None else contextlib.nullcontext()):
-                proc = subprocess.Popen([self._python, "-I", str(GUARDIAN)], process_group=0, pass_fds=(fd,), env=env,
-                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                        close_fds=True)
-        except OSError as exc:
-            raise ContainmentUnavailable(f"the ACT guardian could not be started: {exc}") from exc
-        with self._lock:
-            self._pending_guardian = proc
+        ordering = spawn_context if spawn_context is not None else contextlib.nullcontext
+        entry: Optional[OwnedChild] = None
+        proc: Optional[subprocess.Popen] = None
         adopted = False
         try:
-            ready = b""
-            deadline = time.monotonic() + GUARDIAN_READY_TIMEOUT_S
-            assert proc.stdout is not None
-            with selectors.DefaultSelector() as selector:
-                selector.register(proc.stdout, selectors.EVENT_READ)
-                while not ready.endswith(b"\n"):
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    self._refuse_if_closing()
-                    if checkpoint is not None:
-                        checkpoint()
-                    if not selector.select(min(GUARDIAN_POLL_S, remaining)):
-                        continue
-                    block = os.read(proc.stdout.fileno(), 64)
-                    if not block:
-                        break
-                    ready += block
-            if ready.strip() != b"ready":
-                raise ContainmentUnavailable("the ACT guardian did not start (no ready signal); nothing was started")
+            with ordering():  # the admission alone is ordered against the run's Cancel; the spawn is not held in it
+                entry = self._admit(GUARDIAN_KIND, label="guardian", run=self._creating_run)
+            try:
+                proc = self._spawn(entry, [self._python, "-I", str(GUARDIAN)],
+                                   dict(process_group=0, pass_fds=(fd,), env=env, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True),
+                                   spawn_check=checkpoint)
+            except OSError as exc:
+                raise ContainmentUnavailable(f"the ACT guardian could not be started: {exc}") from exc
+            with self._state:
+                if entry.state == STARTED:
+                    entry.state = PENDING
+            threading.Thread(target=self._watch_guardian, args=(proc, entry.generation), name="act-guardian-watch",
+                             daemon=True).start()
+            self._await_ready(proc, checkpoint)
             start = process_start_time(proc.pid)
-            with self._lock:
-                # The orderly end may have begun while it was getting ready: it is not adopted after the end has looked.
-                self._refuse_if_closing()
-                self._generation += 1
-                self._guardian = proc
-                self._guardian_start = start
-                self._pending_guardian = None
-                generation = self._generation
-                adopted = True
+            if start is None:
+                raise ContainmentUnavailable("the ACT guardian's identity could not be read, so it was not used; "
+                                             "nothing was started")
+            with self._state:
+                entry.start_time = start
+            with ordering():
+                with self._state:
+                    if self._phase != ACTIVE:
+                        raise ContainmentUnavailable(_CLOSING_TEXT)
+                    if entry.state != PENDING:  # it ended (its watch saw it) or was retired by the orderly end
+                        raise ContainmentUnavailable("the ACT guardian ended as soon as it was ready; nothing was "
+                                                     "started")
+                    entry.state = ADOPTED
+                    self._current = entry
+                    adopted = True
+                    self._state.notify_all()
         finally:
-            with contextlib.suppress(OSError):
-                proc.stdout.close()
-            if not adopted:
-                with self._lock:
-                    if self._pending_guardian is proc:
-                        self._pending_guardian = None
-                self._retire_unowned(proc)
-        threading.Thread(target=self._watch_guardian, args=(proc, generation), name="act-guardian-watch",
-                         daemon=True).start()
+            if proc is not None and proc.stdout is not None:
+                with contextlib.suppress(OSError):
+                    proc.stdout.close()
+            if not adopted and entry is not None:
+                if proc is None:
+                    self._drop_unspawned(entry)
+                else:
+                    self._retire_now([entry], UNADOPTED_LOOK_S)
         return proc.pid
 
-    def _retire_unowned(self, proc: subprocess.Popen) -> None:
-        """End a process this owner started and does not own (a guardian not adopted; a child whose registration failed):
-        SIGKILL and a short look (v0.8.x P5-H-R1). One not seen to end is kept in ``_strays`` and a daemon thread kills and
-        waits for it until it has ended (the orderly end does too), so it is never left unreaped and the caller -- who may
-        be inside a run's counted start -- is not held."""
-        with contextlib.suppress(OSError):
-            proc.kill()
-        with contextlib.suppress(subprocess.TimeoutExpired, OSError, ChildProcessError):
-            proc.wait(STRAY_LOOK_S)
-        if proc.returncode is not None:
-            return
-        with self._lock:
-            self._strays.append(proc)
-        with contextlib.suppress(Exception):  # noqa: BLE001 - it is in _strays either way; the orderly end ends it
-            threading.Thread(target=self._reap_stray, args=(proc,), name="act-stray-reap", daemon=True).start()
-
-    def _reap_stray(self, proc: subprocess.Popen) -> None:
-        while proc.returncode is None:
-            try:
-                proc.wait(STRAY_LOOK_S * 5)
-            except subprocess.TimeoutExpired:
-                with contextlib.suppress(OSError):
-                    proc.kill()
-            except (OSError, ChildProcessError):
-                break
-        with self._lock:
-            self._strays = [p for p in self._strays if p is not proc]
-
     def _watch_guardian(self, proc: subprocess.Popen, generation: int) -> None:
-        proc.wait()
-        if self._retiring:
-            return
+        _wait_for_exit(proc)
         self._guardian_lost(proc, generation)
 
     def _guardian_lost(self, proc: subprocess.Popen, generation: int) -> None:
-        """Fail closed: the class-B children of a guardian that is gone are ended, and recorded as uncontained. Never
-        called holding ``_lock``: the children are ended (a grace each) after it is let go (v0.8.x P5-H-R1)."""
-        with self._lock:
-            if generation in self._handled_generations:
+        """A guardian has ended (v0.8.x P5-I). If it was the adopted one and the owner is ACTIVE, this is a loss,
+        recorded once and at once under ``_state``: every class-B child of its generation is marked ``lost_containment``
+        now, before anything waits, and those still running are handed to retirement together (one shared deadline).
+        Nothing here waits: whoever noticed goes on. The guardian itself is reaped once no start is joining its group."""
+        orphans: list[OwnedChild] = []
+        loss = False
+        with self._state:
+            entry = next((e for e in self._entries if e.kind == GUARDIAN_KIND and e.proc is proc), None)
+            if entry is None or entry.state == DONE:
                 return
-            self._handled_generations.add(generation)
-            if self._guardian is proc:
-                self._guardian = None
-                self._guardian_start = None
-            self.degraded = True
-            orphans = [c for c in self._children if c.kind == CLASS_B and c.generation == generation and c.running()]
-        self._note(f"Containment: the ACT guardian (pid {proc.pid}) ended on its own (exit {proc.returncode}); "
-                   f"{len(orphans)} running external program(s) in its group are being stopped, and a new guardian "
-                   "is started before the next one.")
-        for child in orphans:
-            child.lost_containment = True
-            self._end(child, grace=TERM_GRACE_S)
-            self._note(f"Containment: stopped {child.label or child.pid} (pid {child.pid}): it had lost its guardian.")
+            if entry.state == ADOPTED and self._phase == ACTIVE and generation not in self._lost_generations:
+                loss = True
+                self._lost_generations.add(generation)
+                entry.lost_containment = True
+                self.degraded = True
+                orphans = [e for e in self._entries if e.kind == CLASS_B and e.generation == generation
+                           and e.proc is not None and e.state != DONE]
+                for orphan in orphans:
+                    orphan.lost_containment = True
+                    self._lost_procs.add(orphan.proc)
+                self._schedule_locked([o for o in orphans if o.proc.returncode is None], grace=TERM_GRACE_S)
+            if self._current is entry:
+                self._current = None
+            if entry.state in (STARTED, PENDING, ADOPTED):
+                self._schedule_locked([entry], grace=0.0)
+        if loss:
+            running = [o for o in orphans if o.proc.returncode is None]
+            self._note(f"Containment: the ACT guardian (pid {proc.pid}) ended on its own (exit {proc.returncode}); "
+                       f"{len(running)} running external program(s) in its group are being stopped, and a new guardian "
+                       "is started before the next one.")
+        self._kick()
+
+    def _guardian_gone(self, guardian: OwnedChild) -> bool:
+        """The guardian a start was admitted into is no longer the adopted, running one (its loss is recorded)."""
+        if guardian.state != ADOPTED:
+            return True
+        if has_exited(guardian.proc, guardian.start_time):
+            self._guardian_lost(guardian.proc, guardian.generation)
+            return True
+        return False
 
     def _current_guardian(self, spawn_context: Optional[Callable[[], Any]] = None,
-                          checkpoint: Optional[Callable[[], None]] = None) -> tuple[int, int]:
-        """The running guardian's pid and generation, starting (or replacing) it first if need be (v0.8.x P5-H-R1).
-
-        One thread at a time makes or replaces it, under ``_guardian_creation``; ``_lock`` is held only to read and
-        record state, never across a wait, a lost guardian's children being ended, or a new one getting ready. A thread
-        waiting for another's guardian looks at the orderly end and at ``checkpoint`` (a run's Cancel, which raises) every
-        :data:`GUARDIAN_POLL_S`, as the one making it does."""
-        while not self._guardian_creation.acquire(timeout=GUARDIAN_POLL_S):
+                          checkpoint: Optional[Callable[[], None]] = None, run: Any = None) -> tuple[int, int]:
+        """The running guardian's pid and generation, making (or replacing) it first if need be. One thread makes it at
+        a time; the others wait on ``_state`` (let go while waiting), looking at the orderly end and at ``checkpoint``
+        (a run's Cancel, which raises) every :data:`GUARDIAN_POLL_S`. A lost guardian is recorded and the caller goes
+        on at once: its children's retirement is never waited for here."""
+        while True:
             self._refuse_if_closing()
             if checkpoint is not None:
                 checkpoint()
-        try:
-            self._refuse_if_closing()
-            if checkpoint is not None:
-                checkpoint()
-            lost = None
-            with self._lock:
-                if self._guardian is not None and not self._guardian_alive():
-                    lost = (self._guardian, self._generation)
-                elif self._guardian is not None:
-                    return self._guardian.pid, self._generation
-            if lost is not None:
-                with contextlib.suppress(subprocess.TimeoutExpired, OSError, ChildProcessError):
-                    lost[0].wait(TERM_GRACE_S)
-                self._guardian_lost(*lost)
-                if checkpoint is not None:
-                    checkpoint()
-            self._start_guardian(spawn_context, checkpoint)
-            with self._lock:
-                if self._guardian is None:
+            with self._state:
+                if self._phase != ACTIVE:
+                    raise ContainmentUnavailable(_CLOSING_TEXT)
+                current = self._current
+                if current is None:
+                    if self._creating:
+                        self._state.wait(GUARDIAN_POLL_S)
+                        continue
+                    self._creating, self._creating_run = True, run
+            if current is not None:
+                if self._entry_alive(current):
+                    return current.pid, current.generation
+                self._guardian_lost(current.proc, current.generation)
+                continue
+            try:
+                self._start_guardian(spawn_context, checkpoint)
+            finally:
+                with self._state:
+                    self._creating, self._creating_run = False, None
+                    self._state.notify_all()
+            with self._state:
+                current = self._current
+                if current is None:
                     raise ContainmentUnavailable("the ACT guardian ended as soon as it was ready; nothing was started")
-                return self._guardian.pid, self._generation
-        finally:
-            self._guardian_creation.release()
+                return current.pid, current.generation
 
     def _guardian_group(self, spawn_context: Optional[Callable[[], Any]] = None) -> int:
         return self._current_guardian(spawn_context)[0]
 
     def ensure_guardian(self, spawn_context: Optional[Callable[[], Any]] = None,
-                        checkpoint: Optional[Callable[[], None]] = None) -> int:
+                        checkpoint: Optional[Callable[[], None]] = None, run: Any = None) -> int:
         """Have the guardian running now, starting (or replacing) it if need be, and return its generation, so that a
         following :meth:`popen_external` with ``require_generation`` starts nothing but its child (v0.8.x P5-H-R1: a start
         made inside the run's Cancel ordering must never wait for a guardian). ``spawn_context`` and ``checkpoint``: as
-        for :meth:`_start_guardian` (a run's Cancel stops the wait, whoever is making the guardian). Raises
-        :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
+        for :meth:`_start_guardian`. ``run``: the run a guardian made now is made for (its retirement is that run's to
+        account for). Raises :class:`ContainmentUnavailable` exactly as :meth:`popen_external` would."""
         self._refuse_if_closing()
-        return self._current_guardian(spawn_context, checkpoint)[1]
+        return self._current_guardian(spawn_context, checkpoint, run)[1]
 
     def popen_external(self, argv: Sequence[str], *, label: str = "", **kwargs) -> subprocess.Popen:
         """Start a registered class-B child inside the guardian's group. Raises :class:`ContainmentUnavailable`
         (nothing started) when no guardian can be had.
 
-        v0.8.x P5-H-R1: the guardian is had first (made if need be) and only then is ``_lock`` taken to start the child
-        in its group, so no start waits on ``_lock`` for a guardian getting ready. With ``require_generation`` nothing
-        is made: a guardian gone or replaced since the start was prepared raises :class:`GuardianChanged` at once. A
-        child whose registration fails is ended without being waited for here (:meth:`_retire_unowned`)."""
+        v0.8.x P5-I: the guardian is had first (made if need be); the start is then admitted into exactly that guardian
+        and spawned with no owner lock held. With ``require_generation`` nothing is made: a guardian gone or replaced
+        since the start was prepared -- or one found gone when the child's join of its group fails, or once the child
+        exists -- raises :class:`GuardianChanged` (any child made is stopped). Unprepared, that is retried, bounded.
+        ``owner_run``: the run the child belongs to (its settlement accounts for it). ``spawn_check``: called immediately
+        before the spawn, raising to refuse it (a run's Cancel latched meanwhile). ``admission``: an
+        :meth:`admit_external` ticket -- the start was admitted inside the run's Cancel ordering, and this spawns it,
+        outside that ordering, so a slow spawn never holds a Cancel. A child whose registration fails is retired, never
+        dropped, and the caller is not held."""
         if "start_new_session" in kwargs or "process_group" in kwargs:
             raise ValueError("a class-B child always joins the guardian's group")
         required = kwargs.pop("require_generation", None)
+        run = kwargs.pop("owner_run", None)
+        spawn_check = kwargs.pop("spawn_check", None)
+        admission = kwargs.pop("admission", None)
+        label = label or Path(str(argv[0])).name
+        command = [str(a) for a in argv]
+        if admission is not None:
+            return self._spawn_admitted(admission, command, kwargs, spawn_check)
         self._refuse_if_closing()
         for _attempt in range(1 if required is not None else GUARDIAN_ATTEMPTS):
-            expected = required if required is not None else self.ensure_guardian()
-            failure: Optional[BaseException] = None
-            with self._lock:
-                self._refuse_if_closing()
-                if self._guardian is None or self._generation != expected or not self._guardian_alive():
-                    if required is not None:
-                        raise GuardianChanged("the ACT guardian changed after this start was prepared; "
-                                              "nothing was started")
-                    continue  # replaced in between: have the new one, outside this lock
-                group = self._guardian.pid
-                proc = subprocess.Popen([str(a) for a in argv], process_group=group, close_fds=True, **kwargs)
-                try:
-                    self._register(proc, CLASS_B, group, label or Path(str(argv[0])).name)
-                except BaseException as exc:  # noqa: BLE001 - re-raised below, once the lock is let go
-                    # v0.8.x P5-H-R1: started and not owned (out of memory here, say): it does not run on unowned.
-                    with contextlib.suppress(OSError):
-                        proc.kill()
-                    failure = exc
-            if failure is not None:
-                self._retire_unowned(proc)
-                raise failure
-            return proc
+            try:
+                if required is not None:
+                    expected = required
+                else:
+                    expected = self.ensure_guardian(**({"run": run} if run is not None else {}))
+                ticket = self.admit_external(label=label, run=run, require_generation=expected)
+                return self._spawn_admitted(ticket, command, kwargs, spawn_check)
+            except GuardianChanged:
+                if required is not None:
+                    raise
         raise ContainmentUnavailable("the ACT guardian kept ending as it was started; nothing was started")
+
+    def admit_external(self, *, label: str, run: Any = None, require_generation: int) -> Admission:
+        """Admit one class-B start into exactly the guardian of ``require_generation`` (v0.8.x P5-I): under ``_state``
+        only, never waiting on anything else -- the part of a start that a run's Cancel is ordered against. Raises
+        :class:`GuardianChanged` (that guardian is gone or replaced) or :class:`ContainmentUnavailable` (closing). Spawn
+        it with ``popen_external(..., admission=)``, or give it back with :meth:`release`."""
+        with self._state:
+            guardian = self._current
+            usable = guardian is not None and guardian.generation == require_generation
+        if not usable or self._guardian_gone(guardian):
+            raise GuardianChanged(_CHANGED_TEXT)
+        return Admission(self._admit(CLASS_B, label=label, run=run, guardian=guardian), guardian)
+
+    def release(self, admission: Optional[Admission]) -> None:
+        """Give back an admission that was never spawned (nothing to do once its spawn was attempted)."""
+        if admission is None or admission.used:
+            return
+        admission.used = True
+        with self._state:
+            if admission.entry.state == SPAWNING:
+                self._remove_locked(admission.entry)
+                admission.guardian.spawns -= 1
+        self._kick()
+
+    def _spawn_admitted(self, admission: Admission, command: list, kwargs: dict,
+                        spawn_check: Optional[Callable[[], None]]) -> subprocess.Popen:
+        """Spawn an admitted class-B start in its guardian's group (no owner lock held), then take it on. A failed join
+        because that guardian has died is its loss (:class:`GuardianChanged`, the start is prepared again); any other
+        spawn error is the caller's."""
+        if admission.used:
+            raise RuntimeError("an admission is spawned once")
+        admission.used = True
+        entry, guardian = admission.entry, admission.guardian
+        try:
+            proc = self._spawn(entry, command, dict(process_group=guardian.pid, close_fds=True, **kwargs), guardian,
+                               spawn_check)
+        except OSError as exc:
+            if self._guardian_gone(guardian):  # its group could not be joined because it had ended
+                raise GuardianChanged(_CHANGED_TEXT) from exc
+            raise
+        return self._take_on(entry, proc, guardian)
+
+    def containment_held(self, proc: subprocess.Popen) -> bool:
+        """False when *proc* (a class-B child) lost its guardian -- recorded now if its guardian is found gone -- or
+        its guardian is not the adopted, running one: a run of it is then never a success (v0.8.x P5-I)."""
+        with self._state:
+            if proc in self._lost_procs:
+                return False
+            entry = self._entry_locked(proc)
+            if entry is None or entry.kind != CLASS_B:
+                return True
+            if entry.lost_containment or entry.generation in self._lost_generations:
+                return False
+            guardian = self._current
+            if guardian is None or guardian.generation != entry.generation:
+                return False
+        if self._guardian_gone(guardian):
+            return False
+        return not entry.lost_containment
 
     def run_external(self, argv: Sequence[str], *, timeout: Optional[float] = None, label: str = "",
                      **kwargs) -> subprocess.CompletedProcess:
-        """A bounded class-B run with captured text output. A child that lost its guardian while running is reported
-        by a non-zero return code and ``lost containment`` in stderr, never as a success."""
+        """A bounded class-B run with captured text output. A child that lost its guardian while running -- or whose
+        guardian is found gone once it has ended -- is reported by a non-zero return code and ``lost containment`` in
+        stderr, never as a success. Its output is collected in short slices, never in a blocking wait."""
         kwargs.setdefault("stdout", subprocess.PIPE)
         kwargs.setdefault("stderr", subprocess.PIPE)
         kwargs.setdefault("text", True)
         proc = self.popen_external(argv, label=label, **kwargs)
-        child = self.child(proc)
         try:
-            out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self.end(proc)
-            out, err = proc.communicate()
-            raise subprocess.TimeoutExpired(proc.args, timeout, output=out, stderr=err) from None
+            try:
+                out, err = _communicate_bounded(proc, timeout)
+            except subprocess.TimeoutExpired:
+                self.end(proc)
+                out = err = None
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    out, err = _communicate_bounded(proc, KILL_CONFIRM_S)
+                raise subprocess.TimeoutExpired(proc.args, timeout, output=out, stderr=err) from None
+            held = self.containment_held(proc)
         finally:
             self.forget(proc)
         code = proc.returncode
-        if child is not None and child.lost_containment:
+        if not held:
             err = (err or "") + "\n[lost containment: its guardian ended, so it was stopped]"
             code = code if code else -int(signal.SIGTERM)
         return subprocess.CompletedProcess(proc.args, code, out, err)
 
-    # -- registry ---------------------------------------------------------------
-    def _register(self, proc: subprocess.Popen, kind: str, pgid: int, label: str) -> OwnedChild:
-        child = OwnedChild(proc=proc, kind=kind, pid=proc.pid, pgid=pgid, start_time=process_start_time(proc.pid),
-                           generation=self._generation if kind == CLASS_B else 0, label=label)
-        with self._lock:
-            # A child its caller has already reaped can never be signalled again (its id may now be someone else's),
-            # so it is dropped here: an app that runs thousands of FFmpeg steps keeps a registry of what is running.
-            self._children = [c for c in self._children if c.proc.returncode is None]
-            self._children.append(child)
-        return child
+    @staticmethod
+    def communicate(proc: subprocess.Popen, input=None, timeout: Optional[float] = None):
+        """``proc.communicate(input, timeout)`` for a contained child, in short slices (:func:`_communicate_bounded`)."""
+        return _communicate_bounded(proc, timeout, input)
 
-    def child(self, proc: subprocess.Popen) -> Optional[OwnedChild]:
-        with self._lock:
-            return next((c for c in self._children if c.proc is proc), None)
+    # -- retirement ---------------------------------------------------------------
+    def _schedule_locked(self, entries: Sequence[OwnedChild], *, grace: float,
+                         confirm_by: Optional[float] = None) -> None:
+        """Hand *entries* to retirement as one batch: SIGTERM now when *grace* > 0, SIGKILL to what is left once it has
+        passed, the end confirmed by ``confirm_by`` (default: :data:`KILL_CONFIRM_S` after the SIGKILL). An entry
+        already retiring keeps the earlier of its deadlines: a deadline is never extended."""
+        now = time.monotonic()
+        kill_at = now + max(0.0, grace)
+        by = kill_at + KILL_CONFIRM_S if confirm_by is None else max(now, confirm_by)
+        for entry in entries:
+            if entry.state == DONE or entry.proc is None:
+                continue
+            if entry.state in (RETIRING, UNCONFIRMED):
+                entry.kill_at = min(entry.kill_at if entry.kill_at is not None else kill_at, kill_at)
+                if entry.state == RETIRING:
+                    entry.confirm_by = min(entry.confirm_by if entry.confirm_by is not None else by, by)
+                continue
+            entry.state = RETIRING
+            entry.term_wanted = grace > 0
+            entry.kill_at = kill_at
+            entry.confirm_by = by
+        self._state.notify_all()
 
-    def forget(self, proc: subprocess.Popen) -> None:
-        with self._lock:
-            self._children = [c for c in self._children if c.proc is not proc]
+    def _retire_now(self, entries: Sequence[OwnedChild], look_s: float) -> None:
+        """Retire *entries* at once (SIGKILL, no grace): signalled from this thread now, then looked at for at most
+        *look_s*; whatever has not ended by then stays in the ledger, retired by the owner's reaper."""
+        with self._state:
+            self._schedule_locked(entries, grace=0.0)
+        self._retire_step()
+        self._kick()
+        if look_s > 0:
+            self._await(entries, until=time.monotonic() + look_s)
 
-    def children(self) -> list[OwnedChild]:
-        with self._lock:
-            return list(self._children)
+    def _deliver(self, entry: OwnedChild, sig: int) -> bool:
+        if entry.start_time is not None:
+            return _signal_proved(entry, sig, wait_s=RETIRE_LOCK_WAIT_S)
+        return _signal_own(entry.proc, sig)  # identity never read: the process only, under its waitpid lock
+
+    def _advance(self, entry: OwnedChild, now: float, notes: list[str]) -> None:
+        """One look at one entry being retired. Never waits; signals with no owner lock held."""
+        proc = entry.proc
+        if proc.returncode is not None and entry.kind == CLASS_A and not entry.group_ended:
+            # Reaped by its own caller first: its group's id can no longer be proved its own, so nothing is signalled.
+            entry.group_ended = True
+            notes.append(f"Containment: {entry.label or entry.pid} (pid {entry.pid}) was reaped before its process group "
+                         "was confirmed ended; that group could not be proved its own and was not signalled.")
+        exited = proc.returncode is not None or has_exited(proc, entry.start_time)
+        if exited:
+            if entry.kind == CLASS_A and not entry.group_ended and proc.returncode is None:
+                answer = _end_group_once(proc, entry.start_time)
+                if answer != GROUP_REMAINING:
+                    entry.group_ended = True
+                    if answer == GROUP_UNPROVED:
+                        notes.append(f"Containment: {entry.label or entry.pid} (pid {entry.pid}): its process group "
+                                     "could not be proved its own, so nothing was signalled to it.")
+            may_reap = entry.kind != CLASS_A or entry.group_ended
+            if entry.kind == GUARDIAN_KIND and entry.spawns > 0:
+                may_reap = False  # a start is joining its group: its id stays reserved until that is over
+            if may_reap and proc.returncode is None:
+                with contextlib.suppress(Exception):  # noqa: BLE001 - a failed reap proves nothing; looked at again
+                    proc.poll()
+            if may_reap and proc.returncode is not None:
+                with self._state:
+                    was = entry.state
+                    self._remove_locked(entry)
+                if entry.lost_containment and entry.kind == CLASS_B:
+                    notes.append(f"Containment: stopped {entry.label or entry.pid} (pid {entry.pid}): it had lost its "
+                                 "guardian.")
+                if was == UNCONFIRMED:
+                    notes.append(f"Containment: {entry.label or entry.pid} (pid {entry.pid}) has now ended.")
+                return
+        else:
+            if entry.term_wanted and not entry.termed:
+                self._deliver(entry, signal.SIGTERM)
+                entry.termed = True
+            if entry.kill_at is not None and now >= entry.kill_at and now - entry.last_kill >= KILL_REPEAT_S:
+                self._deliver(entry, signal.SIGKILL)
+                entry.last_kill = now
+        if entry.state == RETIRING and entry.confirm_by is not None and now >= entry.confirm_by:
+            with self._state:
+                marked = entry.state == RETIRING
+                if marked:
+                    entry.state = UNCONFIRMED
+                    self._state.notify_all()
+            if marked:
+                notes.append(_unconfirmed_text(entry))
+
+    def _retire_step(self) -> None:
+        """One look at every entry being retired (whoever calls it: the reaper, a settlement, the orderly end). Only
+        one thread looks at a time; another simply returns and waits on ``_state`` for the result."""
+        if not self._step_lock.acquire(blocking=False):
+            return
+        notes: list[str] = []
+        try:
+            with self._state:
+                work = [e for e in self._entries if e.state in (RETIRING, UNCONFIRMED) and e.proc is not None]
+            now = time.monotonic()
+            for entry in work:
+                try:
+                    self._advance(entry, now, notes)
+                except Exception:  # noqa: BLE001 - a look that fails proves nothing; the entry stays and is looked at again
+                    pass
+        finally:
+            self._step_lock.release()
+        for text in notes:
+            self._note(text)
+
+    def _kick(self) -> None:
+        """Have the owner's one reaper running while anything is being retired (started on demand; it ends when
+        nothing is left). If no thread can be started, the entries stay in the ledger and whoever waits drives them."""
+        with self._state:
+            self._state.notify_all()
+            if self._reaping or not any(e.state in (RETIRING, UNCONFIRMED) for e in self._entries):
+                return
+            self._reaping = True
+        try:
+            threading.Thread(target=self._reap_loop, name="act-owner-reaper", daemon=True).start()
+        except Exception:  # noqa: BLE001 - the ledger keeps them; settlement and the orderly end drive retirement
+            with self._state:
+                self._reaping = False
+
+    def _reap_loop(self) -> None:
+        try:
+            while True:
+                self._retire_step()
+                with self._state:
+                    work = [e for e in self._entries if e.state in (RETIRING, UNCONFIRMED)]
+                    if not work:
+                        self._reaping = False
+                        return
+                    pause = RETIRE_POLL_S if any(e.state == RETIRING for e in work) else UNCONFIRMED_POLL_S
+                    self._state.wait(pause)
+        except BaseException:  # noqa: BLE001 - the ledger keeps the entries; the next kick starts another reaper
+            with self._state:
+                self._reaping = False
+
+    def _await(self, entries: Sequence[OwnedChild], until: float) -> list[OwnedChild]:
+        """Drive retirement until every one of *entries* is confirmed ended, or *until* passes, or every one left is past
+        its own deadline. Returns those not confirmed. Bounded by *until*."""
+        while True:
+            self._retire_step()
+            now = time.monotonic()
+            notes: list[str] = []
+            with self._state:
+                left = [e for e in entries if not e.resolved()]
+                done = (not left or now >= until
+                        or all(e.state == UNCONFIRMED or (e.confirm_by is not None and now >= e.confirm_by)
+                               for e in left))
+                if done:
+                    for entry in left:  # past its deadline: said so now, not at the reaper's next look
+                        if entry.state == RETIRING and entry.confirm_by is not None and now >= entry.confirm_by:
+                            entry.state = UNCONFIRMED
+                            notes.append(_unconfirmed_text(entry))
+                else:
+                    self._state.wait(max(0.0, min(RETIRE_POLL_S, until - now)))
+            if done:
+                for text in notes:
+                    self._note(text)
+                return left
+
+    def _retire_and_wait(self, entries: Sequence[OwnedChild], *, grace: float) -> list[OwnedChild]:
+        with self._state:
+            self._schedule_locked(entries, grace=grace)
+            until = max([e.confirm_by for e in entries if e.confirm_by is not None], default=time.monotonic())
+        self._kick()
+        return self._await(entries, until=until)
 
     def _end(self, child: OwnedChild, *, grace: float) -> None:
-        """SIGTERM, at most ``grace`` seconds, SIGKILL, reap. Bounded, quiet, identity-checked.
-
-        Class A: the whole group. The leader is observed with ``WNOWAIT`` and is reaped only after the group's SIGKILL,
-        so the group is signalled only while its leader is this owner's unreaped child and its id cannot have been
-        reused -- and a grandchild that ignored SIGTERM is still caught. Class B: the process only (it shares the
-        guardian's group)."""
-        if child.proc.returncode is not None:
+        """SIGTERM, at most ``grace`` seconds, SIGKILL, confirmed reaped by the shared deadline -- or reported
+        unconfirmed and kept. Identity-checked: class A its whole group (signalled only while provably its own)."""
+        if child.proc is None or child.proc.returncode is not None:
             return
-        group = child.kind == CLASS_A
-        if grace > 0:
-            signal_if_same(child.pid, child.start_time, signal.SIGTERM, group=group)
-            _wait_exited(child.pid, grace)
-        signal_if_same(child.pid, child.start_time, signal.SIGKILL, group=group)
-        try:
-            child.proc.wait(timeout=2.0)
-        except (subprocess.TimeoutExpired, ChildProcessError):
-            pass
+        self._retire_and_wait([child], grace=grace)
 
     def end(self, proc: subprocess.Popen, *, grace: float = TERM_GRACE_S) -> None:
         child = self.child(proc)
         if child is not None:
             self._end(child, grace=grace)
 
-    def _end_many(self, children: Sequence[OwnedChild], *, grace: float) -> None:
-        """:meth:`_end` for several children at once, so the bound does not grow with their number: SIGTERM to each,
-        one shared wait of at most ``grace`` seconds, SIGKILL to whatever is left, then each is reaped. The same
-        identity rules hold: a class-A group is signalled only while its leader is still this owner's unreaped child (a
-        leader that has exited but is not yet reaped still identifies its group, so a grandchild left behind is
-        caught).
-
-        v0.8.x P5-C: each check-and-signal is made under the child's own ``Popen`` waitpid lock
-        (:func:`_signal_proved`), and a class-A group is ended the P5-A way (:func:`end_led_group`: signalled until the
-        kernel says nothing is left). A run that reaps its own child at the same moment (a ``WorkerRun`` settling its
-        worker, a pip's follower) therefore cannot have that child's id -- or its group's -- handed on between this
-        check and this signal: once it has reaped the child, nothing is signalled here."""
-        live = [c for c in children if c.proc.returncode is None]
+    def _end_many(self, children: Sequence[OwnedChild], *, grace: float) -> list[OwnedChild]:
+        """:meth:`_end` for several children at once, under one shared deadline: the bound does not grow with their
+        number. Returns those not confirmed ended."""
+        live = [c for c in children if c.proc is not None and c.proc.returncode is None]
         if not live:
-            return
-        if grace > 0:
-            for child in live:
-                _signal_proved(child, signal.SIGTERM)
-            deadline = time.monotonic() + grace
-            while time.monotonic() < deadline and not all(has_exited(c.proc, c.start_time) for c in live):
-                time.sleep(0.02)
-        for child in live:
-            if child.kind == CLASS_A:
-                answer = end_led_group(child.proc, child.start_time, bound_s=2 * TERM_GRACE_S)
-                if answer != GROUP_ENDED and child.proc.returncode is None:
-                    self._note(f"Containment: {child.label or child.pid} (pid {child.pid}): its process group was not "
-                               f"confirmed ended at the orderly end ({answer}).")
-            else:
-                _signal_proved(child, signal.SIGKILL)
-        for child in live:
-            try:
-                child.proc.wait(timeout=2.0)
-            except (subprocess.TimeoutExpired, ChildProcessError):
-                pass
+            return []
+        return self._retire_and_wait(live, grace=grace)
 
     def stop_external(self, labels: Optional[Sequence[str]] = None, *, grace: float = TERM_GRACE_S) -> list[int]:
         """End this owner's running class-B children (only those whose label is in ``labels``, when given) and return
-        their pids: the POSIX ``stop_media_children``. Identity-checked, bounded (``grace`` plus the reap), quiet; it
-        reads this owner's registry only -- never a process listing, never a name on the system."""
+        their pids: the POSIX ``stop_media_children``. Identity-checked, bounded (``grace`` plus the confirmation
+        window, shared), quiet; it reads this owner's ledger only -- never a process listing, never a name."""
         wanted = None if labels is None else frozenset(labels)
         targets = [c for c in self.children() if c.kind == CLASS_B and c.proc.returncode is None
                    and (wanted is None or c.label in wanted)]
@@ -1063,47 +1656,99 @@ class Owner:
             return False
         return signal_if_same(child.pid, child.start_time, signal.SIGKILL, group=child.kind == CLASS_A)
 
+    # -- a run's settlement ----------------------------------------------------------
+    def outstanding(self, run: Any = None) -> list[OwnedChild]:
+        """Every entry still owed cleanup -- starting, running, being ended or unconfirmed -- of *run* (all runs when
+        None). An adopted guardian is the owner's, not a run's."""
+        with self._state:
+            return [e for e in self._entries if not e.resolved() and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)
+                    and (run is None or e.run == run)]
+
+    def settle_run(self, run: Any, bound_s: float = SETTLE_BOUND_S) -> list[int]:
+        """What a run's settlement must know before it may report a clean end (v0.8.x P5-I): its processes still owed
+        cleanup are accounted for. A start still in progress is waited for (at most :data:`START_SETTLE_S`); a process
+        of the run still running under nobody is retired at once; each is waited for until it is confirmed ended or
+        its own retirement deadline passes (never past *bound_s*). Returns the pids NOT confirmed ended -- they stay
+        owned and keep being ended; the run must then not report success or a clean Cancel."""
+        if run is None:
+            return []
+        began = time.monotonic()
+        until = began + max(0.0, bound_s)
+        with self._state:
+            spawn_until = min(until, began + START_SETTLE_S)
+            while any(e.state == SPAWNING and e.run == run for e in self._entries):
+                remaining = spawn_until - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._state.wait(remaining)
+            mine = [e for e in self._entries if not e.resolved() and e.run == run
+                    and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)]
+            self._schedule_locked([e for e in mine if e.state in (STARTED, LIVE, PENDING)], grace=0.0)
+        if not mine:
+            return []
+        self._kick()
+        left = self._await(mine, until=until)
+        return sorted({e.pid or -1 for e in left})
+
     # -- orderly shutdown ---------------------------------------------------------
-    def shutdown(self) -> None:
-        """Orderly end, bounded by :data:`SHUTDOWN_BOUND_S`: class-A groups, class-B children, then the lifeline
-        (which retires the guardian), then the guardian is reaped. Crash containment never depends on this."""
-        deadline = time.monotonic() + SHUTDOWN_BOUND_S
-        self._retiring = True
-        # v0.8.x P5-H-R1: a guardian being made sees the latch at its next look (GUARDIAN_POLL_S) and is ended, not
-        # adopted; one adopted just before it is seen below. Waited for, bounded, so nothing is made after this returns.
-        if self._guardian_creation.acquire(timeout=max(0.1, min(3.0, deadline - time.monotonic() - 2.0))):
-            self._guardian_creation.release()
-        # Every child not yet reaped -- running, or exited with its group's leftovers still identifiable -- ended
-        # together, so the bound holds whatever their number (v0.8.x P1B).
-        unreaped = [c for c in self.children() if c.proc.returncode is None]
-        self._end_many(unreaped, grace=min(TERM_GRACE_S, max(0.0, deadline - time.monotonic() - 1.0)))
-        with self._lock:
+    def shutdown(self) -> list[int]:
+        """Orderly end, bounded by :data:`SHUTDOWN_BOUND_S` from its call, every wait against that one deadline (v0.8.x
+        P5-I): nothing new is admitted; starts in progress get at most :data:`START_SETTLE_S`; every process in the
+        ledger but the adopted guardian -- children, guardians never adopted, children whose registration failed, a
+        lost guardian's children -- is retired as one batch (SIGTERM, one shared grace, SIGKILL), confirmed by the
+        deadline less :data:`GUARDIAN_END_S`; then the lifeline is closed (the guardian ends its group and itself) and
+        the guardian reaped, SIGKILLed with its group (proved) if it has not ended in time. Returns the pids NOT
+        confirmed ended (recorded in :attr:`events`); they stay in the ledger. Crash containment never depends on this."""
+        began = time.monotonic()
+        deadline = began + SHUTDOWN_BOUND_S
+        children_by = deadline - GUARDIAN_END_S
+        with self._state:
+            if self._phase == ACTIVE:
+                self._phase = CLOSING
+            self._state.notify_all()
+            self._wait_spawns_locked(min(children_by, began + START_SETTLE_S))
+            in_flight = sum(1 for e in self._entries if e.state == SPAWNING)
+            owned = [e for e in self._entries if e.proc is not None and not e.resolved()
+                     and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)]
+            grace = min(TERM_GRACE_S, max(0.0, children_by - time.monotonic() - KILL_CONFIRM_S))
+            self._schedule_locked(owned, grace=grace, confirm_by=children_by)
+        if in_flight:
+            self._note(f"Containment: {in_flight} start(s) admitted before the orderly end were still in progress; each "
+                       "process is stopped, never registered, as soon as it exists.")
+        self._kick()
+        left = self._await(owned, until=children_by) if owned else []
+        with self._state:
             write, self._write = self._write, None
+            guardians = [e for e in self._entries if e.kind == GUARDIAN_KIND and e.proc is not None
+                         and not e.resolved() and e not in owned]
         if write is not None:
-            try:
-                os.close(write)
-            except OSError:
-                pass
-        guardian = self._guardian
-        if guardian is not None:
-            try:
-                guardian.wait(timeout=max(0.5, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                signal_if_same(guardian.pid, self._guardian_start, signal.SIGKILL, group=True)
-                try:
-                    guardian.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    pass
-        # v0.8.x P5-H-R1: a guardian still getting ready (its maker had not looked yet) and anything started but never
-        # owned are ended here too, never left to outlive the orderly end.
-        with self._lock:
-            leftovers = [p for p in [self._pending_guardian, *self._strays] if p is not None]
-        for proc in leftovers:
             with contextlib.suppress(OSError):
-                proc.kill()
-        for proc in leftovers:
-            with contextlib.suppress(subprocess.TimeoutExpired, OSError, ChildProcessError):
-                proc.wait(timeout=max(0.1, min(1.0, deadline - time.monotonic())))
+                os.close(write)
+        give_up = deadline - 0.25
+        while any(not has_exited(g.proc, g.start_time) for g in guardians) and time.monotonic() < give_up:
+            time.sleep(RETIRE_POLL_S)
+        for guardian in guardians:
+            if not has_exited(guardian.proc, guardian.start_time):
+                if guardian.start_time is not None:
+                    _signal_proved(guardian, signal.SIGKILL, wait_s=RETIRE_LOCK_WAIT_S, group=True)
+                else:
+                    _signal_own(guardian.proc, signal.SIGKILL)
+        with self._state:
+            self._current = None
+            self._schedule_locked(guardians, grace=0.0, confirm_by=deadline)
+        self._kick()
+        # Looked at once more, together: a child the guardian ended with its group (after its own retirement's deadline)
+        # is reaped and counted as ended, not reported.
+        left = self._await([*left, *guardians], until=deadline) if (left or guardians) else []
+        with self._state:
+            if self._phase == CLOSING:
+                self._phase = CLOSED
+            self._state.notify_all()
+        unconfirmed = sorted({e.pid for e in left if not e.resolved()})
+        if unconfirmed:
+            self._note(f"Containment: the orderly end could not confirm that {len(unconfirmed)} process(es) ended "
+                       f"(pid {', '.join(map(str, unconfirmed))}); they are still being ended.")
+        return unconfirmed
 
 
 _OWNER: Optional[Owner] = None

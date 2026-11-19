@@ -138,7 +138,9 @@ def _contained_run(owner, cmd, *, input=None, capture_output: bool = False, time
     try:
         with process:
             try:
-                stdout, stderr = process.communicate(input, timeout=timeout)
+                # v0.8.x P5-I: in short slices, never a blocking wait holding the child's waitpid lock, so the owner
+                # can always prove and signal it (a lost guardian's children are retired while their callers wait).
+                stdout, stderr = owner.communicate(process, input, timeout)
             except subprocess.TimeoutExpired as exc:
                 owner.kill_now(process)
                 exc.stdout, exc.stderr = process.communicate()
@@ -176,19 +178,59 @@ def popen(cmd, **kwargs) -> subprocess.Popen:
 
     ``guardian_generation`` (v0.8.x P5-H-R1; macOS, contained children only): what :func:`prepare_popen` returned. The
     child is then started in exactly that guardian's group, or :class:`GuardianChanged` is raised at once; no guardian is
-    ever started or replaced by this call. Ignored where nothing is contained."""
+    ever started or replaced by this call. ``owner_run`` (v0.8.x P5-I): the run the child belongs to (its cancel check),
+    whose settlement accounts for it (:func:`settle_owned`). ``admission``: a ticket from :func:`admit_popen` -- the start
+    was admitted inside the run's Cancel ordering and is spawned now, after it. ``spawn_check`` (POSIX): called
+    immediately before the process is created, raising to refuse it (a run's Cancel that latched after the admission).
+    All of these are ignored where nothing is contained (Windows; no owner): those starts are made as released."""
     generation = kwargs.pop("guardian_generation", None)
+    run = kwargs.pop("owner_run", None)
+    spawn_check = kwargs.pop("spawn_check", None)
+    admission = kwargs.pop("admission", None)
     owner = _media_owner(cmd, kwargs)
     if owner is not None:
-        if generation is None:
-            return _contained_popen(owner, cmd, **kwargs)
+        tag = {} if run is None else {"owner_run": run}
+        if spawn_check is not None:
+            tag["spawn_check"] = spawn_check
+        if admission is not None:
+            tag["admission"] = admission
+        elif generation is not None:
+            tag["require_generation"] = generation
         try:
-            return _contained_popen(owner, cmd, require_generation=generation, **kwargs)
+            return _contained_popen(owner, cmd, **tag, **kwargs)
         except Exception as exc:  # noqa: BLE001 - only the containment layer's own "guardian changed" is translated
             if type(exc).__name__ == "GuardianChanged":
                 raise GuardianChanged(str(exc)) from exc
             raise
     return subprocess.Popen(cmd, **{**_hidden_kwargs(), **kwargs})
+
+
+def admit_popen(cmd, *, guardian_generation=None, owner_run=None, **kwargs):
+    """v0.8.x P5-I (macOS, contained children only): admit the start :func:`popen` of the same arguments would make into
+    exactly the guardian of ``guardian_generation`` (what :func:`prepare_popen` returned), and return the ticket to pass
+    to :func:`popen` as ``admission``. It only records the start in the owner's ledger -- it never spawns and never waits
+    on another start -- so a run makes it inside its Cancel ordering and spawns after. Raises :class:`GuardianChanged` (nothing
+    admitted) when that guardian is gone or replaced. ``None`` where nothing is contained (Windows; no owner; not a media
+    program): then :func:`popen` is made as released, inside the ordering."""
+    owner = _media_owner(cmd, kwargs)
+    if owner is None or guardian_generation is None:
+        return None
+    try:
+        return owner.admit_external(label=os.path.basename(os.fspath(list(cmd)[0])), run=owner_run,
+                                    require_generation=guardian_generation)
+    except Exception as exc:  # noqa: BLE001 - only the containment layer's own "guardian changed" is translated
+        if type(exc).__name__ == "GuardianChanged":
+            raise GuardianChanged(str(exc)) from exc
+        raise
+
+
+def release_admission(admission) -> None:
+    """Give back an :func:`admit_popen` ticket whose :func:`popen` was never made. Nothing to do for ``None``, or once its
+    spawn was attempted. Never raises."""
+    owner = _owner
+    if owner is not None and admission is not None:
+        with contextlib.suppress(Exception):
+            owner.release(admission)
 
 
 def prepare_popen(cmd, *, spawn_context=None, checkpoint=None, **kwargs):
@@ -197,11 +239,42 @@ def prepare_popen(cmd, *, spawn_context=None, checkpoint=None, **kwargs):
     :func:`popen`'s ``guardian_generation``. ``spawn_context`` is entered around a guardian's spawn alone (the run's Cancel
     ordering), never around the wait for it to be ready. ``checkpoint`` is called often while waiting for a guardian (its
     own readiness, or another thread making it) and raises to stop the wait: a run's Cancel. ``None``, doing nothing, on
-    Windows or for a child that is not contained."""
+    Windows or for a child that is not contained. ``owner_run``: as for :func:`popen` (a guardian made for a run that is
+    then cancelled is that run's to account for)."""
+    run = kwargs.pop("owner_run", None)
     owner = _media_owner(cmd, kwargs)
     if owner is None:
         return None
-    return owner.ensure_guardian(spawn_context, checkpoint=checkpoint)
+    if run is None:
+        return owner.ensure_guardian(spawn_context, checkpoint=checkpoint)
+    return owner.ensure_guardian(spawn_context, checkpoint=checkpoint, run=run)
+
+
+def settle_owned(run, bound_s: Optional[float] = None) -> list[int]:
+    """v0.8.x P5-I: the process ids of *run*'s contained children (macOS) whose end is not confirmed once the owner has
+    retired what the run left (bounded; see ``child_ownership.Owner.settle_run``). A run with any must not be reported as
+    finished or cleanly cancelled (``-1`` stands for a start still in progress, or an answer that could not be had). ``[]``
+    on Windows, without an owner, or for no run."""
+    owner = _owner
+    if owner is None or run is None:
+        return []
+    try:
+        return owner.settle_run(run) if bound_s is None else owner.settle_run(run, bound_s)
+    except Exception:  # noqa: BLE001 - settlement must not raise; an answer that could not be had is no clean end
+        return [-1]
+
+
+def containment_lost(process) -> bool:
+    """v0.8.x P5-I: True when *process* is a contained child (macOS) whose guardian was lost while it ran, or is found
+    gone now (the loss is then recorded). Its work is never reported as a success. False on Windows or without an
+    owner."""
+    owner = _owner
+    if owner is None:
+        return False
+    try:
+        return not owner.containment_held(process)
+    except Exception:  # noqa: BLE001 - a check that cannot be made is no proof of containment
+        return True
 
 
 def check_output(cmd, **kwargs) -> bytes | str:

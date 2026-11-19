@@ -380,11 +380,23 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   being ended); a Cancel stops a run's wait for a guardian at once, whether that guardian is its own or another
   thread's, and one it was waiting for that never got ready is ended, never kept; a guardian lost in between is
   replaced there, never inside the start; and a guardian that becomes ready after the app began closing is ended, never
-  kept. Reading, converting, scanning (the audible check
+  kept. Since v0.8.x P5-I (macOS) only a start's admission -- a record in the containment owner's ledger, never a wait
+  on another start -- is inside the Cancel ordering; the spawn follows it, so no slow or blocked spawn (the run's own or
+  another's) holds a Cancel. A Cancel that latched after the admission is seen at the spawn's last look and the start is
+  refused; one that latched during the spawn itself finds the process stopped at once and counted in the run's
+  settlement. The same holds for a guardian's spawn; a guardian is adopted only inside the run's Cancel ordering
+  (a guardian made for a run cancelled meanwhile is ended, never kept); a lost guardian's programs are all marked failed
+  the moment the loss is seen and are ended together under one shared deadline by the containment owner, never on the
+  conversion's thread. Reading, converting, scanning (the audible check
   and the final-tail search) and the free-space header reads of a narration on disk stop at the next block or file.
 - An FFmpeg still running 3 s after being killed (the plan's 4 s stop budget) fails its file, is never retried and never
   counts as a clean Cancel; the run then fails as a whole, offers no Retry Failed, and names the process. It never holds
   the conversion waiting (macOS and Linux), and is killed again and reaped once it ends.
+- macOS (v0.8.x P5-I): every process the run starts is in the containment owner's ledger, under that run, from its
+  admission until its end is confirmed -- one whose registration or watch failed, or that was created as the Cancel
+  latched, included. Before the run is reported finished or cancelled its settlement has the owner end what the run
+  left and waits (bounded) for each end to be confirmed; one not confirmed fails the run as above. An FFmpeg whose
+  containment guardian was lost while it ran fails its file, however it ended (Retry Failed offers it).
 
 ### Cancel and the final rename are ordered
 `ACT.TTS.CANCEL.PUBLICATION`

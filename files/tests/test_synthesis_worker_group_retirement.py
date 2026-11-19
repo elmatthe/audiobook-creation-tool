@@ -703,7 +703,8 @@ def test_kill_tree_signals_no_group_it_cannot_prove(scene):
 # --------------------------------------------------------------------------- #
 #: The readers that record a process's identity when it is spawned. The injected failure answers None to these alone, so
 #: every later read (``end_led_group``, ``has_exited``, this module's own identity checks) is still the kernel's.
-_SPAWN_READERS = frozenset({"_register", "leader_start_time", "_start"})
+#: (v0.8.x P5-I: the containment owner reads a new child's identity in ``Owner._take_on``, right after the spawn.)
+_SPAWN_READERS = frozenset({"_register", "_take_on", "leader_start_time", "_start"})
 
 
 class Signals:

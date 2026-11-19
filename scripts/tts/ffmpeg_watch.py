@@ -33,6 +33,16 @@ start with :class:`ConversionCancelled` and nothing is spawned; a start that cam
 so the Cancel kills it like any other. A cancel check with no latch (a bare predicate) gets a look before the start and another
 once it is watched. :func:`checkpoint` is the same look for work between processes. A process that does not end when killed is
 never reported as a clean end (:class:`ProcessNotStopped`).
+
+**Accounted for from before it exists (v0.8.x P5-I).** A process's watch is made, and put on the watch list, before the
+process is created, so nothing that can fail afterwards leaves a process unwatched: one that cannot be watched is never
+started. On macOS each start names its run to the containment owner (``owner_run``), which keeps every process of the run
+in its ledger until its end is confirmed -- a child whose registration failed included -- and the run's settlement asks
+both (:func:`settle_children`). There only the start's *admission* (a ledger record, never a wait on another start) is
+inside the run's Cancel ordering; the spawn follows it, so no slow spawn holds a Cancel. A Cancel that latched after the
+admission is seen at the spawn's last look (``spawn_check``) and the start is refused; one that latched during the spawn
+itself finds the process killed at once, and its settlement waits for that process's end. An FFmpeg whose containment guardian was lost
+while it ran fails its file (:class:`ContainmentLost`), however it ended.
 """
 
 from __future__ import annotations
@@ -72,6 +82,11 @@ START_ATTEMPTS = 3
 
 class ProcessingStalled(RuntimeError):
     """FFmpeg stopped making progress and was killed. Nothing unfinished reaches a destination."""
+
+
+class ContainmentLost(RuntimeError):
+    """macOS (v0.8.x P5-I): the containment guardian of this FFmpeg's group was lost while it ran, so it was stopped (or it
+    ended uncontained). Its output is never used: the file fails."""
 
 
 class ProcessNotStopped(RuntimeError):
@@ -253,6 +268,8 @@ def unconfirmed_children(cancel_check: Optional[Callable[[], bool]] = None) -> l
         items = list(_watched)
     found = []
     for item in items:
+        if item.process is None:
+            continue
         if item.unconfirmed and (cancel_check is None or item.control.cancel_check == cancel_check):
             with contextlib.suppress(OSError, subprocess.SubprocessError):
                 if item.process.poll() is None:
@@ -260,11 +277,24 @@ def unconfirmed_children(cancel_check: Optional[Callable[[], bool]] = None) -> l
     return found
 
 
+def settle_children(cancel_check: Optional[Callable[[], bool]]) -> list[int]:
+    """v0.8.x P5-I: what a run's settlement asks before it may report a clean end. The FFmpeg it killed that are still running
+    (:func:`unconfirmed_children`), and -- macOS -- every process of the run the containment owner still owes cleanup, once
+    the owner has retired what the run left and waited (bounded, each by its own deadline) for their ends to be confirmed:
+    a child whose registration or watch failed, or one created for the run after its Cancel, included. Their process ids;
+    a run with any is neither finished nor cleanly cancelled. Without an owner (Windows) exactly :func:`unconfirmed_children`."""
+    found = set(subprocess_utils.settle_owned(cancel_check)) if cancel_check is not None else set()
+    found.update(unconfirmed_children(cancel_check))
+    return sorted(found)
+
+
 def _watch_once() -> None:
     now = time.monotonic()
     with _watched_lock:
         items = list(_watched)
     for item in items:
+        if item.process is None:
+            continue  # watched before it exists (v0.8.x P5-I): nothing to look at until it does
         if item.unconfirmed:
             # Given up on by its caller (ProcessNotStopped): killed again, and reaped and forgotten once it has ended.
             with contextlib.suppress(OSError):
@@ -320,10 +350,14 @@ class Supervised:
         self.args = args
         self._errors = None
         self._selector: Optional[selectors.BaseSelector] = None
+        self.process = None
         last = args[-1] if isinstance(args, (list, tuple)) and args else None
         # FFmpeg's last argument is what it writes, unless that is a pipe. For anything else the size just never changes.
         output = os.fspath(last) if isinstance(last, (str, os.PathLike)) and last != "-" else None
-        unwatched = False
+        # v0.8.x P5-I: the watch exists before the process does. If it cannot be made, nothing is started; once the process
+        # exists, the only step before it is watched is one assignment to that watch, so no failure can leave it unwatched.
+        item = self._item = _Watched(None, output, control)
+        tag = {} if control.cancel_check is None else {"owner_run": control.cancel_check}
         try:
             for attempt in range(START_ATTEMPTS):
                 # v0.8.x P5-H-R1. Anything slow the start needs (macOS: the containment guardian) happens first, outside the
@@ -331,58 +365,95 @@ class Supervised:
                 # cancelled run), and a Cancel stops the wait for a guardian to be ready (checkpoint). Then the start
                 # itself, ordered and watched before Cancel may latch, in exactly that guardian's group: if it changed
                 # meanwhile, nothing starts and the start is prepared again. A Cancel pressed first refuses it; a Cancel
-                # pressed during it waits for the creations in progress and then kills them.
+                # pressed during it waits for the admissions in progress (P5-I; on Windows, the creations).
                 generation = subprocess_utils.prepare_popen(args, spawn_context=lambda: _authorized_start(control),
                                                             checkpoint=lambda: _stop_if_asked(control),
-                                                            stdin=stdin, stdout=stdout, stderr=stderr, **kwargs)
+                                                            stdin=stdin, stdout=stdout, stderr=stderr, **tag, **kwargs)
                 extra = {} if generation is None else {"guardian_generation": generation}
+                admission = None
                 try:
                     with _authorized_start(control):
                         if stderr == subprocess.PIPE and self._errors is None:
                             self._errors = tempfile.TemporaryFile()
-                        # The same Popen call as before on Windows (hidden console, the caller's arguments winning); on
-                        # macOS the app window owns the FFmpeg it starts, so it ends with the window (v0.8.x P1B).
-                        self.process = subprocess_utils.popen(
-                            args, stdin=stdin, stdout=stdout,
-                            stderr=self._errors if stderr == subprocess.PIPE else stderr, **kwargs, **extra)
+                        with _watched_lock:
+                            _watched.add(item)  # watched before it exists; the watchdog skips it until it does
+                        # v0.8.x P5-I (macOS, contained): only the admission is inside the Cancel ordering -- a record in
+                        # the owner's ledger, made under its state lock and never waiting on another start -- so a slow
+                        # spawn (this run's or another's) can never hold a Cancel. Elsewhere (Windows) None: the start
+                        # is made here, inside the ordering, exactly as released.
+                        admission = subprocess_utils.admit_popen(args, stdin=stdin, stdout=stdout, stderr=stderr, **tag,
+                                                                 **kwargs, **extra)
+                        if admission is None:
+                            # The same Popen call as before on Windows (hidden console, the caller's arguments winning);
+                            # on macOS the app window owns the FFmpeg it starts, so it ends with the window (v0.8.x P1B).
+                            item.process = subprocess_utils.popen(
+                                args, stdin=stdin, stdout=stdout,
+                                stderr=self._errors if stderr == subprocess.PIPE else stderr, **tag, **kwargs, **extra)
+                    if admission is not None:
+                        # Admitted before any Cancel latched. Spawned now: a Cancel latched since is seen at the last look
+                        # before the process exists (spawn_check, refused), or -- latched during the spawn -- the process
+                        # is killed at once below; either way it is this run's in the owner's ledger until it has ended.
                         try:
-                            self._item = _Watched(self.process, output, control)
-                            with _watched_lock:
-                                _watched.add(self._item)
-                        except BaseException:
-                            # Started and not watched (out of memory here, say): it never runs on unowned. Killed now;
-                            # waited for below, once the counted start has let a Cancel through.
-                            with contextlib.suppress(OSError):
-                                self.process.kill()
-                            unwatched = True
-                            raise
+                            item.process = subprocess_utils.popen(
+                                args, stdin=stdin, stdout=stdout,
+                                stderr=self._errors if stderr == subprocess.PIPE else stderr,
+                                spawn_check=lambda: _stop_if_asked(control), admission=admission, **tag, **kwargs)
+                        finally:
+                            subprocess_utils.release_admission(admission)  # nothing to do once its spawn was attempted
                     break
                 except subprocess_utils.GuardianChanged:
+                    with _watched_lock:
+                        _watched.discard(item)
                     if attempt == START_ATTEMPTS - 1:
                         raise
-        except BaseException:
-            if unwatched:
+            self.process = item.process
+            self.stdin, self.stdout = self.process.stdin, self.process.stdout
+            self.stderr = None
+            self.pid = self.process.pid
+            if _asked_to_cancel(control):
+                # Latched while this started (a cancel check with no latch to be ordered against, or a Cancel that did not
+                # wait for a slow start): killed now, not at the next look.
+                self._item.decide(ConversionCancelled(CANCELLED_MESSAGE))
+                self.kill()
+            _wake.set()
+        except BaseException as exc:
+            if item.process is None:
+                with _watched_lock:
+                    _watched.discard(item)  # nothing was started
+                self._close_errors()
+                raise
+            self.process = item.process
+            # Started, and something after it failed (out of memory here, say). It is watched already; it is killed now,
+            # outside the counted start, and waited for (bounded). One that does not end stays watched and is reported.
+            try:
                 self._end_unregistered()
+            except ProcessNotStopped as not_stopped:
+                self._close_errors()
+                raise not_stopped from exc
             self._close_errors()
             raise
-        self.stdin, self.stdout = self.process.stdin, self.process.stdout
-        self.stderr = None
-        self.pid = self.process.pid
-        if _asked_to_cancel(control):
-            # A cancel check with no latch to be ordered against, latched while this started: killed now, not at the next look.
-            self._item.decide(ConversionCancelled(CANCELLED_MESSAGE))
-            self.kill()
-        _wake.set()
 
     def _end_unregistered(self) -> None:
+        """A process started whose start then failed: killed, its pipes closed, waited for at most
+        :data:`ABANDON_WAIT_SECONDS`. Ended: no longer watched. Not ended: it stays watched and unconfirmed (the watchdog keeps
+        killing it and reaps it; the run's settlement sees it) and :class:`ProcessNotStopped` is raised (v0.8.x P5-I)."""
         with contextlib.suppress(OSError):
             self.process.kill()
         for pipe in (self.process.stdout, self.process.stdin):
             if pipe is not None:
                 with contextlib.suppress(OSError, ValueError):
                     pipe.close()
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
+        try:
             self.process.wait(ABANDON_WAIT_SECONDS)
+        except subprocess.TimeoutExpired as late:
+            self._item.unconfirmed = True
+            raise ProcessNotStopped(_not_stopped_text(self.process.pid)) from late
+        except (OSError, subprocess.SubprocessError):
+            pass
+        if self.process.returncode is None:
+            self._item.unconfirmed = True  # a wait that failed proves nothing
+            raise ProcessNotStopped(_not_stopped_text(self.process.pid))
+        self._stop_watching()
 
     def _wait_readable(self) -> None:
         """POSIX: until the pipe has something to read (or has ended), a look at a time, never holding the caller past
@@ -487,6 +558,8 @@ class Supervised:
         self._stop_watching()
         if self._item.verdict is not None:
             raise self._item.verdict
+        if subprocess_utils.containment_lost(self.process):
+            raise ContainmentLost(_lost_text(self.pid))
         return code
 
     def _stop_watching(self) -> None:
@@ -538,6 +611,11 @@ class Supervised:
         with contextlib.suppress(OSError, ValueError):
             self.stdin.write(data)
             self.stdin.close()
+
+
+def _lost_text(pid: int) -> str:
+    return (f"FFmpeg (process {pid}) lost its containment guardian while it ran, so its output is not used. Nothing unfinished "
+            "was saved. Use Retry Failed.")
 
 
 def _not_stopped_text(pid: int) -> str:
