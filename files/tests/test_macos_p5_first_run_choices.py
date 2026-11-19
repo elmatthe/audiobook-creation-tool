@@ -610,6 +610,6 @@ def test_re_pending_or_a_map_without_evidence_cannot_leave_a_pass_standing(tmp_p
                for p in ar._darwin_evidence_problems(_entry(), _with_actions(tmp_path / "e2"), dialog[SCENARIO]["evidence"], SHA))
 
 
-def test_the_only_journey_still_pending_on_p5_is_the_folder_depth_one():
+def test_nothing_is_pending_on_p5_any_more():
     pending = {sid: entry["pending_phase"] for sid, entry in DARWIN.items() if entry.get("pending_phase")}
-    assert pending == {"setup.first-run-refuses-a-folder-too-deep": "P5"}
+    assert pending == {}, "P5-G mapped the last pending journey (the folder-depth one) NOT APPLICABLE ON MACOS"

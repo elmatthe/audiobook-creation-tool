@@ -408,8 +408,10 @@ def test_the_map_refuses_a_counterpart_without_evidence_or_with_unknown_evidence
 #: A completed counterpart that opens no file or folder dialog (its confirmation is the application's own window).
 ANSWERS_NO_FILE_DIALOG = {"setup.clear-downloaded-data", "setup.first-run-choices-and-cancel"}
 #: P5-E made setup.clear-downloaded-data, and P5-F-R1 setup.first-run-choices-and-cancel (Cancel before Begin Setup), automated
-#: counterparts; the folder-depth first-run journey stays pending on P5.
-STILL_PENDING_ON_P5 = {"setup.first-run-refuses-a-folder-too-deep"}
+#: counterparts; P5-G closed the last one: nothing is pending on P5 any more.
+STILL_PENDING_ON_P5: set = set()
+#: P5-G (owner exception, 2026-11-18): a later-phase journey mapped NOT APPLICABLE ON MACOS under its own reviewed reason.
+PLATFORM_EXCEPTIONS = {"setup.first-run-refuses-a-folder-too-deep": "windows-only-installation-path-limit"}
 
 
 def test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evidence():
@@ -423,13 +425,16 @@ def test_no_automated_journey_waits_on_an_owner_signature_and_each_names_its_evi
             assert "dialog-contract" in evidence, sid
     later_phase_prefixes = ("tts.", "shutdown.tts-", "setup.")
     pending = {sid for sid, entry in darwin.items() if entry.get("pending_phase")}
-    # What is still pending is exactly the folder-depth first-run journey (P5); moving one in or out of this set is a deliberate edit here.
+    # Nothing is pending any more; moving one back into this set is a deliberate edit here.
     assert pending == STILL_PENDING_ON_P5, "later phases stay NOT RUN, and only those"
     assert all(darwin[sid]["pending_phase"] == "P5" for sid in pending)
     for sid in pending:
         assert sid.startswith("setup."), sid
     # Every scenario of those later-phase families that is NOT pending has completed: it must carry full automated evidence.
-    for sid in (s for s in darwin if s.startswith(later_phase_prefixes) and s not in pending):
+    for sid, reason in PLATFORM_EXCEPTIONS.items():
+        assert darwin[sid]["class"] == "not-applicable" and darwin[sid]["reason_id"] == reason, sid
+        assert darwin[sid]["qualification"] == "fresh-macos", sid
+    for sid in (s for s in darwin if s.startswith(later_phase_prefixes) and s not in pending and s not in PLATFORM_EXCEPTIONS):
         entry = darwin[sid]
         assert entry["class"] == "automated" and not entry.get("manual"), sid
         if sid in ANSWERS_NO_FILE_DIALOG:  # dialog-contract would fail it by construction (acceptance_report); named exactly

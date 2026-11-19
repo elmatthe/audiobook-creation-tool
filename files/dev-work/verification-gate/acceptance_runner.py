@@ -94,7 +94,8 @@ def _darwin_map() -> dict:
 
 
 def _not_run_on_macos(scenario, mapping: dict) -> dict | None:
-    """What the darwin map says instead of a run: NOT APPLICABLE ON MACOS (a Windows input-harness test) or NOT RUN until the
+    """What the darwin map says instead of a run: NOT APPLICABLE ON MACOS (a Windows input-harness test, or the one journey whose
+    subject is Windows' own installation-path limit: helpers/acceptance_report.DARWIN_NA_SCOPE) or NOT RUN until the
     phase that owns it. None when the scenario is an automated counterpart that runs now."""
     base = {"id": scenario.id, "tool": scenario.tool, "layers": list(scenario.layers), "tier": scenario.tier, "summary": scenario.summary,
             "seconds": 0.0, "checks": [], "outputs": [], "fixtures": [], "screenshots": [], "teardown": [], "native_inputs": 0, "sessions": []}

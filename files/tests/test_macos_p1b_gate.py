@@ -38,11 +38,16 @@ def test_the_real_darwin_map_maps_every_scenario_exactly_once():
     assert len(REQUIRED) == 55 and OPTIONAL == ["tts.kokoro-local"], "Windows' acceptance set is unchanged"
 
 
-def test_not_applicable_on_macos_is_only_the_windows_input_harness():
-    na = sorted(sid for sid, entry in ACCEPTANCE["darwin_map"].items() if entry["class"] == "not-applicable")
-    assert na == sorted(["control.real-click-reaches-the-target", "control.lost-foreground-blocks-input",
-                         "control.covered-target-is-refused", "control.partly-hidden-window-is-not-pictured",
-                         "control.other-desktop-is-blocked", "control.dead-input-path-blocks"])
+def test_not_applicable_on_macos_is_only_the_windows_input_harness_and_the_one_installation_path_exception():
+    na = {sid: entry["reason_id"] for sid, entry in ACCEPTANCE["darwin_map"].items() if entry["class"] == "not-applicable"}
+    harness = sorted(["control.real-click-reaches-the-target", "control.lost-foreground-blocks-input",
+                      "control.covered-target-is-refused", "control.partly-hidden-window-is-not-pictured",
+                      "control.other-desktop-is-blocked", "control.dead-input-path-blocks"])
+    assert sorted(sid for sid, reason in na.items() if reason == "windows-input-harness") == harness
+    # P5-G (owner exception, 2026-11-18): exactly one more, with its own reason id, keeping the fresh-macos qualification.
+    assert {sid: reason for sid, reason in na.items() if reason != "windows-input-harness"} == {
+        "setup.first-run-refuses-a-folder-too-deep": "windows-only-installation-path-limit"}
+    assert ACCEPTANCE["darwin_map"]["setup.first-run-refuses-a-folder-too-deep"]["qualification"] == "fresh-macos"
 
 
 def test_the_five_tools_shutdown_and_behaviour_controls_are_automated_now():
@@ -57,8 +62,8 @@ def test_the_five_tools_shutdown_and_behaviour_controls_are_automated_now():
 
 def _tts_and_pending_problems(darwin):
     """TTS and TTS-shutdown scenarios completed (P2 and later): automated, not manual, not pending, with full evidence. What is
-    still pending is exactly setup.first-run-refuses-a-folder-too-deep, on P5 (P5-E made setup.clear-downloaded-data and P5-F-R1
-    setup.first-run-choices-and-cancel automated)."""
+    nothing is pending any more (P5-E and P5-F-R1 made the last two setup.* counterparts automated, and P5-G mapped
+    setup.first-run-refuses-a-folder-too-deep NOT APPLICABLE ON MACOS under its own reviewed reason)."""
     problems = []
     for sid, entry in darwin.items():
         if sid.startswith(("tts.", "shutdown.tts-")):
@@ -67,7 +72,7 @@ def _tts_and_pending_problems(darwin):
             elif not {"journey-checks", "real-screenshots", "dialog-contract"} <= set(entry.get("evidence") or []):
                 problems.append(f"{sid}: lacks the required evidence classes")
     pending = {sid: entry["pending_phase"] for sid, entry in darwin.items() if entry.get("pending_phase")}
-    expected = {"setup.first-run-refuses-a-folder-too-deep": "P5"}
+    expected = {}
     if pending != expected:
         problems.append(f"pending set is {pending}, expected {expected}")
     return problems
@@ -81,7 +86,7 @@ def test_a_wrong_reclassification_of_a_tts_or_setup_scenario_is_caught():
                         ("shutdown.tts-close-during-work", {"manual": True}),
                         ("tts.cancel-during-narration", {"evidence": ["journey-checks"]}),
                         ("setup.clear-downloaded-data", {"pending_phase": "P5"}),
-                        ("setup.first-run-refuses-a-folder-too-deep", {"pending_phase": None}),
+                        ("setup.first-run-refuses-a-folder-too-deep", {"pending_phase": "P5"}),
                         ("setup.first-run-choices-and-cancel", {"pending_phase": "P5"}),
                         ("setup.first-run-choices-and-cancel", {"pending_phase": "P2"})):
         mutated = copy.deepcopy(real)

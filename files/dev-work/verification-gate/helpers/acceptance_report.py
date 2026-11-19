@@ -202,8 +202,18 @@ def report_lines(judgement: Judgement) -> list[str]:
 #  macOS (v0.8.x P1B, plan 14.3, MAC-045, D9): the darwin acceptance map
 # --------------------------------------------------------------------------------------------------------------------- #
 DARWIN_CLASSES = ("automated", "owner-manual", "not-applicable")
-#: Only a test of the Windows input harness itself may be NOT APPLICABLE ON MACOS (plan 14.3 class c).
-DARWIN_NA_REASONS = ("windows-input-harness",)
+#: What may be NOT APPLICABLE ON MACOS, each reviewed reason id with exactly the scenarios it can cover; nothing else may be.
+#:   windows-input-harness                 a test of the Windows native-input harness itself (plan 14.3 class c): ``control.*`` only.
+#:   windows-only-installation-path-limit  the owner's P5-G exception (2026-11-18): the one journey whose subject is Windows' own
+#:                                         installation-path limit. ``bootstrap.install_path_problem`` returns no problem on any
+#:                                         other system, so a Mac has no refusal to show and must not fabricate one. Its entry must
+#:                                         keep the mandatory ``fresh-macos`` qualification (D9b): installation, repair and recovery
+#:                                         on a Mac are proved there, not waived here.
+DARWIN_NA_SCOPE = {
+    "windows-input-harness": {"prefix": "control."},
+    "windows-only-installation-path-limit": {"exact": ("setup.first-run-refuses-a-folder-too-deep",), "qualification": "fresh-macos"},
+}
+DARWIN_NA_REASONS = tuple(DARWIN_NA_SCOPE)
 #: P1B closeout (owner's revised acceptance, 2026-11-15): what an automated counterpart's PASS must show, named per scenario in
 #: ``darwin_map[...]["evidence"]``. No owner signature stands in for any of them.
 #:   journey-checks    the Windows judge's rules for its tier (checks, inputs, action logs, fixtures, digested outputs, clean
@@ -217,6 +227,24 @@ DARWIN_EVIDENCE = ("journey-checks", "real-screenshots", "dialog-contract")
 #: How each verdict reads in the requirement vocabulary of the revised acceptance.
 REQUIREMENT_LABELS = {"PASS": "AUTOMATED PASS", "FAIL": "AUTOMATED FAIL", "BLOCKED": "BLOCKED", "NOT RUN": "NOT RUN",
                       "NOT APPLICABLE": "NOT APPLICABLE — JUSTIFIED"}
+
+
+def darwin_na_problem(scenario_id: str, entry: dict) -> str | None:
+    """Why a not-applicable entry is not allowed, or None when its reason id is reviewed and covers exactly this scenario."""
+    reason = entry.get("reason_id")
+    scope = DARWIN_NA_SCOPE.get(reason) if isinstance(reason, str) else None
+    if scope is None:
+        return (f"{scenario_id}: not applicable on macOS only with a reviewed reason id ({sorted(DARWIN_NA_SCOPE)}); "
+                f"{reason!r} is not one")
+    if "prefix" in scope and not scenario_id.startswith(scope["prefix"]):
+        return (f"{scenario_id}: not applicable on macOS only for a test of the Windows input harness ({scope['prefix']}*), "
+                f"with reason id {reason!r}")
+    if "exact" in scope and scenario_id not in scope["exact"]:
+        return f"{scenario_id}: reason id {reason!r} covers only {list(scope['exact'])}, not this scenario"
+    if scope.get("qualification") and entry.get("qualification") != scope["qualification"]:
+        return (f"{scenario_id}: reason id {reason!r} keeps the mandatory {scope['qualification']} qualification; the entry names "
+                f"{entry.get('qualification')!r}")
+    return None
 
 
 def darwin_map_problems(darwin_map: dict | None, required: list[str], optional: list[str]) -> list[str]:
@@ -251,9 +279,10 @@ def darwin_map_problems(darwin_map: dict | None, required: list[str], optional: 
                 problems.append(f"{scenario_id}: unknown evidence {sorted(set(evidence) - set(DARWIN_EVIDENCE))}")
         if kind == "owner-manual" and not entry.get("checklist"):
             problems.append(f"{scenario_id}: an owner-manual counterpart names no checklist item")
-        if kind == "not-applicable" and (entry.get("reason_id") not in DARWIN_NA_REASONS or not scenario_id.startswith("control.")):
-            problems.append(f"{scenario_id}: not applicable on macOS only for a test of the Windows input harness, with a reviewed "
-                            f"reason id ({entry.get('reason_id')!r})")
+        if kind == "not-applicable":
+            problem = darwin_na_problem(scenario_id, entry)
+            if problem:
+                problems.append(problem)
     return problems
 
 

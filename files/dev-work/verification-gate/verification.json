@@ -1044,17 +1044,19 @@
         ]
       },
       "setup.first-run-refuses-a-folder-too-deep": {
-        "class": "automated",
-        "driver": "adapters/macos",
+        "class": "not-applicable",
+        "reason_id": "windows-only-installation-path-limit",
         "journey": "setup.first-run-refuses-a-folder-too-deep",
-        "pending_phase": "P5",
+        "tool": "setup",
+        "decided": "2026-11-18, the owner's Phase 5 closeout instruction (Decisions.md: P5-G)",
         "tests": [
+          "files/tests/test_macos_p5_platform_exception.py",
           "files/tests/test_bootstrap_host_macos.py",
           "files/tests/test_child_ownership.py",
           "files/tests/test_macos_foundation.py"
         ],
         "qualification": "fresh-macos",
-        "why": "macOS first run, repair and recovery are proved by P1A's native suites and the mandatory fresh-macos qualification (owner-run procedure, D9b); the journey through the macOS first-run window completes the map in P5. Until then the stage reports NOT RUN."
+        "why": "v0.8.0 P5-G (owner-approved exception): the journey's subject is Windows' own installation-path limit. Production bootstrap.install_path_problem returns no problem on any system but Windows, so a Mac has no refusal to show, and the journey must not fabricate one. The Windows journey and its behaviour are unchanged and still required on Windows. This exception covers this one scenario only (helpers/acceptance_report.DARWIN_NA_SCOPE); every other setup scenario is an automated counterpart. macOS installation, repair and recovery stay with the mandatory fresh-macos qualification (D9b, REAL CLEAN at P7c), which this entry keeps."
       },
       "setup.first-run-choices-and-cancel": {
         "class": "automated",
@@ -1105,7 +1107,7 @@
         ]
       }
     },
-    "darwin_about": "v0.8.x P1B (plan 14.3, MAC-045, D9), revised by the owner's P1B closeout instruction of 2026-11-15: every required scenario and the optional one, exactly one class each. automated: the same journey run by the in-process macOS driver (adapters/macos: real panels, real media, real FFmpeg, acts through Tk, file and message dialogs answered by in-process stand-ins that record the options the application gave them), judged on the evidence its 'evidence' list names (helpers/acceptance_report.DARWIN_EVIDENCE: journey-checks, real-screenshots -- the window server's picture of the application's own window at this run's SHA, PASS on helpers/visual_review.py -- and dialog-contract). No owner signature stands in for an automated check. The real NSOpenPanel and NSAlert are the darwin scenario macos-native-dialogs; what no automation can reach without a privacy grant is listed in darwin_p1b as BLOCKED with the grant it needs. pending_phase: mapped but not yet runnable on macOS, reported NOT RUN until that phase. not-applicable: only a test of the Windows input harness itself, with an owner-reviewed reason id. A darwin acceptance stage fails on an unmapped scenario, a failed automated counterpart, missing or failed evidence, or a NOT RUN required scenario; it is never a blanket NOT APPLICABLE."
+    "darwin_about": "v0.8.x P1B (plan 14.3, MAC-045, D9), revised by the owner's P1B closeout instruction of 2026-11-15: every required scenario and the optional one, exactly one class each. automated: the same journey run by the in-process macOS driver (adapters/macos: real panels, real media, real FFmpeg, acts through Tk, file and message dialogs answered by in-process stand-ins that record the options the application gave them), judged on the evidence its 'evidence' list names (helpers/acceptance_report.DARWIN_EVIDENCE: journey-checks, real-screenshots -- the window server's picture of the application's own window at this run's SHA, PASS on helpers/visual_review.py -- and dialog-contract). No owner signature stands in for an automated check. The real NSOpenPanel and NSAlert are the darwin scenario macos-native-dialogs; what no automation can reach without a privacy grant is listed in darwin_p1b as BLOCKED with the grant it needs. pending_phase: mapped but not yet runnable on macOS, reported NOT RUN until that phase. not-applicable: only a test of the Windows input harness itself (reason windows-input-harness, control.* only), or the one journey whose subject is Windows' own installation-path limit (reason windows-only-installation-path-limit, setup.first-run-refuses-a-folder-too-deep only, keeping fresh-macos; owner P5-G exception 2026-11-18), each with an owner-reviewed reason id (helpers/acceptance_report.DARWIN_NA_SCOPE). A darwin acceptance stage fails on an unmapped scenario, a failed automated counterpart, missing or failed evidence, or a NOT RUN required scenario; it is never a blanket NOT APPLICABLE."
   },
   "darwin_scenarios": {
     "fresh-macos": {

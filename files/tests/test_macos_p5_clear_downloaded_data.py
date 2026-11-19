@@ -231,7 +231,7 @@ def test_clear_downloaded_data_is_an_automated_counterpart_now_with_the_evidence
     assert ar.darwin_map_problems(DARWIN, POLICY["acceptance"]["required_scenarios"], POLICY["acceptance"]["optional_scenarios"]) == []
 
 
-def test_the_folder_depth_first_run_journey_stays_pending_on_p5_and_is_reported_not_run():
+def test_nothing_is_pending_and_the_folder_depth_journey_is_not_applicable_on_macos():
     from types import SimpleNamespace
 
     sys.path.insert(0, str(GATE_DIR))
@@ -240,14 +240,14 @@ def test_the_folder_depth_first_run_journey_stays_pending_on_p5_and_is_reported_
     finally:
         sys.path.remove(str(GATE_DIR))
     pending = {sid: entry["pending_phase"] for sid, entry in DARWIN.items() if entry.get("pending_phase")}
-    assert pending == {"setup.first-run-refuses-a-folder-too-deep": "P5"}  # P5-F-R1 completed setup.first-run-choices-and-cancel
+    assert pending == {}  # P5-F-R1 completed setup.first-run-choices-and-cancel; P5-G mapped the folder-depth journey not applicable
 
     def shape(sid):
         return SimpleNamespace(id=sid, tool="setup", layers=("native",), tier="journey", summary="")
 
     assert acceptance_runner._not_run_on_macos(shape(SCENARIO), DARWIN[SCENARIO]) is None, "it runs now"
-    for sid in pending:
-        assert acceptance_runner._not_run_on_macos(shape(sid), DARWIN[sid])["status"] == "NOT RUN"
+    folder = "setup.first-run-refuses-a-folder-too-deep"
+    assert acceptance_runner._not_run_on_macos(shape(folder), DARWIN[folder])["status"] == "NOT APPLICABLE"
 
 
 def test_a_not_run_or_a_pass_without_evidence_for_this_scenario_is_not_an_automated_pass(tmp_path):
