@@ -171,6 +171,14 @@ ROUGH_CHARS_PER_PARAGRAPH = 40
 
 #: Below this much PCM (about 5.5 minutes of narration) a join takes no slot: ordinary paragraphs never touch the gate.
 ASSEMBLY_GATE_MIN_PCM_BYTES = 16 * 1024 ** 2
+#: v0.8.x P5 (macOS): whether a narration at or above :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` may be assembled in memory at all.
+#: On a Mac it never is: it goes to the disk route (:mod:`tts.disk_assembly`), which gives the same bytes. Measured on an
+#: Apple Silicon Mac (P5 closeout, the real narration of a 37-minute Edge file): the in-memory join, one
+#: ``combined += AudioSegment.from_file(part)`` per part, kept the memory of each superseded copy in the process, so its
+#: footprint grew with the square of the number of parts: 0.43 GiB for 32 paragraph parts, 4.86 GiB for 128 (101 MiB of
+#: PCM, where :func:`peak_bytes_for_pcm` budgets 0.37 GiB), 10 GiB by 232 (66 minutes). The disk route on the same 128
+#: parts: 28 MiB, the PCM identical. Every other platform keeps the gate's in-memory route, unchanged.
+IN_MEMORY_ASSEMBLY = sys.platform != "darwin"
 #: The most audio a file holds in memory while it is being synthesised (about 5.5 minutes): at this much, a paragraph
 #: writes what it has to disk and carries on, and a clip this long is never decoded into memory.
 SYNTHESIS_HELD_PCM_BYTES = 16 * 1024 ** 2
@@ -455,9 +463,11 @@ class AssemblyGate:
                 return False
         return True
 
-    def _route(self, need: int) -> Optional[bool]:
-        """True: assemble in memory. False: on disk. None: not yet."""
+    def _route(self, need: int, disk_only: bool = False) -> Optional[bool]:
+        """True: assemble in memory. False: on disk. None: not yet. ``disk_only``: never in memory (v0.8.x P5, macOS)."""
         memory = self._read()
+        if disk_only:
+            return False if self._disk_has_room(memory) else None
         usable = UNKNOWN_MEMORY_ASSEMBLY_BYTES if memory is None else memory_usable(memory)
         if self._claimed() + need <= usable:
             return True
@@ -516,9 +526,10 @@ class AssemblyGate:
 
     @contextlib.contextmanager
     def place(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-              note: Optional[Callable[[str], None]] = None):
+              note: Optional[Callable[[str], None]] = None, disk_only: bool = False):
         """A place for an assembly of ``need`` bytes for the duration of the ``with`` block: an :class:`AssemblyPlace`. Waits
-        while neither route has room.
+        while neither route has room. ``disk_only`` (v0.8.x P5, macOS): the in-memory route is never offered; the disk route's
+        room, its reservation, the wait, the failure and Cancel are exactly as for any assembly the gate sends to disk.
 
         ``cancel_check`` ends the wait at once with :class:`ConversionCancelled`, before any route is taken, whatever the file
         was waiting for (v0.7.2: finished narration has no route of its own past a Cancel). Raises :class:`AssemblyMemoryError`
@@ -541,7 +552,7 @@ class AssemblyGate:
                     if cancelled:
                         raise ConversionCancelled("Conversion cancelled by user.")
                     if self._queue[0] is ticket:
-                        route = self._route(need)
+                        route = self._route(need, disk_only)
                         if route is not None:
                             admitted = self._admit(need, route)
                             break
@@ -595,9 +606,14 @@ ASSEMBLY_GATE = AssemblyGate()
 def assembly_place(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
                    note: Optional[Callable[[str], None]] = None):
     """A place at :data:`ASSEMBLY_GATE` for assembling this much decoded audio. Below :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` it is
-    too little to matter, and takes no reservation."""
+    too little to matter, and takes no reservation. At or above it on a Mac (:data:`IN_MEMORY_ASSEMBLY` false) the place is
+    always on disk, and what it waits for and reserves is the disk route's own :data:`DISK_ASSEMBLY_BYTES`."""
     if pcm_bytes < ASSEMBLY_GATE_MIN_PCM_BYTES:
         yield AssemblyPlace(None, True, 0)
+        return
+    if not IN_MEMORY_ASSEMBLY:
+        with ASSEMBLY_GATE.place(DISK_ASSEMBLY_BYTES, cancel_check=cancel_check, note=note, disk_only=True) as admitted:
+            yield admitted
         return
     with ASSEMBLY_GATE.place(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, note=note) as admitted:
         yield admitted

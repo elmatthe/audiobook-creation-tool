@@ -37,6 +37,15 @@ from shared.job_control import JobContractError, JobController, JobState
 from tts import edge_requests, ffmpeg_watch, publication
 from tts import worker_limits as wl
 
+
+@pytest.fixture(autouse=True)
+def _in_memory_route_as_on_every_platform_but_macos(monkeypatch):
+    """v0.8.x P5: these tests are about the gate's in-memory route and its fall back to disk, which every platform but macOS
+    keeps (``worker_limits.IN_MEMORY_ASSEMBLY``). A Mac never assembles a narration that reaches the gate in memory
+    (``test_macos_p5_assembly_on_disk.py``). Pinned on here, these tests check the same thing on every machine."""
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", True)
+
+
 GB = 1024 ** 3
 MB = 1024 ** 2
 

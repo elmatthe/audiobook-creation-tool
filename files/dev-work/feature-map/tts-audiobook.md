@@ -287,6 +287,11 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   same MP3, byte for byte). If memory runs out anyway, the same audio is joined on disk without asking the service
   again; if even that fails, the file fails with a reason that names memory and suggests Retry Failed. Every FFmpeg is
   supervised: it cannot deadlock, and one that makes no progress for 300 s is stopped with a reason.
+- **macOS (v0.8.x P5):** a narration that reaches the gate (about 5.5 minutes of audio or more) is always joined on
+  disk, never in memory; the MP3 is the same, byte for byte. On a Mac the in-memory join kept the memory of every copy
+  it made on the way, so it grew with the square of the number of parts: measured on the real narration of a 37-minute
+  Edge file, 4.86 GiB for its 128 paragraphs (10 GiB by 66 minutes), where the disk route took 28 MB. Shorter joins, and
+  every other platform, are unchanged.
 
 ### Activity log, progress and estimate
 `ACT.TTS.ACTIVITY-LOG`
@@ -476,7 +481,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Persistence:** the loaded pipeline is cached per language for the life of the process.
 - **Differences:** the only engine with a speed control.
 - A speed typed outside 0.5 to 2.0, or not a finite number, is refused at Start with "Kokoro speed" before anything is frozen or reserved (ACT72-047, fixed in v0.7.2 Phase 6). The bitrate ceiling is described under the bitrate (ACT72-021).
-- **macOS (v0.8.x P2):** inference runs in one preemptible worker process (`local_engine_host.py`, `local_engine_worker.py`) started under the app's containment owner. The app sends each prepared chunk and keeps speech preparation, chunking, assembly, the one encode and publication; the PCM the worker hands back is checked (24 kHz, mono, finite, non-empty) before use. A worker that dies fails the file with an accurate message and the next file starts a fresh one. Runs on the CPU in fp32. Windows keeps Kokoro in process, unchanged.
+- **macOS (v0.8.x P2):** inference runs in one preemptible worker process (`local_engine_host.py`, `local_engine_worker.py`) started under the app's containment owner. The app sends each prepared chunk and keeps speech preparation, chunking, assembly, the one encode and publication; the PCM the worker hands back is checked (24 kHz, mono, finite, non-empty) before use. A worker that dies fails the file with an accurate message and the next file starts a fresh one. Runs on the CPU in fp32. Windows keeps Kokoro in process, unchanged. Long books (P5, measured on a Mac): the app holds the whole narration as 32-bit samples until the one encode, about 0.33 GiB per hour of audio (2.3 GiB in all for a 6.3-hour book), as Windows does in its own process; the worker's own footprint does not grow over a book (139 chunks: fitted trend -8.7 %), but its lifetime peak reached 7.29 GiB on that book, above any one chunk's 4.2-5.3 GiB in a fresh worker (cause not established).
 
 ### Chatterbox Turbo cloned-voice narration
 `ACT.TTS.ENGINE.CHATTERBOX`
