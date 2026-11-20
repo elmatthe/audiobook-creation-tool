@@ -37,6 +37,9 @@ published yet.
   removed, and the whole chapter failed with "the model returned unusable audio (shape (0,))" -- the cause of all 80
   chapters that failed in a long OmniVoice mass test. Such a paragraph now becomes a short pause (0.2 s) and the chapter completes;
   everything else sounds exactly as before, and a passage with words that comes back empty still fails. (Checkpoint C1)
+- **All 80 chapters that failed in the long OmniVoice mass test now narrate.** Regenerated with the real engine
+  (Male 3, RTX 5070) on this branch: 80 of 80 completed and passed full MP3 decoding, 8,337 of 8,337 passages rendered,
+  93 empty "..." paragraphs became 0.2 s pauses. No product code changed. (Checkpoint C2)
 - **MP3 Tool artwork dialog** opened in the import folder; it now has its own remembered folder, shared by Shared and
   Book artwork, and choosing artwork no longer changes where Import Folder and Add Files open. (Checkpoint A)
 
