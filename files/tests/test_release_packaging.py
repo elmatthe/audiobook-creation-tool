@@ -40,7 +40,10 @@ LAUNCHERS = {
     "Windows": "Setup_and_Run-audiobook-creation-tool.bat",
     "MacOS": "Setup_and_Run-audiobook-creation-tool.command",
 }
-ROOT_MEMBERS = {"README.md", "config.toml"}
+ROOT_MEMBERS = {"README.md", "config.toml", "LICENSE"}
+#: The canonical GNU GPL v3 text (https://www.gnu.org/licenses/gpl-3.0.txt, 674 lines), byte for byte. The upstream
+#: project (aedocw/epub2tts-edge) carries the identical file. Pinned so a paraphrase, an edit or a line-ending change fails.
+GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
 #: v0.8.0 (owner decision 2026-11-13): each cloned engine's own six recordings, in its own folder -- 18, one copy each.
 REFERENCE_MEMBERS = {
     f"files/Cloned-Voice-Uploads/{engine}/{engine} - {voice}.wav"
@@ -102,6 +105,7 @@ def fake_repo(root: Path, config_text: str = SHIPPABLE_CONFIG) -> Path:
         'VERSION = "9.9.9"\n', encoding="utf-8")
     (root / "README.md").write_text("readme\n", encoding="utf-8")
     (root / "config.toml").write_text(config_text, encoding="utf-8")
+    (root / "LICENSE").write_bytes((REPO_ROOT / "LICENSE").read_bytes())
     (root / "config-template.toml").write_text("# unrelated maintainer file\n", encoding="utf-8")
     for launcher in LAUNCHERS.values():
         (root / launcher).write_text("launcher\n", encoding="utf-8")
@@ -476,6 +480,73 @@ def test_the_real_archives_carry_no_untracked_file(archives):
         assert untracked == []
 
 
+# --------------------------------------------------------------------------- #
+# The GPL-3.0 text ships with every archive (v0.8.0 macOS Revision 1)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_committed_license_is_the_canonical_gpl3_text_byte_for_byte():
+    data = (REPO_ROOT / "LICENSE").read_bytes()
+    assert hashlib.sha256(data).hexdigest() == GPL3_SHA256
+    assert b"\r" not in data, "the text ships with LF endings on every platform"
+    assert data.startswith(b"                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n")
+    assert data.rstrip().endswith(b"<https://www.gnu.org/licenses/why-not-lgpl.html>.")
+    assert data.count(b"\n") == 674
+    attributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert "LICENSE text eol=lf" in attributes, "pinned to LF so no checkout can alter the shipped bytes"
+
+
+def test_the_license_is_tracked_by_git():
+    tracked = git(REPO_ROOT, "ls-files", "-z", "--", "LICENSE").split("\0")
+    assert "LICENSE" in tracked, "an untracked LICENSE would not be a committed, auditable release input"
+
+
+def test_the_packager_allowlist_names_the_license_and_no_other_root_file():
+    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE")
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_each_archive_carries_the_complete_unmodified_license_at_its_root_once(archives, os_name):
+    assert names(archives[os_name]).count("LICENSE") == 1
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        data = zf.read("LICENSE")
+        assert data == (REPO_ROOT / "LICENSE").read_bytes(), "the member is the committed file, byte for byte"
+        assert hashlib.sha256(data).hexdigest() == GPL3_SHA256
+        assert zf.getinfo("LICENSE").file_size == len(data) and zf.testzip() is None
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_the_license_is_not_executable_and_is_not_a_link(archives, os_name):
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        mode = zf.getinfo("LICENSE").external_attr >> 16
+    assert mode in (0, 0o100644, 0o100666, 0o100664) or not (mode & 0o111), oct(mode)
+    assert (mode & 0o170000) != 0o120000
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_the_license_does_not_displace_the_other_root_members(archives, os_name):
+    assert {n for n in names(archives[os_name]) if "/" not in n} == ROOT_MEMBERS | {LAUNCHERS[os_name]}
+
+
+@pytest.mark.parametrize("action", ["delete", "untrack"])
+def test_the_license_cannot_be_missing_or_untracked(tmp_path, action):
+    root = fake_repo(tmp_path / "repo")
+    if action == "delete":
+        (root / "LICENSE").unlink()
+    else:
+        git(root, "rm", "--cached", "--", "LICENSE")
+        git(root, "commit", "-qm", "untrack the licence in the fixture")
+    dist = tmp_path / "dist"
+    assert run_main(root, dist) != 0
+    assert not dist.exists() or not any(dist.iterdir())
+
+
+def test_the_readme_points_at_the_bundled_license_and_that_link_resolves():
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "](LICENSE)" in readme
+    assert (REPO_ROOT / "LICENSE").is_file()
+
+
 def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
     """Fail closed: without git there is no way to tell committed from local."""
     root = tmp_path / "plain"
@@ -501,7 +572,7 @@ def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
 
 
 @pytest.mark.parametrize("edited", [
-    "scripts/launcher.py", "README.md", "config.toml",
+    "scripts/launcher.py", "README.md", "config.toml", "LICENSE",
     "Setup_and_Run-audiobook-creation-tool.bat",
     "Setup_and_Run-audiobook-creation-tool.command",
 ] + sorted(REFERENCE_MEMBERS))

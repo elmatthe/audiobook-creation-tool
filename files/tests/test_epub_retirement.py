@@ -723,7 +723,7 @@ def test_the_archive_is_not_importable_through_production():
 def test_the_release_packager_can_never_reach_the_archive():
     from shared import release
 
-    assert release.ROOT_FILES == ("README.md", "config.toml")
+    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE")
     assert release.SCRIPTS_DIR.name == "scripts"
     assert not str(ARCHIVE).startswith(str(release.SCRIPTS_DIR))
     text = (SHARED / "release.py").read_text(encoding="utf-8")

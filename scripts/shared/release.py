@@ -97,7 +97,10 @@ ENTRY_FILES = {
 # ``config.toml`` is packaged byte-for-byte as committed — the packager never
 # generates, edits or substitutes it, and a clean extraction reads its documented
 # defaults from the archive root.
-ROOT_FILES = ("README.md", "config.toml")
+# ``LICENSE`` (v0.8.0 macOS Revision 1) is the complete, unmodified GNU GPL v3 text. The project inherits GPL-3.0 from
+# epub2tts-edge (README, Credits / License), and a distributed copy has to carry the licence itself, not only a link.
+# Like every root file it must be tracked and committed: ``_write_archive`` refuses an untracked one.
+ROOT_FILES = ("README.md", "config.toml", "LICENSE")
 
 # CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
 # extra recordings, transcripts, the owner's upload archive, derivatives and caches
@@ -285,6 +288,10 @@ def _write_archive(os_name: str, zip_path: Path) -> tuple[list[tuple[str, Path]]
             raise FileNotFoundError(f"Required root file missing: {required}")
     _refuse_developer_mode((REPO_ROOT / "config.toml").read_bytes(), "the checkout")
     tracked = _tracked_scripts()
+    tracked_root = set(_git("ls-files", "-z", "--", *ROOT_FILES).split("\0"))
+    for name in ROOT_FILES:
+        if name not in tracked_root:
+            raise ReleaseError(f"Required root file is not tracked by git: {name}")
     tracked_assets = set(_git("ls-files", "-z", "--", *REFERENCE_ASSETS).split("\0"))
     for name in REFERENCE_ASSETS:
         if name not in tracked_assets or not (REPO_ROOT / name).is_file():

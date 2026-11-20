@@ -49,6 +49,7 @@ that a later retry re-uses rather than re-invents. The two source-side modes and
 their four-gate destructive contract are unchanged.
 """
 
+import contextlib
 import gc
 import io
 import math
@@ -355,6 +356,53 @@ def _ask_replacement(parent, title: str, message: str, confirm_label: str,
         pass
     win.wait_window()
     return bool(win.result["ok"])
+
+
+# ---------- Cancel ordered against publication (v0.8.0 macOS Revision 1) ----------
+
+
+def _stop_if_cancelled(cancel_event, controller) -> None:
+    """Stop this image now if a Cancel was pressed. Raises :class:`ConversionCancelled`.
+
+    The panel's cancel event is set before the controller is told, so a Cancel that has
+    been pressed but not yet latched is latched here, by the worker, and acknowledged
+    (``checkpoint`` records it). Only a Cancel does this: a Pause is honoured between
+    images, never inside one. Saves work only; the authority is
+    :func:`_authorized_publication`.
+    """
+    if not cancel_event.is_set():
+        return
+    if controller is not None:
+        controller.request_cancel()
+        controller.checkpoint()          # raises ConversionCancelled, and records the acknowledgement
+    raise ConversionCancelled("Cancelled.")
+
+
+@contextlib.contextmanager
+def _authorized_publication(cancel_event, controller):
+    """One attempt to make an image final, ordered against Cancel.
+
+    With a controller, ``authorize_commit`` decides under the lock the Cancel latch is
+    taken under: Cancel or this publication, exactly one. A grant is recorded, the body
+    runs with no lock held, and ``commit_finished`` gives it back however the body
+    ends. A refusal acknowledges the Cancel and raises :class:`ConversionCancelled`
+    without running the body. Without a controller (a plain, unreported batch) there is
+    no latch to be ordered against, so this is a last look at the panel's event.
+    """
+    if controller is None:
+        if cancel_event.is_set():
+            raise ConversionCancelled("Cancelled.")
+        yield
+        return
+    if cancel_event.is_set():
+        controller.request_cancel()      # pressed, not yet latched: latch it before asking
+    if not controller.authorize_commit():
+        controller.checkpoint()          # acknowledges the Cancel (raises ConversionCancelled)
+        raise ConversionCancelled("Cancelled.")
+    try:
+        yield
+    finally:
+        controller.commit_finished()
 
 
 # ---------- image logic ----------
@@ -3203,8 +3251,9 @@ class CoverResizerUI(ttk.Frame):
                 cancelled = True
                 break
 
-            temp_out = None
+            staged = None
             succeeded = False
+            aborted = False
             if reporter is not None and item_id is not None:
                 reporter.current_item(item_id, f"Resizing {in_file.name}")
             # The measurement brackets this image's own work and nothing else —
@@ -3216,11 +3265,6 @@ class CoverResizerUI(ttk.Frame):
             try:
                 planned_name = in_file.stem + written_suffix(in_file.suffix)
                 if mode == ACTION_REPLACE:
-                    # A complete sibling is written first; the original stays
-                    # untouched until the atomic install below succeeds.
-                    temp_out = output_paths.temporary_sibling(
-                        in_file, suffix=written_suffix(in_file.suffix)
-                    )
                     final_out = in_file
                 elif mode == ACTION_NUMBERED:
                     final_out = source_planner.plan_beside(in_file, name=planned_name)
@@ -3235,14 +3279,21 @@ class CoverResizerUI(ttk.Frame):
                     final_out = planner.plan(planned_name)
                     output_paths.assert_not_input(final_out, files)
 
+                # Every mode writes a complete private sibling first (v0.8.0 macOS
+                # Revision 1). Nothing carries its final name until the image is
+                # whole, and a replacement's original stays untouched until the
+                # one authorized install below.
+                staged = output_paths.temporary_sibling(
+                    final_out, suffix=written_suffix(in_file.suffix)
+                )
+
                 self._log_q.put(("log", f"\n[{idx}/{total}] Resizing:\n {in_file}\n -> {final_out}\n"))
 
-                written = resize_for_audiobook(
-                    in_file,
-                    temp_out if temp_out is not None else final_out,
-                    size=size,
-                    letterbox=letterbox,
-                )
+                # A Cancel that arrived since the checkpoint is not worth a decode.
+                # This look only saves work; the authorization below is what decides.
+                _stop_if_cancelled(self._cancel_event, controller)
+
+                written = resize_for_audiobook(in_file, staged, size=size, letterbox=letterbox)
 
                 if mode == ACTION_REPLACE:
                     # Validate the finished image before installing it, so a
@@ -3253,21 +3304,45 @@ class CoverResizerUI(ttk.Frame):
                             raise ValueError(
                                 f"resized image is {check.size}, expected {(size, size)}"
                             )
-                    output_paths.atomic_replace(written, final_out)
-                    temp_out = None       # ownership transferred by the replace
-                    replaced += 1
+
+                # Cancel or this publication: whichever takes the controller's lock
+                # first wins, and both know. Granted, the publication runs with no
+                # lock held, so a slow filesystem cannot hold Cancel up, and a Cancel
+                # that lost to it leaves the finished image in place (never rolled
+                # back) and stops the run at the next checkpoint. Denied, the
+                # run stops here and this image is not published.
+                with _authorized_publication(self._cancel_event, controller):
+                    if mode == ACTION_REPLACE:
+                        output_paths.atomic_replace(written, final_out)
+                        replaced += 1
+                    else:
+                        output_paths.publish_new(written, final_out)
+                staged = None             # ownership transferred by the publication
 
                 self._log_q.put(("log", " ✓ Done\n"))
                 succeeded = True
                 if item_id is not None:
                     completed.append(item_id)
 
+            except ConversionCancelled:
+                # Cancel won before this image became final. Remove only this
+                # operation's own staging file; the original and every earlier
+                # result stay exactly as they are. The image is not a completed
+                # item, so it is not reported as one.
+                aborted = True
+                cancelled = True
+                try:
+                    output_paths.discard_temporary(staged)
+                except output_paths.OutputPathError:
+                    pass
+                self._log_q.put(("log", " ✗ Cancelled before this image was saved.\n"))
+
             except Exception as e:
                 # Remove only this operation's own temporary artifact. The
                 # original is byte-for-byte untouched, because the replacement
                 # boundary was never crossed.
                 try:
-                    output_paths.discard_temporary(temp_out)
+                    output_paths.discard_temporary(staged)
                 except output_paths.OutputPathError:
                     pass
                 self._log_q.put(("log", f" ✗ Error: {e}\n"))
@@ -3291,10 +3366,15 @@ class CoverResizerUI(ttk.Frame):
                     self._log_q.put((TIMING_MESSAGE, TimingSample(
                         run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
                         duration=float(ended) - float(started))))
-                if reporter is None:
+                if aborted:
+                    pass                  # an image that was never saved is not progress
+                elif reporter is None:
                     self._log_q.put(("progress", (idx, total)))
                 else:
                     reporter.progress(idx, total, item_id=item_id, stage=STAGE_RESIZE)
+
+            if aborted:
+                break
 
         # Truthful about a partial batch: anything already installed stays
         # installed, and cancellation never rolls a completed replacement back.

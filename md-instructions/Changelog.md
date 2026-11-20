@@ -47,6 +47,20 @@ Force Quit check. v0.8.1 is the next shared Windows + macOS release.
 - The version may carry build metadata (`X.Y.Z+build`), and an archive is named after its tag (`release.release_tag`),
   because GitHub rewrites `+` in asset names. The ordinary build makes the macOS archive only.
 
+**Fixed (pre-merge remediation, found by the independent final review)**
+- **Cover Image: Cancel is ordered against saving.** A Cancel pressed after the between-images checkpoint could still
+  resize an image, install it over the original (Replace Original) and finish as SUCCEEDED. Every image is now written
+  to a private staging file first and made final only after `JobController.authorize_commit()` grants it, under the lock
+  the Cancel latch is taken under, so exactly one of Cancel and the save wins. A Cancel that wins discards the staging
+  file, leaves the original and every earlier result untouched, starts no further image and finishes CANCELLED; a save
+  that won is never rolled back. The replacement confirmation, Pause and Resume are unchanged.
+- **Cover Image: no unfinished file under a final name.** Standard and numbered-beside-source saves were encoded directly
+  to their final name; they now stage and publish by an exclusive new-name rename, so a name taken meanwhile is never
+  overwritten and an interrupted save leaves no partial image.
+- **The complete GNU GPL v3 text ships in the archive** as `LICENSE` (the project inherits GPL-3.0 from
+  epub2tts-edge). It is the canonical text, byte for byte, tracked and pinned to LF; the packager's root allowlist now
+  names it and refuses a root file that git does not track. No model weights are added or redistributed.
+
 ---
 
 ## [0.8.0] - 2026-11-14 — OmniVoice; Windows release on maintainer-accepted verification evidence (macOS pending)
