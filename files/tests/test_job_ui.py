@@ -1661,9 +1661,10 @@ def test_the_status_view_shows_the_stage_and_the_current_item(parent):
     assert view.stage_text == ""
 
 
-def test_the_eta_starts_as_calculating_and_shows_only_what_it_is_given(parent):
+def test_the_eta_starts_empty_and_shows_only_what_it_is_given(parent):
+    """ACT72-079: a status view with no run behind it estimates nothing, so it says nothing."""
     view = job_ui.JobStatusView(parent)
-    assert view.eta_text == CALCULATING
+    assert view.eta_text == ""
     view.set_eta("1m 30s")
     assert view.eta_text == "1m 30s"
 
@@ -1774,7 +1775,7 @@ def test_a_fresh_adapter_is_idle_and_says_nothing_it_does_not_know(parent, pump)
     assert adapter.state is JobState.IDLE
     assert adapter.views.summary == ()
     assert adapter.views.details == ()
-    assert adapter.status.eta_text == CALCULATING
+    assert adapter.status.eta_text == "", "nothing is running, so nothing is being estimated (ACT72-079)"
     assert adapter.status.view.mode is ProgressMode.IDLE
     assert adapter.has_retryable is False
 
@@ -2012,30 +2013,103 @@ def test_the_eta_is_exactly_what_the_estimator_says(parent, pump):
     assert adapter.status.eta_text == "2s", "one unit left at two seconds each"
 
 
-def test_the_eta_is_calculating_while_paused_and_after_the_ending(parent, pump):
-    clock = FakeClock()
-    publisher = Publisher(clock=clock)
-    estimator = EtaEstimator("run-1", clock=clock)
-    adapter = job_adapter(parent, pump, publisher, estimator=estimator)
+def _three_one_second_samples(clock, estimator):
     for _ in range(3):
         estimator.begin("convert")
         clock.advance(1.0)
         estimator.complete()
+
+
+def test_the_eta_says_nothing_while_paused_and_returns_on_resume(parent, pump):
+    """ACT72-079: a paused run is not working, so nothing is being estimated; the estimate comes back on resume.
+
+    Pause *requested* is still work (§6.10: the stage runs on to its checkpoint), so the estimate stays.
+    """
+    clock = FakeClock()
+    publisher = Publisher(clock=clock)
+    estimator = EtaEstimator("run-1", clock=clock)
+    adapter = job_adapter(parent, pump, publisher, estimator=estimator)
+    publisher.reporter.state_changed(snapshot_for(JobState.RUNNING))
+    _three_one_second_samples(clock, estimator)
     publisher.reporter.progress(1, 3)
     pump.tick()
     assert adapter.status.eta_text == "2s"
 
+    publisher.reporter.state_changed(snapshot_for(JobState.PAUSE_REQUESTED))
+    pump.tick()
+    assert adapter.status.eta_text == "2s", "the stage is still running to its checkpoint"
+
     publisher.reporter.state_changed(snapshot_for(JobState.PAUSED))
     pump.tick()
-    assert adapter.status.eta_text == CALCULATING
+    assert adapter.status.eta_text == ""
+    assert adapter.status.status_text == "Paused."
 
     publisher.reporter.state_changed(snapshot_for(JobState.RUNNING))
     pump.tick()
     assert adapter.status.eta_text == "2s"
 
-    publisher.reporter.completed(snapshot_for(JobState.SUCCEEDED))
+
+@pytest.mark.parametrize("ending", [JobState.SUCCEEDED, JobState.COMPLETED_WITH_FAILURES, JobState.FAILED])
+def test_an_ended_run_says_nothing_about_time_left_and_keeps_its_count(parent, pump, ending):
+    """ACT72-079: "Calculating…" beside 100 % once a run had finished (Cover, Maker). An ended run estimates nothing."""
+    clock = FakeClock()
+    publisher = Publisher(clock=clock)
+    estimator = EtaEstimator("run-1", clock=clock)
+    adapter = job_adapter(parent, pump, publisher, estimator=estimator)
+    publisher.reporter.state_changed(snapshot_for(JobState.RUNNING))
+    publisher.reporter.progress(0, 2)
     pump.tick()
-    assert adapter.status.eta_text == CALCULATING
+    assert adapter.status.eta_text == CALCULATING, "running, fewer than three samples: an estimate is being formed"
+
+    publisher.reporter.progress(2, 2)
+    publisher.reporter.completed(snapshot_for(ending))
+    pump.tick()
+    assert adapter.state is ending
+    assert adapter.status.eta_text == ""
+    assert (adapter.status.view.completed, adapter.status.view.total) == (2, 2)
+
+
+def test_a_cancelled_run_says_nothing_about_time_left_and_keeps_the_count_it_reached(parent, pump):
+    """ACT72-079: "3/6 50 %" with "Calculating…" after Cancel (Converter). Cancelling and cancelled are not work."""
+    clock = FakeClock()
+    publisher = Publisher(clock=clock)
+    estimator = EtaEstimator("run-1", clock=clock)
+    adapter = job_adapter(parent, pump, publisher, estimator=estimator)
+    publisher.reporter.state_changed(snapshot_for(JobState.RUNNING))
+    _three_one_second_samples(clock, estimator)
+    publisher.reporter.progress(3, 6)
+    pump.tick()
+    assert adapter.status.eta_text == "3s"
+
+    publisher.reporter.state_changed(snapshot_for(JobState.CANCEL_REQUESTED))
+    pump.tick()
+    assert adapter.status.eta_text == ""
+    assert adapter.status.status_text == "Cancelling…"
+
+    publisher.reporter.cancelled(snapshot_for(JobState.CANCELLED))
+    pump.tick()
+    assert adapter.state is JobState.CANCELLED
+    assert adapter.status.eta_text == ""
+    assert (adapter.status.view.completed, adapter.status.view.total) == (3, 6)
+
+
+def test_a_run_that_has_reported_nothing_yet_shows_no_estimate(parent, pump):
+    """Starting: the adapter exists, the worker has not said anything, so there is nothing to estimate from yet."""
+    clock = FakeClock()
+    publisher = Publisher(clock=clock)
+    estimator = EtaEstimator("run-1", clock=clock)
+    adapter = job_adapter(parent, pump, publisher, estimator=estimator)
+    pump.tick()
+    assert adapter.status.eta_text == ""
+    publisher.reporter.state_changed(snapshot_for(JobState.RUNNING))
+    pump.tick()
+    assert adapter.status.eta_text == CALCULATING, "running: the estimate is being formed"
+
+
+def test_the_estimate_text_is_decided_by_the_state_alone():
+    """The one mapping, in one place: only a working run is estimated."""
+    working = {state for state in JobState if job_ui.eta_is_estimated(state)}
+    assert working == {JobState.RUNNING, JobState.PAUSE_REQUESTED}
 
 
 def test_an_unknown_total_has_no_eta(parent, pump):

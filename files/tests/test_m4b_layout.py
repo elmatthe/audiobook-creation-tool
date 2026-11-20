@@ -26,7 +26,7 @@ And one of height: the fixed bands alone left the Maker 154 px and the Editor
 each need ~175 and ~137 — before any of the width remedies, each of which
 folds a band onto more lines. The maintainer ruled (2026-09-15) that the
 macOS minimum, and the size the launcher opens at, is ``ui_theme.AQUA_MIN_SIZE``
-= 1024x800; Windows keeps 920x600. The remedies are aqua layout hints read
+= 1120x800 (1024x800 until v0.8.x P1B re-measured it on Aqua Tk 9); Windows keeps 920x600. The remedies are aqua layout hints read
 through each panel's ``_layout_hints`` seam with the Windows values as
 defaults — the same mechanism as the MP3 Tool's Phase 12 fix.
 
@@ -427,24 +427,26 @@ def test_a_larger_window_expands_the_variable_regions(fake_settings, tk_root, to
 def test_the_aqua_minimum_is_the_default_and_the_shell_enforces_it(fake_settings, tk_root):
     """The ruled contract, pinned where it is enforced: the real launcher.
 
-    ``ui_theme.AQUA_MIN_SIZE`` is 1024x800 (v0.6.4 Phase 13 maintainer
-    ruling, superseding the 1024x720 of v0.6.3) and equals the geometry the
-    shell opens at; the shell's ``minsize`` is that, so a Mac window cannot
-    be dragged to a size the composition was never accepted at. Windows keeps
+    ``ui_theme.AQUA_MIN_SIZE`` is the smallest window the aqua composition
+    fits: 1024x800 by the v0.6.4 Phase 13 maintainer ruling (superseding the
+    1024x720 of v0.6.3), re-measured on the app's own Aqua Tk 9.0.4 in v0.8.x
+    P1B as 1120x800 (the width only). It equals the geometry the shell opens
+    at; the shell's ``minsize`` is that, so a Mac window cannot be dragged to
+    a size the composition was never accepted at. Windows keeps
     ``ui_theme.MIN_SIZE`` — see ``test_ui_theme.py``.
     """
-    assert ui_theme.AQUA_MIN_SIZE == (1024, 800)
+    assert ui_theme.AQUA_MIN_SIZE == (1120, 800)
     assert ui_theme.MIN_SIZE == (920, 600)
     existing = set(tk_root.winfo_children())
     try:
-        app = _fresh_shell(tk_root, "1024x800", "m4b_metadata")
+        app = _fresh_shell(tk_root, "1120x800", "m4b_metadata")
         assert app.theme["mode"] == "aqua"
         assert tuple(app.theme["min_size"]) == ui_theme.AQUA_MIN_SIZE
-        assert app.theme["geometry"] == "1024x800"
+        assert app.theme["geometry"] == "1120x800"
         assert tuple(tk_root.minsize()) == ui_theme.AQUA_MIN_SIZE
-        # Asking for the earlier aqua minimum no longer produces a smaller window.
+        # Asking for the earlier aqua minimums no longer produces a smaller window.
         tk_root.geometry("1024x720")
         _settled(tk_root)
-        assert tk_root.winfo_width() >= 1024 and tk_root.winfo_height() >= 800
+        assert tk_root.winfo_width() >= 1120 and tk_root.winfo_height() >= 800
     finally:
         _tear_down_shell(tk_root, existing)

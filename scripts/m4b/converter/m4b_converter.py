@@ -26,6 +26,7 @@
 # interiors use; the old raw "Log" box became Activity's Detailed pane. No
 # conversion, metadata, chapter, artwork, numbering, retry or output rule moved.
 
+import contextlib
 import gc
 import queue
 import sys
@@ -1119,7 +1120,7 @@ class M4BConverterUI(ttk.Frame):
         # copies every state it actually reaches into the event stream, so the
         # panel keeps no rival state machine beside it.
         self._controller = job_control.JobController(
-            run.snapshot_id, listener=self._on_state)
+            run.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
         self._install_jobs(run.snapshot_id, run.item_ids)
         self._reporter = job_control.JobReporter.for_run(
             run, clock=self._clock, publish=self._publish)
@@ -1240,7 +1241,7 @@ class M4BConverterUI(ttk.Frame):
 
         self._attempt += 1
         self._controller = job_control.JobController(
-            run.snapshot_id, listener=self._on_state)
+            run.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
         # The retired adapter is closed inside here, which drops its drain: one
         # pump, one job drain and one scheduled callback however many attempts a
         # run takes. The new adapter holds no result, so Retry Failed is
@@ -1546,7 +1547,10 @@ class M4BConverterUI(ttk.Frame):
             # ends, however it ends (v0.7.2 Phase 7B): the body closes each one on
             # every route out of its book, and this is the backstop for a route
             # the body never reached.
-            with m4b_continuous.owned_decoders():
+            controller = params.get("controller")
+            # v0.8.x P5-I-R3: every contained FFmpeg/ffprobe of this run is ordered against its Cancel and settled with it.
+            run = sp.run_context(controller.cancel_check) if controller is not None else contextlib.nullcontext()
+            with m4b_continuous.owned_decoders(), run:
                 self._run_conversion(params)
         except ConversionCancelled:
             # The body handles its own cancellation and sends ``done``. Reaching
@@ -1574,8 +1578,11 @@ class M4BConverterUI(ttk.Frame):
         controller = params.get("controller")
         reporter = params.get("reporter")
         try:
-            if controller is not None and exc is not None:
-                final = controller.fail(message, detail)
+            problem = (sp.containment_problem(controller.cancel_check) if controller is not None else None)
+            if controller is not None and (exc is not None or problem is not None):
+                # v0.8.x P5-I-R3: never CANCELLED with a contained process of the run not confirmed ended.
+                final = controller.fail(message if exc is not None else sp.CONTAINMENT_FAILED_MESSAGE,
+                                        detail if exc is not None else problem)
                 if reporter is not None:
                     reporter.completed(final)
             elif controller is not None:
@@ -1685,6 +1692,9 @@ class M4BConverterUI(ttk.Frame):
                 return True
             return controller is not None and controller.cancel_check()
 
+        # v0.8.x P5-I-R3 remediation 2: settle_bound finds the Cancel click through it (the packet scan's stop window).
+        asked_to_stop.controller = controller
+
         try:
             for entry in (() if retrying else imported):
                 checkpoint()
@@ -1692,7 +1702,9 @@ class M4BConverterUI(ttk.Frame):
                     reporter.current_item(
                         entry.occurrence_id, f"Examining {entry.path.name}")
                 self._log_q.put(("log", f"  Examining {entry.path.name}…\n"))
-                reports[entry.occurrence_id] = m4b_probe.probe_source(entry.path)
+                # v0.8.x P5-I-R3: a probe answers to the run's Cancel (stopped, raises ConversionCancelled -- handled below).
+                with sp.cancellable(controller.cancel_check if controller is not None else asked_to_stop):
+                    reports[entry.occurrence_id] = m4b_probe.probe_source(entry.path)
                 recovery = reports[entry.occurrence_id].chapter_recovery
                 if recovery:
                     if reports[entry.occurrence_id].original_probe is not None:
@@ -2141,6 +2153,17 @@ class M4BConverterUI(ttk.Frame):
                         pass
                     break
 
+        containment_failed = False
+        problem = None
+        if snapshot is not None and controller is not None:
+            # v0.8.x P5-I-R3: finished or cancelled only once every contained process of the run is confirmed ended --
+            # asked BEFORE the result is settled (remediation 9), so the one RunResult and the one terminal event agree.
+            problem = sp.containment_problem(controller.cancel_check)
+            if problem is not None:
+                cancelled, containment_failed = False, True
+                failures.append(FailureRecord(
+                    item_id=None, stage=STAGE_CONVERT, display_message=sp.CONTAINMENT_FAILED_MESSAGE,
+                    technical_detail=problem, retryable=False, snapshot_id=snapshot.snapshot_id))
         if snapshot is not None:
             if retrying and prior is not None:
                 # **The run, not the attempt.** A retry re-ran a subset, so
@@ -2158,7 +2181,11 @@ class M4BConverterUI(ttk.Frame):
                     snapshot, log, completed_ids=tuple(completed),
                     cancelled=cancelled)
             if controller is not None:
-                if cancelled:
+                if problem is not None:
+                    if reporter is not None:
+                        reporter.technical(problem)
+                    final = controller.fail(sp.CONTAINMENT_FAILED_MESSAGE, problem)
+                elif cancelled:
                     final = controller.finish_cancelled()
                 elif settled.state is JobState.COMPLETED_WITH_FAILURES:
                     final = controller.complete_with_failures()
@@ -2174,7 +2201,9 @@ class M4BConverterUI(ttk.Frame):
                         reporter.completed(final)
             self._log_q.put((RESULT_MESSAGE, settled))
 
-        if cancelled:
+        if containment_failed:
+            self._log_q.put(("done", (f"\n{sp.CONTAINMENT_FAILED_MESSAGE}\n", outdir)))
+        elif cancelled:
             self._log_q.put(("done", (f"\nCancelled. Output so far: {outdir}\n", outdir)))
         elif outdir is None:
             self._log_q.put((
@@ -2573,7 +2602,7 @@ class M4BConverterUI(ttk.Frame):
             controller.request_cancel()
         worker = self._worker
         if worker is not None and hasattr(worker, "join"):
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         self._worker = None
         jobs = getattr(self, "jobs", None)
         if jobs is not None:

@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional
 
+from shared import engine_policy
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
 from shared.optional_setup_protocol import (APPROXIMATE, BAD_BUNDLE, CHATTERBOX, DAMAGED, EXACT, KOKORO, MANIFEST,
@@ -477,7 +478,7 @@ def _omnivoice_plan(facts: Facts) -> tuple[tuple[str, str], list[Unit]]:
     if not facts.is_64bit:
         return (UNSUPPORTED, "OmniVoice needs 64-bit Windows and Python"), []
     if facts.gpu is False:
-        return (UNSUPPORTED, ov.NO_GPU_MESSAGE), []
+        return (UNSUPPORTED, ov.no_gpu_message()), []
     if ov.assess_engine().state != ov.ENGINE_READY:
         too_deep = ov.install_depth_problem()  # only an engine not yet proved here: one that works is never refused
         if too_deep:
@@ -487,7 +488,8 @@ def _omnivoice_plan(facts: Facts) -> tuple[tuple[str, str], list[Unit]]:
     gpu_reason = ""
     if facts.gpu is None:
         parts.append(UNVERIFIED)
-        gpu_reason = ("this computer's graphics card has not been checked yet (OmniVoice needs an NVIDIA GPU); it is "
+        needs = "Apple Silicon" if ov._system() == "darwin" else "an NVIDIA GPU"
+        gpu_reason = (f"this computer's graphics card has not been checked yet (OmniVoice needs {needs}); it is "
                       "checked before anything is downloaded")
     references = _omnivoice_reference_problem()
     if references:
@@ -602,19 +604,38 @@ def _writes(unit: Unit) -> bool:
     return any(figure.bytes is None or figure.bytes > 0 for figure in (unit.download, unit.disk, unit.temp))
 
 
+def _not_offered(component: str) -> tuple[str, str]:
+    """macOS P4C: the readiness of a component whose engine this platform does not offer (``shared.engine_policy``).
+    Unsupported, so nothing about it is checked, planned, consented, acquired or repaired."""
+    return UNSUPPORTED, engine_policy.not_offered_message(engine_policy.COMPONENT_ENGINES[component])
+
+
+def _mac_roster() -> bool:
+    """Whether this platform offers the Mac's engines only (macOS P4C); the plan's wording then names no other."""
+    return engine_policy.offered_engines() == engine_policy.MACOS_ENGINES
+
+
 def _base_packages() -> dict:
+    if _mac_roster():
+        note = ("The app's Python packages are installed whatever is chosen here, and include the Kokoro engine's "
+                "packages (torch among them) even when every optional model is skipped. The sizes above for each "
+                "choice are the models and the OmniVoice engine only, on top of these packages.")
+    else:
+        note = ("The app's Python packages are installed whatever is chosen here, and include the Kokoro and "
+                "Chatterbox engines' packages (torch among them) even when every optional model is skipped. The sizes "
+                "above for each choice are the models and the Qwen3 engine only, on top of these packages.")
     return {
         "download": NOT_KNOWN.to_json(),
         "installed": Figure(BASE_PACKAGES_INSTALLED_BYTES, APPROXIMATE).to_json(),
-        "note": ("The app's Python packages are installed whatever is chosen here, and include the Kokoro and "
-                 "Chatterbox engines' packages (torch among them) even when every optional model is skipped. The sizes "
-                 "above for each choice are the models and the Qwen3 engine only, on top of these packages."),
+        "note": note,
     }
 
 
 def _hardware(facts: Facts, context: str) -> dict:
     gpu: dict = {"probed": False, "name": None, "memory_mb": None}
-    if not rt.platform_supported():
+    if not engine_policy.is_offered(engine_policy.QWEN3):
+        qwen = engine_policy.not_offered_message(engine_policy.QWEN3)
+    elif not rt.platform_supported():
         qwen = rt.platform_reason()
     elif context == CONTEXT_MAIN and facts.probe_hardware:
         found = rt.detect_gpu()
@@ -630,24 +651,40 @@ def _hardware(facts: Facts, context: str) -> dict:
         "python": None if context == CONTEXT_PRE_VENV else ".".join(str(p) for p in facts.python[:2]),
         "gpu": gpu,
         "qwen3": qwen,
-        "limits": [
+        "limits": MAC_LIMITS if _mac_roster() else [
             "Windows 10/11 x64 are qualification targets; other Windows builds and security policies are unproved.",
             "Qwen3 is Windows-only and needs the app's CPython 3.12 (its packages are locked for Windows x64).",
             "Kokoro and Chatterbox need the app's environment on CPython 3.11 or 3.12, 64-bit.",
             "No speed is promised: Kokoro, Chatterbox and Qwen3 also run on the CPU, more slowly.",
+            OMNIVOICE_MAC_LIMIT if ov._system() == "darwin" else
             "OmniVoice is Windows-only and needs an NVIDIA GPU; it does not run on the CPU alone.",
         ],
         "omnivoice": _omnivoice_hardware(facts, context),
     }
 
 
+#: macOS P4B: what the plan says about OmniVoice's hardware on a Mac (Windows' line is unchanged).
+OMNIVOICE_MAC_LIMIT = ("OmniVoice on a Mac needs Apple Silicon: it runs on the Mac's GPU, or on its processor if chosen in "
+                       "config.toml; no speed is promised.")
+#: macOS P4C: a Mac's limits name only the engines it offers (Windows' list is unchanged).
+MAC_LIMITS = [
+    "Kokoro needs the app's environment on CPython 3.11 or 3.12, 64-bit.",
+    "No speed is promised for Kokoro.",
+    OMNIVOICE_MAC_LIMIT,
+]
+
+
 def _omnivoice_hardware(facts: Facts, context: str) -> str:
     if not ov.platform_supported():
         return ov.platform_reason()
-    found = {True: "An NVIDIA GPU was found on this computer.",
-             False: "No NVIDIA GPU was found on this computer, so OmniVoice cannot be installed here."}
+    if ov._system() == "darwin":
+        found = {True: "This Mac has Apple Silicon.",
+                 False: "This Mac does not report Apple Silicon, so OmniVoice cannot be installed here."}
+    else:
+        found = {True: "An NVIDIA GPU was found on this computer.",
+                 False: "No NVIDIA GPU was found on this computer, so OmniVoice cannot be installed here."}
     checked = found.get(facts.gpu) if context == CONTEXT_MAIN else None
-    return ov.HARDWARE_DISCLOSURE + " " + (checked or "This computer's GPU is checked before anything is downloaded.")
+    return ov.hardware_disclosure() + " " + (checked or "This computer's GPU is checked before anything is downloaded.")
 
 
 _ENGINE = {True: "proved", False: "broken", None: "unproved"}
@@ -684,7 +721,9 @@ def estimate(components: Iterable[str], *, facts: Optional[Facts] = None) -> Pla
     selected = proto.canonical_selection(components)
     states: dict[str, tuple[str, str]] = {}
     for name in selected:
-        if name in proto.QWEN3_MODEL_KEYS and not rt.platform_supported():
+        if not engine_policy.component_offered(name):
+            states[name] = _not_offered(name)
+        elif name in proto.QWEN3_MODEL_KEYS and not rt.platform_supported():
             states[name] = (UNSUPPORTED, rt.platform_reason())
         elif name == OMNIVOICE and not ov.platform_supported():
             states[name] = (UNSUPPORTED, ov.platform_reason())
@@ -702,11 +741,16 @@ def plan(components: Iterable[str], *, facts: Optional[Facts] = None) -> Plan:
     selected = proto.canonical_selection(components)
     states: dict[str, tuple[str, str]] = {}
     units: list[Unit] = []
+    # macOS P4C: a component this platform does not offer is unsupported before anything about it is looked at.
+    offered = engine_policy.offered_components(selected)
+    for name in selected:
+        if name not in offered:
+            states[name] = _not_offered(name)
     local_unsupported = _local_engine_unsupported(facts)
-    references = _reference_problem() if {CHATTERBOX, QWEN3_BASE} & set(selected) else ""
+    references = _reference_problem() if {CHATTERBOX, QWEN3_BASE} & set(offered) else ""
 
     for name in (KOKORO, CHATTERBOX):
-        if name not in selected:
+        if name not in offered:
             continue
         if local_unsupported:
             states[name] = (UNSUPPORTED, f"{proto.LABELS[name]} cannot run here: {local_unsupported}.")
@@ -724,7 +768,7 @@ def plan(components: Iterable[str], *, facts: Optional[Facts] = None) -> Plan:
             or health_reason or next((u.note for u in own if u.state == readiness), "")
         states[name] = (readiness, reason)
 
-    qwen = tuple(c for c in (QWEN3_CUSTOMVOICE, QWEN3_BASE) if c in selected)
+    qwen = tuple(c for c in (QWEN3_CUSTOMVOICE, QWEN3_BASE) if c in offered)
     if qwen and not rt.platform_supported():
         for name in qwen:
             states[name] = (UNSUPPORTED, rt.platform_reason())
@@ -757,7 +801,7 @@ def plan(components: Iterable[str], *, facts: Optional[Facts] = None) -> Plan:
                 reason = model.note
             states[name] = (readiness, reason)
 
-    if OMNIVOICE in selected:
+    if OMNIVOICE in offered:
         states[OMNIVOICE], own = _omnivoice_plan(facts)
         units.extend(own)
     return _assemble(CONTEXT_MAIN, selected, states, units, facts, upper_bound=False)

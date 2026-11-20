@@ -91,6 +91,8 @@ def test_the_setup_check_uses_the_launch_proof_window(env, monkeypatch):
 
 
 def test_a_real_import_failure_reinstalls_within_the_pins(env, monkeypatch):
+    # The unlocked route (Windows and Linux); a Mac never reinstalls without its lock's hashes (v0.8.x P1A).
+    monkeypatch.setattr(bootstrap, "IS_MAC", False)
     calls = _fake_run(monkeypatch, import_seconds=0.1, import_rc=1)
     log = _Log()
     assert bootstrap.validate_installed_packages(log) is False

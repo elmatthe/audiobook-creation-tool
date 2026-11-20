@@ -49,6 +49,7 @@ that a later retry re-uses rather than re-invents. The two source-side modes and
 their four-gate destructive contract are unchanged.
 """
 
+import contextlib
 import gc
 import io
 import math
@@ -78,6 +79,8 @@ from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
+from shared import subprocess_utils as sp
+from shared import ui_theme
 from shared.cancellation import ConversionCancelled
 from shared.import_coordination import ImportCoordinator
 from shared.importing import (
@@ -353,6 +356,74 @@ def _ask_replacement(parent, title: str, message: str, confirm_label: str,
         pass
     win.wait_window()
     return bool(win.result["ok"])
+
+
+# ---------- Cancel ordered against publication (v0.8.0 macOS Revision 1) ----------
+
+
+def _stop_if_cancelled(cancel_event, controller) -> None:
+    """Stop this image now if a Cancel was pressed. Raises :class:`ConversionCancelled`.
+
+    The panel's cancel event is set before the controller is told, so a Cancel that has
+    been pressed but not yet latched is latched here, by the worker, and acknowledged
+    (``checkpoint`` records it). Only a Cancel does this: a Pause is honoured between
+    images, never inside one. Saves work only; the authority is
+    :func:`_authorized_publication`.
+    """
+    if not cancel_event.is_set():
+        return
+    if controller is not None:
+        controller.request_cancel()
+        controller.checkpoint()          # raises ConversionCancelled, and records the acknowledgement
+    raise ConversionCancelled("Cancelled.")
+
+
+def _acknowledge_pending_cancel(cancel_event, controller) -> bool:
+    """True when a Cancel has been pressed or latched, after acknowledging it; False when there is none.
+
+    For a run that failed on an image with a Cancel already in: the failure path used to fall out of the loop
+    uncancelled, so a last image that failed while Cancel was latched settled ``COMPLETED_WITH_FAILURES`` and said
+    "All done". The Cancel is acknowledged here (``checkpoint`` records it), never skipped, so the run can settle
+    ``CANCELLED``. Does not wait and does not take the controller's lock over any work.
+    """
+    if controller is None:
+        return cancel_event.is_set()
+    if cancel_event.is_set():
+        controller.request_cancel()
+    if not controller.snapshot().cancel_requested:
+        return False
+    try:
+        controller.checkpoint()
+    except ConversionCancelled:
+        pass
+    return True
+
+
+@contextlib.contextmanager
+def _authorized_publication(cancel_event, controller):
+    """One attempt to make an image final, ordered against Cancel.
+
+    With a controller, ``authorize_commit`` decides under the lock the Cancel latch is
+    taken under: Cancel or this publication, exactly one. A grant is recorded, the body
+    runs with no lock held, and ``commit_finished`` gives it back however the body
+    ends. A refusal acknowledges the Cancel and raises :class:`ConversionCancelled`
+    without running the body. Without a controller (a plain, unreported batch) there is
+    no latch to be ordered against, so this is a last look at the panel's event.
+    """
+    if controller is None:
+        if cancel_event.is_set():
+            raise ConversionCancelled("Cancelled.")
+        yield
+        return
+    if cancel_event.is_set():
+        controller.request_cancel()      # pressed, not yet latched: latch it before asking
+    if not controller.authorize_commit():
+        controller.checkpoint()          # acknowledges the Cancel (raises ConversionCancelled)
+        raise ConversionCancelled("Cancelled.")
+    try:
+        yield
+    finally:
+        controller.commit_finished()
 
 
 # ---------- image logic ----------
@@ -926,6 +997,17 @@ class CoverBrowser:
         for key, heading, width in DETAILS_COLUMNS:
             self.details.heading(key, text=heading)
             self.details.column(key, width=width, stretch=(key == "folder"))
+        self.details_xbar = None
+        if ui_theme.is_aqua(self.frame):
+            # v0.8.x P1B remediation (ACT72-078): at the Aqua 1120x800 minimum
+            # the Sources column shows Filename, Dimensions and a sliver of
+            # Format; File size and Folder could not be reached at all. The
+            # five columns now scroll sideways there. Windows is unchanged.
+            self.details_xbar = ttk.Scrollbar(
+                self.details.master, orient="horizontal", command=self.details.xview,
+                style=job_ui.style_name(theme, "hscrollbar"))
+            self.details_xbar.grid(row=1, column=0, sticky="ew")
+            self.details.configure(xscrollcommand=self.details_xbar.set)
 
         self.simple = self._treeview(VIEW_LIST, ["path"], height)
         self.simple.heading("path", text="File")
@@ -993,7 +1075,18 @@ class CoverBrowser:
         for button, direction in (("<Button-4>", -1), ("<Button-5>", 1)):
             canvas.bind(button, self._wheel_handler(canvas, units=direction),
                         add="+")
+        # Tk 9 (macOS) sends a two-finger trackpad scroll as <TouchpadScroll>,
+        # never as <MouseWheel>; Tk 8.6 has no such event (v0.8.x P1B).
+        if ui_theme.touchpad_scroll_supported():
+            canvas.bind(ui_theme.TOUCHPAD_SCROLL, self._touchpad_handler(canvas), add="+")
         return canvas
+
+    @staticmethod
+    def _touchpad_handler(canvas):
+        def handle(event):
+            ui_theme.scroll_by_touchpad(canvas, event)
+            return "break"
+        return handle
 
     def _scroll_reporter(self, bar):
         """Keep the scrollbar in step, and tell the browser the viewport moved.
@@ -1550,7 +1643,7 @@ class CoverBrowser:
         self._pump.remove_drain(self.drain)
         workers, self._workers = self._workers, []
         for worker in workers:
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         try:
             self.canvas.delete("all")
         except tk.TclError:  # pragma: no cover - already destroyed
@@ -2557,7 +2650,7 @@ class CoverResizerUI(ttk.Frame):
         self._result = None
         self._attempt += 1
         self._controller = job_control.JobController(
-            snapshot.snapshot_id, listener=self._on_state)
+            snapshot.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
         self._reporter = job_control.JobReporter.for_run(
             snapshot, clock=self._clock, publish=self._publish)
@@ -3098,7 +3191,7 @@ class CoverResizerUI(ttk.Frame):
             controller.request_cancel()
         worker = self._worker
         if worker is not None and hasattr(worker, "join"):
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         self._worker = None
         jobs = getattr(self, "jobs", None)
         if jobs is not None:
@@ -3179,8 +3272,10 @@ class CoverResizerUI(ttk.Frame):
                 cancelled = True
                 break
 
-            temp_out = None
+            staged = None
             succeeded = False
+            aborted = False
+            stop = False
             if reporter is not None and item_id is not None:
                 reporter.current_item(item_id, f"Resizing {in_file.name}")
             # The measurement brackets this image's own work and nothing else —
@@ -3192,11 +3287,6 @@ class CoverResizerUI(ttk.Frame):
             try:
                 planned_name = in_file.stem + written_suffix(in_file.suffix)
                 if mode == ACTION_REPLACE:
-                    # A complete sibling is written first; the original stays
-                    # untouched until the atomic install below succeeds.
-                    temp_out = output_paths.temporary_sibling(
-                        in_file, suffix=written_suffix(in_file.suffix)
-                    )
                     final_out = in_file
                 elif mode == ACTION_NUMBERED:
                     final_out = source_planner.plan_beside(in_file, name=planned_name)
@@ -3211,14 +3301,23 @@ class CoverResizerUI(ttk.Frame):
                     final_out = planner.plan(planned_name)
                     output_paths.assert_not_input(final_out, files)
 
+                # Every mode writes a complete private sibling first (v0.8.0 macOS
+                # Revision 1). Nothing carries its final name until the image is
+                # whole, and a replacement's original stays untouched until the
+                # one authorized install below.
+                # The staging name is short and fixed ("cover"), never the source's stem plus a prefix: a file name that
+                # fits the filesystem's 255-byte limit must still have a staging name that does.
+                staged = output_paths.temporary_sibling(
+                    final_out.parent / "cover", suffix=written_suffix(in_file.suffix)
+                )
+
                 self._log_q.put(("log", f"\n[{idx}/{total}] Resizing:\n {in_file}\n -> {final_out}\n"))
 
-                written = resize_for_audiobook(
-                    in_file,
-                    temp_out if temp_out is not None else final_out,
-                    size=size,
-                    letterbox=letterbox,
-                )
+                # A Cancel that arrived since the checkpoint is not worth a decode.
+                # This look only saves work; the authorization below is what decides.
+                _stop_if_cancelled(self._cancel_event, controller)
+
+                written = resize_for_audiobook(in_file, staged, size=size, letterbox=letterbox)
 
                 if mode == ACTION_REPLACE:
                     # Validate the finished image before installing it, so a
@@ -3229,26 +3328,51 @@ class CoverResizerUI(ttk.Frame):
                             raise ValueError(
                                 f"resized image is {check.size}, expected {(size, size)}"
                             )
-                    output_paths.atomic_replace(written, final_out)
-                    temp_out = None       # ownership transferred by the replace
-                    replaced += 1
+
+                # Cancel or this publication: whichever takes the controller's lock
+                # first wins, and both know. Granted, the publication runs with no
+                # lock held, so a slow filesystem cannot hold Cancel up, and a Cancel
+                # that lost to it leaves the finished image in place (never rolled
+                # back) and stops the run at the next checkpoint. Denied, the
+                # run stops here and this image is not published.
+                with _authorized_publication(self._cancel_event, controller):
+                    if mode == ACTION_REPLACE:
+                        output_paths.atomic_replace(written, final_out)
+                        replaced += 1
+                    else:
+                        output_paths.publish_new(written, final_out)
+                staged = None             # ownership transferred by the publication
 
                 self._log_q.put(("log", " ✓ Done\n"))
                 succeeded = True
                 if item_id is not None:
                     completed.append(item_id)
 
+            except ConversionCancelled:
+                # Cancel won before this image became final. Remove only this
+                # operation's own staging file; the original and every earlier
+                # result stay exactly as they are. The image is not a completed
+                # item, so it is not reported as one.
+                aborted = True
+                cancelled = True
+                try:
+                    output_paths.discard_temporary(staged)
+                except output_paths.OutputPathError:
+                    pass
+                self._log_q.put(("log", " ✗ Cancelled before this image was saved.\n"))
+
             except Exception as e:
                 # Remove only this operation's own temporary artifact. The
                 # original is byte-for-byte untouched, because the replacement
                 # boundary was never crossed.
                 try:
-                    output_paths.discard_temporary(temp_out)
+                    output_paths.discard_temporary(staged)
                 except output_paths.OutputPathError:
                     pass
-                self._log_q.put(("log", f" ✗ Error: {e}\n"))
+                reason = getattr(e, "detail", "") if isinstance(e, output_paths.OutputPathError) else ""
+                self._log_q.put(("log", f" ✗ Error: {e}\n" + (f"   {reason}\n" if reason else "")))
                 trouble = f"{in_file.name} could not be resized."
-                detail = f"{type(e).__name__}: {e}"
+                detail = f"{type(e).__name__}: {e}" + (f" ({reason})" if reason else "")
                 if snapshot is not None and item_id is not None:
                     failures.append(FailureRecord(
                         item_id=item_id, stage=STAGE_RESIZE,
@@ -3257,6 +3381,10 @@ class CoverResizerUI(ttk.Frame):
                 if reporter is not None and item_id is not None:
                     reporter.failure(trouble, detail, item_id=item_id,
                                      stage=STAGE_RESIZE)
+                # A Cancel that was already in when this image failed still ends the run cancelled, and starts nothing more.
+                if _acknowledge_pending_cancel(self._cancel_event, controller):
+                    cancelled = True
+                    stop = True
 
             finally:
                 # Read once, first, so nothing this block does is counted as
@@ -3267,10 +3395,15 @@ class CoverResizerUI(ttk.Frame):
                     self._log_q.put((TIMING_MESSAGE, TimingSample(
                         run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
                         duration=float(ended) - float(started))))
-                if reporter is None:
+                if aborted:
+                    pass                  # an image that was never saved is not progress
+                elif reporter is None:
                     self._log_q.put(("progress", (idx, total)))
                 else:
                     reporter.progress(idx, total, item_id=item_id, stage=STAGE_RESIZE)
+
+            if aborted or stop:
+                break
 
         # Truthful about a partial batch: anything already installed stays
         # installed, and cancellation never rolls a completed replacement back.

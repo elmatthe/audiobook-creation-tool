@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from shared import output_paths
+from shared.cancellation import ConversionCancelled
 from shared import subprocess_utils as sp
 
 from m4b import m4b_commands
@@ -232,8 +233,35 @@ def tail_of(path: Path, *, limit: int = DETAIL_TAIL) -> str:
     return raw.decode("utf-8", "replace").strip()
 
 
+#: v0.8.x P5-I-R3 (macOS, contained children): one FFmpeg step's stop (plan section 11.2.1, C2: terminate -> 2 s ->
+#: kill -> 2 s, at most 4 s from the Cancel): the SIGTERM grace, and after the stop the wait to collect it.
+CONTAINED_TERM_GRACE_S = 2.0
+CONTAINED_COLLECT_S = 1.0
+#: C2 (plan 11.2.1): one FFmpeg step is stopped within 4 s of the Cancel click. A contained step's waits after its stop
+#: -- the decoder's stop, the reap, the feed -- share this one deadline (v0.8.x P5-I-R3 remediation 6), less a margin.
+C2_STEP_S = 4.0
+C2_MARGIN_S = 0.3
+
+
+def _contained(proc) -> bool:
+    owner = sp.containment_owner()
+    return owner is not None and owner.child(proc) is not None
+
+
+def _collect_bound(proc, grace_seconds: float) -> float:
+    """How long the run waits to collect *proc* (or its feed) after it ended or was stopped: the released grace, or for
+    a contained child the C2 schedule's remainder (remediation 2, finding 7)."""
+    return min(grace_seconds, CONTAINED_COLLECT_S) if _contained(proc) else grace_seconds
+
+
 def _stop(proc, *, grace_seconds: float, poll_seconds: float, monotonic, wait) -> bool:
     """Terminate, then kill if it will not go. Returns whether it had to be killed."""
+    if _contained(proc):
+        # v0.8.x P5-I-R3 (macOS): a contained child is stopped by its owner -- identity-checked, its end confirmed by
+        # the owner's deadline and kept being ended if not -- never by a bare handle signal; on the C2 schedule, not
+        # the released 5 s grace (remediation 2, finding 7).
+        sp.stop_child(proc, min(grace_seconds, CONTAINED_TERM_GRACE_S))
+        return proc.returncode == -9 or proc.returncode is None
     try:
         proc.terminate()
     except OSError:  # pragma: no cover - already gone
@@ -248,6 +276,31 @@ def _stop(proc, *, grace_seconds: float, poll_seconds: float, monotonic, wait) -
     except OSError:  # pragma: no cover - it went during the last poll
         return False
     return True
+
+
+def _concurrently(fn):
+    """Start *fn* on its own thread; return ``finish(timeout) -> bool`` that waits for it at most *timeout*, re-raises
+    what it raised, and says whether it finished (v0.8.x P5-I-R3 remediation 3)."""
+    import threading
+
+    box: list = []
+
+    def run() -> None:
+        try:
+            fn()
+        except BaseException as exc:  # noqa: BLE001 - handed back to the caller
+            box.append(exc)
+
+    thread = threading.Thread(target=run, name="act-decoder-stop", daemon=True)
+    thread.start()
+
+    def finish(timeout: float) -> bool:
+        thread.join(timeout)
+        if box:
+            raise box[0]
+        return not thread.is_alive()
+
+    return finish
 
 
 def _reap(proc, *, timeout: float) -> bool:
@@ -292,15 +345,20 @@ def run_argv(
                 proc = spawn(argv, stdout=sink, stderr=subprocess.STDOUT)
         except OSError as exc:
             raise ProcessLaunchError(f"{type(exc).__name__}: {exc}") from exc
+        except ConversionCancelled:  # v0.8.x P5-I-R3: the run's Cancel revoked the start; nothing ran
+            return ProcessResult(returncode=None, cancelled=True, detail="", killed=False, unreaped=False)
 
         killed = False
         stopped = False
+        stop_by = None  # contained and cancelled: the reap shares C2's deadline (P5-I-R3 remediation 7)
         try:
             while True:
                 code = proc.poll()
                 if code is not None:
                     break
                 if cancelled():
+                    if _contained(proc):
+                        stop_by = time.monotonic() + max(0.0, sp.settle_bound(cancelled, C2_STEP_S) - C2_MARGIN_S)
                     killed = _stop(proc, grace_seconds=grace_seconds,
                                    poll_seconds=poll_seconds,
                                    monotonic=monotonic, wait=wait)
@@ -310,7 +368,10 @@ def run_argv(
         finally:
             # Unconditional, on every route out of the loop including an
             # exception: a child this function started is a child it collects.
-            reaped = _reap(proc, timeout=grace_seconds)
+            collect = _collect_bound(proc, grace_seconds)
+            if stop_by is not None:
+                collect = max(0.0, min(collect, stop_by - time.monotonic()))
+            reaped = _reap(proc, timeout=collect)
 
         return ProcessResult(
             returncode=proc.returncode,
@@ -385,6 +446,11 @@ def run_argv_streaming(
                               stderr=subprocess.STDOUT)
         except OSError as exc:
             raise ProcessLaunchError(f"{type(exc).__name__}: {exc}") from exc
+        except ConversionCancelled:  # v0.8.x P5-I-R3: the run's Cancel revoked the start; nothing ran
+            if on_stop is not None:
+                on_stop()
+            return ProcessResult(returncode=None, cancelled=True, detail="", killed=False, unreaped=False,
+                                 producer_failed=False)
 
         def pump() -> None:
             try:
@@ -404,24 +470,40 @@ def run_argv_streaming(
 
         killed = False
         stopped = False
+        stop_by = None  # contained and cancelled: the one deadline every later wait shares
+
+        def left(bound: float) -> float:
+            return bound if stop_by is None else max(0.0, min(bound, stop_by - time.monotonic()))
+
         try:
             while True:
                 code = proc.poll()
                 if code is not None:
                     break
                 if cancelled():
+                    if _contained(proc):
+                        stop_by = time.monotonic() + max(0.0, sp.settle_bound(cancelled, C2_STEP_S) - C2_MARGIN_S)
+                    stopping = None
+                    if on_stop is not None and _contained(proc):
+                        # v0.8.x P5-I-R3 remediation 3 (finding 11): a contained encoder and its decoder are stopped
+                        # together, so one stop window covers both; uncontained (Windows) keeps the released order.
+                        stopping = _concurrently(on_stop)
                     killed = _stop(proc, grace_seconds=grace_seconds,
                                    poll_seconds=poll_seconds,
                                    monotonic=monotonic, wait=wait)
                     stopped = True
-                    if on_stop is not None:
+                    if stopping is not None:
+                        if not stopping(left(CONTAINED_TERM_GRACE_S + CONTAINED_COLLECT_S)):
+                            failure.append("the audio decoder did not stop in time after Cancel")
+                    elif on_stop is not None:
                         on_stop()
                     break
                 wait(poll_seconds)
         finally:
-            reaped = _reap(proc, timeout=grace_seconds)
+            collect = _collect_bound(proc, grace_seconds)
+            reaped = _reap(proc, timeout=left(collect))
             if producer is not None and hasattr(producer, "join"):
-                producer.join(timeout=grace_seconds)
+                producer.join(timeout=left(collect))
                 if getattr(producer, "is_alive", lambda: False)():
                     failure.append("the audio feed did not finish after the encoder ended")
 
@@ -750,6 +832,12 @@ def convert_segment(
             except ProcessLaunchError as exc:
                 return refuse(f"{destination.name} could not be started.", str(exc))
 
+            if result.unreaped and sp.containment_owner() is not None:
+                # v0.8.x P5-I-R3: contained (macOS) only, before "cancelled" -- a stopped child not confirmed ended is
+                # never a clean stop. Uncontained (Windows) keeps the released order (remediation 3, finding 13).
+                return refuse(
+                    f"{destination.name} could not be stopped cleanly.",
+                    "the ffmpeg child was not confirmed ended after terminate and kill")
             if result.cancelled:
                 return stopped(result.detail)
 

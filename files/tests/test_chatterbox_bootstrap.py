@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from shared import base_packages, bootstrap  # noqa: E402
+from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BOOTSTRAP_SRC = Path(bootstrap.__file__).read_text(encoding="utf-8")
@@ -38,7 +39,7 @@ def recorded_runs(monkeypatch):
         runs.append([str(venv_py), "-m", "pip", "<install_base_packages>"])
         return True
 
-    monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+    stand_in_for_setups_python_children(monkeypatch, fake_run)
     monkeypatch.setattr(bootstrap, "install_base_packages", fake_install)
     return runs
 
@@ -104,21 +105,21 @@ def test_the_health_probe_downloads_no_weights_and_builds_no_model(recorded_runs
 
 
 def test_a_healthy_probe_reports_ok(monkeypatch, tmp_path):
-    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: SimpleNamespace(
+    stand_in_for_setups_python_children(monkeypatch, lambda *a, **k: SimpleNamespace(
         returncode=0, stdout="OK\n", stderr=""))
     ok, reason = bootstrap.chatterbox_is_healthy(tmp_path / "python.exe")
     assert ok is True and reason == "ok"
 
 
 def test_a_missing_package_reports_truthfully(monkeypatch, tmp_path):
-    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: SimpleNamespace(
+    stand_in_for_setups_python_children(monkeypatch, lambda *a, **k: SimpleNamespace(
         returncode=1, stdout="MISSING:chatterbox\n", stderr=""))
     ok, reason = bootstrap.chatterbox_is_healthy(tmp_path / "python.exe")
     assert ok is False and "chatterbox" in reason
 
 
 def test_a_broken_class_import_reports_truthfully(monkeypatch, tmp_path):
-    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: SimpleNamespace(
+    stand_in_for_setups_python_children(monkeypatch, lambda *a, **k: SimpleNamespace(
         returncode=1, stdout="BROKEN:ChatterboxTurboTTS\n", stderr=""))
     ok, reason = bootstrap.chatterbox_is_healthy(tmp_path / "python.exe")
     assert ok is False and "ChatterboxTurboTTS" in reason
@@ -128,7 +129,7 @@ def test_a_crashed_probe_is_reported_rather_than_swallowed(monkeypatch, tmp_path
     def boom(*a, **k):
         raise OSError("no such interpreter")
 
-    monkeypatch.setattr(bootstrap.subprocess, "run", boom)
+    stand_in_for_setups_python_children(monkeypatch, boom)
     ok, reason = bootstrap.chatterbox_is_healthy(tmp_path / "python.exe")
     assert ok is False and "probe failed" in reason
 
@@ -156,7 +157,7 @@ def test_the_repair_verifies_itself_with_the_health_probe(recorded_runs, tmp_pat
 def test_a_failed_repair_returns_false(monkeypatch, tmp_path):
     probes = []
     monkeypatch.setattr(bootstrap, "install_base_packages", lambda venv_py, log: False)
-    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: probes.append(a) or SimpleNamespace(
+    stand_in_for_setups_python_children(monkeypatch, lambda *a, **k: probes.append(a) or SimpleNamespace(
         returncode=0, stdout="OK", stderr=""))
     assert bootstrap.ensure_chatterbox_installed(tmp_path / "python.exe", lambda _m: None) is False
     assert probes == [], "a failed install is not followed by a health claim"
@@ -177,10 +178,13 @@ def test_the_unpinned_predownload_and_warmup_routes_are_gone():
 
 
 def test_the_wizard_offers_the_five_choices_in_order_with_the_approved_defaults():
-    # v0.8.0 Phase 3: OmniVoice appended last, unchecked; the four earlier choices keep their order and defaults.
-    assert [(c, d) for c, _label, d, _note in bootstrap.OPTIONAL_CHOICES] == [
+    # v0.8.0 Phase 3: OmniVoice appended last, unchecked; the four earlier choices keep their order and defaults
+    # (Windows). macOS P4C: a Mac offers Kokoro and OmniVoice only, no Chatterbox choice.
+    assert [(c, d) for c, _label, d, _note in bootstrap.optional_choices_for("win32")] == [
         ("kokoro", True), ("chatterbox", False), ("qwen3-customvoice", False), ("qwen3-base", False),
         ("omnivoice", False)]
+    assert [(c, d) for c, _label, d, _note in bootstrap.optional_choices_for("darwin")] == [
+        ("kokoro", True), ("omnivoice", False)]
 
 
 def test_choosing_is_not_installing_the_panel_is_the_only_install_route():
@@ -214,6 +218,9 @@ def test_run_setup_builds_the_base_and_starts_nothing_else(monkeypatch, tmp_path
     monkeypatch.setattr(bootstrap, "_create_validated_venv", lambda *a, **k: True)
     monkeypatch.setattr(bootstrap, "reconcile_requirements", lambda *a: (True, ""))
     monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda *a: True)
+    # The sentence-data step writes into the real checkout (files/runtime-data/nltk_data), which _isolate_environment
+    # does not redirect: on a fresh tree it created that folder and tripped the session's write guard (v0.8.x P1A D3).
+    monkeypatch.setattr(bootstrap, "fetch_sentence_data", lambda log: True)
     monkeypatch.setattr(bootstrap.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("the base setup started a process of its own"))
     steps: list[int] = []

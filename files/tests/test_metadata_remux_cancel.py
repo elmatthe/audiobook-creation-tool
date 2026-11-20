@@ -78,7 +78,8 @@ from test_m4b_metadata_processing import container  # noqa: F401  (a fixture, co
 from test_m4b_metadata_workflow import _ff, require_ffmpeg
 from test_mp3_orchestration import wait_for
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows process identity")
+# v0.8.x P1B: macOS runs these too (CX-5), through test_ffmpeg_cancel's identity reader and stand-in; Windows is unchanged.
+pytestmark = pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="Windows process identity")
 
 _IDS = IdFactory("rx-")
 
@@ -305,8 +306,9 @@ def test_outside_a_cancel_block_the_remux_runs_to_its_end_through_the_supervisor
     assert remux.steps_for(copy) == ["dump", "rebuild"], "both steps went through the supervisor"
     assert len(started) == 2
     for kwargs in started:
-        assert kwargs["creationflags"] & subprocess.CREATE_NO_WINDOW
-        assert kwargs["startupinfo"].wShowWindow == subprocess.SW_HIDE
+        if sys.platform == "win32":  # a hidden console is Windows'; macOS starts no window either way
+            assert kwargs["creationflags"] & subprocess.CREATE_NO_WINDOW
+            assert kwargs["startupinfo"].wShowWindow == subprocess.SW_HIDE
         assert kwargs["stdin"] is subprocess.DEVNULL
     assert metadata.read_chapter_titles(copy) == ["Opening", "Chapter 1", "Closing"]
     seen = metadata.read_chapter_structure(copy)
@@ -727,4 +729,6 @@ def test_the_editor_worker_body_hands_the_remux_the_non_blocking_cancel_check():
     assert any(ast.unparse(node) == "self._execute(records)" for node in ast.walk(blocks[0]))
     used = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name) and node.value.id == "sp"}
-    assert used == {"cancellable"}, f"the runner starts no process itself: {sorted(used)}"
+    # v0.8.x P5-I-R3: it also asks the run's settlement (containment_problem) before its terminal event; still no start.
+    assert used <= {"cancellable", "containment_problem", "CONTAINMENT_FAILED_MESSAGE"} and "cancellable" in used, \
+        f"the runner starts no process itself: {sorted(used)}"

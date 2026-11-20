@@ -37,6 +37,15 @@ from shared.job_control import JobContractError, JobController, JobState
 from tts import edge_requests, ffmpeg_watch, publication
 from tts import worker_limits as wl
 
+
+@pytest.fixture(autouse=True)
+def _in_memory_route_as_on_every_platform_but_macos(monkeypatch):
+    """v0.8.x P5: these tests are about the gate's in-memory route and its fall back to disk, which every platform but macOS
+    keeps (``worker_limits.IN_MEMORY_ASSEMBLY``). A Mac never assembles a narration that reaches the gate in memory
+    (``test_macos_p5_assembly_on_disk.py``). Pinned on here, these tests check the same thing on every machine."""
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", True)
+
+
 GB = 1024 ** 3
 MB = 1024 ** 2
 
@@ -109,8 +118,12 @@ def test_the_finish_after_cancel_allowance_no_longer_exists():
 def test_a_cancelled_child_is_killed_within_one_look_even_while_it_progresses():
     """The exact scenario the old policy let run to completion: steady progress, Cancel asserted from the start."""
     code = "import sys,time;\nfor _ in range(40):\n  sys.stdout.buffer.write(b'x'*(1<<20));sys.stdout.buffer.flush();time.sleep(0.1)"
-    with ffmpeg_watch.controlled(lambda: True):
+    # v0.8.x P5-H-R1: nothing starts once Cancel has latched, so the child is started first and the Cancel latched before it is
+    # read: the same running child, killed within one look.
+    pressed = threading.Event()
+    with ffmpeg_watch.controlled(pressed.is_set):
         child = ffmpeg_watch.Supervised(_python(code), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    pressed.set()
     started = time.monotonic()
     with pytest.raises(ConversionCancelled):
         child.communicate()
@@ -119,9 +132,13 @@ def test_a_cancelled_child_is_killed_within_one_look_even_while_it_progresses():
 
 
 def test_a_cancelled_child_that_has_stalled_is_killed_within_one_look_not_at_a_deadline():
-    with ffmpeg_watch.controlled(lambda: True):
+    # v0.8.x P5-H-R1: nothing starts once Cancel has latched, so the child is started first and the Cancel latched before it is
+    # read: the same running child, killed within one look.
+    pressed = threading.Event()
+    with ffmpeg_watch.controlled(pressed.is_set):
         child = ffmpeg_watch.Supervised(_python("import time;time.sleep(60)"), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
+    pressed.set()
     started = time.monotonic()
     with pytest.raises(ConversionCancelled):
         child.communicate()
@@ -2163,6 +2180,9 @@ def fake_kokoro(monkeypatch):
             yield ("graphemes", "phonemes", (0.3 * np.sin(2 * np.pi * 220 * np.arange(6000) / 24000)).astype(np.float32))
 
     monkeypatch.setattr(ks, "_get_pipeline", lambda lang_code: Pipeline())
+    # The in-process route (Windows); on macOS the same parent flow runs through the local-engine worker, tested in
+    # test_local_engine_worker.py.
+    monkeypatch.setattr(ks, "_use_worker", lambda: False)
     return calls
 
 

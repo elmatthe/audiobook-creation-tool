@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Iterable, Mapping, Sequence
 
+from . import engine_policy
 from . import venv_layout
 
 # --------------------------------------------------------------------------- #
@@ -107,7 +109,8 @@ class AssetDefinition:
     requires_engine_lease: bool = False
 
 
-CATALOG: tuple[AssetDefinition, ...] = (
+#: The catalog as Windows released it (word for word). :data:`CATALOG` is the running platform's (macOS P4C).
+WINDOWS_CATALOG: tuple[AssetDefinition, ...] = (
     AssetDefinition(
         asset_id="virtual_environment",
         display_name="Private Python environment",
@@ -172,6 +175,46 @@ CATALOG: tuple[AssetDefinition, ...] = (
     ),
 )
 
+#: macOS P4C: a Mac's words for the two items that name an engine. The engine a Mac holds in ``.venv/engines`` is
+#: OmniVoice (Qwen3 is not offered there), and its model lives in ``files/runtime-data/omnivoice``, outside both items.
+MAC_WORDING: Mapping[str, tuple[str, str]] = MappingProxyType({
+    "virtual_environment": (
+        "The app's own dependencies rebuild on the next launch. The OmniVoice voice "
+        "engine is not part of this item.",
+        "Private Python environment: the app's own dependencies will be rebuilt "
+        "on the next launch. This may take several minutes and may require a "
+        "network connection. The OmniVoice voice engine is not part of this item "
+        "and is never removed with it.",
+    ),
+    "downloaded_models": (
+        "Kokoro's voice models must be installed again before a Kokoro voice can be "
+        "used: the TTS panel offers Install & Continue. OmniVoice's model is not "
+        "part of this item.",
+        "Downloaded voice models: Kokoro's voice models must be installed again "
+        "(Install & Continue offers them). OmniVoice's model is not part of this "
+        "item.",
+    ),
+})
+
+
+def catalog_for(platform: str) -> tuple[AssetDefinition, ...]:
+    """The catalog *platform* shows: Windows' exactly as released; on a Mac (macOS P4C) the same four items, targets
+    and rules, worded for the engines a Mac offers (``shared.engine_policy``)."""
+    if engine_policy.offered_engines(platform) != engine_policy.MACOS_ENGINES:
+        return WINDOWS_CATALOG
+    worded = []
+    for asset in WINDOWS_CATALOG:
+        consequence, effect_line = MAC_WORDING.get(asset.asset_id, (asset.consequence, asset.effect_line))
+        worded.append(AssetDefinition(
+            asset_id=asset.asset_id, display_name=asset.display_name, relative_target=asset.relative_target,
+            consequence=consequence, effect_line=effect_line, requires_post_exit=asset.requires_post_exit,
+            removes_target_itself=asset.removes_target_itself, requires_engine_lease=asset.requires_engine_lease))
+    return tuple(worded)
+
+
+#: The running platform's catalog, decided once at import from the real platform.
+CATALOG: tuple[AssetDefinition, ...] = catalog_for(sys.platform)
+
 #: Deterministic catalog order — the order rows render, requests serialize and
 #: confirmation lines appear. Never sorted by anything else.
 ASSET_IDS: tuple[str, ...] = tuple(a.asset_id for a in CATALOG)
@@ -216,10 +259,27 @@ ENGINE_IN_USE_SUFFIX = (
     "close the app that is using it, then clear this item again."
 )
 #: Why one was left alone when the engines' locks (Qwen3's, or since v0.8.0 OmniVoice's) could not be checked at all.
-ENGINE_UNCHECKABLE_PROBLEM = (
+#: Windows' words as released; :data:`ENGINE_UNCHECKABLE_PROBLEM` is the running platform's (macOS P4C).
+WINDOWS_ENGINE_UNCHECKABLE_PROBLEM = (
     "The cleanup helper could not check whether the Qwen3 or OmniVoice voices are in use, so "
     "this item was left alone. Nothing in it was removed."
 )
+#: macOS P4C: the same refusal naming the one leased engine a Mac offers (Qwen3 is not offered there).
+MAC_ENGINE_UNCHECKABLE_PROBLEM = (
+    "The cleanup helper could not check whether the OmniVoice voices are in use, so "
+    "this item was left alone. Nothing in it was removed."
+)
+
+
+def engine_uncheckable_problem(platform: str | None = None) -> str:
+    """The "locks could not be checked" outcome on *platform* (``shared.engine_policy``; ``None`` is the running one,
+    read when asked): Windows' words as released, or a Mac's."""
+    if engine_policy.is_offered(engine_policy.QWEN3, platform):
+        return WINDOWS_ENGINE_UNCHECKABLE_PROBLEM
+    return MAC_ENGINE_UNCHECKABLE_PROBLEM
+
+
+ENGINE_UNCHECKABLE_PROBLEM = engine_uncheckable_problem(sys.platform)
 
 
 def engine_in_use_problem(what_is_running: str) -> str:
@@ -285,7 +345,9 @@ def _abs(path) -> Path:
 
 def _key(path: Path) -> tuple[str, ...]:
     parts = path.parts
-    return tuple(p.casefold() for p in parts) if _CASE_INSENSITIVE_FS else parts
+    # v0.8.x P1A (MAC-015): the volume decides on a Mac; Windows is always case-blind, as before.
+    blind = _CASE_INSENSITIVE_FS or venv_layout.case_insensitive(path)
+    return tuple(p.casefold() for p in parts) if blind else parts
 
 
 def _within(root: Path, candidate: Path) -> bool:

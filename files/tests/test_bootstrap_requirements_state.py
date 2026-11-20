@@ -357,6 +357,9 @@ def setup_steps(monkeypatch, fake_env):
     monkeypatch.setattr(bootstrap, "_create_validated_venv",
                         lambda py, log, headless: True)
     monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda log: True)
+    # The sentence-data step writes into the real checkout (files/runtime-data/nltk_data), which fake_env does not
+    # redirect: on a fresh tree it created that folder and tripped the session's write guard (v0.8.x P1A D3).
+    monkeypatch.setattr(bootstrap, "fetch_sentence_data", lambda log: True)
     return fake_env
 
 
@@ -474,7 +477,10 @@ def test_a_probe_that_cannot_run_is_not_treated_as_missing(monkeypatch):
     def boom(*a, **k):
         raise OSError("blocked")
 
+    # The probe cannot be started: Windows runs it through ``subprocess.run``; a contained POSIX setup (v0.8.x P5-C:
+    # ``Owner.run_python`` no longer goes through ``subprocess.run``) creates it with ``subprocess.Popen``.
     monkeypatch.setattr(bootstrap.subprocess, "run", boom)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", boom)
     ok, detail = bootstrap.required_modules_present(Path(sys.executable))
     assert ok is True
     assert "probe unavailable" in detail
@@ -586,6 +592,7 @@ def test_a_proof_probe_that_cannot_run_is_not_a_finding(fake_env, monkeypatch):
         raise OSError("blocked")
 
     monkeypatch.setattr(bootstrap.subprocess, "run", boom)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", boom)  # a contained POSIX setup creates it so (v0.8.x P5-C)
     ok, detail, _ = bootstrap.prove_required_imports(Path(sys.executable))
     assert ok is None
     assert "probe unavailable" in detail

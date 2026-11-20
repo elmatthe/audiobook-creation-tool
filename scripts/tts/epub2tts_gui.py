@@ -143,7 +143,7 @@ from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 from shared.paths import RESOURCES_DIR
 from tts import edge_failures
 from tts import output_names
-from tts import ffmpeg_watch, publication, worker_limits
+from tts import ffmpeg_watch, local_engine_host, publication, worker_limits
 from shared import work_area
 from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
@@ -156,14 +156,37 @@ from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_TRIM_SILENCE_DB,
     ensure_punkt,
 )
+from shared import engine_policy
 from tts.voice_registry import (
     default_voice_label,
     get_voice,
     display_labels,
+    offered_labels,
 )
 
 #: How long ``close()`` waits for a conversion worker to unwind.
 WORKER_JOIN_TIMEOUT = 5.0
+#: v0.8.x P5-I-R3 (macOS): after a Cancel, how long the run waits for its items in progress to stop, measured from the
+#: click: each engine's T_stop (plan section 11.2.1, C2). An item still running then is never waited for again: the run
+#: fails, naming it, instead of staying "Cancelling" for ever (and is never reported CANCELLED). Windows waits as
+#: released (no Windows behaviour change).
+ITEM_STOP_S = {"edge": 2.5, "kokoro": 2.0, "chatterbox": 2.0, "qwen3": 5.0, "omnivoice": 4.0}
+#: ... for an engine not in the table: the largest bound.
+ITEM_STOP_DEFAULT_S = 5.0
+#: A local-engine worker's stop bound (C2: Kokoro, Chatterbox -- immediate SIGKILL, 2 s).
+LOCAL_ENGINE_STOP_S = 2.0
+
+
+def _ffmpeg_step_bound() -> float:
+    """One FFmpeg step's stop bound (plan section 11.2.1, C2)."""
+    return sp.FFMPEG_STOP_S
+
+
+def _items_wait_bounded() -> bool:
+    """Whether a cancelled run's wait for its items is bounded (macOS); Windows waits for every item, as released."""
+    return sys.platform != "win32"
+#: How often the run looks at its pool while items are in progress.
+POOL_LOOK_S = 0.1
 
 #: Visible rows in the imported-file list before it scrolls locally.
 IMPORTER_LIST_HEIGHT = 6
@@ -213,6 +236,14 @@ WORKFLOW_BREATHING = 48
 #: the Toolbutton restyling in _install_jobs, keeps the run row from being
 #: the widest thing in Output & Run under native aqua metrics.
 PROGRESS_BAR_AQUA_LENGTH = 140
+
+#: v0.8.x P1B remediation (ACT72-078). Characters the Voice list asks for on
+#: aqua (44 elsewhere). At 44 its aqua request alone (~427 pt) kept the
+#: small-window "split" arrangement from fitting the 1120x800 minimum, so the
+#: panel fell back to "stacked", where Sources showed two rows and Activity
+#: fell below the window. It still stretches to its column, and its drop-down
+#: lists every voice whole.
+VOICE_COMBO_AQUA_CHARS = 30
 
 #: v0.6.6 Phase 3. The progress bar's requested length in the small-window
 #: "split" arrangement, where Output & Run shares the right column with
@@ -416,7 +447,10 @@ def _default_qwen3_hardware() -> str:
 
 
 def qwen3_setup_offered() -> bool:
-    """Whether an "Install / repair Qwen3 voices" action makes sense here (Windows only, for now)."""
+    """Whether an "Install / repair Qwen3 voices" action makes sense here (Windows only, for now; never where the
+    platform does not offer Qwen3 at all, macOS P4C)."""
+    if not engine_policy.is_offered(engine_policy.QWEN3):
+        return False
     try:
         from tts.qwen3_runtime import platform_supported
         return bool(platform_supported())
@@ -557,7 +591,7 @@ def needs_sentence_data(imported) -> bool:
 def sentence_data_question(detail: str) -> str:
     return (f"The Edge voices split text into sentences with the app's English sentence data, and {detail}.\n\n"
             f"Download it now? It is {nltk_store.DOWNLOAD_SIZE_TEXT} from {nltk_store.SOURCE_TEXT}, kept inside this "
-            "folder in files\\runtime-data\\nltk_data. Nothing else is downloaded.\n\n"
+            f"folder in {nltk_store.folder_text()}. Nothing else is downloaded.\n\n"
             "Choose No to stop: this conversion is not started.")
 
 
@@ -1272,9 +1306,10 @@ class TtsPanel(ttk.Frame):
         self.voice_combo = ttk.Combobox(
             voice,
             textvariable=self.selected_voice_label,
-            values=display_labels(),
+            # macOS P4C: the voices this platform offers (all 34 on Windows; Edge, Kokoro and OmniVoice on a Mac).
+            values=offered_labels(),
             state="readonly",
-            width=44,
+            width=VOICE_COMBO_AQUA_CHARS if self._is_aqua else 44,
             style=st("combobox"),
         )
         self.voice_combo.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -1362,8 +1397,8 @@ class TtsPanel(ttk.Frame):
             style=st("combobox"),
         )
         self.combo_bitrate.grid(row=0, column=1, sticky="w", padx=(6, 18))
-        ttk.Label(audio, text="File workers (requested)", style=st("label")).grid(
-            row=0, column=2, sticky="w")
+        self.label_workers = ttk.Label(audio, text="File workers (requested)", style=st("label"))
+        self.label_workers.grid(row=0, column=2, sticky="w")
         self.spin_workers = ttk.Spinbox(
             audio, from_=1, to=MAX_REQUESTED_WORKERS, textvariable=self.workers_var, width=4,
             style=st("spinbox"))
@@ -1382,7 +1417,10 @@ class TtsPanel(ttk.Frame):
         # backend in _on_voice_selected(); Chatterbox Turbo shows neither, since
         # the pinned engine exposes no rate/speed parameter at all.
         self.edge_rate_frm = ttk.Frame(audio, style=st("surface"))
-        self.edge_rate_frm.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(6, 0))
+        # Row 3, not 2: row 2 is where the workers note moves when the narrow
+        # aqua arrangement folds File workers under MP3 bitrate (_arrange_audio).
+        # An empty grid row takes no space, so nothing else moves.
+        self.edge_rate_frm.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(6, 0))
         self.edge_rate_frm.columnconfigure(3, weight=1)
         ttk.Label(self.edge_rate_frm, text="Edge speech rate", style=st("label")).grid(
             row=0, column=0, sticky="w")
@@ -1403,7 +1441,7 @@ class TtsPanel(ttk.Frame):
         self._wrap(self.edge_rate_note, voice)
 
         self.kokoro_speed_frm = ttk.Frame(audio, style=st("surface"))
-        self.kokoro_speed_frm.grid(row=2, column=0, columnspan=5, sticky="ew",
+        self.kokoro_speed_frm.grid(row=3, column=0, columnspan=5, sticky="ew",
                                    pady=(6, 0))
         ttk.Label(self.kokoro_speed_frm, text="Kokoro speed", style=st("label")).grid(
             row=0, column=0, sticky="w")
@@ -1640,6 +1678,19 @@ class TtsPanel(ttk.Frame):
         entry = get_voice(label)
         if entry is None:
             return
+        if not engine_policy.is_offered(entry.backend):
+            # macOS P4C (plan §12.F): the list never shows a voice of an engine this platform does not offer, so this
+            # is a restored, imported or otherwise stale selection. It becomes the default voice and the log says so;
+            # its engine is asked nothing. Start (run_job) and the worker (_RunContext) refuse such a voice as well.
+            entry = get_voice(default_voice_label())
+            self.selected_voice_label.set(entry.display_label)
+            log = getattr(self, "log", None)
+            if log is not None:
+                log.append(f"The voice \"{label}\" is not available on {engine_policy.platform_name()}; the default "
+                           f"voice, {entry.display_label}, is selected instead.")
+        # macOS (v0.8.x P2): a warm local-engine worker of another engine is released, off this thread; never one that
+        # is serving a run. Nothing happens on Windows, where no worker exists.
+        local_engine_host.engine_selected(entry.backend)
 
         self.voice_var.set(entry.voice_id)
         if entry.backend == "qwen3" and self._qwen3_setup_offered():
@@ -2159,6 +2210,7 @@ class TtsPanel(ttk.Frame):
             button.grid_configure(row=0, column=column, columnspan=1, sticky="w",
                                   padx=(0 if column == 0 else 10, 0), pady=0)
         self._arrange_job_controls(inner)
+        self._arrange_audio(fold=narrow and self._is_aqua)
         if narrow:
             options.check_subfolders.grid_configure(
                 row=0, column=count, columnspan=1, sticky="w", padx=(18, 0), pady=0)
@@ -2198,6 +2250,26 @@ class TtsPanel(ttk.Frame):
                 row=2, column=0, columnspan=2, sticky="ew", padx=0, pady=(6, 0))
             self.chk_resume.grid(row=0, column=0, sticky="w", padx=0, pady=0)
             self.chk_overwrite.grid(row=0, column=1, sticky="w", padx=(18, 0), pady=0)
+
+    def _arrange_audio(self, fold: bool) -> None:
+        """MP3 bitrate and File workers side by side, or -- narrow, on aqua -- File workers beneath.
+
+        v0.8.x P1B remediation (ACT72-078): under aqua metrics the side-by-side
+        pair was the widest thing left in Voice & Audio, and with the Voice list
+        it kept "split" from fitting the 1120x800 minimum. Grid positions only;
+        Windows never folds.
+        """
+        label = getattr(self, "label_workers", None)
+        if label is None:
+            return
+        if fold:
+            label.grid_configure(row=1, column=0, sticky="w", pady=(4, 0))
+            self.spin_workers.grid_configure(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
+            self.workers_note.grid_configure(row=2)
+        else:
+            label.grid_configure(row=0, column=2, sticky="w", pady=0)
+            self.spin_workers.grid_configure(row=0, column=3, sticky="w", padx=(6, 0), pady=0)
+            self.workers_note.grid_configure(row=1)
 
     def _arrange_job_controls(self, inner: str) -> None:
         """The shared job controls: one row, or two rows of two in ``"narrow"``.
@@ -2669,6 +2741,11 @@ class TtsPanel(ttk.Frame):
         result = self._result
         if result is None or self._busy.is_set() or not result.has_retryable:
             return None
+        backend = result.snapshot.tool_options["backend"]
+        if not engine_policy.is_offered(backend):
+            # macOS P4C: a frozen run is never retried with an engine this platform does not offer, nor switched.
+            messagebox.showwarning("Voice unavailable", engine_policy.not_offered_message(backend))
+            return None
         request = result.retry()
         return self._launch(request.snapshot, request.item_ids)
 
@@ -2693,6 +2770,12 @@ class TtsPanel(ttk.Frame):
             # a renamed or reordered registry must not be able to switch the engine behind the person's back.
             messagebox.showwarning("Voice not recognised",
                                    "The selected voice is not in the voice list. Choose a voice, then start again.")
+            return
+        if not engine_policy.is_offered(current_voice_entry.backend):
+            # macOS P4C: a voice of an engine this platform does not offer is refused here, before anything is frozen,
+            # reserved, installed or synthesised, and is never swapped for another voice.
+            messagebox.showwarning("Voice unavailable",
+                                   engine_policy.not_offered_message(current_voice_entry.backend))
             return
         speaker = self.voice_var.get().strip() or DEFAULT_SPEAKER
         backend = "edge" if current_voice_entry is None else current_voice_entry.backend
@@ -3012,7 +3095,7 @@ class TtsPanel(ttk.Frame):
         for line in speech_prep_run_lines(options.get("speech_prep")):
             self.log.append_detail(line)
         self._controller = job_control.JobController(
-            snapshot.snapshot_id, listener=self._on_state)
+            snapshot.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
         # Built after the adapter, so it binds *this* attempt's queue, and before
         # the controller is started, so the very first state change is published.
@@ -3085,6 +3168,11 @@ class TtsPanel(ttk.Frame):
         # this run within one look, and a file waiting at the memory gate leaves it (v0.7.2). Both are no-ops when idle.
         ffmpeg_watch.wake()
         worker_limits.ASSEMBLY_GATE.wake()
+        # macOS (v0.8.x P2): this run's local-engine worker ends too when it is not mid-request (paused, or finishing a
+        # file); mid-request, the request's own Cancel poll ends it. Nothing on Windows, where there is no worker.
+        snapshot = self._snapshot
+        if snapshot is not None:
+            local_engine_host.cancel_requested(str(snapshot.tool_options.get("backend", "")))
         # A panel-authored status line, not engine transcript: it belongs in
         # both panes, matching the sibling tools' own ``_say``/``append`` use.
         self.log.append("Cancelling… stopping the files being converted now; nothing unfinished will be saved.")
@@ -3119,7 +3207,7 @@ class TtsPanel(ttk.Frame):
             controller.request_cancel()
         worker = self._worker
         if worker is not None and hasattr(worker, "join"):
-            worker.join(WORKER_JOIN_TIMEOUT)
+            worker.join(sp.close_budget(WORKER_JOIN_TIMEOUT))  # v0.8.x P5-I-R3: the orderly end's one deadline
         self._worker = None
         importer = getattr(self, "importer", None)
         if importer is not None:
@@ -3198,6 +3286,8 @@ class _RunContext:
         #: NOT_ATTEMPTED in the result (Decisions 2026-11-05); the closing line counts them apart.
         self.stopped = 0
         self.not_started = 0
+        #: v0.8.x P5-I-R3: items still running ITEM_STOP_S after the Cancel click (never waited for again).
+        self.unstopped: list[str] = []
         self._done = 0
         self._total = len(self.items)
         self._counter = threading.Lock()
@@ -3243,6 +3333,10 @@ class _RunContext:
     def execute(self) -> None:
         try:
             try:
+                # macOS P4C: the frozen engine is asked once more, on the worker and before any engine module is
+                # imported, so no route -- a retry, a restored run, a direct call -- runs an engine this platform does
+                # not offer. The refusal settles as a job failure; nothing is converted or published.
+                engine_policy.require_offered(self.params["backend"])
                 if self.params["backend"] == "edge" and any(item["direct"] for item in self.items):
                     # v0.7.0: proves the verified local sentence data (offered at Create); never downloads. Missing
                     # here (removed since), it settles as a job failure whose message says what to do.
@@ -3395,30 +3489,59 @@ class _RunContext:
             category = ETA_CATEGORY_DIRECT if item["direct"] else ETA_CATEGORY_FOLDER
             return "success", item, None, (self.clock() - started, category)
 
-        with ThreadPoolExecutor(max_workers=effective) as pool:
-            futures = {pool.submit(convert, item): item for item in self.items}
-            for future in as_completed(futures):
-                status, item, message, extra = future.result()
-                if status == "success":
-                    duration, category = extra
-                    self.record_success(item, duration, category)
-                elif status == "cancelled":
-                    self.cancelled = True
-                    stamp = datetime.now().strftime("%H:%M:%S")
-                    # Two truths, told apart: a file that never started was skipped; one that had started was stopped,
-                    # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
-                    what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
-                            else "skipped (cancelled)")
-                    if message == "stopped":
-                        self.stopped += 1
-                    else:
-                        self.not_started += 1
-                    self.log(f"[{stamp}] {item['source'].name} — {what}")
+        def take(status, item, message, extra):
+            if status == "success":
+                duration, category = extra
+                self.record_success(item, duration, category)
+            elif status == "cancelled":
+                self.cancelled = True
+                stamp = datetime.now().strftime("%H:%M:%S")
+                # Two truths, told apart: a file that never started was skipped; one that had started was stopped,
+                # and nothing of it was saved (v0.7.2). Neither is a failure, and Retry Failed offers neither.
+                what = ("stopped (cancelled); nothing unfinished was saved" if message == "stopped"
+                        else "skipped (cancelled)")
+                if message == "stopped":
+                    self.stopped += 1
                 else:
-                    self.record_failure(item, message or "the conversion failed")
-                self.advance(item)
-                if self.cancel_check():
+                    self.not_started += 1
+                self.log(f"[{stamp}] {item['source'].name} — {what}")
+            else:
+                self.record_failure(item, message or "the conversion failed")
+            self.advance(item)
+            if self.cancel_check():
+                self.cancelled = True
+
+        # v0.8.x P5-I-R3: never an unbounded wait for an item after a Cancel (``as_completed`` waited for ever on an
+        # engine that did not stop). Past ITEM_STOP_S from the click, items not yet started are skipped and those
+        # still running are named (``self.unstopped``): the run then fails, and the pool is not joined.
+        stop_s = ITEM_STOP_S.get(backend, ITEM_STOP_DEFAULT_S) if isinstance(ITEM_STOP_S, dict) else ITEM_STOP_S
+        bounded = _items_wait_bounded()  # Windows: every item is waited for, exactly as released
+        pool = ThreadPoolExecutor(max_workers=effective)
+        try:
+            futures = {pool.submit(convert, item): item for item in self.items}
+            pending = set(futures)
+            while pending:
+                try:
+                    for future in as_completed(pending, timeout=POOL_LOOK_S):  # completion order, as before
+                        pending.discard(future)
+                        take(*future.result())
+                except TimeoutError:  # concurrent.futures' own, the built-in one since 3.11
+                    pass
+                if pending and bounded and self.cancel_check():
                     self.cancelled = True
+                    clicked = self.controller.cancel_clicked_at
+                    # An FFmpeg step of the run still being stopped has its own bound (C2: one FFmpeg step, 4 s).
+                    bound = (max(stop_s, _ffmpeg_step_bound()) if ffmpeg_watch.stopping_for(self.cancel_check)
+                             else stop_s)
+                    if clicked is not None and time.monotonic() - clicked >= bound:
+                        for future in list(pending):
+                            if future.cancel():  # never started: skipped, exactly as convert() says it
+                                pending.discard(future)
+                                take("cancelled", futures[future], None, None)
+                        self.unstopped = [futures[f]["source"].name for f in pending]
+                        break
+        finally:
+            pool.shutdown(wait=not self.unstopped, cancel_futures=bool(self.unstopped))
         if params["run_directory"] is not None:
             # Each folder item removed its own working folder; nothing else is using this one now.
             with contextlib.suppress(OSError):
@@ -3434,7 +3557,47 @@ class _RunContext:
         chapter/chunk checkpoint, the acknowledgement has not happened yet — so it
         is taken here, *after* this attempt's cleanup, which is exactly the order
         ``finish_cancelled`` insists on.
+
+        v0.8.x P5-H-R1: a run with an FFmpeg it killed that is still running is
+        neither cancelled nor finished: it fails as a whole, not retryable, naming
+        the process, so nothing reports a clean end while it may still be at work.
+
+        v0.8.x P5-I: on a Mac this includes every process of the run the containment
+        owner still owes cleanup (a child whose registration failed, one created as the
+        Cancel latched), after the owner has retired them and waited, bounded, for
+        their ends to be confirmed.
         """
+        # v0.8.x P5-I-R3 remediation 3: a Cancel's retirement of an idle local-engine worker is waited for (its stop
+        # bound, from the click) before anything is reported; one still running then fails the run.
+        # Remediation 4 (finding 4): a cancelled run begins that retirement itself (idempotent) -- the panel's own call
+        # comes after its Cancel latch and may not have happened yet when the run settles.
+        if self.cancelled or self.cancel_check():
+            backend = getattr(getattr(self.snapshot, "tool_options", None), "get", lambda *_: "")("backend", "")
+            with contextlib.suppress(Exception):  # noqa: BLE001 - the wait below and the settlement still judge it
+                local_engine_host.cancel_requested(str(backend or ""))
+        if local_engine_host.cancel_retirement_pending(sp.settle_bound(self.cancel_check, LOCAL_ENGINE_STOP_S)):
+            self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+                "The voice engine was asked to stop and could not be confirmed stopped in time, so this run is not "
+                "reported as cancelled or finished. Nothing unfinished was saved. Quit the application before "
+                "converting again."))
+            return
+        stuck = ffmpeg_watch.settle_children(self.cancel_check)
+        if stuck:
+            self.settle_unstoppable(stuck)
+            return
+        faults = sp.run_faults(self.cancel_check)  # v0.8.x P5-I-R3: a start that could not be kept contained
+        if faults:
+            self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+                "A program of this run may have started after it was cancelled, so this run is not reported as "
+                f"cancelled or finished ({'; '.join(faults)}). Quit the application before converting again."))
+            return
+        if self.unstopped:
+            self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+                f"{', '.join(self.unstopped)}: still being converted when its engine's stop bound after the Cancel had "
+                "passed, so this run is "
+                "not reported as cancelled or finished. Nothing unfinished was saved. Quit the application before "
+                "converting again."))
+            return
         if self.cancelled and not self.controller.cancel_acknowledged:
             try:
                 self.controller.checkpoint()
@@ -3467,9 +3630,23 @@ class _RunContext:
             done = f"Conversion finished: {len(self.completed)} ok, {len(self.failures)} failed."
         self.log_q.put(("done", done))
 
+    def settle_unstoppable(self, pids: list) -> None:
+        """v0.8.x P5-H-R1: the run's ending when an FFmpeg it killed did not end (``ffmpeg_watch.ProcessNotStopped``);
+        v0.8.x P5-I: or any process of the run whose end the containment owner could not confirm."""
+        self.settle_fatal(ffmpeg_watch.ProcessNotStopped(
+            f"FFmpeg (process {', '.join(map(str, pids))}) was stopped and has not been confirmed ended, so this run is not "
+            "reported as cancelled or finished. Nothing unfinished was saved. Quit the application before converting again."))
+
     def settle_fatal(self, exc: BaseException) -> None:
-        """The run itself broke. A job failure, and never retryable."""
+        """The run itself broke. A job failure, and never retryable.
+
+        v0.8.x P5-I-R3: the run's contained processes are settled here too (bounded from the Cancel click), so what the
+        run still owns is ended and named in the failure rather than left to the owner's background retirement."""
         detail = f"{type(exc).__name__}: {exc}"
+        with contextlib.suppress(Exception):  # settling must never stop the failure from being reported
+            stuck = ffmpeg_watch.settle_children(self.cancel_check)
+            if stuck:
+                detail += f" [containment: process(es) {', '.join(map(str, stuck))} not confirmed ended; still owned]"
         message = "The conversion run could not be completed."
         fatal = FailureRecord(
             item_id=None, stage=STAGE_CONVERT, display_message=message,

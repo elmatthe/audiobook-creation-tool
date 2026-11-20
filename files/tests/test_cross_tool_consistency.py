@@ -98,11 +98,13 @@ def _geometries(root) -> dict[str, str]:
     """The running shell's supported sizes, by name."""
     system = _system(root)
     if system == "aqua":
-        return {"aqua minimum 1024x800": ui_theme.AQUA_GEOMETRY,
+        return {f"aqua minimum {ui_theme.AQUA_GEOMETRY}": ui_theme.AQUA_GEOMETRY,
                 "1280x900": "1280x900", "maximized": "zoomed"}
     sizes = {"minimum 920x600": "{}x{}".format(*ui_theme.MIN_SIZE),
              "default 1024x720": ui_theme.DEFAULT_GEOMETRY,
-             "macOS-minimum size 1024x800": ui_theme.AQUA_GEOMETRY,
+             # The Windows composition at the size macOS was ruled at in v0.6.4; a literal, so the Aqua
+             # minimum re-measured in v0.8.x P1B (ui_theme.AQUA_GEOMETRY) changes nothing here.
+             "macOS-minimum size 1024x800": "1024x800",
              "1280x900": "1280x900"}
     if system == "win32":
         # A maximized window's client area on a 1920x1080 display, in the

@@ -40,7 +40,10 @@ LAUNCHERS = {
     "Windows": "Setup_and_Run-audiobook-creation-tool.bat",
     "MacOS": "Setup_and_Run-audiobook-creation-tool.command",
 }
-ROOT_MEMBERS = {"README.md", "config.toml"}
+ROOT_MEMBERS = {"README.md", "config.toml", "LICENSE"}
+#: The canonical GNU GPL v3 text (https://www.gnu.org/licenses/gpl-3.0.txt, 674 lines), byte for byte. The upstream
+#: project (aedocw/epub2tts-edge) carries the identical file. Pinned so a paraphrase, an edit or a line-ending change fails.
+GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
 #: v0.8.0 (owner decision 2026-11-13): each cloned engine's own six recordings, in its own folder -- 18, one copy each.
 REFERENCE_MEMBERS = {
     f"files/Cloned-Voice-Uploads/{engine}/{engine} - {voice}.wav"
@@ -102,6 +105,7 @@ def fake_repo(root: Path, config_text: str = SHIPPABLE_CONFIG) -> Path:
         'VERSION = "9.9.9"\n', encoding="utf-8")
     (root / "README.md").write_text("readme\n", encoding="utf-8")
     (root / "config.toml").write_text(config_text, encoding="utf-8")
+    (root / "LICENSE").write_bytes((REPO_ROOT / "LICENSE").read_bytes())
     (root / "config-template.toml").write_text("# unrelated maintainer file\n", encoding="utf-8")
     for launcher in LAUNCHERS.values():
         (root / launcher).write_text("launcher\n", encoding="utf-8")
@@ -402,7 +406,13 @@ def test_the_scripts_tree_is_complete(archives, os_name):
 def test_the_version_in_the_archive_name_comes_from_version_py(archives, os_name):
     from shared.version import VERSION
 
-    assert archives[os_name].name == f"AudiobookTool-{os_name}-v{VERSION}.zip"
+    assert archives[os_name].name == f"AudiobookTool-{os_name}-{release.release_tag(VERSION)}.zip"
+
+
+@pytest.mark.parametrize("version,tag", [("0.8.0", "v0.8.0"), ("0.8.1", "v0.8.1"), ("0.8.0+macos.1", "v0.8.0-macos.1")])
+def test_an_archive_and_its_tag_never_carry_a_plus_sign(version, tag):
+    """D16 (2026-11-20): GitHub rewrites ``+`` in asset names, so a version with build metadata is named after its tag."""
+    assert release.release_tag(version) == tag
 
 
 # --------------------------------------------------------------------------- #
@@ -470,6 +480,73 @@ def test_the_real_archives_carry_no_untracked_file(archives):
         assert untracked == []
 
 
+# --------------------------------------------------------------------------- #
+# The GPL-3.0 text ships with every archive (v0.8.0 macOS Revision 1)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_committed_license_is_the_canonical_gpl3_text_byte_for_byte():
+    data = (REPO_ROOT / "LICENSE").read_bytes()
+    assert hashlib.sha256(data).hexdigest() == GPL3_SHA256
+    assert b"\r" not in data, "the text ships with LF endings on every platform"
+    assert data.startswith(b"                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n")
+    assert data.rstrip().endswith(b"<https://www.gnu.org/licenses/why-not-lgpl.html>.")
+    assert data.count(b"\n") == 674
+    attributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert "LICENSE text eol=lf" in attributes, "pinned to LF so no checkout can alter the shipped bytes"
+
+
+def test_the_license_is_tracked_by_git():
+    tracked = git(REPO_ROOT, "ls-files", "-z", "--", "LICENSE").split("\0")
+    assert "LICENSE" in tracked, "an untracked LICENSE would not be a committed, auditable release input"
+
+
+def test_the_packager_allowlist_names_the_license_and_no_other_root_file():
+    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE")
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_each_archive_carries_the_complete_unmodified_license_at_its_root_once(archives, os_name):
+    assert names(archives[os_name]).count("LICENSE") == 1
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        data = zf.read("LICENSE")
+        assert data == (REPO_ROOT / "LICENSE").read_bytes(), "the member is the committed file, byte for byte"
+        assert hashlib.sha256(data).hexdigest() == GPL3_SHA256
+        assert zf.getinfo("LICENSE").file_size == len(data) and zf.testzip() is None
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_the_license_is_not_executable_and_is_not_a_link(archives, os_name):
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        mode = zf.getinfo("LICENSE").external_attr >> 16
+    assert mode in (0, 0o100644, 0o100666, 0o100664) or not (mode & 0o111), oct(mode)
+    assert (mode & 0o170000) != 0o120000
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_the_license_does_not_displace_the_other_root_members(archives, os_name):
+    assert {n for n in names(archives[os_name]) if "/" not in n} == ROOT_MEMBERS | {LAUNCHERS[os_name]}
+
+
+@pytest.mark.parametrize("action", ["delete", "untrack"])
+def test_the_license_cannot_be_missing_or_untracked(tmp_path, action):
+    root = fake_repo(tmp_path / "repo")
+    if action == "delete":
+        (root / "LICENSE").unlink()
+    else:
+        git(root, "rm", "--cached", "--", "LICENSE")
+        git(root, "commit", "-qm", "untrack the licence in the fixture")
+    dist = tmp_path / "dist"
+    assert run_main(root, dist) != 0
+    assert not dist.exists() or not any(dist.iterdir())
+
+
+def test_the_readme_points_at_the_bundled_license_and_that_link_resolves():
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "](LICENSE)" in readme
+    assert (REPO_ROOT / "LICENSE").is_file()
+
+
 def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
     """Fail closed: without git there is no way to tell committed from local."""
     root = tmp_path / "plain"
@@ -484,7 +561,7 @@ def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
 
 def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
     """``release.main()`` on a fake repository. By default both platforms, so the two-archive all-or-nothing
-    transaction stays covered; the shipped v0.7.0 default (Windows only) is pinned separately."""
+    transaction stays covered; the shipped default (0.8.0+macos.1: macOS only) is pinned separately."""
     saved = (release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR, release.RELEASE_OS_NAMES)
     release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = root, root / "scripts", dist
     release.RELEASE_OS_NAMES = tuple(os_names)
@@ -495,7 +572,7 @@ def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
 
 
 @pytest.mark.parametrize("edited", [
-    "scripts/launcher.py", "README.md", "config.toml",
+    "scripts/launcher.py", "README.md", "config.toml", "LICENSE",
     "Setup_and_Run-audiobook-creation-tool.bat",
     "Setup_and_Run-audiobook-creation-tool.command",
 ] + sorted(REFERENCE_MEMBERS))
@@ -543,7 +620,7 @@ def test_the_finished_archive_is_checked_for_developer_mode_false_too(tmp_path, 
     real = release._refuse_developer_mode
     monkeypatch.setattr(release, "_refuse_developer_mode", lambda data, where: (seen.append((where, data)), real(data, where)))
     build(root, tmp_path / "dist", "Windows")
-    assert [where for where, _ in seen] == ["the checkout", f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert [where for where, _ in seen] == ["the checkout", f"AudiobookTool-Windows-{release.release_tag()}.zip"]
     assert seen[1][1] == (root / "config.toml").read_bytes()
     with pytest.raises(release.ReleaseError, match="found True"):
         real(SHIPPABLE_CONFIG.replace("false", "true").encode("utf-8"), "an archive")
@@ -562,8 +639,8 @@ def test_a_clean_checkout_builds_both_archives(tmp_path):
     assert run_main(root, tmp_path / "dist") == 0
     built = sorted(p.name for p in (tmp_path / "dist").iterdir())
     # The name carries the packager's own VERSION, read once at import.
-    assert built == [f"AudiobookTool-MacOS-v{release.VERSION}.zip",
-                     f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert built == [f"AudiobookTool-MacOS-{release.release_tag()}.zip",
+                     f"AudiobookTool-Windows-{release.release_tag()}.zip"]
     assert "scripts/local-helper.py" not in names(tmp_path / "dist" / built[0])
 
 
@@ -651,18 +728,23 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
         zf.extractall(root)
     shim = (
         '#!/bin/bash\n'
-        'printf "%s\\n" "$*" >> "$RC_CALLS"\n'
+        'printf "%s %s\\n" "$0" "$*" >> "$RC_CALLS"\n'
         'case "$*" in\n'
         '  *--launch-only*) exit "$RC_LAUNCH_EXIT" ;;\n'
         '  --version) echo "Python 3.12 shim" ;;\n'
         'esac\n'
         'exit 0\n'
     )
-    for relative in (".venv/bin/python", "shim-bin/python3.12"):
+    # v0.8.x P1A (D1/D2): a repair runs on the app's own Python, which stage 0 proves first; a Python on PATH is never
+    # used. Stage 0 has its own tests (test_bootstrap_host_macos.py); here it is a stand-in that reports it proved.
+    for relative in (".venv/bin/python", "files/runtime-data/python/bin/python3.12", "shim-bin/python3.12"):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(shim, encoding="utf-8", newline="\n")
         path.chmod(0o755)
+    stage0 = root / "scripts" / "shared" / "bootstrap_host_macos.sh"
+    stage0.write_text('#!/bin/bash\nprintf "stage0 %s\\n" "$*" >> "$RC_CALLS"\nexit 0\n', encoding="utf-8",
+                      newline="\n")
     calls = root / "calls.txt"
     env = dict(os.environ, RC_CALLS=calls.as_posix(), RC_LAUNCH_EXIT=str(launch_rc))
     # Use MSYS paths on Windows so a drive colon is not a PATH separator.
@@ -681,6 +763,8 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
     recorded = calls.read_text(encoding="utf-8").splitlines()
     assert recorded[0].endswith("--launch-only")
     assert any("--repair-venv" in call for call in recorded) is repairs
+    assert all("files/runtime-data/python/bin/python3.12" in call for call in recorded if "--repair-venv" in call)
+    assert not any("shim-bin" in call for call in recorded), "a Python on PATH is never used"
     assert not any("close_terminal.py" in call for call in recorded)
 
 
@@ -800,7 +884,7 @@ def test_building_is_not_part_of_application_startup():
 
 
 def archive_name(os_name: str) -> str:
-    return f"AudiobookTool-{os_name}-v{release.VERSION}.zip"
+    return f"AudiobookTool-{os_name}-{release.release_tag()}.zip"
 
 
 def sha(path: Path) -> str:
@@ -1067,10 +1151,10 @@ def test_the_readme_gallery_link_points_at_the_same_ref_as_the_preview_downloads
     assert gallery.group(2) == raw_ref.group(1)
 
 
-def test_the_ordinary_v070_build_produces_only_the_windows_archive(tmp_path):
-    """v0.7.0 is distributed for Windows only; the macOS archive is held until native qualification."""
+def test_the_ordinary_macos_revision_build_produces_only_the_macos_archive(tmp_path):
+    """0.8.0+macos.1 (D16) is distributed for macOS only; the published Windows v0.8.0 comes from other source (d1701e9)."""
     source = Path(release.__file__).read_text(encoding="utf-8")
-    assert 'RELEASE_OS_NAMES = ("Windows",)' in source and "_package(RELEASE_OS_NAMES)" in source
+    assert 'RELEASE_OS_NAMES = ("MacOS",)' in source and "_package(RELEASE_OS_NAMES)" in source
     root = fake_repo(tmp_path / "repo")
     assert run_main(root, tmp_path / "dist", os_names=release.RELEASE_OS_NAMES) == 0
-    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == [f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == [f"AudiobookTool-MacOS-{release.release_tag()}.zip"]

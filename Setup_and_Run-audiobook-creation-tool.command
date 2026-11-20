@@ -2,11 +2,14 @@
 # ============================================================================
 #  Audiobook Creation Tool  -  macOS setup and launcher
 #
-#  Double-click this file in Finder. The FIRST time it runs it installs
-#  everything (a private Python environment + audio libraries + ffmpeg) using a
-#  small setup window. EVERY time after that it just opens the app. All the real
-#  work lives in:
-#      scripts/shared/bootstrap.py
+#  Double-click this file in Finder. The FIRST time it runs it downloads the
+#  app's own Python into this folder (stage 0, with your consent), then installs
+#  everything else (a private Python environment + audio libraries + ffmpeg)
+#  using a small setup window. EVERY time after that it just opens the app.
+#  Nothing is installed on the Mac itself: no Homebrew, no administrator
+#  password. All the real work lives in:
+#      scripts/shared/bootstrap_host_macos.sh   (the app's own Python)
+#      scripts/shared/bootstrap.py              (everything else)
 # ============================================================================
 
 set -u
@@ -55,8 +58,7 @@ To fix it (one time):
   2. Open that moved folder and double-click
      Setup_and_Run-audiobook-creation-tool.command again.
 
-Moving the folder in Finder clears the translocation. (Alternatively,
-right-click the .command file -> Open, then confirm the prompt.)
+Moving the folder in Finder clears the translocation.
 
 EOF
     if [ "$translocated" = yes ]; then
@@ -147,100 +149,49 @@ if [ -n "$NEEDS_VENV_REPAIR" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# First run: find some Python just to run the setup window. The setup script
-# itself locates or installs the correct Python 3.12 for the app.
+# First run or repair: the app's OWN Python (v0.8.x P1A, owner decisions D1/D2).
+#
+# Stage 0 (scripts/shared/bootstrap_host_macos.sh) proves, or downloads with
+# consent and proves, a pinned standalone CPython 3.12 inside this folder
+# (files/runtime-data/python). That interpreter -- never one found on PATH,
+# never Homebrew's, never Apple's -- then runs the setup. Nothing is installed
+# on the Mac and no administrator password is ever asked for.
+# Stage 0's codes: 0 = proven, 2 = you declined (nothing downloaded),
+# 3 = it could not be done (the reason is printed above).
 # ---------------------------------------------------------------------------
 echo "============================================================"
 echo "  Audiobook Creation Tool - first-time setup"
 echo "============================================================"
 echo
-echo "Looking for Python..."
 
-# A GUI-capable Python is one whose Tk actually initializes — not merely one
-# that exists. Homebrew's python@3.12 has NO working _tkinter unless
-# python-tk@3.12 is also installed, and the app imports tkinter at startup, so
-# every candidate is probed with a real Tcl() init before we accept it.
-tk_ok() { "$1" -c "import tkinter; tkinter.Tcl()" >/dev/null 2>&1; }
-
-# Make an installed Homebrew usable in THIS shell (Apple Silicon vs Intel paths).
-load_brew_env() {
-    if [ -x /opt/homebrew/bin/brew ]; then eval "$(/opt/homebrew/bin/brew shellenv)";
-    elif [ -x /usr/local/bin/brew ]; then eval "$(/usr/local/bin/brew shellenv)"; fi
-}
-
-PYBIN=""
-for cand in python3.12 python3.11 python3; do
-    if command -v "$cand" >/dev/null 2>&1 && tk_ok "$cand"; then
-        PYBIN="$(command -v "$cand")"; break
-    fi
-done
-
-# Nothing GUI-capable yet → repair via Homebrew (installs Tk support).
-if [ -z "$PYBIN" ]; then
-    load_brew_env
-    if ! command -v brew >/dev/null 2>&1; then
-        echo
-        echo "------------------------------------------------------------"
-        echo "  A GUI-capable Python is needed and Homebrew is not yet"
-        echo "  installed. The official Homebrew installer will run now."
-        echo
-        echo "  >>>  macOS will ask for YOUR MAC LOGIN PASSWORD.  <<<"
-        echo
-        echo "  That prompt comes from Homebrew (not this app), asking"
-        echo "  permission to install software. Type your password and"
-        echo "  press Return. Nothing is shown as you type — that's normal."
-        echo "------------------------------------------------------------"
-        echo
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        load_brew_env
-    fi
-    if command -v brew >/dev/null 2>&1; then
-        echo "Installing a GUI-capable Python (python@3.12 + python-tk@3.12) via Homebrew..."
-        brew install python@3.12 python-tk@3.12 || true
-        # Install ffmpeg now too while brew is in hand (bootstrap re-checks harmlessly).
-        brew install ffmpeg || true
-        BREW_PY="$(brew --prefix)/bin/python3.12"
-        if [ -x "$BREW_PY" ] && tk_ok "$BREW_PY"; then PYBIN="$BREW_PY"; fi
-    fi
-fi
-
-# Still nothing GUI-capable → fall back to a headless install with any python3.
-HEADLESS_FLAG=""
-if [ -z "$PYBIN" ]; then
-    for cand in python3.12 python3.11 python3; do
-        if command -v "$cand" >/dev/null 2>&1; then PYBIN="$(command -v "$cand")"; break; fi
-    done
-    if [ -n "$PYBIN" ]; then
-        HEADLESS_FLAG="--headless"
-        echo
-        echo "  [!!] No GUI-capable Python could be set up — continuing in HEADLESS"
-        echo "       mode. Setup will still finish (Python env + libraries + ffmpeg)."
-        echo "       To enable the app window later, install Tk support and re-run:"
-        echo "           brew install python-tk@3.12"
-        echo
+APP_PY="files/runtime-data/python/bin/python3.12"
+/bin/bash "scripts/shared/bootstrap_host_macos.sh"
+STAGE0=$?
+if [ "$STAGE0" -ne 0 ]; then
+    echo
+    if [ "$STAGE0" -eq 2 ]; then
+        echo "Setup stopped before downloading anything. Double-click this file again"
+        echo "whenever you are ready."
     else
-        echo
-        echo "Could not find or install Python automatically."
-        echo "Install Python 3.12 from python.org, then run this file again."
-        open "https://www.python.org/downloads/" >/dev/null 2>&1 || true
-        echo
-        read -n 1 -s -r -p "Press any key to close..."
-        echo
-        exit 1
+        echo "The app's own Python could not be set up (see the message above)."
+        echo "Nothing outside this folder was changed."
     fi
+    echo
+    read -n 1 -s -r -p "Press any key to close..."
+    echo
+    exit "$STAGE0"
 fi
 
-echo "Using Python: $PYBIN ($("$PYBIN" --version 2>&1))"
 if [ -n "$NEEDS_VENV_REPAIR" ]; then
     # Environment repair only: rebuild the private Python environment and its
     # packages, then launch. Deliberately NOT the full first-run install.
     echo "Repairing..."
     echo
-    "$PYBIN" "$BOOTSTRAP" --repair-venv $HEADLESS_FLAG
+    "$APP_PY" "$BOOTSTRAP" --repair-venv
 else
     echo "Starting setup..."
     echo
-    "$PYBIN" "$BOOTSTRAP" $HEADLESS_FLAG
+    "$APP_PY" "$BOOTSTRAP"
 fi
 RC=$?
 

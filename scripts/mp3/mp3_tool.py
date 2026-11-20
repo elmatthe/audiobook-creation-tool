@@ -134,6 +134,7 @@ from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
+from shared import subprocess_utils as sp
 from shared import ui_theme
 from shared.book_workspace import (
     BookDisposition,
@@ -522,6 +523,9 @@ def _layout_hints(theme) -> dict:
         # v0.6.4 Phase 13 (macOS parity): Clear All Imports widened this band
         # past the aqua host, squeezing the import status bar to one pixel.
         "import_band_layout": str(metrics.get("import_band_layout", "compact")),
+        # v0.8.x P1B remediation (ACT72-078): "fit" shortens a long Book label
+        # so the navigator's "(X of Y)" is never cut. Windows keeps "natural".
+        "navigator_heading": str(metrics.get("navigator_heading", "natural")),
     }
 
 
@@ -908,6 +912,7 @@ class MP3ToolUI(ttk.Frame):
 
         self.navigator = BookNavigator(
             imp, theme=bundle, layout=hints["navigator_layout"],
+            fit_heading=hints["navigator_heading"] == "fit",
             describe=self._describe, label_for=self._label_for,
             on_previous=self.on_previous, on_next=self.on_next,
             on_add=self.on_add, on_duplicate=self.on_duplicate,
@@ -1213,10 +1218,11 @@ class MP3ToolUI(ttk.Frame):
         label = self.output_label
         full = str(self.var_outdir.get())
         try:
-            width = label.winfo_width()
             described = ttk.Style(label).lookup(
                 str(label.cget("style")) or "TLabel", "font")
             font = tkfont.Font(font=described or "TkDefaultFont")
+            # The label's own padding is not room for text (the last glyph was cut).
+            width = ui_theme.text_room(label, font.measure)
         except tk.TclError:
             return
         text = full
@@ -2133,7 +2139,7 @@ class MP3ToolUI(ttk.Frame):
         run_id = (self._attempt.run_id if retry_items is not None and self._attempt
                   else self._ids.next_id("run"))
         item_ids = tuple(track.occurrence_id for book in plan.books for track in book.tracks)
-        controller = job_control.JobController(run_id, listener=self._on_state)
+        controller = job_control.JobController(run_id, listener=self._on_state, cancel_clock=time.monotonic)
         reporter = job_control.JobReporter(
             run_id, clock=self._clock, publish=self._publish, item_ids=item_ids)
         attempt = _Attempt(label=label, plan=plan, run_id=run_id, number=attempt_number,
@@ -2223,9 +2229,15 @@ class MP3ToolUI(ttk.Frame):
             self._run_attempt(attempt)
         except ConversionCancelled:
             # Plan 3 offers no Retry Failed after a Cancel, so nothing staged is kept (ACT72-037).
+            # v0.8.x P5-I-R3: CANCELLED only once every contained process of the run is confirmed ended.
+            problem = sp.containment_problem(controller.cancel_check)
             self._release_staging(attempt, keep=())
             try:
-                reporter.cancelled(controller.finish_cancelled())
+                if problem is not None:
+                    reporter.technical(problem)
+                    reporter.completed(controller.fail(sp.CONTAINMENT_FAILED_MESSAGE, problem))
+                else:
+                    reporter.cancelled(controller.finish_cancelled())
             except Exception:  # pragma: no cover - already stopping; do not mask it
                 pass
         except BaseException as exc:  # noqa: BLE001 - deliberately everything
@@ -2297,8 +2309,14 @@ class MP3ToolUI(ttk.Frame):
                         retry_items=attempt.retry_items)
         attempt.report = report
         controller = attempt.controller
-        final = (controller.complete_with_failures() if report.failed_book_ids
-                 else controller.succeed())
+        # v0.8.x P5-I-R3: never finished with a contained process of the run not confirmed ended.
+        problem = sp.containment_problem(controller.cancel_check)
+        if problem is not None:
+            attempt.reporter.technical(problem)
+            final = controller.fail(sp.CONTAINMENT_FAILED_MESSAGE, problem)
+        else:
+            final = (controller.complete_with_failures() if report.failed_book_ids
+                     else controller.succeed())
         # Retry Failed is offered only after a run completed with failures, and re-runs only Books with a retryable
         # failure: their good pieces stay staged for it; every other Book's staging goes before the terminal event.
         keep = ({book.book_id for book in report.books if not book.succeeded and book.result.has_retryable}

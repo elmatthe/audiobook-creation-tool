@@ -139,9 +139,9 @@ def test_write_id3_runs_every_book_through_one_controller(make_panel, tmp_path, 
     controllers: list[job_control.JobController] = []
     real = job_control.JobController.__init__
 
-    def spy(self, run_id, *, listener=None):
+    def spy(self, run_id, *, listener=None, **rest):  # v0.8.x P5-I-R3: cancel_clock is passed on too
         controllers.append(self)
-        real(self, run_id, listener=listener)
+        real(self, run_id, listener=listener, **rest)
 
     monkeypatch.setattr(mp3_tool.job_control.JobController, "__init__", spy)
     assert panel.write_id3_tags() is True

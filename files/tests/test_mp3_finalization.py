@@ -422,6 +422,7 @@ def _text(tmp_path: Path, sentences: int = 40) -> Path:
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_output_is_internally_consistent(chatterbox_ready, tmp_path):
     import tts.chatterbox_synth as cbx
 
@@ -435,6 +436,7 @@ def test_chatterbox_output_is_internally_consistent(chatterbox_ready, tmp_path):
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_honours_the_runs_chosen_bitrate(chatterbox_ready, tmp_path):
     import tts.chatterbox_synth as cbx
 
@@ -445,6 +447,7 @@ def test_chatterbox_honours_the_runs_chosen_bitrate(chatterbox_ready, tmp_path):
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_still_honours_its_pause_contract(chatterbox_ready, tmp_path):
     """Assembly moved to PCM; the configured between-chunk pause must land unchanged.
 
@@ -469,6 +472,7 @@ def test_chatterbox_still_honours_its_pause_contract(chatterbox_ready, tmp_path)
 
 
 @needs_ffmpeg
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_chatterbox_progress_and_cancellation_are_unchanged(chatterbox_ready, tmp_path):
     import tts.chatterbox_synth as cbx
     from shared.cancellation import ConversionCancelled
@@ -496,6 +500,9 @@ def test_kokoro_output_is_internally_consistent(monkeypatch, tmp_path):
             yield ("g", "p", _pcm(1.0))
 
     monkeypatch.setattr(ks, "_get_pipeline", lambda lang_code: _Pipeline())
+    # The in-process route (Windows); on macOS the same parent flow runs through the local-engine worker, tested in
+    # test_local_engine_worker.py.
+    monkeypatch.setattr(ks, "_use_worker", lambda: False)
     source = tmp_path / "k.txt"
     source.write_text(("This is a sentence that fills the chunk. " * 90).strip(),
                       encoding="utf-8")
@@ -559,5 +566,5 @@ def test_the_version_and_tool_count_are_unchanged():
 
     # v0.8.0 Phase 4 release-candidate identity (v0.7.3 was released; this pin had not moved past 0.7.2).
     # This pins the application version without asserting publication.
-    assert version.VERSION == "0.8.0"
+    assert version.VERSION == "0.8.0+macos.1"
     assert len(launcher.TOOLS) == 6

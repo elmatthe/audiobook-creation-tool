@@ -28,6 +28,16 @@ reference, nothing written; it ends with one ``probe`` or ``failed`` event.
 Terminal events (exactly one per run): ``done``, ``failed``, ``canceled``. Cancellation is a flag file checked before the
 load and before each chunk; the parent also kills the whole process tree if the worker does not stop promptly. Nothing
 falls back: no CPU, no other voice, no other recording.
+
+**On a Mac (macOS P4B).** The job names one of the two configurations the owner accepted after P4A: the Apple GPU
+(``mps``) or the CPU (``cpu``), both float32; anything else -- MPS float16 included -- is refused before anything heavy
+is imported, and so is a job started with ``PYTORCH_ENABLE_MPS_FALLBACK`` set (an operation MPS cannot run would then
+run on the CPU unseen). After loading, the model's backbone must be entirely on the asked device (the audio tokenizer
+stays on the CPU under MPS, where upstream places it), or the run fails: never a silent CPU fallback. Memory is the
+process's physical footprint (``proc_pid_rusage``) and, on MPS, PyTorch's own allocator figures; the peaks are the
+lifetime footprint and the largest per-chunk samples (MPS has no peak counter). Windows runs exactly as released (CUDA,
+float16). When the app starts the worker on a Mac, ``shared/child_entry.py`` has already started its owner's lifeline
+before this file runs, so it ends with its owner however that ends.
 """
 from __future__ import annotations
 
@@ -164,7 +174,29 @@ def release_engine() -> None:
 # --------------------------------------------------------------------------- #
 # The job
 # --------------------------------------------------------------------------- #
-def probe_problems(job: dict) -> list[str]:
+#: macOS P4B: the device and dtype pairs a job may name on a Mac -- the two configurations the owner accepted after the
+#: P4A experiment (2026-11-16). MPS float16 was an experiment only and is refused.
+MAC_CONFIGURATIONS = frozenset({("mps", "float32"), ("cpu", "float32")})
+
+
+def device_problems(job: dict, environ: Optional[dict] = None, system: Optional[str] = None) -> list[str]:
+    """Why the job's device and dtype may not run here. Windows: the released check, the GPU (CUDA) only. A Mac: one of
+    :data:`MAC_CONFIGURATIONS`, and never with the MPS fallback switch set."""
+    environ = os.environ if environ is None else environ
+    system = sys.platform if system is None else system
+    if system != "darwin":
+        return [] if job.get("device") == "cuda" else ["the OmniVoice voices run on the GPU only"]
+    problems = []
+    if (job.get("device"), job.get("dtype")) not in MAC_CONFIGURATIONS:
+        problems.append(f"on a Mac the OmniVoice voices run only on the Apple GPU (mps) or the CPU, in float32, not "
+                        f"{job.get('device')!r}/{job.get('dtype')!r}")
+    if environ.get("PYTORCH_ENABLE_MPS_FALLBACK"):
+        problems.append("PYTORCH_ENABLE_MPS_FALLBACK is set (an operation the GPU cannot run would run on the CPU "
+                        "unseen)")
+    return problems
+
+
+def probe_problems(job: dict, environ: Optional[dict] = None, system: Optional[str] = None) -> list[str]:
     """Why a ``probe`` job (v0.8.0 Phase 3: the installer's proof) may not run, checked before anything heavy."""
     missing = sorted(PROBE_KEYS - set(job))
     if missing:
@@ -175,8 +207,7 @@ def probe_problems(job: dict) -> list[str]:
         problems.append("the model folder has no config.json")
     if not (model / "audio_tokenizer" / "config.json").is_file():
         problems.append("the model folder has no audio_tokenizer (OmniVoice would fetch one)")
-    if job.get("device") != "cuda":
-        problems.append("the OmniVoice voices run on the GPU only")
+    problems += device_problems(job, environ, system)
     packages = job.get("packages")
     if not isinstance(packages, dict) or not packages or not all(
             isinstance(k, str) and isinstance(v, str) for k, v in packages.items()):
@@ -186,12 +217,13 @@ def probe_problems(job: dict) -> list[str]:
     return problems
 
 
-def job_problems(job: dict, environ: Optional[dict] = None) -> list[str]:
-    """Why this job may not run here, checked before anything heavy is imported."""
+def job_problems(job: dict, environ: Optional[dict] = None, system: Optional[str] = None) -> list[str]:
+    """Why this job may not run here, checked before anything heavy is imported. *system* is ``sys.platform`` unless a
+    test asks as another platform (macOS P4B: the device rules differ between Windows and a Mac)."""
     environ = os.environ if environ is None else environ
     problems = [f"{name} is not {value}" for name, value in REQUIRED_OFFLINE.items() if environ.get(name) != value]
     if job.get("kind") == "probe" and job.get("schema") == 1:
-        return problems + probe_problems(job)
+        return problems + probe_problems(job, environ, system)
     if job.get("kind") != "synth" or job.get("schema") != 1:
         return problems + [f"unknown job kind {job.get('kind')!r}"]
     missing = sorted(SYNTH_KEYS - set(job))
@@ -216,8 +248,7 @@ def job_problems(job: dict, environ: Optional[dict] = None) -> list[str]:
     generation = job.get("generation")
     if not isinstance(generation, dict) or set(generation) - GENERATION_KEYS:
         problems.append("the generation settings name something OmniVoiceGenerationConfig does not have")
-    if job.get("device") != "cuda":
-        problems.append("the OmniVoice voices run on the GPU only")
+    problems += device_problems(job, environ, system)
     chunks = job.get("chunks")
     if not isinstance(chunks, list) or not chunks or not all(
             isinstance(c, dict) and type(c.get("index")) is int and isinstance(c.get("text"), str) and c["text"].strip()
@@ -250,9 +281,125 @@ def _cuda_usable(torch) -> bool:
         return False
 
 
-def _memory(torch) -> dict:
-    return {"vram_allocated_mib": torch.cuda.memory_allocated(0) // 2**20,
-            "vram_reserved_mib": torch.cuda.memory_reserved(0) // 2**20}
+def _device_usable(torch, device: str) -> bool:
+    """Whether PyTorch can run on *device* here: CUDA as released; the Mac's GPU as MPS reports it; the CPU always."""
+    if device == "cuda":
+        return _cuda_usable(torch)
+    if device == "mps":
+        try:
+            return bool(torch.backends.mps.is_available())
+        except Exception:  # noqa: BLE001 - an MPS that cannot even answer is not usable
+            return False
+    return device == "cpu"
+
+
+def _device_map(device: str) -> str:
+    return "cuda:0" if device == "cuda" else device
+
+
+def _sync(torch, device: str) -> None:
+    """Wait for the device's queued work (timings and memory figures mean nothing before it). The CPU has no queue."""
+    if device == "cuda":
+        torch.cuda.synchronize()
+    elif device == "mps":
+        torch.mps.synchronize()
+
+
+def _empty_cache(torch, device: str) -> None:
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    elif device == "mps":
+        torch.mps.empty_cache()
+
+
+#: ``rusage_info_v4`` (``<sys/resource.h>``): after the 16-byte UUID, 64-bit fields; ``ri_phys_footprint`` is the 8th
+#: and ``ri_lifetime_max_phys_footprint`` the 29th (the reader ``tts.local_engine_worker`` uses).
+_RUSAGE_INFO_V4 = 4
+_PHYS_FOOTPRINT_OFFSET = 16 + 7 * 8
+_LIFETIME_MAX_FOOTPRINT_OFFSET = 16 + 28 * 8
+
+
+def _footprint() -> dict:
+    """This process's physical footprint now and its lifetime peak, in MiB (macOS), or ``{}``."""
+    try:
+        import ctypes
+        import struct
+
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        buffer = ctypes.create_string_buffer(512)
+        if libproc.proc_pid_rusage(os.getpid(), _RUSAGE_INFO_V4, buffer) != 0:
+            return {}
+        now = struct.unpack_from("=Q", buffer.raw, _PHYS_FOOTPRINT_OFFSET)[0]
+        peak = struct.unpack_from("=Q", buffer.raw, _LIFETIME_MAX_FOOTPRINT_OFFSET)[0]
+        return {"footprint_mib": int(now) // 2**20, "peak_footprint_mib": int(peak) // 2**20}
+    except (OSError, AttributeError, ValueError):
+        return {}
+
+
+def _memory(torch, device: str = "cuda") -> dict:
+    """Memory now: the GPU's allocator figures on CUDA (as released); on a Mac the process footprint and, on MPS,
+    PyTorch's allocated and driver figures (the GPU shares the Mac's memory)."""
+    if device == "cuda":
+        return {"vram_allocated_mib": torch.cuda.memory_allocated(0) // 2**20,
+                "vram_reserved_mib": torch.cuda.memory_reserved(0) // 2**20}
+    found = _footprint()
+    if device == "mps":
+        found["mps_allocated_mib"] = int(torch.mps.current_allocated_memory()) // 2**20
+        found["mps_driver_mib"] = int(torch.mps.driver_allocated_memory()) // 2**20
+    return found
+
+
+def _sysctl(name: str, kind: str):
+    """One macOS ``sysctlbyname`` value (``"int"`` or ``"text"``), or ``None``."""
+    try:
+        import ctypes
+        import ctypes.util
+
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.dylib", use_errno=True)
+        size = ctypes.c_size_t(0)
+        if libc.sysctlbyname(name.encode(), None, ctypes.byref(size), None, 0) != 0 or not size.value:
+            return None
+        buffer = ctypes.create_string_buffer(size.value)
+        if libc.sysctlbyname(name.encode(), buffer, ctypes.byref(size), None, 0) != 0:
+            return None
+        if kind == "text":
+            return buffer.raw[:size.value].split(b"\0", 1)[0].decode("utf-8", "replace").strip()
+        return int.from_bytes(buffer.raw[:size.value], sys.byteorder)
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _device_facts(torch, device: str) -> dict:
+    """The device a run is on, by name, and its memory: the CUDA GPU's own properties (as released), or the Mac's chip
+    and its unified memory (``machdep.cpu.brand_string``, ``hw.memsize``)."""
+    if device == "cuda":
+        props = torch.cuda.get_device_properties(0)
+        return {"device": "cuda:0", "device_name": props.name, "total_mib": props.total_memory // 2**20}
+    chip = _sysctl("machdep.cpu.brand_string", "text") or "Apple Silicon"
+    where = "GPU (MPS)" if device == "mps" else "CPU"
+    return {"device": device, "device_name": f"{chip} {where}", "total_mib": (_sysctl("hw.memsize", "int") or 0) // 2**20}
+
+
+def placement_problem(model, device: str, dtype: str) -> str:
+    """Why the loaded model is not where the job asked (macOS P4B; never a silent fallback), or ``""``.
+
+    Every backbone parameter must be on *device* in *dtype*. The audio tokenizer, registered under the model, is checked
+    apart: under MPS upstream places it on the CPU itself ("higgs-audio-v2-tokenizer does not support MPS"), and on the
+    CPU everything is on the CPU."""
+    backbone, tokenizer = [], []
+    for name, parameter in model.named_parameters():
+        (tokenizer if name.startswith("audio_tokenizer.") else backbone).append(parameter)
+    placed = sorted({p.device.type for p in backbone})
+    if placed != [device]:
+        return f"the model's backbone is on {placed}, not only on {device} (no silent fallback is allowed)"
+    dtypes = sorted({str(p.dtype).replace("torch.", "") for p in backbone if p.is_floating_point()})
+    if dtypes != [dtype]:
+        return f"the model's backbone is in {dtypes}, not only in {dtype}"
+    expected = "cpu" if device in ("mps", "cpu") else device
+    placed_tokenizer = sorted({p.device.type for p in tokenizer})
+    if tokenizer and placed_tokenizer != [expected]:
+        return f"the audio tokenizer is on {placed_tokenizer}, not where upstream places it ({expected})"
+    return ""
 
 
 def _is_oom(exc: BaseException) -> bool:
@@ -404,18 +551,26 @@ def run_synth(job: dict) -> int:
         emit({"event": "failed", "stage": "import", "message": f"omnivoice {omnivoice_version} is installed, not the "
               f"pinned {job['omnivoice_version']}"})
         return EXIT_FAILED
-    if not _cuda_usable(torch):
-        emit({"event": "failed", "stage": "load", "message": "PyTorch reports no usable CUDA GPU", "gpu": False})
+    device = job["device"]
+    if not _device_usable(torch, device):
+        message = ("PyTorch reports no usable CUDA GPU" if device == "cuda" else
+                   "PyTorch reports that this Mac's GPU (MPS) cannot be used")
+        emit({"event": "failed", "stage": "load", "message": message, "gpu": False})
         return EXIT_FAILED
     if _cancelled(job):
         emit({"event": "canceled", "completed": 0})
         return EXIT_CANCELED
     try:
         load_started = time.perf_counter()
-        model = OmniVoice.from_pretrained(job["model_dir"], device_map="cuda:0", dtype=getattr(torch, job["dtype"]))
+        model = OmniVoice.from_pretrained(job["model_dir"], device_map=_device_map(device),
+                                          dtype=getattr(torch, job["dtype"]))
         model.load_asr_model = _refuse_speech_recognizer
-        torch.cuda.synchronize()
+        _sync(torch, device)
         load_s = round(time.perf_counter() - load_started, 2)
+        if device != "cuda":
+            misplaced = placement_problem(model, device, job["dtype"])
+            if misplaced:
+                raise RuntimeError(misplaced)
         config = OmniVoiceGenerationConfig(**job["generation"])
         prompt_started = time.perf_counter()
         prompt = load_cached_prompt(job.get("prompt_cache"), VoiceClonePrompt)
@@ -427,30 +582,35 @@ def run_synth(job: dict) -> int:
             prompt_source = "built"
             if job.get("prompt_cache"):
                 save_prompt(prompt, job["prompt_cache"])
-        torch.cuda.synchronize()
+        _sync(torch, device)
     except Exception as exc:  # noqa: BLE001
         emit({"event": "failed", "stage": "load", "message": f"{type(exc).__name__}: {exc}", "oom": _is_oom(exc),
               "trace": traceback.format_exc()[-1500:]})
         return EXIT_FAILED
-    props = torch.cuda.get_device_properties(0)
-    emit({"event": "loaded", "device": "cuda:0", "device_name": props.name, "total_mib": props.total_memory // 2**20,
-          "load_s": load_s, "prompt": prompt_source, "prompt_s": round(time.perf_counter() - prompt_started, 2),
-          "ref_text_used": prompt.ref_text, "sampling_rate": int(model.sampling_rate), "versions": _versions(),
-          "chunks": len(chunks), **_memory(torch)})
+    facts = _device_facts(torch, device)
+    loaded = {"event": "loaded", **facts,
+              "load_s": load_s, "prompt": prompt_source, "prompt_s": round(time.perf_counter() - prompt_started, 2),
+              "ref_text_used": prompt.ref_text, "sampling_rate": int(model.sampling_rate), "versions": _versions(),
+              "chunks": len(chunks), **_memory(torch, device)}
+    if device != "cuda":
+        loaded["dtype"] = job["dtype"]
+    emit(loaded)
 
     done = 0
     rate = int(model.sampling_rate)
+    peaks: dict = {}  # a Mac: the largest per-chunk samples (MPS has no peak counter of its own)
     for chunk in chunks:
         if _cancelled(job):
             emit({"event": "canceled", "completed": done})
             return EXIT_CANCELED
         try:
             t0 = time.perf_counter()
-            torch.manual_seed(int(chunk["seed"]))
-            torch.cuda.manual_seed_all(int(chunk["seed"]))
+            torch.manual_seed(int(chunk["seed"]))  # seeds the CPU and MPS generators as well
+            if device == "cuda":
+                torch.cuda.manual_seed_all(int(chunk["seed"]))
             outputs = model.generate(text=chunk["text"], language=job["language"], voice_clone_prompt=prompt,
                                      generation_config=config, normalize_text=False)
-            torch.cuda.synchronize()
+            _sync(torch, device)
             wav = np.asarray(outputs[0], dtype=np.float32)
             if wav.ndim != 1 or wav.size == 0 or not np.isfinite(wav).all():
                 raise RuntimeError(f"the model returned unusable audio (shape {wav.shape})")
@@ -461,13 +621,23 @@ def run_synth(job: dict) -> int:
                   "message": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc()[-1500:]})
             return EXIT_FAILED
         done += 1
+        memory = _memory(torch, device)
+        for key in ("footprint_mib", "mps_allocated_mib", "mps_driver_mib"):
+            if key in memory:
+                peaks[key] = max(peaks.get(key, 0), memory[key])
         emit({"event": "chunk", "index": chunk["index"], "of": len(chunks), "wav": name,
               "audio_s": round(wav.size / rate, 3), "gen_s": round(time.perf_counter() - t0, 3), "sample_rate": rate,
-              "peak": round(float(np.abs(wav).max()), 5), **_memory(torch)})
-    emit({"event": "done", "chunks": done, "sample_rate": rate, "device": "cuda:0",
+              "peak": round(float(np.abs(wav).max()), 5), **memory})
+    if device == "cuda":
+        emit({"event": "done", "chunks": done, "sample_rate": rate, "device": "cuda:0",
+              "wall_s": round(time.perf_counter() - started, 2), "load_s": load_s,
+              "peak_allocated_mib": torch.cuda.max_memory_allocated(0) // 2**20,
+              "peak_reserved_mib": torch.cuda.max_memory_reserved(0) // 2**20})
+        return EXIT_OK
+    emit({"event": "done", "chunks": done, "sample_rate": rate, "device": device, "dtype": job["dtype"],
           "wall_s": round(time.perf_counter() - started, 2), "load_s": load_s,
-          "peak_allocated_mib": torch.cuda.max_memory_allocated(0) // 2**20,
-          "peak_reserved_mib": torch.cuda.max_memory_reserved(0) // 2**20})
+          "peak_footprint_mib": _footprint().get("peak_footprint_mib"),
+          **{f"max_{key}": value for key, value in peaks.items()}})
     return EXIT_OK
 
 
@@ -556,35 +726,49 @@ def run_probe(job: dict, network: list) -> int:
         emit({"event": "failed", "stage": "versions", "message": f"omnivoice {omnivoice_version} is installed, not the "
               f"pinned {job['omnivoice_version']}"})
         return EXIT_FAILED
-    if not _cuda_usable(torch):
-        emit({"event": "failed", "stage": "gpu", "message": "PyTorch reports no usable CUDA GPU", "gpu": False})
+    device = job["device"]
+    if not _device_usable(torch, device):
+        message = ("PyTorch reports no usable CUDA GPU" if device == "cuda" else
+                   "PyTorch reports that this Mac's GPU (MPS) cannot be used")
+        emit({"event": "failed", "stage": "gpu", "message": message, "gpu": False})
         return EXIT_FAILED
     try:
-        check = (torch.ones(1024, device="cuda", dtype=torch.float16) * 2).sum().item()
-        torch.cuda.synchronize()
+        if device == "cuda":
+            check = (torch.ones(1024, device="cuda", dtype=torch.float16) * 2).sum().item()
+        else:  # a Mac: the same small kernel on the asked device, in the float32 the engine runs in
+            check = (torch.ones(1024, device=device, dtype=getattr(torch, job["dtype"])) * 2).sum().item()
+        _sync(torch, device)
         if check != 2048:
-            raise RuntimeError(f"a CUDA kernel returned {check}, not 2048")
+            raise RuntimeError(f"a {device.upper()} kernel returned {check}, not 2048")
     except Exception as exc:  # noqa: BLE001
         emit({"event": "failed", "stage": "gpu", "message": f"{type(exc).__name__}: {exc}"})
         return EXIT_FAILED
     try:
         load_started = time.perf_counter()
-        model = OmniVoice.from_pretrained(job["model_dir"], device_map="cuda:0", dtype=getattr(torch, job["dtype"]))
+        model = OmniVoice.from_pretrained(job["model_dir"], device_map=_device_map(device),
+                                          dtype=getattr(torch, job["dtype"]))
         model.load_asr_model = _refuse_speech_recognizer
-        torch.cuda.synchronize()
+        _sync(torch, device)
         load_s = round(time.perf_counter() - load_started, 2)
+        if device != "cuda":
+            misplaced = placement_problem(model, device, job["dtype"])
+            if misplaced:
+                raise RuntimeError(misplaced)
     except Exception as exc:  # noqa: BLE001
         emit({"event": "failed", "stage": "load", "message": f"{type(exc).__name__}: {exc}", "oom": _is_oom(exc),
               "trace": traceback.format_exc()[-1500:]})
         return EXIT_FAILED
-    props = torch.cuda.get_device_properties(0)
-    memory = _memory(torch)
-    emit({"event": "probe", "versions": _versions(), "device_name": props.name,
-          "total_mib": props.total_memory // 2**20, "load_s": load_s, "sampling_rate": int(model.sampling_rate),
-          "isolation": "ok", "network_attempts": len(network), "wall_s": round(time.perf_counter() - started, 2),
-          **memory})
+    facts = _device_facts(torch, device)
+    memory = _memory(torch, device)
+    report = {"event": "probe", "versions": _versions(), "device_name": facts["device_name"],
+              "total_mib": facts["total_mib"], "load_s": load_s, "sampling_rate": int(model.sampling_rate),
+              "isolation": "ok", "network_attempts": len(network), "wall_s": round(time.perf_counter() - started, 2),
+              **memory}
+    if device != "cuda":
+        report.update(device=device, dtype=job["dtype"])
+    emit(report)
     del model
-    torch.cuda.empty_cache()
+    _empty_cache(torch, device)
     return EXIT_OK
 
 

@@ -148,11 +148,10 @@ def _publish_no_clobber(staged: Path, destination: Path) -> None:
     if _IS_WINDOWS:
         os.rename(staged, destination)
     else:
-        os.link(staged, destination)
-        try:
-            os.unlink(staged)
-        except OSError:
-            pass  # published all the same; the leftover is only a second name for the same file (sweep_orphans)
+        # v0.8.x P1B (MAC-017): the shared primitive -- on macOS ``renamex_np(RENAME_EXCL)``, else (or where the
+        # filesystem lacks it) a hard link and the staged name removed; a leftover is only a second name for the same
+        # file (sweep_orphans). exFAT and FAT have neither and fail with ENOTSUP, explained by _explain.
+        output_paths.move_without_replacing(staged, destination)
 
 
 def _publish_replacing(staged: Path, destination: Path) -> None:

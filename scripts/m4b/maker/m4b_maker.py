@@ -311,6 +311,13 @@ def _layout_hints(theme) -> dict:
         "label_wrap_short": metrics.get("field_label_wrap_short"),
         "book_fields_span": str(metrics.get("book_fields_span", "wide")),
         "options_layout": str(metrics.get("options_layout", "row")),
+        # v0.8.x P1B remediation (ACT72-078): in the tight density the status
+        # line sits beside the controls; "fit" keeps it one line ending in an
+        # ellipsis (it was cut mid-word on Aqua). Windows keeps its wrap.
+        "status_line": str(metrics.get("status_line", "wrap")),
+        # v0.8.x P1B remediation (ACT72-078): "fit" shortens a long Book label
+        # so the navigator's "(X of Y)" is never cut. Windows keeps "natural".
+        "navigator_heading": str(metrics.get("navigator_heading", "natural")),
     }
 
 
@@ -569,6 +576,7 @@ class M4BMakerUI(ttk.Frame):
 
         self.navigator = BookNavigator(
             imp, theme=bundle, layout=hints["navigator_layout"],
+            fit_heading=hints["navigator_heading"] == "fit",
             describe=self._describe, label_for=self._label_for,
             on_previous=self.on_previous, on_next=self.on_next,
             on_add=self.on_add, on_duplicate=self.on_duplicate,
@@ -903,10 +911,11 @@ class M4BMakerUI(ttk.Frame):
         label = self.output_label
         full = str(self.var_outdir.get())
         try:
-            width = label.winfo_width()
             described = ttk.Style(label).lookup(
                 str(label.cget("style")) or "TLabel", "font")
             font = tkfont.Font(font=described or "TkDefaultFont")
+            # The label's own padding is not room for text (the last glyph was cut).
+            width = ui_theme.text_room(label, font.measure)
         except tk.TclError:
             return
         text = full
@@ -1075,14 +1084,19 @@ class M4BMakerUI(ttk.Frame):
             jobs.frame.columnconfigure(1, weight=1)
             view.indicator.bar.configure(length=TIGHT_PROGRESS_BAR_LENGTH)
             view.indicator.frame.grid_configure(row=0, column=0, columnspan=1, sticky="w")
-            view.label_status.grid_configure(row=0, column=1, columnspan=2, sticky="w",
-                                             padx=(8, 0))
+            fit = self._hints["status_line"] == "fit"
+            view.label_status.grid_configure(row=0, column=1, columnspan=2,
+                                             sticky="ew" if fit else "w", padx=(8, 0))
             view.label_stage.grid_configure(row=1, column=0, columnspan=2, sticky="w")
             view.label_eta.grid_configure(row=1, column=2, columnspan=1, sticky="e")
             view.frame.columnconfigure(0, weight=0)
             view.frame.columnconfigure(1, weight=1)
-            view.label_status.configure(wraplength=TIGHT_STATUS_WRAP)
+            if fit:
+                view.fit_status(True)
+            else:
+                view.label_status.configure(wraplength=TIGHT_STATUS_WRAP)
         else:
+            view.fit_status(False)
             jobs.controls.frame.grid_configure(row=0, column=0, sticky="e")
             view.frame.grid_configure(row=1, column=0, sticky="ew", padx=0, pady=(4, 0))
             jobs.frame.columnconfigure(0, weight=1)

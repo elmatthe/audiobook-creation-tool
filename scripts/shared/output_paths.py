@@ -26,8 +26,10 @@ shipped tree; a test in ``files/tests/test_output_paths.py`` enforces that.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
+import secrets
 import stat
 import sys
 import tempfile
@@ -978,6 +980,13 @@ def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
 
     The caller owns the returned path and must remove it if the operation does
     not reach its replacement boundary.
+
+    On macOS and Linux (v0.8.x P1B) the file is created the way ``mkstemp``
+    creates one -- a new random name, exclusively, never through a link -- but
+    with mode 0o666, so the user's umask decides its permissions as for any new
+    file. ``mkstemp``'s 0o600 is for private scratch; this file becomes the
+    output, and every Converter MP3 was readable by its owner only (measured on
+    macOS 27). Windows is unchanged.
     """
     source = Path(source)
     directory = source.parent
@@ -991,12 +1000,13 @@ def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
             "the folder holding this image is a link, which is not written through",
             f"{directory} is a symlink or junction",
         )
+    prefix = f"{TEMP_SIBLING_PREFIX}{source.stem}-"
+    suffix = suffix if suffix is not None else source.suffix
     try:
-        handle, name = tempfile.mkstemp(
-            prefix=f"{TEMP_SIBLING_PREFIX}{source.stem}-",
-            suffix=suffix if suffix is not None else source.suffix,
-            dir=str(directory),
-        )
+        if os.name == "nt":
+            handle, name = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=str(directory))
+        else:
+            handle, name = _create_for_the_user(directory, prefix, suffix)
     except OSError as exc:
         raise OutputPathError(
             f"a temporary file could not be created next to {source.name}",
@@ -1004,6 +1014,18 @@ def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
         ) from exc
     os.close(handle)
     return Path(name)
+
+
+def _create_for_the_user(directory: Path, prefix: str, suffix: str) -> tuple[int, str]:
+    """POSIX: a new, exclusively created file with a random name, opened with mode 0o666 (the umask applies)."""
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    for _attempt in range(100):
+        name = os.path.join(str(directory), f"{prefix}{secrets.token_hex(5)}{suffix}")
+        try:
+            return os.open(name, flags, 0o666), name
+        except FileExistsError:
+            continue
+    raise FileExistsError(errno.EEXIST, "no free temporary name after 100 attempts", str(directory))
 
 
 def discard_temporary(path) -> bool:
@@ -1047,6 +1069,8 @@ def atomic_replace(temporary: Path, target: Path) -> None:
             "the target is a link, which is not replaced",
             f"{target} is a symlink or junction",
         )
+    if os.name != "nt":
+        _carry_permissions(target, temporary)
     try:
         os.replace(temporary, target)
     except OSError as exc:
@@ -1054,6 +1078,16 @@ def atomic_replace(temporary: Path, target: Path) -> None:
             f"{target.name} could not be replaced",
             f"{type(exc).__name__}: {exc}",
         ) from exc
+
+
+def _carry_permissions(target: Path, temporary: Path) -> None:
+    """POSIX (v0.8.x P1B): a file replaced in place keeps its permission bits, as an edit in place would. With no file
+    there yet, the new file keeps the umask's mode. Best effort: a refusal leaves the replacement itself unaffected."""
+    try:
+        mode = stat.S_IMODE(os.stat(target, follow_symlinks=False).st_mode)
+        os.chmod(temporary, mode)
+    except OSError:
+        pass
 
 
 class DestinationOccupied(OutputPathError):
@@ -1071,18 +1105,57 @@ def move_without_replacing(source, destination) -> None:
 
     * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``: it fails when the name exists
       and never copies.
-    * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
-      old name is then removed. If that removal fails the move has still happened: the old name is only a second name
-      for the same file.
+    * macOS (v0.8.x P1B, MAC-017): ``renamex_np(RENAME_EXCL)`` first, one rename the kernel itself refuses when the
+      name is taken (``EEXIST``), leaving no second name behind. A filesystem that does not offer it answers ``ENOTSUP``
+      and the hard link below is tried instead.
+    * Elsewhere, and on a Mac whose filesystem has no exclusive rename, ``os.rename`` replaces silently, so ``os.link``
+      makes the name (it fails when the name exists) and the old name is then removed. If that removal fails the move
+      has still happened: the old name is only a second name for the same file.
+    * A filesystem with neither (exFAT and FAT: measured on macOS 27, both answer ``ENOTSUP``) raises that
+      ``OSError``. There is deliberately no fallback to a look followed by a move.
     """
     if os.name == "nt":
         os.rename(source, destination)
+        return
+    if sys.platform == "darwin" and _rename_exclusive(source, destination):
         return
     os.link(source, destination)
     try:
         os.unlink(source)
     except OSError:
         pass
+
+
+#: ``<stdio.h>``: rename only if the destination does not exist (macOS 10.12 and later).
+RENAME_EXCL = 0x00000004
+_renamex_np = None
+
+
+def _rename_exclusive(source, destination) -> bool:
+    """``renamex_np(source, destination, RENAME_EXCL)``. True when it renamed. False only when this filesystem (or
+    this system) does not offer it, so the caller can try a hard link; every other failure is raised as the kernel's
+    own ``OSError`` -- ``FileExistsError`` when the name is taken, ``errno`` intact otherwise."""
+    global _renamex_np
+    if _renamex_np is None:
+        try:
+            import ctypes
+
+            function = ctypes.CDLL(None, use_errno=True).renamex_np
+            function.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            function.restype = ctypes.c_int
+            _renamex_np = function
+        except (OSError, AttributeError):
+            _renamex_np = False
+    if _renamex_np is False:
+        return False
+    import ctypes
+
+    if _renamex_np(os.fsencode(source), os.fsencode(destination), RENAME_EXCL) == 0:
+        return True
+    number = ctypes.get_errno()
+    if number in (errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)):
+        return False
+    raise OSError(number, os.strerror(number), os.fspath(source), None, os.fspath(destination))
 
 
 def publish_new(temporary: Path, destination: Path) -> None:
@@ -1099,9 +1172,11 @@ def publish_new(temporary: Path, destination: Path) -> None:
 
     * Windows: ``os.rename`` is ``MoveFileExW`` without ``MOVEFILE_REPLACE_EXISTING``, which fails when the name
       exists and never copies.
+    * macOS (v0.8.x P1B): ``renamex_np(RENAME_EXCL)``, which the kernel refuses when the name is taken; a filesystem
+      without it falls to the hard link below (:func:`move_without_replacing`).
     * Elsewhere ``os.rename`` replaces silently, so ``os.link`` makes the name (it fails when the name exists) and the
-      temporary name is then removed. A filesystem without hard links fails with a clear message; there is no fallback
-      to a look followed by a move.
+      temporary name is then removed. A filesystem with neither (exFAT and FAT) fails with a clear message; there is no
+      fallback to a look followed by a move.
 
     Both are the primitives narration has published through since v0.7.1 (``tts.publication``), measured there on NTFS
     with eight processes racing for one name. On failure of either kind the temporary file is still the caller's, to
@@ -1123,8 +1198,19 @@ def publish_new(temporary: Path, destination: Path) -> None:
     except OSError as exc:
         raise OutputPathError(
             f"{destination.name} could not be saved in {destination.parent}",
-            f"{type(exc).__name__}: {exc}",
+            _publication_failure_detail(exc),
         ) from exc
+
+
+def _publication_failure_detail(exc: OSError) -> str:
+    """Why a new output could not take its name. A drive without any exclusive way to name a file says so in words a
+    person can act on (v0.8.x P1B: exFAT and FAT drives on a Mac); everything else is the system's own words, as
+    before."""
+    if getattr(exc, "errno", None) in (errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)) and os.name != "nt":
+        return ("this drive cannot give a new file its name without risking a file already there (it has neither an "
+                "exclusive rename nor hard links, as exFAT and FAT drives do not), so nothing was saved there; choose "
+                f"an output folder on another drive. ({type(exc).__name__}: {exc})")
+    return f"{type(exc).__name__}: {exc}"
 
 
 def validate_source_for_replacement(source: Path) -> Path:

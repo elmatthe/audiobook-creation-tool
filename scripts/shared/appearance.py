@@ -402,13 +402,21 @@ def _default_font_size(root: tk.Misc | None) -> int:
     return size if size > 0 else _FALLBACK_BODY_SIZE
 
 
-def _fonts(family: str, body: int = _FALLBACK_BODY_SIZE) -> dict[str, tuple]:
+def _mono_family(platform: str) -> str:
+    """The fixed-width family for logs. Consolas exactly as before everywhere but macOS, which has no Consolas and
+    would fall back to its proportional system font; Menlo is the monospaced face every macOS ships (v0.8.x P1B,
+    MAC-020)."""
+    return "Menlo" if platform == "darwin" else "Consolas"
+
+
+def _fonts(family: str, body: int = _FALLBACK_BODY_SIZE, platform: str | None = None) -> dict[str, tuple]:
+    mono = _mono_family(sys.platform if platform is None else platform)
     return {
         "title": (family, body + 6, "bold"), "heading": (family, body + 4, "bold"),
         "subheading": (family, body + 1, "bold"), "section": (family, body),
         "body": (family, body), "body_bold": (family, body, "bold"),
         "row": (family, body), "small": (family, body), "status": (family, body),
-        "button": (family, body), "mono": ("Consolas", body),
+        "button": (family, body), "mono": (mono, body),
     }
 
 
@@ -958,7 +966,7 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
         styles = _register_aqua_styles(style, colors)
     else:
         family = _classic_font_family(branch)
-        _register_ttk_styles(style, colors, METRICS, _fonts(family, body))
+        _register_ttk_styles(style, colors, METRICS, _fonts(family, body, branch))
         styles = dict(_STYLES)
 
     bundle = {
@@ -966,7 +974,7 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
         "appearance": resolved,
         "platform": branch,
         "family": family,
-        "fonts": _fonts(family, body),
+        "fonts": _fonts(family, body, branch),
         "colors": colors,
         "metrics": dict(METRICS),
         "styles": styles,

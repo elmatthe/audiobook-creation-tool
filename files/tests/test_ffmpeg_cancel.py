@@ -59,7 +59,9 @@ from test_mp3_tool_ui import (  # noqa: F401  (fixtures are collected by name)
     windows_theme,
 )
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows process identity")
+# v0.8.x P1B: macOS runs these too (CX-5), with its own identity reader and stand-in below; Windows is unchanged.
+pytestmark = pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="Windows process identity")
+_DARWIN = sys.platform == "darwin"
 
 PING = Path(r"C:\Windows\System32\PING.EXE")
 BASE_PYTHON = Path(getattr(sys, "_base_executable", "") or sys.executable)
@@ -73,8 +75,26 @@ _IDS = IdFactory("cx-")
 # --------------------------------------------------------------------------- #
 
 
+def _darwin_media_children() -> list[int]:
+    """macOS: process ids of every ffmpeg / ffprobe whose parent is this process, from the kernel (libproc). Read-only."""
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    libproc.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    libproc.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+    pids = (ctypes.c_int * 4096)()
+    count = libproc.proc_listchildpids(os.getpid(), pids, ctypes.sizeof(pids))
+    found = []
+    for pid in list(pids)[:max(0, count)]:
+        path = ctypes.create_string_buffer(4096)
+        if pid > 0 and libproc.proc_pidpath(pid, path, 4096) > 0 and \
+                os.path.basename(path.value.decode("utf-8", "replace")) in ("ffmpeg", "ffprobe"):
+            found.append(int(pid))
+    return sorted(found)
+
+
 def _media_children() -> list[int]:
     """Process ids of every ffmpeg.exe / ffprobe.exe whose parent is this process. Read-only."""
+    if _DARWIN:
+        return _darwin_media_children()
     import ctypes.wintypes as wt
 
     class ENTRY(ctypes.Structure):
@@ -104,11 +124,25 @@ def _media_children() -> list[int]:
 
 
 def _ping(image: Path, seconds: int = 120) -> list[str]:
+    if _DARWIN:
+        # macOS: the adopted FFmpeg itself, encoding silence to nowhere in real time: harmless, long-running and named ffmpeg
+        # (a copy of a system program is refused by the kernel outside its signed location).
+        return [str(image), "-hide_banner", "-nostdin", "-loglevel", "error", "-re", "-f", "lavfi",
+                "-i", f"anullsrc=r=8000:cl=mono:d={seconds}", "-f", "null", "-"]
     return [str(image), "-n", str(seconds), "127.0.0.1"]
 
 
 @pytest.fixture
 def named_ffmpeg(tmp_path) -> Path:
+    if _DARWIN:
+        found = ffmpeg_utils.ffmpeg_path()
+        if not found:
+            pytest.fail("the adopted FFmpeg is not pinned in this checkout; set the app up before these Cancel tests")
+        # A path of its own (the steps are told apart by it) that runs the adopted binary under its own name.
+        target = tmp_path / "stand-in" / "ffmpeg"
+        target.parent.mkdir()
+        target.symlink_to(found)
+        return target
     target = tmp_path / "stand-in" / "ffmpeg.exe"
     target.parent.mkdir()
     shutil.copyfile(PING, target)
@@ -265,6 +299,7 @@ def test_a_cancel_already_requested_starts_nothing(monkeypatch):
     assert spawned.children == [] and len(acknowledged) == 1
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process identity")
 def test_a_supervised_child_gets_no_console_window(monkeypatch):
     seen: dict = {}
     real = subprocess.Popen
@@ -886,3 +921,84 @@ def test_both_worker_bodies_hand_their_ffmpeg_steps_the_non_blocking_cancel_chec
     panel = next(node for node in ast.walk(source_probe.module("mp3/mp3_tool.py"))
                  if isinstance(node, ast.FunctionDef) and node.name == "_run_attempt")
     assert "cancel_check=attempt.controller.cancel_check" in ast.unparse(panel)
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.x P5-I-R3: a run whose contained processes are not all confirmed ended is FAILED, never finished or CANCELLED
+# --------------------------------------------------------------------------- #
+
+_UNCONFIRMED = "contained process(es) of this run not confirmed ended (pid 4242); still owned and still being ended"
+
+
+def test_a_maker_run_that_finishes_with_a_contained_process_not_confirmed_ended_fails(tmp_path, monkeypatch):
+    made, run, _sources = _maker_run(tmp_path)
+    asked = []
+    monkeypatch.setattr(sp, "containment_problem", lambda check, **_k: asked.append(check) or _UNCONFIRMED)
+    attempt = run.start()
+    result = attempt.run()
+    assert asked == [attempt.controller.cancel_check], "the terminal path asked the run's own settlement"
+    assert result.state is JobState.FAILED and attempt.controller.state is JobState.FAILED
+    assert attempt.controller.snapshot().failure_detail == _UNCONFIRMED
+
+
+def test_a_cancelled_maker_run_with_a_contained_process_not_confirmed_ended_fails_never_cancelled(
+        tmp_path, monkeypatch, named_ffmpeg, sentinel):
+    options, matcher, _occurrence = _MAKER_STAGES["fast-concat"]
+    made, run, _sources = _maker_run(tmp_path, **options)
+    StandIn(monkeypatch, named_ffmpeg, matcher(made), 1)
+    spawned = Spawned(monkeypatch)
+    monkeypatch.setattr(sp, "containment_problem", lambda check, **_k: _UNCONFIRMED)
+    attempt = run.start()
+    thread, box = _in_thread(attempt.run)
+    _until(lambda: spawned.running(lambda argv: argv[0] == str(named_ffmpeg)) is not None or not thread.is_alive(),
+           what="the fast-concat step")
+    run.cancel()
+    thread.join(PROMPT_SECONDS + 5)
+    assert not thread.is_alive() and "error" not in box, box
+    assert box["value"].state is JobState.FAILED, "never CANCELLED while a contained process may still run"
+    assert attempt.controller.state is JobState.FAILED
+    assert not made.books[0].published.exists()
+
+
+def _calls_in_order(function, first: str, then: tuple[str, ...]) -> bool:
+    """In *function*'s body, every call named in *then* comes after some call named *first* (source order)."""
+    import ast
+
+    names = [(node.lineno, getattr(node.func, "attr", getattr(node.func, "id", "")))
+             for node in ast.walk(function) if isinstance(node, ast.Call)]
+    asked = [line for line, name in names if name == first]
+    later = [line for line, name in names if name in then]
+    return bool(asked) and bool(later) and all(any(a < line for a in asked) for line in later)
+
+
+@pytest.mark.parametrize("module, function", [
+    ("m4b/maker/m4b_maker_batch.py", "run"),
+    ("m4b/metadata/m4b_metadata_batch.py", "run"),
+    ("mp3/mp3_tool.py", "_worker"),
+    ("mp3/mp3_tool.py", "_run_attempt"),
+    ("m4b/converter/m4b_converter.py", "_settle_unexpected"),
+    ("m4b/converter/m4b_converter.py", "_run_conversion"),
+])
+def test_every_terminal_path_consults_containment_before_it_reports_a_clean_end(module, function):
+    """v0.8.x P5-I-R3 (static guard over the tools whose terminal paths live in the window classes): each asks
+    ``containment_problem`` before every ``finish_cancelled`` / ``succeed`` / ``complete_with_failures``."""
+    import ast
+
+    from source_probe import UNIVERSAL
+
+    tree = ast.parse((UNIVERSAL / module).read_text(encoding="utf-8"))
+    body = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function)
+    assert _calls_in_order(body, "containment_problem", ("finish_cancelled", "succeed", "complete_with_failures")), \
+        f"{module}:{function} reports a clean end without asking the run's containment first"
+
+
+def test_the_tts_settlement_asks_containment_before_any_clean_end():
+    import ast
+
+    from source_probe import UNIVERSAL
+
+    tree = ast.parse((UNIVERSAL / "tts/epub2tts_gui.py").read_text(encoding="utf-8"))
+    settle = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "settle"
+                  and any(isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "settle_children"
+                          for c in ast.walk(n)))
+    assert _calls_in_order(settle, "settle_children", ("finish_cancelled", "succeed", "complete_with_failures"))

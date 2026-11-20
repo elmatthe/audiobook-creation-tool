@@ -72,6 +72,7 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
+from shared import engine_policy
 from shared import ffmpeg_utils
 from tts import audio_tail
 from tts import model_assets
@@ -1144,8 +1145,11 @@ def _get_model(device: str | None = None):
     The weights (~3 GB) are loaded from the verified in-tree copy only (acquired
     beforehand by the consented optional setup), so the first load is slow and
     later ones are cached; nothing is downloaded here.
+
+    macOS P4C: refused first on a platform that does not offer Chatterbox Turbo (``shared.engine_policy``).
     """
     global _first_model_load_attempted
+    engine_policy.require_offered(engine_policy.CHATTERBOX)
 
     resolved = device or select_device()
     cached = _MODEL_CACHE.get(resolved)
@@ -1401,6 +1405,7 @@ def synthesize_text_to_wav(
     rather than silently re-rendering the approval evidence at a newer
     temperature.
     """
+    engine_policy.require_offered(engine_policy.CHATTERBOX)  # macOS P4C: before anything is written or loaded
     _assert_writable_destination(output_path)
     model = _get_model(device)
     load_conditionals(model, voice_id, log=log, device=device)
@@ -1432,6 +1437,7 @@ def synthesize_text_to_mp3(
     this internal entry point cannot drift into producing a differently-shaped
     MP3 from the one an audiobook run produces.
     """
+    engine_policy.require_offered(engine_policy.CHATTERBOX)  # macOS P4C: before anything is loaded
     model = _get_model(device)
     load_conditionals(model, voice_id, log=log, device=device)
     arr = _audio_array(model.generate(text, **generation_params()))
@@ -1475,6 +1481,8 @@ def chatterbox_file_to_mp3(
     existing callers keep working; whatever is passed, no closing silence is added.
     The final-tail policy then shortens the model's own trailing near-silence.
     """
+    # macOS P4C: refused on a platform that does not offer Chatterbox Turbo, before the source is read or a model loaded.
+    engine_policy.require_offered(engine_policy.CHATTERBOX)
     src = Path(source_path)
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")

@@ -310,6 +310,7 @@ def characterization():
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_a0_goldens_are_unchanged_with_v1_and_every_cell_native(characterization, monkeypatch, tmp_path):
     """Every route's real entry point now runs the full v1 path (normalize, modes, structure) and still matches A0."""
     native = rollout_snapshot(user_dir=tmp_path / "none")
@@ -444,6 +445,7 @@ def test_edge_folder_prepares_the_text_handed_to_its_splitter(tmp_path, monkeypa
     assert any("Speech preparation: 1 edit" in line for line in logged)
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_the_qwen3_entry_point_plans_the_prepared_text_and_proves_its_spans(tmp_path, monkeypatch):
     import contextlib
 

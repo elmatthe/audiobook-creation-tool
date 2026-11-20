@@ -9,16 +9,26 @@ parent, and ``TerminateJobObject`` stops all of them at once. If the Job Object 
 started without one and the older ``taskkill /T`` route remains.
 
 Other platforms get a new process group instead (the Qwen3 voices are Windows-only for now; this keeps the module
-honest if that changes).
+honest if that changes). On macOS (v0.8.x P1B) an ACT Python child of the app window, or of one of its own class-A
+children, is started through its owner (``shared.child_ownership``): its own group, tied to the owner's lifeline.
+
+**A leader's exit proves nothing about its group** (v0.8.x P5-D, POSIX). A worker can exit -- normally, on Cancel, or
+by crashing -- while something it started in its group runs on, and can still hold its output open. So a process
+started here carries the kernel start time recorded at spawn (``act_start_time``), its group is ended while its id is
+proved its own (``child_ownership.end_led_group``: waitpid lock held, unreaped, same start time, signalled until the
+kernel says nothing is left), and only then is it reaped. Nothing here polls it first: a ``poll()`` that reaps a leader
+which has already exited loses the only proof of its group's id.
 """
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import os
 import signal
 import subprocess
 import sys
+import time
 from ctypes import wintypes
 from typing import Optional
 
@@ -130,7 +140,32 @@ class ContainmentUnavailable(RuntimeError):
     """The process could not be placed under the app's control, so it was never allowed to run."""
 
 
-def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen:
+#: The thread ``shared/child_entry.py`` starts in a class-A child to watch its owner's lifeline.
+_LIFELINE_THREAD = "act-lifeline"
+
+
+def _under_a_lifeline() -> bool:
+    """True in a class-A child: a process whose own end is tied to its owner's (macOS)."""
+    import threading
+
+    return any(thread.name == _LIFELINE_THREAD for thread in threading.enumerate())
+
+
+def _posix_owner(cmd: list):
+    """The containment owner to start the Python program *cmd* under, or ``None`` to start it as before (POSIX).
+
+    The app window is an owner (``subprocess_utils.enable_containment``). A class-A child becomes one the first time it
+    starts an ACT Python child of its own, so that child is tied to it in turn. Anything else -- a program that is not
+    Python, a process that is neither -- starts in a new process group as before."""
+    if not os.path.basename(str(cmd[0])).lower().startswith("python"):
+        return None
+    owner = subprocess_utils.containment_owner()
+    if owner is None and _under_a_lifeline():
+        owner = subprocess_utils.enable_containment()
+    return owner
+
+
+def spawn(cmd: list, *, require_job: bool = False, run=None, **kwargs) -> subprocess.Popen:
     """``subprocess.Popen`` (hidden console) that returns a process whose whole tree can be stopped.
 
     The returned object carries the job as ``proc.act_job`` (``None`` when there is none). Pass it to
@@ -142,8 +177,27 @@ def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen
     worker could outlive a Cancel and keep the GPU. A single-process command such as ffmpeg may go without.
     """
     if sys.platform != "win32":
-        proc = subprocess_utils.popen(cmd, start_new_session=True, **kwargs)
+        owner = _posix_owner(cmd)
+        if owner is not None:
+            # v0.8.x P1B (plan section 11.2.2): an ACT-authored Python child of the app window (the optional-setup
+            # worker), or of such a child (the pip and the probes that worker runs), is class A -- its own process
+            # group, started through ``child_entry.py`` whose first statements watch its owner's lifeline, so it and
+            # everything it started end with its owner however the owner ends; the window's end therefore reaches
+            # the worker's pip through the worker. Once the window is closing nothing new starts.
+            try:
+                # *run* (v0.8.x P5-I-R3 remediation 3): the run's ``cancel_check``, so the run's settlement accounts
+                # for this worker as it does for its FFmpeg. Contained (macOS) only; nothing changes on Windows.
+                proc = owner.popen_python([str(part) for part in cmd], label=os.path.basename(str(cmd[0])), run=run,
+                                          **kwargs)
+            except RuntimeError as exc:
+                if type(exc).__name__ != "ContainmentUnavailable":
+                    raise
+                raise ContainmentUnavailable(str(exc)) from exc
+        else:
+            proc = subprocess_utils.popen(cmd, start_new_session=True, **kwargs)
         proc.act_job = None  # type: ignore[attr-defined]
+        proc.act_start_time = leader_start_time(proc, owner)  # type: ignore[attr-defined]
+        proc.act_owner = owner  # type: ignore[attr-defined]  # who keeps ending it if handed over (remediation 6)
         return proc
     job: Optional[ProcessJob] = None
     try:
@@ -177,11 +231,145 @@ def spawn(cmd: list, *, require_job: bool = False, **kwargs) -> subprocess.Popen
     return proc
 
 
+#: POSIX (v0.8.x P5-D): how long ending a group may take before it counts as not confirmed ended. A SIGKILLed group is
+#: empty within milliseconds; the bound keeps a caller's own stop bound (OmniVoice's 4 s Cancel) honest when it is not.
+GROUP_END_BOUND_S = 1.5
+
+
+def leader_start_time(proc: subprocess.Popen, owner=None) -> Optional[tuple[int, int]]:
+    """POSIX: the kernel start time of *proc*, just started by :func:`spawn` as the leader of its own process group --
+    the one its owner recorded, or read now (nobody can have reaped it yet, so its id is still its own)."""
+    from shared import child_ownership
+
+    child = owner.child(proc) if owner is not None else None
+    if child is not None and child.start_time is not None:
+        return child.start_time
+    return child_ownership.process_start_time(proc.pid)
+
+
+def leads_proved_group(proc: subprocess.Popen) -> bool:
+    """True for a POSIX process :func:`spawn` started as the leader of its own group, its start time recorded: its group
+    can be ended -- whether or not it is still running -- until it is reaped (v0.8.x P5-D)."""
+    return sys.platform != "win32" and isinstance(getattr(proc, "act_start_time", None), tuple)
+
+
+def _spawned_on_posix(proc: subprocess.Popen) -> bool:
+    """True for a POSIX process :func:`spawn` (or a caller recording its identity the same way) started as the leader of
+    its own group -- whether or not its start time could be recorded (``act_start_time`` present, perhaps None)."""
+    return sys.platform != "win32" and hasattr(proc, "act_start_time")
+
+
+def identity_unrecorded(proc: subprocess.Popen) -> bool:
+    """POSIX (v0.8.x P5-D-R1): True for a process started as the leader of its own group whose kernel start time could
+    not be recorded at spawn. Its group can never be proved its own, so it can neither be ended on Cancel nor retired
+    before it is reaped: a caller never admits it (:func:`end_unadmitted`). A process started any other way (Windows; a
+    test's own ``Popen``) carries no ``act_start_time`` and is not this."""
+    return _spawned_on_posix(proc) and not leads_proved_group(proc)
+
+
+#: POSIX (v0.8.x P5-D-R1): how long a refused process may take to be reaped once it has been killed.
+UNADMITTED_REAP_S = 1.0
+
+
+def end_unadmitted(proc: subprocess.Popen, bound_s: float = UNADMITTED_REAP_S) -> None:
+    """POSIX (v0.8.x P5-D-R1): end a process just started that is not admitted (:func:`identity_unrecorded`).
+
+    Its group is NEVER signalled: that needs the proof it lacks. The leader alone is killed through ``Popen``'s own
+    guarded ``kill`` -- delivered only while ``poll()`` finds it this process's own unexited child -- before it has run
+    anything of its program, then reaped (bounded) and its pipes closed (no reader was started). Never raises."""
+    with contextlib.suppress(OSError):
+        proc.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired, ChildProcessError):
+        proc.wait(timeout=bound_s)
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            if stream is not None:
+                stream.close()
+
+
+def leader_exited(proc: subprocess.Popen) -> bool:
+    """POSIX: True once *proc* has exited -- observed, NEVER reaped, so its id and its group's stay reserved."""
+    from shared import child_ownership
+
+    return child_ownership.has_exited(proc, proc.act_start_time)  # type: ignore[attr-defined]
+
+
+#: How long a worker's own exit is awaited at the end of its run before it is ended with its group (as released).
+LEADER_EXIT_WAIT_S = 10.0
+
+
+def await_leader_exit(proc: subprocess.Popen, kill, must_stop=None, wait_s: float = LEADER_EXIT_WAIT_S) -> None:
+    """POSIX: wait for *proc* to exit, observed without reaping it, at most *wait_s*, then end it with its group
+    (*kill*). *must_stop* (v0.8.x P5-I-R3 remediation 3, finding 10) is asked on every look: a run's Cancel arriving
+    while its worker finishes (its output already ended) is acted on here -- the worker is told and, past the route's
+    grace, ended -- instead of waiting out the whole exit allowance."""
+    from shared import child_ownership
+
+    end = time.monotonic() + wait_s
+    while not child_ownership.wait_exited(proc, 0.05, proc.act_start_time):  # type: ignore[attr-defined]
+        if (must_stop is not None and must_stop()) or time.monotonic() >= end:
+            kill(proc)
+            return
+
+
+def end_group(proc: subprocess.Popen, bound_s: float = GROUP_END_BOUND_S) -> str:
+    """POSIX (v0.8.x P5-D): SIGKILL every process in the group *proc* leads and confirm that none is left -- only while
+    its id is proved *proc*'s own (``child_ownership.end_led_group``). Never reaps; never raises. The answer
+    (``child_ownership.GROUP_*``) is kept as ``proc.act_group_end``; once *proc* has been reaped the group can no longer
+    be ended, and the answer given before stands (none at all: ``GROUP_UNPROVED``)."""
+    from shared import child_ownership
+
+    if proc.returncode is None:
+        proc.act_group_end = child_ownership.end_led_group(  # type: ignore[attr-defined]
+            proc, proc.act_start_time, bound_s=bound_s)  # type: ignore[attr-defined]
+    return getattr(proc, "act_group_end", None) or child_ownership.GROUP_UNPROVED
+
+
+def group_confirmed_ended(proc: subprocess.Popen) -> bool:
+    """POSIX: :func:`end_group` confirmed the group empty (or, development platforms, signalled it)."""
+    from shared import child_ownership
+
+    return getattr(proc, "act_group_end", None) in (child_ownership.GROUP_ENDED, child_ownership.GROUP_SIGNALLED)
+
+
+def hand_over(proc: subprocess.Popen) -> None:
+    """POSIX (v0.8.x P5-I-R3 remediation 2, finding 2): a worker whose group could not be confirmed ended is NOT reaped
+    by its caller -- an unreaped leader keeps its id, and so its group's, reserved -- and is handed to the containment
+    owner, which keeps ending its group (proved) and reaps it only once the group is gone. Never raises."""
+    with contextlib.suppress(Exception):
+        # The owner that started it (P5-I-R3 remediation 6): a worker of a command-line run belongs to that process's
+        # own owner, not the app window's; handed to nobody it was never reaped, and every later run stayed unsettled.
+        for owner in (getattr(proc, "act_owner", None), subprocess_utils.containment_owner()):
+            if owner is not None and owner.child(proc) is not None:
+                owner.forget(proc)
+                return
+
+
+def containment_problem(proc: subprocess.Popen, *, output_open: bool = False) -> Optional[str]:
+    """POSIX: why nothing can vouch that *proc* and everything in its group have ended, or None when its group was
+    confirmed ended (:func:`end_group`), its output reached its end and it was reaped (``child_ownership.Retired``)."""
+    from shared import child_ownership
+
+    group = getattr(proc, "act_group_end", None) or child_ownership.GROUP_UNPROVED
+    return child_ownership.Retired(returncode=proc.returncode, group=group, output_open=output_open).problem()
+
+
 def kill_tree(proc: subprocess.Popen, wait_s: float = 15.0) -> None:
-    """Stop the process and every descendant, whether or not the process itself is still running."""
+    """Stop the process and every descendant, whether or not the process itself is still running.
+
+    POSIX, for a process :func:`spawn` started (v0.8.x P5-D): its group is ended while its id is proved its own
+    (:func:`end_group`), then it is reaped; it is never polled first. One whose start time was not recorded never falls
+    back to the older ``poll()``/``killpg()`` route (v0.8.x P5-D-R1): nothing is signalled (``GROUP_UNPROVED``)."""
     job: Optional[ProcessJob] = getattr(proc, "act_job", None)
     if job is not None:
         job.terminate()
+    elif _spawned_on_posix(proc):
+        end_group(proc, min(wait_s, GROUP_END_BOUND_S))
+        if not group_confirmed_ended(proc) and proc.returncode is None:
+            # v0.8.x P5-I-R3 remediation 3 (finding 2): never reaped with its group not confirmed ended -- its unreaped
+            # id keeps the group reserved, and the owner keeps ending the group and reaps it afterwards.
+            hand_over(proc)
+            return
     elif proc.poll() is None:
         if sys.platform == "win32":
             subprocess_utils.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)

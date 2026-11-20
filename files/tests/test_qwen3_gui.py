@@ -23,6 +23,11 @@ from pathlib import Path
 
 import pytest
 
+#: macOS P4C: this suite tests the Qwen3 panel as Windows offers it; on a Mac it runs through the engine policy's
+#: platform seam (conftest ``windows_engine_policy``), never as Windows-native evidence. A Mac's own roster
+#: and refusals are pinned in test_engine_policy.py.
+pytestmark = pytest.mark.usefixtures("windows_engine_policy")
+
 tk = pytest.importorskip("tkinter")
 
 from shared.cancellation import ConversionCancelled  # noqa: E402

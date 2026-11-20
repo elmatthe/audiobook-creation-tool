@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from journeys.common import Context, expect_clean_close, log_text, open_tool, oracle, scenario, wait_for_job, wait_until
 
 TOOL = "m4b_metadata"
@@ -41,10 +43,13 @@ def save_then_clear(context: Context) -> None:
     session.chord("control", "home")
     session.key("down")
     context.notes["chapter_box_before"] = session.widget(TOOL, "chapter_text").get("content")
-    from adapters.windows import native_input
+    if sys.platform == "darwin":
+        session.type_text("Renamed ")  # v0.8.x P1B: into the focused box, through Tk (adapters/macos)
+    else:
+        from adapters.windows import native_input
 
-    native_input.type_text("Renamed ")
-    session.input_count += 1
+        native_input.type_text("Renamed ")
+        session.input_count += 1
     session.screenshot("ready")
     session.click(TOOL, "btn_save")
     report.equal("Save Tags: the run ended", wait_for_job(session, TOOL), "SUCCEEDED")

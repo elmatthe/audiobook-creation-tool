@@ -1,16 +1,19 @@
-# Audiobook Creation Tool v0.8.0
+# Audiobook Creation Tool v0.8.0 (Windows) and v0.8.0 for macOS, Revision 1
 
-A Windows desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
+A desktop app for Windows and Apple Silicon Macs for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
 ## Download / Install
 
-**v0.8.0 is the current Windows release.** Qualification is limited to Windows 11 on one computer (the developer's HOME-PC) at 100% display scaling; Windows 10, other computers, other display scaling and the configurations listed under [Release verification and what is not yet qualified](#release-verification-and-what-is-not-yet-qualified) are not separately qualified.
+| Platform | Version | Archive | Double-click after extraction |
+|---|---|---|---|
+| Windows | v0.8.0 | [AudiobookTool-Windows-v0.8.0.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+| macOS (Apple Silicon) | v0.8.0 for macOS, Revision 1 (`0.8.0+macos.1`) | [AudiobookTool-MacOS-v0.8.0-macos.1.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0-macos.1/AudiobookTool-MacOS-v0.8.0-macos.1.zip) | `Setup_and_Run-audiobook-creation-tool.command` |
 
-| Platform | Archive | Double-click after extraction |
-|---|---|---|
-| Windows | [AudiobookTool-Windows-v0.8.0.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+**Windows: v0.8.0 is the current Windows release.** Qualification is limited to Windows 11 on one computer (the developer's HOME-PC) at 100% display scaling; Windows 10, other computers, other display scaling and the configurations listed under [Release verification and what is not yet qualified](#release-verification-and-what-is-not-yet-qualified) are not separately qualified.
 
-macOS v0.8.0 is not yet supported or published, and Linux is not qualified or distributed; the latest macOS build is [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip).
+**macOS: the first macOS release of the v0.8.0 generation** is its own revision, built from newer source than the Windows v0.8.0 download (which is unchanged); see [macOS (Apple Silicon)](#macos-apple-silicon). Linux is not qualified or distributed.
+
+### Windows
 
 Extract the whole archive into an ordinary folder you can write to (for example Downloads or `C:\Audiobook Creation Tool`) and keep its contents together. Avoid very deep folders: Windows limits path lengths, and setup tells you if the folder is too deep before it installs anything.
 
@@ -52,13 +55,35 @@ First run opens a setup window. Choose the voices you want installed on this com
 
 You can add a voice later: in **TTS Audiobook**, choose it and press **Create**. If it is not installed yet, **Install & Continue** shows the same review screen and, once the voice is installed and checked, starts that conversion; Skip or Cancel starts nothing.
 
+### macOS (Apple Silicon)
+
+**Requirements:** a Mac with Apple Silicon (M1 or later). Intel Macs are not supported. Qualification is limited to one computer: a MacBook Pro with an Apple M4 Pro and 24 GB of memory, on macOS 27.0.1. Other Macs, other macOS versions and Macs with less memory are not separately qualified; for OmniVoice, 16 GB of memory or more is recommended (narration used up to about 11 GB on the Mac it was tested on).
+
+1. **Download** `AudiobookTool-MacOS-v0.8.0-macos.1.zip` and double-click it in Finder (Archive Utility extracts it to a folder named `AudiobookTool-MacOS-v0.8.0-macos.1`).
+2. **Move the whole extracted folder out of Downloads**, for example onto your Desktop or into your home folder, and keep its contents together. If the app is started straight from Downloads, macOS may run the launcher from a temporary read-only copy ("App Translocation"); the launcher then says so and asks you to move the folder.
+3. **Open it the first time.** The app is not signed by an identified Apple developer, so the first double-click of `Setup_and_Run-audiobook-creation-tool.command` is blocked by macOS ("Apple could not verify…"). Click **Done** (not Move to Trash), then open **System Settings › Privacy & Security**, scroll to the message about `Setup_and_Run-audiobook-creation-tool.command`, click **Open Anyway** and confirm with your password or Touch ID. Double-click the launcher again. macOS remembers the choice for that file. (Since macOS 15, Control-click › Open no longer bypasses this.)
+   - *Optional, for people comfortable with Terminal:* `xattr -d com.apple.quarantine Setup_and_Run-audiobook-creation-tool.command`, run in the app folder, removes the download flag from **that one file** only. It skips Apple's malware check for it; use it only for an archive you downloaded from this repository's Releases page.
+4. **First run.** A Terminal window asks before it downloads the app's own Python 3.12 (a standalone build, about 25 MB, checked against a fixed SHA-256) into the app folder. Then the setup window installs the app's private Python environment (each package checked against a fixed SHA-256, `scripts/requirements-lock-macos-arm64-py312.txt`) and the app's own FFmpeg 9.0.1 (an arm64 build, checked before use) into the app folder, and offers the optional voices. Later launches open the app directly.
+
+Nothing is installed on the Mac itself: no Homebrew, no administrator password, no change to the Python or FFmpeg already on the computer. Everything stays inside the app folder; deleting the folder removes it. Files the app downloads for itself are checked by SHA-256. Do not move a folder that is already set up; extract a fresh copy instead.
+
+**Voices on a Mac: 20, from three engines.** Edge TTS (5, online), Kokoro (9, on the computer) and OmniVoice (6 cloned voices, on the Mac's GPU, optional). Chatterbox Turbo and the Qwen3 voices are Windows only and are not offered on a Mac.
+
+| First-run choice | Default | What it adds on a Mac |
+|---|---|---|
+| Kokoro | Checked | Natural local English voices (about 320 MB). On the tested Mac a 6.3-hour book took about 21 minutes. |
+| OmniVoice — Six Cloned Voices | Unchecked | Six cloned voices on the Mac's GPU (Apple Silicon), about real time on the tested Mac; the processor (CPU) can be chosen instead and is slower. Its engine and model take about 4.2 GB on disk. **Non-commercial** model weights: the same licence terms as on Windows (see [OmniVoice](#whats-new-in-v080-omnivoice)); the review screen shows the terms before anything is downloaded. |
+
+**Cancel and Pause on a Mac:** Cancel stops the running job at once, without waiting for the current book, file or chunk to finish; the button shows the cancelling state within about a second, the job's helper processes are stopped, and nothing unfinished is published. If the app cannot confirm that a helper process ended, the run is reported as failed rather than cancelled. Pause lets the files in progress finish, keeps your progress, and Resume continues; Cancel also works while paused.
+
 ## What's new in v0.8.0: OmniVoice
 
 v0.8.0 adds a fifth optional voice engine. The app now has **34 registered voices across five engines**: Edge TTS 5, Kokoro 9, Chatterbox 6, Qwen3 8 and OmniVoice 6. The owner listened to and approved all 12 OmniVoice listening tracks (two for each of the six voices).
 
 - **Six OmniVoice cloned voices:** OmniVoice - Female 1, Female 2, Male 1, Male 2, Male 3 and Male 4, each cloned from its own bundled recording (at most 10 seconds; Male 1's is 10.2 seconds) and the owner's transcript of it. They follow the other voices in TTS Audiobook. They have no preview samples yet.
 - **A fifth first-run choice, unchecked:** *OmniVoice — Six Cloned Voices* (about 6.9 GB to download and about 11.6 GB on disk, in its own environment, `.venv/engines/omnivoice`, held inside the app's one `.venv` folder beside the Qwen3 engine; each of the three keeps its own Python packages). It can also be added later with **Install & Continue**. Nothing is downloaded until you press **Install Selected Components**, and the review screen shows the licence terms first (**View licence terms** opens each licence text).
-- **Hardware:** Windows with an NVIDIA graphics card (GPU) only; it does not run on the processor alone. It was tested on one computer (an RTX 5070), where narration used about 2 to 2.5 GB of graphics memory (up to about 4.6 GB the first time each voice is used) and ran several times faster than real time. Other cards are not promised.
+- **Hardware (Windows):** an NVIDIA graphics card (GPU) only; on Windows it does not run on the processor alone. It was tested on one computer (an RTX 5070), where narration used about 2 to 2.5 GB of graphics memory (up to about 4.6 GB the first time each voice is used) and ran several times faster than real time. Other cards are not promised.
+- **Hardware (macOS revision):** a Mac with Apple Silicon, on its GPU by default (processor optional). Tested on one MacBook Pro (M4 Pro, 24 GB), where a 43-minute narration ran at about real time and used up to about 11 GB of memory.
 - **Non-commercial:** the OmniVoice model weights are licensed CC-BY-NC, **non-commercial use only**. Installing OmniVoice does not give you the right to make commercial audiobooks or to sell or monetise audio made with these voices. The program code is Apache-2.0. The audio tokenizer it needs has its own licence, the Boson Higgs Audio 2 Community License, based on the Meta Llama 3 Community License: the Llama 3 Acceptable Use Policy applies, its outputs may not be used to improve any other large language model, and a product or service with more than 100,000 annual active users in the preceding calendar year needs an expanded licence from Boson AI. The model card also forbids unauthorised voice cloning, impersonation and fraud. This app never ships the weights or the tokenizer: your own installation downloads them, with their licence files, from one pinned revision. This summary is not legal advice.
 - **Speech preparation:** OmniVoice uses the app's existing speech preparation (`tts.speech_prep`, default `v1`), with every number, date, time, currency, unit, title, Roman-numeral and symbol rule expanded, as heard in the listening tracks the owner approved; `off` still reads the text as written.
 - **Nothing changes for the other engines:** Edge, Kokoro, Chatterbox and Qwen3 keep working without OmniVoice and need no new download. Each cloned engine now has its own six bundled recordings (`files/Cloned-Voice-Uploads/Chatterbox`, `Qwen3` and `OmniVoice`); Qwen3 keeps its original recordings unchanged.
@@ -78,6 +103,15 @@ Not yet qualified for v0.8.0:
 - OmniVoice on any graphics card other than the one RTX 5070 it was tested on.
 - A complete first-time installation of all five voice choices from this exact release (it was run on earlier v0.8.0 code; the later steps were rerun on the final code in disposable copies).
 
+### macOS revision 1: what was checked and what is not yet qualified
+
+The macOS revision was developed and tested natively on the one Mac named above: automated tests and the app's own automated checks of all six tools on the real window, long narrations with Kokoro (a whole 6.3-hour book), Edge (37 minutes) and OmniVoice (43 minutes), and Cancel, Pause and closing the app during work. Not yet qualified for the macOS revision:
+
+- A first installation on a Mac that has never had Homebrew, Apple's developer tools or another Python installed (the release archive's own clean-Mac installation check), and Macs other than the one tested, including Macs with 8 or 16 GB of memory.
+- The real Force Quit window (Activity Monitor or Option-Command-Escape) during work; it was checked with equivalent signals, not by hand.
+- Very long single text files with the local voices on Macs with less memory: Kokoro and OmniVoice assemble a file's whole narration in memory, and the 6.3-hour book above used up to about 7.3 GB with Kokoro. Splitting a very long book into several text files keeps each narration smaller.
+- Some rare failures of macOS itself while a job is being stopped (for example the system refusing to end a process); the app then reports the run as failed instead of cancelled.
+
 ## Earlier: v0.7.3
 
 - Fixed M4B Converter failures caused by conflicting QuickTime and Nero chapter metadata.
@@ -90,7 +124,7 @@ That focused hotfix retained the v0.7.2 Windows improvements and installation wo
 
 ## What it can do
 
-- **TTS Audiobook:** turn PDF or TXT files into MP3 narration using online Edge TTS or optional local Kokoro, Chatterbox, (Windows) Qwen3 and (Windows with an NVIDIA graphics card) OmniVoice voices.
+- **TTS Audiobook:** turn PDF or TXT files into MP3 narration using online Edge TTS or optional local Kokoro, (Windows) Chatterbox and Qwen3, and OmniVoice (Windows with an NVIDIA graphics card, or a Mac with Apple Silicon) voices.
 - **M4B Converter:** convert M4B to one MP3 per book or split MP3s by chapter, with metadata options.
 - **MP3 Tool:** write tags to track copies, combine tracks into one MP3 per Book, and add or trim time at track ends.
 - **M4B Maker:** build chaptered M4B audiobooks from MP3s with cover art, metadata and series tags.
@@ -128,6 +162,7 @@ Short samples of all 28 voices from before v0.8.0, each reading the same sentenc
 
 ## Requirements
 
+- **macOS revision:** a Mac with Apple Silicon; see [macOS (Apple Silicon)](#macos-apple-silicon) for what is installed, where, and what was qualified. Internet access is needed for the first-run downloads and for Edge TTS narration.
 - Windows (64-bit), with space for the Python environment, outputs and any voice models. Qualification is limited to Windows 11 at 100% display scaling as described above; Windows 10 is not separately qualified.
 - On Windows the app is portable: everything it needs stays inside its folder and nothing is installed on the computer. On the first run, setup asks before downloading the app's own Python 3.12 (a standalone build, about 46 MB, checked against a fixed SHA-256) into `files\runtime-data\python`; it does not use or change any Python already on the computer, needs no administrator rights and leaves PATH and file associations alone. FFmpeg is the app's own verified copy in `files\bin` (about 250 MB, also checked before use) unless a working FFmpeg is already on the computer. The Python packages come from a fixed list in which every package has one version and a SHA-256 (`scripts\requirements-lock-windows-py312.txt`); the downloaded packages are kept in `files\runtime-data\python-packages` (about 500 MB), so a repair needs no internet, and pip's cache stays in the folder too. The Edge voices' English sentence data (about 4.3 MB from NLTK's data repository, also checked) is downloaded during setup, or, if it is missing later, only after you agree when you start an Edge narration; it is kept in `files\runtime-data\nltk_data`. Deleting the folder removes everything the app set up. (The optional offer to switch on Windows long paths is the one step that changes a Windows setting, and only with an administrator's approval.)
 - Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (the first four choices together download about 14.8 GB and use about 18 GB; OmniVoice adds about 6.9 GB to download and about 11.6 GB on disk).
@@ -137,7 +172,7 @@ Short samples of all 28 voices from before v0.8.0, each reading the same sentenc
 
 See the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) for release notes and other versions.
 
-Previous Windows version: [v0.7.3](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip).
+Previous macOS build: [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) (superseded by the macOS revision above). Previous Windows version: [v0.7.3](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip).
 
 Detailed project and developer information: [Briefing](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Briefing.md), [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md), [Decisions](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Decisions.md), and [Handoff](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Handoff.md).
 
@@ -145,4 +180,4 @@ Detailed project and developer information: [Briefing](https://github.com/elmatt
 
 [epub2tts-edge](https://github.com/aedocw/epub2tts-edge) by Christopher Aedo is the basis of the TTS engine. Licensed **GPL‑3.0**. Also uses Edge TTS, Kokoro and other open-source audio/image libraries.
 
-GNU General Public License v3.0 (GPL‑3.0), inherited from the upstream project; derivative works must also be licensed under GPL‑3.0. See the [full license text](https://www.gnu.org/licenses/gpl-3.0.html).
+GNU General Public License v3.0 (GPL‑3.0), inherited from the upstream project; derivative works must also be licensed under GPL‑3.0. The complete, unmodified licence text is the [LICENSE](LICENSE) file at the top of this download (it is also at the [GNU project](https://www.gnu.org/licenses/gpl-3.0.html)). The licences of the optional voice models and tokenizers are separate from this one and are not part of it; this download does not contain their weights (the OmniVoice licence terms are shown before that model is downloaded, as described above).

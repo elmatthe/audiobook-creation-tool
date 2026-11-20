@@ -6,13 +6,19 @@ known state, drives it with real input, and judges the output only through ``hel
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from adapters.windows import app_session, native_input as native
-from adapters.windows.app_session import AppSession, JourneyTimeout, wait_until
+if sys.platform == "darwin":
+    # v0.8.x P1B (plan 14.3, MAC-045): the in-process macOS driver, with the same verbs. Windows is unchanged.
+    from adapters.macos import app_session, native_input as native
+    from adapters.macos.app_session import AppSession, JourneyTimeout, wait_until
+else:
+    from adapters.windows import app_session, native_input as native
+    from adapters.windows.app_session import AppSession, JourneyTimeout, wait_until
 from helpers import media_fixtures, media_oracle as oracle
 
 TERMINAL = {"SUCCEEDED", "CANCELLED", "COMPLETED_WITH_FAILURES", "FAILED"}
@@ -22,6 +28,8 @@ TOOLS = {"tts": "go_btn", "mp3_tool": "btn_write_id3", "m4b_converter": "btn_con
 OUTPUT_SLUGS = {"tts": "TTS-Audiobook", "mp3_tool": "MP3-Tool", "m4b_converter": "M4B-Converter", "m4b_maker": "M4B-Maker",
                 "m4b_metadata": "M4B-Metadata", "cover": "Cover-Image"}
 DEFAULT_JOB_SECONDS = 120
+#: The control a person clicks to open a tool: the classic sidebar's button on Windows, the Aqua sidebar's row on macOS.
+SIDEBAR_KEY = "sidebar_rows[{tool}][1]" if sys.platform == "darwin" else "buttons[{tool}]"
 
 
 @dataclass(frozen=True)
@@ -94,7 +102,7 @@ class Context:
 def open_tool(session: AppSession, tool: str, *, primary: str | None = None) -> None:
     """A physical click on the tool's own sidebar button, then wait until its real panel is on screen."""
     if session.read(None, "current_key") != tool:
-        session.click(None, f"buttons[{tool}]")
+        session.click(None, SIDEBAR_KEY.format(tool=tool))
     wait_until(lambda: session.read(None, "current_key") == tool, 45, f"{tool} to be the selected tool")
     key = primary or TOOLS[tool]
     wait_until(lambda: session.widget(tool, key).get("viewable"), 45, f"{tool}'s {key} to be on screen")
@@ -135,6 +143,8 @@ def expect_clean_close(context: Context, session: AppSession, *, label: str = "c
     tail = facts["stderr_tail"]
     report.check(f"{label}: no Tcl or interpreter fatal error", not any(marker in tail for marker in
                                                                         ("Tcl_AsyncDelete", "Fatal Python error", "wrong thread")), tail[-400:])
+    if "tk_off_thread" in facts:  # macOS: the in-process driver's Tk thread audit (MAC-032)
+        report.check(f"{label}: no Tk call from a worker thread", not facts["tk_off_thread"], facts["tk_off_thread"][:5])
     context.notes.setdefault("exits", []).append({key: value for key, value in facts.items() if key != "stderr_tail"})
     return facts
 

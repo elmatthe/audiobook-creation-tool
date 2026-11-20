@@ -341,25 +341,26 @@ def test_metadata_editing_is_comfortable_at_the_default_size(fake_settings, tk_r
 def test_the_aqua_minimum_is_the_default_and_the_shell_enforces_it(fake_settings, tk_root):
     """The accepted contract, pinned where it is enforced: the real launcher.
 
-    ``ui_theme.AQUA_MIN_SIZE`` is 1024x800 (v0.6.4 Phase 13 ruling; 1024x720
-    under v0.6.3) and equals the geometry the shell opens at; the shell's
+    ``ui_theme.AQUA_MIN_SIZE`` is 1120x800 (re-measured on Aqua Tk 9 in v0.8.x
+    P1B; 1024x800 by the v0.6.4 Phase 13 ruling, 1024x720 under v0.6.3) and
+    equals the geometry the shell opens at; the shell's
     ``minsize`` is that, so a Mac window cannot be dragged to a size the
     composition was never accepted at. Windows keeps ``ui_theme.MIN_SIZE`` —
     see ``test_ui_theme.py``.
     """
-    assert ui_theme.AQUA_MIN_SIZE == (1024, 800)
+    assert ui_theme.AQUA_MIN_SIZE == (1120, 800)
     assert ui_theme.MIN_SIZE == (920, 600)
     existing = set(tk_root.winfo_children())
     try:
-        app = _fresh_shell(tk_root, "1024x800")
+        app = _fresh_shell(tk_root, "1120x800")
         assert app.theme["mode"] == "aqua"
         assert tuple(app.theme["min_size"]) == ui_theme.AQUA_MIN_SIZE
-        assert app.theme["geometry"] == "1024x800"
+        assert app.theme["geometry"] == "1120x800"
         assert tuple(tk_root.minsize()) == ui_theme.AQUA_MIN_SIZE
         # Asking for the old Windows minimum no longer produces a smaller window.
         tk_root.geometry("920x600")
         _settled(tk_root)
-        assert tk_root.winfo_width() >= 1024 and tk_root.winfo_height() >= 800
+        assert tk_root.winfo_width() >= 1120 and tk_root.winfo_height() >= 800
     finally:
         _tear_down_shell(tk_root, existing)
 

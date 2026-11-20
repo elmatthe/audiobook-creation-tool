@@ -7,6 +7,7 @@ chapter table says belong there, which is what a duration check can never do: th
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from journeys.common import Context, expect_clean_close, log_text, media_fixtures, open_tool, oracle, scenario, wait_for_job, wait_until
@@ -128,7 +129,7 @@ def cancel(context: Context) -> None:
     run = context.run_dir(TOOL)
 
     def encoding():
-        return [pid for pid in session.job.pids() if native_image(pid) == "ffmpeg.exe"] and session.read(TOOL, "jobs.state") == "RUNNING"
+        return [pid for pid in session.job.pids() if native_image(pid) == FFMPEG_IMAGE] and session.read(TOOL, "jobs.state") == "RUNNING"
 
     def a_late_chapter_is_encoding():
         return encoding() and any(True for _ in (run / "Long Book").glob("01 - *.mp3"))
@@ -144,7 +145,7 @@ def cancel(context: Context) -> None:
     report.equal("the run says it was cancelled", state, "CANCELLED")
     report.check("settled inside the 5 s budget", seconds <= 5.0, f"{seconds:.2f} s")
     context.notes["cancel_seconds"] = round(seconds, 3)
-    wait_until(lambda: not [pid for pid in session.job.pids() if native_image(pid) == "ffmpeg.exe"], 5, "the encoder to be gone")
+    wait_until(lambda: not [pid for pid in session.job.pids() if native_image(pid) == FFMPEG_IMAGE], 5, "the encoder to be gone")
     kept = sorted((run / "Plain Book").glob("*.mp3"))
     report.equal("the finished book's two chapters stay", len(kept), 2)
     sections = context.fixtures.entries["book-plain-m4b"]["sections"]
@@ -164,7 +165,15 @@ def reveal_log(session) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+#: The encoder's program as the kernel names it.
+FFMPEG_IMAGE = "ffmpeg" if sys.platform == "darwin" else "ffmpeg.exe"
+
+
 def native_image(pid: int) -> str:
+    if sys.platform == "darwin":
+        from adapters.macos.native_input import image_name
+
+        return image_name(pid).lower()
     from helpers import winproc
 
     return Path(winproc._image_name(pid)).name.lower()

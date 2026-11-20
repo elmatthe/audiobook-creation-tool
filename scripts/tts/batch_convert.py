@@ -343,6 +343,12 @@ def _convert_single_pdf(pdf_path, output_dir, speaker, rate, log, progress_repor
                 return "success", pdf_path, None
             except ConversionCancelled:
                 return "cancelled", pdf_path, None  # already said out loud, if it cost a finished narration
+            except ffmpeg_watch.ProcessNotStopped as e:
+                # v0.8.x P5-H-R1: an FFmpeg of this file was killed and is still running. Never retried, never reported as a
+                # clean Cancel: the file fails saying so, and the run's settlement sees the process (settle_children).
+                if progress_report is not None:
+                    progress_report(stem, "failed")
+                return "failed", pdf_path, str(e)
             except Exception as e:
                 # The log may be shared for diagnosis: scrub handshake tokens out of the message and traceback.
                 if worker_limits.is_memory_failure(e):  # however it surfaced, it says what happened

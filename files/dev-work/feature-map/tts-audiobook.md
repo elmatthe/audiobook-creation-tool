@@ -44,6 +44,9 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
 - **Failure:** a label that names no registered voice is refused ("Voice not recognised"); a voice that cannot run and
   cannot be installed is refused ("Voice unavailable"). Nothing falls back to another voice or engine.
 - **Persistence:** the voice is never saved.
+- **macOS (v0.8.x P4C):** the dropdown lists the 20 voices a Mac offers (Edge 5, Kokoro 9, OmniVoice 6) under
+  their three engines' headings; Chatterbox Turbo and Qwen3 are not listed. A restored or imported Chatterbox or
+  Qwen3 selection becomes Steffan and the log says so; Start refuses one ("Voice unavailable") (`ACT.TTS.ENGINE-POLICY`).
 
 ### MP3 bitrate
 `ACT.TTS.BITRATE`
@@ -136,6 +139,8 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   removed during the install all leave nothing created and say "Conversion not started" where the panel is still open.
   A second Start while the window is open does nothing.
 - **Wording:** "Press Start again", like every message that asks for another try (ACT72-045, fixed in Phase 5).
+- **macOS (v0.8.x P4C):** offered for Kokoro and OmniVoice only; a Chatterbox or Qwen3 voice has no component to
+  install on a Mac (`voice_install.component_for` answers none), so it is never offered.
 
 ### Narrate a directly added file with the Edge chapter engine
 `ACT.TTS.DIRECT`
@@ -282,6 +287,16 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   same MP3, byte for byte). If memory runs out anyway, the same audio is joined on disk without asking the service
   again; if even that fails, the file fails with a reason that names memory and suggests Retry Failed. Every FFmpeg is
   supervised: it cannot deadlock, and one that makes no progress for 300 s is stopped with a reason.
+- **macOS (v0.8.x P5):** a narration that reaches the gate (about 5.5 minutes of audio or more) is always joined on
+  disk, never in memory; the MP3 is the same, byte for byte. On a Mac the in-memory join kept far more memory than the
+  audio it held: with 128 parts cut from a 37-minute Edge file's narration, 4.86 GiB, then about 51 MiB more for each
+  further part of 0.79 MiB of audio (10 GiB by 66 minutes), where the disk route took 30 MB. Shorter joins, and every
+  other platform, are unchanged.
+- **Parts in different formats (v0.8.x P5-H-R1):** one narration can hold Edge's 24 kHz speech and the 11,025 Hz silence
+  written for a sentence with nothing to say (for example "É."). The disk join converts them exactly as the in-memory join
+  does (the larger rate and channel count; a higher one arriving converts everything joined so far), a block at a time,
+  so the MP3 is the same, byte for byte, and memory stays small. Before this, the disk join refused the mix, and on a Mac
+  that failed the whole file after its synthesis (independent review of P5-H, HIGH 1).
 
 ### Activity log, progress and estimate
 `ACT.TTS.ACTIVITY-LOG`
@@ -321,6 +336,18 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   Cancelled only after the work has really stopped and cleaned up. Files already published stay; nothing unfinished is
   saved. A started file is logged as stopped, a not-started one as skipped; Retry Failed offers neither. The run's
   closing line counts the files finished, stopped and not started (ACT72-004, v0.7.2 Phase 6).
+- **macOS Kokoro (v0.8.x P2):** Cancel does not wait for the chunk being rendered: the local-engine worker's whole
+  process group is ended and reaped (within 2 s), also when the run is paused or between files; the next run starts a
+  fresh worker.
+- **macOS worker end (v0.8.x P5-D):** whatever ends the Kokoro or OmniVoice worker -- Cancel (busy, idle or already
+  exited), a crash, an engine switch, OmniVoice's `done` -- its whole process group is ended before it is reaped, so
+  nothing it started outlives it, and output held open by such a leftover no longer delays or hangs the run. A group
+  that cannot be confirmed ended fails the file with a sentence saying so, never a success or a clean Cancel.
+  (v0.8.x P5-D-R1) Choosing a voice of another engine also retires a Kokoro worker that has already exited on its own.
+  A worker whose identity could not be recorded when it started is never admitted: the file fails saying the engine
+  could not be started under the app's control. A Cancel that meets another end of the same worker reports that end's
+  answer, so an unconfirmed end is never a clean Cancel -- (v0.8.x P5-D-R2) also when that end had already finished
+  before the Cancel was seen.
 
 ### Cancel clicked for real with requests in flight
 `ACT.TTS.CANCEL.NATIVE`
@@ -344,6 +371,35 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
 
 - Any FFmpeg the conversion started is killed within about a quarter of a second of Cancel, even while it is making
   progress.
+- No FFmpeg starts after Cancel (v0.8.x P5-H-R1, R1 re-review): the run's FFmpeg is created inside a start its
+  controller counts, so a Cancel pressed first refuses the start, and a Cancel pressed during it waits only for the
+  creations already in progress (each a single spawn, milliseconds) and then kills them. On macOS the containment
+  guardian an FFmpeg needs is readied before that: its spawn is ordered the same way (no guardian is made for a cancelled
+  run); its wait to be ready holds neither a Cancel nor another worker's start up (it has a lock of its own, so a start
+  prepared for the current guardian never waits on another thread's replacement, nor on a lost guardian's programs
+  being ended); a Cancel stops a run's wait for a guardian at once, whether that guardian is its own or another
+  thread's, and one it was waiting for that never got ready is ended, never kept; a guardian lost in between is
+  replaced there, never inside the start; and a guardian that becomes ready after the app began closing is ended, never
+  kept. Since v0.8.x P5-I-R3 (macOS) a contained FFmpeg is started as an inert launch gate outside the Cancel
+  ordering, and FFmpeg begins executing only inside the run's counted start, through a one-time permit removed before
+  that counted start ends: no slow or blocked spawn holds a Cancel, a Cancel that latched first refuses the start, and
+  a gate that is late, stopped or unacknowledged can never start FFmpeg after the latch (its conversion thread leaves a
+  stalled spawn at the Cancel; the start is still counted in the run's
+  settlement). After a Cancel the run waits for its files in progress at most 5 s from the
+  click (the largest route bound); a file still converting then fails the run, naming it, never CANCELLED. The
+  Qwen3/OmniVoice MP3 encode is a contained FFmpeg too (it used to run in a session of its own). The same holds for a guardian's spawn; a guardian is adopted only inside the run's Cancel ordering
+  (a guardian made for a run cancelled meanwhile is ended, never kept); a lost guardian's programs are all marked failed
+  the moment the loss is seen and are ended together under one shared deadline by the containment owner, never on the
+  conversion's thread. Reading, converting, scanning (the audible check
+  and the final-tail search) and the free-space header reads of a narration on disk stop at the next block or file.
+- An FFmpeg still running 3 s after being killed (the plan's 4 s stop budget) fails its file, is never retried and never
+  counts as a clean Cancel; the run then fails as a whole, offers no Retry Failed, and names the process. It never holds
+  the conversion waiting (macOS and Linux), and is killed again and reaped once it ends.
+- macOS (v0.8.x P5-I): every process the run starts is in the containment owner's ledger, under that run, from its
+  admission until its end is confirmed -- one whose registration or watch failed, or that was created as the Cancel
+  latched, included. Before the run is reported finished or cancelled its settlement has the owner end what the run
+  left and waits (bounded) for each end to be confirmed; one not confirmed fails the run as above. An FFmpeg whose
+  containment guardian was lost while it ran fails its file, however it ended (Retry Failed offers it).
 
 ### Cancel and the final rename are ordered
 `ACT.TTS.CANCEL.PUBLICATION`
@@ -459,6 +515,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Persistence:** the loaded pipeline is cached per language for the life of the process.
 - **Differences:** the only engine with a speed control.
 - A speed typed outside 0.5 to 2.0, or not a finite number, is refused at Start with "Kokoro speed" before anything is frozen or reserved (ACT72-047, fixed in v0.7.2 Phase 6). The bitrate ceiling is described under the bitrate (ACT72-021).
+- **macOS (v0.8.x P2):** inference runs in one preemptible worker process (`local_engine_host.py`, `local_engine_worker.py`) started under the app's containment owner. The app sends each prepared chunk and keeps speech preparation, chunking, assembly, the one encode and publication; the PCM the worker hands back is checked (24 kHz, mono, finite, non-empty) before use. A worker that dies fails the file with an accurate message and the next file starts a fresh one. Runs on the CPU in fp32. Windows keeps Kokoro in process, unchanged. Long books (P5, measured on a Mac): the app holds the whole narration as 32-bit samples until the one encode, about 0.33 GiB per hour of audio (2.3 GiB in all for a 6.3-hour book), as Windows does in its own process; the worker's own footprint does not grow over a book (139 chunks: fitted trend -8.7 %), but its lifetime peak reached 7.29 GiB on that book, above any one chunk's 4.2-5.3 GiB in a fresh worker (cause not established).
 
 ### Chatterbox Turbo cloned-voice narration
 `ACT.TTS.ENGINE.CHATTERBOX`
@@ -508,6 +565,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Failure, cancel, retry:** a failure names its stage (loading, generating, out of GPU memory, a worker that died or stalled) and leaves any existing output untouched. Cancel asks the worker to stop and kills its process tree after a short grace period, in the middle of a chunk or during the encode; nothing partial is published. A retry renders the same chunks with the same seeds.
 - **Differences:** like Qwen3, it runs out of process in its own environment; unlike Qwen3, a long file is split across bounded workers. Its model weights are non-commercial (CC-BY-NC). The six voices have no preview in the 28-voice preview gallery.
 - **Known limitation:** two different copies of the app can still run Qwen3 and OmniVoice on the GPU at the same time; each engine guards only its own model.
+- **macOS (v0.8.x P4B):** on an Apple Silicon Mac the same six voices run through the same path in `.venv/engines/omnivoice`: on the Mac's GPU (MPS) in float32 by default, or on the processor in float32 when `config.toml` says `[tts] omnivoice_device = "cpu"`. Float16 and every other device are refused, and the app never switches device on its own: the worker refuses a model that did not land on the chosen device, and the MPS fallback switch never reaches it. The clone prompts of the GPU and the processor are cached apart. The worker is a contained child of the app (it ends with the app, however the app ends); Cancel is the same flag, grace and group kill. However a worker ends, its process group is ended before it is reaped, and a group that cannot be confirmed ended fails the file (v0.8.x P5-D). Copies of the app run by one user share one model guard (a lock in the user's own temporary folder). On the Mac's GPU a worker renders at most 16 chunks and the processor keeps 48: on the GPU a worker's memory grows with every chunk of a new length and is given back only when the next worker starts. `torch.mps.empty_cache()` does not stop that growth (it frees one chunk's working space, which the next chunk takes back), so the app does not call it; the accumulating memory is GPU memory outside PyTorch's free pool plus the CPU heap, most likely the MPSGraph resources compiled for each new chunk length (inferred, not proven). Plan P4B memory checkpoint and option B; P4B owner accepted with this memory exception (book-like text peaks at 10.7–11.1 GB). The Mac's voice list is the P4C roster (`ACT.TTS.ENGINE-POLICY`): these six voices with Edge's five and Kokoro's nine.
 
 ### Local engines convert one file at a time
 `ACT.TTS.ENGINE.LOCAL-ONE-WORKER`
@@ -515,6 +573,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Purpose:** keeps the local engines safe and within memory. Their cached model objects cannot be shared, and a second Qwen3 file would double several gigabytes of GPU or RAM use.
 - **Behaviour:** whatever the Workers box asks (up to 100), a Kokoro, Chatterbox, Qwen3 or OmniVoice run converts exactly one file at a time. The run log says "Worker limit: <engine> converts one file at a time."
 - **Differences:** Edge runs many files at once, limited by its service ceiling, the processor count and memory.
+- **macOS (v0.8.x P2):** at most one local-engine worker process exists. It stays loaded between a run's files and while paused; choosing a voice of another engine releases it unless it is serving a run, and closing the app ends it with the app's other owned children.
 
 ### Local engines never download at narration time
 `ACT.TTS.ENGINE.OFFLINE-USE`
@@ -522,7 +581,28 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Purpose:** choosing a voice and pressing Start never downloads anything.
 - **Behaviour:** Kokoro and Chatterbox load only the pinned, verified local files. If one is missing, the wrong size or the wrong checksum, the run is refused and told "Nothing was downloaded" rather than letting the library fetch it. A Kokoro voice with no pinned file is refused. A missing spaCy English model is refused before Kokoro's pronunciation library could install one itself. Chatterbox loads from the pinned commit's folder only. The Qwen3 worker runs with the model hub offline and every cache inside the app folder.
 - **OmniVoice (v0.8.0):** its worker closes the network before anything heavy loads (an audit hook refuses any non-loopback access), runs with the hub and transformers offline and every cache inside the app folder, and never loads a speech recognizer.
+- **macOS Kokoro worker (v0.8.x P2):** it loads through the same verified-files pipeline, so it reads only the pinned local files and never fetches a model, a voice or spaCy's English model.
 - **Recovery:** Install & Continue or the first-run setup.
+
+### Which voice engines a platform offers (macOS P4C)
+`ACT.TTS.ENGINE-POLICY`
+
+- **Purpose:** one answer, asked by every TTS surface, to "which voice engines does this computer's platform offer?" (`scripts/shared/engine_policy.py`; owner decisions Q2=A and the P4A acceptance, 2026-11-16).
+- **Behaviour:**
+  - Windows (and any platform other than macOS) offers every engine, exactly as released: Edge, Kokoro, Chatterbox Turbo, Qwen3-TTS and OmniVoice, 34 voices.
+  - macOS offers Edge, Kokoro and OmniVoice: 20 voices (Edge 5, Kokoro 9, OmniVoice 6), in registry order, Steffan first and the default. Chatterbox Turbo and Qwen3-TTS are SKIPPED BY OWNER DECISION there.
+  - The platform is the real one (`sys.platform`), read when asked. There is no setting, toggle or compatibility mode.
+- **Where it is asked:** the voice list and its engine headings; a restored or imported selection; Start; Retry Failed; the conversion worker before any engine is imported; Chatterbox's file, text and model entry points and Qwen3's file entry point; Install & Continue (`voice_install.component_for`); the first-run choices; optional-setup plans and estimates; the acquirer; the engine health probes; the "Install / repair Qwen3 voices" button; the sample helper's patterns (ordinary samples, `--quality-suite`, `--final-acceptance`) and its evaluation modes; the launcher's TTS line; Clear Downloaded Data and Repair App Environment wording; the wording of an incompatible environment Python, of the repair's and cleanup's engine-lock refusals and of the shared install lock's "already being installed" refusals.
+- **On macOS, a voice of an engine not offered:**
+  - never appears in the voice list, the first-run window, Install & Continue or a setup plan;
+  - as a restored or imported selection, becomes the default voice and the log says so;
+  - at Start or Retry, is refused with "<Engine> voices are not available in this app on macOS, so nothing was started, installed or downloaded. Choose a Microsoft Edge TTS, Kokoro or OmniVoice voice instead.";
+  - reaching the worker or an engine entry point anyway, is refused the same way (`EngineNotOffered`) before the engine is imported, a model is loaded or anything is written; nothing is published and no other voice is used;
+  - in a setup plan, is unsupported (never checked, consented, acquired, repaired or probed);
+  - named by a pattern of the sample helper (ordinary samples, `--quality-suite` or `--final-acceptance`), alone, beside offered voices, or through a shared word such as "Female 1": each such voice is reported "NOT OFFERED" and the whole request is refused with exit status 2 before anything is synthesised, published or written (no folder, input or manifest). On every platform, patterns that select no voice exit 1: never a "0/0" success.
+- **Nothing is removed:** the registry keeps all 34 `(backend, voice_id)` identities, the 18 recordings, both transcript files, the 28 previews, the manifests and every pin; Windows' choices, texts and behaviour are unchanged. The Chatterbox package stays in the Mac's base environment as a dormant pinned dependency (§12.F: no slimming), and the base install still checks that it imports.
+- **Differences:** first-run setup on a Mac shows two choices (Kokoro, checked; OmniVoice, unchecked) instead of five, and no Qwen3 note. The Mac's wording names OmniVoice where Windows names the Qwen3 engine (Repair App Environment, Clear Downloaded Data, and the repair's and cleanup's "could not check whether ... are in use" refusals and "held still" log line), names only Kokoro where Windows says "Kokoro and Chatterbox" (an environment on an incompatible Python), and says "Voices of this copy of the app" where Windows says "The Qwen3 voices" (the shared install lock's "already being installed" refusals, which a Mac's Kokoro and spaCy installs can meet). Windows' words are byte-identical.
+- **Tests:** `files/tests/test_engine_policy.py` (both platforms through the policy's seam); Windows-behaviour suites run on a Mac through the `windows_engine_policy` fixture, never as Windows-native evidence.
 
 ### Installed or missing: local voice availability
 `ACT.TTS.VOICE-STATE`
@@ -614,6 +694,7 @@ The engines live in `scripts/tts/kokoro_synth.py`, `chatterbox_synth.py` and `qw
 - **Adoption:** an environment that already holds exactly the pinned set, isolated and built from the app's own Python, is checked by the same proof and adopted without downloading, rebuilding or changing anything.
 - **Failure, cancel, repair:** Cancel at any step records nothing. A GPU, memory, timeout or busy failure rejects nothing; Smart App Control first-load refusals are retried. A broken environment is set aside whole under `files/runtime-data/omnivoice/set-aside` and rebuilt only under repair consent; only an environment the app's own receipt says it left unfinished is ever removed. No NVIDIA GPU makes the component unsupported.
 - **States:** ready, missing, unchecked (planned as a check-and-adopt that downloads nothing), damaged, unsupported, busy, unverified.
+- **macOS (v0.8.x P4B):** the Mac's own pinned set, 86 PyPI wheels (`darwin_arm64` in the manifest), with the same 11 model files; the environment is built from the app's own Python (`files/runtime-data/python/bin/python3.12`). The proof loads the model on the configured device (the Mac's GPU by default) instead of CUDA. Apple Silicon is required; any other Mac is unsupported. The hardware and licence terms shown before Install name the Mac's figures.
 
 ### Optional voice setup plan and disclosure
 `ACT.TTS.SETUP.PLAN`
@@ -663,7 +744,7 @@ Scoped wheel consumption, engine-change authority and a disposable spaCy consume
 ### Voice sample and quality harness (developer)
 `ACT.TTS.VOICE-QA-SAMPLES` (not required for release)
 
-A command-line tool that is never imported by the app. It makes one sample per voice for manual listening (34 since v0.8.0), plus the Chatterbox evaluations, a quality suite over original test text, and final-acceptance measurements. One failing voice never stops the others. An OmniVoice sample goes through the production source-to-MP3 path with the `v1` speech-preparation snapshot (v0.8.0 Phase 4).
+A command-line tool that is never imported by the app. It makes one sample per voice for manual listening (34 since v0.8.0; on a Mac the 20 it offers, and a Chatterbox or Qwen3 pattern or evaluation mode is refused there, macOS P4C: a pattern naming such a voice refuses the whole request, in every pattern mode, with exit status 2 before anything runs or is written), plus the Chatterbox evaluations, a quality suite over original test text, and final-acceptance measurements. One failing voice never stops the others. Patterns that select no voice fail (exit 1) in every mode and write nothing; an empty quality or acceptance report is never a success. An OmniVoice sample goes through the production source-to-MP3 path with the `v1` speech-preparation snapshot (v0.8.0 Phase 4).
 
 ### Intentional differences from other tools
 

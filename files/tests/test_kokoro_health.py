@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 
 from shared import base_packages, bootstrap
+from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BLOCKED = ("DLL load failed while importing _epoch: An Application Control policy has blocked this file. "
@@ -48,7 +49,7 @@ class Child:
     def __init__(self, monkeypatch, *, present=True, proof="ok", facts=None):
         self.present, self.proof, self.facts = present, proof, facts or {"english_model": True, "weights": True}
         self.calls: list[list[str]] = []
-        monkeypatch.setattr(bootstrap.subprocess, "run", self.run)
+        stand_in_for_setups_python_children(monkeypatch, self.run)
         # v0.7.0: every package install goes through the one installer (the dependency lock); recorded as a pip call.
         monkeypatch.setattr(bootstrap, "install_base_packages", self.install)
 

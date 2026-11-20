@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from shared import engine_policy
 from shared import optional_setup_protocol as proto
 
 #: The reason prefix the panel shows for a voice whose component can be installed with Install & Continue.
@@ -18,7 +19,10 @@ NOT_INSTALLED = "not installed"
 
 
 def component_for(backend: str, voice_id: str) -> Optional[str]:
-    """The optional component a voice belongs to, or ``None`` (Edge, or an unknown voice)."""
+    """The optional component a voice belongs to, or ``None`` (Edge, an unknown voice, or -- macOS P4C -- a voice of an
+    engine this platform does not offer, so Install & Continue never offers to install it)."""
+    if not engine_policy.is_offered(backend):
+        return None
     if backend == "kokoro":
         return proto.KOKORO
     if backend == "chatterbox":

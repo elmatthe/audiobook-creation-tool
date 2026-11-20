@@ -64,7 +64,16 @@ MIN_SIZE = (920, 600)
 #: short for a readable chapter editor and log at the same time; the
 #: maintainer ruled 1024x800 for macOS (v0.6.4 Phase 13). Windows and the
 #: classic branch keep ``MIN_SIZE`` and ``DEFAULT_GEOMETRY``.
-AQUA_MIN_SIZE = (1024, 800)
+#:
+#: v0.8.x P1B: measured again on the app's own Aqua Tk 9.0.4 with today's panels,
+#: 1024 px no longer holds the composition this constant defines: the Cover
+#: tool falls into its stacked layout (17 px short of its columns layout), so
+#: Cancel, Retry Failed and the progress line run below the window; the Editor's
+#: actions row is 31 px wider than its host (Retry Failed is cut off); the
+#: Maker's progress line runs past the right edge. 1120 px is the smallest width
+#: at which all five non-TTS tools fit whole (files/dev-work/macos-p1b, the Aqua
+#: probe). The height is unchanged. The TTS panel's height at 800 is P2's.
+AQUA_MIN_SIZE = (1120, 800)
 AQUA_GEOMETRY = "{}x{}".format(*AQUA_MIN_SIZE)
 
 #: Every ttk style this module registers for Windows begins with this prefix.
@@ -102,6 +111,40 @@ def _blend(hex_a: str, hex_b: str, t: float) -> str:
     return "#%02x%02x%02x" % tuple(
         round(ca + (cb - ca) * t) for ca, cb in zip(a, b)
     )
+
+
+def _luminance(hex_color: str) -> float:
+    """WCAG 2 relative luminance of '#rrggbb'."""
+    def channel(value: int) -> float:
+        value /= 255
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    """WCAG 2 contrast ratio of two '#rrggbb' colors (1.0 to 21.0)."""
+    light, dark = sorted((_luminance(foreground), _luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+#: WCAG 2 AA for normal-size text.
+MIN_TEXT_CONTRAST = 4.5
+
+
+def _readable_secondary(text: str, toward: str, background: str, t: float,
+                        minimum: float = MIN_TEXT_CONTRAST) -> str:
+    """``_blend(text, toward, t)``, moved back toward *text* only as far as *background* needs for *minimum*.
+
+    The secondary grey is a blend of the label color into the window color; on
+    a tinted surface (the sidebar) that blend can fall under AA (ACT72-078's
+    advisory: "TOOLS" at 4.31). The step is a hundredth of the blend, so the
+    color changes no more than the contrast requires.
+    """
+    while t > 0 and contrast_ratio(_blend(text, toward, t), background) < minimum:
+        t = round(t - 0.01, 2)
+    return _blend(text, toward, max(0.0, t))
 
 
 def _is_dark(hex_color: str) -> bool:
@@ -169,6 +212,9 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
         "card": window,
         "text": text,
         "secondary": _blend(text, window, 0.45),
+        # The sidebar's "TOOLS" heading: the same grey, held to AA on the
+        # sidebar tint (v0.8.x P1B remediation; it measured 4.31).
+        "sidebar_label": _readable_secondary(text, window, sidebar, 0.45),
         "accent": accent,
         "selection": accent,
         "selection_text": "#ffffff",
@@ -239,7 +285,16 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
             "navigator_layout_one_action": "row",  # a Remove-only navigator fits
             "readback_layout": "compact",  # Editor: facts + status on the read-back line
             "note_wrap": 740,             # px; the Editor's preserve note folds once
-            "chapter_rows": 2,            # the chapter editor's floor; it grows
+            "chapter_rows": 6,            # the chapter editor's request (P1B: was 2, the
+                                          # floor it showed one row of); it grows
+            # v0.8.x P1B remediation (ACT72-078), measured on the real launcher
+            # at 1120x800: a long Book title cut the navigator's counter to
+            # "(1 of", the Editor's Chapter Titles box held one line, and the
+            # Editor's Source line lost its path and status at the right edge.
+            "navigator_heading": "fit",   # the title yields, "(X of Y)" stays whole
+            "chapter_floor_rows": 3,      # Editor: chapter rows kept in either density
+            "source_line": "fit",         # Editor: Source line fits, full value on hover
+            "status_line": "fit",         # Maker: the tight status line fits one line
         },
     }
 
@@ -1018,6 +1073,72 @@ def style_tk_widget(widget, theme: dict, role: str = "surface", **overrides):
     return applied
 
 
+#: Tk 9 delivers a two-finger trackpad scroll as ``<TouchpadScroll>`` (TIP 684), not ``<MouseWheel>``. Tk 8.6 (Windows)
+#: has no such event and rejects a binding to it, so every use is guarded by the *running* Tk version (v0.8.x P1B).
+TOUCHPAD_SCROLL = "<TouchpadScroll>"
+
+
+def touchpad_scroll_supported() -> bool:
+    """True when the running Tk sends trackpad scrolls as ``<TouchpadScroll>`` (Tk 9 and later)."""
+    return tk.TkVersion >= 9.0
+
+
+def is_aqua(widget) -> bool:
+    """True when *widget* is drawn by Tk's native macOS windowing system (``tk windowingsystem`` is ``aqua``)."""
+    try:
+        return str(widget.tk.call("tk", "windowingsystem")) == "aqua"
+    except (tk.TclError, AttributeError):
+        return False
+
+
+def wheel_units(delta: int) -> int:
+    """Units to scroll for one ``<MouseWheel>`` event: Windows' ±120 steps by their count, a smaller (macOS) delta by
+    its sign only, so a small delta never rounds to no movement and never jumps by its raw size."""
+    delta = int(delta)
+    if abs(delta) >= 120:
+        return int(-delta / 120)  # the Windows formula exactly
+    return -1 if delta > 0 else (1 if delta < 0 else 0)
+
+
+def _native_touchpad_class(widget) -> bool:
+    """True when *widget*'s own Tk class already scrolls it by trackpad (Tk 9's Text, Listbox and Treeview)."""
+    try:
+        return bool(widget.tk.call("bind", widget.winfo_class(), TOUCHPAD_SCROLL))
+    except (tk.TclError, AttributeError):
+        return False
+
+
+def scroll_by_touchpad(target, event) -> bool:
+    """Scroll *target* vertically by one ``<TouchpadScroll>`` event, as precisely as the widget allows. True if it moved.
+
+    Tk packs both axes into ``%D``; ``tk::PreciseScrollDeltas`` (Tk's own decoder, the one its Text binding uses) turns it
+    into pixels. A Text scrolls by those pixels, exactly as Tk's class binding does. A Canvas or Listbox has no pixel unit
+    in Tk 9.0, so it moves by the same distance as a fraction of its whole scrollable height. Never raises.
+    """
+    try:
+        _dx, dy = (int(float(value)) for value in
+                   target.tk.splitlist(target.tk.call("tk::PreciseScrollDeltas", event.delta)))
+    except (tk.TclError, ValueError, TypeError, AttributeError):
+        return False
+    if not dy:
+        return False
+    try:
+        target.tk.call(target._w, "yview", "scroll", -dy, "pixels")
+        return True
+    except tk.TclError:
+        pass
+    try:
+        first, last = (float(value) for value in target.yview())
+        span = last - first
+        if span <= 0.0 or span >= 1.0:
+            return False  # everything is already visible
+        whole = max(1, target.winfo_height()) / span
+        target.yview_moveto(min(1.0, max(0.0, first - dy / whole)))
+        return True
+    except (tk.TclError, ValueError, ZeroDivisionError):
+        return False
+
+
 def enable_mousewheel(scroll_target, hover_region=None):
     """Make wheel + two-finger trackpad scroll work while the pointer is anywhere
     over hover_region (defaults to scroll_target). scroll_target must support
@@ -1030,29 +1151,44 @@ def enable_mousewheel(scroll_target, hover_region=None):
         if getattr(event, "delta", 0):
             scroll_target.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
+    def _on_touchpad(event):
+        # Tk 9's Text, Listbox and Treeview classes scroll themselves by trackpad, and the class binding runs before
+        # this "all" one: scrolling again here would move them twice. Only the pointer over something else in the
+        # region (a label, a frame, a canvas) needs this.
+        widget = getattr(event, "widget", None)
+        if widget is scroll_target or _native_touchpad_class(widget):
+            return
+        scroll_by_touchpad(scroll_target, event)
+
+    # Tk 8.6 (Windows) has one sequence to own; Tk 9 has the trackpad's as well.
+    handlers = {"<MouseWheel>": _on_mousewheel}
+    if touchpad_scroll_supported():
+        handlers[TOUCHPAD_SCROLL] = _on_touchpad
+
     # The launcher runs every tool in one root, so "all" holds a single
     # <MouseWheel> slot that all hover regions take turns owning. A region may
     # therefore only ever give back the binding it still holds: the script Tk
     # installs names this region's own registered callback, which makes it a
     # self-describing ownership token. If another region has since been entered
     # the script no longer matches, and this one leaves the wheel alone.
-    owned_script = None
+    # (Tk 9: the <TouchpadScroll> slot is owned and given back the same way.)
+    owned_scripts: dict[str, str] = {}
 
     def _claim():
-        nonlocal owned_script
-        scroll_target.bind_all("<MouseWheel>", _on_mousewheel)
-        owned_script = hover_region.tk.call("bind", "all", "<MouseWheel>")
+        for sequence, handler in handlers.items():
+            scroll_target.bind_all(sequence, handler)
+            owned_scripts[sequence] = hover_region.tk.call("bind", "all", sequence)
 
     def _release():
-        nonlocal owned_script
-        if owned_script is None:
+        if not owned_scripts:
             return
-        try:
-            if hover_region.tk.call("bind", "all", "<MouseWheel>") == owned_script:
-                hover_region.tk.call("bind", "all", "<MouseWheel>", "")
-        except tk.TclError:
-            pass  # the interpreter is already going away — nothing left to own
-        owned_script = None
+        for sequence, owned_script in list(owned_scripts.items()):
+            try:
+                if hover_region.tk.call("bind", "all", sequence) == owned_script:
+                    hover_region.tk.call("bind", "all", sequence, "")
+            except tk.TclError:
+                pass  # the interpreter is already going away — nothing left to own
+        owned_scripts.clear()
 
     def _on_enter(_event):
         _claim()
@@ -1081,6 +1217,162 @@ def enable_mousewheel(scroll_target, hover_region=None):
     hover_region.tk.call(
         "bind", hover_region._w, "<Leave>", "+%s %%d" % leave_cb
     )
+
+
+# ---------------------------------------------------------------------------
+# Text that must fit a width (v0.8.x P1B remediation, ACT72-078)
+# ---------------------------------------------------------------------------
+#
+# A Tk label given less room than its text needs cuts the text at the edge,
+# whatever its anchor -- which is how a Book counter became "(1 of" and a
+# source path lost its status. These choose what to keep instead: the part
+# that must stay whole (a counter, a status) is kept, the rest yields behind
+# an ellipsis. Pure: *measure* is the label's own font (``Font.measure``), so
+# the rule is tested without a display. A width of 1 or less means "not laid
+# out yet" and the text comes back whole.
+
+ELLIPSIS = "\u2026"
+
+
+def _longest(count: int, fits) -> int:
+    """The largest ``k`` in ``0..count`` with ``fits(k)`` true (``fits`` is monotone)."""
+    low, high = 0, count
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def label_font(label) -> tkfont.Font:
+    """The font a ttk label draws its text in (its style's, else Tk's default), for measuring that text."""
+    described = ttk.Style(label).lookup(str(label.cget("style")) or "TLabel", "font")
+    return tkfont.Font(font=described or "TkDefaultFont")
+
+
+def text_room(label, measure) -> int:
+    """The width a label really has for its text: its width less its own padding.
+
+    A ttk label draws its text inside padding of its own (2 pt a side on Aqua,
+    measured), so text fitted to the whole widget width lost the end of its
+    last glyph (the output-folder hint's final "s"). The padding is read from
+    the label itself: its request less what its text, or its ``-width`` in
+    average characters, needs.
+    """
+    width = label.winfo_width()
+    if width <= 1:
+        return width
+    try:
+        chars = int(str(label.cget("width")) or 0)
+        shown = str(label.cget("text"))
+    except (tk.TclError, ValueError):
+        return width
+    natural = measure("0") * chars if chars > 0 else measure(shown)
+    return max(1, width - max(0, label.winfo_reqwidth() - natural))
+
+
+def fit_end(text: str, width: int, measure, *, suffix: str = "") -> str:
+    """*text* then *suffix*, or as much of *text* as fits, an ellipsis, then *suffix* whole."""
+    whole = text + suffix
+    if width <= 1 or measure(whole) <= width:
+        return whole
+    keep = _longest(len(text), lambda k: measure(text[:k].rstrip() + ELLIPSIS + suffix) <= width)
+    return text[:keep].rstrip() + ELLIPSIS + suffix
+
+
+def fit_middle(text: str, width: int, measure, *, prefix: str = "", suffix: str = "") -> str:
+    """*prefix* + *text* + *suffix*, or with the middle of *text* replaced by an ellipsis so it fits.
+
+    The start and the end of *text* are kept in equal measure (the end of a path
+    names the folder, its start where it lives). At the least, *text* becomes the
+    ellipsis alone; whether that fits is the caller's to judge.
+    """
+    whole = prefix + text + suffix
+    if width <= 1 or measure(whole) <= width:
+        return whole
+
+    def shown(k: int) -> str:
+        head, tail = (k + 1) // 2, k // 2
+        return prefix + text[:head] + ELLIPSIS + (text[len(text) - tail:] if tail else "") + suffix
+
+    return shown(_longest(len(text) - 1, lambda k: measure(shown(k)) <= width))
+
+
+class HoverText:
+    """The whole of a shortened label, shown while the pointer rests on it (ACT72-078).
+
+    A label that elides its text must still give the full value. *full* returns
+    it; nothing appears when the label already shows all of it. A borderless
+    window beside the pointer, built on the main thread from the label's own
+    events and gone on Leave, a press or the label's destruction.
+    """
+
+    DELAY_MS = 500
+    WRAP = 640
+
+    def __init__(self, widget, full, *, colors: tuple[str, str] = ("#ffffe1", "#000000")) -> None:
+        self.widget = widget
+        self._full = full
+        self._colors = colors
+        self._after: str | None = None
+        self.window: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+        widget.bind("<Destroy>", self.hide, add="+")
+
+    def text(self) -> str:
+        """The full value, or ``""`` when the label already shows it."""
+        try:
+            full = str(self._full())
+            shown = str(self.widget.cget("text"))
+        except tk.TclError:
+            return ""
+        return "" if full == shown else full
+
+    def _schedule(self, _event=None) -> None:
+        self._cancel()
+        try:
+            self._after = self.widget.after(self.DELAY_MS, self.show)
+        except tk.TclError:
+            self._after = None
+
+    def _cancel(self) -> None:
+        if self._after is not None:
+            try:
+                self.widget.after_cancel(self._after)
+            except tk.TclError:
+                pass
+            self._after = None
+
+    def show(self) -> None:
+        self._after = None
+        text = self.text()
+        if not text or self.window is not None:
+            return
+        try:
+            x = self.widget.winfo_pointerx() + 12
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+            window = tk.Toplevel(self.widget)
+            window.wm_overrideredirect(True)
+            background, foreground = self._colors
+            tk.Label(window, text=text, justify="left", wraplength=self.WRAP, padx=6, pady=3,
+                     background=background, foreground=foreground, relief="solid", borderwidth=1).pack()
+            window.wm_geometry(f"+{x}+{y}")
+        except tk.TclError:
+            return
+        self.window = window
+
+    def hide(self, _event=None) -> None:
+        self._cancel()
+        window, self.window = self.window, None
+        if window is not None:
+            try:
+                window.destroy()
+            except tk.TclError:
+                pass
 
 
 class ProgressIndicator:

@@ -109,7 +109,7 @@ _SCHEMA: dict[str, frozenset[str]] = {
     "output": frozenset({"base_directory"}),
     "logging": frozenset({"max_sessions"}),
     "importing": frozenset({"large_result_warning_threshold"}),
-    "tts": frozenset({"speech_prep"}),
+    "tts": frozenset({"speech_prep", "omnivoice_device"}),
     "development": frozenset({"developer_mode"}),
 }
 
@@ -130,6 +130,13 @@ DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000
 DEFAULT_SPEECH_PREP = "v1"
 SPEECH_PREP_VALUES: tuple[str, ...] = ("off", "v1")
 
+#: macOS P4B: where the OmniVoice voices run on an Apple Silicon Mac -- the two configurations the owner accepted after
+#: P4A (2026-11-16): ``mps`` (the Mac's GPU, float32; preferred, the default) or ``cpu`` (the processor, float32). MPS
+#: float16 is not a value. Windows ignores it (CUDA, as released). Read when a run starts; mirrors
+#: ``tts.omnivoice_runtime.MAC_DEVICES`` (shared never imports tts; a test pins them equal).
+DEFAULT_OMNIVOICE_DEVICE = "mps"
+OMNIVOICE_DEVICE_VALUES: tuple[str, ...] = ("mps", "cpu")
+
 #: Developer mode (v0.7.0 P03D) exposes the maintainer's reference-transcript tools and lets a developer deliberately
 #: select a reviewed local transcript. It ships ``false``; only a genuine TOML boolean is accepted; it is read from
 #: ``config.toml`` alone (never ``settings.json``, never an environment variable) and takes effect when the app starts.
@@ -139,7 +146,8 @@ MAX_SESSIONS_RANGE = (1, 1000)
 LARGE_RESULT_THRESHOLD_RANGE = (1, 1_000_000)
 
 _PYTHON_MIN_RE = re.compile(r"^\d+\.\d+(\.\d+)?$")
-_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+#: ``X.Y.Z``, optionally with SemVer build metadata (``0.8.0+macos.1``: D16, a platform revision of one version).
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$")
 
 DEFAULTS: Mapping[str, Any] = MappingProxyType(
     {
@@ -152,6 +160,7 @@ DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "logging.max_sessions": DEFAULT_MAX_SESSIONS,
         "importing.large_result_warning_threshold": DEFAULT_LARGE_RESULT_WARNING_THRESHOLD,
         "tts.speech_prep": DEFAULT_SPEECH_PREP,
+        "tts.omnivoice_device": DEFAULT_OMNIVOICE_DEVICE,
         "development.developer_mode": DEFAULT_DEVELOPER_MODE,
     }
 )
@@ -245,6 +254,8 @@ class ImportingConfig:
 class TtsConfig:
     #: ``off`` | ``v1``; validated here, consumed by the TTS panel when a run starts.
     speech_prep: str = DEFAULT_SPEECH_PREP
+    #: ``mps`` | ``cpu``; OmniVoice's device on a Mac (macOS P4B), consumed by ``tts.omnivoice_runtime`` per run.
+    omnivoice_device: str = DEFAULT_OMNIVOICE_DEVICE
 
 
 @dataclass(frozen=True)
@@ -359,7 +370,7 @@ class _Builder:
     def project_version(self, source: str, raw: Any) -> None:
         key = "project.version"
         if not isinstance(raw, str) or not _VERSION_RE.match(raw.strip()):
-            self.note(source, key, f"must look like 'X.Y.Z'; using the code version {VERSION}",
+            self.note(source, key, f"must look like 'X.Y.Z' or 'X.Y.Z+build'; using the code version {VERSION}",
                       f"got {raw!r}")
             return
         text = raw.strip()
@@ -469,6 +480,15 @@ class _Builder:
             return
         self.accept(source, key, raw.strip().lower())
 
+    def tts_omnivoice_device(self, source: str, raw: Any) -> None:
+        key = "tts.omnivoice_device"
+        if not isinstance(raw, str) or raw.strip().lower() not in OMNIVOICE_DEVICE_VALUES:
+            self.note(source, key,
+                      f"must be one of {', '.join(OMNIVOICE_DEVICE_VALUES)}; using {DEFAULT_OMNIVOICE_DEVICE!r}",
+                      f"got {raw!r}")
+            return
+        self.accept(source, key, raw.strip().lower())
+
     def development_developer_mode(self, source: str, raw: Any) -> None:
         key = "development.developer_mode"
         # Exactly a TOML boolean: "true", 1 or "yes" are mistakes, and a mistake must never switch the tools on.
@@ -488,6 +508,7 @@ _TOML_VALIDATORS = {
     "logging.max_sessions": _Builder.logging_max_sessions,
     "importing.large_result_warning_threshold": _Builder.importing_threshold,
     "tts.speech_prep": _Builder.tts_speech_prep,
+    "tts.omnivoice_device": _Builder.tts_omnivoice_device,
     "development.developer_mode": _Builder.development_developer_mode,
 }
 
@@ -633,7 +654,8 @@ def load(
         ),
         sources=MappingProxyType(dict(builder.sources)),
         diagnostics=tuple(builder.diagnostics),
-        tts=TtsConfig(speech_prep=builder.values["tts.speech_prep"]),
+        tts=TtsConfig(speech_prep=builder.values["tts.speech_prep"],
+                      omnivoice_device=builder.values["tts.omnivoice_device"]),
         development=DevelopmentConfig(developer_mode=builder.values["development.developer_mode"] is True),
     )
 

@@ -12,6 +12,7 @@ scope with ``coverage.json`` ``surfaces.live``. A control nobody mapped, or a ma
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from helpers import surface_discovery
@@ -19,14 +20,26 @@ from journeys.common import TOOLS, Context, expect_clean_close, native, open_too
 
 GATE_DIR = Path(__file__).resolve().parents[1]
 #: One voice family per speech engine, in the order the list shows them. Choosing one is a state of the TTS panel; nothing is synthesised.
-ENGINE_FAMILIES = ("Edge", "Kokoro", "Chatterbox", "Qwen3")
+#: Per platform, as ``shared.engine_policy`` offers them (P4C): a Mac offers Edge, Kokoro and OmniVoice, never Chatterbox or Qwen3
+#: (checked absent); Windows' families are unchanged.
+WINDOWS_ENGINE_FAMILIES = ("Edge", "Kokoro", "Chatterbox", "Qwen3")
+MACOS_ENGINE_FAMILIES = ("Edge", "Kokoro", "OmniVoice")
+MACOS_NOT_OFFERED = ("Chatterbox", "Qwen3")
+ENGINE_FAMILIES = MACOS_ENGINE_FAMILIES if sys.platform == "darwin" else WINDOWS_ENGINE_FAMILIES
 SHELL = "launcher"
 PROBE_TEXT = "Unmapped probe"
 
 
 def live_index() -> dict[str, dict[str, str]]:
     coverage = json.loads((GATE_DIR / "coverage.json").read_text(encoding="utf-8"))
-    return coverage.get("surfaces", {}).get("live", {})
+    index = coverage.get("surfaces", {}).get("live", {})
+    if sys.platform == "darwin":
+        # v0.8.x P1B: the reviewed controls of the Windows shell that the Aqua shell draws differently (each entry names
+        # its Aqua counterpart). Only those leave the index on macOS; every tool's index is held as it is.
+        absent = coverage.get("surfaces", {}).get("live_absent_on_macos", {})
+        index = {scope: {key: feature for key, feature in keys.items() if key not in absent.get(scope, {})}
+                 for scope, keys in index.items()}
+    return index
 
 
 class Scan:
@@ -91,6 +104,10 @@ def _engine_states(scan: Scan) -> None:
         report.equal(f"{family}: no dialog appears from choosing a voice", scan.dialogs(), [])
         scan.take("tts", f"voice-{family.lower()}")
         session.screenshot(f"tts-{family.lower()}")
+    if sys.platform == "darwin":
+        for family in MACOS_NOT_OFFERED:
+            report.check(f"the voice list offers no {family} voice on a Mac",
+                         not any(value.startswith(family) for value in values), [v for v in values if v.startswith(family)])
 
 
 def run_scan(context: Context, *, inject: dict | None = None) -> Scan:

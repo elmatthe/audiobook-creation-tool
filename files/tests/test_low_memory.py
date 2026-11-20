@@ -36,6 +36,14 @@ from tts.epub2tts_edge import runner  # Here, with ``engine``: ``test_epub_retir
 
 from test_assembly_on_disk import clip_for, direct_mp3, folder_mp3, write_book
 
+@pytest.fixture(autouse=True)
+def _in_memory_route_as_on_every_platform_but_macos(monkeypatch):
+    """v0.8.x P5: these tests are about the gate's in-memory route and its fall back to disk, which every platform but macOS
+    keeps (``worker_limits.IN_MEMORY_ASSEMBLY``). A Mac never assembles a narration that reaches the gate in memory
+    (``test_macos_p5_assembly_on_disk.py``). Pinned on here, these tests check the same thing on every machine."""
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", True)
+
+
 GB = 1024 ** 3
 MB = 1024 ** 2
 needs_ffmpeg = pytest.mark.skipif(not ffmpeg_utils.have_ffmpeg(), reason="needs the pinned FFmpeg")
@@ -422,7 +430,15 @@ def quick_gate(monkeypatch):
     return gate
 
 
-@pytest.mark.parametrize("failure", [MemoryError(), MemoryError("big"), OSError(22, "x", None, 1455), OSError(22, "x", None, 8),
+def _windows_error(winerror: int) -> OSError:
+    """What Windows raises for this ``winerror``, on any platform. ``OSError(22, "x", None, 1455)`` sets ``winerror`` only on
+    Windows; elsewhere it is a plain EINVAL, which is rightly not a memory failure (v0.8.x P5-H-R1, Codex LOW 1)."""
+    error = OSError(22, "x")
+    error.winerror = winerror
+    return error
+
+
+@pytest.mark.parametrize("failure", [MemoryError(), MemoryError("big"), _windows_error(1455), _windows_error(8),
                                      RuntimeError("can't start new thread"), CouldntDecodeError("ffmpeg: Cannot allocate memory"),
                                      CouldntEncodeError("Encoding failed. ffmpeg/avlib returned error code: 3221225495")])
 def test_an_allocation_failure_however_it_surfaces_falls_back_to_disk(quick_gate, failure):
@@ -442,6 +458,26 @@ def test_an_allocation_failure_however_it_surfaces_falls_back_to_disk(quick_gate
     assert wl.assemble(48_000 * 3600, in_memory, on_disk, note=notes.append) == "the result"
     assert calls == ["memory", "disk"]
     assert "assembled on disk instead" in notes[0] and "Nothing is being requested" in notes[0]
+    assert quick_gate._in_use == 0 and quick_gate._on_disk == 0 and quick_gate._in_memory == 0
+
+
+def test_an_invalid_argument_is_not_an_allocation_failure_and_never_falls_back(quick_gate):
+    """The negative control for the two Windows stimuli above: the same ``OSError`` without ``winerror`` is EINVAL, a real
+    failure of the file, not memory. It propagates, the disk route never runs, and every reservation goes back."""
+    import errno
+
+    plain = OSError(errno.EINVAL, "x")
+    assert getattr(plain, "winerror", None) is None and not wl.is_memory_failure(plain)
+    assert wl.is_memory_failure(_windows_error(1455)) and wl.is_memory_failure(_windows_error(8))
+    calls = []
+
+    def in_memory():
+        calls.append("memory")
+        raise plain
+
+    with pytest.raises(OSError) as raised:
+        wl.assemble(48_000 * 3600, in_memory, lambda: calls.append("disk"))
+    assert raised.value is plain and calls == ["memory"]
     assert quick_gate._in_use == 0 and quick_gate._on_disk == 0 and quick_gate._in_memory == 0
 
 
@@ -793,8 +829,12 @@ def test_cancel_of_finished_narration_is_stopped_within_one_look_while_it_progre
     """v0.7.2: the allowance that let finished narration run on after Cancel (30 s idle / 600 s in all) is gone. The exact
     child the old test let finish is now killed within one look, with its output unfinished and unused."""
     code = "import sys,time;\nfor _ in range(40):\n  sys.stdout.buffer.write(b'x'*(1<<20));sys.stdout.buffer.flush();time.sleep(0.1)"
-    with ffmpeg_watch.controlled(lambda: True):
+    # v0.8.x P5-H-R1: nothing starts once Cancel has latched, so the child is started first and the Cancel latched before it is
+    # read: the same running child, killed within one look.
+    pressed = threading.Event()
+    with ffmpeg_watch.controlled(pressed.is_set):
         child = ffmpeg_watch.Supervised(_python(code), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    pressed.set()
     started = time.monotonic()
     with pytest.raises(ConversionCancelled, match="cancelled by user"):
         child.communicate()
@@ -803,8 +843,12 @@ def test_cancel_of_finished_narration_is_stopped_within_one_look_while_it_progre
 
 
 def test_cancel_of_finished_narration_that_has_stopped_is_killed_within_one_look_not_at_a_deadline():
-    with ffmpeg_watch.controlled(lambda: True):
+    # v0.8.x P5-H-R1: nothing starts once Cancel has latched, so the child is started first and the Cancel latched before it is
+    # read: the same running child, killed within one look.
+    pressed = threading.Event()
+    with ffmpeg_watch.controlled(pressed.is_set):
         child = ffmpeg_watch.Supervised(_python("import time;time.sleep(60)"), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    pressed.set()
     started = time.monotonic()
     with pytest.raises(ConversionCancelled, match="cancelled by user"):
         child.communicate()

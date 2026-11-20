@@ -43,6 +43,14 @@ from tts import worker_limits as wl
 from tts.epub2tts_edge import epub2tts_edge as engine
 from tts.epub2tts_edge import runner
 
+@pytest.fixture(autouse=True)
+def _in_memory_route_as_on_every_platform_but_macos(monkeypatch):
+    """v0.8.x P5: these tests are about the gate's in-memory route and its fall back to disk, which every platform but macOS
+    keeps (``worker_limits.IN_MEMORY_ASSEMBLY``). A Mac never assembles a narration that reaches the gate in memory
+    (``test_macos_p5_assembly_on_disk.py``). Pinned on here, these tests check the same thing on every machine."""
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", True)
+
+
 needs_ffmpeg = pytest.mark.skipif(not ffmpeg_utils.have_ffmpeg(), reason="requires a real ffmpeg/ffprobe pair")
 
 GB = 1024 ** 3
@@ -988,12 +996,18 @@ def test_a_narration_encoded_on_disk_stays_small_in_memory(tmp_path, long_parts)
 
 
 @needs_ffmpeg
-def test_a_part_in_another_format_is_refused_not_quietly_converted(tmp_path):
+def test_a_part_in_another_format_is_joined_as_pydub_joins_it(tmp_path):
+    """v0.8.x P5-H-R1 (Codex HIGH 1): this used to assert a refusal. One narration does hold two formats (Edge's 24 kHz and
+    the 11,025 Hz silence written for an unspeakable sentence), the in-memory join converts them, and on a Mac the disk route
+    is the only one, so the refusal failed whole files. The spool now converts as pydub does (``test_macos_p5h_r1_assembly``
+    has every placement); here, the original pair."""
     ffmpeg_utils.configure_pydub()
-    AudioSegment.silent(duration=100, frame_rate=24000).export(tmp_path / "a.flac", format="flac")
-    AudioSegment.silent(duration=100, frame_rate=48000).export(tmp_path / "b.flac", format="flac")
-    with pytest.raises(ValueError, match="48000 Hz"):
-        disk_assembly.join_to_flac([tmp_path / "a.flac", tmp_path / "b.flac"], tmp_path / "out.flac", tmp_path / "spool.wav")
+    Sine(300, sample_rate=24000).to_audio_segment(duration=100).export(tmp_path / "a.flac", format="flac")
+    Sine(500, sample_rate=48000).to_audio_segment(duration=100).export(tmp_path / "b.flac", format="flac")
+    expected = AudioSegment.from_file(tmp_path / "a.flac") + AudioSegment.from_file(tmp_path / "b.flac")
+    disk_assembly.join_to_flac([tmp_path / "a.flac", tmp_path / "b.flac"], tmp_path / "out.flac", tmp_path / "spool.wav")
+    joined = AudioSegment.from_file(tmp_path / "out.flac")
+    assert (joined.frame_rate, joined.channels, joined.raw_data) == (48000, 1, expected.raw_data)
     assert not (tmp_path / "spool.wav").exists()
 
 

@@ -38,6 +38,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -91,6 +92,99 @@ def tree_size(root: Path) -> tuple[int, int]:
             except OSError:
                 pass
     return count, total
+
+
+# --------------------------------------------------------------------------- the window under test: whose is it?
+#: The creation flag ``bootstrap.launch_gui`` starts the window with (CREATE_NO_WINDOW; never DETACHED_PROCESS, which makes the
+#: venv launcher's real-interpreter child open a visible console).
+WINDOW_FLAGS = 0x08000000
+
+
+class _Entry(ctypes.Structure):
+    _fields_ = [("dwSize", ctypes.c_uint32), ("cntUsage", ctypes.c_uint32), ("th32ProcessID", ctypes.c_uint32),
+                ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", ctypes.c_uint32), ("cntThreads", ctypes.c_uint32),
+                ("th32ParentProcessID", ctypes.c_uint32), ("pcPriClassBase", ctypes.c_long), ("dwFlags", ctypes.c_uint32),
+                ("szExeFile", ctypes.c_wchar * 260)]
+
+
+def process_table() -> dict[int, tuple[int, str]]:
+    """Every running process as ``{pid: (parent pid, image file name)}``, from one Toolhelp snapshot."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    kernel.Process32FirstW.argtypes = kernel.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Entry)]
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    snapshot = kernel.CreateToolhelp32Snapshot(2, 0)  # TH32CS_SNAPPROCESS
+    table: dict[int, tuple[int, str]] = {}
+    entry = _Entry()
+    entry.dwSize = ctypes.sizeof(_Entry)
+    more = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
+    while more:
+        table[int(entry.th32ProcessID)] = (int(entry.th32ParentProcessID), entry.szExeFile)
+        more = kernel.Process32NextW(snapshot, ctypes.byref(entry))
+    kernel.CloseHandle(snapshot)
+    return table
+
+
+def descendants_of(root: int, table: dict[int, tuple[int, str]]) -> set[int]:
+    """``root`` and every process below it. The venv ``python.exe`` is a launcher that starts the real interpreter as a child, so the
+    window belongs to a descendant of the process that was started, not to that process itself."""
+    owned = {root}
+    grew = True
+    while grew:
+        grew = False
+        for pid, (parent, _image) in table.items():
+            if parent in owned and pid not in owned:
+                owned.add(pid)
+                grew = True
+    return owned
+
+
+def inside(image: str, folder: Path) -> bool:
+    """Whether a process image lies inside ``folder`` (the extracted copy). An image that cannot be read is never inside."""
+    if not image or image == "?":
+        return False
+    try:
+        base = os.path.normcase(os.path.realpath(folder))
+        return os.path.normcase(os.path.realpath(image)).startswith(base + os.sep)
+    except (OSError, ValueError):
+        return False
+
+
+def owned_window(root: int, copy: Path, table: dict[int, tuple[int, str]], windows_of, image_of) -> dict | None:
+    """The top-level Tk window that provably belongs to THIS launch, else ``None``.
+
+    Two things must both hold: its process descends from ``root`` (the process this run started), and that process's image is
+    inside the extracted copy. A visible Tk window of any other process -- the production application's, say -- is never returned,
+    so nothing but this launch's own window can be sent WM_CLOSE."""
+    for pid in sorted(descendants_of(root, table)):
+        image = image_of(pid)
+        if not inside(image, copy):
+            continue
+        for item in windows_of(pid):
+            if item["class"] == "TkTopLevel" and not item["owner"]:
+                return {**item, "pid": pid, "image": image}
+    return None
+
+
+def stop_owned(root: int, copy: Path, table: dict[int, tuple[int, str]], image_of, kill) -> list[int]:
+    """End what this launch started and nothing else: descendants of ``root`` whose image is inside the copy, deepest first, then
+    ``root`` itself if it is too. Returns the pids it asked to end. (Ending only the launcher would leave the interpreter behind.)"""
+    def depth(pid: int) -> int:
+        steps = 0
+        while pid != root and pid in table and steps < 64:
+            pid, steps = table[pid][0], steps + 1
+        return steps
+
+    ended: list[int] = []
+    for pid in sorted(descendants_of(root, table), key=lambda item: (-depth(item), item)):
+        if inside(image_of(pid), copy):
+            try:
+                kill(pid)
+                ended.append(pid)
+            except OSError:
+                pass
+    return ended
 
 
 class Fresh:
@@ -200,33 +294,52 @@ class Fresh:
                               env=self.env(name, offline=True), capture_output=True, timeout=300, creationflags=0x08000000).returncode
 
     def launch_and_close(self, copy: Path, name: str) -> None:
-        """The real window, started as the launcher starts it, seen on the desktop, closed, and gone with exit status 0."""
-        from panel_run import Sampler
+        """The real window, started as the launcher starts it, seen on the desktop, closed, and gone with exit status 0.
 
+        Started as ``bootstrap.launch_gui`` starts it: the copy's venv ``python.exe`` (``pythonw.exe`` is blocked by Smart App
+        Control) with CREATE_NO_WINDOW. That ``python.exe`` is a launcher that starts the real interpreter as its child, so the
+        window is found among the DESCENDANTS of the process started here, and only one whose image is inside this extracted
+        copy: no other visible Tk window (the production application's, for one) is ever a candidate for WM_CLOSE. The launcher
+        returns the interpreter's own exit status, so waiting for it reports that status."""
         sys.path.insert(0, str(common.GATE_DIR))
         from adapters.windows import native_input as native
+        from helpers import winproc
 
         env = self.env(name, offline=True)
         env["PATH"] = f"{copy / 'files' / 'bin'}{os.pathsep}{env['PATH']}"  # as bootstrap.launch_gui hands the app its own FFmpeg
-        child = subprocess.Popen([str(copy / ".venv" / "Scripts" / "pythonw.exe"), str(copy / "scripts" / "launcher.py")],
-                                 cwd=copy / "scripts", env=env, creationflags=0x08000000)
+        output = self.run.root / f"{name}-window.log"
+        with output.open("wb") as sink:  # what the window says is kept: a start that fails is reported with it
+            child = subprocess.Popen([str(copy / ".venv" / "Scripts" / "python.exe"), str(copy / "scripts" / "launcher.py")],
+                                     cwd=copy / "scripts", env=env, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT,
+                                     creationflags=WINDOW_FLAGS)
         window = None
+        seen: set[int] = set()
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline and child.poll() is None and window is None:
-            for pid in Sampler(False).tree():
-                if pid != os.getpid():
-                    window = next((item for item in native.windows_of(pid) if item["class"] == "TkTopLevel" and not item["owner"]), window)
+            table = process_table()
+            seen |= {pid for pid in descendants_of(child.pid, table) if inside(winproc._image_name(pid), copy)}
+            window = owned_window(child.pid, copy, table, native.windows_of, winproc._image_name)
             time.sleep(0.25)
-        self.run.check(f"{name}: the application's window opened", window is not None, window or f"exit {child.poll()}")
+        said = output.read_text(encoding="utf-8", errors="replace")[-400:] if output.is_file() else ""
+        self.run.check(f"{name}: the application's window opened", window is not None,
+                       {key: window[key] for key in ("hwnd", "title", "pid", "image")} if window else f"exit {child.poll()}; {said}")
         if window is not None:
             time.sleep(2.0)
             ctypes.windll.user32.PostMessageW(window["hwnd"], 0x0010, 0, 0)  # WM_CLOSE, as the window's own close button sends
         try:
             code = child.wait(60)
         except subprocess.TimeoutExpired:
-            child.kill()
-            code = "killed after 60 s"
+            stop_owned(child.pid, copy, process_table(), winproc._image_name, lambda pid: os.kill(pid, signal.SIGTERM))
+            code = "stopped after 60 s"
         self.run.check(f"{name}: it closed and exited cleanly", code == 0, f"exit {code}; window {window and window['title']!r}")
+        table = process_table()
+        left = sorted(pid for pid in seen if pid in table and inside(winproc._image_name(pid), copy))
+        for pid in left:  # never leave a process of this run behind, whatever the verdict (each is proved inside the copy)
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        self.run.check(f"{name}: nothing the window started is left running", not left, left or "none")
 
     # ------------------------------------------------------------------ the three extractions
     def first(self, archive: Path) -> tuple[Path, str] | None:

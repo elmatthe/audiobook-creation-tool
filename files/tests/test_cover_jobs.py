@@ -1336,9 +1336,13 @@ def test_cancel_after_a_completed_replacement_leaves_it_replaced_and_says_so(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    # Cancel while the first image is still being written, so the checkpoint
-    # after it is the one that stops the run — the second image never begins.
+    # The first image is allowed to finish and be installed; Cancel is pressed while
+    # the second is being written. (Before v0.8.0 macOS Revision 1 this test pressed
+    # Cancel during the FIRST image and asserted it was replaced anyway: that was the
+    # defect, a replacement after Cancel. See test_cover_cancel_publication.py.)
     gate.wait_for_entry(1)
+    gate.let_through()
+    gate.wait_for_entry(2)
     panel.cancel()
     gate.let_through()
     runner.join()
@@ -1346,7 +1350,7 @@ def test_cancel_after_a_completed_replacement_leaves_it_replaced_and_says_so(
 
     with Image.open(first) as img:
         assert img.size == (256, 256), "a completed replacement is never rolled back"
-    assert sha(second) == second_before, "the unreached original is unchanged"
+    assert sha(second) == second_before, "the second original is unchanged: Cancel won before its replacement"
     log = "\n".join(panel.log.details)
     assert "1 of 2 original(s) replaced" in log
     assert "unchanged" in log
@@ -1513,7 +1517,9 @@ def test_progress_is_never_rounded_up_to_a_false_success(
 
     start(panel)
     gate.wait_for_entry(1)
-    panel.cancel()
+    gate.let_through()
+    gate.wait_for_entry(2)
+    panel.cancel()                    # during the second image: it is never published, the first stands
     gate.let_through()
     runner.join()
     drain(panel)
@@ -1796,19 +1802,22 @@ def test_a_cancelled_image_contributes_no_timing_sample(
 
     start(panel)
     gate.wait_for_entry(1)
-    panel.cancel()
+    gate.let_through()
+    gate.wait_for_entry(2)
+    panel.cancel()                    # during the second image, which Cancel then keeps from being saved
     gate.let_through()
     runner.join()
     drain(panel)
 
     assert panel.run_result.cancelled is True
-    assert gate.seen == ["a.jpg"], "the cancelled image never began"
-    assert panel.job_estimator.sample_count == 1, "one finished image, one sample"
+    assert gate.seen == ["a.jpg", "b.jpg"]
+    assert panel.job_estimator.sample_count == 1, "one finished image, one sample; the cancelled one sends none"
 
 
-def test_a_finished_run_reports_calculating_however_many_samples_it_has(
+def test_a_finished_run_shows_no_estimate_however_many_samples_it_has(
     make_panel, output_base, tmp_path, monkeypatch
 ):
+    """ACT72-079: the run ended at 3/3, so nothing is left to estimate and "Calculating…" would be untrue."""
     clock = ManualClock()
     panel = make_panel(clock=clock)
     import_files(panel, *(make_image(tmp_path / "art" / f"{i}.jpg") for i in range(3)))
@@ -1817,11 +1826,11 @@ def test_a_finished_run_reports_calculating_however_many_samples_it_has(
     start(panel)
 
     assert panel.job_estimator.sample_count == 3
-    assert panel.jobs.status.eta_text == jc.CALCULATING, (
-        "the run ended; there is nothing left to estimate")
+    assert panel.jobs.state is jc.JobState.SUCCEEDED
+    assert panel.jobs.status.eta_text == "", "the run ended; there is nothing left to estimate"
 
 
-def test_a_paused_run_reports_calculating(
+def test_a_paused_run_shows_no_estimate_until_it_resumes(
     make_panel, output_base, tmp_path, monkeypatch
 ):
     clock = ManualClock()
@@ -1839,12 +1848,14 @@ def test_a_paused_run_reports_calculating(
     drain(panel)
 
     assert panel.job_estimator.sample_count == 3
-    assert panel.jobs.status.eta_text == jc.CALCULATING
+    assert panel.jobs.status.eta_text == "", "paused: nothing is being estimated (ACT72-079)"
 
     panel.resume()
     gate.let_through()
     runner.join()
     drain(panel)
+    assert panel.jobs.state is jc.JobState.SUCCEEDED
+    assert panel.jobs.status.eta_text == ""
 
 
 def test_every_estimator_call_happens_on_the_main_thread(

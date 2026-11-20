@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 from journeys.common import Context, TOOLS, expect_clean_close, native, open_tool, oracle, resize_and_check, scenario, wait_for_job, wait_until
 
@@ -15,7 +16,15 @@ PRIMARY = {
     "m4b_metadata": ["btn_save", "btn_add_files", "btn_clear_tags", "jobs.controls.buttons[CANCEL]", "surface._rows[album].shared_entry"],
     "cover": ["btn_convert", "jobs.controls.buttons[CANCEL]", "importer.list.buttons[add_files]", "entry_size"],
 }
-SIZES = [(920, 600), (1024, 720), (1400, 900)]
+if sys.platform == "darwin":
+    # v0.8.x P1B: the Aqua window opens at its minimum (ui_theme.AQUA_MIN_SIZE), and a laptop's usable screen (1512x844
+    # on the reference Mac) is smaller than Windows' 1400x900: from the minimum up to what such a screen holds.
+    SIZES = [(1120, 800), (1280, 820), (1400, 840)]
+    DEFAULT_SIZE = (1120, 800)
+else:
+    SIZES = [(920, 600), (1024, 720), (1400, 900)]
+    DEFAULT_SIZE = (1024, 720)
+CHOSEN_SIZE = SIZES[-1]
 
 
 @scenario("launcher.six-tools-at-three-sizes", tool="launcher", layers=("native", "visual"), tier="geometry", budget=300,
@@ -23,7 +32,7 @@ SIZES = [(920, 600), (1024, 720), (1400, 900)]
 def six_tools(context: Context) -> None:
     report = context.report
     session = context.app()
-    report.equal("the window opens at the default size", list(native.client_size(session.hwnd)), [1024, 720])
+    report.equal("the window opens at the default size", list(native.client_size(session.hwnd)), list(DEFAULT_SIZE))
     report.equal("the default tool is open with no output anywhere", session.read(None, "current_key"), "tts")
     for tool in TOOLS:
         open_tool(session, tool)
@@ -53,8 +62,8 @@ def settings(context: Context) -> None:
     report.check("the appearance button changed", before != after, f"{before!r} -> {after!r}")
     first.screenshot("changed")
     # v0.7.2 Phase 6, ACT72-056: a size the person chose is deliberately not remembered.
-    native.resize_client(first.hwnd, 1400, 900)
-    wait_until(lambda: tuple(native.client_size(first.hwnd)) == (1400, 900), 8, "the first window to reach 1400x900")
+    native.resize_client(first.hwnd, *CHOSEN_SIZE)
+    wait_until(lambda: tuple(native.client_size(first.hwnd)) == CHOSEN_SIZE, 8, "the first window to reach {}x{}".format(*CHOSEN_SIZE))
     expect_clean_close(context, first, label="first close")
     saved = json.loads((first.work / "runtime" / "settings.json").read_text(encoding="utf-8"))
     report.equal("the tool was written to the isolated settings", saved.get("last_tool"), "cover")
@@ -64,7 +73,7 @@ def settings(context: Context) -> None:
     wait_until(lambda: second.widget(None, "appearance_button").get("text"), 10, "the appearance button")
     report.equal("the tool is restored", second.read(None, "current_key"), "cover")
     report.equal("the appearance is restored", second.widget(None, "appearance_button").get("text"), after)
-    report.equal("the window opens at the default size, not the size it was closed at", list(native.client_size(second.hwnd)), [1024, 720])
+    report.equal("the window opens at the default size, not the size it was closed at", list(native.client_size(second.hwnd)), list(DEFAULT_SIZE))
     report.check("no window size or position was saved", not [key for key in saved if any(word in key.lower() for word in ("geometry", "size", "position", "window"))],
                  sorted(saved))
     second.screenshot("relaunched")

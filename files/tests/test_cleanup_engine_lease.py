@@ -338,7 +338,9 @@ def test_a_lock_that_cannot_be_checked_leaves_the_item_whole(copy, tmp_path, mon
 
     outcome = worker.process_asset(asset_id, root)
 
-    assert (outcome.status, outcome.bytes_freed, outcome.message) == ("refused", 0, mnt.ENGINE_UNCHECKABLE_PROBLEM)
+    # The words of the platform this runs as (the sandbox's Windows; macOS P4C words it for a Mac's engines).
+    assert (outcome.status, outcome.bytes_freed, outcome.message) == ("refused", 0, mnt.engine_uncheckable_problem())
+    assert outcome.message == mnt.WINDOWS_ENGINE_UNCHECKABLE_PROBLEM
     assert region(root, REGIONS[asset_id]) == before
     if elsewhere.exists():
         assert sorted(p.name for p in elsewhere.iterdir()) == ["keep.txt"]  # nothing created through the junction
@@ -545,10 +547,13 @@ def test_a_real_coordinator_process_refuses_under_a_busy_install_and_clears_once
 # H. Wording: rebuilding the app's dependencies is not removing a voice engine
 # --------------------------------------------------------------------------- #
 def test_the_environment_item_says_it_rebuilds_only_the_app_s_own_dependencies():
-    item = mnt.asset("virtual_environment")
-    for text in (item.consequence, item.effect_line):
-        assert "app's own dependencies" in text and "Qwen3 voice engine is not part of this item" in text
-    assert "never removed with it" in item.effect_line
+    # Windows' words as released; a Mac's (macOS P4C) name the engine a Mac holds there, OmniVoice.
+    for platform, engine in (("win32", "Qwen3"), ("darwin", "OmniVoice")):
+        item = next(a for a in mnt.catalog_for(platform) if a.asset_id == "virtual_environment")
+        for text in (item.consequence, item.effect_line):
+            assert "app's own dependencies" in text and f"{engine} voice engine is not part of this item" in text
+        assert "never removed with it" in item.effect_line
+    assert mnt.asset("virtual_environment") in mnt.CATALOG
 
 
 def test_the_refusals_say_nothing_was_removed_and_what_to_do():

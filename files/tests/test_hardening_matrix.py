@@ -25,7 +25,7 @@ Row  Scenario                                            Where it lives
 13   interrupted staging and promotion                   test_ffmpeg_portable
 14   last-known-good preservation                        test_ffmpeg_portable
 15   successful repair → second launch no-op             test_launch_self_heal
-16   macOS existing venv, brew present/absent            test_launch_self_heal
+16   macOS existing venv (own build; never Homebrew)     test_launch_self_heal
 16   macOS **through the normal launch path**            *here* (gap)
 17   full test isolation                                 test_suite_isolation
 18   Tk finalisation on worker threads                   test_tk_finalisation
@@ -84,6 +84,8 @@ def sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
     monkeypatch.setenv("PATH", "")
+    # The PATH-discovery contract (Windows and Linux), held on any machine; ``mac_launch`` simulates a Mac (P1A, D3).
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)
     return tmp_path
 
 
@@ -281,6 +283,7 @@ def test_a_pinned_pair_under_a_spaced_path_round_trips(monkeypatch, tmp_path,
     monkeypatch.setattr(ffmpeg_health, "BIN_DIR", tmp_path / "no-bin")
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", False)  # held through PATH discovery on any machine
     directory = install(tmp_path / "Program Files" / "FFmpeg build" / "bin")
     monkeypatch.setenv("PATH", str(directory))
 
@@ -311,6 +314,7 @@ def mac_launch(monkeypatch, tmp_path, sandbox):
 
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
     monkeypatch.setattr(bootstrap, "IS_MAC", True)
+    monkeypatch.setattr(ffmpeg_health, "IS_MAC", True)
     monkeypatch.setattr(bootstrap, "LOG", Log())
     monkeypatch.setattr(bootstrap, "assess_venv_health",
                         lambda **kw: bootstrap.VenvHealth(
@@ -332,7 +336,6 @@ def mac_launch(monkeypatch, tmp_path, sandbox):
     monkeypatch.setattr(bootstrap, "show_warning_dialog",
                         lambda title, message: (events.append("warning")
                                                 or warnings.append((title, message))))
-    monkeypatch.setattr(bootstrap, "_refresh_brew_path", lambda: None)
 
     def _run(cmd, **kwargs):
         argv.append(list(cmd))
@@ -348,35 +351,30 @@ def mac_launch(monkeypatch, tmp_path, sandbox):
             self.argv = argv
             self.warnings = warnings
 
-        def with_brew(self, delivers=None):
-            """Homebrew exists, and — if asked — delivers when it is run.
+        def with_own_build(self, delivers=None):
+            """The app's own build (v0.8.x P1A, D3) -- and, if asked, it delivers when acquired. Homebrew is present
+            on the machine and must never be run.
 
-            ``delivers`` is created by the ``brew install`` call rather than
-            beforehand: a cellar that already holds a working pair would be
-            found by the assessment step and the installer would never be
-            reached, so the test would prove nothing about the repair route.
+            ``delivers`` is created by the acquisition rather than beforehand: a folder that already holds a working
+            pair would be found by the assessment step and the route would never be reached.
             """
+            self.acquired = []
             monkeypatch.setattr(
                 bootstrap.shutil, "which",
                 lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None)
-            if delivers is None:
-                return
-            delivered: list = []
-            monkeypatch.setattr(ffmpeg_health, "_brew_dirs",
-                                lambda: list(delivered))
-            recording = bootstrap._run
 
-            def installing(cmd, **kwargs):
-                result = recording(cmd, **kwargs)
-                if result.returncode == 0:
-                    install(delivers)
-                    delivered.append(delivers)
-                return result
+            def acquire(log):
+                self.acquired.append(1)
+                if delivers is None:
+                    return False
+                install(delivers)
+                return ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(delivers), log).pinned
 
-            monkeypatch.setattr(bootstrap, "_run", installing)
+            monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos", acquire)
 
-        def without_brew(self):
-            monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+        def without_build(self):
+            """No build is adopted (the state of P1A): nothing can be installed."""
+            self.with_own_build(delivers=None)
 
         def run(self) -> int:
             return bootstrap._launch_with_kokoro_healthcheck()
@@ -384,21 +382,17 @@ def mac_launch(monkeypatch, tmp_path, sandbox):
     return Harness()
 
 
-def test_a_normal_mac_launch_reaches_the_homebrew_repair(mac_launch, sandbox,
-                                                         proves_everything):
-    """M4, through the path a person actually takes.
-
-    Before Phase 5 this launch detected the missing FFmpeg, warned, and opened
-    the app anyway — the Homebrew route the first-run ``.command`` knows about
-    was unreachable from an existing installation.
-    """
-    cellar = sandbox / "opt" / "homebrew" / "bin"
-    mac_launch.with_brew(delivers=cellar)
+def test_a_normal_mac_launch_reaches_the_apps_own_build(mac_launch, sandbox,
+                                                        proves_everything):
+    """M4, through the path a person actually takes: an existing installation repairs FFmpeg through the app's own
+    build (v0.8.x P1A, D2/D3), and runs no package manager."""
+    final = sandbox / "bin" / "ffmpeg" / "9.0.1" / "bin"
+    mac_launch.with_own_build(delivers=final)
 
     assert mac_launch.run() == 0
 
-    assert ["brew", "install", "ffmpeg"] in mac_launch.argv
-    assert ffmpeg_health.pinned_pair().directory == cellar
+    assert mac_launch.argv == [] and mac_launch.acquired == [1]
+    assert ffmpeg_health.pinned_pair().directory == final
     assert mac_launch.warnings == [], "a successful repair must say nothing"
     assert mac_launch.events.index("repair-dialog") < \
         mac_launch.events.index("launch_gui")
@@ -406,47 +400,44 @@ def test_a_normal_mac_launch_reaches_the_homebrew_repair(mac_launch, sandbox,
 
 def test_a_normal_mac_launch_proves_the_pair_before_calling_it_ready(
         mac_launch, sandbox, monkeypatch):
-    """``brew`` exiting 0 is not readiness; a pair that will not run is not ready."""
-    install(sandbox / "opt" / "homebrew" / "bin")
-    monkeypatch.setattr(ffmpeg_health, "_brew_dirs",
-                        lambda: [sandbox / "opt" / "homebrew" / "bin"])
+    """An acquisition that delivers is not readiness; a pair that will not run is not ready."""
     monkeypatch.setattr(
         ffmpeg_health, "prove_pair",
         lambda pair, runner=None: ffmpeg_health.Proof(
             ok=False, detail="refused", failed="ffmpeg"))
-    mac_launch.with_brew()
+    mac_launch.with_own_build(delivers=sandbox / "bin" / "ffmpeg" / "9.0.1" / "bin")
 
     assert mac_launch.run() == 0
 
-    assert ["brew", "install", "ffmpeg"] in mac_launch.argv
+    assert mac_launch.argv == [] and mac_launch.acquired == [1]
     assert ffmpeg_health.pinned_pair() is None
     assert mac_launch.events.count("warning") == 1
     assert mac_launch.events.index("launch_gui") < \
         mac_launch.events.index("warning")
 
 
-def test_a_normal_mac_launch_without_brew_installs_nothing_and_says_so(
+def test_a_normal_mac_launch_without_a_build_installs_nothing_and_says_so(
         mac_launch, sandbox, monkeypatch):
-    """No Homebrew install from a launch repair, no loop, and a truthful notice."""
+    """No install on the Mac from a launch repair, no loop, and a truthful notice (it names what was tried)."""
     monkeypatch.setattr(
         ffmpeg_health, "prove_pair",
         lambda pair, runner=None: ffmpeg_health.Proof(
             ok=False, detail="nothing here", failed="ffmpeg"))
-    mac_launch.without_brew()
+    mac_launch.without_build()
 
     assert mac_launch.run() == 0
 
-    assert mac_launch.argv == [], f"a package manager ran: {mac_launch.argv}"
+    assert mac_launch.argv == [], f"a command ran: {mac_launch.argv}"
     assert mac_launch.events.count("warning") == 1
     message = mac_launch.warnings[0][1]
-    assert "Homebrew" in message
-    assert "brew.sh" in message
+    assert "the app's own verified FFmpeg build" in message
+    assert "Homebrew" not in message and "brew.sh" not in message
     assert "WinGet" not in message
 
 
 def test_a_normal_mac_launch_never_reaches_a_windows_portable_route(
         mac_launch, sandbox, monkeypatch):
-    """This drop does not invent a macOS portable-binary architecture."""
+    """The Windows build is never offered to a Mac; the Mac's route is its own."""
     portable: list = []
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         lambda log: portable.append(1) or True)
@@ -454,27 +445,26 @@ def test_a_normal_mac_launch_never_reaches_a_windows_portable_route(
         ffmpeg_health, "prove_pair",
         lambda pair, runner=None: ffmpeg_health.Proof(
             ok=False, detail="nothing here", failed="ffmpeg"))
-    mac_launch.with_brew()
+    mac_launch.without_build()
 
     mac_launch.run()
 
-    assert portable == []
+    assert portable == [] and mac_launch.acquired == [1]
 
 
 def test_a_second_mac_launch_after_a_repair_calls_no_package_manager(
         mac_launch, sandbox, proves_everything):
     """Row 15's macOS half, through the launch path."""
-    cellar = sandbox / "opt" / "homebrew" / "bin"
-    mac_launch.with_brew(delivers=cellar)
+    mac_launch.with_own_build(delivers=sandbox / "bin" / "ffmpeg" / "9.0.1" / "bin")
     assert mac_launch.run() == 0
-    assert mac_launch.argv, "the first launch did repair"
+    assert mac_launch.acquired == [1], "the first launch did repair"
 
-    mac_launch.argv.clear()
+    mac_launch.acquired.clear()
     mac_launch.events.clear()
 
     assert mac_launch.run() == 0
 
-    assert mac_launch.argv == []
+    assert mac_launch.argv == [] and mac_launch.acquired == []
     assert mac_launch.events == ["launch_gui"]
     assert mac_launch.warnings == []
 
@@ -489,7 +479,7 @@ def test_a_mac_ffmpeg_failure_never_rebuilds_the_environment(
         ffmpeg_health, "prove_pair",
         lambda pair, runner=None: ffmpeg_health.Proof(
             ok=False, detail="nothing here", failed="ffmpeg"))
-    mac_launch.without_brew()
+    mac_launch.without_build()
 
     mac_launch.run()
 

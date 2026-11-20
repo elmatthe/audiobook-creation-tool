@@ -564,7 +564,9 @@ def interpreter_candidates() -> list[Path]:
     else:
         candidates.append(base_prefix / "bin" / "python3")
         candidates.append(base_prefix / "bin" / "python")
-    for name in ("python3", "python"):
+    # v0.8.x P1A (MAC-028): never on a Mac. PATH's python3 there is Apple's developer-tool shim (it asks to install the
+    # Command Line Tools) or a Homebrew Python; the coordinator runs on the app's own base Python, which is above.
+    for name in (() if sys.platform == "darwin" else ("python3", "python")):
         found = shutil.which(name)
         if found:
             candidates.append(Path(found))
@@ -581,7 +583,9 @@ def interpreter_candidates() -> list[Path]:
 
 #: v0.7.0 portable layout (Windows): the app's own base Python, placed by setup's stage 0 -- kept in step with
 #: ``bootstrap.APP_PYTHON``. It lies outside ``.venv`` and outside every cleanup target, so the coordinator may run on it.
-APP_BASE_PYTHON_PARTS = ("files", "runtime-data", "python", "python.exe")
+#: v0.8.x P1A: on a Mac, stage 0 (bootstrap_host_macos.sh) places it at ``python/bin/python3.12``.
+APP_BASE_PYTHON_PARTS = (("files", "runtime-data", "python", "bin", "python3.12") if sys.platform == "darwin"
+                         else ("files", "runtime-data", "python", "python.exe"))
 
 
 def app_base_python(repo_root) -> Path:

@@ -87,8 +87,18 @@ def test_missing_data_is_refused_with_what_to_do_and_nothing_is_downloaded(tmp_p
         nltk.data.path[:] = saved
     message = str(refused.value)
     assert "not installed" in message and "Press Start again" in message
-    assert "files\\runtime-data\\nltk_data" in message and nltk_store.DOWNLOAD_SIZE_TEXT in message
+    assert nltk_store.folder_text() in message and nltk_store.DOWNLOAD_SIZE_TEXT in message
     assert downloads == []
+
+
+def test_the_data_folder_is_named_with_this_systems_separator():
+    """Windows keeps its exact wording; a Mac is never shown a backslash path (v0.8.x P2)."""
+    assert nltk_store.folder_text("\\") == "files\\runtime-data\\nltk_data"
+    assert nltk_store.folder_text("/") == "files/runtime-data/nltk_data"
+    assert nltk_store.folder_text() == os.sep.join(("files", "runtime-data", "nltk_data"))
+    for message in (nltk_store.missing_message("it is not installed"), panel_module.sentence_data_question("x")):
+        assert nltk_store.folder_text() in message
+        assert ("\\" in message) == (os.sep == "\\")
 
 
 @pytest.mark.parametrize("damage, expected", [
@@ -287,7 +297,7 @@ def test_no_at_create_starts_nothing_downloads_nothing_and_says_so(make_panel, o
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
     assert accept(panel) == {}, "declined: no run, no reservation"
     assert len(dialogs.asked) == 1 and nltk_store.DOWNLOAD_SIZE_TEXT in dialogs.asked[0]
-    assert "files\\runtime-data\\nltk_data" in dialogs.asked[0] and "not installed" in dialogs.asked[0]
+    assert nltk_store.folder_text() in dialogs.asked[0] and "not installed" in dialogs.asked[0]
     assert fetched == [] and "not started" in dialogs.info[0]
     assert not any(output_base.rglob("*.mp3"))
 

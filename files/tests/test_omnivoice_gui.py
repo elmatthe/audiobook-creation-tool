@@ -86,10 +86,15 @@ def select(panel, label: str) -> None:
     panel._on_voice_selected()
 
 
-def test_the_six_voices_are_in_the_dropdown_after_every_earlier_voice(make_panel, omni):
+@pytest.mark.parametrize("platform, count", [("win32", 34), ("darwin", 20)])
+def test_the_six_voices_are_in_the_dropdown_after_every_earlier_voice(make_panel, omni, monkeypatch, platform, count):
+    """Windows lists all 34 voices; a Mac (P4C) the 20 it offers. The six OmniVoice voices come last on both."""
+    from shared import engine_policy
+
+    monkeypatch.setattr(engine_policy, "current_platform", lambda: platform)
     panel = make_panel(omnivoice_status=omni.status)
     values = list(panel.voice_combo["values"])
-    assert values[-6:] == [label for _id, label in OMNIVOICE] and len(values) == 34
+    assert values[-6:] == [label for _id, label in OMNIVOICE] and len(values) == count
 
 
 @pytest.mark.parametrize("voice_id,label", OMNIVOICE)
@@ -106,6 +111,7 @@ def test_each_voice_routes_to_the_omnivoice_engine_by_voice_id(make_panel, outpu
     assert stubs.conversion_jobs == [] and stubs.kokoro_calls == []
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_an_omnivoice_clone_never_reaches_its_qwen3_twin(make_panel, output_base, tmp_path, stubs, omni, monkeypatch):
     qwen3 = Qwen3Stub().install(monkeypatch)
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", omnivoice_status=omni.status,

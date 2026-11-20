@@ -81,6 +81,12 @@ engine and voice since v0.8.0), so renaming "Chatterbox - Female 1" changes no f
 setup and error text) is looked up here by stable key. The module checks itself on import and refuses
 an empty, padded, duplicate (NFC-compared) or otherwise ambiguous registry with a message naming the
 stable keys involved, rather than silently taking the first match.
+
+**macOS P4C (owner decisions Q2=A and the P4A acceptance, 2026-11-16): registered is not the same as offered.** Every
+row stays here on every platform. Which rows a platform *offers* is ``shared.engine_policy``'s answer, read through
+:func:`offered_voices` / :func:`offered_labels`: all 34 on Windows; on a Mac the 20 Edge, Kokoro and OmniVoice rows,
+in this order, with Chatterbox Turbo and Qwen3-TTS absent (SKIPPED BY OWNER DECISION). The default voice must be
+offered everywhere.
 """
 
 from __future__ import annotations
@@ -89,6 +95,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Literal
+
+from shared import engine_policy
 
 BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3", "omnivoice"]
 #: The engines a row may name. Adding one is an engine change, never a registry edit.
@@ -669,6 +677,10 @@ def registry_problems(voices: list[VoiceEntry]) -> list[str]:
                             "labels must differ (compared after Unicode NFC normalisation)")
     if voices and DEFAULT_VOICE_KEY not in seen_keys:
         problems.append(f"the default voice {DEFAULT_VOICE_KEY[0]}/{DEFAULT_VOICE_KEY[1]} is not registered")
+    for platform in (engine_policy.MACOS, "win32"):
+        if not engine_policy.is_offered(DEFAULT_VOICE_KEY[0], platform):
+            problems.append(f"the default voice {DEFAULT_VOICE_KEY[0]}/{DEFAULT_VOICE_KEY[1]} is not offered on "
+                            f"{engine_policy.platform_name(platform)}; the default must be offered everywhere")
     for entry in voices:
         if entry.backend in ("chatterbox", "omnivoice") and entry.key not in VOICE_REFERENCES:
             problems.append(f"{entry.backend}/{entry.voice_id}: no reference recording is mapped for this cloned voice "
@@ -729,6 +741,19 @@ def label_for(backend: str, voice_id: str) -> str:
 def display_labels() -> list[str]:
     """Ordered list of display labels for the Combobox values: ``VOICES`` order exactly, never regrouped or sorted."""
     return [v.display_label for v in VOICES]
+
+
+def offered_voices(platform: str | None = None) -> list[VoiceEntry]:
+    """The rows *platform* offers (``shared.engine_policy``; the real platform when ``None``), in ``VOICES`` order.
+
+    Windows: every row. macOS (P4C): the Edge, Kokoro and OmniVoice rows only. Nothing is removed from ``VOICES``.
+    """
+    return [v for v in VOICES if engine_policy.is_offered(v.backend, platform)]
+
+
+def offered_labels(platform: str | None = None) -> list[str]:
+    """The voice dropdown's values on *platform*: :func:`offered_voices`' labels, in ``VOICES`` order."""
+    return [v.display_label for v in offered_voices(platform)]
 
 
 def default_voice_label() -> str:

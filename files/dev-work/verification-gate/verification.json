@@ -200,6 +200,134 @@
         "pattern": "^loads the multi-gigabyte model; set ACT_OMNIVOICE_P1_REAL=1 where it is installed$",
         "max": 1,
         "why": "v0.8.0: the one routine skip of files/tests/test_omnivoice_phase1.py::test_real_clone_proof, the only test with this reason. It loads the multi-gigabyte OmniVoice model and runs only with ACT_OMNIVOICE_P1_REAL=1 on a computer where the engine is installed; the routine gate never sets it. This skip is evidence of nothing: the real clone is proven only by that opt-in run (Phase 1, recorded in the Handoff) and by the release qualification and owner listening that coverage.json lists as release-pending for OmniVoice."
+      },
+      {
+        "id": "native-macos-p1a",
+        "pattern": "^(native\\ macOS\\ only\\ \\(P1A\\):\\ bash\\ 3\\.2\\ stage\\ 0,\\ POSIX\\ process\\ groups,\\ Mach\\-O\\ and\\ codesign\\ checks)$",
+        "max": 52,
+        "why": "v0.8.x P1A/P1B review: the macOS-native tests of P1A (stage 0 in bash 3.2, POSIX containment, Mach-O, codesign and the adopted Riedl build): 50 marked in test_bootstrap_host_macos.py (29), test_child_ownership.py (16: 10, plus P5-A's 6 tests of ending a group whose leader exited) and test_macos_foundation.py (5), plus the real aac_at decodes of test_macos_xhe_proof.py that skip at run time (1, and the AAC-LC control audiobook test when the owner's local file is present: 52 at most). Their Windows counterparts are the existing Windows suites; nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "native-macos-p1b",
+        "pattern": "^(native\\ macOS\\ only\\ \\(P1B\\):\\ Aqua\\ Tk\\ 9\\ shell,\\ POSIX\\ containment\\ and\\ macOS\\ filesystem\\ checks)$",
+        "max": 62,
+        "why": "v0.8.x P1B: the macOS-native tests of the Aqua Tk 9 shell, the app window as a POSIX containment owner (KX-1(d,e), KX-2(d), KX-3(d), KX-6, KX-7, KX-8) and the macOS filesystem primitives: test_macos_p1b_containment.py (15), test_macos_p1b_platform.py (15), test_macos_p1b_gui_containment.py (13), test_macos_p1b_filesystem.py (10: exFAT and APFS disk images, read-only and full volumes, output permissions, two app copies, the measured descriptor peak), test_macos_p1b_mainthread.py (1: MAC-032) and test_macos_p1b_publication_cancel.py (8: CX-8). The same files' Windows controls run on Windows, and test_macos_p1b_gate.py (16) runs everywhere."
+      },
+      {
+        "id": "native-macos-p2",
+        "pattern": "^(native\\ macOS\\ only\\ \\(P2\\):\\ the\\ local\\-engine\\ worker,\\ POSIX\\ containment\\ and\\ real\\ Kokoro)$",
+        "max": 33,
+        "why": "v0.8.x P2: the macOS local-engine worker's tests. test_local_engine_worker.py (21 of its 23: the real worker program and host under POSIX containment with a stand-in engine; its Windows guard -- Kokoro never starts a worker and keeps its released in-process route -- and the platform rule run everywhere) and test_macos_p2_kokoro_real.py (12: real Kokoro in the worker, CX-1/6/7/8, KX-1(a)/2(a)/3(a), KX-7, parity). Windows keeps Kokoro in-process (D17); nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "macos-xhe-owner-fixture",
+        "pattern": "^(the\\ owner's\\ local\\ AAC\\-LC\\ control\\ audiobook\\ is\\ not\\ here|set\\ ACT_XHE_PROOF_APPLE_CAF\\ to\\ afconvert's\\ LEI16\\ decode\\ of\\ the\\ owner's\\ xHE\\-AAC\\ fixture\\ \\(about\\ 6\\ GB\\)\\ to\\ run\\ the\\ real\\ proof\\ 8)$",
+        "max": 2,
+        "why": "v0.8.x P1B review of P1A: two tests of test_macos_xhe_proof.py name the owner's local media or a 6 GB decode by their own skip reason before the platform is asked; on Windows they skip for that reason. At most one each."
+      },
+      {
+        "id": "posix-venv-interpreter-links",
+        "pattern": "^(python\\ \\-m\\ venv\\ makes\\ interpreter\\ links\\ only\\ off\\ Windows)$",
+        "max": 56,
+        "why": "v0.8.x P4C Option A and P5-A: the POSIX launch rule for .venv/bin/python's link into this copy's own python3.12, and the pyvenv.cfg rule behind it. python -m venv makes interpreter links only off Windows, whose rule is unchanged and pinned by its own tests. 43 marked in P4C (test_optional_tts_setup.py 41, test_optional_setup_acquisition.py 2) had no Windows rule here (found in P5-A); P5-A adds 13 (pyvenv.cfg executable/home: 8 tamper cases, 2 relative-path cases, 3 contract cases). Nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "posix-process-groups-p5a",
+        "pattern": "^(POSIX\\ process\\ groups\\ \\(Windows\\ ends\\ its\\ Job\\ Object\\))$",
+        "max": 18,
+        "why": "v0.8.x P5-A and P5-A-R1: test_optional_tts_setup.py's 18 tests of a POSIX setup worker's process group. P5-A's 7: it is never reaped before its group is ended (a valid result, a cancel it obeys, a crash, a worker reaped behind the run's back, bystanders, the client's loop, fail-closed start without the ownership module). P5-A-R1's 11: a run whose group was not confirmed empty is never a success (unproved by wait and by result(), remaining, signalled, an install success, no result, Cancel and time-out with unconfirmed cleanup, the client), and Cancel and time-out with confirmed cleanup keep their outcomes. Windows ends the same tree through its Job Object, pinned by the existing tree tests and by the cross-platform tests that a run with a job keeps the released path and the worker's own success."
+      },
+      {
+        "id": "posix-first-run-ownership-p5b",
+        "pattern": "^(POSIX\\ first\\-run\\ ownership\\ \\(Windows\\ ends\\ its\\ Job\\ Object\\))$",
+        "max": 19,
+        "why": "v0.8.x P5-B: test_first_run_setup_ownership.py's 19 tests of the first-run window's POSIX ownership of its optional-setup workers (the owner and spawn path, a completed check and install, Cancel, closing the window and time-out during a blocked step, a worker leaving a probe and a child, settling after the window closes, an unconfirmed end, no start after close, SIGKILL, a crash, Force Quit, and the owner ending before, during and just after the worker). Windows' first-run window takes no new ownership (pinned by test_windows_first_run_window_takes_no_new_ownership, which runs everywhere) and ends the same tree through its Job Object, pinned by the existing tree tests. Nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "posix-normal-exit-retirement-p5c",
+        "pattern": "^(POSIX\\ normal\\-exit\\ group\\ retirement\\ \\(Windows:\\ Job\\ Objects\\))$",
+        "max": 36,
+        "why": "v0.8.x P5-C: test_normal_exit_group_retirement.py's 36 tests of POSIX process groups when a pip or probe exits normally: the follower that waits for the leader's exit (not its output), ends its group the P5-A way and reaps it last; the base install's pip, probes, -m venv and offline pip (Owner.run_python, its subprocess.run arguments and results, time-out, failure and crash); 'Stop setup?' never reaping pip; the optional-setup worker's run_command (helper on /dev/null or on pip's output, under an owner or in its own session, failure, crash, Cancel); a leader reaped behind its caller's back and an unconfirmed group end reported as failures; the orderly end checking and signalling only under the waitpid lock and racing a run's own retirement; end to end under the first-run window and the app window, and the real first-run window. Windows keeps its Job Object, taskkill /T and subprocess.run paths, pinned by test_windows_run_command_keeps_its_job_object_path and test_windows_base_install_keeps_its_released_spawn_paths, which run everywhere. Nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "posix-synthesis-worker-retirement-p5d",
+        "pattern": "^(POSIX\\ synthesis\\-worker\\ group\\ retirement\\ \\(Windows:\\ Job\\ Objects\\))$",
+        "max": 42,
+        "why": "v0.8.x P5-D: test_synthesis_worker_group_retirement.py's 26 tests of POSIX process groups when a synthesis worker ends: the local-engine worker (a crash with a helper on /dev/null, on its stderr or on its protocol channel; an engine-switch close; alive() never reaping; Cancel after an idle worker exited, through the run's own end and through cancel_requested; Cancel mid-chunk; an unconfirmed group end turning Cancel into a failure; an escapee holding its output reported; two ends at once) and the OmniVoice worker (done, an obeyed Cancel and a crash with a helper on /dev/null or on its output; a stubborn worker; an unconfirmed group end never a success or a clean Cancel; an escapee holding its output; under the app window's owner), and qwen3_process.kill_tree's POSIX twins of the Windows tree tests (a child whose parent already exited, the pipe reaching end-of-file) with its identity control. Windows keeps its Job Object and taskkill /T paths and the released worker supervision, pinned by test_kill_tree_keeps_its_windows_paths and test_a_worker_without_a_proved_group_keeps_the_released_supervision, which run everywhere. v0.8.x P5-D-R1 adds 9 more (35): a worker whose identity was not recorded at spawn is never admitted (OmniVoice done and stubborn, the local-engine worker), kill_tree never falls back to signalling a group it cannot prove (running, exited), choosing another engine retires a worker that already exited (with and without a helper), and a Cancel meeting another caller's unconfirmed end is never clean (close, kill). v0.8.x P5-D-R2 adds 7 more (42): a Cancel after another caller fully retired the request's worker unconfirmed is never clean (an answer withheld after close or kill, an escapee holding its output), a worker that died after such a retirement says so, the confirmed control (close, kill), and an end asked for a retired worker answers for it alone. Nothing Windows ran before is skipped by this rule."
+      }
+    ],
+    "darwin": [
+      {
+        "id": "windows-process-and-job-mechanics",
+        "max": 111,
+        "pattern": "^(Windows\\ process\\ identity|Windows\\ console\\ and\\ process\\ identity|the\\ identity\\ checks\\ read\\ Windows\\ process\\ creation\\ times|Job\\ Objects\\ are\\ Windows'|Job\\ Objects\\ are\\ a\\ Windows\\ mechanism|Windows\\ Job\\ Object\\ containment|handles\\ are\\ a\\ Windows\\ primitive|an\\ open\\ handle\\ only\\ blocks\\ deletion\\ on\\ Windows|an\\ open\\ handle\\ only\\ blocks\\ a\\ rename\\ on\\ Windows|what\\ Windows\\ reports|the\\ guard\\ is\\ a\\ no\\-op\\ off\\ Windows\\ by\\ design|the\\ launcher/child\\ arrangement\\ is\\ the\\ Windows\\ venv's|the\\ stand\\-in\\ ffmpeg\\ is\\ a\\ Windows\\ \\.cmd\\ wrapper|the\\ measured\\ crash\\ and\\ its\\ exit\\ status\\ are\\ Windows'|a\\ Windows\\ lock|Media\\ Foundation\\ is\\ Windows')$",
+        "why": "Tests of Windows process, Job Object, handle, console and Media Foundation mechanics. Their macOS counterparts are native: POSIX containment (test_child_ownership.py, test_macos_p1b_containment.py, test_macos_p1b_gui_containment.py: KX-1 to KX-9), the POSIX stop_media_children and closing latch, the renamex_np publication, and aac_at decoding (test_macos_xhe_proof.py). Counted from the P1B affected-suite census on macOS (226 files)."
+      },
+      {
+        "id": "windows-filesystem-mechanics",
+        "max": 46,
+        "pattern": "^(junctions\\ are\\ a\\ Windows\\ mechanism|junctions\\ are\\ a\\ Windows\\-only\\ facility|a\\ junction\\ is\\ the\\ Windows\\ link\\ that\\ needs\\ no\\ privilege|a\\ directory\\ junction\\ is\\ a\\ Windows\\ link|junctions\\ are\\ a\\ Windows\\ construct|FILE_ATTRIBUTE_HIDDEN\\ is\\ a\\ Windows\\-only\\ facility|Windows\\ long\\ paths\\ exist\\ on\\ Windows\\ only|Windows\\ paths\\ compare\\ without\\ regard\\ to\\ case|only\\ Windows\\ can\\ bind\\ a\\ roll\\-back's\\ move\\ to\\ the\\ file\\ itself;\\ elsewhere\\ a\\ roll\\-back\\ moves\\ nothing.*|an\\ exclusive\\ open\\ is\\ how\\ Windows\\ reports\\ a\\ holder|a\\ junction\\ is\\ the\\ Windows\\ link\\ available\\ without\\ privilege|PurePath\\ is\\ only\\ the\\ Windows\\ flavour\\ on\\ Windows|NTFS\\ junctions)$",
+        "why": "Junctions, the hidden attribute, Windows long paths and case rules, and the handle-bound roll-back: Windows filesystem facilities. macOS's own (APFS and exFAT no-clobber, NFD names, case folding by the volume) are tested natively in test_macos_p1b_platform.py and test_macos_p1b_filesystem.py."
+      },
+      {
+        "id": "windows-launch-layout",
+        "max": 18,
+        "pattern": "^(exercises\\ the\\ Windows\\ candidate\\ locations\\ \\(LOCALAPPDATA\\ /\\ ProgramFiles\\)|Windows\\ PowerShell\\ is\\ needed|exercises\\ the\\ Windows\\ \\.bat\\ launcher|the\\ app's\\ own\\ base\\ Python\\ is\\ the\\ Windows\\ layout|stage\\ 0\\ is\\ Windows\\ PowerShell)$",
+        "why": "The Windows first-run host (PowerShell, the .bat launcher, the Windows Python locations and venv layout). macOS stage 0 and its venv are P1A's native tests (test_bootstrap_host_macos.py, test_macos_foundation.py)."
+      },
+      {
+        "id": "windows-design-shell",
+        "max": 29,
+        "pattern": "^(the\\ ACT\\ design\\ system\\ only\\ applies\\ on\\ win32|the\\ Windows\\ bundle's\\ metrics\\ only\\ apply\\ on\\ win32|the\\ ACT\\ Windows\\ shell\\ only\\ builds\\ on\\ win32|the\\ measured\\ breakpoints\\ are\\ Windows\\ metrics|process\\ DPI\\ awareness\\ is\\ a\\ Windows\\ concept|aqua\\ keeps\\ native\\ controls|aqua\\ drop\\-downs\\ are\\ native|aqua\\ keeps\\ native\\ controls\\ \\(and\\ the\\ Phase\\ 8\\ Toolbutton\\ restyle\\))$",
+        "why": "The ACT Windows design system, its measured breakpoints and DPI. The Aqua shell keeps native controls and is tested natively by the aqua branches of the same suites and test_macos_p1b_platform.py."
+      },
+      {
+        "id": "below-the-aqua-minimum",
+        "max": 33,
+        "pattern": "^(920x600\\ is\\ below\\ the\\ aqua\\ minimum|920x600\\ is\\ below\\ ui_theme\\.AQUA_MIN_SIZE;\\ unreachable\\ through\\ the\\ real\\ macOS\\ launcher)$",
+        "why": "Windows' 920x600 minimum is below the Aqua minimum, so the window can never be that size on macOS; the Aqua minimum itself is tested at its own size by the same suites."
+      },
+      {
+        "id": "windows-gate-harness",
+        "max": 95,
+        "pattern": "^(the\\ benchmark\\ harness\\ accounts\\ through\\ Windows\\ Job\\ Objects|Windows\\ behaviour|a\\ Windows\\ desktop|a\\ Windows\\ named\\ mutex|console\\ hosts\\ and\\ Job\\ Objects\\ are\\ Windows)$",
+        "why": "The Windows verification gate's own adapters (Job Objects, the native desktop, the named-mutex lease, console hosts). The macOS gate's counterparts are its darwin preflight and the in-process journey driver (adapters/macos)."
+      },
+      {
+        "id": "work-area-recovery-windows-only",
+        "max": 36,
+        "pattern": "^(recovering\\ another\\ process's\\ files\\ is\\ proved\\ on\\ Windows\\ only)$",
+        "why": "Recovery of another process's work area is proved on Windows only. On macOS the optional D11b counterpart (shared/work_area.py on the P1A start-time reader) is not implemented in P1B; the gap is open issue ACT72-076 in coverage.json's ledger, not hidden."
+      },
+      {
+        "id": "qwen3-windows-only",
+        "max": 8,
+        "pattern": "^(the\\ guard\\ is\\ a\\ Windows\\ named\\ mutex;\\ Qwen3\\ is\\ Windows\\-only|the\\ guard\\ is\\ a\\ Windows\\ named\\ mutex|no\\ Qwen3\\ environment\\ or\\ Base\\ model\\ on\\ this\\ machine)$",
+        "why": "Qwen3-TTS is SKIPPED BY OWNER DECISION on macOS (Q2=A, 2026-11-16): not offered there, and refused by the P4C engine policy; these tests need a Windows mutex or a Qwen3 environment."
+      },
+      {
+        "id": "local-fixture-absent",
+        "max": 4,
+        "pattern": "^(files/dev\\-work/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|files/runtime\\-data/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename|the\\ Riedl\\ 9\\.0\\.1\\ ZIPs\\ are\\ not\\ downloaded\\ here|no\\ development\\ \\.venv)$",
+        "why": "Local fixtures that are absent on this computer; the tests run where they are present. A disposable verification worktree has no development .venv of its own (it runs on its main checkout's), so the Kokoro dependency proof against .venv is run in the main checkout instead (v0.8.x P2)."
+      },
+      {
+        "id": "empty-parameter-set",
+        "max": 1,
+        "pattern": "^got empty parameter set for ",
+        "why": "A parametrisation empty on this platform."
+      },
+      {
+        "id": "case-insensitive-filesystem",
+        "max": 2,
+        "pattern": "^(this\\ filesystem\\ is\\ case\\-insensitive,\\ so\\ the\\ two\\ names\\ are\\ one\\ file)$",
+        "why": "The default APFS volume folds case; the case-sensitive behaviour is tested where the volume keeps case."
+      },
+      {
+        "id": "kokoro-p2-real-opt-in",
+        "pattern": "^(loads\\ the\\ Kokoro\\ model;\\ set\\ ACT_KOKORO_P2_REAL=1\\ where\\ it\\ is\\ installed)$",
+        "max": 12,
+        "why": "v0.8.x P2: the routine skip of every test in files/tests/test_macos_p2_kokoro_real.py, the only file with this reason. They load the Kokoro model and interrupt real inference, so they run only with ACT_KOKORO_P2_REAL=1 on a Mac where Kokoro is installed in the checkout (an opted-in run without it FAILS); the routine gate never sets it. This skip is evidence of nothing: their results are the opted-in P2 runs recorded in the Handoff."
       }
     ]
   },
@@ -430,6 +558,749 @@
       "files/dev-work/verification-gate/fixtures/": "all",
       "files/dev-work/verification-gate/acceptance_runner.py": "all",
       "files/dev-work/verification-gate/helpers/media_": "all"
+    },
+    "darwin_map": {
+      "control.real-click-reaches-the-target": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.lost-foreground-blocks-input": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.covered-target-is-refused": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.partly-hidden-window-is-not-pictured": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.disabled-target-is-refused": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.disabled-target-is-refused",
+        "evidence": [
+          "journey-checks"
+        ]
+      },
+      "control.dead-input-path-blocks": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.second-run-refused-by-the-lease": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.second-run-refused-by-the-lease",
+        "evidence": [
+          "journey-checks"
+        ]
+      },
+      "control.other-desktop-is-blocked": {
+        "class": "not-applicable",
+        "reason_id": "windows-input-harness",
+        "why": "It tests the Windows native-input harness itself (real pointer and keyboard injection, the foreground, covering windows, other desktops, the screenshot grid). There is no macOS native-input adapter in this programme (D9); the macOS driver acts in-process through Tk and its own refusals are tested by control.disabled-target-is-refused. Owner review of this reason id is required."
+      },
+      "control.forced-landing-sees-the-crash": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.forced-landing-sees-the-crash",
+        "evidence": [
+          "journey-checks"
+        ]
+      },
+      "control.act-orphan-seen-without-the-stop": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.act-orphan-seen-without-the-stop",
+        "evidence": [
+          "journey-checks"
+        ]
+      },
+      "control.act-crash-seen-with-the-root-released": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.act-crash-seen-with-the-root-released",
+        "evidence": [
+          "journey-checks"
+        ]
+      },
+      "control.unmapped-live-control-is-caught": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "control.unmapped-live-control-is-caught",
+        "evidence": [
+          "journey-checks"
+        ]
+      },
+      "inventory.live-surfaces": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "inventory.live-surfaces",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ]
+      },
+      "launcher.six-tools-at-three-sizes": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "launcher.six-tools-at-three-sizes",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ]
+      },
+      "launcher.settings-survive-relaunch": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "launcher.settings-survive-relaunch",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ]
+      },
+      "launcher.switch-tools-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "launcher.switch-tools-during-work",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "cover.letterbox-numbered-run": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.letterbox-numbered-run",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "cover.center-crop": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.center-crop",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "cover.corrupt-image": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.corrupt-image",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "mp3.write-id3-then-combine": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "mp3.write-id3-then-combine",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "mp3.unreadable-track": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "mp3.unreadable-track",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "mp3.typed-values-survive-first-import": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "mp3.typed-values-survive-first-import",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "converter.split-by-chapter": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.split-by-chapter",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "converter.whole-book-replace-metadata": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.whole-book-replace-metadata",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "converter.corrupt-source": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.corrupt-source",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "converter.cancel-during-encode": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "converter.cancel-during-encode",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "maker.build-with-chapters-and-artwork": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "maker.build-with-chapters-and-artwork",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "maker.unreadable-track": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "maker.unreadable-track",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "metadata.save-tags-then-clear": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "metadata.save-tags-then-clear",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "metadata.confirmation-declined": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "metadata.confirmation-declined",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "metadata.unreadable-file": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "metadata.unreadable-file",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "tts.edge-replay-direct-file": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.edge-replay-direct-file",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "tts.edge-replay-folder-mixed": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.edge-replay-folder-mixed",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "tts.service-failure-then-retry": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.service-failure-then-retry",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "tts.cancel-during-narration": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.cancel-during-narration",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "tts.pause-at-file-boundary": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.pause-at-file-boundary",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "tts.pdf-without-text": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.pdf-without-text",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.tts-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.tts-close-during-work",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.tts-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.tts-close-forced-landing",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.converter-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.converter-close-during-work",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.converter-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.converter-close-forced-landing",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.mp3-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.mp3-close-during-work",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.mp3-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.mp3-close-forced-landing",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.maker-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.maker-close-during-work",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.maker-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.maker-close-forced-landing",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.metadata-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.metadata-close-during-work",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.metadata-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.metadata-close-forced-landing",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.cover-close-during-work": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.cover-close-during-work",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.cover-close-forced-landing": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.cover-close-forced-landing",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "cover.replace-confirmation": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "cover.replace-confirmation",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "shutdown.close-during-folder-scan": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "shutdown.close-during-folder-scan",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "maker.wheel-over-a-long-book": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "maker.wheel-over-a-long-book",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      },
+      "setup.first-run-refuses-a-folder-too-deep": {
+        "class": "not-applicable",
+        "reason_id": "windows-only-installation-path-limit",
+        "journey": "setup.first-run-refuses-a-folder-too-deep",
+        "tool": "setup",
+        "decided": "2026-11-18, the owner's Phase 5 closeout instruction (Decisions.md: P5-G)",
+        "tests": [
+          "files/tests/test_macos_p5_platform_exception.py",
+          "files/tests/test_bootstrap_host_macos.py",
+          "files/tests/test_child_ownership.py",
+          "files/tests/test_macos_foundation.py"
+        ],
+        "qualification": "fresh-macos",
+        "why": "v0.8.0 P5-G (owner-approved exception): the journey's subject is Windows' own installation-path limit. Production bootstrap.install_path_problem returns no problem on any system but Windows, so a Mac has no refusal to show, and the journey must not fabricate one. The Windows journey and its behaviour are unchanged and still required on Windows. This exception covers this one scenario only (helpers/acceptance_report.DARWIN_NA_SCOPE); every other setup scenario is an automated counterpart. macOS installation, repair and recovery stay with the mandatory fresh-macos qualification (D9b, REAL CLEAN at P7c), which this entry keeps."
+      },
+      "setup.first-run-choices-and-cancel": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "setup.first-run-choices-and-cancel",
+        "tool": "setup",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ],
+        "tests": [
+          "files/tests/test_macos_p5_first_run_choices.py",
+          "files/tests/test_first_run_wrap_margin.py",
+          "files/tests/test_bootstrap_host_macos.py",
+          "files/tests/test_child_ownership.py",
+          "files/tests/test_macos_foundation.py"
+        ],
+        "qualification": "fresh-macos",
+        "why": "v0.8.0 P5-F/P5-F-R1: the macOS counterpart runs the real first-run window (bootstrap.run_with_gui, journeys/setup.py first_run_cancel_macos, adapters/macos/setup_launcher.py) on a disposable copy and the app's own base Python, held first to an isolation preflight computed by the copy's own code (helpers/first_run_journey.py: nothing is launched unless the copy's root, every folder setup writes and its interpreter are right and the copy holds no link) and judged on: exactly Kokoro (ticked, up to 344.7 MB) then OmniVoice (unticked, up to 3.5 GB) with the licensing text and no other engine; all four checkbox states exercised and restored by Tk press and release events; every label given the room its text asks for at 660x600, 700x640, 760x680 and 900x700; Cancel before Begin Setup with exit status 2; no child, folder, launch, connection or install; nothing left running; the copy byte-identical; a bystander installation and the real checkout unchanged. Its evidence is journey checks and real pictures; dialog-contract is not named because Cancel before Begin Setup answers no file or folder dialog. The first native run FAILED on a real clipped licence line (bootstrap wrap margin 48), which was corrected in production (62) before this entry passed. A real base installation stays with fresh-macos."
+      },
+      "setup.clear-downloaded-data": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "setup.clear-downloaded-data",
+        "tool": "setup",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots"
+        ],
+        "tests": [
+          "files/tests/test_macos_p5_clear_downloaded_data.py",
+          "files/tests/test_bootstrap_host_macos.py",
+          "files/tests/test_child_ownership.py",
+          "files/tests/test_macos_foundation.py"
+        ],
+        "qualification": "fresh-macos",
+        "why": "v0.8.0 P5-E: the macOS counterpart runs the real application on a disposable copy in a Mac's layout (journeys/setup.py, clear_downloaded_data_macos), held first to an isolation preflight computed by the copy's own code (helpers/cleanup_journey.py: nothing is launched unless every target, the state folder and the helper are the copy's, the helper's interpreter outside the copy and every cleanup target, and no link but the two seeded) and judged on byte-level digests: only the ticked items removed, the engine lease's empty locks the only new files, a bystander installation, the links' sentinel and the real checkout unchanged, the real helper identified by its acknowledgement, spawn record and command line. Its evidence is journey checks and real pictures; dialog-contract is not named because the journey answers no file or folder dialog (its confirmation is the application's own window, checked by the journey). The real downloaded-data cleanup of an installation stays with fresh-macos."
+      },
+      "tts.kokoro-local": {
+        "class": "automated",
+        "driver": "adapters/macos",
+        "journey": "tts.kokoro-local",
+        "tool": "tts-audiobook",
+        "evidence": [
+          "journey-checks",
+          "real-screenshots",
+          "dialog-contract"
+        ]
+      }
+    },
+    "darwin_about": "v0.8.x P1B (plan 14.3, MAC-045, D9), revised by the owner's P1B closeout instruction of 2026-11-15: every required scenario and the optional one, exactly one class each. automated: the same journey run by the in-process macOS driver (adapters/macos: real panels, real media, real FFmpeg, acts through Tk, file and message dialogs answered by in-process stand-ins that record the options the application gave them), judged on the evidence its 'evidence' list names (helpers/acceptance_report.DARWIN_EVIDENCE: journey-checks, real-screenshots -- the window server's picture of the application's own window at this run's SHA, PASS on helpers/visual_review.py -- and dialog-contract). No owner signature stands in for an automated check. The real NSOpenPanel and NSAlert are the darwin scenario macos-native-dialogs; what no automation can reach without a privacy grant is listed in darwin_p1b as BLOCKED with the grant it needs. pending_phase: mapped but not yet runnable on macOS, reported NOT RUN until that phase. not-applicable: only a test of the Windows input harness itself (reason windows-input-harness, control.* only), or the one journey whose subject is Windows' own installation-path limit (reason windows-only-installation-path-limit, setup.first-run-refuses-a-folder-too-deep only, keeping fresh-macos; owner P5-G exception 2026-11-18), each with an owner-reviewed reason id (helpers/acceptance_report.DARWIN_NA_SCOPE). A darwin acceptance stage fails on an unmapped scenario, a failed automated counterpart, missing or failed evidence, or a NOT RUN required scenario; it is never a blanket NOT APPLICABLE."
+  },
+  "darwin_scenarios": {
+    "fresh-macos": {
+      "phase": "P1B (contract and procedure); P6a rehearsal; P7c REAL CLEAN",
+      "network": [
+        "online-setup"
+      ],
+      "procedure": "files/dev-work/verification-gate/qualification/fresh_macos_procedure.md",
+      "detail": "The packaged archive extracted fresh (quarantined, as a download is), stage 0, the first run, all six tools opened, the .venv damaged and repaired, the app relaunched, an install interrupted and recovered. Mandatory (D9b); its automation is optional. Without a runner it is satisfied only by the owner's run of the written procedure with signed evidence naming the candidate SHA, and its verdict carries its evidence class: SIMULATED, P6a rehearsal or REAL CLEAN (P7c needs REAL CLEAN). A missing run is NOT RUN and blocks publication.",
+      "evidence_classes": [
+        "SIMULATED",
+        "P6a-rehearsal",
+        "REAL CLEAN"
+      ]
+    },
+    "macos-native-dialogs": {
+      "phase": "P1B",
+      "network": [],
+      "runner": "qualification/macos_native_dialogs.py",
+      "detail": "The real NSOpenPanel and NSAlert, opened by the five tools' own controls in an isolated instance (no stand-ins): each panel's configuration read from the panel itself (title, message, file types, multiple selection, files or folders, starting folder) and held to the tool's contract; each open panel ended through its own cancel: action (what its Cancel button does) and the tool shown to add nothing; each alert pictured and answered with Return and Escape key events posted to the application's own queue, and the application shown to act on the default and do nothing on Escape. Synthetic events, not HID devices: no Accessibility grant is used or claimed. The panel's browser is drawn by another process, so choosing files inside it is not exercised here (darwin_p1b: native-panel-selection).",
+      "pass_requires": {
+        "checks": 133,
+        "runs": 5,
+        "names": [
+          "every tool opened a real native open panel",
+          "every real open panel ended as Cancel added nothing",
+          "a real alert's Escape did nothing",
+          "a real alert's Return chose its default"
+        ],
+        "families": {
+          "mp3-tool / ": 17,
+          "m4b-converter / ": 23,
+          "m4b-maker / ": 26,
+          "m4b-metadata-editor / ": 36,
+          "cover-image / ": 23,
+          "containment:": 4
+        }
+      }
+    },
+    "macos-visual": {
+      "phase": "P1B",
+      "network": [],
+      "runner": "qualification/macos_visual.py",
+      "detail": "Pictures of the real application, by the window server, of its own window only (no Screen Recording grant is needed for that): the shell and all six panels in Light and Dark at the 1120 x 800 Aqua minimum and at the largest size the visible desktop holds; empty, populated with long file names and long titles, busy and finished states; a long scrolling list; Preferences; real alerts; output publication and status lines. Each picture carries its tool, appearance, size, state and source SHA, is reviewed by helpers/visual_review.py (decodes, real size, not blank, the appearance asked for, Tk's solid points in place, and Tk's audit: no clipped control, no control outside the window, no overlapping controls, no text under 3.0 contrast), and is indexed in a contact sheet. A missing or unreviewable picture fails. The pictures stay in this run's ignored folder.",
+      "pass_requires": {
+        "checks": 150,
+        "runs": 8,
+        "names": [
+          "every required picture was captured and reviewed",
+          "a contact sheet indexes every picture"
+        ],
+        "families": {
+          "picture / ": 60,
+          "dark / ": 42,
+          "light / ": 42,
+          "containment:": 4
+        }
+      }
+    },
+    "macos-kx10": {
+      "phase": "P1B",
+      "network": [],
+      "runner": "qualification/macos_kx10.py",
+      "detail": "KX-10's behavioural contract, automated: a disposable ACT instance finishes one M4B Maker book, then starts a second real, bounded build; once its FFmpeg encode is seen running (the spawn record and the kernel), that exact application process -- by pid and kernel start time -- is ended with SIGKILL, which is what Force Quit does to a process (no handler, no atexit). Every ACT-owned encoder must be gone within 5 s, no M4B may appear under a final name, the first book must be byte-identical, and a relaunch on the same data must start cleanly and report or recover the staging it finds. The Force Quit window itself (the menu, choosing the app) is not exercised.",
+      "pass_requires": {
+        "checks": 31,
+        "runs": 1,
+        "names": [
+          "kx10 / the encoder was running when the application was killed",
+          "kx10 / SIGKILL went to exactly the application process (pid and kernel start time)",
+          "kx10 / no ACT-owned process survived",
+          "kx10 / every encoder was gone within 5 s",
+          "kx10 / no M4B under a final name",
+          "kx10 / the finished book is unchanged",
+          "kx10 / the relaunch started cleanly",
+          "kx10 / the finished book is still unchanged after the relaunch"
+        ],
+        "families": {
+          "kx10 / ": 27,
+          "containment:": 4
+        }
+      }
+    }
+  },
+  "darwin_p1b": {
+    "about": "The P1B acceptance ledger after the owner's revised instruction of 2026-11-15: every requirement of the former owner checklist (files/dev-work/macos-acceptance/P1B-owner-checklist.md, kept as history) and of the closeout, with the evidence that decides it. verify.py --evidence reads it. Statuses: AUTOMATED PASS, AUTOMATED FAIL, BLOCKED, OWNER VISUAL ACCEPTANCE, APPROVED P1B EXCEPTION (an owner-approved exception: the behaviour stays UNVERIFIED, is never a pass, and relaxes no other requirement), NOT RUN -- LATER PHASE, NOT APPLICABLE -- JUSTIFIED, plus NEEDS RERUN and NOT RUN for evidence a change invalidated or that never ran, and NEEDS RE-REVIEW when application code changed after the owner's visual look. A requirement with no evidence is never a pass.",
+    "owner_visual_record": "files/dev-work/macos-acceptance/evidence/{sha}/owner-visual-acceptance.json",
+    "requirements": [
+      {
+        "id": "five-tools-journeys",
+        "kind": "journeys",
+        "what": "The 38 runnable darwin journeys: real panels, real media, outputs, metadata, chapters, errors, cancel, shutdown, real pictures",
+        "journeys": "automated-now"
+      },
+      {
+        "id": "p1b-suites",
+        "kind": "tests",
+        "what": "The P1B native suites: platform, containment (KX-1..KX-9, KX-3 signals), GUI containment, filesystem (UTF-8/NFC/NFD, exFAT, read-only, full volume), publication cancel (CX-8), main thread (MAC-032), the darwin gate and its negative controls",
+        "tests": [
+          "files/tests/test_macos_p1b_platform.py",
+          "files/tests/test_macos_p1b_containment.py",
+          "files/tests/test_macos_p1b_gui_containment.py",
+          "files/tests/test_macos_p1b_filesystem.py",
+          "files/tests/test_macos_p1b_publication_cancel.py",
+          "files/tests/test_macos_p1b_mainthread.py",
+          "files/tests/test_macos_p1b_gate.py",
+          "files/tests/test_macos_p1b_closeout_gate.py",
+          "files/tests/test_ffmpeg_cancel.py",
+          "files/tests/test_metadata_remux_cancel.py"
+        ]
+      },
+      {
+        "id": "downloads-regression",
+        "kind": "tests",
+        "what": "The 2026-11-15 Downloads incident cannot recur: a stale or different cached configuration, or a process-shared one, is refused before anything is created",
+        "tests": [
+          "files/tests/test_macos_p1b_output_guard.py",
+          "files/tests/test_macos_p1b_mainthread.py"
+        ]
+      },
+      {
+        "id": "native-dialogs",
+        "kind": "scenario",
+        "scenario": "macos-native-dialogs",
+        "what": "The real NSOpenPanel and NSAlert of the five tools: configuration, Cancel, Return, Escape"
+      },
+      {
+        "id": "visual-pictures",
+        "kind": "scenario",
+        "scenario": "macos-visual",
+        "what": "Real pictures of every panel, Light and Dark, sizes, states, dialogs; machine-reviewed and indexed"
+      },
+      {
+        "id": "kx10",
+        "kind": "scenario",
+        "scenario": "macos-kx10",
+        "what": "Force-Quit-equivalent SIGKILL during a real M4B Maker encode: nothing survives, nothing half-made published, relaunch clean"
+      },
+      {
+        "id": "owner-visual-dark",
+        "kind": "owner-visual",
+        "what": "The owner's own look at the six panels in Dark mode (reported 2026-11-15: accepted, no significant clipping, overlap or layout problem)"
+      },
+      {
+        "id": "native-panel-selection",
+        "kind": "approved-exception",
+        "issue": "ACT72-080",
+        "decided": "2026-11-15 (Decisions.md: P1B final visual remediation and the approved native-picker exception)",
+        "scope": "P1B may close without granting Accessibility or Screen Recording solely to automate a selection inside the native file picker. The selection itself stays UNVERIFIED, never PASS; opening, configuring and cancelling the real NSOpenPanel (native-dialogs) and the in-process returned paths, NFC/NFD names and downstream processing (p1b-suites, five-tools-journeys) keep their own evidence within their tested scope and are not proof of a real selection. No other requirement is relaxed by it.",
+        "revisit": "P5/P7 release qualification (not blanket release approval)",
+        "permission": "Accessibility (to drive) and Screen Recording (to see) for the application hosting the run",
+        "what": "Choosing files or folders inside Apple's NSOpenPanel with a real keyboard or pointer and receiving them through Tk. The panel's browser is drawn by another process (openAndSavePanelService): key events posted to the application do not reach it and its picture comes back without content (measured). Opening, configuring and cancelling the real panel are proved (native-dialogs); the paths a selection yields are proved through the stand-ins with NFC/NFD names (p1b-suites, journeys)."
+      },
+      {
+        "id": "dock-menu-name",
+        "kind": "later-phase",
+        "phase": "P6 packaging",
+        "what": "MAC-042: the Dock and menu bar call the app 'python' with a generic icon (measured); naming is the packaging phase's"
+      },
+      {
+        "id": "terminal-autoclose",
+        "kind": "later-phase",
+        "phase": "P5",
+        "what": "MAC-039: the launching Terminal window closing itself and any Automation prompt belong to the macOS first run (P5)"
+      },
+      {
+        "id": "tts-journeys",
+        "kind": "later-phase",
+        "phase": "P2",
+        "what": "The TTS journeys and both TTS shutdown arms"
+      },
+      {
+        "id": "fresh-macos",
+        "kind": "later-phase",
+        "phase": "P7c",
+        "what": "REAL CLEAN qualification on a clean Mac (D9b); never satisfied by this machine"
+      },
+      {
+        "id": "windows-input-harness",
+        "kind": "not-applicable",
+        "what": "Six control.* scenarios that test the Windows native-input harness itself (windows-input-harness)"
+      }
+    ],
+    "checklist_map": {
+      "macos-checklist:native-dialogs": "native-dialogs (real panels: configuration, Cancel adds nothing, alert Return/Escape) + five-tools-journeys (dialog-contract, results processed, NFC/NFD names through p1b-suites); remainder native-panel-selection: APPROVED P1B EXCEPTION (ACT72-080, unverified)",
+      "macos-checklist:appearance": "visual-pictures (every panel, Light and Dark, reviewed) + owner-visual-dark",
+      "macos-checklist:retina-geometry": "visual-pictures (backing scale 2 recorded per picture, 1120 x 800 minimum and the largest visible size) + five-tools-journeys (launcher.six-tools-at-three-sizes); zoom/full screen/second display not automated (geometry at the sizes above only)",
+      "macos-checklist:scrolling": "five-tools-journeys (maker.wheel-over-a-long-book, the wheel and <TouchpadScroll> paths through Tk) + p1b-suites; a physical trackpad is not exercised (HID: needs Accessibility)",
+      "macos-checklist:finder-reveal": "five-tools-journeys (the reveal request recorded with the run's own output folder; Finder itself is never opened by the gate)",
+      "macos-checklist:focus-dock-menu": "p1b-suites (Cmd+Q and Settings through ::tk::mac::Quit/ShowPreferences, KX-3 signals, the process check) + five-tools-journeys (shutdown arms, Quit during work); dock-menu-name later phase",
+      "macos-checklist:terminal-autoclose": "terminal-autoclose (later phase P5)",
+      "macos-checklist:five-tools": "five-tools-journeys (real outputs, tags, chapters, artwork, decoded audio) + visual-pictures; listening by ear stays the owner's choice and is not a P1B gate",
+      "kx10:force-quit-maker": "kx10 (SIGKILL of the exact process during a real Maker encode; the Force Quit window itself is not exercised)"
     }
   }
 }

@@ -27,7 +27,8 @@ GATE_DIR = HERE.parent
 REPO_ROOT = GATE_DIR.parents[2]
 SCRIPTS = REPO_ROOT / "scripts"
 OUTPUTS = GATE_DIR / "outputs"
-_NO_WINDOW = 0x08000000
+# CREATE_NO_WINDOW on Windows; creationflags is refused on any other platform (v0.8.x P1B closeout: the darwin scenarios share this).
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 
 class Blocked(Exception):

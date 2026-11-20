@@ -16,6 +16,7 @@ import subprocess
 import pytest
 
 from shared import bootstrap, spacy_store
+from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 from tts import model_assets as assets
 from tts import qwen3_runtime as rt
 
@@ -68,7 +69,7 @@ def pip(monkeypatch):
 
     fake = Fake()
     fake.calls, fake.requirements = [], []
-    monkeypatch.setattr(bootstrap.subprocess, "run", fake)
+    stand_in_for_setups_python_children(monkeypatch, fake)
     return fake
 
 
@@ -83,6 +84,10 @@ def test_a_missing_model_is_reinstalled_offline_from_the_kept_verified_wheel(kep
     (cmd,) = installs(pip)
     for flag in ("--no-index", "--no-deps", "--require-hashes", "--isolated", "--require-virtualenv"):
         assert flag in cmd
+    from shared import child_ownership
+
+    # POSIX (v0.8.x P1A): the contained child starts through child_entry.py, in front of `-m pip`.
+    cmd = [part for part in cmd if part != str(child_ownership.ENTRY)]
     assert cmd[:3] == [str(bootstrap.venv_python()), "-m", "pip"]
     (requirement,) = pip.requirements
     assert requirement == assets.spacy_requirement_line(kept)

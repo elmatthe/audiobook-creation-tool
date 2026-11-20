@@ -468,7 +468,7 @@ def test_the_apps_own_portable_base_python_is_the_one_exception_inside_the_proje
     files/runtime-data/python is the only interpreter there is, and Clear Downloaded Data must still run (found by the
     3.12.15 qualification, 2026-10-31). Every other path inside the project stays refused."""
     root = fake_root(tmp_path)
-    portable = root / "files" / "runtime-data" / "python" / "python.exe"
+    portable = root.joinpath(*state.APP_BASE_PYTHON_PARTS)  # python.exe on Windows; bin/python3.12 on a Mac (P1A)
     write(portable, b"")
     refused = [root / ".venv" / "Scripts" / "python.exe", root / "files" / "bin" / "python.exe",
                root / "files" / "runtime-data" / "python2" / "python.exe",
@@ -511,11 +511,23 @@ def test_a_missing_candidate_is_skipped(tmp_path):
 
 
 def test_the_real_base_interpreter_is_found_and_is_outside_the_project(tmp_path):
-    """The live probe, run against a disposable root — never a real deletion."""
+    """The live probe, run against a disposable root — never a real deletion.
+
+    The project is the root the probe is given. The test's own interpreter may
+    live anywhere, including inside this checkout (a developer environment, or
+    the app's own ``.venv`` on a Mac whose base Python is in
+    ``files/runtime-data``); that location says nothing about the product. What
+    the product promises is checked against both roots it can be given: the
+    interpreter it returns is never inside the project it cleans, the app's own
+    base Python being the one exception.
+    """
     root = fake_root(tmp_path)
     found = state.find_non_venv_python(root)
     assert found is not None
-    assert not mnt.is_within(REPO_ROOT, found)
+    assert not mnt.is_within(root, found)
+    for_this_checkout = state.find_non_venv_python(REPO_ROOT)
+    if for_this_checkout is not None and mnt.is_within(REPO_ROOT, for_this_checkout):
+        assert mnt.same_path(for_this_checkout, state.app_base_python(REPO_ROOT)), for_this_checkout
 
 
 def test_the_command_is_an_argument_vector_not_a_shell_string(tmp_path):

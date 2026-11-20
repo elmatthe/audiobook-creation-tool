@@ -19,6 +19,11 @@ Filters are case-insensitive substrings matched against the voice_id and the
 display label — handy after adding a voice, so one new sample can be produced
 without re-synthesizing (and overwriting) the existing set.
 
+Filters, here and with ``--quality-suite`` or ``--final-acceptance``, are checked before anything runs (macOS P4C): a
+filter that names a voice this platform does not offer -- on a Mac any Chatterbox or Qwen3 voice, also through a shared
+word such as "Female 1" -- refuses the whole request with exit status 2, and filters that select no voice exit 1. In
+neither case is anything synthesised or written.
+
 ``--chatterbox-eval`` is a separate, deliberately opt-in mode (v0.6.1 Plan 4
 Phase 9). It ignores the registry — no Chatterbox voice is registered until a
 human has listened — and instead renders one WAV per maintainer-supplied
@@ -41,7 +46,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import ffmpeg_utils, paths  # noqa: E402
+from shared import engine_policy, ffmpeg_utils, paths  # noqa: E402
 from tts.voice_registry import VOICES  # noqa: E402
 
 SAMPLE_TEXT = (
@@ -97,17 +102,61 @@ def _matches(v, pattern: str) -> bool:
 
 def _select(patterns: list[str]) -> list:
     """Voices matching any pattern (case-insensitive). A pattern equal to a
-    backend name selects that entire backend. No patterns means every voice."""
+    backend name selects that entire backend. No patterns means every voice.
+
+    macOS P4C: only the voices this platform offers (``shared.engine_policy``);
+    :func:`_refused` names the others a pattern matched."""
+    offered = [v for v in VOICES if engine_policy.is_offered(v.backend)]
     if not patterns:
-        return list(VOICES)
+        return offered
     lowered = [p.lower() for p in patterns]
-    return [v for v in VOICES if any(_matches(v, p) for p in lowered)]
+    return [v for v in offered if any(_matches(v, p) for p in lowered)]
+
+
+def _refused(patterns: list[str]) -> list:
+    """Registered voices matching *patterns* whose engine this platform does not offer: reported, never synthesised."""
+    lowered = [p.lower() for p in patterns]
+    return [v for v in VOICES if not engine_policy.is_offered(v.backend) and any(_matches(v, p) for p in lowered)]
+
+
+def _explicit_selection(patterns: list[str], log: Callable[[str], None] = print) -> tuple[list, int]:
+    """``(voices, 0)`` for the voices *patterns* select, or ``([], status)`` after saying why nothing may run.
+
+    The one check every pattern-taking mode makes before anything is synthesised or written: ordinary samples,
+    ``--quality-suite`` and ``--final-acceptance`` (P4C independent-review remediation).
+
+    * No patterns: every voice this platform offers, as before.
+    * A pattern that names a voice this platform does not offer (on a Mac, any Chatterbox or Qwen3 voice): each such
+      voice is reported and the whole request is refused, status 2 -- also when other patterns, or the same pattern,
+      name offered voices. A request is never narrowed to its offered part and reported as a success.
+    * Patterns that select no voice: status 1, never an empty "0/0" success.
+    """
+    refused = _refused(patterns)
+    if refused:
+        for v in refused:
+            log(f"NOT OFFERED {v.display_label}: {engine_policy.not_offered_message(v.backend)}")
+        naming = [p for p in patterns if _refused([p])]
+        log(f"Refused: {' '.join(repr(p) for p in naming)} name{'s' if len(naming) == 1 else ''} voices that "
+            f"{engine_policy.platform_name()} does not offer. Nothing was synthesised or written. Name only "
+            f"{engine_policy.offered_engine_list_text()} voices (or give no pattern for every offered voice) and run "
+            "again.")
+        return [], 2
+    selected = _select(patterns)
+    if not selected:
+        log(f"No voice matched: {' '.join(patterns)}")
+        log("Registered voices:")
+        for v in _select([]):
+            log(f"  {v.voice_id:32} {v.display_label}")
+        return [], 1
+    return selected, 0
 
 
 def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] = print) -> None:
     """Dispatch synthesis to voice ``v``'s backend. The one place backend
     dispatch lives, shared by the ordinary per-voice loop and the
-    ``--quality-suite`` harness so the two cannot drift apart."""
+    ``--quality-suite`` harness so the two cannot drift apart. macOS P4C: an
+    engine this platform does not offer is refused before it is imported."""
+    engine_policy.require_offered(v.backend)
     if v.backend == "kokoro":
         from tts.kokoro_synth import synthesize_text_to_mp3
 
@@ -749,7 +798,9 @@ def run_quality_suite(patterns: list[str], log: Callable[[str], None] = print) -
             except Exception:
                 pass
 
-    selected = _select(patterns) if patterns else list(VOICES)
+    selected, refusal = _explicit_selection(patterns, log)
+    if refusal:  # nothing runs and no manifest is written (the report says so)
+        return []
     commit_sha = _git_commit_sha()
     identity = qc.corpus_identity()
     out_root = _quality_suite_dir()
@@ -826,6 +877,10 @@ def _write_manifest(out_root: Path, rows: list[QualitySample]) -> None:
 
 def _report_quality_suite(rows: list[QualitySample], out_root: Path,
                           log: Callable[[str], None] = print) -> int:
+    if not rows:  # no voice ran: never a "0/0" success
+        log("")
+        log("Quality suite: no sample was made (no voice was selected), so nothing was written.")
+        return 1
     ok = sum(1 for r in rows if r.ok)
     log("")
     log(f"Quality suite: {ok}/{len(rows)} samples generated OK.")
@@ -1128,7 +1183,9 @@ def run_final_acceptance(patterns: list[str], log: Callable[[str], None] = print
             except Exception:
                 pass
 
-    selected = _select(patterns)
+    selected, refusal = _explicit_selection(patterns, log)
+    if refusal:  # nothing runs and the earlier manifest is left as it was (the report says so)
+        return [], []
     out_root = _final_acceptance_dir()
     outputs = out_root / "outputs"
     outputs.mkdir(parents=True, exist_ok=True)
@@ -1266,6 +1323,10 @@ def _write_final_manifest(out_root: Path, rows: list[FinalArtifact],
 
 def _report_final_acceptance(rows: list[FinalArtifact], reference_problems: list[str],
                              log: Callable[[str], None] = print) -> int:
+    if not rows:  # no voice ran: never a "0/0" success
+        log("")
+        log("Final acceptance: no artifact was made (no voice was selected), so nothing was written.")
+        return 1
     ok = sum(1 for r in rows if r.ok)
     out_root = _final_acceptance_dir()
     log("")
@@ -1362,19 +1423,39 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _refuse_mode(engine: str) -> int:
+    """macOS P4C: an evaluation mode of an engine this platform does not offer; says so and synthesises nothing."""
+    print(engine_policy.not_offered_message(engine))
+    return 2
+
+
 def main() -> int:
     args = _build_parser().parse_args()
 
+    # macOS P4C: each Chatterbox or Qwen3 evaluation mode is refused where its engine is not offered.
     if args.qwen_eval:
+        if not engine_policy.is_offered(engine_policy.QWEN3):
+            return _refuse_mode(engine_policy.QWEN3)
         return _run_qwen_eval(args)
 
     if args.chatterbox_eval:
+        if not engine_policy.is_offered(engine_policy.CHATTERBOX):
+            return _refuse_mode(engine_policy.CHATTERBOX)
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_evaluation(run_chatterbox_evaluation())
 
     if args.chatterbox_candidates:
+        if not engine_policy.is_offered(engine_policy.CHATTERBOX):
+            return _refuse_mode(engine_policy.CHATTERBOX)
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_candidate_evaluation(run_chatterbox_candidate_evaluation())
+
+    # P4C independent-review remediation: the explicit patterns of all three pattern-taking modes are checked here,
+    # before any runner, folder or manifest is touched. A pattern naming a voice this platform does not offer refuses
+    # the whole request (2); patterns that select nothing fail (1).
+    selected, refusal = _explicit_selection(args.patterns)
+    if refusal:
+        return refusal
 
     if args.final_acceptance:
         rows, reference_problems = run_final_acceptance(args.patterns)
@@ -1384,15 +1465,8 @@ def main() -> int:
         rows = run_quality_suite(args.patterns)
         return _report_quality_suite(rows, _quality_suite_dir())
 
-    selected = _select(args.patterns)
-    if not selected:
-        print(f"No voice matched: {' '.join(args.patterns)}")
-        print("Registered voices:")
-        for v in VOICES:
-            print(f"  {v.voice_id:32} {v.display_label}")
-        return 1
     if args.patterns:
-        print(f"Filtered to {len(selected)} of {len(VOICES)} voices.\n")
+        print(f"Filtered to {len(selected)} of {len(_select([]))} voices.\n")
 
     ffmpeg_utils.configure_pydub()
     out = _out_dir()

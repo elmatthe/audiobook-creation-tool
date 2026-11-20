@@ -206,11 +206,15 @@ CONTAINMENT_UNAVAILABLE = "containment-unavailable"  # the worker could not be p
 TIMED_OUT = "timed-out"
 ACQUISITION_FAILED = "acquisition-failed"  # an acquisition stopped short, failed, or acquired something unexpected
 HEALTH_UNPROVED = "health-unproved"  # the acquisition finished but working components were not proved afterwards
+#: v0.8.x P5-A-R1, POSIX, set only by the run (never by the worker): the worker's process group was not confirmed ended.
+CONTAINMENT_UNPROVED = "containment-unproved"  # its id could not be proved the worker's own, so nothing was signalled
+CONTAINMENT_INCOMPLETE = "containment-incomplete"  # it was signalled, but no evidence that none of it is left
 ERROR_CODES: tuple[str, ...] = (MALFORMED, UNSUPPORTED_VERSION, UNKNOWN_COMPONENT, DUPLICATE_COMPONENT, BAD_CONSENT,
                                 STALE_REQUEST, WRONG_SESSION, UNSAFE_PATH, ALREADY_ANSWERED, WRONG_INTERPRETER,
                                 CONSENT_STALE, ACQUISITION_UNAVAILABLE, CANCELLED, NO_RESULT, INTERNAL, CONSENT_USED,
                                 NOT_ACQUIRABLE, SOURCE_UNPINNED, PUBLICATION_UNAVAILABLE, CONTAINMENT_UNAVAILABLE,
-                                TIMED_OUT, ACQUISITION_FAILED, HEALTH_UNPROVED)
+                                TIMED_OUT, ACQUISITION_FAILED, HEALTH_UNPROVED, CONTAINMENT_UNPROVED,
+                                CONTAINMENT_INCOMPLETE)
 
 
 def canonical_selection(components: Iterable[object]) -> tuple[str, ...]:
@@ -876,6 +880,172 @@ def main_console_python(repo_root: Path) -> Path:
     return venv_layout.interpreter(main_venv(repo_root))
 
 
+#: This copy's own base CPython, relative to the copy (``bootstrap.APP_PYTHON_DIR`` and
+#: ``venv_integrity.APP_PYTHON_PARTS``; a test pins that they agree). Setup builds ``.venv`` from it with
+#: ``python -m venv``, which on POSIX makes ``.venv/bin/python`` a symlink to it (v0.8.x P4C remediation).
+APP_PYTHON_PARTS = ("files", "runtime-data", "python")
+POSIX_APP_PYTHON = "python3.12"
+#: The only links a POSIX interpreter chain may pass through, by folder: the names ``-m venv`` makes in ``.venv/bin``,
+#: and the standalone build's own aliases beside its ``python3.12``.
+_VENV_LINK_NAMES = frozenset({"python", "python3", "python3.12"})
+_BASE_LINK_NAMES = frozenset({"python", "python3"})
+#: ``-m venv`` makes two (``python -> python3.12 -> <base>/python3.12``), three when built through an alias.
+_MAX_INTERPRETER_LINKS = 4
+_MISSING_OR_LINKED = "the app environment's console Python is missing or reached through a link"
+
+
+def app_python(repo_root: Path) -> Path:
+    """This copy's own base interpreter on POSIX (``bootstrap.APP_PYTHON``): what its ``.venv`` is built from."""
+    return Path(repo_root).joinpath(*APP_PYTHON_PARTS, "bin", POSIX_APP_PYTHON)
+
+
+def interpreter_problem(repo_root: Path, python: Optional[Path] = None) -> str:
+    """Why *python* (default: the app environment's console interpreter) may not run setup's Python code, or ``""``.
+
+    Everywhere, a real file reached from the copy through no link is accepted (``venv_layout.unsafe_component``, which
+    is unchanged), and anything else is refused. Windows has only that rule. On POSIX, ``python -m venv`` always makes
+    ``.venv/bin/python`` a symlink, so a link there -- and only there -- is judged by :func:`_venv_link_problem`, which
+    accepts it only when the whole chain is proved to be this copy's own environment and this copy's own Python.
+    """
+    python = Path(main_console_python(repo_root) if python is None else python)
+    if sys.platform != "win32" and venv_layout.is_link(python):
+        return _venv_link_problem(Path(repo_root), python)
+    if venv_layout.unsafe_component(repo_root, python) is not None or not python.is_file():
+        return _MISSING_OR_LINKED
+    return ""
+
+
+def _venv_link_problem(root: Path, python: Path) -> str:
+    """The POSIX venv link rule (v0.8.x P4C remediation): ``""`` only when every one of these is proved.
+
+    1. *python* is exactly ``.venv/bin/python`` of this copy, and nothing from the copy down to ``.venv/bin``, or down
+       to this copy's own ``files/runtime-data/python/bin/python3.12``, is a link (the copy's own folder may be
+       reached through one, as everywhere: ``venv_layout.unsafe_component``).
+    2. Each link of the chain sits in ``.venv/bin`` or beside the base Python, under a name ``-m venv`` or the
+       standalone build gives it, and points to a plain name beside it or to a normalised absolute path; at most
+       :data:`_MAX_INTERPRETER_LINKS` links, so a loop ends.
+    3. The chain ends at this copy's own ``python3.12``: a non-empty, executable regular file, the same file the
+       operating system reaches (``samefile``). A link into another copy of the app, or any other Python, is refused.
+    4. Every link, folder and file of it belongs to this account, and no other account may change the folders and
+       files (no group or world write).
+    5. ``pyvenv.cfg`` (a file, not a link) says the environment was built here, from this copy's own Python: ``home``,
+       ``executable`` and ``command`` name this copy, it is isolated, and it is CPython 3.12. ``home`` and
+       ``executable`` are absolute, and ``executable`` is present and is exactly this copy's ``python3.12`` (P5-A).
+    """
+    venv = main_venv(root)
+    base = app_python(root)
+    if not venv_layout.same_path(python, main_console_python(root)):
+        return "only the app environment's own console Python may be reached through a link"
+    if venv_layout.unsafe_component(root, python.parent) is not None:
+        return "the app's environment is reached through a link"
+    if venv_layout.unsafe_component(root, base) is not None:
+        return "this copy's own Python is reached through a link"
+    roots = (Path(os.path.abspath(str(root))), Path(os.path.realpath(str(root))))  # two spellings of one folder
+    venv_bins = [r / ".venv" / "bin" for r in roots]
+    base_bins = [r.joinpath(*APP_PYTHON_PARTS, "bin") for r in roots]
+    owner = os.geteuid()
+    links: list[Path] = []
+    current = Path(os.path.abspath(str(python)))
+    while venv_layout.is_link(current):
+        if len(links) == _MAX_INTERPRETER_LINKS or any(venv_layout.same_path(current, seen) for seen in links):
+            return "the app environment's console Python is reached through more links than a venv makes (a loop?)"
+        folder = current.parent
+        if any(venv_layout.same_path(folder, f) for f in venv_bins):
+            names = _VENV_LINK_NAMES
+        elif any(venv_layout.same_path(folder, f) for f in base_bins):
+            names = _BASE_LINK_NAMES
+        else:
+            names = frozenset()
+        if current.name not in names:
+            return f"the app environment's console Python is reached through an unexpected link ({current})"
+        try:
+            info = os.lstat(current)
+            target = os.readlink(current)
+        except OSError:
+            return "the app environment's console Python is a link that cannot be read"
+        if info.st_uid != owner:
+            return f"a link of the app environment's console Python is owned by another account ({current})"
+        if os.path.isabs(target) and os.path.normpath(target) == target:
+            following = Path(target)
+        elif target and os.path.basename(target) == target and target not in (os.curdir, os.pardir):
+            following = folder / target
+        else:
+            return f"the app environment's console Python is reached through an unexpected link ({current} -> {target})"
+        links.append(current)
+        current = following
+    at_base = any(venv_layout.same_path(current, b / POSIX_APP_PYTHON) for b in base_bins)
+    if not os.path.lexists(current):
+        if at_base:
+            return "this copy's own Python is missing (the environment's link to it is broken)"
+        return f"the app environment's console Python is a broken link ({current} does not exist)"
+    if not at_base:
+        return ("the app environment's console Python leads to a Python that is not this copy's own "
+                "(another copy of the app, or another installation)")
+    info = os.lstat(current)
+    if not stat.S_ISREG(info.st_mode) or info.st_size == 0 or not os.access(current, os.X_OK):
+        return "this copy's own Python is not a usable program"
+    try:
+        if not os.path.samefile(python, base):
+            return "the app environment's console Python does not reach this copy's own Python"
+    except OSError:
+        return "the app environment's console Python could not be followed to this copy's own Python"
+    for path, guarded in _chain_members(root):
+        try:
+            info = os.lstat(path)
+        except OSError:
+            return f"part of the app environment cannot be read ({path})"
+        if info.st_uid != owner:
+            return f"part of the app environment is owned by another account ({path})"
+        if guarded and info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            return f"part of the app environment can be changed by other accounts ({path})"
+    return _pyvenv_problem(venv, roots)
+
+
+def _chain_members(root: Path) -> list[tuple[Path, bool]]:
+    """``(path, guarded)`` for each folder and file below the copy that the chain depends on (links are judged where
+    they are met). All must belong to this account. The *guarded* ones hold the chain itself, so no other account may
+    change them; ``files`` and ``files/runtime-data`` only lead there (the copy's own folders are where the person
+    put them, with the permissions they gave them)."""
+    venv = main_venv(root)
+    python_dir = Path(root).joinpath(*APP_PYTHON_PARTS)
+    members = [(Path(root).joinpath(*APP_PYTHON_PARTS[:depth]), False) for depth in range(1, len(APP_PYTHON_PARTS))]
+    members += [(path, True) for path in (venv, venv / "bin", venv / "pyvenv.cfg", python_dir, python_dir / "bin",
+                                          python_dir / "bin" / POSIX_APP_PYTHON)]
+    return members
+
+
+def _pyvenv_problem(venv: Path, roots: tuple) -> str:
+    """``pyvenv.cfg`` names this copy's own Python, this place, isolation and CPython 3.12 -- or why not."""
+    if venv_layout.is_link(venv / "pyvenv.cfg"):
+        return "the app environment's pyvenv.cfg is a link"
+    cfg = venv_layout.read_pyvenv_cfg(venv)
+    if cfg is None:
+        return "the app environment has no readable pyvenv.cfg"
+    homes = [r.joinpath(*APP_PYTHON_PARTS, "bin") for r in roots]
+    # v0.8.x P5-A: both must be absolute (a relative one would be judged against wherever the check runs from), and
+    # ``executable`` must be there. CPython 3.12's ``venv`` always writes it -- ``os.path.realpath(sys.executable)``, in
+    # the same step as ``command``, which is required below -- so for this copy it is always its own ``python3.12``,
+    # whichever alias built the environment (proved on this copy's own Python: files/dev-work/macos-p5a/venv-probe).
+    home = cfg.get("home") or ""
+    if not os.path.isabs(home) or not any(venv_layout.same_path(home, h) for h in homes):
+        return "the app environment was not built from this copy's own Python (pyvenv.cfg home)"
+    executable = cfg.get("executable") or ""
+    if not os.path.isabs(executable) or not any(venv_layout.same_path(executable, h / POSIX_APP_PYTHON)
+                                                for h in homes):
+        return "the app environment was not built from this copy's own Python (pyvenv.cfg executable)"
+    if cfg.get("include-system-site-packages", "").lower() != "false":
+        return "the app environment is not isolated (include-system-site-packages is not false)"
+    version = (cfg.get("version") or cfg.get("version_info") or "").split(".")[:2]
+    if version != [str(part) for part in MAIN_PYTHON]:
+        return f"the app environment is not CPython {MAIN_PYTHON[0]}.{MAIN_PYTHON[1]} (pyvenv.cfg version)"
+    command = (cfg.get("command") or "").rstrip().rstrip("/")
+    places = [str(r / ".venv") for r in roots]
+    if not any(len(command) > len(p) and command[-len(p) - 1] == " " and venv_layout.same_path(command[-len(p):], p)
+               for p in places):
+        return "the app environment was made somewhere else and moved, or cannot say where (pyvenv.cfg command)"
+    return ""
+
+
 def execution_home_problem(repo_root: Path, *, implementation: Optional[str] = None,
                            version: Optional[tuple] = None, prefix: Optional[str] = None,
                            base_prefix: Optional[str] = None, executable: Optional[str] = None) -> str:
@@ -903,6 +1073,20 @@ def execution_home_problem(repo_root: Path, *, implementation: Optional[str] = N
     return ""
 
 
+def worker_home_problem(repo_root: Path) -> str:
+    """What the setup worker checks about itself before it acts on a request (``""``: it may run).
+
+    :func:`execution_home_problem` for the running interpreter, everywhere. On POSIX also :func:`interpreter_problem`
+    for the interpreter it was started as, on disk: the launch's own rule, judged again from inside, so a worker
+    started by any other route than :func:`worker_launch` still refuses another copy's or a redirected Python.
+    Windows: :func:`execution_home_problem` alone, exactly as before.
+    """
+    problem = execution_home_problem(repo_root)
+    if problem or sys.platform == "win32":
+        return problem
+    return interpreter_problem(repo_root, Path(sys.executable))
+
+
 @dataclass(frozen=True)
 class LaunchSpec:
     argv: tuple[str, ...]
@@ -916,15 +1100,17 @@ def worker_launch(repo_root: Path, request_path: Path, session: str, *, python: 
                   base_env: Optional[dict] = None) -> LaunchSpec:
     """How to start the worker for the request at *request_path*: an argv list, never a shell string.
 
-    *python* must be the app environment's console interpreter (default: that one); this is checked on disk here and
-    again by the worker on itself. The working folder is the installation's ``scripts/`` (``-m`` finds ``tts`` there);
-    ``-E`` and ``-s`` keep ``PYTHONPATH``/``PYTHONHOME`` and user site-packages out of it.
+    *python* must be the app environment's console interpreter (default: that one); this is checked on disk here
+    (:func:`interpreter_problem`: on POSIX the venv's own link into this copy's Python is the one link accepted) and
+    again by the worker on itself (:func:`worker_home_problem`). The working folder is the installation's ``scripts/``
+    (``-m`` finds ``tts`` there); ``-E`` and ``-s`` keep ``PYTHONPATH``/``PYTHONHOME`` and user site-packages out of it.
     """
     python = Path(main_console_python(repo_root) if python is None else python)
     if not venv_layout.same_path(python, main_console_python(repo_root)):
         raise ProtocolError(WRONG_INTERPRETER, "the setup worker runs only with the app environment's console Python")
-    if venv_layout.unsafe_component(repo_root, python) is not None or not python.is_file():
-        raise ProtocolError(WRONG_INTERPRETER, "the app environment's console Python is missing or reached through a link")
+    problem = interpreter_problem(repo_root, python)
+    if problem:
+        raise ProtocolError(WRONG_INTERPRETER, problem)
     if not (Path(repo_root) / "scripts" / "tts" / "optional_setup_worker.py").is_file():
         raise ProtocolError(INTERNAL, "this installation has no setup worker")
     request_path, request_id = check_exchange_path(repo_root, str(request_path), REQUEST_NAME)
@@ -965,16 +1151,41 @@ def _contained_spawn(argv: list, **kwargs):
     return _process_control().spawn(argv, require_job=True, **kwargs)
 
 
+def _group_control():
+    """POSIX: ``shared.child_ownership``, which ends a worker's process group only while that group's id is proved to
+    be the worker's own (v0.8.x P5-A). Without it nothing could later prove which group is the worker's, so the worker
+    is never started: :class:`ContainmentUnavailable` is raised before any process exists."""
+    try:
+        from shared import child_ownership
+    except ImportError as exc:
+        raise _process_control().ContainmentUnavailable(
+            f"the app's process-ownership module is unavailable ({exc})") from exc
+    return child_ownership
+
+
 class WorkerRun:
     """One worker process for one request: start it, follow its events, stop it, and get its one terminal result.
 
     * **Contained.** The worker runs inside a Job Object (a process group elsewhere): a cancel, a timeout, or the end of
       the run ends it *and every descendant*, then confirms none is left. A worker that cannot be contained is not run.
+    * **Reaped last (POSIX, v0.8.x P5-A).** The worker leads its own process group, whose id is the worker's own id.
+      Its exit is watched without reaping it, so the kernel keeps that id reserved; only once the group has been ended
+      (``child_ownership.end_led_group``: under the ``Popen``'s waitpid lock, unreaped, same kernel start time) is the
+      worker reaped. A grandchild left behind by a worker that exited normally therefore ends with the run, and a group
+      whose id can no longer be proved the worker's is never signalled -- that is recorded instead.
+    * **No success without a confirmed end (POSIX, v0.8.x P5-A-R1).** The run vouches for the worker's group only when
+      the kernel confirmed it empty (``GROUP_ENDED``). Otherwise its one outcome is ``failed``: ``containment-unproved``
+      when the group's id could not be proved the worker's (nothing was signalled), ``containment-incomplete`` when it
+      was signalled but not confirmed empty (a member still answered at the bound, the signal was refused, or the
+      platform cannot tell -- ``GROUP_SIGNALLED``). Its text keeps what the run would otherwise have answered (the
+      worker's own success, a Cancel, a time-out, no result) and ``verified`` keeps what the worker proved working; a
+      plan is not passed on. The worker's own result file is never replaced.
     * **One terminal result.** The result file is the authority. If the worker exits (or is ended) without publishing
       one, this publishes the terminal result in its place -- ``cancelled`` when it was stopped, ``failed`` with
-      ``timed-out`` when it overran, ``failed`` otherwise -- through the same exclusive, atomic publication, so whichever
-      comes first is the only result there will ever be. When nothing trustworthy can be read or written (a link, a
-      malformed or incomplete success, no atomic publication) the answer is a failure held in memory: never a success.
+      ``timed-out`` when it overran, ``failed`` otherwise, or the containment failure above -- through the same
+      exclusive, atomic publication, so whichever comes first is the only result there will ever be. When nothing
+      trustworthy can be read or written (a link, a malformed or incomplete success, no atomic publication) the answer
+      is a failure held in memory: never a success. Once settled, every later :meth:`result` returns that same outcome.
     * **Never stranded.** A failing event callback is recorded, stops being called, cancels the worker, and its output
       keeps being drained so the worker cannot block on a full pipe.
     """
@@ -999,6 +1210,11 @@ class WorkerRun:
         self.lingering: Optional[int] = None
         #: Every process that was ever a member of the job (the worker, the venv launcher's interpreter, children).
         self.members_seen: Optional[int] = None
+        #: POSIX: how ending the worker's process group went (a ``child_ownership.GROUP_*`` answer; ``None``: not
+        #: attempted -- a run with a Job Object, or one that never started).
+        self.group_end: Optional[str] = None
+        self._groups = None  # ``shared.child_ownership`` when this run's worker leads a POSIX process group
+        self._start_time: Optional[tuple[int, int]] = None  # the worker's kernel start time, recorded at spawn
         self._reader = None
         self._outcome: Optional[dict] = None
 
@@ -1010,6 +1226,7 @@ class WorkerRun:
             raise RuntimeError("this worker run was already started")
         spawn = self._spawn or _contained_spawn
         try:
+            groups = _group_control() if os.name == "posix" else None
             self.process = spawn(list(self.spec.argv), cwd=str(self.spec.cwd), env=self.spec.env,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, encoding="utf-8", errors="replace")
@@ -1018,8 +1235,20 @@ class WorkerRun:
             code = CONTAINMENT_UNAVAILABLE if contained else INTERNAL
             self._outcome = self._forced(FAILED, code, f"The setup worker was not started: {exc}")
             raise
+        if groups is not None and getattr(self.process, "act_job", None) is None:
+            # Nothing reaps the worker before the run ends it (see the class notes): its id is still its own here.
+            self._groups = groups
+            self._start_time = groups.process_start_time(self.process.pid)
         self._reader = threading.Thread(target=self._read, name="optional-setup-events", daemon=True)
         self._reader.start()
+
+    def running(self) -> bool:
+        """True while the worker has not exited. On POSIX this never reaps it, so its group can still be ended."""
+        if self.process is None:
+            return False
+        if self._groups is not None:
+            return not self._groups.has_exited(self.process, self._start_time)
+        return self.process.poll() is None
 
     def _read(self) -> None:
         try:
@@ -1063,10 +1292,10 @@ class WorkerRun:
         if self.process is None:
             raise RuntimeError("this worker run was never started")
         self.stop_requested = True
-        if self.process.poll() is None:
+        if self.running():
             try:
                 self.cancel()
-                self.process.wait(timeout=grace_s)
+                self._wait_exit(grace_s)
             except (ProtocolError, OSError) as exc:  # the flag could not be written: no point waiting for it
                 self.protocol_errors.append(f"the cancel request could not be written: {exc}")
                 self._terminate()
@@ -1081,15 +1310,33 @@ class WorkerRun:
         if self.process is None:
             raise RuntimeError("this worker run was never started")
         try:
-            self.process.wait(timeout=timeout_s)
+            self._wait_exit(timeout_s)
         except subprocess.TimeoutExpired:
             self.timed_out = True
             return self.stop(cancel_grace_s)
         return self._finish()
 
+    def _wait_exit(self, timeout_s: float) -> None:
+        """Wait at most *timeout_s* for the worker to exit (``TimeoutExpired`` past it). On POSIX it is not reaped."""
+        import subprocess
+
+        if self._groups is None:
+            self.process.wait(timeout=timeout_s)
+        elif not self._groups.wait_exited(self.process, timeout_s, self._start_time):
+            raise subprocess.TimeoutExpired(self.spec.argv, timeout_s)
+
     def _terminate(self) -> None:
         self.terminated = True
-        _process_control().kill_tree(self.process, wait_s=TERMINATE_WAIT_S)
+        if self._groups is not None:
+            self._end_group()  # the worker and every member of its group; the worker is reaped by ``_finish``
+        else:
+            _process_control().kill_tree(self.process, wait_s=TERMINATE_WAIT_S)
+
+    def _end_group(self) -> str:
+        """POSIX: SIGKILL the worker's process group and confirm it is empty -- only while its id is proved to be the
+        worker's (``child_ownership.end_led_group``; bounded, never raises, never reaps)."""
+        self.group_end = self._groups.end_led_group(self.process, self._start_time, bound_s=TERMINATE_WAIT_S)
+        return self.group_end
 
     def _finish(self) -> dict:
         """The run is over: end anything the worker left behind, confirm the job is empty, reap, and settle the result."""
@@ -1099,7 +1346,22 @@ class WorkerRun:
         if self._outcome is not None:
             return self._outcome
         job = getattr(self.process, "act_job", None)
-        if job is not None:
+        if self._groups is not None:
+            # A grandchild that outlived the worker (it may still hold the output pipe) ends here, before the reap.
+            outcome = self._end_group()
+            if outcome == self._groups.GROUP_UNPROVED:
+                self.protocol_errors.append(
+                    "the worker's process group was not signalled: its id could not be proved to be the worker's own "
+                    "(the worker had already been reaped or replaced)")
+            elif outcome == self._groups.GROUP_REMAINING:
+                self.protocol_errors.append("a process of the worker's group had not ended in time")
+            elif outcome == self._groups.GROUP_SIGNALLED:
+                self.protocol_errors.append(
+                    "the worker's process group was signalled, but this platform cannot confirm that none of it is "
+                    "left")
+            elif outcome != self._groups.GROUP_ENDED:
+                self.protocol_errors.append(f"ending the worker's process group gave no known answer ({outcome!r})")
+        elif job is not None:
             job.terminate()  # a grandchild that outlived the worker (it may still hold the output pipe) ends here
             deadline = _time.monotonic() + TERMINATE_WAIT_S
             try:
@@ -1123,16 +1385,61 @@ class WorkerRun:
         if self.process.poll() is None:  # pragma: no cover - the OS refused to end it; never pretend it finished
             self._outcome = self._forced(FAILED, INTERNAL, "The setup worker could not be ended.", publish=False)
         else:
-            self._outcome = self.result()
+            self._outcome = self._contained(self._settle())
         return self._outcome
+
+    def _containment_problem(self) -> Optional[tuple[str, str]]:
+        """POSIX (v0.8.x P5-A-R1): ``(code, text)`` when the run cannot vouch that nothing of the worker's process group
+        is left; ``None`` when the kernel confirmed it empty, or when there is no group to judge (a Job Object)."""
+        groups = self._groups
+        if groups is None or self.group_end == groups.GROUP_ENDED:
+            return None
+        if self.group_end == groups.GROUP_UNPROVED:
+            return CONTAINMENT_UNPROVED, (
+                "The setup worker's processes could not be ended safely: its process group's id could not be proved to "
+                "still be the worker's own, so nothing was signalled. Something it started may still be running.")
+        if self.group_end == groups.GROUP_REMAINING:
+            return CONTAINMENT_INCOMPLETE, (
+                f"A process the setup worker started had not ended {TERMINATE_WAIT_S:.0f} s after it was told to end "
+                "(or could not be told to); it may still be running.")
+        if self.group_end == groups.GROUP_SIGNALLED:
+            return CONTAINMENT_INCOMPLETE, (
+                "The setup worker's processes were told to end, but this system cannot confirm that none of them is "
+                "left.")
+        return CONTAINMENT_INCOMPLETE, f"The setup worker's process group was not confirmed ended ({self.group_end!r})."
+
+    def _contained(self, settled: dict) -> dict:
+        """*settled* when the worker's group was confirmed ended (or there is none to judge). Otherwise the containment
+        failure that is the run's answer instead, keeping what *settled* said and the components it verified; its plan
+        is not passed on. Held in memory: a result file the worker published is never replaced."""
+        problem = self._containment_problem()
+        if problem is None:
+            return settled
+        code, text = problem
+        error = settled.get("error") or {}
+        if settled.get("forced") and error.get("code") == code:
+            return settled  # already this failure: published in the worker's place (:meth:`_forced_terms`)
+        if settled.get("state") == SUCCEEDED:
+            proved = ", ".join(LABELS[c] for c in settled.get("verified", ()))
+            said = "The setup worker itself reported success" + (f" (installed and checked: {proved})." if proved
+                                                                  else ".")
+        else:
+            said = f"({error.get('message') or settled.get('state')})"
+        return make_result(self.request.request_id, FAILED, error=(code, f"{text} {said}"), forced=True,
+                           verified=settled.get("verified", ()))
 
     def _forced_terms(self) -> tuple[str, str, str]:
         status = None if self.process is None else self.process.returncode
         if self.timed_out:
-            return FAILED, TIMED_OUT, "The setup worker took too long and was stopped."
-        if self.stop_requested or self.cancel_sent:
-            return CANCELLED_STATE, CANCELLED, "Cancelled. The setup worker was stopped before it reported a result."
-        return FAILED, NO_RESULT, f"The setup worker stopped without reporting a result (exit status {status})."
+            terms = FAILED, TIMED_OUT, "The setup worker took too long and was stopped."
+        elif self.stop_requested or self.cancel_sent:
+            terms = CANCELLED_STATE, CANCELLED, "Cancelled. The setup worker was stopped before it reported a result."
+        else:
+            terms = FAILED, NO_RESULT, f"The setup worker stopped without reporting a result (exit status {status})."
+        problem = self._containment_problem()
+        if problem is None:
+            return terms
+        return FAILED, problem[0], f"{problem[1]} ({terms[2]})"  # POSIX: the group was not confirmed ended
 
     def _forced(self, state: str, code: str, text: str, *, publish: bool = True) -> dict:
         """The terminal result written in the worker's place; held in memory if it cannot be published atomically."""
@@ -1147,14 +1454,26 @@ class WorkerRun:
         except (ProtocolError, OSError) as exc:
             return make_result(rid, state, error=(code, f"{text} (The result could not be recorded: {exc})"),
                                forced=True)
-        return self.result()  # the worker's own result arrived first: it is the one
+        return self._settle()  # the worker's own result arrived first: it is the one
 
     def result(self) -> dict:
-        """The one terminal result (the worker's own when it published a trustworthy one). Never a partial success."""
+        """The one terminal result (the worker's own when it published a trustworthy one). Never a partial success, and
+        on POSIX never one settled before the worker's process group was judged (see the class notes)."""
         if self._outcome is not None:
             return self._outcome
+        if self.process is not None and self._groups is not None:
+            if self.running():
+                raise RuntimeError("the setup worker is still running")
+            # POSIX: the group is ended (or found unprovable) and the worker reaped before anything is settled -- also
+            # when the worker was already reaped behind the run's back, which then is not a success (P5-A-R1).
+            return self._finish()
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("the setup worker is still running")
+        return self._settle()
+
+    def _settle(self) -> dict:
+        """The worker's own trustworthy result, or the terminal result published in its place
+        (:meth:`_forced_terms`)."""
         rid = self.request.request_id
         try:
             path, _ = check_exchange_path(self.repo_root, str(self.spec.result_path), RESULT_NAME)

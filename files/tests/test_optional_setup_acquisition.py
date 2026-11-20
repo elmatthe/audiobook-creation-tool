@@ -33,8 +33,8 @@ from tts import optional_setup_lifecycle as osl
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 from test_optional_tts_setup import (ALL, B, C, CV, K, SESSION, WHEEL, as_json, component, facts, install_chatterbox,  # noqa: F401
-                                     install_kokoro, install_request, probes_are_explicit, run_main, sandbox,
-                                     tiny_assets, tripwire, unit, world)
+                                     install_kokoro, install_request, make_venv, own_base_python, probes_are_explicit,
+                                     relink, run_main, sandbox, tiny_assets, tripwire, unit, world)
 from test_qwen3_runtime import BASE_ONLY, CUSTOM_ONLY, TINY_FILES, install_environment, install_model
 from test_qwen3_setup import Hub, fake_runner, no_sleep, opener, url_path
 from test_optional_setup_authority import (authority_world, b1_zero_consent_control,  # noqa: F401
@@ -565,6 +565,32 @@ def test_an_incompatible_or_absent_spacy_is_never_changed_to_fit(world, server, 
     with pytest.raises(osa.AcquisitionError):  # and the acquirer refuses on its own too, before any download or pip
         acquirer(pip)._acquire_spacy(world, lambda e: None, lambda: False)
     assert pip.commands == [] and server.paths() == []
+
+
+#: The platform this suite runs on, read at import, before any sandbox answers Windows.
+HOST_PLATFORM = sys.platform
+
+
+@pytest.mark.skipif(os.name == "nt", reason="python -m venv makes interpreter links only off Windows")
+@pytest.mark.parametrize("foreign", [False, True], ids=["this-copys-python", "another-copys-python"])
+def test_the_spacy_step_runs_pip_only_from_this_copys_venv_link(world, server, tmp_path, monkeypatch, foreign):
+    """v0.8.x P4C remediation: the pip step asks the launch's own interpreter rule. A real ``-m venv`` made from this
+    copy's own Python runs pip through its ``.venv/bin/python`` link; the same venv turned to another copy's Python is
+    refused before any download or pip."""
+    monkeypatch.setattr(sys, "platform", HOST_PLATFORM)  # the sandbox answers Windows; this is the POSIX layout
+    make_venv(own_base_python(world), world / ".venv")
+    if foreign:
+        relink(world / ".venv" / "bin" / "python3.12", own_base_python(tmp_path / "other-copy"))
+    pip = FakePip()
+    if foreign:
+        with pytest.raises(osa.AcquisitionError, match="could not be found where it belongs"):
+            acquirer(pip)._acquire_spacy(world, lambda e: None, lambda: False)
+        assert pip.commands == [] and server.paths() == []
+        return
+    acquirer(pip)._acquire_spacy(world, lambda e: None, lambda: False)
+    (cmd,) = pip.commands
+    assert cmd[0] == str(world / ".venv" / "bin" / "python") and os.path.islink(cmd[0])
+    assert pip.versions[assets.SPACY_ENGLISH] == "3.8.0"
 
 
 def test_another_installed_english_model_is_reported_not_replaced(world):

@@ -36,6 +36,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+
+#: macOS P4C: this suite tests every local engine, Chatterbox and Qwen3 included, as Windows offers it; on a Mac it runs through the engine policy's
+#: platform seam (conftest ``windows_engine_policy``), never as Windows-native evidence. A Mac's own roster
+#: and refusals are pinned in test_engine_policy.py.
+pytestmark = pytest.mark.usefixtures("windows_engine_policy")
 import soundfile as sf
 
 from shared import ffmpeg_utils
@@ -325,6 +330,9 @@ def local_engine(monkeypatch, tmp_path, mp3_encodes):
                 yield ("graphemes", "phonemes", arr)
 
     monkeypatch.setattr(ks, "_get_pipeline", lambda lang_code: _Pipeline())
+    # The in-process route (Windows); on macOS the same parent flow runs through the local-engine worker, tested in
+    # test_local_engine_worker.py.
+    monkeypatch.setattr(ks, "_use_worker", lambda: False)
 
     # Chatterbox: the model and its conditioning; one rendered chunk per call.
     monkeypatch.setattr(cbx, "_runtime_root", lambda: tmp_path / "runtime-data")

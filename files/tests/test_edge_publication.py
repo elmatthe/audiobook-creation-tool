@@ -33,6 +33,14 @@ from tts import epub2tts_gui as panel_module
 from tts.epub2tts_edge import epub2tts_edge as engine
 from tts.epub2tts_edge import runner
 
+@pytest.fixture(autouse=True)
+def _in_memory_route_as_on_every_platform_but_macos(monkeypatch):
+    """v0.8.x P5: these tests are about the gate's in-memory route and its fall back to disk, which every platform but macOS
+    keeps (``worker_limits.IN_MEMORY_ASSEMBLY``). A Mac never assembles a narration that reaches the gate in memory
+    (``test_macos_p5_assembly_on_disk.py``). Pinned on here, these tests check the same thing on every machine."""
+    monkeypatch.setattr(worker_limits, "IN_MEMORY_ASSEMBLY", True)
+
+
 windows_only = pytest.mark.skipif(os.name != "nt", reason="a Windows lock")
 needs_ffmpeg = pytest.mark.skipif(not ffmpeg_utils.have_ffmpeg(), reason="requires a real ffmpeg/ffprobe pair")
 
@@ -338,6 +346,9 @@ def test_elsewhere_the_no_clobber_primitive_is_a_hard_link_and_an_unsupported_dr
     monkeypatch.setattr(publication.os, "rename", lambda *a, **k: pytest.fail("rename would replace on POSIX"))
     monkeypatch.setattr(publication.os, "link", lambda *a, **k: (_ for _ in ()).throw(
         OSError(errno.ENOTSUP, "simulated: no hard links on this drive")))
+    # v0.8.x P1B: macOS first asks for an exclusive rename (renamex_np RENAME_EXCL); a drive that has no hard links
+    # (exFAT) refuses that too, so it is simulated here as the measured exFAT refuses it.
+    monkeypatch.setattr(output_paths, "_rename_exclusive", lambda *a, **k: False)
     with pytest.raises(publication.PublicationError, match="cannot publish a file without risking"):
         publication.publish_file(finished, destination, overwrite=False)
     assert not destination.exists(), "there is no fallback to a copy or a check-then-move"

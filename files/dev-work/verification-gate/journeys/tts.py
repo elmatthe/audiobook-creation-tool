@@ -36,6 +36,12 @@ def requests_of(config: dict) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _on_screen_and_enabled(session, key: str) -> bool:
+    """What a click is refused for if it is not so (the adapter's ``_actionable``): drawn on screen and enabled now."""
+    state = session.widget(TOOL, key)
+    return bool(state.get("viewable")) and not state.get("disabled")
+
+
 def _add_files(session, paths) -> None:
     session.click(TOOL, "importer.list.buttons[add_files]")
     session.file_dialog(paths if len(paths) > 1 else paths[0], title="Source files")
@@ -214,6 +220,9 @@ def pause(context: Context) -> None:
     session.type_into(TOOL, "spin_workers", "1")
     session.click(TOOL, START)
     wait_until(lambda: len(requests_of(replay)) >= 1, 60, "the first file's requests to begin")
+    # Start builds the run's own controls; Tk draws them at its next idle pass, which the first request can precede
+    # (v0.8.x P5-D-R1: refused "not on screen" in 2026-11-18_074413_focused_81e0). A hand meets Pause once it is drawn.
+    wait_until(lambda: _on_screen_and_enabled(session, PAUSE), 5, "the run's Pause control to be on screen and enabled")
     session.click(TOOL, PAUSE)
     wait_until(lambda: session.read(TOOL, "jobs.state") == "PAUSED", 90, "the active file to finish and the run to be paused")
     session.screenshot("paused")

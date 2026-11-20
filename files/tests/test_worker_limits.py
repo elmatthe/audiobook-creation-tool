@@ -17,6 +17,14 @@ import pytest
 from shared.cancellation import ConversionCancelled
 from tts import worker_limits as wl
 
+@pytest.fixture(autouse=True)
+def _in_memory_route_as_on_every_platform_but_macos(monkeypatch):
+    """v0.8.x P5: these tests are about the gate's in-memory route and its fall back to disk, which every platform but macOS
+    keeps (``worker_limits.IN_MEMORY_ASSEMBLY``). A Mac never assembles a narration that reaches the gate in memory
+    (``test_macos_p5_assembly_on_disk.py``). Pinned on here, these tests check the same thing on every machine."""
+    monkeypatch.setattr(wl, "IN_MEMORY_ASSEMBLY", True)
+
+
 GB = 1024 ** 3
 MB = 1024 ** 2
 
@@ -1227,7 +1235,8 @@ def test_logical_cpus_reads_this_machine():
 
 def test_memory_info_reads_this_machine_where_it_can():
     info = wl.memory_info()
-    if sys.platform == "win32" or sys.platform.startswith("linux"):
+    # v0.8.x P1B: macOS reads the kernel's own counters (host_statistics64 and hw.memsize).
+    if sys.platform in ("win32", "darwin") or sys.platform.startswith("linux"):
         assert info is not None and 0 < info.available <= info.total
     else:
         assert info is None

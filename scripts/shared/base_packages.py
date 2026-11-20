@@ -32,11 +32,33 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Optional
 
-#: The lock's file name, beside ``requirements.txt``.
-LOCK_NAME = "requirements-lock-windows-py312.txt"
-#: The one interpreter line the lock describes.
+@dataclass(frozen=True)
+class LockTarget:
+    """One platform's lock: which interpreters it describes, its file beside ``requirements.txt``, and the tag that
+    names its package store and pip cache (v0.8.x P1A: one lock per platform, MAC-005/MAC-029)."""
+
+    platform: str            # sys.platform
+    machines: frozenset      # platform.machine(), lower-cased
+    python: tuple            # (major, minor)
+    name: str                # the lock's file name
+    tag: str                 # wheel platform tag, also the store/cache sub-folder (empty: the Windows layout)
+    resolver: str            # the header's resolver description
+
+
+#: Windows x86-64 CPython 3.12: the released lock. Its name, store, cache and quarantine folders are unchanged.
+WINDOWS_LOCK = LockTarget("win32", frozenset({"amd64", "x86_64"}), (3, 12), "requirements-lock-windows-py312.txt",
+                          "", "CPython 3.12 win_amd64")
+#: macOS Apple Silicon CPython 3.12 (the app-owned python-build-standalone build). Its store and cache live in a
+#: ``macosx_arm64`` sub-folder, so a folder copied from Windows can never offer a Windows artifact to a Mac.
+MACOS_ARM64_LOCK = LockTarget("darwin", frozenset({"arm64"}), (3, 12), "requirements-lock-macos-arm64-py312.txt",
+                              "macosx_arm64", "CPython 3.12 macosx_arm64")
+LOCK_TARGETS = (WINDOWS_LOCK, MACOS_ARM64_LOCK)
+
+#: The Windows lock's file name, beside ``requirements.txt`` (kept: Windows callers and the stamp use it).
+LOCK_NAME = WINDOWS_LOCK.name
+#: The one interpreter line the locks describe.
 LOCKED_PYTHON = (3, 12)
-LOCKED_MACHINES = frozenset({"amd64", "x86_64"})
+LOCKED_MACHINES = WINDOWS_LOCK.machines
 
 #: Header keys the generator writes and :func:`lock_problems` reads.
 HEADER_REQUIREMENTS = "requirements.txt sha256"
@@ -89,29 +111,49 @@ def canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def lock_path(requirements_file: Path) -> Path:
-    """The lock that belongs to ``requirements_file`` (its sibling)."""
-    return Path(requirements_file).with_name(LOCK_NAME)
-
-
-def store_dir(root: Path) -> Path:
-    """``files/runtime-data/python-packages`` of the installation at ``root``: the verified package artifacts."""
-    return Path(root) / "files" / "runtime-data" / "python-packages"
-
-
-def cache_dir(root: Path) -> Path:
-    """``files/runtime-data/pip-cache`` of the installation at ``root``: pip's only cache location."""
-    return Path(root) / "files" / "runtime-data" / "pip-cache"
-
-
-def lock_applies(version: Optional[tuple], *, platform: Optional[str] = None, machine: Optional[str] = None) -> bool:
-    """True when an environment of this interpreter version on this computer is described by the lock."""
+def lock_target(*, platform: Optional[str] = None, machine: Optional[str] = None) -> Optional[LockTarget]:
+    """The lock target of this computer (or of the ``platform``/``machine`` given), or None when no lock describes
+    it."""
     import platform as _platform
 
     platform = sys.platform if platform is None else platform
-    machine = _platform.machine() if machine is None else machine
-    return (platform == "win32" and version is not None and tuple(version[:2]) == LOCKED_PYTHON
-            and machine.lower() in LOCKED_MACHINES)
+    machine = (_platform.machine() if machine is None else machine).lower()
+    return next((t for t in LOCK_TARGETS if t.platform == platform and machine in t.machines), None)
+
+
+def _target_or_windows(platform: Optional[str], machine: Optional[str]) -> LockTarget:
+    # Where no lock applies (another platform), the answers stay the released Windows ones: lock_applies() is False
+    # there, so nothing is installed from them.
+    return lock_target(platform=platform, machine=machine) or WINDOWS_LOCK
+
+
+def lock_path(requirements_file: Path, *, platform: Optional[str] = None, machine: Optional[str] = None) -> Path:
+    """The lock that belongs to ``requirements_file`` (its sibling) on this computer: the Windows lock on Windows, the
+    macOS arm64 lock on an Apple Silicon Mac."""
+    return Path(requirements_file).with_name(_target_or_windows(platform, machine).name)
+
+
+def _tagged(folder: Path, platform: Optional[str], machine: Optional[str]) -> Path:
+    tag = _target_or_windows(platform, machine).tag
+    return folder / tag if tag else folder
+
+
+def store_dir(root: Path, *, platform: Optional[str] = None, machine: Optional[str] = None) -> Path:
+    """``files/runtime-data/python-packages`` of the installation at ``root``: the verified package artifacts
+    (``python-packages/macosx_arm64`` on a Mac)."""
+    return _tagged(Path(root) / "files" / "runtime-data" / "python-packages", platform, machine)
+
+
+def cache_dir(root: Path, *, platform: Optional[str] = None, machine: Optional[str] = None) -> Path:
+    """``files/runtime-data/pip-cache`` of the installation at ``root``: pip's only cache location
+    (``pip-cache/macosx_arm64`` on a Mac)."""
+    return _tagged(Path(root) / "files" / "runtime-data" / "pip-cache", platform, machine)
+
+
+def lock_applies(version: Optional[tuple], *, platform: Optional[str] = None, machine: Optional[str] = None) -> bool:
+    """True when an environment of this interpreter version on this computer is described by a lock."""
+    target = lock_target(platform=platform, machine=machine)
+    return target is not None and version is not None and tuple(version[:2]) == target.python
 
 
 _ENTRY = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9][A-Za-z0-9.+!_-]*)((?:\s+--hash=sha256:[0-9a-f]{64})+)")
@@ -179,6 +221,19 @@ def requirement_pins(requirements_text: str, python: tuple[int, int] = LOCKED_PY
             raise LockError(f"requirements.txt line is not an == pin: {line!r}")
         pins[canonical_name(match.group(1))] = (match.group(1), match.group(2))
     return pins
+
+
+def requirements_digest(raw: bytes) -> str:
+    """The value a lock's ``requirements.txt sha256`` header records: SHA-256 of ``requirements.txt`` with every line
+    ending written as CRLF, whatever the checkout holds.
+
+    v0.8.x P1A D3 remediation: Git stores the file with LF and checks it out with CRLF on Windows and LF on a Mac, in a
+    clean worktree and in an extracted archive, so a digest of the raw bytes named a checkout, not a file. CRLF is the
+    form the released Windows lock was generated from (its header and the macOS lock's are unchanged and still
+    match); any change other than line endings still changes the digest. This is a development-time consistency
+    check only: setup's receipt stamp (``bootstrap.requirements_fingerprint``) still hashes the raw bytes.
+    """
+    return hashlib.sha256(raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")).hexdigest()
 
 
 def lock_problems(requirements_text: str, lock_text: str, requirements_sha256: str) -> list[str]:
@@ -292,11 +347,11 @@ def missing_artifacts(lock: Lock, store: Path, entries: Optional[Iterable[LockEn
     return missing
 
 
-def quarantine_dir(root: Path) -> Path:
+def quarantine_dir(root: Path, *, platform: Optional[str] = None, machine: Optional[str] = None) -> Path:
     """``files/runtime-data/python-packages-quarantine`` of the installation at ``root``: where a file found in the
     store that the lock does not authorise is moved, beside the store and never inside it (pip reads the store's
-    whole listing through ``--find-links``)."""
-    return Path(root) / "files" / "runtime-data" / "python-packages-quarantine"
+    whole listing through ``--find-links``). ``python-packages-quarantine/macosx_arm64`` on a Mac."""
+    return _tagged(Path(root) / "files" / "runtime-data" / "python-packages-quarantine", platform, machine)
 
 
 def sha256_of(path: Path) -> str:

@@ -85,11 +85,12 @@ outcome is recorded, and that lock is never held while the result is being made 
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import math
 import threading
 from collections import deque
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePath
@@ -1379,7 +1380,8 @@ class JobController:
     __slots__ = (
         "_run_id", "_condition", "_state", "_revision", "_cancel_requested",
         "_cancel_acknowledged", "_failure_message", "_failure_detail", "_listener",
-        "_commits_in_flight",
+        "_commits_in_flight", "_starts_in_progress", "_cancel_pending", "_cancel_clicked_at",
+        "_cancel_clock",
     )
 
     def __init__(
@@ -1387,9 +1389,12 @@ class JobController:
         run_id: str,
         *,
         listener: "Callable[[JobSnapshot], Any] | None" = None,
+        cancel_clock: "Callable[[], float] | None" = None,
     ) -> None:
         if listener is not None and not callable(listener):
             raise JobContractError("listener must be callable")
+        if cancel_clock is not None and not callable(cancel_clock):
+            raise JobContractError("cancel_clock must be callable")
         self._run_id = _require_identifier("run_id", run_id)
         # A plain Lock, not the default RLock: re-entering from a listener is a bug,
         # and a bug that deadlocks a test is worth far more than one that does not.
@@ -1402,6 +1407,15 @@ class JobController:
         self._failure_detail = ""
         self._listener = listener
         self._commits_in_flight = 0
+        # v0.8.x P5-H-R1: child processes being created right now (``starting``), and a Cancel waiting for them before it
+        # latches (``request_cancel``), so that no child of this run is created after the latch. Guarded by the one lock.
+        self._starts_in_progress = 0
+        self._cancel_pending = False
+        # v0.8.x P5-I-R3: when the first Cancel arrived, read from the injected *cancel_clock* (the tools give
+        # ``time.monotonic``; this module reads no clock of its own) before it waited for anything: the instant every
+        # stopping deadline of the run is measured from. Read-only to everyone else; no behaviour uses it here.
+        self._cancel_clock = cancel_clock
+        self._cancel_clicked_at: "float | None" = None
 
     # -- reading ----------------------------------------------------------- #
 
@@ -1454,6 +1468,21 @@ class JobController:
         """The run as it is right now. Reading changes nothing and blocks nobody."""
         with self._condition:
             return self._snapshot_locked()
+
+    @property
+    def cancel_pending(self) -> bool:
+        """v0.8.x P5-I-R3: a Cancel has arrived (latched, or waiting for the starts in progress to finish). A counted
+        start reads it to stop waiting and let the latch through. Reading changes nothing; never blocks for long."""
+        with self._condition:
+            return self._cancel_pending or self._cancel_requested
+
+    @property
+    def cancel_clicked_at(self) -> "float | None":
+        """v0.8.x P5-I-R3: the injected ``cancel_clock`` read at the first :meth:`request_cancel` on a run that had not
+        ended, before it waited for anything; ``None`` before any, or with no clock injected. Every route's stopping
+        deadline is measured from it."""
+        with self._condition:
+            return self._cancel_clicked_at
 
     def cancel_check(self) -> bool:
         """Whether cancellation has been requested — the existing ``CancelCheck`` shape.
@@ -1508,8 +1537,22 @@ class JobController:
         checkpoint after :meth:`start` will honour it. Requested **after** the run
         has ended it does nothing at all, because a finished run must not start
         describing itself as cancelled.
+
+        v0.8.x P5-H-R1: a child process being created (:meth:`starting`) is created
+        before the latch, and is the Cancel's to stop, or is refused. Cancel first
+        refuses any new start, then waits on the condition (the lock let go) for the
+        creations already in progress, which are spawns and nothing longer, and only
+        then latches. It never waits for any work.
         """
+        clicked = self._cancel_clock() if self._cancel_clock is not None else None  # the caller's clock, never under the lock
         with self._condition:
+            if self._state in TERMINAL_STATES:
+                return self._snapshot_locked()
+            if self._cancel_clicked_at is None:
+                self._cancel_clicked_at = clicked
+            self._cancel_pending = True
+            while self._starts_in_progress:
+                self._condition.wait()
             if self._state in TERMINAL_STATES:
                 return self._snapshot_locked()
             changed = not self._cancel_requested
@@ -1549,6 +1592,32 @@ class JobController:
                 return False
             self._commits_in_flight += 1
             return True
+
+    @contextlib.contextmanager
+    def starting(self, message: str = "Cancelled.") -> Iterator[None]:
+        """Start one child process of this run, ordered against Cancel (v0.8.x P5-H-R1).
+
+        The body (the spawn, and whatever must be in place before anyone may stop it) runs
+        with the lock let go but counted as a start in progress, and :meth:`request_cancel`
+        does not latch while one is. If cancellation was requested first, or is waiting to
+        latch, :class:`ConversionCancelled` is raised and the body never runs; otherwise the
+        latch cannot be set until the body has finished, so the child exists, and can be
+        found and stopped, before it is. :meth:`authorize_commit`'s count does not hold
+        Cancel back, which is right for a commit that must not hold Cancel up and wrong for
+        a start that must never follow it. The body must be short (a Cancel waits for it)
+        and must never request Cancel itself, which would wait for its own start.
+        """
+        with self._condition:
+            if self._cancel_requested or self._cancel_pending:
+                raise ConversionCancelled(message)
+            self._starts_in_progress += 1
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._starts_in_progress -= 1
+                if not self._starts_in_progress:
+                    self._condition.notify_all()
 
     def commit_finished(self) -> None:
         """The authorized attempt is over, whether or not the result became final."""

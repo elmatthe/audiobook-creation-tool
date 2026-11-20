@@ -256,7 +256,7 @@ def test_the_lock_names_required_packages_only_for_a_reconciled_locked_environme
     scripts = env.root / "scripts"
     scripts.mkdir(parents=True)
     (scripts / "requirements.txt").write_text("tqdm==4.67.3\n", encoding="utf-8")
-    (scripts / "requirements-lock-windows-py312.txt").write_text(
+    (scripts / bootstrap.base_packages.lock_path(scripts / "requirements.txt").name).write_text(
         f"# artifact: tqdm-4.67.3-py3-none-any.whl\ntqdm==4.67.3 --hash=sha256:{'a' * 64}\n", encoding="utf-8")
     monkeypatch.setattr(bootstrap.base_packages, "lock_applies", lambda version, **kw: True)
     monkeypatch.setattr(bootstrap, "requirements_are_current", lambda: False)
@@ -365,7 +365,10 @@ def test_repair_app_environment_schedules_the_launchers_repair_and_removes_nothi
     assert dialog.button_repair is not dialog.button_cleanup
     assert dialog.repair_environment() is True
     assert calls and calls[0][0] == preferences_ui.REPAIR_CONFIRM_TITLE
-    assert "Qwen3 voice engine are kept" in calls[0][1] and "Setup_and_Run-audiobook-creation-tool" in calls[0][1]
+    # The running platform's words: Windows' name the Qwen3 engine it keeps; a Mac's (P4C) the OmniVoice engine.
+    assert calls[0][1] == preferences_ui.REPAIR_CONFIRM_TEXT and "Setup_and_Run-audiobook-creation-tool" in calls[0][1]
+    assert "Qwen3 voice engine are kept" in preferences_ui.repair_confirm_text("win32")
+    assert "OmniVoice voice engine are kept" in preferences_ui.repair_confirm_text("darwin")
     assert venv_integrity.repair_requested(venv)
     after = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
     assert after == sorted(before + [f".venv/{venv_integrity.REPAIR_REQUEST_NAME}"]), "nothing else changed"

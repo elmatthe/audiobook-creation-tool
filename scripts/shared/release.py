@@ -9,6 +9,10 @@ It builds two archives under ``<repo-root>/dist/``:
     dist/AudiobookTool-Windows-vX.Y.Z.zip
     dist/AudiobookTool-MacOS-vX.Y.Z.zip
 
+(``vX.Y.Z`` is :func:`release_tag`: a version with build metadata, ``0.8.0+macos.1``, is named after its tag,
+``v0.8.0-macos.1``, because GitHub rewrites ``+`` in release asset names.) Which of the two an ordinary build makes is
+``RELEASE_OS_NAMES``.
+
 Since v0.5.0 there is a single cross-platform code tree (``scripts``),
 so both archives contain the same ``scripts/`` folder; they differ only in which
 double-click launcher sits at the archive root (``.bat`` vs ``.command``), plus
@@ -77,10 +81,11 @@ DIST_DIR = REPO_ROOT / "dist"
 sys.path.insert(0, str(SHARED_DIR))
 from version import VERSION  # noqa: E402
 
-# v0.7.0: the only platform this release is qualified and distributed for. The macOS code, launcher and the
-# packager's MacOS support stay (``_package(("MacOS",))`` still builds one for internal tests), but the ordinary build
-# never produces a macOS archive until a native macOS qualification is recorded.
-RELEASE_OS_NAMES = ("Windows",)
+# 0.8.0+macos.1 (D16, owner route 2026-11-20): this source is the macOS revision of v0.8.0 and is distributed for macOS
+# only. The published Windows v0.8.0 was built from d1701e9 and stays as it is; a Windows archive from this source would
+# misattribute it, so the ordinary build makes the macOS archive alone (``_package(("Windows",))`` still builds one for
+# the packaging tests). The next shared release (v0.8.1) names both again.
+RELEASE_OS_NAMES = ("MacOS",)
 
 # Per OS: the launcher that belongs at the archive root.
 ENTRY_FILES = {
@@ -92,7 +97,10 @@ ENTRY_FILES = {
 # ``config.toml`` is packaged byte-for-byte as committed — the packager never
 # generates, edits or substitutes it, and a clean extraction reads its documented
 # defaults from the archive root.
-ROOT_FILES = ("README.md", "config.toml")
+# ``LICENSE`` (v0.8.0 macOS Revision 1) is the complete, unmodified GNU GPL v3 text. The project inherits GPL-3.0 from
+# epub2tts-edge (README, Credits / License), and a distributed copy has to carry the licence itself, not only a link.
+# Like every root file it must be tracked and committed: ``_write_archive`` refuses an untracked one.
+ROOT_FILES = ("README.md", "config.toml", "LICENSE")
 
 # CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
 # extra recordings, transcripts, the owner's upload archive, derivatives and caches
@@ -242,8 +250,15 @@ def _is_excluded(rel: Path) -> bool:
     return False
 
 
+def release_tag(version: str = VERSION) -> str:
+    """The tag (and archive-name) form of *version*: ``v`` + the version, with SemVer build metadata joined by ``-``
+    instead of ``+`` (``0.8.0+macos.1`` -> ``v0.8.0-macos.1``). GitHub rewrites ``+`` in asset names, which would make
+    the published name differ from the audited one."""
+    return "v" + version.replace("+", "-")
+
+
 def _destination(os_name: str) -> Path:
-    return DIST_DIR / f"AudiobookTool-{os_name}-v{VERSION}.zip"
+    return DIST_DIR / f"AudiobookTool-{os_name}-{release_tag()}.zip"
 
 
 def _refuse_occupied(os_names) -> None:
@@ -273,6 +288,10 @@ def _write_archive(os_name: str, zip_path: Path) -> tuple[list[tuple[str, Path]]
             raise FileNotFoundError(f"Required root file missing: {required}")
     _refuse_developer_mode((REPO_ROOT / "config.toml").read_bytes(), "the checkout")
     tracked = _tracked_scripts()
+    tracked_root = set(_git("ls-files", "-z", "--", *ROOT_FILES).split("\0"))
+    for name in ROOT_FILES:
+        if name not in tracked_root:
+            raise ReleaseError(f"Required root file is not tracked by git: {name}")
     tracked_assets = set(_git("ls-files", "-z", "--", *REFERENCE_ASSETS).split("\0"))
     for name in REFERENCE_ASSETS:
         if name not in tracked_assets or not (REPO_ROOT / name).is_file():
@@ -408,7 +427,7 @@ def _package(os_names) -> list[Path]:
 
 
 def _package_os(os_name: str) -> Path:
-    """Build dist/AudiobookTool-<os_name>-vX.Y.Z.zip and return its path; refuse if it already exists."""
+    """Build dist/AudiobookTool-<os_name>-<release_tag()>.zip and return its path; refuse if it already exists."""
     return _package([os_name])[0]
 
 
@@ -423,7 +442,7 @@ def _print_checklist() -> None:
         f"Changelog.md records v{VERSION} publication/rebuild state truthfully.",
         f"Application identity in scripts/shared/version.py = {VERSION}.",
         "Everything committed (this script refuses uncommitted packaged paths).",
-        "Build the Windows zip (this script) -> dist/. macOS is held until natively qualified.",
+        f"Build the {' and '.join(RELEASE_OS_NAMES)} zip(s) (this script) from a clean LF checkout -> dist/.",
         "STOP for maintainer integration/release/publication authorization.",
         "Only after publication: date the release notes and update download links.",
     ]

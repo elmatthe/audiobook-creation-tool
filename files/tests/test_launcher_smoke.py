@@ -573,6 +573,10 @@ def test_the_launcher_keeps_the_model_cache_inside_the_project_before_any_window
     monkeypatch.setenv("HF_HOME", str(tmp_path / "user-wide-cache"))
     monkeypatch.delenv("HUGGINGFACE_HUB_CACHE", raising=False)
     monkeypatch.setattr(launcher.sp, "install_no_window_guard", lambda: None)
+    # Not this test's subject, and process-wide: main() would leave its containment owner installed for every later test
+    # in the process, and the next in-process close marks it closing -- after which every real FFmpeg start in that pytest
+    # process is refused (found by the P1B remediation's combined focused run; per-file runs never met it).
+    monkeypatch.setattr(launcher.sp, "enable_containment", lambda log=None: None)
     seen: dict = {}
 
     class Stop(Exception):
@@ -588,6 +592,7 @@ def test_the_launcher_keeps_the_model_cache_inside_the_project_before_any_window
     monkeypatch.setattr(launcher.tk, "Tk", no_window)
     with pytest.raises(Stop):
         launcher.main()
+    assert launcher.sp.containment_owner() is None, "no process-wide owner is left behind for the tests that follow"
     cache = resources / "models" / "huggingface"
     assert seen == {"HF_HOME": str(cache), "HUGGINGFACE_HUB_CACHE": str(cache / "hub")}
     assert cache.is_dir(), "the folder exists before anything could write to it"

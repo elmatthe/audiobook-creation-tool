@@ -534,10 +534,11 @@ def test_the_runner_composes_the_shared_framework_and_defines_none_of_it():
                      "m4b.metadata.m4b_metadata_processing"):
         assert required in modules, required
     # Since v0.7.2 Phase 6D (ACT72-033) the runner opens the attempt's Cancel scope for the remux's FFmpeg steps,
-    # and that is all it may use subprocess_utils for: it starts no process itself.
+    # and that is all it may use subprocess_utils for: it starts no process itself. v0.8.x P5-I-R3: it also asks the
+    # run's settlement (``containment_problem``) before its terminal event -- a question, still no process started.
     via_sp = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
               and isinstance(node.value, ast.Name) and node.value.id == "sp"}
-    assert via_sp <= {"cancellable"}, sorted(via_sp)
+    assert via_sp <= {"cancellable", "containment_problem", "CONTAINMENT_FAILED_MESSAGE"}, sorted(via_sp)
     declared = {node.name for node in ast.walk(tree)
                 if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
     for owned_elsewhere in ("JobController", "JobReporter", "JobEventStream", "RunResult",

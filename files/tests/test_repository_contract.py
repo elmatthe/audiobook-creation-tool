@@ -330,10 +330,10 @@ def test_the_config_gate_fails_malformed_toml(tmp_path):
 def test_the_application_version_is_unchanged():
     from shared.version import VERSION
 
-    # v0.8.0 release-candidate identity, set with config.toml and the other identity pins at the v0.8.0 Phase 4
-    # checkpoint (was 0.7.3, released; this pin still said 0.7.2). This pins application identity; it does not assert
+    # The macOS revision of v0.8.0 (D16, owner route 2026-11-20), set with config.toml: different source from the
+    # published Windows v0.8.0 (d1701e9), so never plain 0.8.0. This pins application identity; it does not assert
     # publication.
-    assert VERSION == "0.8.0"
+    assert VERSION == "0.8.0+macos.1"
 
 
 def test_the_launcher_carries_no_cleanup_behaviour():

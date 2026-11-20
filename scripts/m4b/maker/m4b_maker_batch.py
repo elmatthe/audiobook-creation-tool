@@ -196,18 +196,34 @@ class Attempt:
             with sp.cancellable(controller.cancel_check, controller.checkpoint):
                 self._recover_temporaries()
                 self._execute(records)
-            final = (controller.complete_with_failures()
-                     if any(not entry.succeeded for entry in records)
-                     else controller.succeed())
+            # v0.8.x P5-I-R3: never finished with a contained process of the run not confirmed ended.
+            problem = sp.containment_problem(controller.cancel_check)
+            if problem is not None:
+                reporter.technical(problem)
+                final = controller.fail(sp.CONTAINMENT_FAILED_MESSAGE, problem)
+            else:
+                final = (controller.complete_with_failures()
+                         if any(not entry.succeeded for entry in records)
+                         else controller.succeed())
             settle(final)
             self._release_staging()
             reporter.completed(final)
         except ConversionCancelled:
             self.stopped_book_id = self.current_book_id
-            final = controller.finish_cancelled()
-            settle(final)
-            self._release_staging()
-            reporter.cancelled(final)
+            # v0.8.x P5-I-R3: CANCELLED only once every contained process of the run is confirmed ended (bounded from
+            # the Cancel click); otherwise an explicit failure that names what is still owned.
+            problem = sp.containment_problem(controller.cancel_check)
+            if problem is not None:
+                reporter.technical(problem)
+                final = controller.fail(sp.CONTAINMENT_FAILED_MESSAGE, problem)
+                settle(final)
+                self._release_staging()
+                reporter.completed(final)
+            else:
+                final = controller.finish_cancelled()
+                settle(final)
+                self._release_staging()
+                reporter.cancelled(final)
         except BaseException as exc:  # noqa: BLE001 - deliberately everything
             detail = f"{type(exc).__name__}: {exc}"
             reporter.technical(detail)
@@ -451,7 +467,7 @@ class MakerRun:
             self._run_id = self._ids.next_id("run")
         run_id = self._run_id
         item_ids = tuple(occurrence for book in self.plan.books for occurrence in book.occurrence_ids)
-        controller = JobController(run_id, listener=self._on_state)
+        controller = JobController(run_id, listener=self._on_state, cancel_clock=time.monotonic)
         reporter = JobReporter(run_id, clock=self._clock, publish=self._publish,
                                item_ids=item_ids)
         attempt = Attempt(self, number=len(self.attempts) + 1, run_id=run_id, books=books,

@@ -33,7 +33,8 @@ out to whichever owned dialog is open, in place, with no widget destroyed.
 On Aqua the window's native appearance also follows the app choice, preserving
 native control and decoration layouts rather than installing Windows chrome.
 
-Run under ``pythonw.exe`` on Windows so no console window appears; all external
+Started on Windows by ``bootstrap.launch_gui`` as the venv's ``python.exe`` with ``CREATE_NO_WINDOW`` (it used to be
+``pythonw.exe``, which Smart App Control blocks), so no console window appears; all external
 binaries (ffmpeg/ffprobe) are invoked through ``shared.subprocess_utils`` which
 hides their console windows too.
 """
@@ -71,7 +72,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import appearance, ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
+from shared import appearance, engine_policy, ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
 from shared import settings as app_settings
 from shared import subprocess_utils as sp
 
@@ -90,12 +91,47 @@ def _appearance_toggle_label(current_appearance: str) -> str:
     return "☀ Light mode" if current_appearance == appearance.DARK else "☾ Dark mode"
 
 
+def _aqua_footer_colors(widget: tk.Misc) -> dict[str, str]:
+    """The darwin footer's colours in the appearance its window shows now (ACT72-081, owner-approved).
+
+    Tk Aqua fills each native ``ttk.Button``'s rectangle with the window colour of the window's *current* appearance -- the
+    app's Light/Dark choice, which ``appearance.apply_native_appearance`` sets on the window -- and no ttk style reaches that
+    fill (measured). The rest of the shell keeps the colours ``ui_theme`` resolved from the system at start; the footer,
+    which holds the two native buttons, takes the window colour resolved now, so the buttons sit on their own colour in
+    either appearance. The status text and the link use the shell's own formulas, held to WCAG AA on that colour (Light's
+    system link colour measured 4.45:1 on Light's window colour). In a Dark window these are exactly the shell's Dark
+    palette (``ui_theme._apply_darwin``).
+    """
+    window = ui_theme._resolve_color(widget, "systemWindowBackgroundColor", "#ececec")
+    text = ui_theme._resolve_color(widget, "systemLabelColor", "#000000")
+    link = ui_theme._resolve_color(widget, "systemLinkColor", "#0068da")
+    return {
+        "window": window,
+        "secondary": ui_theme._readable_secondary(text, window, window, 0.45),
+        # The link, moved toward the label colour only as far as AA needs (Light: 1 %).
+        "link": ui_theme._readable_secondary(text, link, window, 1.0),
+    }
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     key: str
     title: str
     module: str  # importable module under scripts/, e.g. "tts.epub2tts_gui"
     description: str
+
+
+#: The TTS tool's line on Windows (unchanged) and on a Mac (macOS P4C): each names only the engines its platform offers.
+WINDOWS_TTS_DESCRIPTION = (
+    "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro, Chatterbox and Qwen3 voices.")
+MAC_TTS_DESCRIPTION = "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro and OmniVoice voices."
+
+
+def tts_description(platform: str) -> str:
+    """The TTS tool's description on *platform* (``shared.engine_policy``)."""
+    if engine_policy.offered_engines(platform) == engine_policy.MACOS_ENGINES:
+        return MAC_TTS_DESCRIPTION
+    return WINDOWS_TTS_DESCRIPTION
 
 
 # The six-tool sidebar. The Metadata Editor (Phase 6) is registered when its
@@ -105,7 +141,7 @@ TOOLS: list[ToolSpec] = [
         "tts",
         "TTS Audiobook",
         "tts.epub2tts_gui",
-        "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro, Chatterbox and Qwen3 voices.",
+        tts_description(sys.platform),
     ),
     ToolSpec(
         "m4b_converter",
@@ -211,6 +247,8 @@ class LauncherApp:
         # focuses it instead of stacking duplicates.
         self.preferences_dialog = None
         self.appearance_button: ttk.Button | None = None
+        #: The darwin footer's classic widgets, recoloured in place for the window's appearance (ACT72-081); None elsewhere.
+        self._footer: dict | None = None
 
         self._build_ui()
         # Told about every future toggle so the one currently-open owned
@@ -220,6 +258,8 @@ class LauncherApp:
         appearance.register_listener(self._on_appearance_changed)
         self._apply_default_geometry()
         self._bind_preferences_accelerators()
+        self._closing = False
+        self._register_mac_application_commands()
 
         # Open the last-used tool, or the first available one.
         last = app_settings.get("last_tool")
@@ -460,9 +500,10 @@ class LauncherApp:
         status = tk.Frame(status_outer, bg=c["window"])
         status.pack(fill="x", padx=m["status_pad"][0], pady=m["status_pad"][1])
         self.status_var = tk.StringVar(value="Ready.")
-        tk.Label(status, textvariable=self.status_var, bg=c["window"],
-                 fg=c["secondary"], font=self.theme["font_status"],
-                 anchor="w").pack(side="left")
+        status_label = tk.Label(status, textvariable=self.status_var, bg=c["window"],
+                                fg=c["secondary"], font=self.theme["font_status"],
+                                anchor="w")
+        status_label.pack(side="left")
         log_link = tk.Label(status, text="Open log folder", bg=c["window"],
                             fg=c["link"], cursor="pointinghand",
                             font=self.theme["font_status"])
@@ -482,6 +523,16 @@ class LauncherApp:
             command=self._toggle_appearance, takefocus=True,
         )
         self.appearance_button.pack(side="right", padx=(0, m["row_padx"]))
+        # ACT72-081: the footer follows the appearance its window shows, so the
+        # two native buttons above never sit in a box of another colour. Painted
+        # now, on every appearance change (_on_appearance_changed), and when Tk
+        # reports the window's own appearance changed (the app's choice applied
+        # once the window maps, where Tk defers it). Bound once, here.
+        self._footer = {"surfaces": (status_outer, status), "status": status_label,
+                        "link": log_link}
+        self._paint_footer()
+        for sequence in ("<<LightAqua>>", "<<DarkAqua>>"):
+            self.root.bind(sequence, self._paint_footer, add="+")
 
         outer = tk.Frame(self.root, bg=c["window"])
         outer.pack(fill="both", expand=True)
@@ -490,7 +541,7 @@ class LauncherApp:
         sidebar = tk.Frame(outer, bg=c["sidebar"], width=m["sidebar_width"])
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
-        tk.Label(sidebar, text="TOOLS", bg=c["sidebar"], fg=c["secondary"],
+        tk.Label(sidebar, text="TOOLS", bg=c["sidebar"], fg=c["sidebar_label"],
                  font=self.theme["font_section"], anchor="w"
                  ).pack(fill="x", padx=m["sidebar_pad"] + m["row_padx"],
                         pady=(m["sidebar_pad"] + 2, 4))
@@ -527,14 +578,29 @@ class LauncherApp:
         self._toolbar_title.pack(side="left", padx=(m["content_pad"], 8))
         self._toolbar_desc = tk.Label(toolbar, text="", bg=c["window"],
                                       fg=c["secondary"],
-                                      font=self.theme["font_status"], anchor="w")
+                                      font=self.theme["font_status"], anchor="w",
+                                      justify="left")
         self._toolbar_desc.pack(side="left", fill="x", expand=True)
+        # ACT72-078: the TTS description is wider than the toolbar at the
+        # 1120x800 minimum and was cut at the right edge. It wraps to the
+        # width it is given instead (two lines fit the 44 pt toolbar).
+        self._toolbar_desc.bind(
+            "<Configure>",
+            lambda event: event.widget.configure(wraplength=max(1, event.width)),
+            add="+")
         tk.Frame(column, bg=c["separator"], height=1).pack(fill="x")
 
         card_holder = tk.Frame(column, bg=c["window"])
         card_holder.pack(fill="both", expand=True)
+        # The hairline is drawn in highlightcolor whenever keyboard focus is
+        # inside the card (Aqua), which turned it black or white around the
+        # whole panel as soon as any field was used (P1B eye review). It is
+        # chrome, not a focus indicator: one colour, and never a focus stop.
         card = tk.Frame(card_holder, bg=c["card"],
-                        highlightbackground=c["separator"], highlightthickness=1)
+                        highlightbackground=c["separator"],
+                        highlightcolor=c["separator"], highlightthickness=1,
+                        takefocus=0)
+        self._content_card = card
         card.pack(fill="both", expand=True,
                   padx=m["content_pad"], pady=m["content_pad"])
 
@@ -573,6 +639,21 @@ class LauncherApp:
             except tk.TclError:
                 pass
 
+    def _register_mac_application_commands(self):
+        """macOS (v0.8.x P1B, MAC-008): the application menu's Quit and Cmd+Q, and its Settings item and Cmd+,.
+
+        Without ``::tk::mac::Quit`` Tk ends the process itself on Cmd+Q, skipping the close path below: the last tool
+        was not remembered and the orderly end of the app's FFmpeg children did not run. Registered only where Tk
+        draws natively on macOS (decided by the running Tk, never by guessing the OS); nothing changes elsewhere.
+        """
+        if not ui_theme.is_aqua(self.root):
+            return
+        try:
+            self.root.createcommand("::tk::mac::Quit", self._on_close)
+            self.root.createcommand("::tk::mac::ShowPreferences", self.open_preferences)
+        except tk.TclError:
+            self.logger.exception("Could not register the macOS application commands")
+
     def open_preferences(self):
         """Open Preferences & Data, or focus the window that is already open."""
         self.preferences_dialog = preferences_ui.open_preferences(
@@ -600,9 +681,27 @@ class LauncherApp:
             f"Appearance: {self.appearance_bundle['appearance'].capitalize()}."
         )
 
+    def _paint_footer(self, _event=None) -> None:
+        """Recolour the darwin footer, in place, for the appearance its window shows now (ACT72-081). Idempotent.
+
+        A no-op on the Windows and classic shells, whose status bars are ttk-styled and unchanged."""
+        if self._footer is None:
+            return
+        try:
+            colors = _aqua_footer_colors(self.root)
+            for surface in self._footer["surfaces"]:
+                surface.configure(bg=colors["window"])
+            self._footer["status"].configure(bg=colors["window"], fg=colors["secondary"])
+            self._footer["link"].configure(bg=colors["window"], fg=colors["link"])
+        except tk.TclError:  # the window is being destroyed
+            pass
+
     def _on_appearance_changed(self, bundle: dict) -> None:
         """Fan the new bundle out to whichever owned dialog is open right now."""
         self.appearance_bundle = bundle
+        # The bundle has already set the window's native appearance: the
+        # footer follows it in the same pass as the native buttons.
+        self._paint_footer()
         if self.appearance_button is not None:
             self.appearance_button.configure(
                 text=_appearance_toggle_label(bundle["appearance"]))
@@ -770,10 +869,19 @@ class LauncherApp:
         self.root.geometry(self.theme["geometry"])
 
     def _on_close(self):
+        # macOS and Linux: one close, however many ways it was asked for (the red button, Cmd+Q, a signal, all three at
+        # once). Windows closes exactly as it did before (v0.8.x P1B: no Windows behaviour change without an owner decision).
+        if sys.platform != "win32":
+            if getattr(self, "_closing", False):
+                return
+            self._closing = True
         try:
             app_settings.set("last_tool", self.current_key)
         except Exception:
             pass
+        # POSIX: from here no worker may start another FFmpeg; the running ones are ended once the window is gone
+        # (main). Nothing on Windows.
+        sp.begin_closing()
         self.root.destroy()
 
 
@@ -860,6 +968,120 @@ def _configure_hf_cache() -> None:
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
 
 
+#: The application-menu commands the window registers on macOS (``LauncherApp._register_mac_application_commands``).
+MAC_APPLICATION_COMMANDS = ("::tk::mac::Quit", "::tk::mac::ShowPreferences")
+
+
+def _drop_mac_application_commands(root: tk.Tk) -> None:
+    """macOS (v0.8.x P1B): once the main loop has ended, the Tcl commands that call back into the window are removed. Tcl
+    holds their callbacks from C, out of the collector's sight, so otherwise the closed window would stay reachable
+    through them for the rest of the process -- a holder besides ``_ROOT`` that the Windows design never had. Nothing on
+    Windows."""
+    if sys.platform != "darwin":
+        return
+    for name in MAC_APPLICATION_COMMANDS:
+        try:
+            root.tk.deletecommand(name)
+        except (tk.TclError, AttributeError):
+            pass
+
+
+#: The signals that mean "close the app" on macOS: Activity Monitor's Quit and logout (SIGTERM), a closed Terminal
+#: window (SIGHUP) and Ctrl+C in it (SIGINT).
+CLOSE_SIGNALS = ("SIGTERM", "SIGHUP", "SIGINT")
+
+
+def _route_signals_to_close(root: tk.Tk, app: LauncherApp):
+    """POSIX (v0.8.x P1B): the close signals reach the same close path as the red button and Cmd+Q, on Tk's thread.
+
+    Python runs a signal handler only when the main thread next gets control, and Tk's main loop can sleep inside Tcl
+    until a window event arrives; so the signal also writes to a wake-up pipe that Tk watches, and the loop turns at
+    once. The handler only schedules the close; it never touches a widget itself. Containment after SIGKILL or a crash
+    never depends on this (the lifeline does that). Nothing on Windows (returns False).
+
+    Returns the function that hands the signals back once the main loop has ended (or None when nothing was routed):
+    the window is gone then, so a further signal must end the process as it did before, not be lost on a closed
+    window -- and the handler must not keep that closed window reachable for the rest of the process.
+    """
+    if sys.platform == "win32":
+        return False
+    import signal
+
+    def request_close(_signum, _frame):
+        try:
+            root.after(0, app._on_close)
+        except Exception:  # noqa: BLE001 - the window is already going
+            pass
+
+    previous: dict = {}
+    try:
+        wake_read, wake_write = os.pipe()
+        os.set_blocking(wake_read, False)
+        os.set_blocking(wake_write, False)
+
+        def drain(_fd, _mask):
+            try:
+                os.read(wake_read, 512)
+            except OSError:
+                pass
+
+        root.createfilehandler(wake_read, tk.READABLE, drain)
+        signal.set_wakeup_fd(wake_write)
+        for name in CLOSE_SIGNALS:
+            number = getattr(signal, name)
+            # A signal this process was started ignoring stays ignored (``nohup``'s contract); the app the launch
+            # script starts is in its own session, so a closed Terminal never sends it SIGHUP in any case.
+            if signal.getsignal(number) is signal.SIG_IGN:
+                continue
+            previous[number] = signal.signal(number, request_close)
+    except (OSError, ValueError, tk.TclError, AttributeError):
+        app.logger.exception("Could not route the close signals to the close path")
+        return None
+
+    def hand_back() -> None:
+        for number, handler in previous.items():
+            try:
+                signal.signal(number, handler)
+            except (OSError, ValueError):
+                pass
+        try:
+            signal.set_wakeup_fd(-1)
+        except (OSError, ValueError):
+            pass
+        for descriptor in (wake_read, wake_write):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+    return hand_back
+
+
+def _raise_open_file_limit() -> tuple[int, int] | None:
+    """macOS (v0.8.x P1B, MAC-012): raise this process's soft open-file limit to ``min(hard, 4096)``.
+
+    An app started from Finder or Terminal inherits launchd's soft limit of 256. Process-local, never a system change,
+    and never lowered. Returns ``(before, after)``, or None when nothing was changed. Nothing on Windows.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = OPEN_FILE_TARGET if hard == resource.RLIM_INFINITY else min(hard, OPEN_FILE_TARGET)
+        if soft != resource.RLIM_INFINITY and soft < target:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            return soft, target
+    except (ImportError, OSError, ValueError):
+        pass
+    return None
+
+
+#: The soft open-file limit the app asks for on macOS (plan section 11.3).
+OPEN_FILE_TARGET = 4096
+
+
 def main() -> int:
     global _ROOT
     # Install the global no-window guard first, before anything imports pydub /
@@ -867,13 +1089,29 @@ def main() -> int:
     # inherit hidden-window flags and do not flash console windows on Windows.
     sp.install_no_window_guard()
     _configure_hf_cache()
+    raised = _raise_open_file_limit()
+    # POSIX (v0.8.x P1B): this window owns every FFmpeg and ffprobe it starts, and the optional-setup workers; they end
+    # with it however it ends. None on Windows (Job Objects and the Toolhelp stop, unchanged).
+    owner = sp.enable_containment(logging_setup.get_logger().info)
+    if owner is not None:
+        import atexit
+
+        atexit.register(owner.shutdown)  # the last orderly resort; never the containment after a crash
     root = _ROOT = tk.Tk()
-    LauncherApp(root)
+    app = LauncherApp(root)
+    if raised is not None:
+        app.logger.info("Open-file limit raised from %d to %d for this process.", *raised)
+    hand_back_signals = _route_signals_to_close(root, app)
     root.mainloop()
+    if callable(hand_back_signals):
+        hand_back_signals()
+    _drop_mac_application_commands(root)
     # The window is gone: finish its Tk objects on this thread before any worker's collection can reach them (ACT72-017).
     _finish_tk_objects(root)
     # The window is gone and each panel has cancelled its run, but a worker blocked on FFmpeg cannot act on that before the interpreter ends it.
     sp.stop_media_children()
+    # POSIX: the rest of the orderly end -- the optional-setup worker, then the lifeline and the guardian. Bounded.
+    sp.shutdown_containment()
     return 0
 
 

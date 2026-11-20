@@ -78,6 +78,7 @@ from shared.book_workspace import (
     has_meaningful_work,
 )
 from shared.job_control import ControlKind
+from shared import ui_theme
 from shared.job_ui import JobUiError, MainThreadGuard, style_name
 
 __all__ = [
@@ -257,6 +258,15 @@ class BookNavigator:
     meaningless Duplicate and an empty manual Add without either becoming a
     reachable no-op. Navigation and the direct selector are not optional: the
     subset may only drop Book actions, never Previous, Next or the selector.
+
+    **The heading may fit its width** (v0.8.x P1B remediation, ACT72-078).
+    With ``fit_heading=True`` the label asks for no width of its own, takes
+    the slack column, and shows the heading shortened to what that column
+    holds: the book's label yields behind an ellipsis and the position in
+    brackets is never cut (it read "(1 of" beside a long title on Aqua). The
+    whole heading stays in :attr:`position_variable` and
+    :attr:`heading_text`; the direct selector beside it lists every row in
+    full. The default keeps the natural label exactly as it was.
     """
 
     #: The two geometries. ``"row"`` is the accepted single row; ``"stacked"``
@@ -292,8 +302,8 @@ class BookNavigator:
 
     __slots__ = ("_guard", "_theme", "_closed", "_locked", "_workspace",
                  "_callbacks", "_position", "_describe", "_label_for", "_layout",
-                 "_actions", "frame", "buttons", "label", "position_variable",
-                 "selector")
+                 "_actions", "_fit_heading", "frame", "buttons", "label",
+                 "position_variable", "selector")
 
     def __init__(
         self,
@@ -311,6 +321,7 @@ class BookNavigator:
         on_duplicate: Callable[[], object] | None = None,
         on_remove: Callable[[bool], object] | None = None,
         on_select: Callable[[str], object] | None = None,
+        fit_heading: bool = False,
     ) -> None:
         if layout not in self.LAYOUTS:
             raise BookWorkspaceUiError(
@@ -333,6 +344,7 @@ class BookNavigator:
         self._position: tuple[int, int] = (0, 0)
         self._describe = describe
         self._label_for = label_for
+        self._fit_heading = bool(fit_heading)
         self._callbacks: dict[str, Callable[..., object] | None] = {
             self.PREVIOUS: on_previous,
             self.NEXT: on_next,
@@ -344,8 +356,16 @@ class BookNavigator:
 
         self.frame = ttk.Frame(parent, style=style_name(theme, "card"))
         self.position_variable = tk.StringVar(master=self.frame, value="")
-        self.label = ttk.Label(self.frame, textvariable=self.position_variable,
-                               style=style_name(theme, "section"))
+        if self._fit_heading:
+            # No request of its own: the slack column decides the width and
+            # ``_fit_label`` decides what of the heading that width shows.
+            self.label = ttk.Label(self.frame, text="", width=1,
+                                   anchor="center" if layout == "row" else "w",
+                                   style=style_name(theme, "section"))
+            self.label.bind("<Configure>", self._fit_label, add="+")
+        else:
+            self.label = ttk.Label(self.frame, textvariable=self.position_variable,
+                                   style=style_name(theme, "section"))
 
         neutral = style_name(theme, "button")
         self.buttons: dict[str, ttk.Button] = {}
@@ -380,7 +400,8 @@ class BookNavigator:
         if layout == "row":
             self.buttons[self.PREVIOUS].grid(row=0, column=0)
             self.buttons[self.NEXT].grid(row=0, column=1, padx=(6, 0))
-            self.label.grid(row=0, column=2, padx=(8, 8))
+            self.label.grid(row=0, column=2, padx=(8, 8),
+                            sticky="ew" if self._fit_heading else "")
             self.selector.grid(row=0, column=3, padx=(0, 8))
             for slot, action in enumerate(self._actions):
                 self.buttons[action].grid(
@@ -392,7 +413,8 @@ class BookNavigator:
             # selector keeps the right edge of the block.
             self.buttons[self.PREVIOUS].grid(row=0, column=0, sticky="w")
             self.buttons[self.NEXT].grid(row=0, column=1, sticky="w", padx=(6, 0))
-            self.label.grid(row=0, column=2, sticky="w", padx=(8, 8))
+            self.label.grid(row=0, column=2, sticky="ew" if self._fit_heading else "w",
+                            padx=(8, 8))
             self.selector.grid(row=0, column=3, sticky="e")
             slots = ({"column": 0},
                      {"column": 1, "padx": (6, 0)},
@@ -523,6 +545,37 @@ class BookNavigator:
             return self.position_text
         return f"{self._row_label(current, position)}  ({position} of {count})"
 
+    @property
+    def heading_shown(self) -> str:
+        """What the heading label shows now: :attr:`heading_text`, or its fitted form."""
+        if not self._fit_heading:
+            return _read(self.position_variable)
+        try:
+            return str(self.label.cget("text"))
+        except tk.TclError:
+            return ""
+
+    def _heading_parts(self) -> tuple[str, str]:
+        """The heading as (the part that may yield, the part kept whole)."""
+        position, count = self._position
+        current = None if self._workspace is None else self._workspace.current
+        if self._label_for is None or not isinstance(current, BookJob) or not count:
+            return self.position_text, ""
+        return self._row_label(current, position), f"  ({position} of {count})"
+
+    def _fit_label(self, _event: object = None) -> None:
+        """Show as much of the heading as the label's width holds; the position stays whole."""
+        if self._closed or not self._fit_heading or not _alive(self.label):
+            return
+        head, kept = self._heading_parts()
+        try:
+            font = ui_theme.label_font(self.label)
+            width = ui_theme.text_room(self.label, font.measure)
+            text = ui_theme.fit_end(head, width, font.measure, suffix=kept)
+            self.label.configure(text=text)
+        except tk.TclError:
+            pass
+
     def availability(self) -> Mapping[str, bool]:
         """Which actions are offered, derived from the rendered snapshot.
 
@@ -558,6 +611,7 @@ class BookNavigator:
         available = self.availability()
         if not self._closed:
             _write(self.position_variable, self.heading_text)
+            self._fit_label()
             for action, offered in available.items():
                 _enable(self.buttons.get(action), offered and not self._locked)
             self._render_selector(available[self.SELECT])

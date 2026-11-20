@@ -31,7 +31,9 @@ from gate_locator import GATE_DIR, GATE_PATH, load_gate
 
 GATE_ORDER = ["pytest", "guarded", "deps", "docs", "docnames", "config"]
 EVIDENCE_FILES = {"logs/verify.log", "logs/pytest.log", "reports/pytest.xml", "reports/pytest-probe.jsonl", "start.json",
-                  "results.json", "selection.json", "summary.md", "coverage-report.md"}
+                  "results.json", "selection.json", "summary.md", "coverage-report.md",
+                  # v0.8.x P1B closeout: every file the run saw, as a git blob, for incremental evidence (helpers/evidence_ledger.py)
+                  "evidence-files.json"}
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the tree fingerprint needs git")
 
@@ -188,6 +190,9 @@ POLICY = {
     "process": {"drain_seconds": 2, "kill_wait_seconds": 10},
     "scenarios": {name: {"phase": 8, "network": [], "detail": "synthetic"}
                   for name in ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows")},
+    # v0.8.x P1B: the macOS gate's own frozen qualification set; Windows never reads it.
+    "darwin_scenarios": {name: {"phase": "P1B", "network": [], "procedure": "synthetic", "detail": "synthetic"}
+                         for name in ("fresh-macos", "macos-native-dialogs", "macos-visual", "macos-kx10")},
     "later_phase_requirements": [{"id": "native-journeys", "phase": 3, "required": False, "detail": "synthetic"}],
     "inventory": {"minimum_ordinary": 1, "minimum_guarded": {}, "guarded_membership": {}},
     "required_self_tests": [],

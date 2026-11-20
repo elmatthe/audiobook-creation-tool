@@ -28,6 +28,7 @@ Pure numpy, no I/O, no model imports: importing it costs nothing for the engines
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -55,10 +56,13 @@ def _frames(pcm: np.ndarray) -> tuple[np.ndarray, float]:
     return (arr if arr.ndim == 2 else arr[:, np.newaxis]), full_scale
 
 
-def last_sound(pcm: np.ndarray, sample_rate: int, threshold_dbfs: float = NOMINAL_THRESHOLD_DBFS) -> int:
+def last_sound(pcm: np.ndarray, sample_rate: int, threshold_dbfs: float = NOMINAL_THRESHOLD_DBFS, *,
+               checkpoint: Optional[Callable[[], None]] = None) -> int:
     """The sample index just after the last window, on any channel, whose RMS or peak reaches ``threshold_dbfs``.
 
     0 means no window reaches it. Windows are aligned to the start of ``pcm`` (the last one may be shorter).
+    ``checkpoint`` (v0.8.x P5-H-R1), when given, is called before each block is read: the disk route passes its Cancel
+    check, so a long silent ending is not scanned to its start after a Cancel. It changes nothing about the answer.
     """
     frames, full_scale = _frames(pcm)
     n = frames.shape[0]
@@ -68,6 +72,8 @@ def last_sound(pcm: np.ndarray, sample_rate: int, threshold_dbfs: float = NOMINA
     level = 10 ** (threshold_dbfs / 20)
     end = n
     while end > 0:
+        if checkpoint is not None:
+            checkpoint()
         start = max(0, (end - win * _SCAN_BLOCK_WINDOWS) // win * win)
         block = frames[start:end].astype(np.float64) / full_scale
         starts = np.arange(0, end - start, win)
@@ -147,15 +153,18 @@ class FinalTail:
         return f"Final tail: {self.tail_ms / 1000:.2f} s of trailing near-silence; nothing removed."
 
 
-def apply_final_tail_policy(pcm: np.ndarray, sample_rate: int) -> FinalTail:
-    """Shorten only the terminal near-silent suffix of finished narration PCM, per the module rule."""
+def apply_final_tail_policy(pcm: np.ndarray, sample_rate: int, *,
+                            checkpoint: Optional[Callable[[], None]] = None) -> FinalTail:
+    """Shorten only the terminal near-silent suffix of finished narration PCM, per the module rule. ``checkpoint``: as
+    :func:`last_sound`'s."""
     frames, _scale = _frames(pcm)
     n = frames.shape[0]
-    nominal = last_sound(pcm, sample_rate, NOMINAL_THRESHOLD_DBFS)
+    nominal = last_sound(pcm, sample_rate, NOMINAL_THRESHOLD_DBFS, checkpoint=checkpoint)
     if nominal == 0:
         return FinalTail(np.asarray(pcm), int(sample_rate), n, 0, last_sound(pcm, sample_rate,
-                                                                                CONSERVATIVE_THRESHOLD_DBFS))
-    conservative = last_sound(pcm, sample_rate, CONSERVATIVE_THRESHOLD_DBFS)
+                                                                                CONSERVATIVE_THRESHOLD_DBFS,
+                                                                                checkpoint=checkpoint))
+    conservative = last_sound(pcm, sample_rate, CONSERVATIVE_THRESHOLD_DBFS, checkpoint=checkpoint)
     keep = int(round(sample_rate * KEEP_MS / 1000))
     cut = min(n, max(nominal + keep, conservative))
     return FinalTail(np.asarray(pcm)[:cut], int(sample_rate), n, nominal, conservative)

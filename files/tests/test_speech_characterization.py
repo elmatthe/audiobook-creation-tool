@@ -55,6 +55,7 @@ def test_the_stored_input_manifest_matches_the_corpus_the_tool_builds():
 
 
 @pytest.mark.parametrize("route", sc.ROUTES)
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_each_route_still_produces_exactly_its_golden(route):
     assert fresh(route) == stored(route), (
         f"the {route} text route no longer matches its A0 characterization; a pure-refactor checkpoint must not "

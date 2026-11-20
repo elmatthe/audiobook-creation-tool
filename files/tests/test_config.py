@@ -86,7 +86,7 @@ def test_the_committed_root_config_is_valid_with_no_diagnostics():
     assert effective.project.version == VERSION
     assert effective.project.python_min == "3.11"
     assert effective.project.entry_point == "scripts/launcher.py"
-    assert effective.project.platforms == ("Windows",)  # v0.7.0: macOS held
+    assert effective.project.platforms == ("MacOS",)  # 0.8.0+macos.1 (D16): this source ships for macOS only
     assert effective.logging.max_sessions == 30
     assert effective.importing.large_result_warning_threshold == 1000
     assert effective.output.is_default is True
@@ -186,6 +186,14 @@ def test_project_version_drift_uses_the_code_version_and_warns(tmp_path):
     assert effective.project.version == VERSION
     assert "project.version" in keys_with_diagnostics(effective)
     assert "9.9.9" in effective.warning_summary()
+
+
+@pytest.mark.parametrize("text,shape_ok", [("0.8.0", True), ("0.8.0+macos.1", True), ("1.2.3+a.b2", True),
+                                            ("0.8.0+", False), ("0.8.0+macos..1", False), ("0.8.0-macos.1", False),
+                                            ("v0.8.0", False), ("0.8", False)])
+def test_the_version_shape_accepts_build_metadata_only(text, shape_ok):
+    """D16 (2026-11-20): ``X.Y.Z`` or ``X.Y.Z+build`` (the macOS revision ``0.8.0+macos.1``); nothing else."""
+    assert bool(config._VERSION_RE.match(text)) is shape_ok
 
 
 @pytest.mark.parametrize("bad", ['"3"', '"three.eleven"', '"3.11.2.1"', "3.11", "true"])

@@ -229,6 +229,7 @@ def test_the_disclosure_names_what_cannot_be_installed_and_a_ready_component(wor
     assert "cannot be installed now" in client.disclosure(shown)
 
 
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_voice_components_map_by_stable_identity():
     assert voice_install.component_for("kokoro", "af_heart") == proto.KOKORO
     assert voice_install.component_for("chatterbox", "anything") == proto.CHATTERBOX

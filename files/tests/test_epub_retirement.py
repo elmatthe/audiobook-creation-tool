@@ -126,6 +126,9 @@ PRODUCTION_TTS_SOURCES = (
     "tts/voice_install.py",
     # v0.8.0 Phase 3: OmniVoice's part of the optional installer (install, adopt, repair, proof, receipt).
     "tts/omnivoice_setup.py",
+    # v0.8.x P2 (macOS): the preemptible local-engine worker, its parent side and its child. Same reasoning as above.
+    "tts/local_engine_host.py",
+    "tts/local_engine_worker.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them
@@ -720,7 +723,7 @@ def test_the_archive_is_not_importable_through_production():
 def test_the_release_packager_can_never_reach_the_archive():
     from shared import release
 
-    assert release.ROOT_FILES == ("README.md", "config.toml")
+    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE")
     assert release.SCRIPTS_DIR.name == "scripts"
     assert not str(ARCHIVE).startswith(str(release.SCRIPTS_DIR))
     text = (SHARED / "release.py").read_text(encoding="utf-8")

@@ -17,7 +17,8 @@ What happens for one file (``omnivoice_file_to_mp3``, the same shape as ``qwen3_
    (one hash-bound owner exception; ``omnivoice_runtime``) -- and handed to the worker whole and unchanged, with its
    owner-written transcript and a cache identity that binds every input of the clone prompt. Nothing is cropped or
    copied; OmniVoice resamples the reference in memory.
-4. The chunks go to the worker in batches of at most :data:`CHUNKS_PER_WORKER`: each batch is a fresh worker process, so
+4. The chunks go to the worker in batches of at most :data:`CHUNKS_PER_WORKER` (:data:`MPS_CHUNKS_PER_WORKER` on a Mac's
+   GPU): each batch is a fresh worker process, so
    no file, however long, accumulates GPU state in one process (upstream issue #199). Cancellation asks politely (a flag
    file) and then, after a short grace period, kills the whole process tree.
 5. The chunk waveforms are read back in plan order, validated, joined with the voice preset's paragraph pause between
@@ -26,16 +27,30 @@ What happens for one file (``omnivoice_file_to_mp3``, the same shape as ``qwen3_
 
 Nothing falls back: an unavailable engine, model or reference raises ``OmniVoiceUnavailable``; a GPU that fails, a worker
 that dies, or a chunk that is wrong fails the file with a plain sentence.
+
+**On a Mac (macOS P4B).** The device and dtype come from ``omnivoice_runtime.device_policy`` once per file -- the Mac's
+GPU (MPS) in float32 by default, the CPU in float32 by explicit choice -- are logged, go into the job and into the clone
+prompt's identity, and are never changed on the way: a GPU that cannot be used fails the file, it does not move to the
+CPU. The worker is a class-A child (``shared.child_ownership``): its own process group, started through
+``child_entry.py`` so its owner's lifeline ends it however the owner ends; the owner is the app window's, or this
+process's own when there is none (a command-line tool). Cancel keeps its released shape (flag file, 2 s grace, the
+whole group killed and reaped), within the macOS contract's OmniVoice bound (plan section 11.2.1: 4 s). On the Mac's
+GPU a worker renders at most :data:`MPS_CHUNKS_PER_WORKER` chunks (the P4B memory checkpoint); the processor keeps 48.
+However a worker ends -- ``done``, Cancel, a crash -- it is never reaped before its whole group has been ended (v0.8.x
+P5-D): what it left in its group ends with it, output held open by such a leftover no longer keeps the run waiting, and
+a group that cannot be confirmed ended makes the file a failure, never a success or a clean Cancel.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -65,14 +80,26 @@ from tts.speech.profiles import OMNIVOICE as OMNIVOICE_ROUTE
 OMNIVOICE_MAX_CHUNK_CHARS = 300
 #: The most chunks one worker process renders before it exits and a fresh one takes over (bounded lifetime: GPU memory
 #: cannot accumulate across a long book). Reloading costs a few seconds per batch; the clone prompt is reused from cache.
+#: Windows (CUDA) and a Mac's processor, as released.
 CHUNKS_PER_WORKER = 48
+#: The bound on a Mac's GPU (MPS; macOS P4B memory checkpoint, 2026-11-16; owner accepted with its memory exception).
+#: There a worker's footprint grows with every chunk of a new shape while its live tensors stay flat, and only the
+#: process's end gives the memory back. ``torch.mps.empty_cache()`` does not stop the growth (P4B option B): it frees
+#: one chunk's working space, which the next chunk takes back, while the GPU memory outside PyTorch's free pool and the
+#: CPU heap keep growing. Per-shape MPSGraph resources (executables compiled for each new chunk shape) are the likely
+#: cause; that is inferred, not proven. On long, all-different chunks one worker passed 13 GB after 48 (about 120 MiB a
+#: chunk), so a fresh worker starts three times as often. The audio is bit-identical; each extra worker costs about
+#: 4 s. No cache clearing is done.
+MPS_CHUNKS_PER_WORKER = 16
 #: Bump deliberately whenever a change can alter generated audio (planning, seeding, generation, assembly).
 PIPELINE_REVISION = 1
 SEED_BASE = 20261113
 
 LANGUAGE = "English"
-DTYPE = "float16"
-DEVICE = "cuda"
+#: Windows' device and dtype, as released. Every run asks ``omnivoice_runtime.device_policy`` (these on Windows; the
+#: Mac's accepted configuration on a Mac).
+DTYPE = ov.WINDOWS_DTYPE
+DEVICE = ov.WINDOWS_DEVICE
 #: The pinned generation baseline: ``OmniVoiceGenerationConfig``'s own defaults in omnivoice 0.2.1, written out so a run
 #: states exactly what it used (plan section 3: 32 steps). ``preprocess_prompt`` trims the reference's leading and
 #: trailing silence to 100/200 ms and its inner pauses to 200 ms, in memory; it never adds audio. Not user controls.
@@ -90,6 +117,10 @@ KILL_WAIT_S = 10.0
 EVENT_TIMEOUT_S = 900.0
 #: After its result, how long a worker gets to exit; one that will not is killed and its result distrusted.
 EXIT_GRACE_S = 20.0
+#: POSIX (v0.8.x P5-D): once a worker's process group has been ended, every writer in it is gone, so what it wrote
+#: reaches its end at once; output that stays silent this long without ending is held open by something outside that
+#: group, and the worker cannot be vouched for.
+OUTPUT_DRAIN_S = 2.0
 STALE_JOB_AGE_S = 24 * 3600.0
 STDERR_TAIL_CHARS = 1500
 
@@ -114,6 +145,12 @@ def derive_seed(voice_id: str, chunk: _local.Chunk) -> int:
     return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
 
 
+def chunks_per_worker_for(policy: ov.DevicePolicy) -> int:
+    """How many chunks one worker renders for a run on *policy*'s device: 16 on a Mac's GPU, 48 everywhere else
+    (Windows' CUDA and a Mac's processor exactly as released)."""
+    return MPS_CHUNKS_PER_WORKER if policy.device == ov.DEVICE_MPS else CHUNKS_PER_WORKER
+
+
 def batches(chunks: list, size: int = CHUNKS_PER_WORKER) -> list[list]:
     if size < 1:
         raise ValueError("a worker renders at least one chunk")
@@ -121,15 +158,18 @@ def batches(chunks: list, size: int = CHUNKS_PER_WORKER) -> list[list]:
 
 
 def build_job(voice: ov.OmniVoiceVoice, spec: ov.ReferenceSpec, chunks: list, *, job_dir: Path, reference: dict,
-              model_dir: Path, omnivoice_version: str, prompt_cache: Optional[dict]) -> dict:
+              model_dir: Path, omnivoice_version: str, prompt_cache: Optional[dict],
+              policy: Optional[ov.DevicePolicy] = None) -> dict:
     """Everything one worker needs, as plain data. Pure: touches no disk.
 
     *reference* is :func:`omnivoice_runtime.verify_reference`'s answer: the voice's own recording, its SHA-256, frame
-    count, rate and the most frames it may have. The worker proves the file again before it uses it.
+    count, rate and the most frames it may have. The worker proves the file again before it uses it. *policy* is the
+    run's device and dtype (:func:`omnivoice_runtime.device_policy` when not given).
     """
+    policy = ov.device_policy() if policy is None else policy
     return {
         "schema": 1, "kind": "synth", "voice_id": voice.voice_id, "model_dir": str(model_dir),
-        "omnivoice_version": omnivoice_version, "language": LANGUAGE, "dtype": DTYPE, "device": DEVICE,
+        "omnivoice_version": omnivoice_version, "language": LANGUAGE, "dtype": policy.dtype, "device": policy.device,
         "out_dir": str(job_dir / "chunks"), "cancel_file": str(job_dir / "cancel"),
         "engine_lock": str(ov.engine_lock_path()),
         "reference": {key: reference[key] for key in ("wav", "wav_sha256", "frames", "sample_rate", "max_frames")},
@@ -139,9 +179,13 @@ def build_job(voice: ov.OmniVoiceVoice, spec: ov.ReferenceSpec, chunks: list, *,
 
 
 def prompt_cache_entry(spec: ov.ReferenceSpec, *, model_revision: str, omnivoice_version: str,
-                       prompts_root: Optional[Path] = None) -> dict:
+                       prompts_root: Optional[Path] = None, policy: Optional[ov.DevicePolicy] = None) -> dict:
+    """Where the voice's reusable clone prompt is filed, under an identity that binds its dtype and (off CUDA) its
+    device, so a prompt made on one device is never reused on another."""
+    policy = ov.device_policy() if policy is None else policy
     key, identity = ov.prompt_identity(spec, model_revision=model_revision, omnivoice_version=omnivoice_version,
-                                       preprocess_prompt=GENERATION["preprocess_prompt"], dtype=DTYPE)
+                                       preprocess_prompt=GENERATION["preprocess_prompt"], dtype=policy.dtype,
+                                       device=policy.device)
     root = ov.ensure_runtime_dir(ov.prompts_root()) if prompts_root is None else Path(prompts_root)
     return {"path": str(root / ov.prompt_cache_path(spec.voice_id, key).name), "key": key, "identity": identity}
 
@@ -168,12 +212,82 @@ class WorkerRun:
     returncode: int
 
 
+_PRIVATE_OWNER = None
+
+
+def _private_owner():
+    """This process's own containment owner, for a run started where the app window's is not (a command-line tool):
+    the worker is still a class-A child tied to a lifeline, so it ends with this process however it ends."""
+    global _PRIVATE_OWNER
+    if _PRIVATE_OWNER is None:
+        from shared import child_ownership
+
+        _PRIVATE_OWNER = child_ownership.Owner()
+    return _PRIVATE_OWNER
+
+
+def spawn_worker(cmd: list, **kwargs) -> subprocess.Popen:
+    """Start one worker so that its whole tree can always be stopped. Windows: a Job Object, as released
+    (``qwen3_process.spawn`` with ``require_job``). A Mac: a class-A child of the app window's containment owner
+    (``qwen3_process.spawn`` finds it), or of this process's own when there is none -- never a worker without a
+    lifeline."""
+    if sys.platform != "win32" and qwen3_process._posix_owner(cmd) is None:
+        owner = _private_owner()
+        try:
+            proc = owner.popen_python([str(part) for part in cmd], label="omnivoice-worker", **kwargs)  # incl. run
+        except RuntimeError as exc:  # child_ownership.ContainmentUnavailable: nothing was started
+            raise qwen3_process.ContainmentUnavailable(str(exc)) from exc
+        proc.act_job = None  # type: ignore[attr-defined]
+        proc.act_start_time = qwen3_process.leader_start_time(proc, owner)  # type: ignore[attr-defined]
+        proc.act_owner = owner  # type: ignore[attr-defined]  # qwen3_process.hand_over gives it back to this owner
+        return proc
+    return qwen3_process.spawn(cmd, require_job=True, **kwargs)
+
+
+def _running_on(event: dict) -> str:
+    """The log's words for where a worker said it loaded (CUDA wording as released)."""
+    device = str(event.get("device") or "")
+    name = event.get("device_name") or "unknown device"
+    if device == "mps":
+        return f"OmniVoice is running on the Mac's GPU: {name}, float32"
+    if device == "cpu":
+        return f"OmniVoice is running on the processor: {name}, float32"
+    return f"OmniVoice is running on the GPU: {name}"
+
+
+def _settle_led_worker(proc: subprocess.Popen, reader: threading.Thread,
+                       kill: Callable[[subprocess.Popen], None], *, output_open: bool,
+                       must_stop: Optional[Callable[[], bool]] = None) -> Optional[str]:
+    """POSIX (v0.8.x P5-D): end a finished worker run in the only safe order -- its group ended while its id is proved
+    its own (``qwen3_process.end_group``), its output handed on to its end (bounded), and only then is it reaped -- and
+    say why it cannot be vouched for, or None when its group was confirmed ended, its output ended and it was reaped.
+
+    A worker still running here (its output ended or the run was left early) gets the released 10 s to exit, observed
+    without reaping it, and is then ended with its whole group (*kill*). Never raises."""
+    if proc.returncode is None and not qwen3_process.leader_exited(proc):
+        qwen3_process.await_leader_exit(proc, kill, must_stop)  # Cancel is still acted on here (finding 10)
+    qwen3_process.end_group(proc)  # whatever it left in its group ends now, before it is reaped
+    reader.join(timeout=0.0 if output_open else OUTPUT_DRAIN_S)
+    output_open = reader.is_alive()
+    if qwen3_process.group_confirmed_ended(proc):
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    else:  # v0.8.x P5-I-R3 remediation 2: never reaped with its group not confirmed ended; the owner keeps ending it
+        qwen3_process.hand_over(proc)
+    if not output_open and proc.stdout is not None:  # never closed under a reader still blocked on it
+        proc.stdout.close()
+    return qwen3_process.containment_problem(proc, output_open=output_open)
+
+
 def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Path, env: dict,
                cancel_check: Optional[Callable[[], bool]] = None, log: Callable[[str], None] = print,
                on_chunk: Optional[Callable[[dict], None]] = None, grace_s: float = CANCEL_GRACE_S,
                event_timeout_s: float = EVENT_TIMEOUT_S, exit_grace_s: float = EXIT_GRACE_S,
                kill_wait_s: float = KILL_WAIT_S,
-               kill: Callable[[subprocess.Popen], None] = qwen3_process.kill_tree) -> WorkerRun:
+               kill: Callable[[subprocess.Popen], None] = qwen3_process.kill_tree,
+               spawn: Optional[Callable[..., subprocess.Popen]] = None) -> WorkerRun:
     """Run one worker (one batch) to completion under supervision.
 
     The contract is the Qwen3 worker's: exactly one terminal event (``done``, ``failed`` or ``canceled``) and, for
@@ -190,13 +304,21 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
     lines: "queue.Queue[Optional[str]]" = queue.Queue()
     with open(stderr_path, "w", encoding="utf-8") as stderr_file:
         try:
-            proc = qwen3_process.spawn(
-                [str(python), "-I", str(script), str(job_path)], require_job=True, stdin=subprocess.DEVNULL,
+            proc = (spawn or spawn_worker)(
+                [str(python), "-I", str(script), str(job_path)], stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=stderr_file, text=True, encoding="utf-8", errors="replace", env=env,
-                cwd=str(job_dir))
+                cwd=str(job_dir), **({"run": cancel_check} if spawn is None and cancel_check is not None else {}))
+            if qwen3_process.identity_unrecorded(proc):
+                # v0.8.x P5-D-R1 (POSIX): a worker whose identity could not be recorded at spawn is never admitted --
+                # neither ended by a guess at its group nor supervised the released way, which reaps it first and can
+                # report success or a clean Cancel with nothing vouching for what it left behind.
+                qwen3_process.end_unadmitted(proc)
+                raise qwen3_process.ContainmentUnavailable(
+                    "its identity could not be recorded when it started, so it was stopped before it could run")
         except qwen3_process.ContainmentUnavailable as exc:
-            raise OmniVoiceFailed("The OmniVoice voice engine was not started: Windows would not let this app keep "
-                                  f"control of it, so it could not be stopped safely if you cancelled. ({exc})") from exc
+            who = "Windows would not let this app" if sys.platform == "win32" else "the app could not"
+            raise OmniVoiceFailed(f"The OmniVoice voice engine was not started: {who} keep control of it, so it could "
+                                  f"not be stopped safely if you cancelled. ({exc})") from exc
 
         def pump() -> None:
             try:
@@ -211,7 +333,31 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
         chunk_events: list[dict] = []
         terminal: Optional[dict] = None
         terminal_at = cancel_requested_at = killed_at = None
-        last_progress = time.monotonic()
+        last_progress = last_output = time.monotonic()
+        # v0.8.x P5-D (POSIX): a worker that leads its own group, with its identity recorded at spawn. Its exit -- seen
+        # without reaping it -- ends the wait as much as the end of its output does: something it left in its group can
+        # hold that output open for as long as it runs. Its group is ended before it is ever reaped, and a group that
+        # cannot be proved or confirmed ended, or output held open past it, makes the run a failure, never a success
+        # or a clean Cancel.
+        led = qwen3_process.leads_proved_group(proc)
+        group_ended_at: Optional[float] = None
+        output_open = raising = False
+        containment: Optional[str] = None
+        controller = getattr(cancel_check, "__self__", None)
+
+        def must_stop() -> bool:
+            # The finishing worker's Cancel (v0.8.x P5-I-R3 remediation 3, finding 10): noticed, flagged, and its grace
+            # counted from the click when the run's controller recorded one.
+            nonlocal cancel_requested_at
+            if cancel_requested_at is None and cancel_check is not None and cancel_check():
+                cancel_requested_at = time.monotonic()
+                with contextlib.suppress(OSError):
+                    cancel_flag.write_text("cancel", encoding="utf-8")
+            if cancel_requested_at is None:
+                return False
+            began = getattr(controller, "cancel_clicked_at", None)
+            return time.monotonic() - (began if isinstance(began, (int, float)) else cancel_requested_at) > grace_s
+
         try:
             while True:
                 now = time.monotonic()
@@ -229,13 +375,20 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                         f"The OmniVoice voice engine stopped responding and was stopped. {_tail(stderr_path)}".strip())
                 if killed_at is not None and now - killed_at > kill_wait_s:
                     break
+                if group_ended_at is not None and now - max(group_ended_at, last_output) > OUTPUT_DRAIN_S:
+                    output_open = True  # every writer in its group is gone, yet its output has not ended
+                    break
                 try:
                     line = lines.get(timeout=0.2)
                 except queue.Empty:
                     line = ""
+                    if led and group_ended_at is None and (killed_at is not None or qwen3_process.leader_exited(proc)):
+                        qwen3_process.end_group(proc)  # never reaps; what it wrote is still handed on below
+                        group_ended_at = time.monotonic()
                 if line is None:
                     break
                 if line:
+                    last_output = time.monotonic()
                     event = _local.parse_event(line)
                     if event is None:
                         log(f"  [omnivoice] {line[:300]}")
@@ -246,9 +399,8 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                             raise OmniVoiceFailed("The OmniVoice voice engine sent an unreadable message and was stopped.")
                         if kind == "loaded":
                             loaded = event
-                            log(f"OmniVoice is running on the GPU: {event.get('device_name') or 'unknown device'} "
-                                f"(model {event.get('load_s')} s, clone prompt {event.get('prompt')} in "
-                                f"{event.get('prompt_s')} s).")
+                            log(f"{_running_on(event)} (model {event.get('load_s')} s, clone prompt "
+                                f"{event.get('prompt')} in {event.get('prompt_s')} s).")
                         elif kind == "chunk":
                             chunk_events.append(event)
                             if on_chunk is not None:
@@ -261,22 +413,39 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
                     cancel_requested_at = time.monotonic()
                     cancel_flag.write_text("cancel", encoding="utf-8")
         except BaseException:
+            raising = True
             kill(proc)
             raise
         finally:
-            if proc.poll() is None:
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    kill(proc)
-            reader.join(timeout=5)
-            if reader.is_alive():
-                kill(proc)
+            if led:
+                containment = _settle_led_worker(proc, reader, kill, output_open=output_open, must_stop=must_stop)
+                if containment is not None and raising:  # the file is failing already: say why it was not vouched for
+                    log(f"  [omnivoice] the worker could not be confirmed stopped: {containment}")
+            else:
+                if proc.poll() is None:
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        kill(proc)
                 reader.join(timeout=5)
-            if not reader.is_alive() and proc.stdout is not None:
-                proc.stdout.close()
+                if reader.is_alive():
+                    kill(proc)
+                    reader.join(timeout=5)
+                if not reader.is_alive() and proc.stdout is not None:
+                    proc.stdout.close()
             qwen3_process.release(proc)
     returncode = proc.returncode if proc.returncode is not None else -1
+    if containment is not None:
+        log(f"  [omnivoice] the worker could not be confirmed stopped: {containment}")
+        with contextlib.suppress(Exception):  # v0.8.x P5-I-R3: no run settles clean while it may still run
+            from shared import subprocess_utils
+
+            subprocess_utils.note_unresolved(proc.pid, getattr(proc, "act_start_time", None), "OmniVoice worker")
+        if cancel_requested_at is not None:
+            raise OmniVoiceFailed(f"The OmniVoice voice engine was asked to stop, but it could not be confirmed stopped: "
+                                  f"{containment}.")
+        raise OmniVoiceFailed(f"The OmniVoice voice engine could not be confirmed stopped, so its audio was discarded: "
+                              f"{containment}.")
     if cancel_requested_at is not None:
         raise ConversionCancelled("Conversion cancelled by user.")
     if terminal is None:
@@ -300,13 +469,18 @@ def failure_message(terminal: dict, *, repair_offered: bool = False) -> str:
     detail = str(terminal.get("message") or "no further detail")
     if stage in ("engine", "job"):
         return detail if stage == "engine" else f"The OmniVoice voice engine refused the job: {detail}"
+    mac = ov._system() == "darwin"
     if terminal.get("oom"):
+        if mac:
+            return ("The OmniVoice voice ran out of memory (on a Mac the GPU shares the computer's memory). Close other "
+                    f"programs and try again. ({detail})")
         return ("The OmniVoice voice ran out of GPU memory. Close other programs that use the graphics card and try "
                 f"again. ({detail})")
     if terminal.get("gpu") is False:
-        return ov.NO_GPU_MESSAGE
+        return ov.MPS_UNAVAILABLE_MESSAGE if mac else ov.NO_GPU_MESSAGE
     if stage == "memory":
-        return ("The OmniVoice voice engine could not start because Windows did not have enough memory to load it. "
+        who = "this Mac" if mac else "Windows"
+        return (f"The OmniVoice voice engine could not start because {who} did not have enough memory to load it. "
                 f"Close other programs and try again; the engine itself is unchanged. ({detail})")
     where = {"load": "loading the model and the voice", "generate": "generating speech",
              "import": "starting the voice engine", "network": "starting (it tried to use the network)",
@@ -426,7 +600,7 @@ def omnivoice_file_to_mp3(
     prompts_root: Optional[Path] = None,
     env: Optional[dict] = None,
     encoder: Callable = _encoder,
-    chunks_per_worker: int = CHUNKS_PER_WORKER,
+    chunks_per_worker: Optional[int] = None,
     grace_s: float = CANCEL_GRACE_S,
     event_timeout_s: float = EVENT_TIMEOUT_S,
     exit_grace_s: float = EXIT_GRACE_S,
@@ -437,7 +611,8 @@ def omnivoice_file_to_mp3(
     ``progress_callback(done, total)`` fires after each chunk on the calling (worker) thread. Cancellation raises
     ``ConversionCancelled`` and is honoured at every stage up to the instant the file is published; no partial MP3 is
     left and an existing destination is not touched until the new file is complete. No closing pause (v0.7.0 Q1):
-    ``end_silence_ms`` is accepted for callers and ignored. The keyword-only seams exist for the offline tests.
+    ``end_silence_ms`` is accepted for callers and ignored. The keyword-only seams exist for the offline tests;
+    ``chunks_per_worker`` left at None is the run's device's own bound (:func:`chunks_per_worker_for`).
     """
     src = Path(source_path)
     if not src.exists():
@@ -468,8 +643,9 @@ def omnivoice_file_to_mp3(
                                        f"({exc}).") from exc
         manifest = ov.load_manifest()
         model_revision, version = manifest["model"]["revision"], manifest["engine"]["omnivoice"]
+        policy = ov.device_policy()  # once per file: every batch and the prompt's identity use exactly this
         cache = prompt_cache_entry(spec, model_revision=model_revision, omnivoice_version=version,
-                                   prompts_root=prompts_root)
+                                   prompts_root=prompts_root, policy=policy)
         py = Path(python) if python is not None else ov.venv_python()
         worker = Path(script) if script is not None else ov.worker_script()
         cleanup_stale_jobs(jobs_root)
@@ -478,9 +654,13 @@ def omnivoice_file_to_mp3(
             log(f"OmniVoice: synthesizing {len(chunks)} chunk(s) in {voice.label} (pipeline revision "
                 f"{PIPELINE_REVISION}; reference {spec.duration_s:.3f} s at {spec.sample_rate} Hz, used whole; "
                 f"{GENERATION['num_step']} steps)...")
+            if policy.device != ov.DEVICE_CUDA:  # a Mac: say where it runs and who chose it (Windows' log unchanged)
+                chosen = "the default" if policy.source == "default" else f"chosen in {policy.source}"
+                log(f"OmniVoice device: {policy.label} ({chosen}).")
             env = ov.worker_environment() if env is None else env
             events: list[dict] = []
-            groups = batches(chunks, chunks_per_worker)
+            bound = chunks_per_worker_for(policy) if chunks_per_worker is None else chunks_per_worker
+            groups = batches(chunks, bound)
             for number, group in enumerate(groups, start=1):
                 _local._raise_if_cancelled(cancel_check)
 
@@ -492,7 +672,7 @@ def omnivoice_file_to_mp3(
                         progress_callback(len(events), len(chunks))
 
                 job = build_job(voice, spec, group, job_dir=job_dir, reference=reference, model_dir=ov.model_dir(),
-                                omnivoice_version=version, prompt_cache=cache)
+                                omnivoice_version=version, prompt_cache=cache, policy=policy)
                 run = run_worker(job, job_dir, name=f"job-{number:03d}", python=py, script=worker, env=env,
                                  cancel_check=cancel_check, log=log, on_chunk=chunk_done, grace_s=grace_s,
                                  event_timeout_s=event_timeout_s, exit_grace_s=exit_grace_s, kill_wait_s=kill_wait_s)

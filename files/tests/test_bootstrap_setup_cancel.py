@@ -205,20 +205,22 @@ def test_the_bat_says_setup_was_cancelled():
 # --------------------------------------------------------------------------- #
 # F. Everything else about the launcher is untouched
 # --------------------------------------------------------------------------- #
-def test_the_daily_fast_path_still_launches_detached_and_console_free():
-    """Phase 2 changed how the fast path is *chosen*, not how it launches.
+def test_the_daily_fast_path_launches_on_the_console_interpreter_never_pythonw():
+    """The fast path runs ``--launch-only`` on ``python.exe``; ``pythonw.exe`` is blocked by Smart App Control.
 
-    The gate moved from "does pythonw.exe exist" to bootstrap's own health
-    verdict, but the healthy steady state still starts the GUI detached through
-    ``pythonw.exe`` so no console lingers.
+    The console-free start is kept by ``bootstrap.hand_off_launch_only`` (hidden-console process), not by the choice
+    of executable. The .bat must not start ``pythonw.exe`` in any form.
     """
     text = _bat_text()
-    assert 'start "" ".venv\\Scripts\\pythonw.exe"' in text
-    assert "--launch-only" in text
+    assert '".venv\\Scripts\\python.exe" "%BOOTSTRAP%" --launch-only' in text
+    assert not re.search(r'^\s*(start\b.*)?"?\.venv\\Scripts\\pythonw\.exe', text, re.IGNORECASE | re.MULTILINE), \
+        "a command line in the .bat still starts pythonw.exe"
     assert "--venv-check" in text
 
 
 def test_first_run_defaults_are_unchanged():
-    # v0.8.0 Phase 3 appends OmniVoice, unchecked; the four earlier defaults are unchanged.
-    assert {c: d for c, _l, d, _n in bootstrap.OPTIONAL_CHOICES} == {
+    # v0.8.0 Phase 3 appends OmniVoice, unchecked; the four earlier defaults are unchanged (Windows). macOS P4C: a Mac
+    # offers Kokoro (checked) and OmniVoice (unchecked) only.
+    assert {c: d for c, _l, d, _n in bootstrap.optional_choices_for("win32")} == {
         "kokoro": True, "chatterbox": False, "qwen3-customvoice": False, "qwen3-base": False, "omnivoice": False}
+    assert {c: d for c, _l, d, _n in bootstrap.optional_choices_for("darwin")} == {"kokoro": True, "omnivoice": False}

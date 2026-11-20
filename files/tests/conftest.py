@@ -337,7 +337,9 @@ def pinned_ffmpeg(monkeypatch, tmp_path):
             "sandbox binary", encoding="utf-8")
 
     monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", resources)
-    monkeypatch.setattr(ffmpeg_health, "BIN_DIR", tmp_path / "no-bundled-bin")
+    # The app's own folder (v0.8.x P1A): a Mac pins FFmpeg only from there (D3), and the pair pinned is the same one
+    # PATH discovery found before, on every platform.
+    monkeypatch.setattr(ffmpeg_health, "BIN_DIR", directory)
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
     monkeypatch.setenv("PATH", str(directory))
@@ -528,6 +530,19 @@ def _no_real_provisioning(monkeypatch):
 
     monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
                         _refuse_portable)
+
+    def _refuse_portable_macos(log=None):
+        # v0.8.x P1A D3: with a macOS build adopted, this route acquires the real Riedl build. Its network refusal
+        # above is caught and logged by the download step like any network error, after the staging folder exists,
+        # so without this a test that reached it would pass while writing files/runtime-data/ffmpeg-staging.
+        raise AssertionError(
+            "a test reached bootstrap._download_portable_ffmpeg_macos without "
+            "stubbing it. That path acquires the adopted macOS FFmpeg build "
+            "and creates files/runtime-data/ffmpeg-staging. Patch it, or drive "
+            "ffmpeg_portable.acquire_macos directly with a fixture build and opener.")
+
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_macos",
+                        _refuse_portable_macos)
     real_run = bootstrap._run
 
     def _guarded_run(cmd, **kwargs):
@@ -596,6 +611,17 @@ def _no_real_long_path_change(monkeypatch):
 
 
 DEVELOPER_CONFIG = "[development]\ndeveloper_mode = true\n"
+
+
+@pytest.fixture
+def windows_engine_policy(monkeypatch):
+    """macOS P4C: ``shared.engine_policy`` answers as on Windows (every engine offered), for a test of Windows'
+    Chatterbox or Qwen3 behaviour through the panel or the setup. On a Mac such a test then exercises the shared code
+    through the policy's platform seam -- never Windows-native evidence. The macOS roster and its refusals are pinned in
+    test_engine_policy.py."""
+    from shared import engine_policy
+
+    monkeypatch.setattr(engine_policy, "current_platform", lambda: "win32")
 
 
 @pytest.fixture()
@@ -923,3 +949,39 @@ def _no_production_log_writes():
     if changed:
         pytest.fail("this test run mutated real production state: "
                     + "; ".join(changed) + _ADVICE)
+
+
+def stand_in_for_setups_python_children(monkeypatch, fake) -> None:
+    """Answer every ACT-authored Python child setup runs (``bootstrap._child_run``: its probes, proofs, ``-m venv``
+    and offline pip) with *fake*, called as ``subprocess.run`` would be, with the command line that would run.
+
+    Windows runs those children through ``subprocess.run``. A contained POSIX setup runs them through its owner, and
+    since v0.8.x P5-C ``Owner.run_python`` no longer goes through ``subprocess.run`` (it never reaps a child before its
+    process group has been ended), so *fake* stands in there too -- given ``child_ownership.python_argv`` of the
+    command, exactly what it received through ``subprocess.run`` before.
+    """
+    from shared import bootstrap, child_ownership
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", fake)
+    monkeypatch.setattr(child_ownership.Owner, "run_python",
+                        lambda owner, argv, **kwargs: fake(child_ownership.python_argv(argv), **kwargs))
+
+
+@pytest.fixture
+def fresh_containment_owner(monkeypatch):
+    """v0.8.x P5-B: this test process starts with no POSIX containment owner and leaves none behind.
+
+    The first-run window makes its setup process an owner (``bootstrap.own_optional_setup``) and, once closed, retires
+    it (``bootstrap.settle_optional_setup``: no new start, lifeline closed). Both are process-wide by design; a test
+    that drives that window in this process gets a fresh owner here, which is shut down afterwards, and the suite's own
+    owner state is put back untouched for the tests that follow.
+    """
+    from shared import bootstrap, child_ownership, subprocess_utils
+
+    monkeypatch.setattr(child_ownership, "_OWNER", None)
+    monkeypatch.setattr(subprocess_utils, "_owner", None)
+    monkeypatch.setattr(bootstrap, "_OWNER_SHUTDOWN_REGISTERED", True)  # no atexit entry per test
+    yield
+    made = child_ownership._OWNER
+    if made is not None:
+        made.shutdown()

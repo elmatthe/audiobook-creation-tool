@@ -171,6 +171,15 @@ ROUGH_CHARS_PER_PARAGRAPH = 40
 
 #: Below this much PCM (about 5.5 minutes of narration) a join takes no slot: ordinary paragraphs never touch the gate.
 ASSEMBLY_GATE_MIN_PCM_BYTES = 16 * 1024 ** 2
+#: v0.8.x P5 (macOS): whether a narration at or above :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` may be assembled in memory at all.
+#: On a Mac it never is: it goes to the disk route (:mod:`tts.disk_assembly`), which gives the same bytes. Measured on an
+#: Apple Silicon Mac (P5 closeout), with equal-length parts cut from the published narration of a 37-minute Edge file as a
+#: stand-in for the paragraph files the route deletes: the in-memory join, one ``combined += AudioSegment.from_file(part)``
+#: per part, kept far more memory than the audio it held -- 0.43 GiB for 32 parts, 1.62 for 64, then a steady 51 MiB more
+#: for each further part of 0.79 MiB of audio: 4.86 GiB for 128 (101 MiB of PCM, where :func:`peak_bytes_for_pcm` budgets
+#: 0.37 GiB), 10 GiB by 232 (66 minutes). Why the memory is kept is not established. The disk route on the same 128 parts:
+#: 30 MiB, the PCM identical. Every other platform keeps the gate's in-memory route, unchanged.
+IN_MEMORY_ASSEMBLY = sys.platform != "darwin"
 #: The most audio a file holds in memory while it is being synthesised (about 5.5 minutes): at this much, a paragraph
 #: writes what it has to disk and carries on, and a clip this long is never decoded into memory.
 SYNTHESIS_HELD_PCM_BYTES = 16 * 1024 ** 2
@@ -253,6 +262,15 @@ def _gb(value: int) -> str:
     return f"{value / 1024 ** 3:.1f} GB"
 
 
+def _system_name(platform: Optional[str] = None) -> str:
+    """Who the reserve is kept for, in the plan's own words: "Windows" exactly as before, "macOS" on a Mac (v0.8.x P1B,
+    MAC-011), "the system" anywhere else."""
+    platform = sys.platform if platform is None else platform
+    if platform == "win32":
+        return "Windows"
+    return "macOS" if platform == "darwin" else "the system"
+
+
 def memory_reserve(memory: MemoryInfo) -> int:
     """What stays free for Windows, the app's own window and other programs."""
     return max(MIN_MEMORY_RESERVE, int(MEMORY_RESERVE_FRACTION * memory.total))
@@ -310,7 +328,7 @@ def plan_workers(requested, backend: str, budgets: Sequence[FileBudget], *, cpu_
         else:
             reserve = memory_reserve(memory)
             usable = memory_usable(memory)
-            situation = f"{_gb(memory.available)} free, {_gb(reserve)} kept for Windows and other programs"
+            situation = f"{_gb(memory.available)} free, {_gb(reserve)} kept for {_system_name()} and other programs"
             if usable < memory.available - reserve:
                 situation += f", and at most {_gb(max(0, usable))} can be committed"
         if budgets:
@@ -446,9 +464,11 @@ class AssemblyGate:
                 return False
         return True
 
-    def _route(self, need: int) -> Optional[bool]:
-        """True: assemble in memory. False: on disk. None: not yet."""
+    def _route(self, need: int, disk_only: bool = False) -> Optional[bool]:
+        """True: assemble in memory. False: on disk. None: not yet. ``disk_only``: never in memory (v0.8.x P5, macOS)."""
         memory = self._read()
+        if disk_only:
+            return False if self._disk_has_room(memory) else None
         usable = UNKNOWN_MEMORY_ASSEMBLY_BYTES if memory is None else memory_usable(memory)
         if self._claimed() + need <= usable:
             return True
@@ -507,9 +527,10 @@ class AssemblyGate:
 
     @contextlib.contextmanager
     def place(self, need: int, *, cancel_check: Optional[Callable[[], bool]] = None,
-              note: Optional[Callable[[str], None]] = None):
+              note: Optional[Callable[[str], None]] = None, disk_only: bool = False):
         """A place for an assembly of ``need`` bytes for the duration of the ``with`` block: an :class:`AssemblyPlace`. Waits
-        while neither route has room.
+        while neither route has room. ``disk_only`` (v0.8.x P5, macOS): the in-memory route is never offered; the disk route's
+        room, its reservation, the wait, the failure and Cancel are exactly as for any assembly the gate sends to disk.
 
         ``cancel_check`` ends the wait at once with :class:`ConversionCancelled`, before any route is taken, whatever the file
         was waiting for (v0.7.2: finished narration has no route of its own past a Cancel). Raises :class:`AssemblyMemoryError`
@@ -532,7 +553,7 @@ class AssemblyGate:
                     if cancelled:
                         raise ConversionCancelled("Conversion cancelled by user.")
                     if self._queue[0] is ticket:
-                        route = self._route(need)
+                        route = self._route(need, disk_only)
                         if route is not None:
                             admitted = self._admit(need, route)
                             break
@@ -561,7 +582,10 @@ class AssemblyGate:
                     self._starved_since = None
                 self._condition.notify_all()
         try:
-            if not admitted.in_memory and note is not None:
+            if not admitted.in_memory and note is not None and disk_only:
+                # v0.8.x P5: never "more than this computer has free": on a Mac it goes to disk whatever is free.
+                _say(note, "On a Mac a narration this long is always assembled on disk: the same audio, using little memory.")
+            elif not admitted.in_memory and note is not None:
                 why = "and free memory cannot be read here" if self._read() is None else "more than this computer has free now"
                 _say(note, f"This file's narration needs about {_gb(need)} to assemble, {why}, so it is being assembled on disk: "
                            "the same audio, using little memory.")
@@ -586,9 +610,14 @@ ASSEMBLY_GATE = AssemblyGate()
 def assembly_place(pcm_bytes: int, *, cancel_check: Optional[Callable[[], bool]] = None,
                    note: Optional[Callable[[str], None]] = None):
     """A place at :data:`ASSEMBLY_GATE` for assembling this much decoded audio. Below :data:`ASSEMBLY_GATE_MIN_PCM_BYTES` it is
-    too little to matter, and takes no reservation."""
+    too little to matter, and takes no reservation. At or above it on a Mac (:data:`IN_MEMORY_ASSEMBLY` false) the place is
+    always on disk, and what it waits for and reserves is the disk route's own :data:`DISK_ASSEMBLY_BYTES`."""
     if pcm_bytes < ASSEMBLY_GATE_MIN_PCM_BYTES:
         yield AssemblyPlace(None, True, 0)
+        return
+    if not IN_MEMORY_ASSEMBLY:
+        with ASSEMBLY_GATE.place(DISK_ASSEMBLY_BYTES, cancel_check=cancel_check, note=note, disk_only=True) as admitted:
+            yield admitted
         return
     with ASSEMBLY_GATE.place(peak_bytes_for_pcm(pcm_bytes), cancel_check=cancel_check, note=note) as admitted:
         yield admitted
@@ -622,12 +651,15 @@ def assemble(pcm_bytes: int, in_memory: Callable, on_disk: Callable, *, cancel_c
     they were until they have succeeded. The disk route is tried at most twice, the second time after :meth:`AssemblyPlace.wait_for_room`,
     and if it runs out then too, :class:`AssemblyMemoryError` says so. Either way every reservation goes back.
 
-    A Cancel wins at every step (v0.7.2): before the gate, before any fall back to disk and before any further attempt, it ends
-    this with :class:`ConversionCancelled` and nothing more is tried; an assembly already running is killed by
-    :mod:`tts.ffmpeg_watch`, which raises the same.
+    A Cancel wins at every step (v0.7.2): before the gate, once admitted, before any fall back to disk and before any further
+    attempt, it ends this with :class:`ConversionCancelled` and nothing more is tried; an assembly already running is killed by
+    :mod:`tts.ffmpeg_watch`, which raises the same, starts no further FFmpeg after it and stops its own reading and writing
+    between processes at the next block (v0.8.x P5-H-R1).
     """
     _raise_if_cancelled(cancel_check)
     with assembly_place(pcm_bytes, cancel_check=cancel_check, note=note) as admitted:
+        # v0.8.x P5-H-R1: a Cancel while the place was being given starts neither route (the disk route looks again below).
+        _raise_if_cancelled(cancel_check)
         if admitted.in_memory:
             try:
                 return in_memory()
@@ -701,10 +733,12 @@ def logical_cpus() -> Optional[int]:
 
 
 def memory_info() -> Optional[MemoryInfo]:
-    """Free and total physical memory where the OS reports it reliably (Windows, Linux); ``None`` elsewhere."""
+    """Free and total physical memory where the OS reports it reliably (Windows, macOS, Linux); ``None`` elsewhere."""
     try:
         if sys.platform == "win32":
             return _windows_memory()
+        if sys.platform == "darwin":
+            return _darwin_memory()
         if sys.platform.startswith("linux"):
             return _linux_memory()
     except (OSError, ValueError, AttributeError, MemoryError):
@@ -713,10 +747,13 @@ def memory_info() -> Optional[MemoryInfo]:
 
 
 def own_private_bytes() -> Optional[int]:
-    """What this process has committed (Windows) or holds in memory (Linux), or ``None`` where that cannot be read."""
+    """What this process has committed (Windows), its physical footprint (macOS) or what it holds in memory (Linux), or
+    ``None`` where that cannot be read."""
     try:
         if sys.platform == "win32":
             return _windows_private_bytes()
+        if sys.platform == "darwin":
+            return _darwin_footprint()
         if sys.platform.startswith("linux"):
             with open("/proc/self/statm", encoding="ascii") as handle:
                 return int(handle.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
@@ -804,6 +841,71 @@ def _windows_memory() -> Optional[MemoryInfo]:
         return None
     process, job = _windows_job_headroom()
     return MemoryInfo(int(status.ullAvailPhys), int(status.ullTotalPhys), int(status.ullAvailPageFile), process, job)
+
+
+def _darwin_vm_statistics():
+    """``host_statistics64(HOST_VM_INFO64)``: the kernel's page counts, and its page size. Raises OSError on failure."""
+    import ctypes
+
+    natural, u64 = ctypes.c_uint, ctypes.c_uint64
+
+    class VMStatistics64(ctypes.Structure):  # <mach/vm_statistics.h>, struct vm_statistics64
+        _fields_ = [("free_count", natural), ("active_count", natural), ("inactive_count", natural),
+                    ("wire_count", natural), ("zero_fill_count", u64), ("reactivations", u64), ("pageins", u64),
+                    ("pageouts", u64), ("faults", u64), ("cow_faults", u64), ("lookups", u64), ("hits", u64),
+                    ("purges", u64), ("purgeable_count", natural), ("speculative_count", natural),
+                    ("decompressions", u64), ("compressions", u64), ("swapins", u64), ("swapouts", u64),
+                    ("compressor_page_count", natural), ("throttled_count", natural),
+                    ("external_page_count", natural), ("internal_page_count", natural),
+                    ("total_uncompressed_pages_in_compressor", u64)]
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.mach_host_self.restype = ctypes.c_uint
+    host = libc.mach_host_self()
+    page = ctypes.c_size_t(0)
+    if libc.host_page_size(host, ctypes.byref(page)) != 0 or page.value <= 0:
+        raise OSError("host_page_size failed")
+    stats = VMStatistics64()
+    count = ctypes.c_uint(ctypes.sizeof(stats) // ctypes.sizeof(ctypes.c_int))
+    if libc.host_statistics64(host, 4, ctypes.byref(stats), ctypes.byref(count)) != 0:  # HOST_VM_INFO64
+        raise OSError("host_statistics64 failed")
+    return stats, int(page.value)
+
+
+def _darwin_total_memory() -> int:
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    value, size = ctypes.c_uint64(0), ctypes.c_size_t(8)
+    if libc.sysctlbyname(b"hw.memsize", ctypes.byref(value), ctypes.byref(size), None, 0) != 0 or not value.value:
+        raise OSError(ctypes.get_errno(), "sysctl hw.memsize failed")
+    return int(value.value)
+
+
+def _darwin_memory() -> Optional[MemoryInfo]:
+    """macOS (v0.8.x P1B, MAC-011): physical memory from ``hw.memsize``; *available* is what the kernel can hand out
+    without paging anything to disk -- free, speculative and inactive pages (inactive pages are reclaimed first, and
+    purgeable pages are left out because they are also counted in those queues). An estimate the plan keeps its reserve
+    on top of, never a promise; there is no commit limit to read on macOS."""
+    stats, page = _darwin_vm_statistics()
+    available = (int(stats.free_count) + int(stats.speculative_count) + int(stats.inactive_count)) * page
+    return MemoryInfo(available, _darwin_total_memory())
+
+
+def _darwin_footprint() -> Optional[int]:
+    """This process's physical footprint (``proc_pid_rusage``: ``ri_phys_footprint``), what Activity Monitor calls its
+    Memory: the closest macOS has to Windows' private bytes."""
+    import ctypes
+
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    buffer = ctypes.create_string_buffer(512)  # struct rusage_info_v0 is 96 bytes
+    if libproc.proc_pid_rusage(os.getpid(), 0, buffer) != 0:  # RUSAGE_INFO_V0
+        return None
+    import struct
+
+    # uuid[16], then uint64: user_time, system_time, pkg_idle_wkups, interrupt_wkups, pageins, wired_size,
+    # resident_size, phys_footprint, ...
+    return int(struct.unpack_from("=Q", buffer.raw, 16 + 7 * 8)[0])
 
 
 def _linux_memory() -> Optional[MemoryInfo]:

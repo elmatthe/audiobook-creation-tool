@@ -129,6 +129,7 @@ def test_the_workers_caption_points_to_the_truthful_effective_cap_report():
     ("Kokoro Female (Default) - Heart (en-US)", "kokoro", False, True),
     ("Chatterbox - Female 1", "chatterbox", False, False),
 ])
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_exactly_the_backend_supported_rate_control_is_shown(
     make_panel, label, backend, edge_shown, kokoro_shown
 ):
@@ -712,6 +713,7 @@ def test_resizing_is_deterministic_and_never_ratchets_a_column(make_panel):
 
 @pytest.mark.parametrize("geometry", (
     pytest.param("920x600", marks=windows_only), "1920x1009"))
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_backend_switching_leaves_no_ghost_controls(make_panel, geometry):
     """Each backend shows exactly its own rate control (Chatterbox: none) and
     its own notices, and the layout stays whole after every switch."""
@@ -736,6 +738,7 @@ def test_backend_switching_leaves_no_ghost_controls(make_panel, geometry):
 
 @pytest.mark.parametrize("geometry", (
     pytest.param("920x600", marks=windows_only), "1024x720"))
+@pytest.mark.usefixtures("windows_engine_policy")  # macOS P4C: Chatterbox/Qwen3 as Windows offers them
 def test_a_setup_required_message_expands_without_corrupting_the_layout(
     make_panel, geometry
 ):

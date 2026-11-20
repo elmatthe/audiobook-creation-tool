@@ -36,7 +36,9 @@ from source_probe import application_python_files
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO_ROOT / "scripts"
 REQUIREMENTS = SCRIPTS / "requirements.txt"
-LOCK = base_packages.lock_path(REQUIREMENTS)
+#: This module's subject is the Windows lock (v0.8.x P1A: one lock per platform; the macOS lock is held by
+#: test_macos_foundation.py).
+LOCK = base_packages.lock_path(REQUIREMENTS, platform="win32", machine="AMD64")
 #: The only locked releases PyPI publishes without a wheel; built by the environment's own locked setuptools.
 SOURCE_ONLY = {"docopt", "antlr4-python3-runtime"}
 WINDOWS_CP312 = {"sys_platform": "win32", "platform_system": "Windows", "os_name": "nt", "platform_machine": "AMD64",
@@ -54,7 +56,7 @@ def _lock():
 # --------------------------------------------------------------------------- #
 def test_the_lock_records_this_requirements_file_and_every_pin_of_it():
     assert base_packages.lock_problems(REQUIREMENTS.read_text(encoding="utf-8"), LOCK.read_text(encoding="utf-8"),
-                                       hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest()) == []
+                                       base_packages.requirements_digest(REQUIREMENTS.read_bytes())) == []
 
 
 def test_every_locked_artifact_is_one_windows_cp312_or_pure_python_build():
@@ -122,7 +124,9 @@ def test_this_test_environment_is_exactly_the_locked_set():
     from importlib import metadata
 
     wrong = []
-    for entry in _lock().entries:
+    # The lock of the machine running the suite: the environment under test is that platform's locked set.
+    own = base_packages.parse_lock(base_packages.lock_path(REQUIREMENTS).read_text(encoding="utf-8"))
+    for entry in own.entries:
         try:
             installed = metadata.version(entry.name)
         except metadata.PackageNotFoundError:
@@ -427,7 +431,9 @@ def test_a_fresh_install_fetches_into_the_store_then_installs_from_it_alone(inst
     assert Path(first_backend[first_backend.index("-r") + 1]).name == "build-backends.txt"
     full = installer.calls[3][0]
     assert full[full.index("-r") + 1] == str(base_packages.lock_path(bootstrap.REQUIREMENTS_FILE))
-    assert installer.store.is_dir() and base_packages.cache_dir(installer.root).parent == installer.store.parent
+    runtime_data = installer.root / "files" / "runtime-data"
+    assert installer.store.is_dir() and runtime_data in base_packages.cache_dir(installer.root).parents \
+        and runtime_data in installer.store.parents
 
 
 def test_a_complete_store_reinstalls_without_any_download(installer):
@@ -456,6 +462,8 @@ def test_a_failed_fetch_leaves_the_environment_alone(installer):
 def test_an_interpreter_the_lock_does_not_describe_installs_requirements_txt_under_the_same_policy(installer,
                                                                                                     monkeypatch):
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 13))
+    # Windows and Linux; a Mac never installs without its lock's hashes (test_macos_foundation, v0.8.x P1A).
+    monkeypatch.setattr(bootstrap, "IS_MAC", False)
     assert bootstrap.install_base_packages(installer.python, lambda line: None) is True
     [(command, env)] = installer.calls
     assert command[3] == "install" and command[command.index("-r") + 1] == str(bootstrap.REQUIREMENTS_FILE)

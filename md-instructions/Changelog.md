@@ -13,6 +13,62 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.8.0+macos.1] - unreleased (release candidate; publication awaits the owner) — v0.8.0 for macOS, Revision 1
+
+**Release route (D16, owner 2026-11-20; publication not yet approved).** The first macOS release of the v0.8.0
+generation, as its own revision: tag `v0.8.0-macos.1`, release "ACT v0.8.0 for macOS — Revision 1", identity
+`0.8.0+macos.1`, archive `AudiobookTool-MacOS-v0.8.0-macos.1.zip`. Built from the macOS branch, which is different
+source from the published Windows v0.8.0 (`d1701e9`); that release, its tag and its asset are unchanged, and no Windows
+archive is built from this source. Qualified on one Mac (MacBook Pro, Apple M4 Pro, 24 GB, macOS 27.0.1). Not
+qualified: a REAL CLEAN first installation from the release archive, other Macs and memory sizes, the owner's manual
+Force Quit check. v0.8.1 is the next shared Windows + macOS release.
+
+**Added (macOS, Apple Silicon)**
+- **Native macOS support for all six tools** on the app's own Python 3.12.15 (python-build-standalone, Tk 9), set up
+  by the `.command` launcher and a bash 3.2 stage 0 with consent and SHA-256 checks; no Homebrew, no administrator
+  password, nothing outside the app folder. A hash-locked arm64 dependency set
+  (`scripts/requirements-lock-macos-arm64-py312.txt`) and the app's own FFmpeg 9.0.1 arm64 build (Martin Riedl
+  release build, pinned by SHA-256, `aac_at` for xHE-AAC). (macOS P1A, P1B)
+- **Voices on a Mac: Edge TTS (5), Kokoro (9) and OmniVoice (6), 20 in all**, through one platform capability policy
+  (`shared/engine_policy.py`); Chatterbox Turbo and Qwen3 are not offered on a Mac at any surface. Kokoro runs in its
+  own local-engine worker; OmniVoice on the Mac GPU (MPS fp32) by default with the CPU selectable. (P2, P4A–P4C)
+- **Process containment on a Mac:** every helper the app starts (FFmpeg, engine workers, setup's pip and probes) is
+  owned by the app and ends with it, including after a crash or a forced quit, through a guardian process and a
+  permit-gated launch; a run whose helpers cannot be confirmed ended is reported FAILED, never a clean Cancel or a
+  success. (P1A–P5-I-R3)
+
+**Changed**
+- **Cancel contract (owner decision 2026-11-20):** Cancel is acknowledged within about one second (was 0.5 s; 0.723 s
+  measured and accepted). Cancel still stops the active job at once, ends its workers and subprocesses, publishes
+  nothing incomplete and reports FAILED when it cannot confirm their end. Pause and the per-route stop bounds are
+  unchanged.
+- On a Mac, a narration long enough to reach the assembly gate is joined on disk, never in memory (the same MP3 to the
+  byte; a 37-minute Edge book went from 5.2 GiB to 0.34 GiB). (P5-H)
+- The version may carry build metadata (`X.Y.Z+build`), and an archive is named after its tag (`release.release_tag`),
+  because GitHub rewrites `+` in asset names. The ordinary build makes the macOS archive only.
+
+**Fixed (pre-merge remediation, found by the independent final review)**
+- **Cover Image: Cancel is ordered against saving.** A Cancel pressed after the between-images checkpoint could still
+  resize an image, install it over the original (Replace Original) and finish as SUCCEEDED. Every image is now written
+  to a private staging file first and made final only after `JobController.authorize_commit()` grants it, under the lock
+  the Cancel latch is taken under, so exactly one of Cancel and the save wins. A Cancel that wins discards the staging
+  file, leaves the original and every earlier result untouched, starts no further image and finishes CANCELLED; a save
+  that won is never rolled back. The replacement confirmation, Pause and Resume are unchanged.
+- **Cover Image: no unfinished file under a final name.** Standard and numbered-beside-source saves were encoded directly
+  to their final name; they now stage and publish by an exclusive new-name rename, so a name taken meanwhile is never
+  overwritten and an interrupted save leaves no partial image.
+  A run that fails on an image while a Cancel is already latched ends CANCELLED (it used to end "completed with failures"
+  and say "All done"). The staging name is short and fixed, so a source name that fits the 255-byte limit still works.
+  A publication error now shows the shared helper's reason in the log. **Known limit:** a copy output on an exFAT or FAT
+  drive cannot be named exclusively (the same rule as every other tool); it fails with that explanation instead of saving
+  directly, so choose an output folder on another drive. A window closed while an image is still being encoded can leave one
+  `.act-tmp-cover-*` staging file beside it (the bounded shutdown predates this change).
+- **The complete GNU GPL v3 text ships in the archive** as `LICENSE` (the project inherits GPL-3.0 from
+  epub2tts-edge). It is the canonical text, byte for byte, tracked and pinned to LF; the packager's root allowlist now
+  names it and refuses a root file that git does not track. No model weights are added or redistributed.
+
+---
+
 ## [0.8.0] - 2026-11-14 — OmniVoice; Windows release on maintainer-accepted verification evidence (macOS pending)
 
 **Release (Windows only, 2026-11-14).** `AudiobookTool-Windows-v0.8.0.zip`, tag `v0.8.0`. The one canonical
