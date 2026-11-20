@@ -720,6 +720,7 @@ class OwnedChild:
     group_ended: bool = False
     exec_unknown: bool = False  # class B (P5-I-R3): its gate was killed with its execution neither seen nor excluded
     announced: bool = False  # class A (P5-I-R3): registered with the guardian
+    early: Optional[tuple] = None  # class A, still spawning: (pid, start time) as announced early (remediation 4/5)
     launch: Any = None  # class B (P5-I-R3): its launch while that is in progress (the orderly end may cut it)
 
     def running(self) -> bool:
@@ -890,10 +891,11 @@ class _EarlyAnnouncement:
                         fd = self.owner._registry
                         if self.done.is_set() or fd is None or self.entry.announced:
                             return
+                        self.entry.early = (pid, start)  # a replacement guardian is told too (remediation 5)
+                        self.pid = pid
                         with contextlib.suppress(OSError):
                             os.write(fd, f"A {pid} {start[0]} {start[1]}\n".encode())
                             self.entry.announced = True
-                            self.pid = pid
                     return
                 time.sleep(self.POLL_S)
 
@@ -904,7 +906,9 @@ class _EarlyAnnouncement:
     def finish(self, *, keep: bool) -> None:
         with self.owner._state:
             self.done.set()
-            if not keep and self.pid is not None:
+            if not keep:
+                self.entry.early = None
+            if not keep and self.pid is not None and self.entry.announced:
                 self.entry.announced = False
                 if self.owner._registry is not None:
                     with contextlib.suppress(OSError):
@@ -1764,10 +1768,17 @@ class Owner:
             fd = self._registry
             if fd is None:
                 return
-            todo = [e for e in self._entries if e.kind == CLASS_A and not e.announced and e.start_time is not None
-                    and e.proc is not None and e.proc.returncode is None]
-            for entry in todo:
-                line = f"A {entry.pid} {entry.start_time[0]} {entry.start_time[1]}\n".encode()
+            todo = []
+            for e in self._entries:
+                if e.kind != CLASS_A or e.announced:
+                    continue
+                if e.start_time is not None and e.proc is not None and e.proc.returncode is None:
+                    todo.append((e, e.pid, e.start_time))
+                elif e.state == SPAWNING and e.early is not None:
+                    # Remediation 5: a start still between fork and exec, announced early to a guardian since replaced.
+                    todo.append((e, *e.early))
+            for entry, pid, start in todo:
+                line = f"A {pid} {start[0]} {start[1]}\n".encode()
                 try:
                     os.write(fd, line)
                     entry.announced = True
@@ -1828,7 +1839,8 @@ class Owner:
         that is stopped and cannot act on its own lifeline, and the new guardian's sweep finds their descendants."""
         with self._state:
             wanted = self._lifeline and self._phase == ACTIVE and any(
-                e.kind == CLASS_A and e.proc is not None and e.proc.returncode is None for e in self._entries)
+                e.kind == CLASS_A and ((e.proc is not None and e.proc.returncode is None)
+                                       or (e.state == SPAWNING and e.early is not None)) for e in self._entries)
         if not wanted:
             return
 

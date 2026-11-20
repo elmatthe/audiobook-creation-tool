@@ -98,7 +98,9 @@ def _watch_media_children(stop: threading.Event) -> None:
         owner = sp.containment_owner()
         if owner is not None:
             for child in owner.children():
-                if child.kind == child_ownership.CLASS_B and child.pid not in seen:
+                # LIVE: the program itself, registered -- not its launch gate (P5-I-R3: a gate is in the ledger before
+                # it executes the program, and a guardian lost then restarts the start under the next one).
+                if child.kind == child_ownership.CLASS_B and child.state == child_ownership.LIVE and child.pid not in seen:
                     seen.add(child.pid)
                     count += 1
                     note("FFMPEG", count, child.pid, child.pgid)

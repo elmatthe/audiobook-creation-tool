@@ -619,6 +619,9 @@ def cancel_requested(backend: str) -> None:
                 host._lock.release()
 
     global _CANCEL_RETIREMENT
+    running = _CANCEL_RETIREMENT
+    if running is not None and running.is_alive():
+        return  # one retirement at a time (remediation 5): a second would find the lock taken and end at once
     thread = threading.Thread(target=end_if_idle, name="local-engine-cancel", daemon=True)
     thread.start()  # started before it is published (remediation 4): a waiter never meets an unstarted thread
     _CANCEL_RETIREMENT = thread
