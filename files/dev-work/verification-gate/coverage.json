@@ -574,7 +574,8 @@
         "After a Cancel the run waits for its items in progress at most ITEM_STOP_S (5 s, the largest route T_stop) from the click; an item still running then fails the run, naming it, and is never reported CANCELLED (v0.8.x P5-I-R3).",
         "On macOS a voice-engine worker (Qwen3, OmniVoice) is tagged with its run, and a Cancel that arrives while it finishes (its output already ended) is still acted on within the route's grace; a local-engine retirement still in progress makes the run FAILED, never CANCELLED (v0.8.x P5-I-R3 remediation 3).",
         "On macOS a cancelled run begins its local-engine retirement itself before settling, so it is never reported CANCELLED while that worker still runs (v0.8.x P5-I-R3 remediation 4).",
-        "On macOS one local-engine retirement runs at a time: a second Cancel request reuses the one still running, so the run waits for it (v0.8.x P5-I-R3 remediation 5)."
+        "On macOS one local-engine retirement runs at a time: a second Cancel request reuses the one still running, so the run waits for it (v0.8.x P5-I-R3 remediation 5).",
+        "On macOS a Cancel request never starts a second local-engine retirement while one is being started or running (v0.8.x P5-I-R3 remediation 6)."
       ],
       "selection": [
         "files/tests/test_tts_jobs.py",
@@ -589,7 +590,8 @@
         "files/tests/test_macos_p5i_r3_remediation2.py",
         "files/tests/test_macos_p5i_r3_remediation3.py",
         "files/tests/test_macos_p5i_r3_remediation4.py",
-        "files/tests/test_macos_p5i_r3_remediation5.py"
+        "files/tests/test_macos_p5i_r3_remediation5.py",
+        "files/tests/test_macos_p5i_r3_remediation6.py"
       ],
       "journeys": [
         "tts.cancel-during-narration"
@@ -3956,7 +3958,8 @@
         "A worker whose packages do not import fails that file, has the engine recorded as damaged and says the one next step (start again and choose Install & Continue); its startup imports are classified where they fail, so a native library Windows will not load (an OSError) counts, while running out of memory there, Smart App Control, the network guard and every later failure condemn nothing.",
         "On macOS (v0.8.x P5-D) however an OmniVoice worker ends (done, Cancel, a crash) its process group is ended before it is reaped; its exit is seen without reaping it, so output held open by a leftover neither delays nor hangs the run; a group not proved or confirmed ended, or output held open past it, fails the file -- never a success or a clean Cancel. Windows keeps the released supervision.",
         "On macOS (v0.8.x P5-D-R1) an OmniVoice worker whose identity could not be recorded at spawn is never admitted -- neither supervised the released way, which reaps it first and could report a success or a clean Cancel with nothing vouching for what it left, nor ended by a guess at its group: its leader alone is ended through Popen's guarded kill before it runs and reaped, and the file fails saying the engine was not started under the app's control. Windows keeps the released supervision.",
-        "On macOS with a containment owner the one MP3 encode is a contained FFmpeg (guardian's group, ordered start, stopped by Cancel within the FFmpeg bound); without an owner it runs as released (v0.8.x P5-I-R3)."
+        "On macOS with a containment owner the one MP3 encode is a contained FFmpeg (guardian's group, ordered start, stopped by Cancel within the FFmpeg bound); without an owner it runs as released (v0.8.x P5-I-R3).",
+        "On macOS a voice-engine worker whose group could not be confirmed ended is handed to the owner that started it (the app window's, or a command-line run's own), which keeps ending and reaps it (v0.8.x P5-I-R3 remediation 6)."
       ],
       "selection": [
         "files/tests/test_omnivoice_synth.py",
@@ -3966,7 +3969,8 @@
         "files/tests/test_omnivoice_layout.py",
         "files/tests/test_synthesis_worker_group_retirement.py",
         "files/tests/test_macos_p5i_r3_routes.py",
-        "files/tests/test_macos_p5i_r3_remediation3.py"
+        "files/tests/test_macos_p5i_r3_remediation3.py",
+        "files/tests/test_macos_p5i_r3_remediation6.py"
       ],
       "journeys": [],
       "verification": {
@@ -10777,7 +10781,8 @@
         "The log says what Cancel does: the file being converted is stopped now and its book is taken back; books already finished are kept (v0.7.2, ACT72-027).",
         "On the continuous route Cancel stops the encoder and the book's decoder and reaps both before the run settles (v0.7.2 Phase 7B).",
         "Cancel and an output's last step have one order (v0.7.2 Phase 9, ACT72-071): Cancel is asked again before and after the finished file is measured, and the commit is authorized in one step under the lock the Cancel latch is taken under. A Cancel that came first publishes nothing and the run settles CANCELLED, on the last book as on any other; an authorization that came first has won, and that one output is published whole and stays.",
-        "On macOS a contained encoder and its decoder are stopped together in one stop window; uncontained (Windows) the released cancelled-before-unreaped order of a segment's result is kept (v0.8.x P5-I-R3 remediation 3)."
+        "On macOS a contained encoder and its decoder are stopped together in one stop window; uncontained (Windows) the released cancelled-before-unreaped order of a segment's result is kept (v0.8.x P5-I-R3 remediation 3).",
+        "On macOS a contained streaming step's waits after Cancel share one deadline inside C2's 4 s, also when its forced stops are refused (reported, never clean) (v0.8.x P5-I-R3 remediation 6)."
       ],
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
@@ -10788,7 +10793,8 @@
         "files/tests/test_m4b_publication_order.py",
         "files/tests/test_macos_p5i_r3_remediation.py",
         "files/tests/test_macos_p5i_r3_remediation2.py",
-        "files/tests/test_macos_p5i_r3_remediation3.py"
+        "files/tests/test_macos_p5i_r3_remediation3.py",
+        "files/tests/test_macos_p5i_r3_remediation6.py"
       ],
       "journeys": [
         "converter.cancel-during-encode"
@@ -18382,7 +18388,8 @@
         "On macOS (v0.8.x P5-I-R3) the orderly end is one 5 s deadline from the close request: each panel's worker join takes only what is left of it less the containment's reserve (subprocess_utils.close_budget), and the owner's shutdown never waits past it.",
         "On macOS the orderly end first refuses every new go, follows grants already released to their outcome, and only then publishes CLOSING, so no program executes after the closing latch; a lost guardian is replaced at once while class-A children run (v0.8.x P5-I-R3 remediation 3).",
         "On macOS the orderly end tells the guardian on its registry as well as by closing the lifeline (a child between fork and exec still holds the lifeline), never waits past its deadline to remove the permit folder, and Python children are announced to the guardian as soon as their process exists (v0.8.x P5-I-R3 remediation 4).",
-        "On macOS a Python child still between fork and exec is announced again to a replacement guardian (v0.8.x P5-I-R3 remediation 5)."
+        "On macOS a Python child still between fork and exec is announced again to a replacement guardian (v0.8.x P5-I-R3 remediation 5).",
+        "On macOS a run's settlement and the orderly end end a start stalled between fork and exec whose identity is known, identity-checked; a lost guardian is replaced when such a start could not be announced (v0.8.x P5-I-R3 remediation 6)."
       ],
       "selection": [
         "files/tests/test_close_stops_media_children.py",
@@ -18395,7 +18402,8 @@
         "files/tests/test_macos_p5i_r3_remediation2.py",
         "files/tests/test_macos_p5i_r3_remediation3.py",
         "files/tests/test_macos_p5i_r3_remediation4.py",
-        "files/tests/test_macos_p5i_r3_remediation5.py"
+        "files/tests/test_macos_p5i_r3_remediation5.py",
+        "files/tests/test_macos_p5i_r3_remediation6.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -26396,7 +26404,7 @@
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
     "scripts/m4b/m4b_continuous.py": "b8ca599150bbe078bc51c01090b430b395e143831835fc825708469633c5c56b",
-    "scripts/m4b/m4b_execution.py": "70c9ab56b1897ed9d539224e9259a0011c06c3bcedfbd567fa29e18377e44ac4",
+    "scripts/m4b/m4b_execution.py": "6bd3d45c01c476e48989f1d29fa155d43831267d2aeb30853edc38dc0b56247c",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
@@ -26434,7 +26442,7 @@
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
     "scripts/shared/child_guardian.py": "5b380fe47cb632fff4bca95c5386772f2aa6f69d457dc239ac26b4ec0d262724",
     "scripts/shared/child_launch.py": "207a47573bb9f5c627cb457a2cc9aa010fe2fd16d37f49ada0a8f41b8e8fdfe5",
-    "scripts/shared/child_ownership.py": "d648196d9598935ebfd83d46740925407ba0b69bbe9fda1ce64575e0e14ac47e",
+    "scripts/shared/child_ownership.py": "748e56533d8de76852e3afa3aafbbb03fba76ab691c14a9e6d4ea78ba32cf6c8",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26496,12 +26504,12 @@
     "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
-    "scripts/tts/local_engine_host.py": "64b376aced738b3fa489ab2a7700acf322e2f127e72a9b681e83821bb7d2d337",
+    "scripts/tts/local_engine_host.py": "77f970a15125f07c111370aa082b59adf5d4b561f350a13580ebff226d32883f",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
-    "scripts/tts/omnivoice_synth.py": "3ba12af2d2228a8ceaa3f33ea0134288e8d2c23cd0d2b71d90d92b062cd08462",
+    "scripts/tts/omnivoice_synth.py": "10d02ca9d8ec75116e24ecd8afe0247484ef1f76c0601d841139c45f3f234134",
     "scripts/tts/omnivoice_worker.py": "f35756992d51fb9dcaf0fa53abddc057764f57adbb18864439ca2634fd10fc5e",
     "scripts/tts/optional_setup.py": "4d2fb5d341a3006cd83a0c8c686860c1737a2ed909ac465988dee3f8d7544445",
     "scripts/tts/optional_setup_acquire.py": "a9fe41855365ad00e37cf6046235c0af6ef6554a1213af61a6d36e98f65683ed",
@@ -26521,7 +26529,7 @@
     "scripts/tts/qwen3_install_ui.py": "a5c5142eb6ece3b05ffabec3db614e3dd0d8d1a5cf8b3ed45bd9a0f041c64f0e",
     "scripts/tts/qwen3_package_manifest.py": "ecbdbe80aabe6379741bb4070bd1e702fff85775236a31d8760d2bd50955a566",
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
-    "scripts/tts/qwen3_process.py": "93de12ace9e260aa339cd1883bda6898c8a2749bcd75147ca1dd45197cdc846a",
+    "scripts/tts/qwen3_process.py": "bd5f6b222e4b1a2eec8de7394eadcc1a81ce50db809401b4788ded09ee7c189c",
     "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
     "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
     "scripts/tts/qwen3_synth.py": "5268d3b7e2a8096de6696d75c6056b04ca124ffd04d3773ee87f5aa3689687aa",

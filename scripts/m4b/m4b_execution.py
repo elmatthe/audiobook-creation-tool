@@ -237,6 +237,10 @@ def tail_of(path: Path, *, limit: int = DETAIL_TAIL) -> str:
 #: kill -> 2 s, at most 4 s from the Cancel): the SIGTERM grace, and after the stop the wait to collect it.
 CONTAINED_TERM_GRACE_S = 2.0
 CONTAINED_COLLECT_S = 1.0
+#: C2 (plan 11.2.1): one FFmpeg step is stopped within 4 s of the Cancel click. A contained step's waits after its stop
+#: -- the decoder's stop, the reap, the feed -- share this one deadline (v0.8.x P5-I-R3 remediation 6), less a margin.
+C2_STEP_S = 4.0
+C2_MARGIN_S = 0.3
 
 
 def _contained(proc) -> bool:
@@ -460,12 +464,19 @@ def run_argv_streaming(
 
         killed = False
         stopped = False
+        stop_by = None  # contained and cancelled: the one deadline every later wait shares
+
+        def left(bound: float) -> float:
+            return bound if stop_by is None else max(0.0, min(bound, stop_by - time.monotonic()))
+
         try:
             while True:
                 code = proc.poll()
                 if code is not None:
                     break
                 if cancelled():
+                    if _contained(proc):
+                        stop_by = time.monotonic() + max(0.0, sp.settle_bound(cancelled, C2_STEP_S) - C2_MARGIN_S)
                     stopping = None
                     if on_stop is not None and _contained(proc):
                         # v0.8.x P5-I-R3 remediation 3 (finding 11): a contained encoder and its decoder are stopped
@@ -476,7 +487,7 @@ def run_argv_streaming(
                                    monotonic=monotonic, wait=wait)
                     stopped = True
                     if stopping is not None:
-                        if not stopping(CONTAINED_TERM_GRACE_S + CONTAINED_COLLECT_S):
+                        if not stopping(left(CONTAINED_TERM_GRACE_S + CONTAINED_COLLECT_S)):
                             failure.append("the audio decoder did not stop in time after Cancel")
                     elif on_stop is not None:
                         on_stop()
@@ -484,9 +495,9 @@ def run_argv_streaming(
                 wait(poll_seconds)
         finally:
             collect = _collect_bound(proc, grace_seconds)
-            reaped = _reap(proc, timeout=collect)
+            reaped = _reap(proc, timeout=left(collect))
             if producer is not None and hasattr(producer, "join"):
-                producer.join(timeout=collect)
+                producer.join(timeout=left(collect))
                 if getattr(producer, "is_alive", lambda: False)():
                     failure.append("the audio feed did not finish after the encoder ended")
 

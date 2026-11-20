@@ -239,6 +239,7 @@ def spawn_worker(cmd: list, **kwargs) -> subprocess.Popen:
             raise qwen3_process.ContainmentUnavailable(str(exc)) from exc
         proc.act_job = None  # type: ignore[attr-defined]
         proc.act_start_time = qwen3_process.leader_start_time(proc, owner)  # type: ignore[attr-defined]
+        proc.act_owner = owner  # type: ignore[attr-defined]  # qwen3_process.hand_over gives it back to this owner
         return proc
     return qwen3_process.spawn(cmd, require_job=True, **kwargs)
 

@@ -877,7 +877,7 @@ class _EarlyAnnouncement:
         self.thread: Optional[threading.Thread] = None
 
     def watch(self, attached: subprocess.Popen) -> None:
-        if self.entry.kind != CLASS_A or self.owner._registry is None:
+        if self.entry.kind != CLASS_A or not self.owner._lifeline:
             return
 
         def run() -> None:
@@ -889,13 +889,19 @@ class _EarlyAnnouncement:
                         return
                     with self.owner._state:
                         fd = self.owner._registry
-                        if self.done.is_set() or fd is None or self.entry.announced:
+                        if self.done.is_set() or self.entry.announced:
                             return
                         self.entry.early = (pid, start)  # a replacement guardian is told too (remediation 5)
                         self.pid = pid
-                        with contextlib.suppress(OSError):
-                            os.write(fd, f"A {pid} {start[0]} {start[1]}\n".encode())
-                            self.entry.announced = True
+                        if fd is not None:
+                            with contextlib.suppress(OSError):
+                                os.write(fd, f"A {pid} {start[0]} {start[1]}\n".encode())
+                                self.entry.announced = True
+                        announced = self.entry.announced
+                    if not announced:
+                        # Remediation 6: no guardian heard it (lost before this fork, not yet replaced): one is
+                        # started now, and it is told on adoption.
+                        self.owner._replace_for_leaders()
                     return
                 time.sleep(self.POLL_S)
 
@@ -2679,6 +2685,11 @@ class Owner:
         began = time.monotonic()
         until = began + max(0.0, bound_s)
         with self._state:
+            early = [e.early for e in self._entries if e.state == SPAWNING and e.run == run and e.early is not None]
+        # Remediation 6: a start of this run stalled between fork and exec is ended first (identity-checked), so its
+        # Popen returns within the wait below and its entry is retired with the rest.
+        self._end_early(early)
+        with self._state:
             spawn_until = min(until, began + START_SETTLE_S)
             while any(e.state == SPAWNING and e.run == run for e in self._entries):
                 remaining = spawn_until - time.monotonic()
@@ -2688,13 +2699,23 @@ class Owner:
             mine = [e for e in self._entries if not e.resolved() and e.run == run
                     and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)]
             self._schedule_locked([e for e in mine if e.state in (STARTED, LIVE, PENDING)], grace=0.0)
+            early = [e.early for e in mine if e.state == SPAWNING and e.early is not None]
         if not mine:
             return []
+        self._end_early(early)  # one whose fork happened during the wait above
         self._kick()
         # P5-I-R3 remediation 6: retirement is driven (and SIGKILL repeated) until the run's own bound, never given up
         # earlier because one entry's internal confirmation deadline passed.
         left = self._await(mine, until=until, patient=True)
         return sorted({e.pid or -1 for e in left})
+
+    @staticmethod
+    def _end_early(identities: list) -> None:
+        """P5-I-R3 remediation 6: a start still between fork and exec (its ``Popen`` has not returned) whose process is
+        known -- pid and kernel start time, read early -- is SIGKILLed with its group, identity-checked right before the
+        signal; its ``Popen`` then returns and its entry is retired the usual way. Never raises."""
+        for pid, start in identities:
+            signal_if_same(pid, start, signal.SIGKILL, group=True)
 
     # -- orderly shutdown ---------------------------------------------------------
     def shutdown(self, deadline: Optional[float] = None) -> list[int]:
@@ -2715,6 +2736,9 @@ class Owner:
         with self._state:
             self._wait_spawns_locked(min(children_by, began + START_SETTLE_S))
             in_flight = sum(1 for e in self._entries if e.state == SPAWNING)
+            early = [e.early for e in self._entries if e.state == SPAWNING and e.early is not None]
+        self._end_early(early)
+        with self._state:
             owned = [e for e in self._entries if e.proc is not None and not e.resolved()
                      and not (e.kind == GUARDIAN_KIND and e.state == ADOPTED)]
             grace = min(TERM_GRACE_S, max(0.0, children_by - time.monotonic() - KILL_CONFIRM_S))
@@ -2769,7 +2793,7 @@ class Owner:
             _bounded_call(lambda: shutil.rmtree(permits, ignore_errors=True), max(0.0, deadline - time.monotonic() - 0.05))
         unconfirmed = sorted({e.pid for e in left if not e.resolved()})
         with self._state:  # a start still in progress whose process exists (announced early) is not confirmed ended
-            unconfirmed += [-1] * sum(1 for e in self._entries if e.state == SPAWNING and e.announced)
+            unconfirmed += [-1] * sum(1 for e in self._entries if e.state == SPAWNING and e.early is not None)
         if unconfirmed:
             self._note(f"Containment: the orderly end could not confirm that {len(unconfirmed)} process(es) ended "
                        f"(pid {', '.join(map(str, unconfirmed))}); they are still being ended.")

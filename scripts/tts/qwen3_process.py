@@ -197,6 +197,7 @@ def spawn(cmd: list, *, require_job: bool = False, run=None, **kwargs) -> subpro
             proc = subprocess_utils.popen(cmd, start_new_session=True, **kwargs)
         proc.act_job = None  # type: ignore[attr-defined]
         proc.act_start_time = leader_start_time(proc, owner)  # type: ignore[attr-defined]
+        proc.act_owner = owner  # type: ignore[attr-defined]  # who keeps ending it if handed over (remediation 6)
         return proc
     job: Optional[ProcessJob] = None
     try:
@@ -336,9 +337,12 @@ def hand_over(proc: subprocess.Popen) -> None:
     by its caller -- an unreaped leader keeps its id, and so its group's, reserved -- and is handed to the containment
     owner, which keeps ending its group (proved) and reaps it only once the group is gone. Never raises."""
     with contextlib.suppress(Exception):
-        owner = subprocess_utils.containment_owner()
-        if owner is not None and owner.child(proc) is not None:
-            owner.forget(proc)
+        # The owner that started it (P5-I-R3 remediation 6): a worker of a command-line run belongs to that process's
+        # own owner, not the app window's; handed to nobody it was never reaped, and every later run stayed unsettled.
+        for owner in (getattr(proc, "act_owner", None), subprocess_utils.containment_owner()):
+            if owner is not None and owner.child(proc) is not None:
+                owner.forget(proc)
+                return
 
 
 def containment_problem(proc: subprocess.Popen, *, output_open: bool = False) -> Optional[str]:

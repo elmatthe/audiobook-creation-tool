@@ -619,17 +619,19 @@ def cancel_requested(backend: str) -> None:
                 host._lock.release()
 
     global _CANCEL_RETIREMENT
-    running = _CANCEL_RETIREMENT
-    if running is not None and running.is_alive():
-        return  # one retirement at a time (remediation 5): a second would find the lock taken and end at once
-    thread = threading.Thread(target=end_if_idle, name="local-engine-cancel", daemon=True)
-    thread.start()  # started before it is published (remediation 4): a waiter never meets an unstarted thread
-    _CANCEL_RETIREMENT = thread
+    with _CANCEL_LOCK:  # check, start and publish as one step (remediation 6): no second request falls in between
+        running = _CANCEL_RETIREMENT
+        if running is not None and running.is_alive():
+            return  # one retirement at a time (remediation 5): a second would find the lock taken and end at once
+        thread = threading.Thread(target=end_if_idle, name="local-engine-cancel", daemon=True)
+        thread.start()  # started before it is published (remediation 4): a waiter never meets an unstarted thread
+        _CANCEL_RETIREMENT = thread
 
 
 #: v0.8.x P5-I-R3 remediation 3 (finding 4): the retirement a Cancel began (:func:`cancel_requested`), so the run's
 #: settlement can wait for it before it reports anything.
 _CANCEL_RETIREMENT: Optional[threading.Thread] = None
+_CANCEL_LOCK = threading.Lock()
 
 
 def cancel_retirement_pending(timeout: float) -> bool:
