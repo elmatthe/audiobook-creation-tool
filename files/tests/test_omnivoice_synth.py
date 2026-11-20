@@ -92,8 +92,11 @@ for position, chunk in enumerate(job["chunks"]):
     if behavior == "hang" and chunk["index"] == plan.get("at", 0):
         time.sleep(120)
     if behavior == "fail" and chunk["index"] == plan.get("at", 0):
-        emit({"event": "failed", "stage": "generate", "index": chunk["index"], "message": plan.get("message", "kaboom"),
-              "oom": bool(plan.get("oom"))})
+        emit({"event": "failed", "stage": "generate", "index": chunk["index"], "position": position,
+              "of": len(job["chunks"]), "message": plan.get("message", "kaboom"), "oom": bool(plan.get("oom")),
+              "trace": "Traceback (most recent call last):\n  ...\nRuntimeError: kaboom", "gen_s": 0.5,
+              "vram_allocated_mib": 2100, "vram_reserved_mib": 2300, "peak_allocated_mib": 2900,
+              "peak_reserved_mib": 3100, "audio_shape": [0]})
         sys.exit(2)
     index = chunk["index"]
     n = int(24000 * (0.2 + 0.05 * index))
@@ -103,8 +106,9 @@ for position, chunk in enumerate(job["chunks"]):
     name = f"chunk-{index + 1:04d}.wav"
     if not (behavior == "missing_file" and index == plan.get("at", 0)):
         sf.write(str(out / name), wave_, 24000, subtype="FLOAT")
+    claim = {"silent": True} if behavior == "claim_silent" and index == plan.get("at", 0) else {}
     emit({"event": "chunk", "index": index, "of": len(job["chunks"]), "wav": name, "audio_s": round(n / 24000, 3),
-          "gen_s": 0.01, "sample_rate": 24000, "peak": 0.1})
+          "gen_s": 0.01, "sample_rate": 24000, "peak": 0.1, **claim})
     if behavior == "slow":
         time.sleep(plan.get("delay", 0.4))
 if behavior == "no_terminal":
@@ -619,6 +623,15 @@ class VoiceClonePrompt:
     def __init__(self, ref_text):
         self.ref_text = ref_text
 
+    def save(self, path):  # a whole conversion files the prompt in its cache (v0.8.1 C1 end-to-end test)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(self.ref_text)
+
+    @classmethod
+    def load(cls, path, map_location="cpu"):
+        with open(path, encoding="utf-8") as handle:
+            return cls(handle.read())
+
 
 class _Device:
     def __init__(self, kind):
@@ -660,6 +673,8 @@ class OmniVoice:
         if torch.PLAN.get("at") == "generate":
             torch.fail()
         import numpy as np
+        if kwargs.get("text") in torch.PLAN.get("empty_for", ()):  # upstream's answer when its output was all silence
+            return [np.zeros(0, dtype="float32")]
         return [np.full(2400, 0.01, dtype="float32")]
 '''
 #: ``-I`` (as production starts the worker) does not put the script's own folder on ``sys.path`` (Python 3.11+), so the
@@ -734,9 +749,13 @@ def probe_job(folder: Path) -> dict:
 
 
 def run_stack_worker(folder: Path, plan: dict, *, offline: bool = True, cancel: bool = False,
-                     hold_lock: bool = False, probe: bool = False) -> tuple[int, list[dict]]:
-    """Start the real worker (through :func:`stack_worker`) in a fresh ``-I`` interpreter; its exit code and events."""
+                     hold_lock: bool = False, probe: bool = False,
+                     chunks: list | None = None) -> tuple[int, list[dict]]:
+    """Start the real worker (through :func:`stack_worker`) in a fresh ``-I`` interpreter; its exit code and events.
+    *chunks* replaces the synth job's one chunk."""
     launcher, job = stack_worker(folder), (probe_job(folder) if probe else synth_job(folder))
+    if chunks is not None:
+        job["chunks"] = chunks
     job_path = folder / "job.json"
     job_path.write_text(json.dumps(job), encoding="utf-8")
     if cancel:
@@ -1114,3 +1133,202 @@ def test_the_sample_helper_removes_its_source_text_when_the_engine_fails(tmp_pat
     with pytest.raises(ov.OmniVoiceUnavailable):
         gvs._synthesize_omnivoice(voice, "Text.", dest, log=lambda m: None)
     assert not list(tmp_path.iterdir()), "no source text and no MP3 are left behind"
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.1 Checkpoint C1: a chunk failure says where it happened and leaves a record
+# --------------------------------------------------------------------------- #
+UNUSABLE = "RuntimeError: the model returned unusable audio (shape (0,))"
+
+
+def test_a_chunk_failure_names_its_chunk_and_worker_batch_and_keeps_a_record_without_the_text(fake):
+    """The 80 chapters that failed in the owner's mass test said only "unusable audio": which chunk, which worker and what the GPU
+    held were lost between the worker's event and the person. Now the message the session log keeps names the chunk and
+    the batch, and ``last-failure.txt`` plus one line of the failure history keep the rest -- the chunk by length,
+    SHA-256 and seed, never by its words."""
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(text=PARAGRAPHS, plan={"behavior": "fail", "at": 3, "message": UNUSABLE}, chunks_per_worker=2)
+    assert str(failed.value) == ("The OmniVoice voice engine failed while generating speech: " + UNUSABLE
+                                 + " (chunk 4 of 5, worker batch 2 of 3)")
+    chunk = next(c for c in fake.jobs_seen()[1]["chunks"] if c["index"] == 3)
+    history = (fake.jobs / osy.FAILURE_HISTORY).read_text("utf-8")
+    (line,) = history.splitlines()
+    record = json.loads(line)
+    assert record["shown"] == str(failed.value) and record["message"] == UNUSABLE
+    assert record["chunk"] == {"index": 3, "number": 4, "position": 1, "chars": len(chunk["text"]),
+                               "sha256": hashlib.sha256(chunk["text"].encode("utf-8")).hexdigest(),
+                               "seed": chunk["seed"], "boundary": "paragraph", "gen_s": 0.5, "audio_shape": [0]}
+    assert (record["batch"], record["batches"], record["batch_size"], record["chunks"]) == (2, 3, 2, 5)
+    assert record["completed_before"] == 3, "chunks 1-3 were rendered before it"
+    source = fake.tmp / "story.txt"
+    assert record["source"] == {"name": "story.txt", "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
+    assert (record["stage"], record["trace"].endswith("kaboom")) == ("generate", True)
+    assert record["gpu"] == {"vram_allocated_mib": 2100, "vram_reserved_mib": 2300, "peak_allocated_mib": 2900,
+                             "peak_reserved_mib": 3100}
+    assert record["device"]["device_name"] == "Fake GPU"
+    assert record["engine"]["generation"] == osy.GENERATION and record["engine"]["pipeline_revision"] == 1
+    assert record["engine"]["model_revision"] and record["engine"]["omnivoice"] == "0.2.1"
+    last = (fake.jobs / "last-failure.txt").read_text("utf-8")
+    assert '"sha256": "' + record["chunk"]["sha256"] in last
+    for text in (chunk["text"], "Paragraph number", "something quite different"):
+        assert text not in history and text not in last, "the narrated words never reach the records"
+
+
+def test_the_failure_history_keeps_one_line_per_failure_and_stays_bounded(fake, monkeypatch):
+    for at in (0, 2):
+        with pytest.raises(osy.OmniVoiceFailed):
+            fake.convert(text=PARAGRAPHS, plan={"behavior": "fail", "at": at, "message": UNUSABLE})
+    history = fake.jobs / osy.FAILURE_HISTORY
+    assert [json.loads(line)["chunk"]["number"] for line in history.read_text("utf-8").splitlines()] == [1, 3]
+    monkeypatch.setattr(osy, "FAILURE_HISTORY_CAP_BYTES", 10)
+    with pytest.raises(osy.OmniVoiceFailed):
+        fake.convert(text=PARAGRAPHS, plan={"behavior": "fail", "at": 4, "message": UNUSABLE})
+    previous = fake.jobs / osy.FAILURE_HISTORY_PREVIOUS
+    assert len(previous.read_text("utf-8").splitlines()) == 2, "the full history moved aside, whole"
+    assert [json.loads(line)["chunk"]["number"] for line in history.read_text("utf-8").splitlines()] == [5]
+
+
+def test_a_failure_outside_the_chunk_loop_keeps_its_message_and_its_record(fake, monkeypatch):
+    monkeypatch.setattr(ov, "_system", lambda: "win32")
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(text=PARAGRAPHS, plan={"behavior": "no_gpu"})
+    assert "chunk" not in str(failed.value) and "worker batch" not in str(failed.value)
+    record = json.loads((fake.jobs / osy.FAILURE_HISTORY).read_text("utf-8"))
+    assert record["stage"] == "load" and "chunk" not in record and record["batch"] == 1
+
+
+def test_the_real_worker_says_where_an_empty_waveform_happened_and_what_the_gpu_held(tmp_path):
+    """On the real worker (stand-in stack): an empty waveform for a chunk with words fails it, naming its place in the
+    batch, the time it took, the shape that came back and the memory then -- nothing is rendered past it."""
+    chunks = [{"index": 7, "text": "Hello there.", "seed": 1}, {"index": 8, "text": "Gone quiet.", "seed": 2},
+              {"index": 9, "text": "Never reached.", "seed": 3}]
+    code, events = run_stack_worker(tmp_path, {"empty_for": ["Gone quiet."]}, chunks=chunks)
+    assert code == 2 and [e["event"] for e in events] == ["loaded", "chunk", "failed"], events
+    failed = events[-1]
+    assert (failed["stage"], failed["index"], failed["position"], failed["of"]) == ("generate", 8, 1, 3)
+    assert failed["message"] == UNUSABLE and failed["audio_shape"] == [0] and failed["gen_s"] >= 0
+    if HOST_DEVICE == "cuda":
+        assert {"vram_allocated_mib", "vram_reserved_mib", "peak_allocated_mib", "peak_reserved_mib"} <= set(failed)
+    assert not (tmp_path / "chunks" / "chunk-0010.wav").exists()
+
+
+def test_a_diagnostic_that_cannot_be_measured_never_replaces_the_failure():
+    from tts import omnivoice_worker as w
+
+    class Broken:
+        class cuda:
+            @staticmethod
+            def memory_allocated(i=0):
+                raise RuntimeError("CUDA error: an illegal memory access was encountered")
+
+    assert w.failure_memory(Broken, "cuda") == {}
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.1 Checkpoint C1: a chunk with nothing to say whose rendering was all silence is a pause
+# --------------------------------------------------------------------------- #
+def test_only_a_letter_or_a_digit_in_any_script_is_something_to_say():
+    from tts import omnivoice_worker as w
+
+    for text in ("...", "......", ".......", "\ufffd", "\u2014", '"..."', "?!", "* * *", " "):
+        assert not w.speakable(text), ascii(text)
+    for text in ("Boom!", "Ah...", "3.", "\u00c9t\u00e9", "\u4f60\u597d", "\u0416", "x"):
+        assert w.speakable(text), ascii(text)
+    assert osy.speakable is w.speakable, "the app checks the worker's own rule, not a copy"
+
+
+def test_the_pause_is_the_edge_padding_omnivoice_puts_around_every_rendering():
+    from tts import omnivoice_worker as w
+
+    assert w.pause_samples(osy.GENERATION, 24000) == 4800, "0.1 s each side, as released"
+    assert w.pause_samples({**osy.GENERATION, "pad_duration": 0.0}, 24000) == 1, "never an empty chunk"
+
+
+@pytest.mark.parametrize("text", ["...", "......", "\ufffd", "\u2014", '"..."'],
+                         ids=["ellipsis", "long-ellipsis", "replacement-char", "em-dash", "quoted-ellipsis"])
+def test_a_chunk_with_nothing_to_say_whose_rendering_was_all_silence_becomes_a_short_pause(tmp_path, text):
+    """The mass-test failures: a paragraph of only "..." (or a lone U+FFFD) is its own chunk; about one seed in
+    five, OmniVoice renders it entirely below -50 dBFS and its own post-processing returns no samples. The real worker
+    now writes the 0.2 s pause upstream puts around every rendering and goes on; the chunks either side are untouched."""
+    chunks = [{"index": 4, "text": "He waited.", "seed": 1}, {"index": 5, "text": text, "seed": 2},
+              {"index": 6, "text": "Then he left.", "seed": 3}]
+    code, events = run_stack_worker(tmp_path, {"empty_for": [text]}, chunks=chunks)
+    assert code == 0 and [e["event"] for e in events] == ["loaded", "chunk", "chunk", "chunk", "done"], events
+    pause = events[2]
+    assert (pause["index"], pause["silent"], pause["audio_s"], pause["peak"]) == (5, True, 0.2, 0.0)
+    data, rate = sf.read(str(tmp_path / "chunks" / "chunk-0006.wav"), dtype="float32")
+    assert rate == 24000 and data.shape == (4800,) and not data.any()
+    assert "silent" not in events[1] and "silent" not in events[3]
+    for name in ("chunk-0005.wav", "chunk-0007.wav"):
+        spoken, _ = sf.read(str(tmp_path / "chunks" / name), dtype="float32")
+        assert spoken.shape == (2400,) and np.allclose(spoken, 0.01), "the model's own audio, unchanged"
+
+
+@pytest.mark.parametrize("text", ["Gone quiet.", "Boom!", "Ah...", "3.", "\u4f60\u597d"],
+                         ids=["sentence", "interjection", "word-and-ellipsis", "digit", "cjk"])
+def test_a_chunk_with_words_that_comes_back_empty_still_fails_the_file(tmp_path, text):
+    chunks = [{"index": 0, "text": "Before.", "seed": 1}, {"index": 1, "text": text, "seed": 2},
+              {"index": 2, "text": "After.", "seed": 3}]
+    code, events = run_stack_worker(tmp_path, {"empty_for": [text]}, chunks=chunks)
+    assert code == 2 and [e["event"] for e in events] == ["loaded", "chunk", "failed"], events
+    assert (events[-1]["index"], events[-1]["message"]) == (1, UNUSABLE)
+    assert not (tmp_path / "chunks" / "chunk-0002.wav").exists() and not (tmp_path / "chunks" / "chunk-0003.wav").exists()
+
+
+def test_a_chunk_with_nothing_to_say_that_the_model_did_voice_keeps_its_own_audio(tmp_path):
+    """Every rendering that worked before is untouched: the pause stands in only for zero samples."""
+    chunks = [{"index": 0, "text": "...", "seed": 7}]
+    code, events = run_stack_worker(tmp_path, {}, chunks=chunks)
+    assert code == 0 and "silent" not in events[1] and events[1]["audio_s"] == 0.1, events
+    data, _ = sf.read(str(tmp_path / "chunks" / "chunk-0001.wav"), dtype="float32")
+    assert data.shape == (2400,) and np.allclose(data, 0.01)
+
+
+ELLIPSIS_STORY = "He waited for an answer.\n\n...\n\nThen he turned and left the hall."
+
+
+def _real_worker_conversion(fake, monkeypatch, tmp_path, plan):
+    model = tmp_path / "model"
+    (model / "audio_tokenizer").mkdir(parents=True, exist_ok=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "audio_tokenizer" / "config.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(ov, "model_dir", lambda: model)
+    for name, value in OFFLINE.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("ACT_FAKE_STACK", json.dumps(plan))
+    return stack_worker(tmp_path / "real-worker")
+
+
+def test_end_to_end_an_ellipsis_paragraph_rendered_as_silence_publishes_the_whole_file_with_a_pause(fake, monkeypatch,
+                                                                                                  tmp_path):
+    """The parent and the REAL worker together: the "..." paragraph becomes 0.2 s of silence between the two spoken
+    chunks (each joined by the preset's paragraph pause), the log says so, and the MP3 is published whole."""
+    launcher = _real_worker_conversion(fake, monkeypatch, tmp_path, {"empty_for": ["..."]})
+    fake.convert(text=ELLIPSIS_STORY, script=launcher, chunk_pause_ms=700)
+    assert (fake.tmp / "story.mp3").read_bytes() == b"MP3-BYTES" and fake.leftovers() == []
+    gap, spoken = int(24000 * 0.7), np.full(2400, 0.01, dtype="float32")
+    expected = np.concatenate([spoken, np.zeros(gap), np.zeros(4800), np.zeros(gap), spoken]).astype("float32")
+    assert fake.exported["arr"].shape == expected.shape and np.allclose(fake.exported["arr"], expected, atol=1e-4)
+    (noted,) = [line for line in fake.logs if "it is a pause" in line]
+    assert noted.startswith("  OmniVoice chunk 2/3 (0.2 s of audio")
+    assert not (fake.jobs / osy.FAILURE_HISTORY).exists(), "nothing failed"
+
+
+def test_end_to_end_a_worded_paragraph_rendered_as_silence_still_fails_and_publishes_nothing(fake, monkeypatch,
+                                                                                           tmp_path):
+    launcher = _real_worker_conversion(fake, monkeypatch, tmp_path, {"empty_for": ["Then he turned and left the hall."]})
+    destination = fake.tmp / "story.mp3"
+    destination.write_bytes(b"THE OWNER'S EARLIER FILE")
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(text=ELLIPSIS_STORY, script=launcher)
+    assert str(failed.value).endswith(UNUSABLE + " (chunk 3 of 3, worker batch 1 of 1)")
+    assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
+    record = json.loads((fake.jobs / osy.FAILURE_HISTORY).read_text("utf-8"))
+    assert record["chunk"]["number"] == 3 and record["chunk"]["audio_shape"] == [0]
+
+
+def test_a_worker_that_reports_a_pause_for_a_chunk_with_words_is_not_believed(fake):
+    """Defence in depth on the parent: only a chunk with nothing to say may come back as a pause."""
+    with pytest.raises(osy.OmniVoiceFailed, match="returned silence for chunk 2 of 5, which has words to speak"):
+        fake.convert(text=PARAGRAPHS, plan={"behavior": "claim_silent", "at": 1})
+    assert fake.leftovers() == [] and not (fake.tmp / "story.mp3").exists()

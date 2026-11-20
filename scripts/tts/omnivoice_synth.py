@@ -66,6 +66,7 @@ from tts import omnivoice_runtime as ov
 from tts import qwen3_process
 from tts import qwen3_synth as _local  # the engine-neutral planner, assembly, encode and publication
 from tts.omnivoice_runtime import OmniVoiceUnavailable
+from tts.omnivoice_worker import speakable  # the worker's own rule (stdlib only; no model stack is imported)
 from tts.speech.document import read_source_text
 from tts.speech.pipeline import prepare
 from tts.speech.profiles import OMNIVOICE as OMNIVOICE_ROUTE
@@ -123,10 +124,20 @@ EXIT_GRACE_S = 20.0
 OUTPUT_DRAIN_S = 2.0
 STALE_JOB_AGE_S = 24 * 3600.0
 STDERR_TAIL_CHARS = 1500
+#: v0.8.1 C1: every failure's technical record, one JSON line each, beside ``last-failure.txt`` (which keeps only the
+#: last). Past this size the file is moved to ``failures.previous.jsonl`` (replacing an older one) and begun again.
+FAILURE_HISTORY = "failures.jsonl"
+FAILURE_HISTORY_PREVIOUS = "failures.previous.jsonl"
+FAILURE_HISTORY_CAP_BYTES = 1 << 20
 
 
 class OmniVoiceFailed(RuntimeError):
-    """The worker ran but this file could not be produced. The message is fit to show a user."""
+    """The worker ran but this file could not be produced. The message is fit to show a user; *details*, when given,
+    is the technical record :func:`record_failure` keeps (never the text being narrated)."""
+
+    def __init__(self, message: str, *, details: Optional[dict] = None) -> None:
+        super().__init__(message)
+        self.details = details
 
 
 # --------------------------------------------------------------------------- #
@@ -494,6 +505,57 @@ def failure_message(terminal: dict, *, repair_offered: bool = False) -> str:
     return message
 
 
+#: The worker's memory figures a ``failed`` event may carry (CUDA as released; a Mac's footprint and MPS figures).
+_MEMORY_KEYS = ("vram_allocated_mib", "vram_reserved_mib", "peak_allocated_mib", "peak_reserved_mib", "footprint_mib",
+                "peak_footprint_mib", "mps_allocated_mib", "mps_driver_mib")
+
+
+def failed_chunk(terminal: dict, group: list) -> Optional[_local.Chunk]:
+    """The chunk of *group* a ``failed`` event names by its ``index``, or ``None`` (a failure outside the chunk loop)."""
+    index = terminal.get("index")
+    if type(index) is not int:
+        return None
+    return next((c for c in group if c.index == index), None)
+
+
+def failure_location(chunk: _local.Chunk, total: int, batch: int, batches: int) -> str:
+    """Where a chunk failure happened, for the message a person sees and the session log keeps (v0.8.1 C1)."""
+    return f" (chunk {chunk.index + 1} of {total}, worker batch {batch} of {batches})"
+
+
+def failure_details(terminal: dict, chunk: Optional[_local.Chunk], *, source: Path, voice_id: str, total: int,
+                    batch: int, batches: int, group_size: int, completed: int, loaded: dict,
+                    policy: ov.DevicePolicy, model_revision: str, omnivoice_version: str) -> dict:
+    """The technical record of one failed worker run (v0.8.1 C1). Pure apart from hashing *source*.
+
+    It identifies the source by name and SHA-256 and the chunk by its global index, worker batch and place in it, its
+    prepared length, SHA-256 and seed -- never by its words -- and keeps the worker's own stage, exception, traceback,
+    timing and memory, the device it ran on and the exact engine, model and generation settings."""
+    try:
+        source_sha256: Optional[str] = hashlib.sha256(source.read_bytes()).hexdigest()
+    except OSError:
+        source_sha256 = None
+    record: dict = {
+        "recorded": time.strftime("%Y-%m-%d %H:%M:%S"), "source": {"name": source.name, "sha256": source_sha256},
+        "voice_id": voice_id, "stage": terminal.get("stage"), "message": terminal.get("message"),
+        "oom": terminal.get("oom"), "trace": terminal.get("trace"), "chunks": total, "batch": batch,
+        "batches": batches, "batch_size": group_size, "completed_before": completed,
+        "gpu": {key: terminal[key] for key in _MEMORY_KEYS if key in terminal},
+        "device": {key: loaded.get(key) for key in ("device", "device_name", "total_mib", "load_s", "prompt",
+                                                    "vram_allocated_mib", "vram_reserved_mib") if key in loaded},
+        "versions": loaded.get("versions"),
+        "engine": {"omnivoice": omnivoice_version, "model_revision": model_revision, "dtype": policy.dtype,
+                   "device": policy.device, "language": LANGUAGE, "generation": dict(GENERATION),
+                   "pipeline_revision": PIPELINE_REVISION, "max_chunk_chars": OMNIVOICE_MAX_CHUNK_CHARS},
+    }
+    if chunk is not None:
+        record["chunk"] = {"index": chunk.index, "number": chunk.index + 1, "position": terminal.get("position"),
+                           "chars": len(chunk.text), "sha256": hashlib.sha256(chunk.text.encode("utf-8")).hexdigest(),
+                           "seed": derive_seed(voice_id, chunk), "boundary": chunk.boundary,
+                           "gen_s": terminal.get("gen_s"), "audio_shape": terminal.get("audio_shape")}
+    return record
+
+
 # --------------------------------------------------------------------------- #
 # Job folders
 # --------------------------------------------------------------------------- #
@@ -528,13 +590,23 @@ def cleanup_stale_jobs(root: Optional[Path] = None, max_age_s: float = STALE_JOB
     return removed
 
 
-def record_failure(job_dir: Path, message: str, runtime: Optional[Path] = None) -> None:
-    """Keep the last failure's worker stderr for diagnosis (no job text beyond what a traceback quotes)."""
+def record_failure(job_dir: Path, message: str, runtime: Optional[Path] = None,
+                   details: Optional[dict] = None) -> None:
+    """Keep the last failure's worker stderr for diagnosis (no job text beyond what a traceback quotes) and, when there
+    is one, its technical record (:func:`failure_details`): in ``last-failure.txt`` and as one more line of the bounded
+    :data:`FAILURE_HISTORY`, so each failure of a long run can still be found after later ones."""
     try:
         target = (ov.runtime_dir() if runtime is None else Path(runtime)) / "last-failure.txt"
         stderr = "\n".join(_tail(p, 6000) for p in sorted(job_dir.glob("*-stderr.txt")))
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n{message}\n\n{stderr}\n", encoding="utf-8")
+        record = f"\n{json.dumps(details, indent=1, sort_keys=True, default=str)}\n" if details else ""
+        target.write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n{message}\n{record}\n{stderr}\n", encoding="utf-8")
+        if details:
+            history = target.with_name(FAILURE_HISTORY)
+            if history.is_file() and history.stat().st_size > FAILURE_HISTORY_CAP_BYTES:
+                os.replace(history, target.with_name(FAILURE_HISTORY_PREVIOUS))
+            with open(history, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps({**details, "shown": message}, sort_keys=True, default=str) + "\n")
     except (OSError, OmniVoiceUnavailable):
         pass
 
@@ -667,7 +739,9 @@ def omnivoice_file_to_mp3(
                 def chunk_done(event: dict) -> None:
                     events.append(event)
                     log(f"  OmniVoice chunk {int(event.get('index', 0)) + 1}/{len(chunks)} ({event.get('audio_s')} s "
-                        f"of audio in {event.get('gen_s')} s)")
+                        f"of audio in {event.get('gen_s')} s)"
+                        + (" -- no words to speak and its rendering was silent, so it is a pause" if event.get("silent")
+                           else ""))
                     if progress_callback is not None:
                         progress_callback(len(events), len(chunks))
 
@@ -683,10 +757,23 @@ def omnivoice_file_to_mp3(
                     # the repair is offered (this conversion holds inference.lock: no installer is changing it).
                     damaged = (ov.failure_needs_rebuild(run.terminal)
                                and ov.reject_ready_engine(str(run.terminal.get("message") or run.terminal.get("stage"))))
-                    raise OmniVoiceFailed(failure_message(run.terminal, repair_offered=damaged))
+                    failing = failed_chunk(run.terminal, group)
+                    where = "" if failing is None else failure_location(failing, len(chunks), number, len(groups))
+                    details = failure_details(run.terminal, failing, source=src, voice_id=voice_id, total=len(chunks),
+                                              batch=number, batches=len(groups), group_size=len(group),
+                                              completed=len(events), loaded=run.loaded, policy=policy,
+                                              model_revision=model_revision, omnivoice_version=version)
+                    raise OmniVoiceFailed(failure_message(run.terminal, repair_offered=damaged) + where,
+                                          details=details)
                 if sorted(int(e["index"]) for e in run.chunk_events) != [c.index for c in group]:
                     raise OmniVoiceFailed(f"The OmniVoice voice engine rendered other chunks than it was given "
                                           f"(batch {number} of {len(groups)}).")
+                worded_pauses = sorted({int(e["index"]) for e in run.chunk_events if e.get("silent")}
+                                       & {c.index for c in group if speakable(c.text)})
+                if worded_pauses:  # v0.8.1 C1: only a chunk with nothing to say may become a pause; words never vanish
+                    raise OmniVoiceFailed(f"The OmniVoice voice engine returned silence for chunk "
+                                          f"{worded_pauses[0] + 1} of {len(chunks)}, which has words to speak, so its "
+                                          f"audio was discarded (worker batch {number} of {len(groups)}).")
             _local._raise_if_cancelled(cancel_check)
             audio, rate = collect_chunks(job_dir / "chunks", events, len(chunks))
             _local._raise_if_cancelled(cancel_check)
@@ -700,7 +787,7 @@ def omnivoice_file_to_mp3(
                                encoder=encoder, log=log)
             log(f"OmniVoice: saved -> {output_mp3_path} ({report['speech_samples'] / rate:.1f} s of speech)")
         except OmniVoiceFailed as exc:
-            record_failure(job_dir, str(exc), None if jobs_root is None else Path(jobs_root))
+            record_failure(job_dir, str(exc), None if jobs_root is None else Path(jobs_root), details=exc.details)
             raise
         finally:
             remove_job_dir(job_dir)

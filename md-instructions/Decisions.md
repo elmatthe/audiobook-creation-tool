@@ -2,6 +2,15 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-20 — v0.8.1 Checkpoint C1: an OmniVoice chunk with nothing to say whose rendering is trimmed to zero samples is a 0.2 s pause, not a failure; a chunk failure names its chunk and worker batch and keeps a technical record
+
+Signed: Claude Code (Opus 5.5), HOME-PC. Evidence-driven: Handoff v0.8.1 Checkpoint C1; private evidence in `files/dev-work/v0.8.1-c1-evidence/` (ignored).
+- **Cause.** A paragraph of only "..." (or a lone U+FFFD) is its own chunk. OmniVoice renders it as under a second of near-silence; for about one seed in five all of it is below -50 dBFS, and OmniVoice's own `postprocess_output` removes all of it as silence and returns no samples. The worker rightly refused empty audio, which failed the whole chapter (all 80 failures of the owner's mass test).
+- **Decision.** In the worker, only when the chunk has no `str.isalnum()` character AND the model returned exactly 0 samples, the chunk becomes 2 x `pad_duration` (0.2 s) of silence: what OmniVoice's `fade_and_pad_audio` puts around every non-empty rendering, i.e. "trimmed to nothing, then padded". The chunk event carries `silent`; the run log says so; the parent fails the file if a `silent` chunk has words (one rule: `speakable` is the worker's own, imported by `omnivoice_synth`).
+- **Rejected.** Retrying with another seed (a blind retry; breaks "same chunk, same seed, same audio"). Turning off `postprocess_output` or changing its threshold (changes every approved rendering; upstream code). Merging or dropping letterless paragraphs in the shared planner (also Qwen3's; shifts chunk indices and so every later seed, changing chapters that already succeeded). Treating any empty rendering as a pause (would hide lost words).
+- **Why it is safe.** Only chunks that used to fail their whole file change; every other rendering is bit-identical (a control chapter's MP3 is byte-identical to the production output). `PIPELINE_REVISION` stays 1: no audio that could have been produced before changes.
+- **Diagnostics.** The failure message ends "(chunk N of M, worker batch B of K)", so the session log keeps it per failure. `last-failure.txt` and one line of the bounded `failures.jsonl` (1 MiB, then `failures.previous.jsonl`) keep the technical record: chunk identified by index, batch, position, length, SHA-256 and seed, never its words. The worker adds position, timing, the returned shape and GPU memory to its `failed` event; a figure it cannot measure is left out rather than replacing the failure.
+
 ## 2026-11-20 — v0.8.1 Checkpoint B: outlined semantic button roles are one shared style set plus a stable action-to-role map; a role colours the text and the border only, never a fill
 
 Signed: Claude Code (Sonnet 5.5), HOME-PC. Implements the owner-approved 146-control matrix (roadmap `files/plans/ACT-v0.8.1-Implementation-Roadmap-DRAFT.md` Appendix A); it is not an owner acceptance of how the result looks.

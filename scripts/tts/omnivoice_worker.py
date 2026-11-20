@@ -406,6 +406,32 @@ def _is_oom(exc: BaseException) -> bool:
     return "out of memory" in str(exc).lower()
 
 
+def speakable(text: str) -> bool:
+    """Whether a chunk has anything to say: a letter or a digit, in any script (v0.8.1 C1). A paragraph of only
+    punctuation or symbols -- ``...``, ``......``, a lone U+FFFD -- is its own chunk (the planner never crosses a
+    paragraph) and asks the model for a pause, nothing else."""
+    return any(ch.isalnum() for ch in text)
+
+
+def pause_samples(generation: dict, rate: int) -> int:
+    """The silence that stands for a chunk with nothing to say whose whole rendering was silence: the edge padding
+    OmniVoice's own post-processing puts around every rendering (``pad_duration`` each side; 0.2 s as released)."""
+    return max(1, int(2 * float(generation.get("pad_duration", 0.0)) * rate))
+
+
+def failure_memory(torch, device: str) -> dict:
+    """The memory figures for a ``failed`` event (v0.8.1 C1): :func:`_memory` and, on CUDA, the worker's peaks so far.
+    Diagnostic only, so it never raises: a device too broken to answer gives ``{}``."""
+    try:
+        found = _memory(torch, device)
+        if device == "cuda":
+            found["peak_allocated_mib"] = torch.cuda.max_memory_allocated(0) // 2**20
+            found["peak_reserved_mib"] = torch.cuda.max_memory_reserved(0) // 2**20
+        return found
+    except Exception:  # noqa: BLE001 - a diagnostic must never replace the failure it describes
+        return {}
+
+
 #: Windows error numbers with which a library load says the COMPUTER is short of memory, not that a file is wrong:
 #: ERROR_NOT_ENOUGH_MEMORY, ERROR_OUTOFMEMORY and ERROR_COMMITMENT_LIMIT ("The paging file is too small for this
 #: operation to complete", which PyTorch's CUDA libraries meet when Windows' commit charge is near its limit).
@@ -599,12 +625,14 @@ def run_synth(job: dict) -> int:
     done = 0
     rate = int(model.sampling_rate)
     peaks: dict = {}  # a Mac: the largest per-chunk samples (MPS has no peak counter of its own)
-    for chunk in chunks:
+    for position, chunk in enumerate(chunks):
         if _cancelled(job):
             emit({"event": "canceled", "completed": done})
             return EXIT_CANCELED
+        t0 = time.perf_counter()
+        shape = None
+        silent = False
         try:
-            t0 = time.perf_counter()
             torch.manual_seed(int(chunk["seed"]))  # seeds the CPU and MPS generators as well
             if device == "cuda":
                 torch.cuda.manual_seed_all(int(chunk["seed"]))
@@ -612,13 +640,27 @@ def run_synth(job: dict) -> int:
                                      generation_config=config, normalize_text=False)
             _sync(torch, device)
             wav = np.asarray(outputs[0], dtype=np.float32)
+            shape = list(wav.shape)
+            # v0.8.1 C1: for a chunk with nothing to say ("..."), the model renders under a second of near-silence;
+            # about one seed in five keeps it all below -50 dBFS, upstream's post-processing then removes all of it as
+            # silence and returns no samples. That is the right answer, not a failure: the chunk becomes the pause
+            # upstream puts around every rendering. A chunk with words that comes back empty still fails below.
+            if wav.ndim == 1 and wav.size == 0 and not speakable(chunk["text"]):
+                wav, silent = np.zeros(pause_samples(job["generation"], rate), dtype=np.float32), True
             if wav.ndim != 1 or wav.size == 0 or not np.isfinite(wav).all():
                 raise RuntimeError(f"the model returned unusable audio (shape {wav.shape})")
             name = f"chunk-{int(chunk['index']) + 1:04d}.wav"
             sf.write(str(out_dir / name), wav, rate, subtype="FLOAT")
         except Exception as exc:  # noqa: BLE001
-            emit({"event": "failed", "stage": "generate", "index": chunk["index"], "oom": _is_oom(exc),
-                  "message": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc()[-1500:]})
+            # v0.8.1 C1: where in this worker's batch it failed, how long it had run, what came back and the memory
+            # then, so a failure in a long run can be found again (the parent adds the file, chunk and batch).
+            failed = {"event": "failed", "stage": "generate", "index": chunk["index"], "position": position,
+                      "of": len(chunks), "oom": _is_oom(exc), "message": f"{type(exc).__name__}: {exc}",
+                      "trace": traceback.format_exc()[-1500:], "gen_s": round(time.perf_counter() - t0, 3),
+                      **failure_memory(torch, device)}
+            if shape is not None:
+                failed["audio_shape"] = shape
+            emit(failed)
             return EXIT_FAILED
         done += 1
         memory = _memory(torch, device)
@@ -627,7 +669,7 @@ def run_synth(job: dict) -> int:
                 peaks[key] = max(peaks.get(key, 0), memory[key])
         emit({"event": "chunk", "index": chunk["index"], "of": len(chunks), "wav": name,
               "audio_s": round(wav.size / rate, 3), "gen_s": round(time.perf_counter() - t0, 3), "sample_rate": rate,
-              "peak": round(float(np.abs(wav).max()), 5), **memory})
+              "peak": round(float(np.abs(wav).max()), 5), **({"silent": True} if silent else {}), **memory})
     if device == "cuda":
         emit({"event": "done", "chunks": done, "sample_rate": rate, "device": "cuda:0",
               "wall_s": round(time.perf_counter() - started, 2), "load_s": load_s,

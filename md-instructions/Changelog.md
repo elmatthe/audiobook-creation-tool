@@ -32,10 +32,18 @@ published yet.
   (Checkpoint B)
 
 **Fixed**
+- **OmniVoice no longer fails a chapter over a "..." paragraph.** A paragraph with nothing to say (only "...", or a lone
+  unreadable character) sometimes came back from OmniVoice as complete silence, which OmniVoice's own clean-up then
+  removed, and the whole chapter failed with "the model returned unusable audio (shape (0,))" -- the cause of all 80
+  chapters that failed in a long OmniVoice mass test. Such a paragraph now becomes a short pause (0.2 s) and the chapter completes;
+  everything else sounds exactly as before, and a passage with words that comes back empty still fails. (Checkpoint C1)
 - **MP3 Tool artwork dialog** opened in the import folder; it now has its own remembered folder, shared by Shared and
   Book artwork, and choosing artwork no longer changes where Import Folder and Add Files open. (Checkpoint A)
 
 **Changed**
+- **An OmniVoice failure says where it happened.** The message ends "(chunk N of M, worker batch B of K)", and each
+  failure's technical details (never the narrated text) are kept in the engine's `failures.jsonl` beside
+  `last-failure.txt`. (Checkpoint C1)
 - **A remembered folder changes only when a selection is accepted**, in every tool: Cancel, a selection that adds
   nothing, a refused file or image, and a declined broad-folder question leave it as it was. A file choice remembers its
   folder; a folder choice remembers the folder itself.
