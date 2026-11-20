@@ -303,10 +303,10 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
         win.destroy()
 
     btn_cancel = ttk.Button(actions, text="Cancel", command=cancel,
-                            style=job_ui.style_name(theme, "button"))
+                            style=job_ui.action_style(theme, "cancel"))
     btn_cancel.pack(side=tk.RIGHT)
     btn_confirm = ttk.Button(actions, text=confirm_label, command=confirm,
-                             style=job_ui.style_name(theme, "danger_button"))
+                             style=job_ui.action_style(theme, "confirm_destructive"))
     btn_confirm.pack(side=tk.RIGHT, padx=(0, 8))
     # Exposed so a headless test can drive the dialog without a display server.
     win.btn_cancel = btn_cancel
@@ -2226,7 +2226,7 @@ class CoverResizerUI(ttk.Frame):
         self.run_row.columnconfigure(0, weight=1)
         self.btn_convert = ttk.Button(
             self.run_row, text="Resize Covers", command=self.start_resize,
-            default="active", width=14, style=job_ui.style_name(bundle, "button"))
+            default="active", width=14, style=job_ui.action_style(bundle, "run"))
         self.btn_convert.grid(row=0, column=0, sticky="w")
         # The shared run controls and status view (progress, stage, ETA),
         # directly beneath the primary action. The adapter is rebuilt for each
@@ -2257,7 +2257,7 @@ class CoverResizerUI(ttk.Frame):
         self.activity_note.grid(row=0, column=0, sticky="w")
         self.btn_clear_log = ttk.Button(
             bar, text="Clear Log", command=self.clear_log,
-            style=job_ui.style_name(bundle, "button"))
+            style=job_ui.action_style(bundle, "clear_log"))
         self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.log = job_ui.SummaryDetailsView(
             act, theme=bundle, height=LOG_HEIGHT, width=LOG_WIDTH_CHARS,

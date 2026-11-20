@@ -145,6 +145,13 @@ LIGHT_COLORS: dict[str, object] = {
     # Shared vs Current Book tint (Frozen UI Contract §2), ready for the
     # Family B tools this module does not itself build.
     "shared_bg": "#e7edf7", "shared_border": "#8fa9d1", "shared_header": "#2f5da8",
+    # v0.8.1 outlined semantic buttons: the yellow text/border, and the two
+    # NEUTRAL greys a role button shows under the pointer and while pressed.
+    # The red, green and blue role colours are the danger/success/accent
+    # tokens above (see the update below the palettes), so one retune moves
+    # both. Every role text colour keeps >= 4.5:1 on its base, hover and
+    # pressed background (pinned by test_button_roles).
+    "role_yellow": "#7a5c00", "role_hover": "#e8e8e8", "role_pressed": "#e0e0e0",
     "is_dark": False,
 }
 
@@ -167,8 +174,15 @@ DARK_COLORS: dict[str, object] = {
     "scroll_trough": "#232427", "scroll_thumb": "#42454b",
     "scroll_thumb_hover": "#54585f",
     "shared_bg": "#1c2733", "shared_border": "#3a5a80", "shared_header": "#9cc2f5",
+    "role_yellow": "#e0b83a", "role_hover": "#2e3035", "role_pressed": "#1f2124",
     "is_dark": True,
 }
+
+# The semantic outline roles reuse the existing danger/success/accent colours.
+for _palette in (LIGHT_COLORS, DARK_COLORS):
+    _palette.update(role_red=_palette["danger"], role_green=_palette["success"],
+                    role_blue=_palette["accent"])
+del _palette
 
 _PALETTES = {LIGHT: LIGHT_COLORS, DARK: DARK_COLORS}
 
@@ -222,8 +236,15 @@ _STYLES: dict[str, str] = {
     "shared_label": f"{STYLE_PREFIX}.Shared.TLabel",
     "shared_secondary": f"{STYLE_PREFIX}.SharedSecondary.TLabel",
     "button": f"{STYLE_PREFIX}.TButton",
-    "primary_button": f"{STYLE_PREFIX}.Primary.TButton",
-    "danger_button": f"{STYLE_PREFIX}.Danger.TButton",
+    # v0.8.1 outlined semantic roles (A red, B green, C yellow, D blue; E is
+    # ``button``). ``primary_button`` and ``danger_button`` are the older names
+    # for the green and red roles: they are the same style, never a filled one.
+    "button_red": f"{STYLE_PREFIX}.Red.TButton",
+    "button_green": f"{STYLE_PREFIX}.Green.TButton",
+    "button_yellow": f"{STYLE_PREFIX}.Yellow.TButton",
+    "button_blue": f"{STYLE_PREFIX}.Blue.TButton",
+    "primary_button": f"{STYLE_PREFIX}.Green.TButton",
+    "danger_button": f"{STYLE_PREFIX}.Red.TButton",
     "ghost_button": f"{STYLE_PREFIX}.Ghost.TButton",
     "nav_button": f"{STYLE_PREFIX}.Nav.TButton",
     "entry": f"{STYLE_PREFIX}.TEntry",
@@ -241,6 +262,90 @@ _STYLES: dict[str, str] = {
     "hscrollbar": f"{STYLE_PREFIX}.Horizontal.TScrollbar",
     "treeview": f"{STYLE_PREFIX}.Treeview",
     "separator": f"{STYLE_PREFIX}.TSeparator",
+}
+
+# ---------------------------------------------------------------------------
+# v0.8.1 outlined semantic button roles
+# ---------------------------------------------------------------------------
+
+ROLE_RED = "red"
+ROLE_GREEN = "green"
+ROLE_YELLOW = "yellow"
+ROLE_BLUE = "blue"
+ROLE_NORMAL = "normal"
+
+#: The owner-approved taxonomy (Roadmap Appendix A). Red = stop / discard /
+#: destructive; green = start / build / save / install; yellow = pause / resume
+#: / retry; blue = Book navigation and creation, repair and review tools;
+#: normal = every ordinary action. Every role draws a neutral background in
+#: every state: only the text and the border carry the colour.
+BUTTON_ROLE_LETTERS: dict[str, str] = {
+    "A": ROLE_RED, "B": ROLE_GREEN, "C": ROLE_YELLOW, "D": ROLE_BLUE,
+    "E": ROLE_NORMAL,
+}
+
+#: Role -> the ``_STYLES`` key (and so the ttk style) that draws it.
+BUTTON_ROLE_STYLE_KEYS: dict[str, str] = {
+    ROLE_RED: "button_red", ROLE_GREEN: "button_green",
+    ROLE_YELLOW: "button_yellow", ROLE_BLUE: "button_blue",
+    ROLE_NORMAL: "button",
+}
+
+#: Stable action key -> role. A shared control names the action it performs and
+#: never a colour, so "Cancel" is red and "Pause" yellow in every tool, and a
+#: later re-assignment is made here once. The same action keeps one role in
+#: every surface; the per-surface 146-control inventory is pinned against the
+#: live widgets by ``test_button_roles``.
+BUTTON_ACTION_ROLES: dict[str, str] = {
+    # importing and the imported-file list
+    "add_files": ROLE_NORMAL, "add_folder": ROLE_NORMAL,
+    "import_folder": ROLE_NORMAL, "move_up": ROLE_NORMAL,
+    "move_down": ROLE_NORMAL, "remove": ROLE_RED, "remove_selected": ROLE_RED,
+    "clear": ROLE_RED, "clear_imports": ROLE_RED, "cancel_import": ROLE_RED,
+    # the Book navigator
+    "book_previous": ROLE_BLUE, "book_next": ROLE_BLUE, "book_add": ROLE_BLUE,
+    "book_duplicate": ROLE_BLUE, "book_remove": ROLE_RED,
+    # artwork pickers
+    "artwork_choose": ROLE_NORMAL, "artwork_clear": ROLE_RED,
+    # the run and its job controls
+    "run": ROLE_GREEN, "save": ROLE_GREEN, "install": ROLE_GREEN,
+    "pause": ROLE_YELLOW, "resume": ROLE_YELLOW, "retry": ROLE_YELLOW,
+    "cancel": ROLE_RED, "clear_log": ROLE_RED,
+    # ordinary utilities
+    "open_output": ROLE_NORMAL, "browse": ROLE_NORMAL, "close": ROLE_NORMAL,
+    "continue": ROLE_NORMAL, "details": ROLE_NORMAL, "skip": ROLE_NORMAL,
+    "open_document": ROLE_NORMAL,
+    # destructive tag, preference and data actions
+    "clear_tags": ROLE_RED, "remove_numbering": ROLE_RED, "reset": ROLE_RED,
+    "clear_data": ROLE_RED, "confirm_destructive": ROLE_RED,
+    # repair, review and developer tools
+    "repair": ROLE_BLUE, "review": ROLE_BLUE, "developer_tools": ROLE_BLUE,
+}
+
+
+def button_style_key(role_or_action: str) -> str:
+    """The ``styles`` key that draws a role, a role letter or a stable action.
+
+    Raises ``ValueError`` for an unknown name: a shared control must never fall
+    back to a plain button silently, because that is exactly how a role gets lost.
+    """
+    role = BUTTON_ACTION_ROLES.get(role_or_action)
+    if role is None:
+        role = BUTTON_ROLE_LETTERS.get(role_or_action, role_or_action)
+    try:
+        return BUTTON_ROLE_STYLE_KEYS[role]
+    except KeyError:
+        raise ValueError(
+            f"unknown button role or action {role_or_action!r}; expected a role "
+            f"{sorted(BUTTON_ROLE_STYLE_KEYS)}, a letter "
+            f"{sorted(BUTTON_ROLE_LETTERS)} or one of "
+            f"{sorted(BUTTON_ACTION_ROLES)}") from None
+
+
+#: Role -> the palette token holding its text/border colour.
+_BUTTON_ROLE_COLOR_TOKENS = {
+    ROLE_RED: "role_red", ROLE_GREEN: "role_green",
+    ROLE_YELLOW: "role_yellow", ROLE_BLUE: "role_blue",
 }
 
 # A separate namespace prevents a Windows comparison/test registration from
@@ -347,8 +452,10 @@ _LAYOUTS: dict[str, list] = {
 # Same ttk style-resolution reason ``ui_theme`` documents: a variant with no
 # layout of its own falls back to the native generic style, not its base.
 for _variant, _base in (
-    (f"{_P}.Primary.TButton", f"{_P}.TButton"),
-    (f"{_P}.Danger.TButton", f"{_P}.TButton"),
+    (f"{_P}.Red.TButton", f"{_P}.TButton"),
+    (f"{_P}.Green.TButton", f"{_P}.TButton"),
+    (f"{_P}.Yellow.TButton", f"{_P}.TButton"),
+    (f"{_P}.Blue.TButton", f"{_P}.TButton"),
     (f"{_P}.Ghost.TButton", f"{_P}.TButton"),
     (f"{_P}.Nav.TButton", f"{_P}.TButton"),
     (f"{_P}.Muted.TCheckbutton", f"{_P}.TCheckbutton"),
@@ -629,39 +736,34 @@ def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
         darkcolor=[("disabled", c["field_disabled"]), ("pressed", c["accent_soft"]),
                    ("active", c["accent_soft"])],
     )
-    style.configure(
-        f"{_P}.Primary.TButton", background=c["accent"], foreground=c["inverse"],
-        bordercolor=c["accent"], lightcolor=c["accent"], darkcolor=c["accent"],
-        focuscolor=c["inverse"], font=f["button"], padding=m["button_pad"],
-        relief="raised", borderwidth=m["border_width"], anchor="center",
-    )
-    style.map(
-        f"{_P}.Primary.TButton",
-        background=[("disabled", c["surface"]), ("pressed", c["accent_pressed"]),
-                    ("active", c["accent_hover"])],
-        foreground=[("disabled", c["disabled"])],
-        bordercolor=[("disabled", c["border"]), ("focus", c["focus"]),
-                     ("pressed", c["accent_pressed"]), ("active", c["accent_hover"])],
-        lightcolor=[("pressed", c["accent_pressed"]), ("active", c["accent_hover"])],
-        darkcolor=[("pressed", c["accent_pressed"]), ("active", c["accent_hover"])],
-    )
-    style.configure(
-        f"{_P}.Danger.TButton", background=c["surface"], foreground=c["danger"],
-        bordercolor=c["danger"], lightcolor=c["surface"], darkcolor=c["surface"],
-        focuscolor=c["focus"], font=f["button"], padding=m["button_pad"],
-        relief="raised", borderwidth=m["border_width"], anchor="center",
-    )
-    style.map(
-        f"{_P}.Danger.TButton",
-        background=[("disabled", c["surface"]), ("pressed", c["danger_pressed"]),
-                    ("active", c["danger"])],
-        foreground=[("disabled", c["disabled"]), ("pressed", c["selection_text"]),
-                    ("active", c["selection_text"])],
-        bordercolor=[("disabled", c["border"]), ("focus", c["focus"]),
-                     ("pressed", c["danger_pressed"]), ("active", c["danger_hover"])],
-        lightcolor=[("pressed", c["danger_pressed"]), ("active", c["danger"])],
-        darkcolor=[("pressed", c["danger_pressed"]), ("active", c["danger"])],
-    )
+    # The four outlined semantic roles. One definition drives all four, so a
+    # role can differ from another only in its text/border colour. Background
+    # is neutral in EVERY state: hover and pressed shift between two neutral
+    # greys, and the ``alternate`` (default="active") state changes nothing, so
+    # Start/Build/Save read green through their outline alone. The border keeps
+    # the role colour while focused; the focus indicator is the dotted ring
+    # (``focuscolor``, the neutral text colour) that the Button.focus element
+    # draws inside it. Disabled drops the text and border to the neutral
+    # disabled greys so a role never looks live when it is not.
+    for role, token in _BUTTON_ROLE_COLOR_TOKENS.items():
+        name = _STYLES[BUTTON_ROLE_STYLE_KEYS[role]]
+        tone = c[token]
+        style.configure(
+            name, background=c["surface"], foreground=tone, bordercolor=tone,
+            lightcolor=c["surface"], darkcolor=c["surface"],
+            focuscolor=c["text"], font=f["button"], padding=m["button_pad"],
+            relief="raised", borderwidth=m["border_width"], anchor="center",
+        )
+        neutral_states = [
+            ("disabled", c["field_disabled"]), ("pressed", c["role_pressed"]),
+            ("active", c["role_hover"]), ("selected", c["role_hover"])]
+        style.map(
+            name,
+            background=neutral_states,
+            foreground=[("disabled", c["disabled"])],
+            bordercolor=[("disabled", c["border"])],
+            lightcolor=neutral_states, darkcolor=neutral_states,
+        )
     style.configure(
         f"{_P}.Ghost.TButton", background=c["window"], foreground=c["secondary"],
         bordercolor=c["window"], lightcolor=c["window"], darkcolor=c["window"],

@@ -60,6 +60,7 @@ from test_m4b_converter_jobs import (  # noqa: F401 - fixtures are used by name
     tk_root,
 )
 from test_m4b_conversion_plan import _reservation
+import button_role_inventory as roles
 
 
 def _bundle(root, value: str) -> dict:
@@ -180,19 +181,42 @@ def test_no_color_literal_is_passed_to_any_widget_in_the_panel_source():
     assert not offenders, offenders
 
 
+def test_every_converter_button_takes_its_approved_outline_role(make_panel, tk_root):
+    """Appendix A, M4B Converter: all 14 controls, in Light and Dark (v0.8.1 Checkpoint B)."""
+    from shared.job_control import JobAction
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = _bundle(tk_root, value)
+        panel = make_panel(appearance_bundle=bundle)
+        lst = panel.importer.list.buttons
+        rows = {
+            "Add Files…": lst["add_files"], "Add Folder…": lst["add_folder"],
+            "Move Up": lst["move_up"], "Move Down": lst["move_down"],
+            "Remove": lst["remove"], "Clear All": lst["clear"],
+            "Cancel Import": panel.importer.status.button_cancel,
+        }
+        rows.update({"Convert M4Bs → MP3s": panel.btn_convert,
+                     "Open Output Folder": panel.btn_open_out,
+                     "Clear Log": panel.btn_clear_log})
+        controls = panel.jobs.controls.buttons
+        rows.update({"Pause": controls[JobAction.PAUSE], "Resume": controls[JobAction.RESUME],
+                     "Cancel": controls[JobAction.CANCEL],
+                     "Retry Failed": controls[JobAction.RETRY_FAILED]})
+        roles.audit("converter", bundle, rows, container=panel)
+
+
 def test_the_activity_and_run_area_are_the_shared_compact_presentation(make_panel, tk_root):
     dark = _bundle(tk_root, appearance.DARK)
     panel = make_panel(appearance_bundle=dark)
     styles = dark["styles"]
     assert str(panel.log.frame.cget("style")) == styles["notebook"]
     assert [panel.log.frame.tab(i, "text") for i in range(2)] == ["Summary", "Detailed"]
-    assert str(panel.btn_clear_log.cget("style")) == styles["button"]
+    assert str(panel.btn_clear_log.cget("style")) == styles["button_red"]
     assert str(panel.progress.bar.cget("style")) == styles["progressbar"]
     assert str(panel.progress.frame.cget("style")) == styles["card"]
     assert str(panel.jobs.status.label_status.cget("style")) == styles["secondary_label"]
-    # Convert is the panel's default button -- the ordinary compact button with
-    # ttk's restrained accent outline, exactly as TTS's Start and Cover's Resize.
-    assert str(panel.btn_convert.cget("style")) == styles["button"]
+    # Convert is the panel's default button and the run action: the green outline
+    # role (v0.8.1), exactly as TTS's Start and Cover's Resize.
+    assert str(panel.btn_convert.cget("style")) == styles["button_green"]
     assert str(panel.btn_convert.cget("default")) == "active"
     cancel = [b for b in panel.jobs.controls.buttons.values()
               if str(b.cget("text")) == "Cancel"]

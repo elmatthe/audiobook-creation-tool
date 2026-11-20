@@ -719,7 +719,7 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
                                  appearance_bundle=_aqua_bundle(tk_root))
     try:
         assert panel.navigator.layout == "stacked"
-        name = panel.appearance_bundle["styles"]["button"]
+        name = panel.appearance_bundle["styles"]["button_green"]
         assert str(panel.btn_build.cget("style")) == name
         assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
@@ -789,7 +789,7 @@ def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_r
         panel.var_custom_dest.set(False)
         panel._on_custom_dest_change()
         assert not panel.customrow.winfo_manager()
-        assert str(panel.btn_build.cget("style")) == panel.appearance_bundle["styles"]["button"]
+        assert str(panel.btn_build.cget("style")) == panel.appearance_bundle["styles"]["button_green"]
     finally:
         panel.close()
         panel.destroy()
@@ -806,12 +806,10 @@ def test_the_panel_asks_for_compact_styles_and_declares_no_colour_or_platform_br
     panel = make_panel(appearance_bundle=bundle)
     styles = bundle["styles"]
     assert str(panel.cget("style")) == styles["window"]
-    assert str(panel.btn_build.cget("style")) == styles["button"]
+    assert str(panel.btn_build.cget("style")) == styles["button_green"]
     assert str(panel.btn_build.cget("default")) == "active"
     assert [b for b in widgets_of(panel, ttk.Button)
             if str(b.cget("default")) == "active"] == [panel.btn_build]
-    assert [b.cget("text") for b in widgets_of(panel, ttk.Button)
-            if str(b.cget("style")) == styles["primary_button"]] == []
     assert str(panel.navigator.frame.cget("style")).startswith("Compact.")
     generic = [str(w) for w in widgets_of(panel, ttk.Widget) if not str(w.cget("style"))]
     assert generic == [], f"widgets left on generic styles: {generic}"

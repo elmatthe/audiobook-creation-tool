@@ -172,7 +172,7 @@ from shared.importing import (
     ScanRequest,
 )
 from shared.job_control import JobEventKind, JobState
-from shared.job_ui import MainThreadGuard, MainThreadPump, style_name
+from shared.job_ui import MainThreadGuard, MainThreadPump, action_style, style_name
 from artwork import mp3_artwork
 from mp3 import mp3_plan
 from mp3 import mp3_processing
@@ -588,11 +588,11 @@ class _ArtworkControl:
         # allocation: a width of 7 cut "Choose…" to "Choose." (v0.7.2 Phase 5,
         # ACT72-020; the same correction as artwork.m4b_artwork_ui).
         self.btn_choose = ttk.Button(self.frame, text="Choose…",
-                                     style=style_name(theme, "button"),
+                                     style=action_style(theme, "artwork_choose"),
                                      command=self._choose,
                                      **({} if natural else {"width": 0}))
         self.btn_clear = ttk.Button(self.frame, text="Clear",
-                                    style=style_name(theme, "button"),
+                                    style=action_style(theme, "artwork_clear"),
                                     command=self._clear,
                                     **({} if natural else {"width": 0}))
         # Two rows only -- caption, then the two buttons side by side -- with
@@ -829,6 +829,10 @@ class MP3ToolUI(ttk.Frame):
         """The shared compact style for *key* (native control inheritance on Aqua)."""
         return style_name(self.appearance_bundle, key)
 
+    def _action_style(self, action: str) -> str:
+        """The outlined role style for a stable button action (v0.8.1)."""
+        return action_style(self.appearance_bundle, action)
+
     def _build(self, theme) -> None:
         """Compose the four sections from the live widgets.
 
@@ -873,12 +877,13 @@ class MP3ToolUI(ttk.Frame):
         top.grid(row=0, column=0, sticky="ew")
         self.import_band = top
         self.btn_import_folder = ttk.Button(
-            top, text="Import Folder", style=st("button"), command=self.import_folder)
+            top, text="Import Folder", style=self._action_style("import_folder"),
+            command=self.import_folder)
         self.btn_import_folder.grid(row=0, column=0, sticky="w")
         # The destructive workspace reset lives with the import controls it
         # undoes, in the shared destructive treatment (v0.6.4 Phase 12 amendment).
         self.btn_clear_imports = ttk.Button(
-            top, text=CLEAR_IMPORTS_LABEL, style=st("danger_button"),
+            top, text=CLEAR_IMPORTS_LABEL, style=self._action_style("clear_imports"),
             command=self.clear_all_imports)
         self.btn_clear_imports.grid(row=0, column=1, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
@@ -1054,13 +1059,16 @@ class MP3ToolUI(ttk.Frame):
         track_buttons.grid(row=2, column=0, sticky="ew", pady=(4, 0))
         self.track_buttons = track_buttons
         self.btn_add_files = ttk.Button(track_buttons, text="Add Files",
-                                        style=st("button"), command=self.add_files)
+                                        style=self._action_style("add_files"),
+                                        command=self.add_files)
         self.btn_move_up = ttk.Button(track_buttons, text="Move Up",
-                                      style=st("button"), command=self.move_up)
+                                      style=self._action_style("move_up"),
+                                      command=self.move_up)
         self.btn_move_down = ttk.Button(track_buttons, text="Move Down",
-                                        style=st("button"), command=self.move_down)
+                                        style=self._action_style("move_down"),
+                                        command=self.move_down)
         self.btn_remove_tracks = ttk.Button(track_buttons, text="Remove Selected",
-                                            style=st("button"),
+                                            style=self._action_style("remove_selected"),
                                             command=self.remove_selected_tracks)
         for column, button in enumerate((self.btn_add_files, self.btn_move_up,
                                          self.btn_move_down, self.btn_remove_tracks)):
@@ -1100,10 +1108,10 @@ class MP3ToolUI(ttk.Frame):
         self.actions.columnconfigure(2, weight=1)
         self.btn_write_id3 = ttk.Button(
             self.actions, text="Write ID3 Tags", default="active",
-            style=st("button"), command=self.write_id3_tags)
+            style=self._action_style("run"), command=self.write_id3_tags)
         self.btn_combine = ttk.Button(
             self.actions, text="Combine MP3s → One MP3", default="active",
-            style=st("button"), command=self.combine_mp3s)
+            style=self._action_style("run"), command=self.combine_mp3s)
         if hints["actions_layout"] == "row":
             self.btn_write_id3.grid(row=0, column=0, sticky="nw")
             self.btn_combine.grid(row=0, column=1, sticky="nw", padx=(6, 12))
@@ -1134,7 +1142,8 @@ class MP3ToolUI(ttk.Frame):
         self.activity_note.grid(row=0, column=0, sticky="w")
         # Not a processing option, so it never locks: clearing the visible log
         # never interferes with a run in flight.
-        self.btn_clear_log = ttk.Button(bar, text="Clear Log", style=st("button"),
+        self.btn_clear_log = ttk.Button(bar, text="Clear Log",
+                                        style=self._action_style("clear_log"),
                                         command=self.clear_log)
         self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.log = job_ui.SummaryDetailsView(act, theme=bundle, height=LOG_HEIGHT,

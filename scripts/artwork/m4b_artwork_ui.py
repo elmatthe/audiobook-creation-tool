@@ -35,7 +35,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from shared.job_control import ControlKind
-from shared.job_ui import MainThreadGuard, style_name
+from shared.job_ui import MainThreadGuard, action_style, style_name
 from artwork import m4b_artwork
 
 __all__ = [
@@ -132,11 +132,11 @@ class ArtworkControl:
         # of 7 gave "Choose…" 52 px where its text needs 59, so it read "Choose."
         # in every tool that shows artwork (v0.7.2 Phase 5, ACT72-020).
         self.btn_choose = ttk.Button(self.frame, text="Choose…",
-                                     style=style_name(theme, "button"),
+                                     style=action_style(theme, "artwork_choose"),
                                      command=self._choose,
                                      **({} if natural_buttons else {"width": 0}))
         self.btn_clear = ttk.Button(self.frame, text="Clear",
-                                    style=style_name(theme, "button"),
+                                    style=action_style(theme, "artwork_clear"),
                                     command=self._clear,
                                     **({} if natural_buttons else {"width": 0}))
         # Two rows: caption, then the two buttons side by side, with the

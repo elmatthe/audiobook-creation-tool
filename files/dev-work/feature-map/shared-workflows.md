@@ -83,7 +83,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 ### Pause, Resume, Cancel and Retry Failed controls and the run state machine
 `ACT.SHARED.JOB-CONTROL`
 
-- Buttons: Pause, Resume, Cancel (danger style), Retry Failed, above each tool's progress area.
+- Buttons: Pause (yellow), Resume (yellow), Cancel (red), Retry Failed (yellow), above each tool's progress area.
 - States: Idle, Running, Pause requested, Paused, Cancel requested, Cancelled, Succeeded, Completed with failures, Failed.
 - Running offers Pause and Cancel; Pause requested and Paused offer Resume and Cancel; other states offer nothing, except Retry Failed after "Completed with failures" when a retryable failure exists.
 - Pause and Cancel are requests: "Pause requested" is shown until the worker reaches a checkpoint. Cancel outranks Pause and wakes a paused worker. A run ends exactly once; Cancel and a result being made final race under one lock and exactly one wins.
@@ -227,6 +227,15 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Saved as `appearance`; first run or an unknown value means Light; a failed save shows the stored value.
 - Difference: the Windows outer shell keeps its fixed dark style; on macOS the native window appearance follows the choice, and so does the footer (status line, Open log folder and the surroundings of its two native buttons), so the buttons never sit in a box of another colour (ACT72-081).
 - Owner checks: the Light/Dark screenshot baselines (none approved yet) and scaling above 100%.
+
+### Outlined semantic button colours
+`ACT.SHARED.BUTTON-ROLES`
+
+- v0.8.1 Checkpoint B, the owner's 146-control matrix (roadmap Appendix A). Each button takes a role from its stable action in `shared/appearance.py` (`BUTTON_ACTION_ROLES`), never a colour of its own: red for Cancel, Clear, Remove, Reset and Clear Log; green for Start, Build, Save and Install; yellow for Pause, Resume and Retry; blue for Book Previous, Next, Add and Duplicate (MP3 Tool and M4B Maker; Previous and Next in M4B Metadata) and for repair, review and developer tools; everything else, and the application's own navigation, normal.
+- A role colours the text and the border only. The background is a neutral grey in every state, Light and Dark; a disabled role button shows the neutral disabled greys; a focused one keeps its role border and the focus ring.
+- The shared Import list and status, Job controls, Book navigator and artwork pickers carry the roles for all six tools; Preferences, the Cleanup dialogs, the Cover replacement confirmation, the Qwen3 install and repair dialog and the Install & Continue panel carry theirs. The system file and message dialogs keep the operating system's buttons.
+- Not classified, so still normal: the first-run wizard's own buttons, the long-path prompt, the Qwen3 reference-transcript tools and the sentence-data download Cancel. macOS keeps its native buttons until Checkpoint E.
+- Owner check: the Windows visual pass in Light and Dark.
 
 ### Mouse-wheel scrolling over scrollable regions
 `ACT.SHARED.SCROLLING`

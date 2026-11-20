@@ -1212,8 +1212,8 @@ def test_every_style_keyword_resolves_through_style_name_not_a_literal():
                 f"style= must call style_name(...), found {ast.dump(value)}")
             func = value.func
             resolves = (
-                (isinstance(func, ast.Attribute) and func.attr == "style_name")
-                or (isinstance(func, ast.Name) and func.id == "style_name"))
+                (isinstance(func, ast.Attribute) and func.attr in ("style_name", "action_style"))
+                or (isinstance(func, ast.Name) and func.id in ("style_name", "action_style")))
             assert resolves, f"style= must resolve through style_name, found {ast.dump(func)}"
     # A floor, not an exact count: proves this test is exercising real style=
     # keywords rather than passing vacuously because none were found at all.

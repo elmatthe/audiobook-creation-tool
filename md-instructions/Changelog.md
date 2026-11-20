@@ -22,6 +22,14 @@ published yet.
 - **The file dialogs remember where you were, per tool and per action.** TTS Audiobook's Add Files and Add Folder now
   reopen in the folder last used (they remembered none before). The M4B Maker's custom-destination
   Browse… and the Preferences output-location Browse… each remember their own folder. (Checkpoint A)
+- **Outlined semantic button colours (Windows).** Buttons now draw one of four colours by what they do, in the
+  button's text and border only, in Light and in Dark: red for Cancel, Clear, Remove, Reset and Clear Log; green for
+  Start, Build, Save and Install; yellow for Pause, Resume and Retry Failed; blue for the Book Previous, Next, Add Book
+  and Duplicate Book buttons (MP3 Tool and M4B Maker; Previous and Next in M4B Metadata) and for repair, review and
+  developer tools. Every other button, and the left-hand navigation, stays as it was. The roles apply to all six tools,
+  Preferences & Data, the Cleanup dialogs, the Cover replacement confirmation, the Qwen3 install and repair dialog and
+  the Install & Continue panel (also in the first-run voices step). The roles follow the owner's 146-control matrix.
+  (Checkpoint B)
 
 **Fixed**
 - **MP3 Tool artwork dialog** opened in the import folder; it now has its own remembered folder, shared by Shared and
@@ -38,6 +46,10 @@ published yet.
   remembered folder; no file or folder is deleted. Each installation keeps its own remembered folders.
 - Application identity `0.8.1`; the configuration lists Windows and macOS again and the packager builds both archives.
   Which voices each platform offers is unchanged.
+- **A coloured button never fills with its colour.** The red Cancel and Clear buttons used to flood red when the pointer
+  touched or pressed them; every coloured button now keeps a neutral grey background in every state (resting, hover,
+  pressed, focused, default and disabled). A disabled coloured button shows plain grey text and border, and a focused
+  one keeps its coloured border and the focus ring. macOS keeps its native buttons for now (Checkpoint E). (Checkpoint B)
 
 ## [0.8.0+macos.1] - unreleased (release candidate; publication awaits the owner) — v0.8.0 for macOS, Revision 1
 

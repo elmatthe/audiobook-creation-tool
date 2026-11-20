@@ -275,10 +275,7 @@ def test_exactly_two_primary_process_buttons(make_panel):
     compact = panel.appearance_bundle["styles"]
     if compact:
         for button in emphasised:
-            assert str(button.cget("style")) == compact["button"]
-        filled = [b for b in widgets_of(panel, ttk.Button)
-                  if str(b.cget("style")) == compact["primary_button"]]
-        assert filled == [], [b.cget("text") for b in filled]
+            assert str(button.cget("style")) == compact["button_green"]
     texts = labels_in(panel)
     assert not any("Process All" in text for text in texts)
 

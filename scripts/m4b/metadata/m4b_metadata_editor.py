@@ -140,7 +140,7 @@ from shared.importing import (
     ScanRequest,
 )
 from shared.job_control import JobEventKind, JobState, TERMINAL_STATES
-from shared.job_ui import MainThreadGuard, MainThreadPump, style_name
+from shared.job_ui import MainThreadGuard, MainThreadPump, action_style, style_name
 from artwork import m4b_artwork_ui
 from m4b.metadata import m4b_metadata_batch as batch
 from m4b.metadata import m4b_metadata_plan as mp
@@ -468,6 +468,10 @@ class M4BMetadataEditorUI(ttk.Frame):
         """The shared compact style for *key* (native control inheritance on Aqua)."""
         return style_name(self.appearance_bundle, key)
 
+    def _action_style(self, action: str) -> str:
+        """The outlined role style for a stable button action (v0.8.1)."""
+        return action_style(self.appearance_bundle, action)
+
     def _build(self, theme) -> None:
         """Compose the four sections from the live widgets.
 
@@ -512,16 +516,18 @@ class M4BMetadataEditorUI(ttk.Frame):
         top.grid(row=0, column=0, sticky="ew")
         self.import_band = top
         self.btn_import_folder = ttk.Button(
-            top, text="Import Folder", style=st("button"), command=self.import_folder)
+            top, text="Import Folder", style=self._action_style("import_folder"),
+            command=self.import_folder)
         self.btn_import_folder.grid(row=0, column=0, sticky="w")
         self.btn_add_files = ttk.Button(
-            top, text="Add Files", style=st("button"), command=self.add_files)
+            top, text="Add Files", style=self._action_style("add_files"),
+            command=self.add_files)
         self.btn_add_files.grid(row=0, column=1, sticky="w", padx=(4, 0))
         # The destructive workspace reset lives with the import controls it
         # undoes, in the shared destructive treatment (Phase 12 amendment) --
         # deliberately not "Clear All": this tool also has Clear All Tags.
         self.btn_clear_imports = ttk.Button(
-            top, text=CLEAR_IMPORTS_LABEL, style=st("danger_button"),
+            top, text=CLEAR_IMPORTS_LABEL, style=self._action_style("clear_imports"),
             command=self.clear_all_imports)
         self.btn_clear_imports.grid(row=0, column=2, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
@@ -734,17 +740,18 @@ class M4BMetadataEditorUI(ttk.Frame):
         buttons.grid(row=0, column=0, rowspan=2, sticky="nw")
         self.action_buttons = buttons
         self.btn_save = ttk.Button(
-            buttons, text="Save Tags", default="active", style=st("button"),
-            command=self.save)
+            buttons, text="Save Tags", default="active",
+            style=self._action_style("save"), command=self.save)
         self.btn_clear_tags = ttk.Button(
             buttons, text="Clear All Tags (keep chapters)",
-            style=st("danger_button"), command=self.on_clear_all_tags)
+            style=self._action_style("clear_tags"), command=self.on_clear_all_tags)
         self.btn_remove_numbering = ttk.Button(
             buttons, text="Remove Series Numbering",
-            style=st("danger_button"), command=self.on_remove_series_numbering)
+            style=self._action_style("remove_numbering"),
+            command=self.on_remove_series_numbering)
         self.btn_open_out = ttk.Button(
-            buttons, text="Open Output Folder", style=st("button"),
-            command=self.open_outdir)
+            buttons, text="Open Output Folder",
+            style=self._action_style("open_output"), command=self.open_outdir)
         if hints["actions_layout"] == "stacked" and hints["actions_columns"] < 2:
             for row, button in enumerate((self.btn_save, self.btn_clear_tags,
                                           self.btn_remove_numbering, self.btn_open_out)):
@@ -781,7 +788,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.activity_note.grid(row=0, column=0, sticky="w")
         # Not a processing option, so it never locks: clearing the visible log
         # never interferes with a run in flight.
-        self.btn_clear_log = ttk.Button(bar, text="Clear Log", style=st("button"),
+        self.btn_clear_log = ttk.Button(bar, text="Clear Log",
+                                        style=self._action_style("clear_log"),
                                         command=self.clear_log)
         self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.log = job_ui.SummaryDetailsView(act, theme=bundle, height=LOG_HEIGHT,

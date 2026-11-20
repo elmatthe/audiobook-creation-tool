@@ -20433,6 +20433,245 @@
       "exceptions": []
     },
     {
+      "id": "ACT.SHARED.BUTTON-ROLES",
+      "tool": "shared",
+      "title": "Outlined semantic button colours",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/shared/appearance.py",
+          "symbols": [
+            "button_style_key",
+            "build_bundle"
+          ]
+        },
+        {
+          "path": "scripts/shared/job_ui.py",
+          "symbols": [
+            "action_style",
+            "ImportedFileList",
+            "ImportStatusBar",
+            "JobControlBar"
+          ]
+        },
+        {
+          "path": "scripts/shared/book_workspace_ui.py",
+          "symbols": [
+            "BookNavigator"
+          ]
+        },
+        {
+          "path": "scripts/artwork/m4b_artwork_ui.py",
+          "symbols": [
+            "ArtworkControl"
+          ]
+        },
+        {
+          "path": "scripts/shared/preferences_ui.py",
+          "symbols": [
+            "PreferencesDialog",
+            "CleanupDialog",
+            "CleanupConfirmationDialog",
+            "CleanupResultDialog"
+          ]
+        },
+        {
+          "path": "scripts/shared/optional_setup_panel.py",
+          "symbols": [
+            "OptionalSetupPanel"
+          ]
+        },
+        {
+          "path": "scripts/tts/qwen3_install_ui.py",
+          "symbols": [
+            "build_dialog"
+          ]
+        },
+        {
+          "path": "scripts/artwork/cover_resizer.py",
+          "symbols": [
+            "build_replacement_dialog"
+          ]
+        }
+      ],
+      "contracts": [
+        "Every approved button takes one of four outlined colour roles from its stable action: red (stop, discard, clear, remove, reset), green (start, build, save, install), yellow (pause, resume, retry) or blue (Book Previous, Next, Add and Duplicate, repair, review and developer tools); every other button, and the application's own navigation, stays normal. The roles are the owner's 146-control matrix, and the ten blue Book controls are MP3 Tool and M4B Maker Previous, Next, Add Book and Duplicate Book, and M4B Metadata Previous and Next.",
+        "A role colours only the text and the border. Its background is a neutral grey in every state (resting, hover, pressed, focused, selected, default and disabled), in Light and in Dark; nothing ever fills with red, green, yellow or blue.",
+        "Role text meets 4.5:1 on its own background in every live state; a disabled button shows the neutral disabled text and border, never its role colour; a keyboard-focused button keeps its role border and shows the focus ring.",
+        "A button keeps its role through a live Light/Dark switch, with no widget rebuilt.",
+        "The Install & Continue panel (the TTS dialog and the first-run voices step), the Qwen3 install and repair dialog, the Cleanup dialogs and the Cover replacement confirmation draw the same roles; the file Explorer and Finder dialogs, and the system message boxes, keep the operating system's own buttons.",
+        "A button the matrix does not list (the first-run wizard's own buttons, the long-path prompt, the Qwen3 reference-transcript tools, the sentence-data download Cancel) stays normal until it is classified."
+      ],
+      "selection": [
+        "files/tests/test_button_roles.py",
+        "files/tests/test_cover_appearance.py",
+        "files/tests/test_cover_source_side.py",
+        "files/tests/test_developer_mode.py",
+        "files/tests/test_m4b_converter_appearance.py",
+        "files/tests/test_m4b_maker_appearance.py",
+        "files/tests/test_m4b_metadata_appearance.py",
+        "files/tests/test_mp3_tool_appearance.py",
+        "files/tests/test_omnivoice_setup.py",
+        "files/tests/test_preferences_maintenance_ui.py",
+        "files/tests/test_tts_appearance.py"
+      ],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_the_inventory_is_146_controls_with_appendix_a_counts"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_the_ten_blue_book_controls_are_blue_and_nothing_else_in_books_is"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_application_navigation_is_entirely_normal"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_every_action_role_is_a_defined_role_and_the_keys_resolve"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_the_taxonomy_matches_the_approved_meaning"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_no_role_ever_fills_with_a_colour[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_no_role_ever_fills_with_a_colour[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_text_and_border_carry_the_role_colour_in_every_live_state[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_text_and_border_carry_the_role_colour_in_every_live_state[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_role_text_stays_readable_on_its_neutral_background_in_every_state[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_role_text_stays_readable_on_its_neutral_background_in_every_state[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_disabled_is_visibly_disabled_and_never_role_coloured[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_disabled_is_visibly_disabled_and_never_role_coloured[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_hover_and_pressed_change_only_between_neutral_greys[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_hover_and_pressed_change_only_between_neutral_greys[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_the_keyboard_focus_ring_is_kept_and_visible[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_the_keyboard_focus_ring_is_kept_and_visible[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_a_widget_keeps_its_role_style_name_through_a_live_theme_switch"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_danger_no_longer_fills_red_on_hover_or_press"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_publishes_the_role_keys_but_leaves_native_buttons_for_checkpoint_e"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_every_classified_button_takes_its_style_through_a_role_helper"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_both_hosts_of_the_setup_panel_hand_it_a_theme[shared/bootstrap.py]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_both_hosts_of_the_setup_panel_hand_it_a_theme[tts/epub2tts_gui.py]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_every_inventory_surface_has_a_live_audit_in_the_suite"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_appearance.py::test_every_tts_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_appearance.py::test_every_converter_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_tool_appearance.py::test_every_mp3_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_maker_appearance.py::test_every_maker_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_appearance.py::test_every_cover_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_metadata_appearance.py::test_every_metadata_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_preferences_maintenance_ui.py::test_every_preferences_and_cleanup_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_application_navigation_stays_normal_and_never_takes_a_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_setup.py::test_every_setup_panel_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_developer_mode.py::test_every_qwen3_install_button_takes_its_approved_outline_role"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_source_side.py::test_both_replacement_buttons_take_their_approved_red_outline_role"
+          },
+          {
+            "kind": "owner",
+            "check": "visual-baselines",
+            "detail": "Look at every tool panel, Preferences & Data and the setup dialogs in Light and Dark on Windows: roles, hover, pressed, focus ring and disabled state. Real-Tk screenshots exist from Checkpoint B (ignored); macOS Aqua is Checkpoint E."
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
       "id": "ACT.SHARED.SCROLLING",
       "tool": "shared",
       "title": "Mouse-wheel scrolling over scrollable regions",
@@ -26615,14 +26854,14 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "3c9fa7254e7243d563d23b46b488700e658706e075ae073e6ccc58b4651c1eb0",
+    "scripts/artwork/cover_resizer.py": "85be3a4648ebd1ff039218bd3ab3c3e2b20df1488c10b332a63f72d553919166",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
-    "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
+    "scripts/artwork/m4b_artwork_ui.py": "d7f6f01e6f16136fe2b898670f6409e8fd5d9f8c16c4c8361613bacc30c8a2c1",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
     "scripts/launcher.py": "c7b92b82c15715cd2b94f1c329a190f22c2da27a8ce51ecaa56d0eddfdca6e76",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "ada9977842e8597024a79e5d7888ffa45b07c714533a5ef2b402e920cc761c72",
+    "scripts/m4b/converter/m4b_converter.py": "509a471633bd4ce1d05ecc19d2292611551b7817e797d6ec341c5c6c2664e060",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "890d063b6a40a7e54b4828d7e420445ac114f72ee9c0a113fbc5f20c9c2e4770",
@@ -26637,30 +26876,30 @@
     "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "f251d536f58214cdd82af2ae749d8f6b4e46af87c7c07a4505036bcb95942054",
+    "scripts/m4b/maker/m4b_maker.py": "8a3418e0cee2e4d0dd1bb344a2c55926f8f4ea7d8107aa7815961bcdea29d8cd",
     "scripts/m4b/maker/m4b_maker_batch.py": "cfec80871ea1f8c1a3435b080d3a07479753f26ef742626c693668d09d292f18",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
     "scripts/m4b/metadata/m4b_metadata_batch.py": "36b5cb2e5acdbe250428d5a9f2b446deb26256898e2f4ef50504f11aa9c177bf",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "fe16ee5a2c34a8dec0e7cad76de8c1ec3eb778dfa0755f0c7c41b6aed7098740",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "fb49838af23fa751bc03a5d5878ecbdc72c40c9e1a47c434957158717cbec62f",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "3cd73fb580e6bcd9cf0808fa9d2e79721efa31181c758fb6e8382bf6071efced",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "f09339b68c9e853a6e8c49ba18c80ecc55021d3cc101feb64862e5973701c474",
+    "scripts/mp3/mp3_tool.py": "b0eaa6b0303e486b7a2a584a527371632062428b845559fd2f1cad80dcace72c",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
-    "scripts/shared/appearance.py": "99c038fc2e7bd85f8341922e5a2ff6023d1be72f7e7c9336513a0d082691239b",
+    "scripts/shared/appearance.py": "37064f380d464040c8025e9c65e379c52a62a1f16a8eed9b4c26ebda85e2426f",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
     "scripts/shared/artifact_transfer.py": "983713a2d2661a0ead741e83f3435363fb091567889ead3ee3fca9828f3c9ebf",
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
-    "scripts/shared/book_workspace_ui.py": "4a80d6aa84cc7d1cdfa61066e897d86da20412b96cc8797452504ed384011ae3",
-    "scripts/shared/bootstrap.py": "f493efe7c1486e62c8e4a9ce96a79c6361f451ae649f2b2ac9413f3357cefe7d",
+    "scripts/shared/book_workspace_ui.py": "e6eca05cecd79854b412af6d4d9c3469dbcb5ac614d9fd44752b0cc7103fb553",
+    "scripts/shared/bootstrap.py": "bd4012351c1846a31b17cb4a0f824048f3c4211667a64698169db1954da3c5bf",
     "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
@@ -26682,7 +26921,7 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
-    "scripts/shared/job_ui.py": "f2d0c5be82bc4b6026d4add74223a3b509c2ff886f1239f4fd0fe05b030c22ec",
+    "scripts/shared/job_ui.py": "6609b7314100b692f0cf6f8d95b592e3c4fcf24adb96dc940eb4224b93c17558",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
@@ -26693,7 +26932,7 @@
     "scripts/shared/optional_setup_client.py": "d3824930f351f2617c78cf5817c1d0765cfafcf58f401e0fe807c66379c49587",
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
-    "scripts/shared/optional_setup_panel.py": "7352386ee257ec16e5ed390f860b2c41924c06a7d9a7797dcee12606187aef97",
+    "scripts/shared/optional_setup_panel.py": "d4329092d8aab5caeda4bfc95e03b0687f5b17ce54629257434b096b1eec9a01",
     "scripts/shared/optional_setup_planning_bridge_v3.py": "bd15e28228f79821e8ac819c60771abeb93e864f9ab3c99320791504d9df6c0e",
     "scripts/shared/optional_setup_protocol.py": "0a8f2c6883431ad7a8c731ce644a34002f3f35dcf04e1f25c51187673e98eab6",
     "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
@@ -26704,7 +26943,7 @@
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
     "scripts/shared/output_paths.py": "98ae9d47ecab4ba2cfa0a595604a763cc17e66baae7da4abfcdb5e7ad3c8ddd4",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
-    "scripts/shared/preferences_ui.py": "df6a9187efd958d600108fb41344934c2a93749e718f087c7214e74a83d93804",
+    "scripts/shared/preferences_ui.py": "7783955e1e7df8c554bf41e29efc9cc50defd979288dc3caaa444d289e58cf91",
     "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",
     "scripts/shared/settings.py": "2f564a150ce9b5f0dce110d711e54e8c00f18dc59a017d59e31936bcc136f84f",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
@@ -26725,7 +26964,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "9a97453d9568ab05526a4eedfabc5e6ce8cb5b1fc81ee414f99f00041f7c4173",
+    "scripts/tts/epub2tts_gui.py": "92ba1360afcafee899b81b9f715a838ec2be4163e3b9e0f00515b5db53ba46fc",
     "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
@@ -26751,7 +26990,7 @@
     "scripts/tts/qwen3_clone_setup.py": "58d4109a90738a13cafb5c4ab14a4fb7deebf04d07baa905ab78df2d90049471",
     "scripts/tts/qwen3_clone_setup_ui.py": "a987c97ecb77ac9ae162ebea4784e08104fdc63a2e2589fdb786fabf8554e4b2",
     "scripts/tts/qwen3_engine_authority.py": "37897e7cfb564a99c15389c96db109f6885d58c600bf6c53c6fe33fe5ef11444",
-    "scripts/tts/qwen3_install_ui.py": "a5c5142eb6ece3b05ffabec3db614e3dd0d8d1a5cf8b3ed45bd9a0f041c64f0e",
+    "scripts/tts/qwen3_install_ui.py": "b3b3030ca6f0f46550d93f85dedb8d2d9bcbdf34fc949731e4ac5dc79614ee32",
     "scripts/tts/qwen3_package_manifest.py": "ecbdbe80aabe6379741bb4070bd1e702fff85775236a31d8760d2bd50955a566",
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
     "scripts/tts/qwen3_process.py": "bd5f6b222e4b1a2eec8de7394eadcc1a81ce50db809401b4788ded09ee7c189c",

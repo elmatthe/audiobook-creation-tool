@@ -624,6 +624,10 @@ def _default_install_dialog(panel, component: str, reason: str) -> dict:
     top.geometry("700x580")
     top.minsize(560, 460)
     top.transient(panel.winfo_toplevel())
+    theme = getattr(panel, "appearance_bundle", None)
+    window_color = ((theme or {}).get("colors") or {}).get("window")
+    if window_color:
+        top["background"] = window_color
     outcome: dict = {}
 
     def done(result: dict) -> None:
@@ -634,7 +638,7 @@ def _default_install_dialog(panel, component: str, reason: str) -> dict:
             pass
 
     view = OptionalSetupPanel(
-        top, rt.repo_root(), [component], on_done=done,
+        top, rt.repo_root(), [component], on_done=done, theme=theme,
         intro=(f"{reason}\n\nYour conversion starts by itself, once, when the voice is installed and checked. "
                "Skip or Cancel stops it; nothing is created."))
     view.pack(fill="both", expand=True, padx=12, pady=12)
@@ -1365,13 +1369,14 @@ class TtsPanel(ttk.Frame):
         # existing one). Shown only while a Qwen3 voice is selected and the platform offers it.
         self.qwen3_setup_btn = ttk.Button(
             self.qwen3_actions, text="Install / repair Qwen3 voices...", command=self.open_qwen3_setup,
-            style=st("button"))
+            style=self._action_style("repair"))
         self.qwen3_setup_btn.grid(row=0, column=0, sticky="w")
         self.qwen3_setup_btn.grid_remove()
         # The compact presentation of the hardware and speed disclosure (ACT72-058): shown instead of the notice line
         # only where the full text cannot fit (_layout_for), never at the same time as it. After Install in Tab order.
         self.qwen3_details_btn = ttk.Button(
-            self.qwen3_actions, text=QWEN3_DETAILS_LABEL, command=self.show_qwen3_details, style=st("button"))
+            self.qwen3_actions, text=QWEN3_DETAILS_LABEL, command=self.show_qwen3_details,
+            style=self._action_style("details"))
         self.qwen3_details_btn.grid(row=0, column=1, sticky="w", padx=(6, 0))
         self.qwen3_details_btn.grid_remove()
         # Whether a Qwen3 disclosure is being shown, and whether it is shown compactly.
@@ -1491,7 +1496,7 @@ class TtsPanel(ttk.Frame):
         # or clearing the visible log never interferes with a run in flight.
         self.btn_open_out = ttk.Button(
             run, text="Open Output Folder", command=self.open_output_folder,
-            style=st("button"))
+            style=self._action_style("open_output"))
         self.btn_open_out.grid(row=0, column=2, sticky="e")
         self.output_note = ttk.Label(
             run,
@@ -1530,7 +1535,8 @@ class TtsPanel(ttk.Frame):
         self.run_row.grid(row=4, column=0, columnspan=3, sticky="ew")
         self.run_row.columnconfigure(1, weight=1)
         self.go_btn = ttk.Button(self.run_row, text="Start", command=self.run_job,
-                                 default="active", width=10, style=st("button"))
+                                 default="active", width=10,
+                                 style=self._action_style("run"))
         self.go_btn.grid(row=0, column=0, sticky="nw", padx=(0, 12))
         # The shared run controls: the JobAdapter's control bar and status view
         # (progress, stage, ETA). Its Summary/Details view is *not* here -- the
@@ -1564,7 +1570,7 @@ class TtsPanel(ttk.Frame):
         self.activity_note.grid(row=0, column=0, sticky="w")
         self._wrap(self.activity_note, act, reserve=110)
         self.btn_clear_log = ttk.Button(bar, text="Clear Log", command=self.clear_log,
-                                        style=st("button"))
+                                        style=self._action_style("clear_log"))
         self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.log = job_ui.SummaryDetailsView(
             act, theme=bundle, height=LOG_HEIGHT, width=LOG_WIDTH_CHARS,
@@ -1587,6 +1593,10 @@ class TtsPanel(ttk.Frame):
     def _style(self, key: str) -> str:
         """The shared compact style for *key* (native control inheritance on Aqua)."""
         return job_ui.style_name(self.appearance_bundle, key)
+
+    def _action_style(self, action: str) -> str:
+        """The outlined role style for a stable button action (v0.8.1)."""
+        return job_ui.action_style(self.appearance_bundle, action)
 
     def _tone(self, key: str, fallback: str) -> dict:
         """Keyword arguments for a toned caption (secondary, link, warning, danger).

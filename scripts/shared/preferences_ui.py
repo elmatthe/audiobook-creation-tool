@@ -111,6 +111,15 @@ def _style(theme, name: str) -> str:
     return styles.get(name, "")
 
 
+def _action_style(theme, action: str) -> str:
+    """The outlined role style for a stable button *action* (v0.8.1).
+
+    The role lives in ``appearance.BUTTON_ACTION_ROLES``; ``""`` where the theme
+    has no style map, exactly like :func:`_style`.
+    """
+    return _style(theme, appearance.button_style_key(action)) or _style(theme, "button")
+
+
 def _metric(theme, name: str, fallback):
     metrics = (theme or {}).get("metrics") or {}
     value = metrics.get(name)
@@ -227,7 +236,7 @@ class PreferencesDialog(tk.Toplevel):
         )
         self._status_label.grid(row=0, column=0, sticky="w", padx=(0, gap_sm))
         self.button_close = ttk.Button(
-            footer, text="Close", style=_style(t, "button"), command=self.close
+            footer, text="Close", style=_action_style(t, "close"), command=self.close
         )
         self.button_close.grid(row=0, column=1, sticky="e")
 
@@ -277,11 +286,11 @@ class PreferencesDialog(tk.Toplevel):
         self.entry_path = ttk.Entry(card, textvariable=self.var_path, style=_style(t, "entry"))
         self.entry_path.grid(row=5, column=0, sticky="ew", padx=(0, gap_sm))
         self.button_browse = ttk.Button(
-            card, text="Browse…", style=_style(t, "button"), command=self.browse
+            card, text="Browse…", style=_action_style(t, "browse"), command=self.browse
         )
         self.button_browse.grid(row=5, column=1, sticky="e", padx=(0, gap_sm))
         self.button_save = ttk.Button(
-            card, text="Save", style=_style(t, "primary_button"),
+            card, text="Save", style=_action_style(t, "save"),
             command=self.save_output_base,
         )
         self.button_save.grid(row=5, column=2, sticky="e")
@@ -302,7 +311,7 @@ class PreferencesDialog(tk.Toplevel):
         # The action sits on the heading row, so the card costs two rows rather
         # than three (see the note on the output row above).
         self.button_reset = ttk.Button(
-            card, text="Reset Preferences…", style=_style(t, "button"),
+            card, text="Reset Preferences…", style=_action_style(t, "reset"),
             command=self.reset_preferences,
         )
         self.button_reset.grid(row=0, column=1, sticky="e")
@@ -329,13 +338,13 @@ class PreferencesDialog(tk.Toplevel):
 
         # Beside Clear Downloaded Data on its row, so the bounded form gains no height (v0.7.0 D3).
         self.button_repair = ttk.Button(
-            card, text=REPAIR_BUTTON_LABEL, style=_style(t, "button"),
+            card, text=REPAIR_BUTTON_LABEL, style=_action_style(t, "repair"),
             command=self.repair_environment,
         )
         self.button_repair.grid(row=1, column=2, sticky="e", padx=(gap_sm, 0), pady=(gap_sm, 0))
 
         self.button_cleanup = ttk.Button(
-            card, text=CLEANUP_BUTTON_LABEL, style=_style(t, "button"),
+            card, text=CLEANUP_BUTTON_LABEL, style=_action_style(t, "clear_data"),
             command=self.open_cleanup,
         )
         self.button_cleanup.grid(row=1, column=0, sticky="w", pady=(gap_sm, 0))
@@ -710,13 +719,13 @@ class CleanupDialog(tk.Toplevel):
         )
         self.label_status.grid(row=0, column=0, sticky="w", padx=(0, gap_sm))
         self.button_cancel = ttk.Button(
-            footer, text=maintenance.CANCEL_BUTTON_LABEL, style=_style(t, "button"),
+            footer, text=maintenance.CANCEL_BUTTON_LABEL, style=_action_style(t, "cancel"),
             command=self.close,
         )
         self.button_cancel.grid(row=0, column=1, sticky="e", padx=(0, gap_sm))
         self.button_review = ttk.Button(
             footer, text=maintenance.REVIEW_BUTTON_LABEL,
-            style=_style(t, "primary_button"), command=self.review_selection,
+            style=_action_style(t, "review"), command=self.review_selection,
             state="disabled",
         )
         self.button_review.grid(row=0, column=2, sticky="e")
@@ -1098,12 +1107,12 @@ class CleanupConfirmationDialog(tk.Toplevel):
         actions.pack(fill="x", pady=(pad, 0))
         self.btn_confirm = ttk.Button(
             actions, text=maintenance.confirmation_button_label(count),
-            style=_style(t, "danger_button"), command=self.confirm,
+            style=_action_style(t, "confirm_destructive"), command=self.confirm,
         )
         self.btn_confirm.pack(side="right")
         self.btn_cancel = ttk.Button(
             actions, text=maintenance.CANCEL_BUTTON_LABEL,
-            style=_style(t, "button"), command=self.cancel,
+            style=_action_style(t, "cancel"), command=self.cancel,
         )
         self.btn_cancel.pack(side="right", padx=(0, gap_sm))
 
@@ -1208,7 +1217,7 @@ class ConfigWarningDialog(tk.Toplevel):
             style=_style(t, "secondary_label"), wraplength=460, justify="left",
         ).pack(anchor="w", pady=(gap_md, gap_md))
 
-        ttk.Button(outer, text="Continue", style=_style(t, "primary_button"),
+        ttk.Button(outer, text="Continue", style=_action_style(t, "continue"),
                    command=self.destroy).pack(anchor="e")
 
         self.bind("<Escape>", lambda _e: self.destroy())
@@ -1306,7 +1315,7 @@ class CleanupResultDialog(tk.Toplevel):
         ).pack(anchor="w", pady=(0, gap_md))
 
         self.button_close = ttk.Button(outer, text="Continue",
-                                       style=_style(t, "primary_button"),
+                                       style=_action_style(t, "continue"),
                                        command=self.destroy)
         self.button_close.pack(anchor="e")
         self.button_close.focus_set()

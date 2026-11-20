@@ -281,6 +281,20 @@ def style_name(theme: Mapping[str, object] | None, key: str) -> str:
     return name if isinstance(name, str) else ""
 
 
+def action_style(theme: Mapping[str, object] | None, action: str) -> str:
+    """The outlined-role style for a stable button *action* key (v0.8.1).
+
+    The role is decided once, in ``appearance.BUTTON_ACTION_ROLES``; a shared
+    control names the action it performs, never a colour. An unknown action
+    raises rather than quietly drawing a plain button. Like :func:`style_name` it
+    returns ``""`` for a theme with no styles (the native branch). A theme that
+    publishes styles but has no role styles (the shell's ``ACT.*`` bundle, which
+    no tool panel uses) gives the plain ``button`` style, never a coloured one.
+    """
+    name = style_name(theme, appearance.button_style_key(action))
+    return name or style_name(theme, "button")
+
+
 def style_tk_widget(
     widget: object, theme: Mapping[str, object] | None, role: str, **overrides: object,
 ) -> Mapping[str, object]:
@@ -819,7 +833,7 @@ class ImportedFileList:
         for column, (key, label) in enumerate(self.ACTIONS):
             button = ttk.Button(
                 actions, text=label, command=handlers[key],
-                style=style_name(theme, "button"))
+                style=action_style(theme, key))
             button.grid(row=0, column=column, padx=(0 if column == 0 else 6, 0))
             self.buttons[key] = button
 
@@ -1314,7 +1328,7 @@ class ImportStatusBar:
         self.label.grid(row=0, column=0, sticky="w")
         self.button_cancel = ttk.Button(
             self.frame, text="Cancel Import", command=self.cancel,
-            style=style_name(theme, "button"))
+            style=action_style(theme, "cancel_import"))
         self.button_cancel.grid(row=0, column=1, padx=(10, 0))
         self.frame.columnconfigure(0, weight=1)
         _enable(self.button_cancel, False)
@@ -1705,6 +1719,14 @@ class JobControlBar:
         JobAction.RETRY_FAILED: "Retry Failed",
     }
 
+    #: The stable ``appearance.BUTTON_ACTION_ROLES`` key each control draws by.
+    STYLE_ACTIONS = {
+        JobAction.PAUSE: "pause",
+        JobAction.RESUME: "resume",
+        JobAction.CANCEL: "cancel",
+        JobAction.RETRY_FAILED: "retry",
+    }
+
     def __init__(
         self,
         parent: object,
@@ -1730,13 +1752,11 @@ class JobControlBar:
 
         self.frame = ttk.Frame(parent, style=style_name(theme, "card"))
         self.buttons: dict[JobAction, ttk.Button] = {}
-        danger = style_name(theme, "danger_button")
-        neutral = style_name(theme, "button")
         for column, action in enumerate(self.LABELS):
             button = ttk.Button(
                 self.frame, text=self.LABELS[action],
                 command=lambda bound=action: self.invoke(bound),
-                style=danger if action is JobAction.CANCEL else neutral)
+                style=action_style(theme, self.STYLE_ACTIONS[action]))
             button.grid(row=0, column=column, padx=(0 if column == 0 else 6, 0))
             self.buttons[action] = button
         self.apply(JobState.IDLE)

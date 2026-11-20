@@ -53,6 +53,7 @@ from test_tts_importing import (  # noqa: F401 - fixtures are used by name
     tk_root,
 )
 from test_tts_jobs import WAIT, gated_stubs, wait_for  # noqa: F401
+import button_role_inventory as roles
 
 KOKORO = "Kokoro Female (Default) - Heart (en-US)"
 CHATTERBOX = "Chatterbox - Female 1"
@@ -146,6 +147,32 @@ def test_every_toned_caption_takes_a_palette_role(make_panel, tk_root):
         assert bg(label) == colors["surface"], str(label)
 
 
+def test_every_tts_button_takes_its_approved_outline_role(make_panel, tk_root):
+    """Appendix A, TTS Audiobook: all 16 controls, in Light and Dark (v0.8.1 Checkpoint B)."""
+    from shared.job_control import JobAction
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = _bundle(tk_root, value)
+        panel = make_panel(appearance_bundle=bundle)
+        lst = panel.importer.list.buttons
+        rows = {
+            "Add Files…": lst["add_files"], "Add Folder…": lst["add_folder"],
+            "Move Up": lst["move_up"], "Move Down": lst["move_down"],
+            "Remove": lst["remove"], "Clear All": lst["clear"],
+            "Cancel Import": panel.importer.status.button_cancel,
+        }
+        rows.update({"Start": panel.go_btn,
+                     "Open Output Folder": panel.btn_open_out,
+                     "Clear Log": panel.btn_clear_log,
+                     "Install / repair Qwen3 voices…": panel.qwen3_setup_btn,
+                     "Qwen3 details / disclosure": panel.qwen3_details_btn})
+        controls = panel.jobs.controls.buttons
+        rows.update({"Pause": controls[JobAction.PAUSE], "Resume": controls[JobAction.RESUME],
+                     "Cancel": controls[JobAction.CANCEL],
+                     "Retry Failed": controls[JobAction.RETRY_FAILED]})
+        roles.audit("tts", bundle, rows, container=panel)
+        assert str(panel.go_btn.cget("default")) == "active"
+
+
 def test_no_color_literal_is_passed_to_any_widget_in_the_panel_source():
     """Structural half of the guard: nothing in the panel passes a
     ``foreground=``/``background=`` keyword. Colors come from the shared
@@ -171,14 +198,14 @@ def test_the_activity_region_is_the_shared_compact_presentation(make_panel, tk_r
         assert pane.cget("background") == colors["field"]
         assert pane.cget("foreground") == colors["text"]
     assert str(panel.log.frame.cget("style")) == dark["styles"]["notebook"]
-    assert str(panel.btn_clear_log.cget("style")) == dark["styles"]["button"]
+    assert str(panel.btn_clear_log.cget("style")) == dark["styles"]["button_red"]
     assert str(panel.progress.bar.cget("style")) == dark["styles"]["progressbar"]
     assert str(panel.progress.frame.cget("style")) == dark["styles"]["card"]
     assert str(panel.jobs.status.label_status.cget("style")) == \
         dark["styles"]["secondary_label"]
-    # Start is the panel's default button -- the ordinary compact button with
-    # ttk's restrained accent outline, exactly as Cover's Resize Covers.
-    assert str(panel.go_btn.cget("style")) == dark["styles"]["button"]
+    # Start is the panel's default button and the run action: the green outline
+    # role (v0.8.1), exactly as Cover's Resize Covers.
+    assert str(panel.go_btn.cget("style")) == dark["styles"]["button_green"]
     assert str(panel.go_btn.cget("default")) == "active"
     cancel = [b for b in panel.jobs.controls.buttons.values()
               if str(b.cget("text")) == "Cancel"]

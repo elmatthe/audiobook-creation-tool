@@ -33,6 +33,8 @@ from pathlib import Path
 
 import pytest
 
+import button_role_inventory as roles
+
 Image = pytest.importorskip("PIL.Image")
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
@@ -92,6 +94,27 @@ def make_panel(tk_root, output_base):
             pass
 
 
+def test_every_cover_button_takes_its_approved_outline_role(make_panel, tk_root):
+    """Appendix A, Cover Image: all 13 controls, in Light and Dark (v0.8.1 Checkpoint B)."""
+    from shared.job_control import JobAction
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = _bundle(tk_root, value)
+        panel = make_panel(appearance_bundle=bundle)
+        lst = panel.importer.list.buttons
+        rows = {
+            "Add Files…": lst["add_files"], "Add Folder…": lst["add_folder"],
+            "Move Up": lst["move_up"], "Move Down": lst["move_down"],
+            "Remove": lst["remove"], "Clear All": lst["clear"],
+            "Cancel Import": panel.importer.status.button_cancel,
+            "Resize Covers": panel.btn_convert, "Clear Log": panel.btn_clear_log,
+        }
+        controls = panel.jobs.controls.buttons
+        rows.update({"Pause": controls[JobAction.PAUSE], "Resume": controls[JobAction.RESUME],
+                     "Cancel": controls[JobAction.CANCEL],
+                     "Retry Failed": controls[JobAction.RETRY_FAILED]})
+        roles.audit("cover", bundle, rows, container=panel)
+
+
 def test_a_dark_bundle_colors_the_panels_own_background(make_panel, dark_bundle):
     panel = make_panel(appearance_bundle=dark_bundle)
     colors = dark_bundle["colors"]
@@ -118,16 +141,15 @@ def test_a_dark_bundle_colors_every_resize_option_control(make_panel, dark_bundl
     assert bg(panel.rb_numbered) == colors["surface"]
     assert bg(panel.rb_replace) == colors["surface"]
     assert bg(panel.entry_outdir) == colors["field"]
-    # Resize Covers is the panel's default button, drawn the way TTS's Start
-    # is: an ordinary compact button with the restrained accent outline ttk
-    # gives a default="active" button -- not a filled blue block.
-    assert bg(panel.btn_convert) == colors["elevated"]
-    assert fg(panel.btn_convert) == colors["text"]
+    # Resize Covers is the panel's default button and its run action: the green
+    # outline role (v0.8.1) -- green text on a neutral background, never a fill.
+    assert bg(panel.btn_convert) == colors["surface"]
+    assert fg(panel.btn_convert) == colors["role_green"]
     assert str(panel.btn_convert.cget("default")) == "active"
-    assert ("alternate", colors["accent"]) in [
-        (tuple(state)[0] if len(tuple(state)) == 1 else " ".join(state), value)
-        for *state, value in style.map(str(panel.btn_convert.cget("style")),
-                                       "bordercolor")]
+    # The default-button (alternate) cue no longer recolours anything: the role's own
+    # green border already marks it, and no state map entry turns it blue.
+    assert not any("alternate" in tuple(entry[:-1]) or "alternate" in str(entry[:-1])
+                   for entry in style.map(str(panel.btn_convert.cget("style")), "bordercolor"))
 
 
 def test_a_dark_bundle_colors_the_browsers_three_views(make_panel, dark_bundle):

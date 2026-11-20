@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+import button_role_inventory as roles
+
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
@@ -177,6 +179,46 @@ def make_cleanup(root, fake, *, theme=None, start_cleanup=None, measure=False,
 
 def rows(dialog):
     return {item.asset_id: item for item in dialog.items}
+
+
+def _compact(root, value):
+    from shared import appearance
+    return appearance.build_bundle(ttk.Style(root), value, platform="win32", root=root)
+
+
+def test_every_preferences_and_cleanup_button_takes_its_approved_outline_role(fresh_root, tmp_path):
+    """Appendix A, Preferences & Data (6) and the Cleanup dialogs (4), in Light and Dark
+    (v0.8.1 Checkpoint B)."""
+    from shared import appearance
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = _compact(fresh_root, value)
+        prefs = preferences_ui.PreferencesDialog(fresh_root, bundle, repo_root=fake_root(tmp_path))
+        roles.audit("preferences", bundle, {
+            "Output Location — Browse…": prefs.button_browse, "Save": prefs.button_save,
+            "Reset Preferences…": prefs.button_reset,
+            "Clear Downloaded Data": prefs.button_cleanup,
+            "Repair App Environment…": prefs.button_repair, "Close": prefs.button_close,
+        }, container=prefs)
+        cleanup = make_cleanup(fresh_root, fake_root(tmp_path), theme=bundle)
+        confirm = preferences_ui.CleanupConfirmationDialog(fresh_root, "body", 2, bundle)
+        from test_cleanup_handoff_ui import make_result
+        report = preferences_ui.CleanupResultDialog(
+            fresh_root, make_result({maintenance.ASSET_IDS[0]: "removed"}), bundle)
+        try:
+            claimed = {
+                "Cleanup — Review Selection": cleanup.button_review,
+                "Cleanup — Cancel": cleanup.button_cancel,
+                "Cleanup — Confirm deletion": confirm.btn_confirm,
+                "Cleanup — Continue": report.button_close,
+            }
+            roles.audit("cleanup", bundle, claimed)
+            # the confirmation's own Cancel is the same red cancel as the selection dialog's
+            assert str(confirm.btn_cancel.cget("style")) == roles.expected_style(bundle, "A")
+            every = {id(b) for d in (cleanup, confirm, report) for b in roles.buttons_under(d)}
+            assert every == {id(b) for b in (*claimed.values(), confirm.btn_cancel)}
+        finally:
+            for dialog in (prefs, cleanup, confirm, report):
+                dialog.destroy()
 
 
 def toplevels(widget):

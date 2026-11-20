@@ -36,6 +36,8 @@ from tkinter import ttk
 
 import pytest
 
+import button_role_inventory as roles
+
 # ``shared.paths`` must be imported at collection: the session-scoped log
 # sandbox in ``conftest.py`` redirects only modules already imported, and the
 # real launcher built below logs through it.
@@ -147,16 +149,48 @@ def test_the_four_sections_are_the_family_b_hierarchy(make_panel):
     assert [panel.log.frame.tab(i, "text") for i in range(2)] == ["Summary", "Detailed"]
 
 
+def test_every_metadata_button_takes_its_approved_outline_role(make_panel, tk_root):
+    """Appendix A, M4B Metadata: all 20 controls, in Light and Dark; Previous and Next
+    Book are blue (v0.8.1 Checkpoint B)."""
+    from shared.job_control import JobAction
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = _bundle(tk_root, value)
+        panel = make_panel(appearance_bundle=bundle)
+        nav = panel.navigator.buttons
+        rows = {
+            "Import Folder": panel.btn_import_folder,
+            "Cancel Import": panel.import_status.button_cancel,
+            "Clear All Imports": panel.btn_clear_imports,
+            "◀ Previous Book": nav["previous"], "Next Book ▶": nav["next"],
+            "Remove Book": nav["remove"],
+            "Shared Artwork — Choose…": panel.shared_artwork.btn_choose,
+            "Shared Artwork — Clear": panel.shared_artwork.btn_clear,
+            "Book Artwork — Choose…": panel.book_artwork.btn_choose,
+            "Book Artwork — Clear": panel.book_artwork.btn_clear,
+            "Clear Log": panel.btn_clear_log,
+        }
+        rows.update({"Add Files": panel.btn_add_files, "Save Tags": panel.btn_save,
+                     "Clear All Tags (keep chapters)": panel.btn_clear_tags,
+                     "Remove Series Numbering": panel.btn_remove_numbering,
+                     "Open Output Folder": panel.btn_open_out})
+        controls = panel.jobs.controls.buttons
+        rows.update({"Pause": controls[JobAction.PAUSE], "Resume": controls[JobAction.RESUME],
+                     "Cancel": controls[JobAction.CANCEL],
+                     "Retry Failed": controls[JobAction.RETRY_FAILED]})
+        roles.audit("metadata", bundle, rows, container=panel)
+        for label in ("◀ Previous Book", "Next Book ▶"):
+            assert str(rows[label].cget("style")) == bundle["styles"]["button_blue"], label
+
+
 def test_the_actions_and_activity_are_the_shared_compact_presentation(make_panel, tk_root):
     dark = _bundle(tk_root, appearance.DARK)
     panel = make_panel(appearance_bundle=dark)
     styles = dark["styles"]
     assert str(panel.log.frame.cget("style")) == styles["notebook"]
-    assert str(panel.btn_clear_log.cget("style")) == styles["button"]
+    assert str(panel.btn_clear_log.cget("style")) == styles["button_red"]
     assert str(panel.activity_note.cget("style")) == styles["secondary_label"]
-    # Save Tags: the compact button with the restrained accent outline; the
-    # two destructive actions in the shared destructive treatment.
-    assert str(panel.btn_save.cget("style")) == styles["button"]
+    # Save Tags: the green outline role; the two destructive actions the red one.
+    assert str(panel.btn_save.cget("style")) == styles["button_green"]
     assert str(panel.btn_save.cget("default")) == "active"
     assert str(panel.btn_clear_tags.cget("style")) == styles["danger_button"]
     assert str(panel.btn_remove_numbering.cget("style")) == styles["danger_button"]

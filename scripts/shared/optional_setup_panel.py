@@ -29,6 +29,7 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Callable, Iterable, Optional
 
+from shared import appearance
 from shared import optional_setup_client as client
 from shared import optional_setup_protocol as proto
 
@@ -65,8 +66,12 @@ def panel_font(widget: tk.Misc, windows_points: int, *style: str) -> tuple:
 class OptionalSetupPanel(ttk.Frame):
     def __init__(self, master, repo_root: Path, components: Iterable[str], *, on_done: Callable[[dict], None],
                  intro: str = "", run_plan=client.plan, run_install=client.install,
-                 open_url: Callable[[str], None] = _open_in_browser):
-        super().__init__(master, padding=4)
+                 open_url: Callable[[str], None] = _open_in_browser, theme: Optional[dict] = None):
+        # ``theme`` is an optional ``shared.appearance`` bundle (v0.8.1). Given one, the panel's buttons take their
+        # outlined semantic roles and its frame, captions and text area follow the bundle's palette; without one
+        # (nothing styled the host, e.g. a bare test root) every widget stays on the platform's generic style.
+        self._theme = theme
+        super().__init__(master, padding=4, **self._style_kw("surface"))
         self.repo_root = Path(repo_root)
         self.components = proto.canonical_selection(components)
         self.on_done = on_done
@@ -83,26 +88,43 @@ class OptionalSetupPanel(ttk.Frame):
         self._confirmed = False
         self.state = "idle"
 
-        self.heading = ttk.Label(self, text="", font=panel_font(self, 12, "bold"))
+        self.heading = ttk.Label(self, text="", font=panel_font(self, 12, "bold"), **self._style_kw("label"))
         self.heading.pack(anchor="w", pady=(0, 6))
-        self.status = ttk.Label(self, text="", justify="left")
+        self.status = ttk.Label(self, text="", justify="left", **self._style_kw("label"))
         self.status.pack(anchor="w", fill="x")
-        self.bar = ttk.Progressbar(self, mode="indeterminate", maximum=1000)
+        self.bar = ttk.Progressbar(self, mode="indeterminate", maximum=1000, **self._style_kw("progressbar"))
         self.bar.pack(fill="x", pady=(8, 8))
-        body = ttk.Frame(self)
+        body = ttk.Frame(self, **self._style_kw("surface"))
         body.pack(fill="both", expand=True)
         self.text = tk.Text(body, height=14, wrap="word", state="disabled", relief="flat",
                             font=panel_font(self, 9))
+        self._color_text(self.text)
         scroll = ttk.Scrollbar(body, orient="vertical", command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.text.pack(side="left", fill="both", expand=True)
-        self.buttons = ttk.Frame(self)
+        self.buttons = ttk.Frame(self, **self._style_kw("surface"))
         self.buttons.pack(fill="x", pady=(10, 0))
         self.bind("<Configure>", self._wrap)
         self.after(POLL_MS, self._poll)
 
     # ------------------------------------------------------------------ helpers
+    def _style_kw(self, key: str) -> dict:
+        """``{"style": name}`` for a themed surface key, or nothing without a theme."""
+        name = ((self._theme or {}).get("styles") or {}).get(key, "")
+        return {"style": name} if name else {}
+
+    def _action_style(self, action: str) -> str:
+        """The outlined role style for a stable button action (see ``appearance.BUTTON_ACTION_ROLES``)."""
+        styles = (self._theme or {}).get("styles") or {}
+        return styles.get(appearance.button_style_key(action)) or styles.get("button", "")
+
+    def _color_text(self, widget: tk.Text) -> None:
+        colors = (self._theme or {}).get("colors") or {}
+        if colors:
+            widget.configure(background=colors["field"], foreground=colors["text"],
+                             insertbackground=colors["text"])
+
     def _wrap(self, _event=None) -> None:
         width = max(300, self.winfo_width() - 24)
         self.status.configure(wraplength=width)
@@ -124,12 +146,13 @@ class OptionalSetupPanel(ttk.Frame):
         if follow:
             self.text.see("end")
 
-    def _set_buttons(self, *specs: tuple[str, Callable[[], None]]) -> dict:
+    def _set_buttons(self, *specs: tuple[str, Callable[[], None], str]) -> dict:
+        """One button per ``(label, command, action)``; the action names the button's role (v0.8.1)."""
         for child in self.buttons.winfo_children():
             child.destroy()
         made = {}
-        for label, command in reversed(specs):
-            button = ttk.Button(self.buttons, text=label, command=command)
+        for label, command, action in reversed(specs):
+            button = ttk.Button(self.buttons, text=label, command=command, style=self._action_style(action))
             button.pack(side="right", padx=(8, 0))
             made[label] = button
         return made
@@ -158,7 +181,7 @@ class OptionalSetupPanel(ttk.Frame):
         self._set_text("")
         self.bar.configure(mode="indeterminate")
         self.bar.start(12)
-        self._set_buttons(("Cancel", self._cancel_checking))
+        self._set_buttons(("Cancel", self._cancel_checking, "cancel"))
         self._thread(self._plan_worker)
 
     def _plan_worker(self) -> None:
@@ -205,17 +228,17 @@ class OptionalSetupPanel(ttk.Frame):
             self._set_text(extra + (client.disclosure(plan) if plan else ""))
             self._set_buttons(("Continue", lambda: self._finish(
                 {"state": "ready" if not notes else "failed", "message": " ".join(notes),
-                 "verified": list(client.ready(plan) if plan else ())})))
+                 "verified": list(client.ready(plan) if plan else ())}), "continue"))
             return
         self.state = "review"
         self.heading.configure(text="Review what will be installed")
         self.status.configure(text="Nothing has been downloaded yet. Read the list below, then choose Install "
                                    "Selected Components, or Skip to continue without them.")
         self._set_text(extra + client.disclosure(plan))
-        specs = [("Skip", lambda: self._finish({"state": "skipped"})),
-                 ("Install Selected Components", self._confirm)]
+        specs = [("Skip", lambda: self._finish({"state": "skipped"}), "skip"),
+                 ("Install Selected Components", self._confirm, "install")]
         if client.license_disclosure(plan) is not None:  # v0.8.0: OmniVoice's licence texts, before any consent
-            specs.insert(0, ("View licence terms", self.show_terms))
+            specs.insert(0, ("View licence terms", self.show_terms, "details"))
         made = self._set_buttons(*specs)
         made["Install Selected Components"].configure(default="normal")  # never the Enter-key default
 
@@ -236,16 +259,22 @@ class OptionalSetupPanel(ttk.Frame):
         top.geometry("640x520")
         top.minsize(480, 360)
         self.terms_window = top
-        frame = ttk.Frame(top, padding=12)
+        window_color = ((self._theme or {}).get("colors") or {}).get("window")
+        if window_color:
+            top["background"] = window_color
+        frame = ttk.Frame(top, padding=12, **self._style_kw("surface"))
         frame.pack(fill="both", expand=True)
-        buttons = ttk.Frame(frame)
+        buttons = ttk.Frame(frame, **self._style_kw("surface"))
         buttons.pack(side="bottom", fill="x", pady=(10, 0))
         for doc in terms.get("documents") or ():
-            row = ttk.Frame(frame)
+            row = ttk.Frame(frame, **self._style_kw("surface"))
             row.pack(side="bottom", fill="x", pady=(4, 0))
-            ttk.Button(row, text="Open", command=lambda url=doc["url"]: self._open_url(url)).pack(side="right")
-            ttk.Label(row, text=doc["title"], wraplength=440, justify="left").pack(side="left", fill="x")
+            ttk.Button(row, text="Open", command=lambda url=doc["url"]: self._open_url(url),
+                       style=self._action_style("open_document")).pack(side="right")
+            ttk.Label(row, text=doc["title"], wraplength=440, justify="left",
+                      **self._style_kw("label")).pack(side="left", fill="x")
         body = tk.Text(frame, wrap="word", relief="flat", font=panel_font(frame, 9), height=14)
+        self._color_text(body)
         text = "\n\n".join([*(terms.get("summary") or ()), terms.get("attribution") or "",
                             "Hardware: " + (terms.get("hardware") or "")])
         body.insert("end", text)
@@ -256,7 +285,7 @@ class OptionalSetupPanel(ttk.Frame):
             self.terms_window = None
             top.destroy()
 
-        ttk.Button(buttons, text="Close", command=close).pack(side="right")
+        ttk.Button(buttons, text="Close", command=close, style=self._action_style("close")).pack(side="right")
         top.protocol("WM_DELETE_WINDOW", close)
 
     # ------------------------------------------------------------------ 3. install
@@ -277,7 +306,7 @@ class OptionalSetupPanel(ttk.Frame):
         self._set_text("")
         self.bar.configure(mode="indeterminate")
         self.bar.start(12)
-        self._set_buttons(("Cancel", self._cancel_install))
+        self._set_buttons(("Cancel", self._cancel_install, "cancel"))
         self._thread(self._install_worker, self._plan, consent)
 
     def _install_worker(self, plan: dict, consent: proto.Consent) -> None:
@@ -322,7 +351,7 @@ class OptionalSetupPanel(ttk.Frame):
             self.heading.configure(text="Installed")
             self.status.configure(text=client.result_text(result))
             self._set_buttons(("Continue", lambda: self._finish(
-                {"state": "installed", "verified": list(result.get("verified", ()))})))
+                {"state": "installed", "verified": list(result.get("verified", ()))}), "continue"))
             return
         if state == proto.CANCELLED_STATE:
             self._finish({"state": "cancelled", "verified": list(result.get("verified", ()))})
@@ -337,9 +366,9 @@ class OptionalSetupPanel(ttk.Frame):
         self.status.configure(text=message + "\n\nAnything that already worked is unchanged. You can try again "
                                              "(a new check is made first), or continue without these voices.")
         specs = [("Continue without them", lambda: self._finish(
-            {"state": "failed", "message": message, "verified": list(verified)}))]
+            {"state": "failed", "message": message, "verified": list(verified)}), "continue")]
         if retry:
-            specs.append(("Try again", self._retry))
+            specs.append(("Try again", self._retry, "retry"))
         self._set_buttons(*specs)
 
     def _retry(self) -> None:

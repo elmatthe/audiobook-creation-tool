@@ -3763,8 +3763,16 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         if owner is not None:
             optional_owner.append(owner)
         progress_frame.pack_forget()
+        # v0.8.1: the wizard window is the platform's own light surface whatever the remembered app appearance is,
+        # so the panel's outlined buttons use the Light palette. A bundle that cannot be built leaves the panel on
+        # the generic styles; setup is never affected.
+        try:
+            from shared import appearance
+            theme = appearance.build_bundle(ttk.Style(root), appearance.LIGHT, root=root)
+        except Exception:  # noqa: BLE001 - presentation only
+            theme = None
         panel = OptionalSetupPanel(container, REPO_ROOT, selection, on_done=finish_and_launch,
-                                   intro="The app is installed. Next, the voices you chose.")
+                                   intro="The app is installed. Next, the voices you chose.", theme=theme)
         panel.pack(fill="both", expand=True)
 
         def on_close() -> None:

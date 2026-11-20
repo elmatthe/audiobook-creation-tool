@@ -936,7 +936,7 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
                                        appearance_bundle=_aqua_bundle(tk_root))
     try:
         assert panel.navigator.layout == "stacked"
-        name = panel.appearance_bundle["styles"]["button"]
+        name = panel.appearance_bundle["styles"]["button_green"]
         assert str(panel.btn_save.cget("style")) == name
         assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
         assert [str(w) for w in _walk(panel) if _style_of(w).startswith("ACT.")] == []
@@ -1026,12 +1026,10 @@ def test_the_panel_asks_for_compact_styles_and_declares_no_colour_or_platform_br
     panel = make_panel(appearance_bundle=bundle)
     styles = bundle["styles"]
     assert str(panel.cget("style")) == styles["window"]
-    assert str(panel.btn_save.cget("style")) == styles["button"]
+    assert str(panel.btn_save.cget("style")) == styles["button_green"]
     assert str(panel.btn_save.cget("default")) == "active"
     assert [b for b in widgets_of(panel, ttk.Button)
             if str(b.cget("default")) == "active"] == [panel.btn_save]
-    assert [b.cget("text") for b in widgets_of(panel, ttk.Button)
-            if str(b.cget("style")) == styles["primary_button"]] == []
     assert str(panel.btn_clear_tags.cget("style")) == styles["danger_button"]
     assert str(panel.btn_remove_numbering.cget("style")) == styles["danger_button"]
     assert str(panel.navigator.frame.cget("style")).startswith("Compact.")
@@ -1071,7 +1069,7 @@ def test_windows_editor_uses_only_namespaced_styles_and_leaves_generic_styles_al
     stragglers = [str(w) for w in _walk(panel)
                   if isinstance(w, ttk.Widget) and not _style_of(w)]
     assert stragglers == [], stragglers
-    assert str(panel.btn_save.cget("style")) == s["button"]
+    assert str(panel.btn_save.cget("style")) == s["button_green"]
     assert str(panel.btn_clear_tags.cget("style")) == s["danger_button"]
     assert str(panel.btn_remove_numbering.cget("style")) == s["danger_button"]
 

@@ -237,6 +237,8 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     session = session or SetupSession()
     confirm = confirm or _ask_yes_no
     st = (lambda key: style_name(theme, key)) if style_name is not None else (lambda key: "")
+    # v0.8.1 outlined roles: each button names its stable action (appearance.BUTTON_ACTION_ROLES).
+    role = lambda action: st(appearance.button_style_key(action))  # noqa: E731
 
     win = tk.Toplevel(parent)
     appearance.apply_native_appearance(win, theme)
@@ -265,17 +267,18 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     actions = ttk.Frame(body, style=st("window"))
     actions.pack(anchor="w", pady=(14, 0))
     labels = button_labels()
-    win.btn_customvoice = ttk.Button(actions, text=labels["customvoice"], style=st("button"),
+    win.btn_customvoice = ttk.Button(actions, text=labels["customvoice"], style=role("install"),
                                      command=lambda: _install(["customvoice"]))
-    win.btn_base = ttk.Button(actions, text=labels["base"], style=st("button"), command=lambda: _install(["base"]))
-    win.btn_both = ttk.Button(actions, text=labels["both"], style=st("button"), command=lambda: _install(["both"]))
+    win.btn_base = ttk.Button(actions, text=labels["base"], style=role("install"), command=lambda: _install(["base"]))
+    win.btn_both = ttk.Button(actions, text=labels["both"], style=role("install"), command=lambda: _install(["both"]))
     for column, button in enumerate((win.btn_customvoice, win.btn_base, win.btn_both)):
         button.grid(row=0, column=column, padx=(0, 8))
-    win.btn_repair = ttk.Button(actions, text="Check and repair", style=st("button"), command=lambda: _repair())
+    win.btn_repair = ttk.Button(actions, text="Check and repair", style=role("repair"), command=lambda: _repair())
     win.btn_repair.grid(row=1, column=0, sticky="w", pady=(8, 0))
     win.btn_clones = None
     if rt.developer_mode():
-        win.btn_clones = ttk.Button(actions, text=DEVELOPER_TOOLS_LABEL, style=st("button"), command=lambda: _clones())
+        win.btn_clones = ttk.Button(actions, text=DEVELOPER_TOOLS_LABEL, style=role("developer_tools"),
+                                    command=lambda: _clones())
         win.btn_clones.grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     location_var = tk.StringVar(value="")
@@ -291,8 +294,8 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
 
     footer = ttk.Frame(body, style=st("window"))
     footer.pack(anchor="e", pady=(16, 0))
-    win.btn_cancel = ttk.Button(footer, text="Cancel install", style=st("button"), command=lambda: _cancel())
-    win.btn_close = ttk.Button(footer, text="Close", style=st("button"), command=lambda: _close())
+    win.btn_cancel = ttk.Button(footer, text="Cancel install", style=role("cancel"), command=lambda: _cancel())
+    win.btn_close = ttk.Button(footer, text="Close", style=role("close"), command=lambda: _close())
     win.btn_close.pack(side=tk.RIGHT)
     win.btn_cancel.pack(side=tk.RIGHT, padx=(0, 8))
 

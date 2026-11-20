@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+import button_role_inventory as roles
+
 Image = pytest.importorskip("PIL.Image")
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
@@ -462,6 +464,22 @@ def open_dialog(root, count):
     )
     root.update_idletasks()
     return win
+
+
+def test_both_replacement_buttons_take_their_approved_red_outline_role(fresh_root):
+    """Appendix A, Cover replacement: Confirm replace and Cancel are both red (v0.8.1 Checkpoint B)."""
+    from shared import appearance
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = appearance.build_bundle(ttk.Style(fresh_root), value, platform="win32", root=fresh_root)
+        win = cr.build_replacement_dialog(fresh_root, cr.REPLACEMENT_TITLE, cr.replacement_message(2),
+                                          cr.replacement_button_label(2), theme=bundle)
+        try:
+            roles.audit("cover_replacement", bundle, {
+                "Cover replacement — Confirm replace": win.btn_confirm,
+                "Cover replacement — Cancel": win.btn_cancel,
+            }, container=win)
+        finally:
+            win.cancel()
 
 
 def test_the_confirmation_shows_the_exact_count_and_plural(fresh_root):

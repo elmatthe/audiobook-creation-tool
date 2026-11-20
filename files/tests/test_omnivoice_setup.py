@@ -988,6 +988,100 @@ def _descendants(widget):
         yield from _descendants(child)
 
 
+def test_every_setup_panel_button_takes_its_approved_outline_role(omni, tk_root, monkeypatch):
+    """Appendix A, conditional setup: every state of the Install & Continue panel, with a
+    theme, takes its role; without one it stays generic (v0.8.1 Checkpoint B)."""
+    import threading
+    import button_role_inventory as roles
+    from shared import appearance
+    from shared.optional_setup_panel import OptionalSetupPanel
+
+    monkeypatch.setattr(ov, "detect_gpu", lambda: rt.GpuInfo("RTX Test", 12000))
+    bundle = appearance.build_bundle(tk.ttk.Style(tk_root), appearance.DARK, platform="win32", root=tk_root)
+    data = omni.plan()
+    plan_gate, install_gate = threading.Event(), threading.Event()
+
+    def run_plan(*a, **k):
+        plan_gate.wait(10)
+        return {"state": proto.SUCCEEDED, "plan": data}
+
+    def run_install(*a, **k):
+        install_gate.wait(10)
+        return {"state": proto.SUCCEEDED, "plan": None, "error": None, "verified": [OV]}
+
+    top = tk.Toplevel(tk_root)
+    try:
+        panel = OptionalSetupPanel(top, omni.root, [OV], on_done=lambda outcome: None, run_plan=run_plan,
+                                   run_install=run_install, theme=bundle)
+        panel.pack(fill="both", expand=True)
+
+        class Snapshot:
+            """A button's style as drawn now: the panel rebuilds its buttons at every state."""
+
+            def __init__(self, button):
+                self.style = str(button.cget("style"))
+
+            def cget(self, key):
+                assert key == "style"
+                return self.style
+
+        def shown():
+            return {b.cget("text"): Snapshot(b) for b in panel.buttons.winfo_children()}
+
+        panel.start()
+        settle(top)
+        checking = shown()
+        assert list(checking) == ["Cancel"]
+        plan_gate.set()
+        _pump(panel, lambda: panel.state == "review", "the review")
+        review = shown()
+        panel.show_terms()
+        settle(top)
+        terms = {}
+        for w in _descendants(panel.terms_window):
+            if isinstance(w, tk.ttk.Button):
+                terms.setdefault(w.cget("text"), Snapshot(w))
+        panel._confirm()
+        installing = shown()
+        assert list(installing) == ["Cancel"]
+        install_gate.set()
+        _pump(panel, lambda: panel.state == "done", "the install")
+        installed = shown()
+        panel._show_plan({"state": proto.SUCCEEDED, "plan": None}, ["A choice cannot be installed here."])
+        ready = shown()
+        panel._show_failure("the install failed", retry=True)
+        failed = shown()
+        assert list(installed) == ["Continue"] and list(ready) == ["Continue"]
+        assert list(failed) == ["Try again", "Continue without them"]
+        roles.audit("setup", bundle, {
+            "Install & Continue": review["Install Selected Components"],
+            "Install Selected Components": review["Install Selected Components"],
+            "Skip optional installation": review["Skip"],
+            "View licence terms": review["View licence terms"],
+            "Open licence document": terms["Open"],
+            "Cancel setup / installation": checking["Cancel"],
+            "Continue setup": installed["Continue"],
+            "Continue without components": failed["Continue without them"],
+            "Try again": failed["Try again"],
+        })
+        # the same action keeps one role wherever it appears
+        assert str(installing["Cancel"].cget("style")) == str(checking["Cancel"].cget("style"))
+        assert str(ready["Continue"].cget("style")) == str(installed["Continue"].cget("style"))
+        assert terms["Close"].cget("style") == bundle["styles"]["button"]
+        # no theme: every button stays on the platform's generic style, never a role
+        plain_top = tk.Toplevel(tk_root)
+        try:
+            plain = OptionalSetupPanel(plain_top, omni.root, [OV], on_done=lambda outcome: None)
+            plain._show_failure("x", retry=True)
+            assert {str(b.cget("style")) for b in plain.buttons.winfo_children()} == {""}
+        finally:
+            plain_top.destroy()
+    finally:
+        plan_gate.set()
+        install_gate.set()
+        top.destroy()
+
+
 def test_the_first_run_window_shows_five_choices_omnivoice_last_unchecked_and_fits(
         monkeypatch, tk_root, setup_log, native_theme):
     from shared import bootstrap

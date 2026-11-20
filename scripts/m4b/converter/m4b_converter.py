@@ -707,7 +707,8 @@ class M4BConverterUI(ttk.Frame):
         self.entry_outdir.grid(row=0, column=1, sticky="ew", padx=(8, 6))
         # Navigation, never a processing input, so it never locks.
         self.btn_open_out = ttk.Button(run, text="Open Output Folder",
-                                       command=self.open_outdir, style=st("button"))
+                                       command=self.open_outdir,
+                                       style=self._action_style("open_output"))
         self.btn_open_out.grid(row=0, column=2, sticky="e")
         self.output_note = ttk.Label(
             run,
@@ -732,7 +733,7 @@ class M4BConverterUI(ttk.Frame):
         self.run_row.columnconfigure(0, weight=1)
         self.btn_convert = ttk.Button(
             self.run_row, text="Convert M4Bs → MP3s", command=self.start_convert,
-            default="active", style=st("button"))
+            default="active", style=self._action_style("run"))
         self.btn_convert.grid(row=0, column=0, sticky="w")
         # The shared run controls and status view (progress, stage, ETA). The
         # adapter is rebuilt for each run -- one run, one event stream, one
@@ -764,7 +765,7 @@ class M4BConverterUI(ttk.Frame):
         # Not a processing option, so it never locks: clearing the visible log
         # never interferes with a run in flight.
         self.btn_clear_log = ttk.Button(bar, text="Clear Log", command=self.clear_log,
-                                        style=st("button"))
+                                        style=self._action_style("clear_log"))
         self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.log = job_ui.SummaryDetailsView(
             act, theme=bundle, height=LOG_HEIGHT, width=LOG_WIDTH_CHARS,
@@ -2226,6 +2227,10 @@ class M4BConverterUI(ttk.Frame):
     def _style(self, key: str) -> str:
         """The shared compact style for *key* (native control inheritance on Aqua)."""
         return job_ui.style_name(self.appearance_bundle, key)
+
+    def _action_style(self, action: str) -> str:
+        """The outlined role style for a stable button action (v0.8.1)."""
+        return job_ui.action_style(self.appearance_bundle, action)
 
     def _on_appearance_changed(self, bundle: dict) -> None:
         """Re-color the few classic Tk widgets a ttk style mutation cannot reach.

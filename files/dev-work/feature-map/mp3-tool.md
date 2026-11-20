@@ -38,7 +38,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 `ACT.MP3.CLEAR-IMPORTS`
 
 - **Purpose:** Throw away the current workspace and start again without restarting the program.
-- **How to reach it:** Section 1: 'Clear All Imports' (danger-styled) beside Import Folder; confirmation 'Clear all imports?'.
+- **How to reach it:** Section 1: 'Clear All Imports' (red outline) beside Import Folder; confirmation 'Clear all imports?'.
 - **States:** Locked during a run; refused while a scan is active.
 - **Inputs and outputs:** No input. Resets Books, Shared values, the observation store, Book numbering, the last plan and the last result.
 - **Failure, cancel and retry:** Declining the confirmation leaves everything as it was; after a reset Retry Failed is no longer offered for the previous run.

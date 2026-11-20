@@ -34,6 +34,8 @@ from pathlib import Path
 
 import pytest
 
+import button_role_inventory as roles
+
 from shared import config
 from tts import qwen3_clone_setup as qt
 from tts import qwen3_install_ui as install_ui
@@ -467,6 +469,29 @@ def test_developer_mode_alone_activates_neither_the_ambient_store_nor_the_variab
 # --------------------------------------------------------------------------- #
 # J: developer-mode UI
 # --------------------------------------------------------------------------- #
+def test_every_qwen3_install_button_takes_its_approved_outline_role(tk_root, tmp_path, clones, monkeypatch):
+    """Appendix A, Qwen3 install / repair dialog: all 7 controls, developer tools included
+    (v0.8.1 Checkpoint B)."""
+    from tkinter import ttk
+    from shared import appearance, job_ui
+    guard_recognizer(monkeypatch)
+    use_config(monkeypatch, tmp_path / "on", "[development]\ndeveloper_mode = true\n")
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = appearance.build_bundle(ttk.Style(tk_root), value, platform="win32", root=tk_root)
+        win = install_ui.build_dialog(tk_root, theme=bundle, style_name=job_ui.style_name,
+                                      confirm=lambda *a: True, open_clones=lambda parent: None)
+        try:
+            roles.audit("qwen3", bundle, {
+                "Qwen3 — Install CustomVoice": win.btn_customvoice,
+                "Qwen3 — Install Base": win.btn_base, "Qwen3 — Install Both": win.btn_both,
+                "Qwen3 — Check and repair": win.btn_repair,
+                "Qwen3 — Developer tools": win.btn_clones,
+                "Qwen3 — Cancel install": win.btn_cancel, "Qwen3 — Close": win.btn_close,
+            }, container=win)
+        finally:
+            win.destroy()
+
+
 def test_developer_mode_adds_exactly_the_one_labelled_entry_point(tk_root, tmp_path, clones, monkeypatch):
     guard_recognizer(monkeypatch)
     use_config(monkeypatch, tmp_path / "off", "[development]\ndeveloper_mode = false\n")

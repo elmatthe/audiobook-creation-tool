@@ -44,6 +44,7 @@ from shared import appearance, ffmpeg_utils, paths, ui_theme  # noqa: F401
 from shared.job_control import JobState
 
 from mp3 import mp3_tool
+import button_role_inventory as roles
 
 from test_import_coordination import RealThreads
 from test_mp3_tool_ui import (  # noqa: F401 - fixtures are collected by name
@@ -130,17 +131,53 @@ def test_the_four_sections_are_the_family_b_hierarchy(make_panel):
     assert [panel.log.frame.tab(i, "text") for i in range(2)] == ["Summary", "Detailed"]
 
 
+def test_every_mp3_button_takes_its_approved_outline_role(make_panel, tk_root):
+    """Appendix A, MP3 Tool: all 23 controls, in Light and Dark; the four blue Book
+    controls included (v0.8.1 Checkpoint B)."""
+    from shared.job_control import JobAction
+    for value in (appearance.LIGHT, appearance.DARK):
+        bundle = _bundle(tk_root, value)
+        panel = make_panel(appearance_bundle=bundle)
+        nav = panel.navigator.buttons
+        rows = {
+            "Import Folder": panel.btn_import_folder,
+            "Cancel Import": panel.import_status.button_cancel,
+            "Clear All Imports": panel.btn_clear_imports,
+            "◀ Previous Book": nav["previous"], "Next Book ▶": nav["next"],
+            "Remove Book": nav["remove"],
+            "Shared Artwork — Choose…": panel.shared_artwork.btn_choose,
+            "Shared Artwork — Clear": panel.shared_artwork.btn_clear,
+            "Book Artwork — Choose…": panel.book_artwork.btn_choose,
+            "Book Artwork — Clear": panel.book_artwork.btn_clear,
+            "Clear Log": panel.btn_clear_log,
+        }
+        rows.update({
+            "Add Book": nav["add"], "Duplicate Book": nav["duplicate"],
+            "Add Files": panel.btn_add_files, "Move Up": panel.btn_move_up,
+            "Move Down": panel.btn_move_down, "Remove Selected": panel.btn_remove_tracks,
+        })
+        rows.update({"Write ID3 Tags": panel.btn_write_id3,
+                     "Combine MP3s → One MP3": panel.btn_combine})
+        controls = panel.jobs.controls.buttons
+        rows.update({"Pause": controls[JobAction.PAUSE], "Resume": controls[JobAction.RESUME],
+                     "Cancel": controls[JobAction.CANCEL],
+                     "Retry Failed": controls[JobAction.RETRY_FAILED]})
+        roles.audit("mp3", bundle, rows, container=panel)
+        for label in ("◀ Previous Book", "Next Book ▶", "Add Book", "Duplicate Book"):
+            assert str(rows[label].cget("style")) == bundle["styles"]["button_blue"], label
+
+
 def test_the_run_actions_and_activity_are_the_shared_compact_presentation(
         make_panel, tk_root):
     dark = _bundle(tk_root, appearance.DARK)
     panel = make_panel(appearance_bundle=dark)
     styles = dark["styles"]
     assert str(panel.log.frame.cget("style")) == styles["notebook"]
-    assert str(panel.btn_clear_log.cget("style")) == styles["button"]
+    assert str(panel.btn_clear_log.cget("style")) == styles["button_red"]
     assert str(panel.activity_note.cget("style")) == styles["secondary_label"]
-    # Both operations: the compact button with the restrained accent outline.
+    # Both operations: the green outline run role (v0.8.1).
     for button in (panel.btn_write_id3, panel.btn_combine):
-        assert str(button.cget("style")) == styles["button"]
+        assert str(button.cget("style")) == styles["button_green"]
         assert str(button.cget("default")) == "active"
     cancel = [b for b in panel.jobs.controls.buttons.values()
               if str(b.cget("text")) == "Cancel"]

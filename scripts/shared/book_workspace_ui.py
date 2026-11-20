@@ -79,7 +79,7 @@ from shared.book_workspace import (
 )
 from shared.job_control import ControlKind
 from shared import ui_theme
-from shared.job_ui import JobUiError, MainThreadGuard, style_name
+from shared.job_ui import JobUiError, MainThreadGuard, action_style, style_name
 
 __all__ = [
     "BookWorkspaceUiError",
@@ -291,6 +291,17 @@ class BookNavigator:
         REMOVE: "Remove Book",
     }
 
+    #: The stable ``appearance.BUTTON_ACTION_ROLES`` key each button draws by:
+    #: Previous, Next, Add and Duplicate are the approved blue Book controls,
+    #: Remove Book is red.
+    STYLE_ACTIONS: Mapping[str, str] = {
+        PREVIOUS: "book_previous",
+        NEXT: "book_next",
+        ADD: "book_add",
+        DUPLICATE: "book_duplicate",
+        REMOVE: "book_remove",
+    }
+
     #: The optional Book actions, in the order they are rendered. ``actions=``
     #: may name any subset of exactly these; the default is all of them.
     BOOK_ACTIONS = (ADD, DUPLICATE, REMOVE)
@@ -367,13 +378,13 @@ class BookNavigator:
             self.label = ttk.Label(self.frame, textvariable=self.position_variable,
                                    style=style_name(theme, "section"))
 
-        neutral = style_name(theme, "button")
         self.buttons: dict[str, ttk.Button] = {}
         # A dropped Book action gets no button at all — not a hidden one, not a
         # disabled one — so nothing about it can be reached through the frame.
         for action in (self.PREVIOUS, self.NEXT) + self._actions:
             button = ttk.Button(
-                self.frame, text=self.LABELS[action], style=neutral,
+                self.frame, text=self.LABELS[action],
+                style=action_style(theme, self.STYLE_ACTIONS[action]),
                 command=lambda bound=action: self.invoke(bound))
             self.buttons[action] = button
 
