@@ -16734,13 +16734,15 @@
         "Individually added files land flat; one imported folder keeps its sub-folders; several imported folders each get their own collision-safe container.",
         "Name clashes inside the run get -1, -2 suffixes, planned before the worker starts; a retry reuses the same destinations.",
         "The Output field shows the tool folder before a run and the reserved run folder once it starts.",
-        "A destination plan refused after the run folder was reserved gives that empty folder back before the 'Output folder' message (v0.7.2, ACT72-061)."
+        "A destination plan refused after the run folder was reserved gives that empty folder back before the 'Output folder' message (v0.7.2, ACT72-061).",
+        "Each image is written to a private temporary file and published complete under its final name; Cancel before publication leaves no output for that image."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
         "files/tests/test_tool_output_integration.py",
         "files/tests/test_output_location_refresh.py",
-        "files/tests/test_cover_panel_branches.py"
+        "files/tests/test_cover_panel_branches.py",
+        "files/tests/test_cover_cancel_publication.py"
       ],
       "journeys": [
         "cover.letterbox-numbered-run"
@@ -16786,6 +16788,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_cover_panel_branches.py::test_a_plan_refused_after_reserving_gives_the_empty_run_folder_back"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_standard_output_holds_no_final_name_while_the_image_is_being_written"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_before_publication_leaves_no_standard_output_for_the_aborted_image"
           }
         ]
       },
@@ -16873,11 +16883,13 @@
       "contracts": [
         "Each output is written beside its source as name-1.ext, never under the source's own name.",
         "Existing numbered names are skipped (cover-1.jpg exists, so cover-2.jpg is written); numbering is kept separately per folder.",
-        "No standard run folder is reserved, and a planning failure leaves the source and its folder unchanged."
+        "No standard run folder is reserved, and a planning failure leaves the source and its folder unchanged.",
+        "A numbered copy is staged and published by an exclusive new-name rename: a name taken meanwhile is never overwritten, and Cancel before publication leaves only the source."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
-        "files/tests/test_cover_source_side.py"
+        "files/tests/test_cover_source_side.py",
+        "files/tests/test_cover_cancel_publication.py"
       ],
       "journeys": [],
       "verification": {
@@ -16897,6 +16909,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_cover_source_side.py::test_a_planning_failure_leaves_the_source_untouched"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_numbered_copies_are_named_beside_the_source_and_never_overwrite_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_before_a_numbered_copy_is_published_leaves_only_the_source"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_a_numbered_name_taken_meanwhile_is_not_overwritten"
           }
         ]
       },
@@ -16937,11 +16961,13 @@
         "Every source is validated before the confirmation: a missing file, a folder, a link or a format written as .jpg (anything but JPG/JPEG/PNG/HEIC/HEIF) stops the whole run with 'Cannot replace originals'.",
         "Each replacement is written to a temporary file beside the original, decoded and checked to be size x size, then installed with one atomic replace.",
         "A failure before that install leaves the original byte-for-byte unchanged and removes only that temporary file.",
-        "Originals already replaced stay replaced after a later failure or Cancel, and the log says 'N of M original(s) replaced; any not reached are unchanged.'"
+        "Originals already replaced stay replaced after a later failure or Cancel, and the log says 'N of M original(s) replaced; any not reached are unchanged.'",
+        "A replacement is authorized by the run's controller immediately before the atomic install, so a Cancel that arrived first leaves the original untouched; a Cancel that lost is never rolled back."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
-        "files/tests/test_cover_source_side.py"
+        "files/tests/test_cover_source_side.py",
+        "files/tests/test_cover_cancel_publication.py"
       ],
       "journeys": [
         "cover.replace-confirmation"
@@ -16979,6 +17005,14 @@
           {
             "kind": "media",
             "scenario": "cover.replace-confirmation"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_a_normal_replacement_still_installs_a_valid_image_atomically"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_declining_the_confirmation_changes_nothing_and_starts_no_run"
           }
         ]
       },
@@ -17327,14 +17361,15 @@
         }
       ],
       "contracts": [
-        "Cancel stops the run after the current image ('Cancelling… will stop after the current image.') and also wakes a paused run.",
-        "Images not reached are reported as not attempted, not as failures; finished outputs and completed replacements stay.",
+        "Cancel stops the run ('Cancelling… will stop after the current image.'), wakes a paused run, and is ordered against saving: an image is made final only after the controller's authorize_commit grants it, so a Cancel that wins first replaces no original, publishes nothing under a final name and ends the run Cancelled.",
+        "Images not reached are reported as not attempted, not as failures; images whose save already won and completed replacements stay and are never rolled back.",
         "The run is reported Cancelled only after the worker has acknowledged it.",
         "Cancel never reaches an import scan, and Cancel Import never reaches the run."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
-        "files/tests/test_plan4_lifecycle_races.py"
+        "files/tests/test_plan4_lifecycle_races.py",
+        "files/tests/test_cover_cancel_publication.py"
       ],
       "journeys": [],
       "verification": {
@@ -17358,6 +17393,34 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_plan4_lifecycle_races.py::test_cover_cancelling_the_resize_leaves_the_running_import_alone"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_before_the_resize_starts_never_replaces_the_original"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_during_the_resize_discards_the_staged_file_and_keeps_the_original"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_just_before_the_authorization_wins_and_nothing_is_replaced"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_just_after_the_authorization_loses_and_the_replacement_stands"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_cancel_after_a_finished_replacement_keeps_it_and_stops_the_rest"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_closing_the_window_mid_image_cannot_replace_a_source_late"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_cancel_publication.py::test_the_controller_lock_is_not_held_while_an_image_is_resized"
           }
         ]
       },
@@ -23323,11 +23386,12 @@
         }
       ],
       "contracts": [
-        "The archive holds only the Windows launcher, README.md, config.toml, git-tracked scripts/ and exactly the 18 named reference WAVs from files/Cloned-Voice-Uploads (six per cloned engine, each in its own engine folder)",
+        "The archive holds only the platform launcher, README.md, config.toml, LICENSE (the complete, unmodified GNU GPL v3 text), git-tracked scripts/ and exactly the 18 named reference WAVs from files/Cloned-Voice-Uploads (six per cloned engine, each in its own engine folder)",
         "Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship",
         "The packaged and committed config.toml ship [development] developer_mode = false, checked again in the finished archive",
         "A build refuses uncommitted changes and occupied destinations, validates every member against its source and publishes all or nothing",
-        "The ordinary build produces only the Windows archive"
+        "The ordinary build produces only the Windows archive",
+        "Every root file the packager names must be tracked by git; an untracked or missing LICENSE refuses the build, and the shipped LICENSE is the canonical GPL-3.0 text byte for byte (SHA-256 pinned)"
       ],
       "selection": [
         "files/tests/test_release_packaging.py",
@@ -23363,6 +23427,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_release_packaging.py::test_the_ordinary_macos_revision_build_produces_only_the_macos_archive"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_the_committed_license_is_the_canonical_gpl3_text_byte_for_byte"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_the_packager_allowlist_names_the_license_and_no_other_root_file"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_each_archive_carries_the_complete_unmodified_license_at_its_root_once[MacOS]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_the_license_cannot_be_missing_or_untracked[delete]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_the_license_cannot_be_missing_or_untracked[untrack]"
           }
         ]
       },
@@ -26394,7 +26478,7 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "79073685b6f462f2677767d7b97a74744163ac92b495dd801a3f9fa42d3917bb",
+    "scripts/artwork/cover_resizer.py": "f7bb669cb0a2a11320db9f3d9d874d9fe14ab0a8cda25119fd2b8f2b9f4c1bff",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
@@ -26484,7 +26568,7 @@
     "scripts/shared/output_paths.py": "98ae9d47ecab4ba2cfa0a595604a763cc17e66baae7da4abfcdb5e7ad3c8ddd4",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "eeadf5585035a0ba73bda5efcc7f0aa29f5111b94bd387adf67f5ee1db684682",
-    "scripts/shared/release.py": "08fce2d1b40c953116f5c9c446418ce3c2bb3503618f1bbcd531cbbd53b11cc0",
+    "scripts/shared/release.py": "a315e4b8e11874c75c8e2ff48d837aff293114120e847382bc032f4eaf36e389",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",

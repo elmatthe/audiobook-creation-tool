@@ -139,8 +139,8 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **Purpose:** overwrite originals with their resized versions.
 - **How to reach it:** tick Save beside source images, choose Replace original files, press Resize Covers, then confirm.
 - **Before anything happens:** every source is checked. A missing file, a folder, a link, or a format that would be written as .jpg (anything but JPG/JPEG/PNG/HEIC/HEIF) stops the whole run with "Cannot replace originals", and no confirmation is shown.
-- **How it writes:** each result goes to a temporary file beside the original, is read back and checked to be size x size, and only then replaces the original in one step. A failure before that step leaves the original byte-for-byte unchanged and removes only its own temporary file.
-- **Cancel/failure:** originals already replaced stay replaced after a later failure or Cancel; the log ends with "N of M original(s) replaced; any not reached are unchanged." A retry checks the sources again and asks for confirmation again.
+- **How it writes:** each result goes to a temporary file beside the original, is read back and checked to be size x size, and only then replaces the original in one step, which the run's controller authorizes first (`authorize_commit`, ordered against Cancel under the lock the Cancel latch is taken under, so exactly one of Cancel and the replacement wins; v0.8.0 macOS Revision 1). A failure before that step leaves the original byte-for-byte unchanged and removes only its own temporary file.
+- **Cancel/failure:** a Cancel that wins before an image's replacement leaves that original unchanged, removes only its temporary file, starts no further image and ends the run cancelled; originals already replaced stay replaced after a later failure or Cancel and are never rolled back; the log ends with "N of M original(s) replaced; any not reached are unchanged." A retry checks the sources again and asks for confirmation again.
 - **Persistence:** never saved; a rebuilt panel is back in standard mode.
 
 ### Replacement confirmation
@@ -185,7 +185,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 
 - **Purpose:** stop a batch early with an honest record.
 - **How to reach it:** Cancel in the shared run controls (running or paused).
-- **Behaviour:** the log says "Cancelling… will stop after the current image."; the current image always finishes (one image is the longest wait). Images not reached are reported as not attempted, not as failures; finished outputs and completed replacements stay. The run is reported cancelled only after the worker has stopped. Cancel never touches an import scan, and Cancel Import never touches the run.
+- **Behaviour:** the log says "Cancelling… will stop after the current image." Cancel and the saving of an image are ordered by the run's controller (`authorize_commit`), so exactly one wins: a Cancel that wins before the image is saved discards that image's temporary file, publishes nothing under a final name, replaces no original and ends the run cancelled; an image whose save was already authorized finishes and is kept, and no further image starts (v0.8.0 macOS Revision 1; before it, the current image always finished and a Cancel could still replace the original and report success). Every mode (standard, numbered, replace) writes a private temporary file first and publishes it complete. Images not reached are reported as not attempted, not as failures; finished outputs and completed replacements stay. The run is reported cancelled only after the worker has stopped. Cancel never touches an import scan, and Cancel Import never touches the run.
 - **Difference:** resizing happens inside the app, so there is no external process to stop.
 
 ### Retry Failed
