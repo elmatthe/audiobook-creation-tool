@@ -683,7 +683,7 @@ Alternatives rejected:
 - **MPS for speed:** a correctness risk (§6).
 
 **Contract.** Applies to every tool and engine on macOS, measured from the Cancel click.
-- **C1 Acknowledge ≤ 0.5 s.** The panel shows the cancelling state and the latch is set. After the latch, no new chunk, request, file, FFmpeg step or publication starts.
+- **C1 Acknowledge ≤ about 1 s (asserted as < 1.0 s; owner decision 2026-11-20, was ≤ 0.5 s).** The panel shows the cancelling state and the latch is set. After the latch, no new chunk, request, file, FFmpeg step or publication starts. The owner accepted the measured 0.723 s; no speed work is done for this bound alone. Cancel still interrupts the active job at once (it never waits for the current book, file or chunk to finish), stops the run's workers and subprocesses, publishes nothing incomplete, lets the user exit or start other work once cleanup is confirmed, and reports FAILED, not CANCELLED, when the end of a child cannot be confirmed. C2–C5 and every route's T_stop below are unchanged.
 - **C2 Stop ≤ T_stop.** Every active operation of the run has ended, every ACT-owned child of the run is reaped, and the run is CANCELLED. The bound **never scales** with chunk length, text length or device speed. Bounds (D17):
 
   | Route | T_stop | Basis |
@@ -782,7 +782,7 @@ Rules for every test:
 
 | ID | Scenario | Pass |
 |---|---|---|
-| CX-1 | Cancel while a **local-engine** chunk is mid-inference, after its "chunk started" event. Real runs: a Chatterbox CPU chunk of at least 300 characters and a 3,000-character Kokoro chunk | C1 within 0.5 s; worker group gone and run CANCELLED within 2 s; nothing published; staging removed |
+| CX-1 | Cancel while a **local-engine** chunk is mid-inference, after its "chunk started" event. Real runs: a Chatterbox CPU chunk of at least 300 characters and a 3,000-character Kokoro chunk | C1 within about 1 s (owner 2026-11-20); worker group gone and run CANCELLED within 2 s; nothing published; staging removed |
 | CX-2 | A stub class-A worker that ignores the Cancel flag and SIGTERM while blocked in a native call, under each worker route | Ends within its route's T_stop through SIGKILL |
 | CX-3 | Cancel mid-chunk for the Qwen3 and the OmniVoice worker | Within 5 s and 4 s; the process group is empty (`killpg(pgid, 0)` → ESRCH) |
 | CX-4 | Cancel during Edge requests (2 and 8 files) and during finalization | Within 2.5 s; no request after the latch (the existing `test_cancel_semantics` invariants, run on the Mac) |
@@ -1517,6 +1517,16 @@ The Handoff closeout that records the gate and archive evidence is a documents-o
 | D. v0.9.0 (minor) with both assets | As A, minor bump | SemVer-honest for "new platform + new setup stage" | Same verification cost as A |
 
 **Recommendation:** A (or D if the owner prefers minor-version semantics). The decision (D16) is separate and is recorded at **P5 exit, before P6a**, because the version identity is release-relevant source and must be in the reviewed and gated tree.
+
+**D16 owner route (2026-11-20; final publication approval still pending): Option C.** The owner wants the macOS v0.8.0 generation released before the v0.8.1 patches:
+- tag `v0.8.0-macos.1`, release title "ACT v0.8.0 for macOS — Revision 1";
+- application identity `0.8.0+macos.1` (`version.py`, `config.toml`; `config._VERSION_RE` accepts SemVer build metadata);
+- archive `AudiobookTool-MacOS-v0.8.0-macos.1.zip` (`release.release_tag`: GitHub rewrites `+` in asset names, so the archive takes the tag's form);
+- `RELEASE_OS_NAMES = ("MacOS",)`, `config.toml` `platforms = ["MacOS"]`: this source ships for macOS only;
+- the published Windows v0.8.0 (`d1701e9`, its tag and its asset) stays unchanged; no macOS archive is attached to the `v0.8.0` tag;
+- v0.8.1 is the next shared Windows + macOS release (Option A's shape), developed after this publication.
+
+Under Option C no Windows archive is built from this source, so P7b (the Windows full gate) does not qualify anything this release publishes; it moves to v0.8.1, where both platforms ship from one commit. The HOME-PC regression and E-B2 stay owed before v0.8.1. This is recorded as an owner-visible consequence of the route, not a silent waiver.
 
 **Release order (all options):**
 1. **P6a, release source final:**

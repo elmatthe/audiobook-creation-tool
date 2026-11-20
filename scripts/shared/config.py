@@ -146,7 +146,8 @@ MAX_SESSIONS_RANGE = (1, 1000)
 LARGE_RESULT_THRESHOLD_RANGE = (1, 1_000_000)
 
 _PYTHON_MIN_RE = re.compile(r"^\d+\.\d+(\.\d+)?$")
-_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+#: ``X.Y.Z``, optionally with SemVer build metadata (``0.8.0+macos.1``: D16, a platform revision of one version).
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$")
 
 DEFAULTS: Mapping[str, Any] = MappingProxyType(
     {
@@ -369,7 +370,7 @@ class _Builder:
     def project_version(self, source: str, raw: Any) -> None:
         key = "project.version"
         if not isinstance(raw, str) or not _VERSION_RE.match(raw.strip()):
-            self.note(source, key, f"must look like 'X.Y.Z'; using the code version {VERSION}",
+            self.note(source, key, f"must look like 'X.Y.Z' or 'X.Y.Z+build'; using the code version {VERSION}",
                       f"got {raw!r}")
             return
         text = raw.strip()

@@ -30,6 +30,8 @@ The originals of D's "before the final encode" case and of B's first case are th
 """
 
 from __future__ import annotations
+#: C1, Cancel acknowledgment: about one second (owner decision 2026-11-20; was 0.5 s).
+C1_ACK_S = 1.0
 
 import asyncio
 import builtins
@@ -1133,7 +1135,7 @@ def test_a_cancel_never_waits_for_a_guardian_to_become_ready(real_owner, monkeyp
     latched_in = time.monotonic() - began
     may_be_ready.set()
     worker.join(15)
-    assert latched_in < 0.5 and controller.cancel_check(), latched_in
+    assert latched_in < C1_ACK_S and controller.cancel_check(), latched_in
     assert outcome == {"refused": True}, outcome
     assert not ffmpeg_watch._watched, "no FFmpeg was started for it"
 
@@ -1219,7 +1221,7 @@ def test_a_start_is_never_held_by_another_threads_guardian_getting_ready(real_ow
     pressing.join(10)
     a.join(15)
     b.join(15)
-    assert latched and latched_in < 0.5, f"Cancel waited {latched_in:.3f} s for another thread's guardian"
+    assert latched and latched_in < C1_ACK_S, f"Cancel waited {latched_in:.3f} s for another thread's guardian"
     assert outcome == {"refused": True}, outcome
     assert not ffmpeg_watch._watched and controller._starts_in_progress == 0
 
@@ -1575,7 +1577,7 @@ def test_a_lost_guardians_children_are_ended_without_holding_up_a_start_or_a_can
     pressing.join(10)
     a.join(15)
     b.join(15)
-    assert latched and latched_in < 0.5, f"Cancel waited {latched_in:.3f} s for a lost guardian's child to be ended"
+    assert latched and latched_in < C1_ACK_S, f"Cancel waited {latched_in:.3f} s for a lost guardian's child to be ended"
     # P5-I: A's start, admitted before the latch, is either refused at its last look before the spawn or -- the latch landing
     # during the spawn itself -- created and stopped at once; which one is a race of microseconds, and both are correct.
     assert outcome in ({"refused": True}, {"started": True, "stopped": True}), outcome
@@ -1748,7 +1750,7 @@ def test_a_child_that_cannot_be_watched_is_waited_for_outside_the_counted_start(
         controller.request_cancel()
         latched_in = time.monotonic() - began
         t.join(10)
-        assert latched_in < 0.5, f"Cancel waited {latched_in:.2f} s for an unwatched child"
+        assert latched_in < C1_ACK_S, f"Cancel waited {latched_in:.2f} s for an unwatched child"
         assert outcome == {"memory": True}
     finally:
         monkeypatch.setattr(subprocess.Popen, "kill", real_kill)

@@ -20,6 +20,8 @@ macOS only.
 """
 
 from __future__ import annotations
+#: C1, Cancel acknowledgment: about one second (owner decision 2026-11-20; was 0.5 s).
+C1_ACK_S = 1.0
 
 import contextlib
 import errno
@@ -246,7 +248,7 @@ def test_a_concurrent_fork_holding_the_go_writer_never_holds_the_cancel_latch():
                 ctl.request_cancel()
                 held = time.monotonic() - ctl.cancel_clicked_at
                 launch.join(5)
-            assert held < 0.5, f"C1: the latch took {held:.3f} s"
+            assert held < C1_ACK_S, f"C1: the latch took {held:.3f} s"
         finally:
             for thread, result in forks:
                 thread.join(5)

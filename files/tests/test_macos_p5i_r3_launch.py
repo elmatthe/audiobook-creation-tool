@@ -14,6 +14,8 @@ macOS only.
 """
 
 from __future__ import annotations
+#: C1, Cancel acknowledgment: about one second (owner decision 2026-11-20; was 0.5 s).
+C1_ACK_S = 1.0
 
 import contextlib
 import os
@@ -147,7 +149,7 @@ def test_a_pending_cancel_revokes_a_stopped_gate_with_its_ack_lost_and_its_kill_
     controller.request_cancel()
     latched_in = time.monotonic() - began
     worker.join(10)
-    assert controller.cancel_check() and latched_in < 0.5, f"C1: {latched_in:.3f} s"
+    assert controller.cancel_check() and latched_in < C1_ACK_S, f"C1: {latched_in:.3f} s"
     assert isinstance(out.get("error"), ConversionCancelled), out
     gate = box["gate"]
     os.kill(gate, signal.SIGCONT)  # the adversary resumes the gate after the latch
@@ -235,7 +237,7 @@ def test_revocation_refused_by_the_file_system_holds_only_until_the_gate_is_seen
     latched_in = time.monotonic() - began
     worker.join(10)
     monkeypatch.undo()
-    assert latched_in < 0.5, f"C1: {latched_in:.3f} s"
+    assert latched_in < C1_ACK_S, f"C1: {latched_in:.3f} s"
     assert _wait_for(lambda: not _alive(box["gate"]), 3)
     assert not marker.exists()
 
@@ -265,7 +267,7 @@ def test_revocation_and_kill_both_refused_is_still_definitive_through_the_unread
     latched_in = time.monotonic() - began
     worker.join(10)
     monkeypatch.undo()
-    assert latched_in < 0.5, f"C1: the latch took {latched_in:.3f} s"
+    assert latched_in < C1_ACK_S, f"C1: the latch took {latched_in:.3f} s"
     entry = next(e for e in owner._entries if e.pid == box["gate"])
     assert not entry.exec_unknown and owner.faults(controller.cancel_check) == []
     os.kill(box["gate"], signal.SIGCONT)

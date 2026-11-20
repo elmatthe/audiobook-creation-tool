@@ -43,7 +43,7 @@ from shared.cancellation import ConversionCancelled  # noqa: E402
 from tts import local_engine_host as hosts  # noqa: E402
 
 CANCEL_BOUND_S = 2.0      # the local-engine worker's T_stop (11.2.1)
-ACK_BOUND_S = 0.5         # C1
+ACK_BOUND_S = 1.0         # C1 (owner decision 2026-11-20: about one second; was 0.5 s)
 ORPHAN_BOUND_S = 3.0      # KX-1/KX-2
 ORDERLY_BOUND_S = 5.0     # KX-3
 

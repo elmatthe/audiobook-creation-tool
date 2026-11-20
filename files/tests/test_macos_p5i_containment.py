@@ -11,6 +11,8 @@ barrier). macOS only: the containment owner is the Mac's.
 """
 
 from __future__ import annotations
+#: C1, Cancel acknowledgment: about one second (owner decision 2026-11-20; was 0.5 s).
+C1_ACK_S = 1.0
 
 import contextlib
 import os
@@ -203,7 +205,7 @@ def test_h1_five_term_ignoring_children_of_a_lost_guardian_never_hold_the_run_pa
     a.join(10)
     stuck = ffmpeg_watch.settle_children(controller.cancel_check)
     settled_in = time.monotonic() - began
-    assert latched_in < 0.5, f"C1: {latched_in:.3f} s"
+    assert latched_in < C1_ACK_S, f"C1: {latched_in:.3f} s"
     assert isinstance(outcome.get("error"), ConversionCancelled), outcome
     assert seen["flags"] == [True] * 5 and seen["alive"] == [True] * 5, "all marked lost before any was ended"
     assert stuck == [] and settled_in < 4.0, f"C2: settled in {settled_in:.3f} s, unconfirmed {stuck}"
@@ -255,7 +257,7 @@ def test_h2_a_blocked_spawn_holds_neither_the_registry_nor_another_runs_start_no
         latched_in = time.monotonic() - began
         ffmpeg_watch.wake()
         a.join(10)
-        assert latched_in < 0.5 and controller.cancel_check(), f"C1: {latched_in:.3f} s"
+        assert latched_in < C1_ACK_S and controller.cancel_check(), f"C1: {latched_in:.3f} s"
         assert isinstance(a_out.get("error"), ConversionCancelled), a_out
         assert b.is_alive(), "the setup spawn was still held throughout"
     finally:
@@ -289,7 +291,7 @@ def test_h2_a_runs_own_spawn_held_in_popen_never_holds_its_cancel_and_its_late_c
     latched_in = time.monotonic() - began
     release.set()
     a.join(10)
-    assert latched_in < 0.5, f"C1: {latched_in:.3f} s"
+    assert latched_in < C1_ACK_S, f"C1: {latched_in:.3f} s"
     assert isinstance(out.get("error"), ConversionCancelled), out
     late = [p for p in spawns.all if p.act_thread == "A" and p not in spawns.guardians()]
     # P5-I-R3: what the held spawn created is the inert launch gate; its launch thread refuses to let it run (its caller

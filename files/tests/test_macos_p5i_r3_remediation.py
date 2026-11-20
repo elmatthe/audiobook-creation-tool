@@ -17,6 +17,8 @@ macOS only.
 """
 
 from __future__ import annotations
+#: C1, Cancel acknowledgment: about one second (owner decision 2026-11-20; was 0.5 s).
+C1_ACK_S = 1.0
 
 import contextlib
 import errno
@@ -152,7 +154,7 @@ def test_a_stopped_gate_whose_revocation_and_kill_are_refused_never_runs_after_t
     script = _marker_program(tmp_path / "bin", marker)
     gate, latched, outcome = _stopped_gate_with_everything_refused(owner, controller, script)
     try:
-        assert latched < 0.5, f"C1: the latch took {latched:.3f} s"
+        assert latched < C1_ACK_S, f"C1: the latch took {latched:.3f} s"
         assert isinstance(outcome.get("error"), ConversionCancelled), outcome
         os.kill(gate.pid, signal.SIGCONT)  # resumed after the latch: it reads end-of-file, never G
         assert _wait(lambda: gate.proc.poll() is not None or co._has_exited(gate.pid), 5)

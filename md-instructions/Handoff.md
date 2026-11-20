@@ -1,5 +1,13 @@
 # Audiobook Creation Tool — Handoff
 
+## CURRENT — Expedited macOS v0.8.0 release readiness (owner instruction 2026-11-20): IN PROGRESS (Claude Code Opus 5.5, HOME-MacOS)
+
+Supersedes the blocks below for status and next action; their history stands. Start `f61ed77`.
+- **Owner decisions recorded** (Decisions 2026-11-20): Cancel acknowledgment about 1 s (< 1.0 s asserted; 0.723 s accepted); D16 route C — tag `v0.8.0-macos.1`, identity `0.8.0+macos.1`, archive `AudiobookTool-MacOS-v0.8.0-macos.1.zip`, Windows v0.8.0 untouched; no further wholesale containment redesign. P5-I-R3 residuals (a)–(d) and the mixed `str`/`bytes` environment triaged as non-blocking.
+- **Release source (P6a, release-relevant subset):** version identity, `platforms = ["MacOS"]`, `RELEASE_OS_NAMES = ("MacOS",)`, tag-form archive name, README macOS section (install, Gatekeeper Open Anyway, translocation, engines, Cancel/Pause, open items), Changelog `[0.8.0+macos.1]`, feature map, coverage restamp.
+- **Next:** freeze this commit as the candidate; native functional acceptance (all 49 darwin journeys + bounded real-engine checks); bounded Codex review; build and audit the archive from a clean LF worktree; macOS full gate attempt; release-readiness report. Results are recorded in the documents-only commit that follows.
+- **Protected:** the owner's 17 tracked deletions and untracked entries are never staged. HOME-PC untouched. Nothing merged, tagged or published.
+
 ## CURRENT BLOCKER — P5-H-R1 REJECTED at `6c3e3e7`; POSIX containment redesign authorized as P5-I (2026-11-19, Claude Code Opus 5.5, HOME-MacOS)
 
 A status correction, not an approval. It supersedes the status line of the block below; that block's history stands.

@@ -520,18 +520,18 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 `ACT.SETUP.VERSION`
 
 - `scripts/shared/version.py` holds the single version string. The release archive name uses it. A disagreeing `project.version` in `config.toml` is warned about and the code version wins.
-- **Identity (v0.7.2 Phase 8, ACT72-049):** `version.py`, `config.toml` and the tests that pin the identity say 0.7.2, set together at the release-candidate checkpoint. No v0.7.2 tag, archive or release exists; the README still describes the published v0.7.0 download.
+- **Identity (D16, owner route 2026-11-20):** `version.py` and `config.toml` say `0.8.0+macos.1`, the first macOS revision of v0.8.0, built from different source than the published Windows v0.8.0. `project.version` accepts `X.Y.Z` or `X.Y.Z+build`. The tag and archive name use `release.release_tag` (`v0.8.0-macos.1`: GitHub rewrites `+` in asset names). No tag, archive or release exists for it until the owner approves publication.
 
 ### Release packaging
 `ACT.SETUP.PACKAGING`
 
 - **Purpose:** defines what a person downloads. The packager runs only on the developer's checkout and is itself excluded from the archive, but its output is the shipped product.
-- **Behaviour:** the Windows archive holds only the Windows launcher, `README.md`, `config.toml`, the git-tracked `scripts/` tree and exactly 18 named reference WAVs from `files/Cloned-Voice-Uploads` (v0.8.0: six per cloned engine, each in its own `Chatterbox/`, `OmniVoice/` or `Qwen3/` folder). Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship. `config.toml` must ship with developer mode off, which is checked again in the finished archive. A build refuses uncommitted changes and an existing archive of the same name, checks every member against its source, and publishes all or nothing. The ordinary build produces only the Windows archive.
+- **Behaviour:** the Windows archive holds only the Windows launcher, `README.md`, `config.toml`, the git-tracked `scripts/` tree and exactly 18 named reference WAVs from `files/Cloned-Voice-Uploads` (v0.8.0: six per cloned engine, each in its own `Chatterbox/`, `OmniVoice/` or `Qwen3/` folder). Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship. `config.toml` must ship with developer mode off, which is checked again in the finished archive. A build refuses uncommitted changes and an existing archive of the same name, checks every member against its source, and publishes all or nothing. The ordinary build produces only the macOS archive (`AudiobookTool-MacOS-v0.8.0-macos.1.zip`, D16): the published Windows v0.8.0 was built from other source and is not rebuilt here. The macOS archive's launcher is stored 0755 and every text member is taken from the checkout as committed, so the build runs from a clean LF checkout.
 
 ### macOS launcher
 `ACT.SETUP.MACOS-LAUNCH`
 
-- **Purpose:** the macOS counterpart of the Windows launcher. Not part of the v0.7.x release: no macOS archive is distributed until a native macOS qualification exists. The code is kept.
+- **Purpose:** the macOS counterpart of the Windows launcher. Shipped in the macOS revision `0.8.0+macos.1` (D16); its publication waits for the owner's approval.
 - **Behaviour:**
   - Without its `scripts/` folder beside it (Gatekeeper App Translocation, or the `.command` copied out on its own), it explains how to move the folder and keeps the window open.
   - With a runnable `.venv`, it runs `--launch-only` in the foreground. A detached helper (`close_terminal.py`) then closes the Terminal window without the "terminate running processes" prompt.

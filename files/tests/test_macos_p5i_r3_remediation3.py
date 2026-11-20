@@ -22,6 +22,8 @@ macOS only.
 """
 
 from __future__ import annotations
+#: C1, Cancel acknowledgment: about one second (owner decision 2026-11-20; was 0.5 s).
+C1_ACK_S = 1.0
 
 import contextlib
 import errno
@@ -558,7 +560,7 @@ def test_a_stalled_revocation_holds_the_counted_start_at_most_its_hold():
             finally:
                 stall.set()
                 launcher.join(4)
-        assert held <= 0.5, f"the Cancel latch waited {held:.3f}s on a stalled file system"
+        assert held <= C1_ACK_S, f"the Cancel latch waited {held:.3f}s on a stalled file system"
 
 
 def test_bounded_call_returns_by_its_bound():

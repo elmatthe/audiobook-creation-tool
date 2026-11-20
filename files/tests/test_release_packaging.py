@@ -402,7 +402,13 @@ def test_the_scripts_tree_is_complete(archives, os_name):
 def test_the_version_in_the_archive_name_comes_from_version_py(archives, os_name):
     from shared.version import VERSION
 
-    assert archives[os_name].name == f"AudiobookTool-{os_name}-v{VERSION}.zip"
+    assert archives[os_name].name == f"AudiobookTool-{os_name}-{release.release_tag(VERSION)}.zip"
+
+
+@pytest.mark.parametrize("version,tag", [("0.8.0", "v0.8.0"), ("0.8.1", "v0.8.1"), ("0.8.0+macos.1", "v0.8.0-macos.1")])
+def test_an_archive_and_its_tag_never_carry_a_plus_sign(version, tag):
+    """D16 (2026-11-20): GitHub rewrites ``+`` in asset names, so a version with build metadata is named after its tag."""
+    assert release.release_tag(version) == tag
 
 
 # --------------------------------------------------------------------------- #
@@ -484,7 +490,7 @@ def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
 
 def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
     """``release.main()`` on a fake repository. By default both platforms, so the two-archive all-or-nothing
-    transaction stays covered; the shipped v0.7.0 default (Windows only) is pinned separately."""
+    transaction stays covered; the shipped default (0.8.0+macos.1: macOS only) is pinned separately."""
     saved = (release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR, release.RELEASE_OS_NAMES)
     release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = root, root / "scripts", dist
     release.RELEASE_OS_NAMES = tuple(os_names)
@@ -543,7 +549,7 @@ def test_the_finished_archive_is_checked_for_developer_mode_false_too(tmp_path, 
     real = release._refuse_developer_mode
     monkeypatch.setattr(release, "_refuse_developer_mode", lambda data, where: (seen.append((where, data)), real(data, where)))
     build(root, tmp_path / "dist", "Windows")
-    assert [where for where, _ in seen] == ["the checkout", f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert [where for where, _ in seen] == ["the checkout", f"AudiobookTool-Windows-{release.release_tag()}.zip"]
     assert seen[1][1] == (root / "config.toml").read_bytes()
     with pytest.raises(release.ReleaseError, match="found True"):
         real(SHIPPABLE_CONFIG.replace("false", "true").encode("utf-8"), "an archive")
@@ -562,8 +568,8 @@ def test_a_clean_checkout_builds_both_archives(tmp_path):
     assert run_main(root, tmp_path / "dist") == 0
     built = sorted(p.name for p in (tmp_path / "dist").iterdir())
     # The name carries the packager's own VERSION, read once at import.
-    assert built == [f"AudiobookTool-MacOS-v{release.VERSION}.zip",
-                     f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert built == [f"AudiobookTool-MacOS-{release.release_tag()}.zip",
+                     f"AudiobookTool-Windows-{release.release_tag()}.zip"]
     assert "scripts/local-helper.py" not in names(tmp_path / "dist" / built[0])
 
 
@@ -807,7 +813,7 @@ def test_building_is_not_part_of_application_startup():
 
 
 def archive_name(os_name: str) -> str:
-    return f"AudiobookTool-{os_name}-v{release.VERSION}.zip"
+    return f"AudiobookTool-{os_name}-{release.release_tag()}.zip"
 
 
 def sha(path: Path) -> str:
@@ -1074,10 +1080,10 @@ def test_the_readme_gallery_link_points_at_the_same_ref_as_the_preview_downloads
     assert gallery.group(2) == raw_ref.group(1)
 
 
-def test_the_ordinary_v070_build_produces_only_the_windows_archive(tmp_path):
-    """v0.7.0 is distributed for Windows only; the macOS archive is held until native qualification."""
+def test_the_ordinary_macos_revision_build_produces_only_the_macos_archive(tmp_path):
+    """0.8.0+macos.1 (D16) is distributed for macOS only; the published Windows v0.8.0 comes from other source (d1701e9)."""
     source = Path(release.__file__).read_text(encoding="utf-8")
-    assert 'RELEASE_OS_NAMES = ("Windows",)' in source and "_package(RELEASE_OS_NAMES)" in source
+    assert 'RELEASE_OS_NAMES = ("MacOS",)' in source and "_package(RELEASE_OS_NAMES)" in source
     root = fake_repo(tmp_path / "repo")
     assert run_main(root, tmp_path / "dist", os_names=release.RELEASE_OS_NAMES) == 0
-    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == [f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == [f"AudiobookTool-MacOS-{release.release_tag()}.zip"]

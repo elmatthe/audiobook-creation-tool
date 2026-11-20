@@ -1822,7 +1822,7 @@ def test_the_version_is_untouched():
 
     # v0.8.0 Phase 4 release-candidate identity (v0.7.3 was released; this pin had not moved past 0.7.2).
     # This pins the application version without asserting publication.
-    assert VERSION == "0.8.0"
+    assert VERSION == "0.8.0+macos.1"
 
 
 def test_the_root_config_template_remains_absent():
