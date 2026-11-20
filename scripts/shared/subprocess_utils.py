@@ -242,11 +242,39 @@ def _with_note(stream, note: str):
     return stream
 
 
+#: C2 (plan 11.2.1): one FFmpeg step is stopped within this many seconds of the Cancel click. A contained stop of a
+#: cancelled run's child never starts a fresh grace past it (v0.8.x P5-I-R3 remediation 7): its SIGTERM grace is cut so
+#: that grace plus the owner's SIGKILL confirmation ends this margin before the bound.
+CANCEL_STEP_S = 4.0
+CANCEL_MARGIN_S = 0.3
+
+
+def _grace_inside_c2(owner, process: subprocess.Popen, grace_seconds: float) -> float:
+    """*grace_seconds*, cut to what C2 leaves when *process* belongs to a run whose Cancel was clicked."""
+    try:
+        entry = owner.child(process)
+        run = getattr(entry, "run", None)
+        if not callable(run) or not run():
+            return grace_seconds
+        controller = getattr(run, "__self__", None) or getattr(run, "controller", None)
+        if getattr(controller, "cancel_clicked_at", None) is None:
+            return grace_seconds
+        try:
+            from . import child_ownership
+        except ImportError:  # pragma: no cover - imported bare off scripts/shared
+            import child_ownership  # type: ignore[no-redef]
+        left = settle_bound(run, CANCEL_STEP_S) - CANCEL_MARGIN_S - child_ownership.KILL_CONFIRM_S
+        return max(0.0, min(grace_seconds, left))
+    except Exception:  # noqa: BLE001 - the caller's grace stands
+        return grace_seconds
+
+
 def _stop_contained(owner, process: subprocess.Popen, grace_seconds: float) -> bool:
     """End a contained child through its owner (identity-checked SIGTERM, *grace_seconds*, SIGKILL, confirmed reaped by
     the owner's shared deadline). True once it was reaped; False when its end is not confirmed (it stays owned)."""
     if process.returncode is not None:
         return True
+    grace_seconds = _grace_inside_c2(owner, process, grace_seconds)
     with contextlib.suppress(Exception):  # noqa: BLE001 - a stop that fails proves nothing; the answer below is read
         owner.end(process, grace=grace_seconds)
     return process.returncode is not None

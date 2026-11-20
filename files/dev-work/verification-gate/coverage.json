@@ -10782,7 +10782,8 @@
         "On the continuous route Cancel stops the encoder and the book's decoder and reaps both before the run settles (v0.7.2 Phase 7B).",
         "Cancel and an output's last step have one order (v0.7.2 Phase 9, ACT72-071): Cancel is asked again before and after the finished file is measured, and the commit is authorized in one step under the lock the Cancel latch is taken under. A Cancel that came first publishes nothing and the run settles CANCELLED, on the last book as on any other; an authorization that came first has won, and that one output is published whole and stays.",
         "On macOS a contained encoder and its decoder are stopped together in one stop window; uncontained (Windows) the released cancelled-before-unreaped order of a segment's result is kept (v0.8.x P5-I-R3 remediation 3).",
-        "On macOS a contained streaming step's waits after Cancel share one deadline inside C2's 4 s, also when its forced stops are refused (reported, never clean) (v0.8.x P5-I-R3 remediation 6)."
+        "On macOS a contained streaming step's waits after Cancel share one deadline inside C2's 4 s, also when its forced stops are refused (reported, never clean) (v0.8.x P5-I-R3 remediation 6).",
+        "On macOS a contained stop of a cancelled run's child never starts a SIGTERM grace that would end past C2's 4 s from the click; the non-streaming step's reap shares that deadline (v0.8.x P5-I-R3 remediation 7)."
       ],
       "selection": [
         "files/tests/test_m4b_converter_jobs.py",
@@ -10794,7 +10795,8 @@
         "files/tests/test_macos_p5i_r3_remediation.py",
         "files/tests/test_macos_p5i_r3_remediation2.py",
         "files/tests/test_macos_p5i_r3_remediation3.py",
-        "files/tests/test_macos_p5i_r3_remediation6.py"
+        "files/tests/test_macos_p5i_r3_remediation6.py",
+        "files/tests/test_macos_p5i_r3_remediation7.py"
       ],
       "journeys": [
         "converter.cancel-during-encode"
@@ -18389,7 +18391,8 @@
         "On macOS the orderly end first refuses every new go, follows grants already released to their outcome, and only then publishes CLOSING, so no program executes after the closing latch; a lost guardian is replaced at once while class-A children run (v0.8.x P5-I-R3 remediation 3).",
         "On macOS the orderly end tells the guardian on its registry as well as by closing the lifeline (a child between fork and exec still holds the lifeline), never waits past its deadline to remove the permit folder, and Python children are announced to the guardian as soon as their process exists (v0.8.x P5-I-R3 remediation 4).",
         "On macOS a Python child still between fork and exec is announced again to a replacement guardian (v0.8.x P5-I-R3 remediation 5).",
-        "On macOS a run's settlement and the orderly end end a start stalled between fork and exec whose identity is known, identity-checked; a lost guardian is replaced when such a start could not be announced (v0.8.x P5-I-R3 remediation 6)."
+        "On macOS a run's settlement and the orderly end end a start stalled between fork and exec whose identity is known, identity-checked; a lost guardian is replaced when such a start could not be announced (v0.8.x P5-I-R3 remediation 6).",
+        "On macOS a group signal by pid to a child that does not lead its group yet (announced right after fork) reaches the child itself, identity-checked, in the owner and in the guardian (v0.8.x P5-I-R3 remediation 7)."
       ],
       "selection": [
         "files/tests/test_close_stops_media_children.py",
@@ -18403,7 +18406,8 @@
         "files/tests/test_macos_p5i_r3_remediation3.py",
         "files/tests/test_macos_p5i_r3_remediation4.py",
         "files/tests/test_macos_p5i_r3_remediation5.py",
-        "files/tests/test_macos_p5i_r3_remediation6.py"
+        "files/tests/test_macos_p5i_r3_remediation6.py",
+        "files/tests/test_macos_p5i_r3_remediation7.py"
       ],
       "journeys": [
         "shutdown.tts-close-during-work",
@@ -26404,7 +26408,7 @@
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
     "scripts/m4b/m4b_continuous.py": "b8ca599150bbe078bc51c01090b430b395e143831835fc825708469633c5c56b",
-    "scripts/m4b/m4b_execution.py": "6bd3d45c01c476e48989f1d29fa155d43831267d2aeb30853edc38dc0b56247c",
+    "scripts/m4b/m4b_execution.py": "df4fadc9f31dcae12e0a87838be7d9b84aa6e6609d99110b77539d8b68f6a452",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
@@ -26440,9 +26444,9 @@
     "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
-    "scripts/shared/child_guardian.py": "5b380fe47cb632fff4bca95c5386772f2aa6f69d457dc239ac26b4ec0d262724",
+    "scripts/shared/child_guardian.py": "dc3e031176923b7d8bffbb2baa0440605236c39c1498d0243376a297da58fb2e",
     "scripts/shared/child_launch.py": "207a47573bb9f5c627cb457a2cc9aa010fe2fd16d37f49ada0a8f41b8e8fdfe5",
-    "scripts/shared/child_ownership.py": "748e56533d8de76852e3afa3aafbbb03fba76ab691c14a9e6d4ea78ba32cf6c8",
+    "scripts/shared/child_ownership.py": "d0aeed6c8aedfa1e2f7fe77e384812f4ebe21e17da498231aa093eaf42110abe",
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
@@ -26483,7 +26487,7 @@
     "scripts/shared/release.py": "5b48f2cb5813d42f6ba58bf6306d8221f70b2275be50976d4f352887324f3dc5",
     "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
-    "scripts/shared/subprocess_utils.py": "440ef0bc62424557b1d6f9812fae5d98406633628983781b89bf4b690bdd17f3",
+    "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
     "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",

@@ -350,12 +350,15 @@ def run_argv(
 
         killed = False
         stopped = False
+        stop_by = None  # contained and cancelled: the reap shares C2's deadline (P5-I-R3 remediation 7)
         try:
             while True:
                 code = proc.poll()
                 if code is not None:
                     break
                 if cancelled():
+                    if _contained(proc):
+                        stop_by = time.monotonic() + max(0.0, sp.settle_bound(cancelled, C2_STEP_S) - C2_MARGIN_S)
                     killed = _stop(proc, grace_seconds=grace_seconds,
                                    poll_seconds=poll_seconds,
                                    monotonic=monotonic, wait=wait)
@@ -365,7 +368,10 @@ def run_argv(
         finally:
             # Unconditional, on every route out of the loop including an
             # exception: a child this function started is a child it collects.
-            reaped = _reap(proc, timeout=_collect_bound(proc, grace_seconds))
+            collect = _collect_bound(proc, grace_seconds)
+            if stop_by is not None:
+                collect = max(0.0, min(collect, stop_by - time.monotonic()))
+            reaped = _reap(proc, timeout=collect)
 
         return ProcessResult(
             returncode=proc.returncode,

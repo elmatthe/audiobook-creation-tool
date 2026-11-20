@@ -86,6 +86,14 @@ def _end_leaders(leaders):
         if pid > 1 and _start_time(pid) == start:  # still the process the owner recorded
             try:
                 os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                # P5-I-R3 remediation 7: no such group yet (announced right after fork, before its setsid()): the
+                # process itself, its identity read again first.
+                if _start_time(pid) == start:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
             except OSError:
                 pass
 

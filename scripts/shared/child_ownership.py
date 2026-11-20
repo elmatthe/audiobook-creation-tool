@@ -194,7 +194,14 @@ def signal_if_same(pid: int, start_time: Optional[tuple[int, int]], sig: int, *,
         return False
     try:
         if group:
-            os.killpg(pid, sig)
+            try:
+                os.killpg(pid, sig)
+            except ProcessLookupError:
+                # P5-I-R3 remediation 7: no such group -- a child announced right after fork has not run setsid() yet.
+                # The process itself is signalled, its identity read again first.
+                if process_start_time(pid) != start_time:
+                    return False
+                os.kill(pid, sig)
         else:
             os.kill(pid, sig)
         return True
