@@ -612,7 +612,7 @@ flashing during use.
   (`job_ui.action_style(theme, "cancel")`) and never a colour; a role colours text and border only and keeps a neutral
   background in every state (the old red hover/pressed fill is gone). The owner's 146-control matrix is pinned live by
   `files/tests/button_role_inventory.py` and the per-surface audits; `ACT.SHARED.BUTTON-ROLES` is the feature id. The
-  shell navigation stays normal; macOS publishes the keys but keeps native buttons until Checkpoint E.
+  shell navigation stays normal; on macOS the four role styles draw a same-size outline image (Checkpoint E) and the neutral button stays native.
 - **Import convention:** `scripts/` is the single import root (v0.6.7 checkpoint B1 lifted `launcher.py`, `shared/`, `tts/` and
   `mp3_tools/` out of the former `scripts/Universal/`; checkpoint B2 then split `mp3_tools/` by tool into `mp3/`, `m4b/` (with
   `converter/`, `maker/`, `metadata/`) and `artwork/`, with no class or behaviour change). Cross-module imports

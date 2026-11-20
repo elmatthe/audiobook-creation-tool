@@ -10,8 +10,9 @@ Pins, without any one tool panel, that
   is a neutral grey in every interaction state, Light and Dark, with readable
   contrast, a visible disabled state and a focus ring;
 * the old Danger style no longer fills red on hover or press;
-* the roles survive a live Light/Dark switch, and Aqua keeps its native buttons
-  (macOS is Checkpoint E).
+* the roles survive a live Light/Dark switch; on Aqua (Checkpoint E) the four
+  roles draw their own outline image at the native size and the plain button
+  stays native.
 """
 
 from __future__ import annotations
@@ -331,16 +332,92 @@ def test_the_plain_button_and_the_shell_styles_are_untouched(tk_root):
     assert _hex(tk_root, style.lookup(plain, "foreground", [])) == colors["text"]
 
 
-def test_aqua_publishes_the_role_keys_but_leaves_native_buttons_for_checkpoint_e(tk_root):
-    bundle = appearance.build_bundle(ttk.Style(tk_root), appearance.LIGHT,
-                                     platform="darwin", root=tk_root)
-    for key in ROLE_KEYS:
-        assert bundle["styles"][key].startswith("CompactAqua.")
+def _aqua_bundle(root, value):
+    return appearance.build_bundle(ttk.Style(root), value, platform="darwin", root=root)
+
+
+def _aqua_images(root):
+    return root.winfo_toplevel()._compact_aqua_button_images
+
+
+@pytest.mark.parametrize("value", [appearance.LIGHT, appearance.DARK])
+def test_aqua_role_buttons_carry_the_role_in_text_and_outline_only(tk_root, value):
+    """v0.8.1 Checkpoint E. Aqua ignores ttk border and background options, so the
+    four roles draw their own outline image; the plain button stays native."""
+    bundle = _aqua_bundle(tk_root, value)
     style = ttk.Style(tk_root)
-    # Never configured: ttk resolves each to the platform's own button.
-    assert style.configure(bundle["styles"]["button_red"]) in (None, {})
-    # leave the process-wide Compact.* styles in a Windows state for later tests
-    _bundle(tk_root, appearance.LIGHT)
+    colors = bundle["colors"]
+    for key in ROLE_KEYS:
+        name = bundle["styles"][key]
+        assert name.startswith("CompactAqua.")
+        assert _hex(tk_root, style.lookup(name, "foreground", [])) \
+            == _hex(tk_root, colors[TONES[key]])
+        assert _hex(tk_root, style.lookup(name, "foreground", ["disabled"])) \
+            == _hex(tk_root, colors["disabled"])
+        # the layout draws the role's own image element, not Cocoa's Button.button
+        assert style.layout(name)[0][0].startswith(f"CompactAqua.{key[7:]}.button."), key
+    # Never configured: ttk resolves the neutral role to the platform's own button.
+    assert style.configure(bundle["styles"]["button"]) in (None, {})
+    assert style.layout(bundle["styles"]["button"])[0][0] == "Button.button"
+
+
+@pytest.mark.parametrize("value", [appearance.LIGHT, appearance.DARK])
+def test_aqua_role_images_are_outlined_neutral_and_transparent_outside(tk_root, value):
+    bundle = _aqua_bundle(tk_root, value)
+    colors = bundle["colors"]
+    images = _aqua_images(tk_root)
+    fills = {"normal": colors["field"], "active": colors["role_hover"],
+             "pressed": colors["role_pressed"], "disabled": colors["field_disabled"]}
+    assert len({_hex(tk_root, c) for c in fills.values()}) == 4
+    assert len(images) == 4 * 4 * 2
+    for key, image in images.items():
+        role, fill, ring = key.split("_")
+        tone = _hex(tk_root, colors["role_" + role])
+        centre = "#%02x%02x%02x" % image.get(12, 14)
+        edge = "#%02x%02x%02x" % image.get(appearance._AQUA_INSET, 14)
+        assert centre == _hex(tk_root, fills[fill]), key
+        assert _is_neutral(centre), key
+        assert edge == (_hex(tk_root, colors["border"]) if fill == "disabled" else tone), key
+        assert image.transparency_get(0, 0), key
+        # the keyboard-focus halo lives in the margin and never on a disabled button
+        halo = not image.transparency_get(1, 14)
+        assert halo == (ring == "ring" and fill != "disabled"), key
+        if fill != "disabled":  # a disabled label is meant to be dim
+            assert _contrast(tone, centre) >= 4.5, key
+
+
+@pytest.mark.parametrize("label", ["X", "Start", "Add Files", "Remove Selected"])
+@pytest.mark.parametrize("key", ROLE_KEYS)
+@pytest.mark.skipif(sys.platform != "darwin", reason="compares with the native Aqua button")
+def test_aqua_role_buttons_ask_for_exactly_the_native_size(tk_root, key, label):
+    bundle = _aqua_bundle(tk_root, appearance.LIGHT)
+    native = ttk.Button(tk_root, text=label)
+    role = ttk.Button(tk_root, text=label, style=bundle["styles"][key])
+    try:
+        native.update_idletasks()
+        assert (role.winfo_reqwidth(), role.winfo_reqheight()) \
+            == (native.winfo_reqwidth(), native.winfo_reqheight())
+    finally:
+        native.destroy()
+        role.destroy()
+
+
+def test_aqua_roles_repaint_in_place_on_a_live_light_dark_switch(tk_root):
+    light = _aqua_bundle(tk_root, appearance.LIGHT)
+    image = _aqua_images(tk_root)["red_normal_flat"]
+    before = image.get(12, 14)
+    style = ttk.Style(tk_root)
+    button = ttk.Button(tk_root, text="Cancel", style=light["styles"]["button_red"])
+    try:
+        dark = _aqua_bundle(tk_root, appearance.DARK)
+        assert _aqua_images(tk_root)["red_normal_flat"] is image  # the same object
+        assert image.get(12, 14) != before
+        assert button.cget("style") == light["styles"]["button_red"]
+        assert _hex(tk_root, style.lookup(dark["styles"]["button_red"], "foreground", [])) \
+            == _hex(tk_root, dark["colors"]["role_red"])
+    finally:
+        button.destroy()
+        _aqua_bundle(tk_root, appearance.LIGHT)
 
 
 # --------------------------------------------------------------------------- #

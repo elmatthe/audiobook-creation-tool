@@ -20704,7 +20704,39 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_button_roles.py::test_aqua_publishes_the_role_keys_but_leaves_native_buttons_for_checkpoint_e"
+            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_carry_the_role_in_text_and_outline_only[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_carry_the_role_in_text_and_outline_only[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_images_are_outlined_neutral_and_transparent_outside[light]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_images_are_outlined_neutral_and_transparent_outside[dark]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_roles_repaint_in_place_on_a_live_light_dark_switch"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_red-Start]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_green-Start]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_yellow-Start]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_blue-Start]"
           },
           {
             "kind": "behavior",
@@ -26997,7 +27029,7 @@
     "scripts/mp3/mp3_tool.py": "b0eaa6b0303e486b7a2a584a527371632062428b845559fd2f1cad80dcace72c",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
-    "scripts/shared/appearance.py": "37064f380d464040c8025e9c65e379c52a62a1f16a8eed9b4c26ebda85e2426f",
+    "scripts/shared/appearance.py": "1083d4880cc44d146c4ee6682a3f00630f4ada1e1cfa298a33c04e5a502a2d71",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
     "scripts/shared/artifact_transfer.py": "983713a2d2661a0ead741e83f3435363fb091567889ead3ee3fca9828f3c9ebf",
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",

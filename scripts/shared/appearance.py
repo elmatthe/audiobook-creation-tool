@@ -34,6 +34,9 @@ otherwise native controls follow the OS while classic Tk content follows the
 app, producing a mixed Light/Dark interior. Namespaced surface/label colors
 and the Shared border provide the same semantic distinction as other platforms,
 without installing Windows button, field or check/radio layouts on Aqua.
+The one exception is the four outlined semantic button roles (v0.8.1): Aqua
+cannot colour a native button's outline, so those four styles draw a small
+rounded-outline image of the same size as the native button.
 
 State-preserving refresh
 -------------------------
@@ -50,8 +53,10 @@ itself when notified — see :func:`register_listener`.
 
 from __future__ import annotations
 
+import struct
 import sys
 import tkinter as tk
+import zlib
 from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Callable
@@ -1000,11 +1005,165 @@ def _refresh_native_windows(root: tk.Misc, bundle: dict) -> None:
     visit(root)
 
 
+# ---------------------------------------------------------------------------
+# Aqua outlined role buttons (v0.8.1 Checkpoint E)
+# ---------------------------------------------------------------------------
+#
+# Aqua draws ``Button.button`` with Cocoa and ignores ttk's border and
+# background options, so a style can recolour the text of a native button but
+# never its outline. The four role styles therefore swap that one element for a
+# small rounded-outline *image* element drawn from the palette, with the same
+# footprint as the native button: a native pushbutton asks for the label plus
+# 40 px by 28 px and draws 3 px inside that box. Every other Aqua control, and
+# the neutral ``button`` role, stays native.
+
+#: Transparent margin round the drawn outline, and the native request size
+#: beyond the label (measured on Tk 9.0 Aqua at the system font).
+_AQUA_INSET = 3
+_AQUA_BUTTON_EXTRA = (40, 12)  # label width + 40, label height + 12
+_AQUA_RADIUS = 5.0
+_AQUA_SLICE = 9
+_AQUA_IMAGE_SIZE = (24, 28)
+#: Fill variants an image is drawn in; each also exists with a focus halo.
+_AQUA_FILLS = ("normal", "active", "pressed", "disabled")
+#: Strength of the keyboard-focus halo drawn in the transparent margin.
+_AQUA_HALO = 0.55
+
+
+def _rgb(color: str) -> tuple[int, int, int]:
+    return int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+
+
+def _png(width: int, height: int, rows: list[bytes]) -> bytes:
+    """A minimal 8-bit RGBA PNG: Tk reads it with alpha, and the standard
+    library is enough to write it."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+    raw = b"".join(b"\x00" + row for row in rows)
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def _rounded_cover(x: float, y: float, left: float, top: float, right: float,
+                   bottom: float, radius: float) -> float:
+    """Anti-aliased coverage (0..1) of the pixel at (x, y) by a rounded rectangle."""
+    hits = 0
+    for sy in range(4):
+        for sx in range(4):
+            px, py = x + (sx + 0.5) / 4, y + (sy + 0.5) / 4
+            dx = max(left + radius - px, px - (right - radius), 0.0)
+            dy = max(top + radius - py, py - (bottom - radius), 0.0)
+            if (left <= px <= right and top <= py <= bottom
+                    and dx * dx + dy * dy <= radius * radius):
+                hits += 1
+    return hits / 16
+
+
+def _aqua_button_png(fill: str, edge: str, halo: str | None) -> bytes:
+    """One outlined-button image: a 1 px *edge* outline round a *fill* body,
+    transparent outside, and with *halo* a soft ring in the transparent margin
+    (the keyboard-focus cue)."""
+    width, height = _AQUA_IMAGE_SIZE
+    inset, radius = _AQUA_INSET, _AQUA_RADIUS
+    box = (inset, inset, width - inset, height - inset)
+    grown = (inset - 2, inset - 2, width - inset + 2, height - inset + 2)
+    inner = (inset + 1, inset + 1, width - inset - 1, height - inset - 1)
+    fill_rgb, edge_rgb = _rgb(fill), _rgb(edge)
+    halo_rgb = _rgb(halo) if halo else None
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            outer = _rounded_cover(x, y, *box, radius)
+            body = _rounded_cover(x, y, *inner, radius - 1)
+            glow = _AQUA_HALO * _rounded_cover(x, y, *grown, radius + 2) if halo else 0.0
+            alpha = outer + glow * (1 - outer)
+            if alpha <= 0:
+                row += b"\x00\x00\x00\x00"
+                continue
+            shape = [(edge_rgb[i] * (outer - body) + fill_rgb[i] * body) for i in range(3)]
+            rgb = [shape[i] + (halo_rgb[i] * glow * (1 - outer) if halo_rgb else 0)
+                   for i in range(3)]
+            row += bytes(min(255, round(v / alpha)) for v in rgb) + bytes([round(alpha * 255)])
+        rows.append(bytes(row))
+    return _png(width, height, rows)
+
+
+def _aqua_button_images(style: ttk.Style, c: dict) -> tuple[dict[str, tk.PhotoImage], int]:
+    """Create (once per interpreter) and redraw the role button images in place,
+    so a Light/Dark toggle repaints every existing button as the check/radio
+    indicators do. Held by the toplevel for the same reason theirs are.
+
+    Returns the images and a generation number. An image that was finalised
+    behind this module's back (a test harness disarms every leftover Tk image
+    between modules while the shared root lives on) cannot be revived, and a ttk
+    element cannot be redefined; so the images are rebuilt under a new
+    generation, which names a new element for the layouts to point at.
+    """
+    holder = style.master if style.master is not None else tk._default_root
+    try:
+        holder = holder.winfo_toplevel()
+    except (AttributeError, tk.TclError):
+        pass
+    images = getattr(holder, "_compact_aqua_button_images", None)
+    generation = getattr(holder, "_compact_aqua_generation", 0)
+    if images is None or any(image.name is None for image in images.values()):
+        generation += 1
+        images = {f"{role}_{fill}_{ring}": tk.PhotoImage(master=holder)
+                  for role in _BUTTON_ROLE_COLOR_TOKENS
+                  for fill in _AQUA_FILLS for ring in ("flat", "ring")}
+        holder._compact_aqua_button_images = images
+        holder._compact_aqua_generation = generation
+    fills = {"normal": c["field"], "active": c["role_hover"],
+             "pressed": c["role_pressed"], "disabled": c["field_disabled"]}
+    for key, image in images.items():
+        role, fill, ring = key.split("_")
+        edge = c["border"] if fill == "disabled" else c[_BUTTON_ROLE_COLOR_TOKENS[role]]
+        halo = c["focus"] if ring == "ring" and fill != "disabled" else None
+        image.configure(data=_aqua_button_png(fills[fill], edge, halo), format="png")
+    return images, generation
+
+
+def _register_aqua_role_buttons(style: ttk.Style, c: dict) -> None:
+    """Outlined red/green/yellow/blue buttons: colour on the text and the
+    outline only, a neutral body in every state, native size."""
+    images, generation = _aqua_button_images(style, c)
+    try:
+        existing = set(style.element_names())
+    except tk.TclError:
+        existing = set()
+    pad = (_AQUA_BUTTON_EXTRA[0] // 2 - _AQUA_INSET,
+           (_AQUA_BUTTON_EXTRA[1] - 2 * _AQUA_INSET) // 2)
+    for role, token in _BUTTON_ROLE_COLOR_TOKENS.items():
+        name = _AQUA_STYLES[BUTTON_ROLE_STYLE_KEYS[role]]
+        element = f"{_AQUA_STYLE_PREFIX}.{role}.button.{generation}"
+        if element not in existing:
+            def pick(fill: str, ring: str, role=role) -> tk.PhotoImage:
+                return images[f"{role}_{fill}_{ring}"]
+            style.element_create(
+                element, "image", pick("normal", "flat"),
+                ("disabled", pick("disabled", "flat")),
+                ("focus", "pressed", pick("pressed", "ring")),
+                ("pressed", pick("pressed", "flat")),
+                ("focus", "active", pick("active", "ring")),
+                ("active", pick("active", "flat")),
+                ("focus", pick("normal", "ring")),
+                border=_AQUA_SLICE, padding=_AQUA_INSET, sticky="nswe")
+        style.layout(name, [(element, {"sticky": "nswe", "children": [
+            ("Button.padding", {"sticky": "nswe", "children": [
+                ("Button.label", {"sticky": "nswe"})]})]})])
+        style.configure(name, foreground=c[token], padding=pad, anchor="center")
+        style.map(name, foreground=[("disabled", c["disabled"])])
+
+
 def _register_aqua_styles(style: ttk.Style, c: dict) -> dict[str, str]:
     """Native control inheritance, with named colors and one tinted Shared border.
 
-    No control padding, fonts, indicator images or native control layouts change.
-    The only cloned element is the Shared group's recolorable section border.
+    No control padding, fonts, indicator images or native control layouts change,
+    except for the four outlined role buttons (:func:`_register_aqua_role_buttons`).
+    The cloned element is the Shared group's recolorable section border.
     """
     for key, color in {
         "window": "window", "surface": "surface", "card": "surface",
@@ -1038,6 +1197,7 @@ def _register_aqua_styles(style: ttk.Style, c: dict) -> dict[str, str]:
                     borderwidth=1, relief="solid")
     style.configure(shared + ".Label", background=c["shared_bg"],
                     foreground=c["shared_header"])
+    _register_aqua_role_buttons(style, c)
     return dict(_AQUA_STYLES)
 
 

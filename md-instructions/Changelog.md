@@ -18,6 +18,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Changed (Checkpoint E, macOS)**
+- **Outlined button colours on macOS.** The red (Cancel, Clear, Remove), green (Start, Build, Save), yellow (Pause,
+  Resume, Retry) and blue (the Book controls, repair and review) buttons now show their colour on a Mac, as on Windows: text and
+  a thin outline only, a neutral body in every state, a visible disabled state and a focus halo, in Light and Dark.
+  Ordinary buttons stay native. Size and spacing are unchanged. (Aqua cannot colour a native button's outline, so these four styles
+  draw a small outline image of the same size.)
+
 **Fixed (Checkpoint D, tests and coverage document only)**
 - The cleanup-worker deletion guard now recognises the macOS launch-permit cleanup in `child_guardian.py` and
   `child_ownership.py` (each removes only the permit folder its owner created) and pins that by AST in a new test; the guard's catalog

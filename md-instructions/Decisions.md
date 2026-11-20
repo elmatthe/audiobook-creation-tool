@@ -2,6 +2,13 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-20 — v0.8.1 Checkpoint E: on Aqua the four outlined role styles draw a same-size outline image element; every other Aqua control stays native
+
+Signed: Claude Code (Sonnet 5.5), HOME-MacOS. Evidence: Handoff v0.8.1 Checkpoint E; ignored `files/dev-work/macos-e/`.
+- **Cause.** Aqua draws `Button.button` with Cocoa and ignores ttk `bordercolor` and `background`; a role style could only recolour the text, and `style.lookup` reported colours that never showed. Measured before changing anything (five identical native buttons in Light and Dark).
+- **Decision.** Only the red, green, yellow and blue styles replace `Button.button` with a ttk `image` element drawn from the palette (1 px role outline, neutral body, transparent margin, focus halo), with the native request size (label + 40 x 28). Rejected: cloning clam's `Button.border` (square corners, and 6 px taller than native); classic `tk.Button` (changes widget classes and state handling); a custom widget (a framework this patch does not need). The neutral `button` role stays Cocoa, so ordinary buttons keep native look, press and Dark behaviour.
+- **Consequence.** The image is 1x, so edges are slightly soft on Retina. Images are redrawn in place on a theme switch; a Tk image finalised behind the module's back is rebuilt under a new element name (`CompactAqua.<role>.button.<generation>`) because ttk cannot redefine an element. The Windows styles and palette are unchanged.
+
 ## 2026-11-20 — v0.8.1 Checkpoint C1: an OmniVoice chunk with nothing to say whose rendering is trimmed to zero samples is a 0.2 s pause, not a failure; a chunk failure names its chunk and worker batch and keeps a technical record
 
 Signed: Claude Code (Opus 5.5), HOME-PC. Evidence-driven: Handoff v0.8.1 Checkpoint C1; private evidence in `files/dev-work/v0.8.1-c1-evidence/` (ignored).

@@ -132,6 +132,9 @@ def test_darwin_bundle_drives_native_window_appearance(monkeypatch, value, nativ
     root = Window()
     monkeypatch.setattr(appearance, "_default_font_size", lambda _root: 13)
     monkeypatch.setattr(appearance, "_mac_font_family", lambda _root: "Helvetica Neue")
+    # The four outlined role buttons need a real Tk (images); test_button_roles
+    # covers them. Here every other Aqua style must stay native.
+    monkeypatch.setattr(appearance, "_register_aqua_role_buttons", lambda *_args: None)
 
     class NativeStyles:
         def configure(self, *_args, **kwargs):
