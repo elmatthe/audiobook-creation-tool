@@ -183,7 +183,7 @@ def _ended_by_signal(app: App, sig: int) -> float:
 # --------------------------------------------------------------------------- #
 #  KX-1(d), KX-2(d): the window killed or crashed during an FFmpeg step
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("sig", [signal.SIGKILL, signal.SIGSEGV, signal.SIGABRT], ids=["KX-1d-SIGKILL",
+@pytest.mark.parametrize("sig", [getattr(signal, "SIGKILL", None), signal.SIGSEGV, signal.SIGABRT], ids=["KX-1d-SIGKILL",
                                                                                        "KX-2d-SIGSEGV",
                                                                                        "KX-2d-SIGABRT"])
 def test_kx1d_kx2d_the_window_ends_abnormally_during_an_ffmpeg_step(app_factory, sig):

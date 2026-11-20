@@ -462,7 +462,7 @@ def _wait_gone(pid, start, pgid, bound) -> float:
     return float("inf")
 
 
-@pytest.mark.parametrize("sig", [signal.SIGKILL, signal.SIGSEGV, signal.SIGABRT],
+@pytest.mark.parametrize("sig", [getattr(signal, "SIGKILL", None), signal.SIGSEGV, signal.SIGABRT],
                          ids=["kx1a-sigkill", "kx2a-sigsegv", "kx2a-sigabrt"])
 def test_kx1a_kx2a_the_window_ends_abnormally_during_real_inference(window, sig):
     app = window()

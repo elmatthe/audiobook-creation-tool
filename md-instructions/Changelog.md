@@ -18,6 +18,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Checkpoint F, tests only)**
+- Two macOS-only test modules (`test_macos_p1b_gui_containment.py`, `test_macos_p2_kokoro_real.py`) no longer stop test
+  collection on Windows: their `parametrize` decorators named `signal.SIGKILL`, which Windows does not have, and the
+  gate's collection stage failed with two errors. The decorators now look the signal up by name; on a Mac the real
+  `SIGKILL` is used and every native assertion is unchanged. A new test (`test_macos_p1b_containment.py`) imports both
+  modules wherever it runs.
+
 **Changed (Checkpoint E, macOS)**
 - **Outlined button colours on macOS.** The red (Cancel, Clear, Remove), green (Start, Build, Save), yellow (Pause,
   Resume, Retry) and blue (the Book controls, repair and review) buttons now show their colour on a Mac, as on Windows: text and

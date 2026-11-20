@@ -461,3 +461,20 @@ def test_kx9_no_media_spawn_in_the_window_or_the_five_tools_bypasses_the_guardia
                 if passed:
                     offenders.append(f"{relative}:{node.lineno} {sorted(passed)}")
     assert offenders == []
+
+
+@pytest.mark.parametrize("module", ["test_macos_p1b_gui_containment", "test_macos_p2_kokoro_real"])
+def test_the_native_only_modules_are_importable_where_they_are_skipped(module):
+    """v0.8.1 Checkpoint F: both native modules are skipped off macOS, but pytest still imports them to collect, and a
+    ``parametrize`` decorator is evaluated at import. ``signal.SIGKILL`` does not exist on Windows, so naming it there
+    made the Windows gate's collection stage fail with two errors. Importing the module is what collection does."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / f"{module}.py"
+    spec = importlib.util.spec_from_file_location(f"_collect_probe_{module}", path)
+    imported = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(imported)  # raised AttributeError on Windows before the decorators resolved SIGKILL by name
+    skips = [mark for mark in imported.pytestmark if mark.name == "skipif"] if isinstance(imported.pytestmark, list) \
+        else [imported.pytestmark]
+    # Off macOS the whole module must still be skipped: the guard that makes importing it safe to ignore.
+    assert skips and all(mark.name == "skipif" for mark in skips)
