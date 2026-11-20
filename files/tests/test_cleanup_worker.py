@@ -873,11 +873,18 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     a workspace whose recorded owner has provably ended; it uses ``rmtree`` only
     where the system removes a folder without following a link. It is held to the
     same two assertions.
+
+    (v0.8.1) ``child_guardian.py`` (macOS) is the sixth ``rmtree`` user: when its owner dies it removes the owner's own
+    launch-permit folder, the one path the owner handed it in ``ACT_PERMIT_ROOT`` (a private ``0700`` folder the owner
+    created under ``<temp>/ACT-permits-<uid>/``). ``test_the_guardian_removes_only_its_own_launch_permit_folder`` pins that
+    this is its only tree removal and that the path can come from nowhere else. ``child_ownership.py`` is the owner's side of
+    the same scheme: it removes the permit folder it created (``self._permits``) and each per-launch folder it just made
+    (``launch.directory``); both are pinned by the same test.
     """
     shared = REPO_ROOT / "scripts" / "shared"
     allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py", "nltk_store.py", "work_area.py",
-                      "long_paths.py"}
-    allowed_rmdir = {"cleanup_worker.py", "work_area.py"}
+                      "long_paths.py", "child_guardian.py", "child_ownership.py"}
+    allowed_rmdir = {"cleanup_worker.py", "work_area.py", "child_ownership.py"}
     for path in sorted(shared.glob("*.py")):
         source = path.read_text(encoding="utf-8")
         if "os.rmdir" in source:
@@ -889,6 +896,32 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
             assert path.name in allowed_rmtree, path.name
             assert "authorized_target" not in source
             assert "compiled_target" not in source
+
+
+def test_the_guardian_removes_only_its_own_launch_permit_folder():
+    tree = ast.parse((REPO_ROOT / "scripts" / "shared" / "child_guardian.py").read_text(encoding="utf-8"))
+    removals = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr in ("rmtree", "rmdir", "remove", "unlink")]
+    assert len(removals) == 1, [ast.dump(n.func) for n in removals]
+    call = removals[0]
+    assert call.func.attr == "rmtree"
+    assert len(call.args) == 1 and isinstance(call.args[0], ast.Name) and call.args[0].id == "permits"
+    # ``permits`` is assigned once, from the owner's ACT_PERMIT_ROOT variable, and is the only thing removed.
+    assigned = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "permits" for t in n.targets)]
+    assert len(assigned) == 1
+    assert "PERMIT_ENV" in ast.dump(assigned[0].value)
+
+    # The owner's side removes only a folder it made itself: its permit root and each launch's own directory.
+    owner = ast.parse((REPO_ROOT / "scripts" / "shared" / "child_ownership.py").read_text(encoding="utf-8"))
+    trees = [n for n in ast.walk(owner) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr in ("rmtree", "rmdir")]
+    assert sorted(n.func.attr for n in trees) == ["rmdir", "rmtree"], [ast.dump(n.func) for n in trees]
+    for n in trees:
+        argument = n.args[0]
+        assert isinstance(argument, ast.Name) and argument.id == "permits" or (
+            isinstance(argument, ast.Attribute) and argument.attr == "directory"
+            and isinstance(argument.value, ast.Name) and argument.value.id == "launch"), ast.dump(argument)
 
 
 def test_the_gui_contains_no_recursive_deletion():

@@ -2184,7 +2184,11 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_omnivoice_gui.py::test_the_six_voices_are_in_the_dropdown_after_every_earlier_voice"
+            "test": "files/tests/test_omnivoice_gui.py::test_the_six_voices_are_in_the_dropdown_after_every_earlier_voice[win32-34]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_gui.py::test_the_six_voices_are_in_the_dropdown_after_every_earlier_voice[darwin-20]"
           },
           {
             "kind": "behavior",
@@ -19113,7 +19117,15 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_job_ui.py::test_an_ended_run_says_nothing_about_time_left_and_keeps_its_count"
+            "test": "files/tests/test_job_ui.py::test_an_ended_run_says_nothing_about_time_left_and_keeps_its_count[JobState.SUCCEEDED]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_ui.py::test_an_ended_run_says_nothing_about_time_left_and_keeps_its_count[JobState.COMPLETED_WITH_FAILURES]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_ui.py::test_an_ended_run_says_nothing_about_time_left_and_keeps_its_count[JobState.FAILED]"
           },
           {
             "kind": "behavior",

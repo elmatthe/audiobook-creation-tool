@@ -18,6 +18,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Checkpoint D, tests and coverage document only)**
+- The cleanup-worker deletion guard now recognises the macOS launch-permit cleanup in `child_guardian.py` and
+  `child_ownership.py` (each removes only the permit folder its owner created) and pins that by AST in a new test; the guard's catalog
+  assertions are unchanged.
+- Two verification coverage ids that went dead when their tests were parametrized now name the exact parametrized ids.
+- Eight macOS-simulation tests that import `fcntl` on Windows are classified as a pre-existing Windows-only artefact and
+  deferred to the native macOS checkpoint.
+
 **Added**
 - **The file dialogs remember where you were, per tool and per action.** TTS Audiobook's Add Files and Add Folder now
   reopen in the folder last used (they remembered none before). The M4B Maker's custom-destination
