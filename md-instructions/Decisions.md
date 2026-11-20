@@ -2,6 +2,15 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-20 — macOS candidate `451041e`: Cover Image Cancel ordered against publication; GPL-3.0 text shipped; independent re-review APPROVE; owner gates unchanged
+
+Signed: Claude Code (Sonnet 5.5), HOME-MacOS. Not an owner decision and no owner acceptance is signed here. Evidence: `files/dev-work/macos-release-rc/` (ignored). Detail: Handoff, CURRENT block.
+- **Context.** The independent pre-merge review of `5c810e7` (REJECT) found two source blockers: Cover Image could replace an original after Cancel and report success, and the archive carried no GPL-3.0 text. The owner's bounded remediation order excluded further containment redesign and any v0.8.1 work.
+- **Decision (implementation).** Cover Image stages every output and makes it final only after `JobController.authorize_commit()` (existing protocol, shared contract not changed), so Cancel and the save have exactly one winner; a winning save is never rolled back. The canonical GNU GPL v3 text ships as `LICENSE`, and the packager's root allowlist names it and requires every root file to be git-tracked. The `.act-tmp-cover-*` staging name is short and fixed.
+- **Why.** An unlocked check before the replacement leaves a gap Cancel can enter; the controller's lock-ordered grant is the one primitive that records who went first. The README states GPL-3.0 inherited from epub2tts-edge, so a distributed copy has to carry the licence text itself.
+- **Result.** New archive 199 members, 12,666,341 bytes, SHA-256 `ebc47366f0c9ad1da82b8addab67970d7ebfe51137d36b09b025045c703d7a0e`, audit 22/22 PASS; previous archive (`658d15d9...63c6`) preserved. Codex on `b7f380c`: REJECT (one BLOCKER, a failure under a latched Cancel settling COMPLETED_WITH_FAILURES), corrected once; Codex on `451041e`: APPROVE. Residuals recorded in the Changelog, not changed: copy output on exFAT/FAT fails with an explanation; a staging file can remain after a window closed mid-encode; reference-WAV redistribution authority (incl. historical Qwen3 AUD-005) is a separate unresolved question.
+- **Still open, unchanged:** REAL CLEAN installation, the macOS full gate (blocked at collection), KX-10 Force Quit, the OmniVoice preview deferral, the owner's remaining qualifications. Windows regression and E-B2 stay deferred to v0.8.1. Merge, tag and publication each need the owner's own approval and were not done.
+
 ## 2026-11-20 — macOS release candidate `5c810e7`: Codex findings verified (no release-critical macOS regression); native acceptance PASS; recommendation BLOCKED on owner gates, not on a product defect (Claude Code)
 
 Signed: Claude Code (Opus 5.5), HOME-MacOS. Evidence: `files/dev-work/macos-release-rc/` (ignored).
