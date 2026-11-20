@@ -321,3 +321,55 @@ def test_a_cancelled_custom_build_leaves_the_chosen_folder_and_everything_alread
     assert tree(root) == sources_before
     a, b = panel.workspace.books
     assert panel.book_status_for(b.book_id) == m4b_maker.STATUS_CANCELLED
+
+
+# --------------------------------------------------------------------------- dialog history (v0.8.1 Checkpoint A)
+
+
+def test_the_custom_destination_dialog_has_its_own_history_and_the_destination_stays_unsaved(
+        make_panel, tmp_path, monkeypatch, isolated_settings):
+    home = tmp_path / "TheHome"
+    home.mkdir()
+    monkeypatch.setattr(m4b_maker.Path, "home", classmethod(lambda cls: home))
+    library, covers, dest = tmp_path / "Library", tmp_path / "Covers", tmp_path / "Out"
+    for folder in (library, covers, dest):
+        folder.mkdir()
+    app_settings.update({m4b_maker.KEY_INPUT_DIR: str(library), m4b_maker.KEY_COVER_DIR: str(covers)})
+    opened: list[str] = []
+    answer = {"dest": str(dest)}
+    monkeypatch.setattr(m4b_maker.filedialog, "askdirectory",
+                        lambda **kw: opened.append(kw["initialdir"]) or answer["dest"])
+    panel = make_panel(choose_destination=None)
+
+    panel.choose_custom_dest()
+    assert opened == [str(home)], "its own history: neither the import nor the artwork folder"
+    assert app_settings.get(m4b_maker.KEY_DEST_DIR) == str(dest)
+    assert (app_settings.get(m4b_maker.KEY_INPUT_DIR), app_settings.get(m4b_maker.KEY_COVER_DIR)) == (
+        str(library), str(covers)), "the other histories are untouched"
+    assert panel.var_custom_path.get() == str(dest)
+    assert "m4b_maker.custom_destination" not in app_settings.all_settings(), "the destination is never persisted"
+    answer["dest"] = ""
+    panel.choose_custom_dest()
+    assert opened[-1] == str(dest) and app_settings.get(m4b_maker.KEY_DEST_DIR) == str(dest), "Cancel changes nothing"
+
+    later = tmp_path / "Later"
+    later.mkdir()
+    answer["dest"] = str(later)
+    with monkeypatch.context() as failing:
+        failing.setattr(app_settings, "_write", lambda data: False)
+        panel.choose_custom_dest()  # a settings write that fails is not the user's problem
+    assert panel.var_custom_path.get() == str(later), "the choice still applies to this build"
+    assert app_settings.get(m4b_maker.KEY_DEST_DIR) == str(dest), "and the history keeps its previous folder"
+
+
+def test_a_declined_broad_folder_import_is_not_remembered(make_panel, tmp_path, monkeypatch, isolated_settings):
+    kept = tmp_path / "Kept"
+    kept.mkdir()
+    app_settings.set(m4b_maker.KEY_INPUT_DIR, str(kept))
+    tracks(tmp_path / "Somewhere" / "A", "01.mp3")  # a scan that went ahead would find this
+    monkeypatch.setattr(m4b_maker.filedialog, "askdirectory", lambda **kw: str(tmp_path))
+    panel = make_panel(choose_folder=None, home=tmp_path, confirm_broad_root=lambda roots: False)
+    panel.import_folder()
+    settle(panel)
+    assert book_ids(panel) and not any(book.file_count for book in panel.workspace.books)
+    assert app_settings.get(m4b_maker.KEY_INPUT_DIR) == str(kept)

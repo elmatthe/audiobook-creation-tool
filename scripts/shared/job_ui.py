@@ -164,6 +164,7 @@ __all__ = [
     "ask_files",
     "ask_folder",
     "ask_confirm",
+    "import_choice_accepted",
 ]
 
 #: How often the single ``after`` chain wakes up. The same default the approved Phase 4
@@ -2840,6 +2841,24 @@ def ask_folder(parent: object, title: str = "Add folder") -> tuple[str, ...]:
 
     chosen = filedialog.askdirectory(parent=parent, title=title, mustexist=True)
     return (chosen,) if chosen else ()
+
+
+def import_choice_accepted(outcome: ImportOutcome) -> bool | None:
+    """Whether an import outcome settled what the chooser behind it offered.
+
+    ``True`` once the selection was committed, ``False`` once it ended any other way
+    (nothing added, declined, cancelled, failed, a conflict, busy, no type ticked,
+    closed), ``None`` while it is still running or waiting for a confirmation. A tool
+    remembers a dialog's folder only on ``True`` (v0.8.1 file-dialog history), so a
+    rejected or declined selection never moves where its dialog opens next.
+    """
+    status = outcome.status
+    if status is OutcomeStatus.COMMITTED:
+        return True
+    if status in TERMINAL_STATUSES or status in (
+            OutcomeStatus.CLOSED, OutcomeStatus.BUSY, OutcomeStatus.NO_TYPES_SELECTED):
+        return False
+    return None
 
 
 def ask_confirm(parent: object, title: str, message: str) -> bool:

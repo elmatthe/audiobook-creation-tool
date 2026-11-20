@@ -35,7 +35,7 @@ name = "Audiobook Creation Tool"
 # Must match scripts/shared/version.py exactly. The running
 # application always trusts the code; the repository's verify gate fails if the
 # two ever drift apart, which is how a stale value here gets caught.
-version = "0.8.0+macos.1"
+version = "0.8.1"
 
 # Lowest Python version the code supports, written as "X.Y" or "X.Y.Z".
 # (The setup launcher installs 3.12 specifically, because the Kokoro voice
@@ -46,9 +46,9 @@ python_min = "3.11"
 entry_point = "scripts/launcher.py"
 
 # Platforms this build supports. Recognised values: "Windows", "MacOS".
-# This source is the macOS revision of v0.8.0 (0.8.0+macos.1) and is distributed for macOS only; the
-# published Windows v0.8.0 was built from different source (tag v0.8.0) and is unchanged.
-platforms = ["MacOS"]
+# v0.8.1 is one shared source for Windows and macOS again (the macOS-only 0.8.0+macos.1 revision is merged).
+# Which voice engines each platform offers is decided in code, not here.
+platforms = ["Windows", "MacOS"]
 
 
 [output]

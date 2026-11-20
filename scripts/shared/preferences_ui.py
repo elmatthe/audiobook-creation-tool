@@ -41,9 +41,13 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import appearance, cleanup_state, config, engine_policy, maintenance, output_paths, paths, venv_integrity
+from . import appearance, cleanup_state, config, engine_policy, maintenance, output_paths, paths, settings, venv_integrity
 
 DIALOG_TITLE = "Preferences & Data"
+
+#: v0.8.1: where the output-location Browse… dialog opens. Browsing history only, kept apart from the saved output
+#: location (``output_base_directory``, written by Save alone), so browsing never changes where audiobooks go.
+KEY_OUTPUT_BROWSE_DIR = "preferences.output_browse_dir"
 MENU_LABEL = "Preferences & Data…"
 
 #: Shown beside the Clear Downloaded Data button. Reviewing is always safe: the
@@ -389,7 +393,8 @@ class PreferencesDialog(tk.Toplevel):
     # -- actions ----------------------------------------------------------- #
 
     def _default_browse(self):
-        return filedialog.askdirectory(parent=self, title="Choose an output folder")
+        return filedialog.askdirectory(parent=self, title="Choose an output folder",
+                                       initialdir=str(settings.remembered_dir(KEY_OUTPUT_BROWSE_DIR)))
 
     def _default_confirm(self, title: str, message: str) -> bool:
         return bool(messagebox.askyesno(title, message, parent=self))
@@ -398,6 +403,11 @@ class PreferencesDialog(tk.Toplevel):
         chosen = self._ask_directory()
         if not chosen:
             return
+        folder = settings.selected_dir(chosen, is_file=False)
+        if folder and config.validate_output_base(folder)[0] is not None:
+            # Where Browse… opens next. A folder the output rule refuses is not remembered; nothing is saved as the
+            # output location until Save.
+            settings.set(KEY_OUTPUT_BROWSE_DIR, folder)
         self.var_mode.set("custom")
         self._on_mode_change()
         self.var_path.set(str(chosen))

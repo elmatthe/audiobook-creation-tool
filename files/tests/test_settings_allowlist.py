@@ -86,13 +86,16 @@ def test_the_settings_module_describes_what_is_really_saved():
     from shared import settings
 
     doc = settings.__doc__ or ""
-    for named in ("last close", "input folder", "cover", "output location", "Light/Dark"):
+    for named in ("last close", "input folder", "cover", "output location", "Light/Dark",
+                  "custom-destination dialog", "Preferences output"):
         assert named in doc, named
     assert "default size" in doc and "start from their defaults" in doc
     written = {key for _module, key, _line in _settings_writes()}
     assert written, "the AST walk found the writers"
     for key in written:
-        assert key in {"last_tool", "appearance", "output_base_directory"} or key.endswith((".input_dir", ".cover_dir")), key
+        # v0.8.1 adds two dialog-history kinds: the Maker's custom-destination dialog and the Preferences output browser.
+        assert key in {"last_tool", "appearance", "output_base_directory"} or key.endswith(
+            (".input_dir", ".cover_dir", ".destination_dir", ".output_browse_dir")), key
         parts = set(key.replace(".", "_").split("_"))
         assert not parts & {"window", "geometry", "size", "voice", "bitrate", "preset"}, key
 

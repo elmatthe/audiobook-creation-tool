@@ -194,9 +194,12 @@ APP_TITLE = "MP3 Tool"
 TOOL_KEY = "mp3_tool"
 SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
-# settings.json key (input dir only remembers the dialog location; the output
+# settings.json keys (each only remembers where its dialog opens; the output
 # folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
+# v0.8.1: artwork has its own history, shared by Shared and Book artwork, and
+# separate from the import history.
 KEY_INPUT_DIR = "mp3_tool.input_dir"
+KEY_COVER_DIR = "mp3_tool.cover_dir"
 
 #: The artwork preview is a display-only thumbnail: the selected file is never
 #: resized, cropped or rewritten, and what is embedded later is the file itself.
@@ -296,13 +299,8 @@ TIGHT_STATUS_WRAP = 170
 
 
 def _remembered_dir(key: str) -> Path:
-    """Return the saved folder for ``key`` if it still exists, else the home dir."""
-    val = settings.get(key)
-    if val:
-        p = Path(val)
-        if p.exists():
-            return p
-    return Path.home()
+    """The saved folder for ``key`` while it is reachable, else the home dir (never erased)."""
+    return settings.remembered_dir(key)
 
 
 # The proven FFmpeg helpers moved to ``mp3_processing`` at Phase 7 of the
@@ -726,6 +724,8 @@ class MP3ToolUI(ttk.Frame):
         self._ids = IdFactory("mp3-") if id_factory is None else id_factory
         self._reader = wf.read_source_tags if reader is None else reader
         self._choose_files = self._ask_files if choose_files is None else choose_files
+        # The folder an import dialog chose, held until its import settles (v0.8.1).
+        self._pending_input_dir: str | None = None
         self._choose_folder = self._ask_folder if choose_folder is None else choose_folder
         self._choose_artwork = (self._ask_artwork if choose_artwork is None
                                 else choose_artwork)
@@ -1455,26 +1455,32 @@ class MP3ToolUI(ttk.Frame):
     # Dialog and confirmation seams (main thread, before any worker)
     # ------------------------------------------------------------------ #
 
-    def _remember(self, path: Path) -> None:
-        settings.set(KEY_INPUT_DIR, str(path))
-
     def _ask_files(self):
         chosen = tuple(filedialog.askopenfilenames(
             parent=self, title="Select MP3 files",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
-            filetypes=[("MP3 files", "*.mp3"), ("All files", "*.*")]))
-        if chosen:
-            self._remember(Path(chosen[0]).parent)
+            filetypes=[("MP3 files", "*.mp3"), ("All files", "*.*")]) or ())
+        # Remembered only once the import commits (_settle_import_dir).
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=True)
         return chosen
 
     def _ask_folder(self):
         chosen = filedialog.askdirectory(
             parent=self, title="Select a folder of MP3 audiobooks",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)), mustexist=True)
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=False)
         if not chosen:
             return ()
-        self._remember(Path(chosen))
         return (str(chosen),)
+
+    def _settle_import_dir(self, outcome: ImportOutcome) -> None:
+        """Remember the import dialog's folder once its selection committed; forget it otherwise."""
+        accepted = job_ui.import_choice_accepted(outcome)
+        if accepted is None:
+            return
+        folder, self._pending_input_dir = self._pending_input_dir, None
+        if accepted and folder:
+            settings.set(KEY_INPUT_DIR, folder)
 
     def artwork_filetypes(self) -> list:
         """The chooser filter, from the shared capability probe, never a list."""
@@ -1483,9 +1489,15 @@ class MP3ToolUI(ttk.Frame):
     def _ask_artwork(self) -> str:
         chosen = filedialog.askopenfilename(
             parent=self, title="Select Book Artwork",
-            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+            initialdir=str(_remembered_dir(KEY_COVER_DIR)),
             filetypes=self.artwork_filetypes())
         return str(chosen or "")
+
+    def _remember_cover_dir(self, chosen: str) -> None:
+        """Shared and Book artwork share this tool's one artwork history, written only for accepted artwork."""
+        folder = settings.selected_dir(chosen, is_file=True)
+        if folder:
+            settings.set(KEY_COVER_DIR, folder)
 
     def _ask_confirm(self, title: str, message: str) -> bool:
         return job_ui.ask_confirm(self, title, message)
@@ -1784,6 +1796,7 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("choose_shared_artwork")
         chosen = self._validated_artwork(str(self._choose_artwork() or ""))
         if chosen:
+            self._remember_cover_dir(chosen)
             self.on_shared_change("artwork", chosen)
 
     def clear_shared_artwork(self) -> None:
@@ -1796,6 +1809,7 @@ class MP3ToolUI(ttk.Frame):
             return
         chosen = self._validated_artwork(str(self._choose_artwork() or ""))
         if chosen:
+            self._remember_cover_dir(chosen)
             self.set_book_field("artwork", chosen)
 
     def clear_book_artwork(self) -> None:
@@ -1884,6 +1898,7 @@ class MP3ToolUI(ttk.Frame):
             self.import_status.set_scanning(0)
             self._poller.start()
             return
+        self._pending_input_dir = None  # a declined or refused scan is not remembered
         self._import_kind = None
         self.import_status.set_idle(report.display_message)
         self._say(f"Import Folder: {report.display_message}")
@@ -1959,6 +1974,7 @@ class MP3ToolUI(ttk.Frame):
     def _handle_outcome(self, outcome: ImportOutcome) -> ImportOutcome:
         if self._closed:
             return outcome
+        self._settle_import_dir(outcome)
         status = outcome.status
         if status is OutcomeStatus.RUNNING:
             self.import_status.set_scanning(outcome.discovered_count)

@@ -132,7 +132,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Options where a tool shows them: supported-type tick-boxes (all on), "Include hidden folders" (off), "Allow duplicate files" (off), "Include subfolders" (on).
 - A drive or share root, or the home folder, is confirmed before scanning; more than the configured number of files (default 1000) is confirmed before adding. Declining adds nothing.
 - An import is added in one step or not at all; a failed, cancelled or declined import leaves the list unchanged; a second import during a scan is refused. Source files are only read.
-- Persistence: five tools remember their last import folder; TTS does not; the options are not saved.
+- Persistence: every tool remembers its own last import folder, shared by its import dialogs, remembered only once the import commits (Cancel, or a refused, empty or declined selection, leaves it); a folder that is unreachable today opens the home folder and stays saved (v0.8.1); the options are not saved.
 - Differences: each tool supplies its own file types; MP3 Tool, M4B Maker and the Metadata Editor turn a folder into Books.
 
 ### Cancel Import
@@ -208,7 +208,8 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - User state lives only in `files/runtime-data/settings.json`; `config.toml` is never written.
 - Saves are atomic; a failed save leaves the old file intact and the old value in force.
 - A missing file means defaults. Broken JSON is ignored with a reason, reported once at launch, and not overwritten, so the user can fix it or Reset.
-- Stored: last tool, Light/Dark, custom output folder, last import folders. Not stored: window size.
+- Stored: last tool, Light/Dark, custom output folder, and each dialog's own folder history (v0.8.1: per tool, per action: import, artwork, the M4B Maker's custom destination, the Preferences output browser). Not stored: window size.
+- A remembered folder that is unreachable (gone, unplugged, refused) makes its dialog open at the home folder and is never erased by that; a file selection remembers its folder, a folder selection the folder itself.
 
 ### Configuration defaults, config.toml and the launch warning
 `ACT.SHARED.CONFIG`
@@ -247,6 +248,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - "Use the default Downloads location" disables the path field and Browse…; "Use a custom folder" enables them; Browse… fills the path; cancelling Browse changes nothing.
 - Save accepts a full path or one starting with ~. Relative paths, environment variables and an empty path are refused in plain words and nothing is saved. Saving does not create the folder. A failed save keeps the old value and says so.
 - Runs already started keep the folder they captured; open tools' output lines update after a successful save.
+- Browse… opens in its own remembered folder (v0.8.1, `preferences.output_browse_dir`), set by choosing a folder the output rule accepts. Browsing never saves the output location and Save never moves the browsing folder.
 
 ### Reset Preferences
 `ACT.SHARED.PREFERENCES.RESET`
@@ -286,7 +288,6 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 
 - TTS Audiobook, M4B Converter and Cover Image use the shared importer's list directly; MP3 Tool, M4B Maker and the Metadata Editor use Books, Shared Metadata and per-Book track lists with the same shortcuts.
 - The Metadata Editor's Book navigator offers Remove Book only (no Add or Duplicate).
-- TTS does not remember its last import folder; the other five tools do.
 - Cover Image can write beside the sources and asks its own replace-the-originals question with Cancel as the default.
 - M4B Maker can deliver to a custom destination folder instead of the numbered run folder.
 - Each tool registers the options it freezes for locking during a run (all six audited in v0.7.2 Phase 6, ACT72-014) and what Pause and Cancel can interrupt (see the tool sections; ACT72-033 was fixed in v0.7.2 Phase 6D, ACT72-010 in 6E).

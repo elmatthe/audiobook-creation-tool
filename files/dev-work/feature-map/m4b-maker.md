@@ -109,7 +109,7 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - Purpose: write the M4Bs straight into a chosen folder, for example beside the sources.
 - How to reach it: "Choose custom destination" on the options line, then type a path or press Browse… ("Choose the destination folder").
 - Behaviour: off on every new panel; the path row appears only while it is on. The folder must exist, be a real (not linked) writable directory given as an absolute path; otherwise a message explains and nothing is reserved. M4Bs go directly into the folder (no M4B-Maker-N inside it), numbered around files already there. Staging happens outside the chosen folder, in an owned entry of the program's temporary work area (`%TEMP%\act-tts\<token>\<n>`, kind `maker`) that is removed once no retry can reach it, and recovered by a later custom build if the program was killed (since v0.7.2 Phase 6; it used to be a loose `act-m4b-build-*` folder nothing owned). While the toggle is off, a path left in the hidden entry is ignored.
-- Persistence: neither the toggle nor the path is saved, deliberately.
+- Persistence: neither the toggle nor the path is saved, deliberately. Browse… opens in its own remembered folder (v0.8.1, `m4b_maker.destination_dir`), separate from the import and artwork folders; that is dialog history only.
 
 ### Try FAST first (auto-fallback to Safe)
 `ACT.MAKER.FAST-FIRST`

@@ -1199,6 +1199,8 @@ Packaged-asset changes must be committed before building.
 
 ## Current Version
 
+**Current state (2026-11-20, supersedes the paragraphs below for status):** v0.8.1 is in development on branch `0.8.1` (from `master` `f93e2db`, which merged the macOS v0.8.0 revision `0.8.0+macos.1`; that macOS release is not yet published, its qualification is the owner's). The source is one shared Windows + macOS code base again, identity `0.8.1`. The published Windows release is still v0.8.0. See Handoff for the checkpoint state.
+
 **Current state (2026-11-14, supersedes the paragraphs below for status):** v0.8.0 is the current
 Windows release: tag `v0.8.0` on the release commit (resolve with `git rev-parse v0.8.0^{commit}`), GitHub release
 "v0.8.0 — Audiobook Creation Tool" with `AudiobookTool-Windows-v0.8.0.zip` (Windows only), on the owner's maintainer

@@ -91,14 +91,20 @@ USER_STATE_SETTINGS: frozenset[str] = frozenset(
         "cover_resizer.input_dir",
         # m4b/converter/m4b_converter.py
         "m4b_converter.input_dir",
-        # m4b/maker/m4b_maker.py
+        # m4b/maker/m4b_maker.py (destination_dir: v0.8.1, the custom-destination dialog's own history)
         "m4b_maker.input_dir",
         "m4b_maker.cover_dir",
+        "m4b_maker.destination_dir",
         # m4b/metadata/m4b_metadata_editor.py
         "m4b_metadata.input_dir",
         "m4b_metadata.cover_dir",
-        # mp3/mp3_tool.py
+        # mp3/mp3_tool.py (cover_dir: v0.8.1, artwork no longer opens at the import folder)
         "mp3_tool.input_dir",
+        "mp3_tool.cover_dir",
+        # tts/epub2tts_gui.py (v0.8.1)
+        "tts.input_dir",
+        # shared/preferences_ui.py (v0.8.1): the output-location browser's history, never the output location
+        "preferences.output_browse_dir",
     }
 )
 

@@ -1565,3 +1565,77 @@ def test_tts_folder_import_still_recurses_more_than_one_level(make_panel, tmp_pa
     panel._pump.tick()
     assert sorted(p.name for p in panel.imported_files()) == [
         "deep.txt", "inner.txt", "top.pdf"]
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.1 Checkpoint A: the TTS import dialogs remember one folder (tts.input_dir)
+# --------------------------------------------------------------------------- #
+
+
+def _recording_dialogs(monkeypatch, opened: list, *, files=(), folder=""):
+    """Stand-ins for the two native dialogs: record where each opened, answer as told."""
+    answers = {"files": tuple(files), "folder": folder}
+    monkeypatch.setattr(panel_module.filedialog, "askopenfilenames",
+                        lambda **kw: opened.append(("files", kw["initialdir"])) or answers["files"])
+    monkeypatch.setattr(panel_module.filedialog, "askdirectory",
+                        lambda **kw: opened.append(("folder", kw["initialdir"])) or answers["folder"])
+    return answers
+
+
+def test_tts_add_files_and_add_folder_share_one_remembered_folder(make_panel, output_base, tmp_path, monkeypatch):
+    home = tmp_path / "TheHome"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    first = sources(tmp_path / "Novel" / "vol-1", "c1.txt")[0]
+    second = tmp_path / "Novel" / "vol-2"
+    sources(second, "c2.txt")
+    opened: list[tuple[str, str]] = []
+    answers = _recording_dialogs(monkeypatch, opened, files=(str(first),), folder=str(second))
+    panel = make_panel(choose_files=None, choose_folder=None)
+
+    panel.importer.add_files()
+    assert opened == [("files", str(home))], "nothing remembered yet: the home folder"
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(first.parent), "a file leaves its folder"
+    panel.importer.add_folder()
+    drain_until(panel, lambda: not panel.importer.is_importing, "the folder scan settles")
+    assert opened[-1] == ("folder", str(first.parent)), "Add Folder opens where Add Files chose"
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(second), "a folder leaves itself"
+
+    answers["files"] = ()
+    panel.importer.add_files()
+    assert opened[-1] == ("files", str(second))
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(second), "Cancel changes nothing"
+
+    app_settings.invalidate()  # a restart reads the file again
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(second)
+    for name in ("c2.txt",):
+        (second / name).unlink()
+    second.rmdir()
+    panel.importer.add_files()
+    assert opened[-1] == ("files", str(home)), "a folder that is gone opens at home"
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(second), "and is not erased"
+
+
+def test_a_rejected_or_declined_tts_selection_is_not_remembered(make_panel, output_base, tmp_path, monkeypatch):
+    kept = tmp_path / "Kept"
+    kept.mkdir()
+    app_settings.set(panel_module.KEY_INPUT_DIR, str(kept))
+    elsewhere = tmp_path / "Elsewhere"
+    elsewhere.mkdir()
+    unsupported = touch(elsewhere / "song.mp3", "not a source")
+    opened: list[tuple[str, str]] = []
+    _recording_dialogs(monkeypatch, opened, files=(str(unsupported),), folder=str(tmp_path))
+    panel = make_panel(choose_files=None, choose_folder=None, home=tmp_path,
+                       confirm_broad_root=lambda roots: False)
+
+    outcome = panel.importer.add_files()
+    assert outcome.status is not OutcomeStatus.COMMITTED and panel.imported_files() == []
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(kept), "a rejected file is not remembered"
+    good = sources(elsewhere, "real.txt")[0]  # a scan that went ahead would commit this
+    panel.importer.add_folder()  # the home folder itself: the broad-folder question, answered No
+    panel._pump.tick()
+    assert opened[-1] == ("folder", str(kept)) and panel.imported_files() == []
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(kept), "a declined folder is not remembered"
+    monkeypatch.setattr(panel_module.filedialog, "askopenfilenames", lambda **kw: (str(good),))
+    panel.importer.add_files()
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(elsewhere), "the next accepted one is"

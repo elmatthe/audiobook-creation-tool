@@ -119,11 +119,16 @@ from shared import job_control
 from shared import job_ui
 from shared import nltk_store
 from shared import output_paths
+from shared import settings
 from shared import subprocess_utils as sp
 from shared import ui_theme
 
 #: Central tool identifier for the shared output services.
 TOOL_KEY = "tts"
+
+# settings.json key (v0.8.1): where the Add Files / Add Folder dialogs open. Only the
+# dialog location is remembered; the output folder is not per-tool state.
+KEY_INPUT_DIR = "tts.input_dir"
 from shared.cancellation import ConversionCancelled
 from shared.import_coordination import ImportCoordinator
 from shared.importing import (
@@ -1267,6 +1272,8 @@ class TtsPanel(ttk.Frame):
         # ---- 1. Sources --------------------------------------------------- #
         self.sources_section.columnconfigure(0, weight=1)
         self.sources_section.rowconfigure(0, weight=1)
+        # The folder an import dialog chose, held until its import settles (v0.8.1).
+        self._pending_input_dir: str | None = None
         self.importer = job_ui.ImportAdapter(
             self.sources_section,
             catalog=self.import_catalog,
@@ -1286,6 +1293,7 @@ class TtsPanel(ttk.Frame):
             confirm_large_result=(self._confirm_large_result
                                   if confirm_large_result is None
                                   else confirm_large_result),
+            on_outcome=self._settle_import_dir,
             list_height=IMPORTER_LIST_HEIGHT,
         )
         self.importer.frame.grid(row=0, column=0, sticky="nsew")
@@ -1636,20 +1644,36 @@ class TtsPanel(ttk.Frame):
 
     def _choose_files(self) -> tuple[str, ...]:
         """The Add Files dialog. Order is the dialog's, and it is preserved."""
-        return tuple(filedialog.askopenfilenames(
+        chosen = tuple(filedialog.askopenfilenames(
             parent=self,
             title="Source files",
+            initialdir=str(settings.remembered_dir(KEY_INPUT_DIR)),
             filetypes=[
                 ("Audiobook sources", "*.pdf *.txt"),
                 ("All files", "*.*"),
             ],
         ) or ())
+        # Remembered only once the import commits (_settle_import_dir).
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=True)
+        return chosen
 
     def _choose_folder(self) -> tuple[str, ...]:
         """The Add Folder dialog. One root, returned as the tuple the seam wants."""
         chosen = filedialog.askdirectory(
-            parent=self, title="Folder of PDF / TXT files", mustexist=True)
+            parent=self, title="Folder of PDF / TXT files",
+            initialdir=str(settings.remembered_dir(KEY_INPUT_DIR)), mustexist=True)
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=False)
         return (str(chosen),) if chosen else ()
+
+    def _settle_import_dir(self, outcome) -> None:
+        """The importer's outcome hook: remember the import dialog's folder once its selection
+        committed, forget it otherwise (v0.8.1: a declined or rejected selection is never remembered)."""
+        accepted = job_ui.import_choice_accepted(outcome)
+        if accepted is None:
+            return
+        folder, self._pending_input_dir = self._pending_input_dir, None
+        if accepted and folder:
+            settings.set(KEY_INPUT_DIR, folder)
 
     def _confirm_broad_root(self, roots) -> bool:
         """Asked before a scan thread exists, so declining starts no worker."""

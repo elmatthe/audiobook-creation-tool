@@ -86,7 +86,7 @@ def test_the_committed_root_config_is_valid_with_no_diagnostics():
     assert effective.project.version == VERSION
     assert effective.project.python_min == "3.11"
     assert effective.project.entry_point == "scripts/launcher.py"
-    assert effective.project.platforms == ("MacOS",)  # 0.8.0+macos.1 (D16): this source ships for macOS only
+    assert effective.project.platforms == ("Windows", "MacOS")  # v0.8.1: one shared source again
     assert effective.logging.max_sessions == 30
     assert effective.importing.large_result_warning_threshold == 1000
     assert effective.output.is_default is True

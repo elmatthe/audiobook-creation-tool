@@ -13,6 +13,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.8.1] - unreleased (in development on branch `0.8.1`)
+
+One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
+published yet.
+
+**Added**
+- **The file dialogs remember where you were, per tool and per action.** TTS Audiobook's Add Files and Add Folder now
+  reopen in the folder last used (they remembered none before). The M4B Maker's custom-destination
+  Browse… and the Preferences output-location Browse… each remember their own folder. (Checkpoint A)
+
+**Fixed**
+- **MP3 Tool artwork dialog** opened in the import folder; it now has its own remembered folder, shared by Shared and
+  Book artwork, and choosing artwork no longer changes where Import Folder and Add Files open. (Checkpoint A)
+
+**Changed**
+- **A remembered folder changes only when a selection is accepted**, in every tool: Cancel, a selection that adds
+  nothing, a refused file or image, and a declined broad-folder question leave it as it was. A file choice remembers its
+  folder; a folder choice remembers the folder itself.
+- **An unreachable remembered folder** (deleted, on an unplugged drive or a share that is offline, or not readable)
+  makes the dialog open at your home folder, and is kept, so it is used again once it is back.
+- Import and artwork folders are separate in every tool that has both; a tool's Shared and Book artwork share one.
+  Browsing in Preferences never changes the saved output location; only Save does. Reset Preferences clears every
+  remembered folder; no file or folder is deleted. Each installation keeps its own remembered folders.
+- Application identity `0.8.1`; the configuration lists Windows and macOS again and the packager builds both archives.
+  Which voices each platform offers is unchanged.
+
 ## [0.8.0+macos.1] - unreleased (release candidate; publication awaits the owner) — v0.8.0 for macOS, Revision 1
 
 **Release route (D16, owner 2026-11-20; publication not yet approved).** The first macOS release of the v0.8.0

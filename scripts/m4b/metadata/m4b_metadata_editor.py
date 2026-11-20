@@ -153,7 +153,8 @@ APP_TITLE = "M4B Metadata Editor"
 TOOL_KEY = "m4b_metadata"
 SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
-# settings.json keys (dialog locations only; the output folder is NOT persisted).
+# settings.json keys (dialog locations only; the output folder is NOT persisted). v0.8.1: the import
+# history and the artwork history are separate, and Shared and Book artwork share the artwork one.
 KEY_INPUT_DIR = "m4b_metadata.input_dir"
 KEY_COVER_DIR = "m4b_metadata.cover_dir"
 
@@ -266,13 +267,8 @@ CLEAR_IMPORTS_LABEL = "Clear All Imports"
 
 
 def _remembered_dir(key: str) -> Path:
-    """Return the saved folder for ``key`` if it still exists, else the home dir."""
-    val = settings.get(key)
-    if val:
-        p = Path(val)
-        if p.exists():
-            return p
-    return Path.home()
+    """The saved folder for ``key`` while it is reachable, else the home dir (never erased)."""
+    return settings.remembered_dir(key)
 
 
 def _layout_hints(theme) -> dict:
@@ -390,6 +386,8 @@ class M4BMetadataEditorUI(ttk.Frame):
                                   else effective_config)
         self._ids = IdFactory("m4b-meta-") if id_factory is None else id_factory
         self._choose_files = self._ask_files if choose_files is None else choose_files
+        # The folder an import dialog chose, held until its import settles (v0.8.1).
+        self._pending_input_dir: str | None = None
         self._choose_folder = self._ask_folder if choose_folder is None else choose_folder
         self._choose_artwork = (self._ask_artwork if choose_artwork is None
                                 else choose_artwork)
@@ -1126,26 +1124,38 @@ class M4BMetadataEditorUI(ttk.Frame):
             parent=self, title="Select M4B file(s)",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             filetypes=[("M4B Audiobooks", "*.m4b"), ("MP4 audio", "*.m4a *.mp4"),
-                       ("All files", "*.*")]))
-        if chosen:
-            settings.set(KEY_INPUT_DIR, str(Path(chosen[0]).parent))
+                       ("All files", "*.*")]) or ())
+        # Remembered only once the import commits (_settle_import_dir).
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=True)
         return chosen
 
     def _ask_folder(self):
         chosen = filedialog.askdirectory(
             parent=self, title="Select a folder of M4B files",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)), mustexist=True)
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=False)
         if not chosen:
             return ()
-        settings.set(KEY_INPUT_DIR, str(chosen))
         return (str(chosen),)
 
+    def _settle_import_dir(self, outcome: ImportOutcome) -> None:
+        """Remember the import dialog's folder once its selection committed; forget it otherwise."""
+        accepted = job_ui.import_choice_accepted(outcome)
+        if accepted is None:
+            return
+        folder, self._pending_input_dir = self._pending_input_dir, None
+        if accepted and folder:
+            settings.set(KEY_INPUT_DIR, folder)
+
     def _ask_artwork(self) -> str:
-        chosen = m4b_artwork_ui.ask_artwork(
+        return m4b_artwork_ui.ask_artwork(
             self, initialdir=_remembered_dir(KEY_COVER_DIR), title="Select Artwork")
-        if chosen:
-            settings.set(KEY_COVER_DIR, str(Path(chosen).parent))
-        return chosen
+
+    def _remember_cover_dir(self, chosen: str) -> None:
+        """Shared and Book artwork share this tool's one artwork history, written only for accepted artwork."""
+        folder = settings.selected_dir(chosen, is_file=True)
+        if folder:
+            settings.set(KEY_COVER_DIR, folder)
 
     def _ask_confirm(self, title: str, message: str) -> bool:
         return job_ui.ask_confirm(self, title, message)
@@ -1476,6 +1486,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         chosen = m4b_artwork_ui.validated_artwork(str(self._choose_artwork() or ""),
                                                   self._artwork_error)
         if chosen:
+            self._remember_cover_dir(chosen)
             self.on_shared_change("artwork", chosen)
 
     def clear_shared_artwork(self) -> None:
@@ -1489,6 +1500,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         chosen = m4b_artwork_ui.validated_artwork(str(self._choose_artwork() or ""),
                                                   self._artwork_error)
         if chosen:
+            self._remember_cover_dir(chosen)
             self.set_book_field("artwork", chosen)
 
     def clear_book_artwork(self) -> None:
@@ -1536,6 +1548,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.import_status.set_scanning(0)
             self._poller.start()
             return
+        self._pending_input_dir = None  # a declined or refused scan is not remembered
         self._import_kind = None
         self.import_status.set_idle(report.display_message)
         self._say(f"Import Folder: {report.display_message}")
@@ -1611,6 +1624,7 @@ class M4BMetadataEditorUI(ttk.Frame):
     def _handle_outcome(self, outcome: ImportOutcome) -> ImportOutcome:
         if self._closed:
             return outcome
+        self._settle_import_dir(outcome)
         status = outcome.status
         if status is OutcomeStatus.RUNNING:
             self.import_status.set_scanning(outcome.discovered_count)

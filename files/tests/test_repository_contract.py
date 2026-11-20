@@ -333,7 +333,7 @@ def test_the_application_version_is_unchanged():
     # The macOS revision of v0.8.0 (D16, owner route 2026-11-20), set with config.toml: different source from the
     # published Windows v0.8.0 (d1701e9), so never plain 0.8.0. This pins application identity; it does not assert
     # publication.
-    assert VERSION == "0.8.0+macos.1"
+    assert VERSION == "0.8.1"
 
 
 def test_the_launcher_carries_no_cleanup_behaviour():

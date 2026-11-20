@@ -561,7 +561,7 @@ def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
 
 def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
     """``release.main()`` on a fake repository. By default both platforms, so the two-archive all-or-nothing
-    transaction stays covered; the shipped default (0.8.0+macos.1: macOS only) is pinned separately."""
+    transaction stays covered; the shipped default (v0.8.1: Windows and macOS) is pinned separately."""
     saved = (release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR, release.RELEASE_OS_NAMES)
     release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = root, root / "scripts", dist
     release.RELEASE_OS_NAMES = tuple(os_names)
@@ -1151,10 +1151,11 @@ def test_the_readme_gallery_link_points_at_the_same_ref_as_the_preview_downloads
     assert gallery.group(2) == raw_ref.group(1)
 
 
-def test_the_ordinary_macos_revision_build_produces_only_the_macos_archive(tmp_path):
-    """0.8.0+macos.1 (D16) is distributed for macOS only; the published Windows v0.8.0 comes from other source (d1701e9)."""
+def test_the_ordinary_shared_build_produces_the_windows_and_macos_archives(tmp_path):
+    """v0.8.1 is one shared source for both platforms again (0.8.0+macos.1, D16, was the macOS-only revision)."""
     source = Path(release.__file__).read_text(encoding="utf-8")
-    assert 'RELEASE_OS_NAMES = ("MacOS",)' in source and "_package(RELEASE_OS_NAMES)" in source
+    assert 'RELEASE_OS_NAMES = ("Windows", "MacOS")' in source and "_package(RELEASE_OS_NAMES)" in source
     root = fake_repo(tmp_path / "repo")
     assert run_main(root, tmp_path / "dist", os_names=release.RELEASE_OS_NAMES) == 0
-    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == [f"AudiobookTool-MacOS-{release.release_tag()}.zip"]
+    assert sorted(p.name for p in (tmp_path / "dist").glob("*.zip")) == sorted(
+        f"AudiobookTool-{os_name}-{release.release_tag()}.zip" for os_name in ("Windows", "MacOS"))

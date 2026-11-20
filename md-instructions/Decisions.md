@@ -2,6 +2,16 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-20 — v0.8.1 Checkpoint A: shared identity `0.8.1`; file-dialog history is written only when a selection is accepted, through two read-only settings helpers and each panel's own literal key (Claude Code)
+
+Signed: Claude Code (Opus 5.5), HOME-PC. Implements the owner-approved file-dialog decisions of 2026-11-17 (roadmap `files/plans/ACT-v0.8.1-Implementation-Roadmap-DRAFT.md` §1); not an owner acceptance.
+- **Identity.** `VERSION`/`config.toml` `0.8.1`, `platforms = ["Windows", "MacOS"]`, `release.RELEASE_OS_NAMES = ("Windows", "MacOS")`. Which engines and voices a platform offers is decided by `shared/engine_policy.py`, never by `platforms` (parsed, consumed by nothing else), so Windows keeps its roster and macOS its accepted 20 voices (no Qwen3, no Chatterbox).
+- **What "accepted" means, per chooser.** Import dialogs: the import outcome is `COMMITTED` (`job_ui.import_choice_accepted`); Cancel, nothing added, a refused file, a declined broad folder or large result, a conflict, busy or closed leave the history unchanged. Artwork: only after the decoder accepted the image. M4B Maker custom destination: a reachable folder (history only; the destination itself stays unsaved, Decision 10A). Preferences Browse…: a reachable folder the output-location rule accepts; Save never writes the browse key and Browse never writes `output_base_directory`.
+- **Where the code lives.** `settings.remembered_dir(key)` (where a dialog opens: the saved folder while it is a reachable directory, else home; never rewrites or erases the saved value, so an unplugged drive comes back) and `settings.selected_dir(chosen, is_file=...)` (what a selection leaves: a file's folder, a folder itself, or nothing). Both only read and validate. Every write stays a literal `settings.set(KEY_CONST, ...)` in its own panel so `test_settings_allowlist` keeps deriving the allowlist from real writers. No new module, no second store, nothing in `config.toml`.
+- **Why not save at the dialog, as before.** The approved behaviour says rejected and declined selections do not change history; the dialog cannot know that, the import outcome can. The pending folder is replaced by every chooser open, and every import entry point is a chooser, so a stale one is never committed.
+- **Guard change.** `test_settings_allowlist::test_the_settings_module_describes_what_is_really_saved` admits the two new history kinds (`.destination_dir`, `.output_browse_dir`) and checks the docstring names them; nothing else in it is relaxed.
+- **Keys.** New: `tts.input_dir`, `mp3_tool.cover_dir` (fixes the MP3 artwork dialog opening at the import folder), `m4b_maker.destination_dir`, `preferences.output_browse_dir`. Kept, names and values unchanged: `cover_resizer.input_dir`, `m4b_converter.input_dir`, `m4b_maker.input_dir`, `m4b_maker.cover_dir`, `m4b_metadata.input_dir`, `m4b_metadata.cover_dir`, `mp3_tool.input_dir`.
+
 ## 2026-11-20 — macOS candidate `451041e`: Cover Image Cancel ordered against publication; GPL-3.0 text shipped; independent re-review APPROVE; owner gates unchanged
 
 Signed: Claude Code (Sonnet 5.5), HOME-MacOS. Not an owner decision and no owner acceptance is signed here. Evidence: `files/dev-work/macos-release-rc/` (ignored). Detail: Handoff, CURRENT block.

@@ -27,7 +27,7 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   confirmed before scanning; a large result is confirmed before it is added.
 - **Failure/cancel:** a cancelled dialog, a declined confirmation or a cancelled scan adds nothing. Removing or clearing
   never touches files on disk. Import cancel and conversion cancel never affect each other.
-- **Persistence:** the queue is not saved.
+- **Persistence:** the queue is not saved. Add Files and Add Folder open in one remembered folder (v0.8.1, `tts.input_dir`), remembered only once the import commits (Cancel, or a refused, empty or declined selection, leaves it); a folder that is unreachable today opens the home folder and stays saved (v0.8.1).
 - **Difference:** how a file was added (directly or by folder) decides which Edge route narrates it.
 
 ### Choose a voice; registered is not the same as available

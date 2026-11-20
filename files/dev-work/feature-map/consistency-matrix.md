@@ -17,7 +17,7 @@ Editor · **Cover** Cover Image.
 | Broad folder and large result asked about first | yes (`ACT.SHARED.IMPORTING`) | yes, in its own words | yes | yes, in its own words | yes (`ACT.METADATA.IMPORT-SCAN`) | yes |
 | Cancel Import during a folder scan leaves things as they were | yes (`ACT.SHARED.IMPORTING.CANCEL`) | yes | yes | yes | yes | yes |
 | A file added twice | list option (`ACT.SHARED.FILE-LIST`) | skipped in its Book, counted in the log (`ACT.MP3.ADD-FILES`) | list option | skipped in its Book, counted (`ACT.MAKER.ADD-FILES`) | skipped in the workspace, counted | refused by default (`ACT.COVER.IMPORT.DUPLICATES`) |
-| Last input folder remembered | **differs**: none | yes | yes | yes (and the cover folder) | yes (and the cover folder, `ACT.METADATA.REMEMBERED-FOLDERS`) | yes (`ACT.COVER.PERSISTENCE`) |
+| Last input folder remembered | yes (v0.8.1, `tts.input_dir`) | yes (and its own cover folder since v0.8.1) | yes | yes (and the cover folder; the custom-destination dialog has its own since v0.8.1) | yes (and the cover folder, `ACT.METADATA.REMEMBERED-FOLDERS`) | yes (`ACT.COVER.PERSISTENCE`) |
 | Closing during a folder scan | shared coordinator (`ACT.SHARED.CLOSE-DURING-WORK`; driven natively in Cover Image) | same | same | same | same | native journey |
 
 ## Starting a run
@@ -61,4 +61,4 @@ the others. Changing any of them changes what a person sees, so each waits for a
    (tool folder before a run, the run after).
 4. **Per-attempt dividers.** The Converter and Cover Image start each run with an "Output folder" line rather than the divider
    the other four rule. Proposal: the shared divider in all six.
-5. **The TTS tool remembers no input folder.** The other five reopen their file dialogs where the last choice was made.
+5. ~~**The TTS tool remembers no input folder.**~~ Resolved in v0.8.1: all six reopen their import dialogs where the last accepted choice was made.

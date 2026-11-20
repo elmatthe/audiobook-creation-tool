@@ -1,9 +1,11 @@
 """Persistent application settings stored as JSON under ``files/runtime-data/settings.json``.
 
 Tools and the launcher use this to remember a few things across runs: which
-sidebar tool was open at last close, the last input folder of Cover Image, the MP3
-Tool and the three M4B tools (and the Maker's and Metadata Editor's last cover
-folder; the TTS tool keeps none), the custom output location
+sidebar tool was open at last close, each tool's last input folder (TTS, Cover
+Image, the MP3 Tool and the three M4B tools), the last cover folder of the tools
+that take book artwork (MP3 Tool, M4B Maker, M4B Metadata), the folder the M4B
+Maker's custom-destination dialog last chose, the folder the Preferences output
+browser last chose, the custom output location
 chosen in Preferences, and the Light/Dark appearance. Nothing else is saved: the
 window always opens at its default size, and the voice, bitrate and other run
 options start from their defaults each session (v0.7.2, ACT72-043: this said
@@ -106,6 +108,59 @@ def all_settings() -> dict[str, Any]:
 def get(key: str, default: Any = None) -> Any:
     """Return the stored value for ``key`` or ``default`` if absent."""
     return _load().get(key, default)
+
+
+def _reachable_dir(value: Any) -> Path | None:
+    """``value`` as a directory that is there now, else ``None``. Never raises: an
+    unplugged drive, a missing share, a refused permission or a hand-edited value
+    that is not a path all answer ``None``."""
+    if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
+        return None
+    try:
+        path = Path(value)
+        return path if path.is_dir() else None
+    except (OSError, ValueError):
+        return None
+
+
+def remembered_dir(key: str) -> Path:
+    """The folder a file dialog should open in for history ``key``.
+
+    The saved folder while it is reachable, else the home folder. The saved value
+    is never rewritten or removed here, so a folder on a drive that is unplugged
+    today is offered again once it is back; only a later confirmed selection
+    replaces it (v0.8.1 file-dialog history).
+    """
+    saved = _reachable_dir(get(key))
+    if saved is not None:
+        return saved
+    try:
+        return Path.home()
+    except (RuntimeError, OSError):
+        return Path.cwd()
+
+
+def selected_dir(chosen: Any, *, is_file: bool) -> str | None:
+    """The folder a confirmed dialog selection leaves in its history, or ``None``.
+
+    A file selection leaves the chosen file's folder (the first file's, for a
+    multiple selection); a folder selection leaves the folder itself. ``None`` for
+    Cancel (an empty answer), a value that is not a path, a file that is not
+    there, or a folder that is not a reachable directory. Callers write the
+    answer with ``set`` only once the tool has accepted the selection.
+    """
+    if isinstance(chosen, (tuple, list)):
+        chosen = chosen[0] if chosen else ""
+    if not isinstance(chosen, (str, os.PathLike)) or not str(chosen).strip():
+        return None
+    try:
+        path = Path(chosen)
+        if is_file and not path.is_file():
+            return None
+        folder = _reachable_dir(path.parent if is_file else path)
+    except (OSError, ValueError):
+        return None
+    return None if folder is None else str(folder)
 
 
 def _write(data: dict[str, Any]) -> bool:

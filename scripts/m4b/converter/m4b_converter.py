@@ -311,13 +311,8 @@ def build_catalog() -> SupportedTypeCatalog:
 
 
 def _remembered_dir(key: str) -> Path:
-    """Return the saved folder for ``key`` if it still exists, else the home dir."""
-    val = settings.get(key)
-    if val:
-        p = Path(val)
-        if p.exists():
-            return p
-    return Path.home()
+    """The saved folder for ``key`` while it is reachable, else the home dir (never erased)."""
+    return settings.remembered_dir(key)
 
 
 def sanitize_filename(name: str) -> str:
@@ -564,6 +559,8 @@ class M4BConverterUI(ttk.Frame):
         sources = self.sources_section
         sources.columnconfigure(0, weight=1)
         sources.rowconfigure(0, weight=1)
+        # The folder an import dialog chose, held until its import settles (v0.8.1).
+        self._pending_input_dir: str | None = None
         self.importer = job_ui.ImportAdapter(
             sources,
             catalog=self.import_catalog,
@@ -581,6 +578,7 @@ class M4BConverterUI(ttk.Frame):
                           else choose_files),
             choose_folder=(self._choose_folder if choose_folder is None
                            else choose_folder),
+            on_outcome=self._settle_import_dir,
             confirm_large_result=(self._confirm_large_result
                                   if confirm_large_result is None
                                   else confirm_large_result),
@@ -826,8 +824,8 @@ class M4BConverterUI(ttk.Frame):
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             filetypes=[("M4B Audiobooks", "*.m4b"), ("All files", "*.*")],
         ) or ())
-        if chosen:
-            settings.set(KEY_INPUT_DIR, str(Path(chosen[0]).parent))
+        # Remembered only once the import commits (_settle_import_dir).
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=True)
         return chosen
 
     def _choose_folder(self):
@@ -838,10 +836,20 @@ class M4BConverterUI(ttk.Frame):
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             mustexist=True,
         )
+        self._pending_input_dir = settings.selected_dir(chosen, is_file=False)
         if not chosen:
             return ()
-        settings.set(KEY_INPUT_DIR, str(chosen))
         return (str(chosen),)
+
+    def _settle_import_dir(self, outcome) -> None:
+        """The importer's outcome hook: remember the import dialog's folder once its selection
+        committed, forget it otherwise (v0.8.1: a declined or rejected selection is never remembered)."""
+        accepted = job_ui.import_choice_accepted(outcome)
+        if accepted is None:
+            return
+        folder, self._pending_input_dir = self._pending_input_dir, None
+        if accepted and folder:
+            settings.set(KEY_INPUT_DIR, folder)
 
     def _confirm_broad_root(self, roots) -> bool:
         """Asked before a scan thread exists, so declining starts no worker."""

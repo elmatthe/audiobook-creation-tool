@@ -76,7 +76,8 @@
             "TtsPanel._confirm_broad_root",
             "TtsPanel._confirm_large_result",
             "TtsPanel.imported_files",
-            "TtsPanel.manager"
+            "TtsPanel.manager",
+            "TtsPanel._settle_import_dir"
           ]
         }
       ],
@@ -85,7 +86,8 @@
         "Add Files keeps the order the dialog returned; Add Folder recurses into subfolders by default, skips hidden folders unless allowed and refuses a file already queued unless duplicates are allowed.",
         "A drive or home-folder root is confirmed before any scan thread starts, and a large result is confirmed before anything is committed; declining leaves the queue as it was.",
         "Move Up, Move Down, Remove and Clear All change only the queue, never a file on disk.",
-        "Cancel Import stops the scan only; it never reaches a conversion run, and a conversion Cancel never reaches the scan."
+        "Cancel Import stops the scan only; it never reaches a conversion run, and a conversion Cancel never reaches the scan.",
+        "v0.8.1: Add Files and Add Folder open in one remembered folder (tts.input_dir): a file selection leaves its folder, a folder selection leaves itself. v0.8.1: the dialog's folder is remembered only once its import is committed; Cancel, an empty, refused or declined selection leaves the history as it was; a remembered folder that is unreachable (gone, unplugged, refused) opens the home folder and stays saved until a new selection replaces it."
       ],
       "selection": [
         "files/tests/test_tts_importing.py",
@@ -133,6 +135,14 @@
           {
             "kind": "native",
             "scenario": "tts.edge-replay-folder-mixed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_importing.py::test_tts_add_files_and_add_folder_share_one_remembered_folder"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_importing.py::test_a_rejected_or_declined_tts_selection_is_not_remembered"
           }
         ]
       },
@@ -6481,7 +6491,7 @@
             "MP3ToolUI.import_folder",
             "MP3ToolUI._ask_folder",
             "_remembered_dir",
-            "MP3ToolUI._remember",
+            "MP3ToolUI._settle_import_dir",
             "MP3ToolUI._request",
             "MP3ToolUI._confirm_broad_root",
             "MP3ToolUI._confirm_large_result",
@@ -7338,7 +7348,8 @@
             "MP3ToolUI.choose_book_artwork",
             "MP3ToolUI.clear_book_artwork",
             "MP3ToolUI._ask_artwork",
-            "MP3ToolUI.artwork_filetypes"
+            "MP3ToolUI.artwork_filetypes",
+            "MP3ToolUI._remember_cover_dir"
           ]
         }
       ],
@@ -7348,7 +7359,8 @@
         "JPG/PNG are embedded as their own bytes; HEIC/HEIF become an in-memory PNG; the tag gets exactly one front-cover APIC, and no artwork means no APIC.",
         "Shared artwork overrides every Book without erasing a Book's own choice.",
         "Artwork that no longer decodes at run time fails the Book (not retryable) and publishes nothing.",
-        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size."
+        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size.",
+        "v0.8.1: the artwork dialog opens in its own remembered folder (mp3_tool.cover_dir), never the import folder; Shared and Book artwork share it; only accepted artwork moves it, and it never moves the import history (mp3_tool.input_dir)."
       ],
       "selection": [
         "files/tests/test_mp3_artwork.py",
@@ -7387,6 +7399,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_button_text_fits.py::test_every_visible_button_is_at_least_as_wide_as_its_label[1024x720]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_panel_branches.py::test_artwork_has_its_own_history_shared_by_shared_and_book_artwork"
           }
         ]
       },
@@ -8846,7 +8862,8 @@
             "M4BConverterUI._choose_files",
             "M4BConverterUI._choose_folder",
             "M4BConverterUI._confirm_broad_root",
-            "M4BConverterUI._confirm_large_result"
+            "M4BConverterUI._confirm_large_result",
+            "M4BConverterUI._settle_import_dir"
           ]
         }
       ],
@@ -8854,7 +8871,7 @@
         "Only .m4b files are accepted, through Add Files and Add Folder alike; other extensions are refused by the shared validator, not just the dialog filter.",
         "Add Files keeps the dialog's order; Add Folder recurses by default and keeps each file's root-relative provenance.",
         "A very broad folder (a drive or the home folder) is confirmed before any scan starts; declining starts no worker and imports nothing.",
-        "The folder last chosen in either dialog is remembered for the next dialog."
+        "The folder last chosen in either dialog is remembered for the next dialog (m4b_converter.input_dir). v0.8.1: the dialog's folder is remembered only once its import is committed; Cancel, an empty, refused or declined selection leaves the history as it was; a remembered folder that is unreachable (gone, unplugged, refused) opens the home folder and stays saved until a new selection replaces it."
       ],
       "selection": [
         "files/tests/test_m4b_converter_importing.py",
@@ -11499,7 +11516,8 @@
             "M4BMakerUI.cancel_import",
             "M4BMakerUI._confirm_broad_root",
             "M4BMakerUI._confirm_large_result",
-            "_remembered_dir"
+            "_remembered_dir",
+            "M4BMakerUI._settle_import_dir"
           ]
         },
         {
@@ -11559,6 +11577,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_maker_panel_branches.py::test_the_input_folder_is_remembered_and_a_vanished_one_falls_back_to_home"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_a_declined_broad_folder_import_is_not_remembered"
           }
         ]
       },
@@ -12060,7 +12082,8 @@
             "M4BMakerUI.choose_book_artwork",
             "M4BMakerUI.clear_book_artwork",
             "M4BMakerUI._ask_artwork",
-            "M4BMakerUI._artwork_error"
+            "M4BMakerUI._artwork_error",
+            "M4BMakerUI._remember_cover_dir"
           ]
         },
         {
@@ -12084,7 +12107,8 @@
         "A Shared artwork overrides and disables the Book's artwork control; clearing Shared restores the Book's own.",
         "The preview is an in-memory thumbnail; the chosen file is never written.",
         "The control is disabled while a run owns it, separately from the Shared override.",
-        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size."
+        "Choose… and Clear each get at least their label's own width, so both read whole at every supported size.",
+        "v0.8.1: Shared and Book artwork share one remembered folder (m4b_maker.cover_dir), written only for artwork that was accepted."
       ],
       "selection": [
         "files/tests/test_m4b_maker_ui.py",
@@ -12397,7 +12421,8 @@
             "M4BMakerUI.custom_destination",
             "M4BMakerUI._ask_destination",
             "M4BMakerUI._destination",
-            "CUSTOM_STAGING_NAME"
+            "CUSTOM_STAGING_NAME",
+            "KEY_DEST_DIR"
           ]
         },
         {
@@ -12414,7 +12439,8 @@
         "Outputs go directly into the chosen folder with no M4B-Maker-N inside it, numbered around existing files, never overwriting.",
         "Staging happens outside the chosen folder, in an owned entry of the temporary work area that is removed once no retry can reach it (v0.7.2, ACT72-031).",
         "While the toggle is off, a path left in the hidden entry is ignored.",
-        "A Cancel during a custom build leaves the chosen folder and every file it already held, including one named like a planned output; only Books finished before the Cancel are added (v0.7.2, ACT72-032)."
+        "A Cancel during a custom build leaves the chosen folder and every file it already held, including one named like a planned output; only Books finished before the Cancel are added (v0.7.2, ACT72-032).",
+        "v0.8.1: Browse… opens in its own remembered folder (m4b_maker.destination_dir), separate from the import and artwork folders; that is browsing history only, and the destination itself is still never saved. Cancel leaves it; a failed settings write keeps the previous folder and the choice still applies to the build."
       ],
       "selection": [
         "files/tests/test_maker_custom_destination.py",
@@ -12456,6 +12482,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_maker_panel_branches.py::test_a_cancelled_custom_build_leaves_the_chosen_folder_and_everything_already_in_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_maker_panel_branches.py::test_the_custom_destination_dialog_has_its_own_history_and_the_destination_stays_unsaved"
           }
         ]
       },
@@ -15832,12 +15862,14 @@
             "_remembered_dir",
             "M4BMetadataEditorUI._ask_files",
             "M4BMetadataEditorUI._ask_folder",
-            "M4BMetadataEditorUI._ask_artwork"
+            "M4BMetadataEditorUI._ask_artwork",
+            "M4BMetadataEditorUI._settle_import_dir",
+            "M4BMetadataEditorUI._remember_cover_dir"
           ]
         }
       ],
       "contracts": [
-        "The file and folder dialogs open in the last folder used (m4b_metadata.input_dir), the artwork dialog in the last image folder (m4b_metadata.cover_dir), or the home folder when that folder is gone",
+        "The file and folder dialogs open in the last folder used (m4b_metadata.input_dir), the artwork dialog in the last image folder (m4b_metadata.cover_dir), or the home folder when that folder is gone. v0.8.1: the dialog's folder is remembered only once its import is committed; Cancel, an empty, refused or declined selection leaves the history as it was; a remembered folder that is unreachable (gone, unplugged, refused) opens the home folder and stays saved until a new selection replaces it. Shared and Book artwork share the artwork folder, written only for accepted artwork",
         "Only those two dialog locations are saved; the workspace, edits, Auto-number options and output folder are not"
       ],
       "selection": [
@@ -17834,12 +17866,13 @@
           "symbols": [
             "_remembered_dir",
             "CoverResizerUI._choose_files",
-            "CoverResizerUI._choose_folder"
+            "CoverResizerUI._choose_folder",
+            "CoverResizerUI._settle_import_dir"
           ]
         }
       ],
       "contracts": [
-        "The folder last used by Add Files or Add Folder is saved as cover_resizer.input_dir and is where the next dialog opens; if it no longer exists the dialog opens at the home folder.",
+        "The folder last used by Add Files or Add Folder is saved as cover_resizer.input_dir and is where the next dialog opens; if it no longer exists the dialog opens at the home folder. v0.8.1: the dialog's folder is remembered only once its import is committed; Cancel, an empty, refused or declined selection leaves the history as it was; a remembered folder that is unreachable (gone, unplugged, refused) opens the home folder and stays saved until a new selection replaces it.",
         "The saved key is accepted as user state without a settings warning.",
         "Size, letterbox, Save beside source images and Replace original files are never saved; a rebuilt panel is back in standard mode."
       ],
@@ -19309,7 +19342,8 @@
             "ImportOptionsBar",
             "ImportOptionsBar.options",
             "ask_files",
-            "ask_folder"
+            "ask_folder",
+            "import_choice_accepted"
           ]
         }
       ],
@@ -20091,7 +20125,10 @@
             "_restore",
             "set",
             "update",
-            "reset"
+            "reset",
+            "_reachable_dir",
+            "remembered_dir",
+            "selected_dir"
           ]
         }
       ],
@@ -20100,7 +20137,8 @@
         "Writes are atomic (temporary file, then replace) and report success; a failed write leaves the previous file intact and rolls the in-memory value back.",
         "A missing file means defaults; malformed JSON or a non-object falls back to defaults with a recorded reason, and the file is not rewritten on load.",
         "Only keys the app itself writes are recognised; an unknown key is reported and can never override configuration.",
-        "The module's own description names exactly what is saved (the last tool, input and cover folders, the custom output location, Light/Dark) and that window size and run options are not (v0.7.2, ACT72-043)."
+        "The module's own description names exactly what is saved (the last tool, input and cover folders, the custom output location, Light/Dark) and that window size and run options are not (v0.7.2, ACT72-043).",
+        "v0.8.1: remembered_dir answers where a dialog opens (the saved folder while reachable, else home) and never rewrites or erases the saved value; selected_dir answers what a confirmed selection leaves (a file's folder, a folder itself) or nothing for Cancel or a path that is not there. Every dialog history key is per tool and per action and is written by a literal settings.set in its own panel."
       ],
       "selection": [
         "files/tests/test_settings.py",
@@ -20138,6 +20176,50 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_settings_allowlist.py::test_the_settings_module_describes_what_is_really_saved"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_each_chooser_names_its_own_exact_key"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_every_history_key_is_allowlisted_user_state_and_none_is_a_configuration_override"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_every_history_key_has_a_real_production_writer"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_a_reachable_remembered_folder_is_where_the_dialog_opens"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_nothing_remembered_opens_at_home"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_an_inaccessible_remembered_folder_falls_back_without_raising"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_a_folder_that_comes_back_is_offered_again"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_a_file_selection_leaves_its_folder_and_a_folder_selection_leaves_itself"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_a_selection_that_is_not_there_leaves_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_history_survives_a_restart_and_only_a_new_selection_replaces_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_a_failed_history_write_keeps_the_previous_value"
           }
         ]
       },
@@ -20513,7 +20595,8 @@
             "PreferencesDialog._default_browse",
             "PreferencesDialog.browse",
             "PreferencesDialog.save_output_base",
-            "PreferencesDialog._commit"
+            "PreferencesDialog._commit",
+            "KEY_OUTPUT_BROWSE_DIR"
           ]
         },
         {
@@ -20536,7 +20619,8 @@
         "'Use the default Downloads location' disables the path field and Browse…; 'Use a custom folder' enables them; Browse… fills the path and switches to custom; cancelling Browse changes nothing.",
         "Save accepts only a full path or one starting with ~; a relative path, an environment variable or an empty path is refused with a plain message and nothing is saved.",
         "Saving does not create the folder; a failed write keeps the previous value and says so.",
-        "After a successful save every open tool's output-folder line updates; a refused or failed save changes no label."
+        "After a successful save every open tool's output-folder line updates; a refused or failed save changes no label.",
+        "v0.8.1: Browse… opens in its own remembered folder (preferences.output_browse_dir), written when a reachable folder the output rule accepts is chosen; it is never the saved output location, which only Save writes, and Save never writes it."
       ],
       "selection": [
         "files/tests/test_preferences_ui.py",
@@ -20573,6 +20657,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_output_location_refresh.py::test_an_invalid_path_leaves_every_label_unchanged"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_preferences_ui.py::test_the_output_browser_remembers_its_folder_apart_from_the_saved_output_location"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_preferences_ui.py::test_a_folder_the_output_rule_refuses_is_not_remembered"
           }
         ]
       },
@@ -20646,6 +20738,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_preferences_ui.py::test_reset_names_the_appearance_it_returns_to_light"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_preferences_ui.py::test_reset_preferences_forgets_the_browser_folder_and_every_tool_history"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_file_dialog_history.py::test_reset_preferences_clears_every_history_and_touches_no_media"
           }
         ]
       },
@@ -23463,7 +23563,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_release_packaging.py::test_the_ordinary_macos_revision_build_produces_only_the_macos_archive"
+            "test": "files/tests/test_release_packaging.py::test_the_ordinary_shared_build_produces_the_windows_and_macos_archives"
           },
           {
             "kind": "behavior",
@@ -26515,14 +26615,14 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "d4de6ba96357133dcee7c00f0e51a7b6089de5f415567c2aa7589f357da3d6ed",
+    "scripts/artwork/cover_resizer.py": "3c9fa7254e7243d563d23b46b488700e658706e075ae073e6ccc58b4651c1eb0",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "f103c884f364d5f48f565c272afd23ef22620c42f137e5bd250e9f1d63d90c19",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
     "scripts/launcher.py": "c7b92b82c15715cd2b94f1c329a190f22c2da27a8ce51ecaa56d0eddfdca6e76",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "c3cd68a3a8fbb1a46c49ad4c2977f6cccbaa9a0fa15efd3241be3ebda18ac53b",
+    "scripts/m4b/converter/m4b_converter.py": "ada9977842e8597024a79e5d7888ffa45b07c714533a5ef2b402e920cc761c72",
     "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
     "scripts/m4b/converter/m4b_plan.py": "890d063b6a40a7e54b4828d7e420445ac114f72ee9c0a113fbc5f20c9c2e4770",
@@ -26537,21 +26637,21 @@
     "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "cac238262f2fb9f3957bd469bbc1d10a90afb688eb8f0208a5e2eaf05f45e6c4",
+    "scripts/m4b/maker/m4b_maker.py": "f251d536f58214cdd82af2ae749d8f6b4e46af87c7c07a4505036bcb95942054",
     "scripts/m4b/maker/m4b_maker_batch.py": "cfec80871ea1f8c1a3435b080d3a07479753f26ef742626c693668d09d292f18",
     "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
     "scripts/m4b/metadata/m4b_metadata_batch.py": "36b5cb2e5acdbe250428d5a9f2b446deb26256898e2f4ef50504f11aa9c177bf",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "d9abf3ed374a5e1215cc3ecb7b350d19b1e3f4644c12eeae2ca93d09bf87e893",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "fe16ee5a2c34a8dec0e7cad76de8c1ec3eb778dfa0755f0c7c41b6aed7098740",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "3cd73fb580e6bcd9cf0808fa9d2e79721efa31181c758fb6e8382bf6071efced",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "d2c5bca0c78a732a2415fcbf4f7cea19779bd71526eed412eac6b4760dbef79e",
+    "scripts/mp3/mp3_tool.py": "f09339b68c9e853a6e8c49ba18c80ecc55021d3cc101feb64862e5973701c474",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "99c038fc2e7bd85f8341922e5a2ff6023d1be72f7e7c9336513a0d082691239b",
@@ -26571,7 +26671,7 @@
     "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
-    "scripts/shared/config.py": "cab2a6ac402ad7fb9a8260f2e3324376e510d6f921eeb4792bca5efbcc7c609b",
+    "scripts/shared/config.py": "6a02527d142252815899d80d7701cb326edb77a30dfaed5f80e495f81a7a6401",
     "scripts/shared/engine_lease.py": "bd6f6fe5e5968895a840226281ce56f767b219384c96ac003ade9ae6224b260b",
     "scripts/shared/engine_policy.py": "0b821a7a66d9b7f59200dbf35ade9971adca6b8095efc927d6f49de524e6ff5b",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
@@ -26582,7 +26682,7 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
-    "scripts/shared/job_ui.py": "902ab2f39059f49be0294f7069263aff52c21ee33202aad5737fd5ae7b4c3093",
+    "scripts/shared/job_ui.py": "f2d0c5be82bc4b6026d4add74223a3b509c2ff886f1239f4fd0fe05b030c22ec",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
@@ -26604,15 +26704,15 @@
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
     "scripts/shared/output_paths.py": "98ae9d47ecab4ba2cfa0a595604a763cc17e66baae7da4abfcdb5e7ad3c8ddd4",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
-    "scripts/shared/preferences_ui.py": "eeadf5585035a0ba73bda5efcc7f0aa29f5111b94bd387adf67f5ee1db684682",
-    "scripts/shared/release.py": "a315e4b8e11874c75c8e2ff48d837aff293114120e847382bc032f4eaf36e389",
-    "scripts/shared/settings.py": "03a3ce0127e8de686c4a3707b1e424a32ddf482c192951b2078faf3fce8b1a15",
+    "scripts/shared/preferences_ui.py": "df6a9187efd958d600108fb41344934c2a93749e718f087c7214e74a83d93804",
+    "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",
+    "scripts/shared/settings.py": "2f564a150ce9b5f0dce110d711e54e8c00f18dc59a017d59e31936bcc136f84f",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
     "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
-    "scripts/shared/version.py": "5d9013e6189dd54f74705c7cb74b5ea890bde5355106030c07b754d736665b79",
+    "scripts/shared/version.py": "ebe5a97fa55cc98347f8a9d3a9d8e4238b36ea6373cac1cc08761ab98149a67f",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
     "scripts/tts/audio_tail.py": "3b4a53ef3f58953994013992890fca8261a6637f35fc3f2833f3e023993a4442",
@@ -26625,7 +26725,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "d8fc413fff16844b497b20b1c5907ed336706f27faa823ab2985a868a4fdc03d",
+    "scripts/tts/epub2tts_gui.py": "9a97453d9568ab05526a4eedfabc5e6ce8cb5b1fc81ee414f99f00041f7c4173",
     "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",

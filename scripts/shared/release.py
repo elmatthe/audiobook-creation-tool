@@ -81,11 +81,9 @@ DIST_DIR = REPO_ROOT / "dist"
 sys.path.insert(0, str(SHARED_DIR))
 from version import VERSION  # noqa: E402
 
-# 0.8.0+macos.1 (D16, owner route 2026-11-20): this source is the macOS revision of v0.8.0 and is distributed for macOS
-# only. The published Windows v0.8.0 was built from d1701e9 and stays as it is; a Windows archive from this source would
-# misattribute it, so the ordinary build makes the macOS archive alone (``_package(("Windows",))`` still builds one for
-# the packaging tests). The next shared release (v0.8.1) names both again.
-RELEASE_OS_NAMES = ("MacOS",)
+# v0.8.1: one shared source again, so the ordinary build makes both archives. (0.8.0+macos.1, D16, was the macOS-only
+# revision of v0.8.0 and made the macOS archive alone; the published Windows v0.8.0 came from d1701e9.)
+RELEASE_OS_NAMES = ("Windows", "MacOS")
 
 # Per OS: the launcher that belongs at the archive root.
 ENTRY_FILES = {

@@ -206,3 +206,57 @@ def _two_books(tmp_path: Path) -> Path:
     tracks(root / "A", "01.mp3", "02.mp3")
     tracks(root / "B", "01.mp3")
     return root
+
+
+# --------------------------------------------------------------------------- dialog history (v0.8.1 Checkpoint A)
+
+
+def test_artwork_has_its_own_history_shared_by_shared_and_book_artwork(make_panel, tmp_path, monkeypatch):
+    """The confirmed v0.8.0 defect: the artwork dialog opened at the import folder. Now artwork remembers its own
+    folder (mp3_tool.cover_dir), Shared and Book artwork share it, and neither history moves the other."""
+    from PIL import Image
+    from shared import settings as app_settings
+
+    app_settings.use_path(tmp_path / "runtime-data" / "settings.json")
+    try:
+        home = tmp_path / "TheHome"
+        home.mkdir()
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        library = tmp_path / "Library"
+        first, = tracks(library, "01.mp3")
+        covers = tmp_path / "Covers"
+        covers.mkdir()
+        cover = covers / "front.jpg"
+        Image.new("RGB", (64, 64), (10, 200, 30)).save(cover, format="JPEG")
+        broken = tmp_path / "Junk" / "broken.jpg"
+        broken.parent.mkdir()
+        broken.write_bytes(b"not an image")
+        opened: list[tuple[str, str]] = []
+        answer = {"artwork": str(cover)}
+        monkeypatch.setattr(mp3_tool.filedialog, "askopenfilenames",
+                            lambda **kw: opened.append(("files", kw["initialdir"])) or (str(first),))
+        monkeypatch.setattr(mp3_tool.filedialog, "askopenfilename",
+                            lambda **kw: opened.append(("art", kw["initialdir"])) or answer["artwork"])
+        panel = make_panel(choose_files=None, choose_artwork=None)
+
+        panel.add_files()
+        settle_import(panel)
+        assert app_settings.get(mp3_tool.KEY_INPUT_DIR) == str(library)
+        panel.choose_book_artwork()
+        assert opened[-1] == ("art", str(home)), "artwork never opens at the import folder"
+        assert app_settings.get(mp3_tool.KEY_COVER_DIR) == str(covers)
+        assert app_settings.get(mp3_tool.KEY_INPUT_DIR) == str(library), "and never moves the import history"
+        panel.choose_shared_artwork()
+        assert opened[-1] == ("art", str(covers)), "Shared artwork opens where Book artwork chose"
+        panel.add_files()
+        settle_import(panel)
+        assert opened[-1] == ("files", str(library)), "and the import dialog is where it was"
+
+        answer["artwork"] = str(broken)
+        panel.choose_shared_artwork()
+        assert app_settings.get(mp3_tool.KEY_COVER_DIR) == str(covers), "refused artwork is not remembered"
+        answer["artwork"] = ""
+        panel.choose_shared_artwork()
+        assert app_settings.get(mp3_tool.KEY_COVER_DIR) == str(covers), "Cancel changes nothing"
+    finally:
+        app_settings.use_path(None)

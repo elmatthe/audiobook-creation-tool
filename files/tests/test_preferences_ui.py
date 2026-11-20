@@ -940,3 +940,58 @@ def test_no_tool_panel_was_touched_by_phase_two():
         source = Path(module.__file__).read_text(encoding="utf-8")
         assert "preferences_ui" not in source
         assert "Clear Downloaded Data" not in source
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.1 Checkpoint A: the output browser's own history
+# --------------------------------------------------------------------------- #
+
+
+def test_the_output_browser_remembers_its_folder_apart_from_the_saved_output_location(
+        fresh_root, tmp_path, monkeypatch):
+    home = tmp_path / "TheHome"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    picked = tmp_path / "Picked"
+    picked.mkdir()
+    opened: list[str] = []
+    answer = {"folder": str(picked)}
+    monkeypatch.setattr(preferences_ui.filedialog, "askdirectory",
+                        lambda **kw: opened.append(kw["initialdir"]) or answer["folder"])
+    dialog = preferences_ui.PreferencesDialog(fresh_root, {}, confirm=lambda t, m: True)
+
+    dialog.browse()
+    assert opened == [str(home)]
+    assert app_settings.get(preferences_ui.KEY_OUTPUT_BROWSE_DIR) == str(picked)
+    assert app_settings.get("output_base_directory") is None, "browsing is not saving"
+    answer["folder"] = ""
+    dialog.browse()
+    assert opened[-1] == str(picked), "the browser opens where it last chose"
+    assert app_settings.get(preferences_ui.KEY_OUTPUT_BROWSE_DIR) == str(picked), "Cancel changes nothing"
+
+    other = tmp_path / "Other"
+    other.mkdir()
+    dialog.var_path.set(str(other))  # typed by hand after browsing
+    assert dialog.var_mode.get() == "custom" and dialog.save_output_base() is True
+    assert app_settings.get("output_base_directory") == str(other)
+    assert app_settings.get(preferences_ui.KEY_OUTPUT_BROWSE_DIR) == str(picked), "Save writes only the location"
+
+
+def test_a_folder_the_output_rule_refuses_is_not_remembered(fresh_root, tmp_path, monkeypatch):
+    picked = tmp_path / "Refused"
+    picked.mkdir()
+    monkeypatch.setattr(config, "validate_output_base", lambda raw: (None, "refused for the test"))
+    make_dialog(fresh_root, chosen=str(picked)).browse()
+    assert app_settings.get(preferences_ui.KEY_OUTPUT_BROWSE_DIR) is None
+
+
+def test_reset_preferences_forgets_the_browser_folder_and_every_tool_history(fresh_root, tmp_path):
+    picked = tmp_path / "Picked"
+    picked.mkdir()
+    dialog = make_dialog(fresh_root, chosen=str(picked), answer=True)
+    dialog.browse()
+    app_settings.update({"tts.input_dir": str(picked), "mp3_tool.cover_dir": str(picked),
+                         "m4b_maker.destination_dir": str(picked)})
+    assert dialog.reset_preferences() is True
+    assert app_settings.all_settings() == {}
+    assert picked.is_dir(), "a remembered folder is forgotten, never deleted"

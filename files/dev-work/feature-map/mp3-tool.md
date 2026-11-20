@@ -147,7 +147,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **States:** The Book control is disabled while Shared artwork is set and during a run; the preview shows '(none)' or '(no preview)' when it cannot be drawn.
 - **Inputs and outputs:** Input: an image path. Output: one APIC front cover (type 3) on every written track and on the combined file; the source image is never written and no converted file is saved.
 - **Failure, cancel and retry:** 'Book Artwork: …' error dialog on a bad choice; at run time an undecodable image is an item-less Book failure.
-- **Persistence:** The path is held for the session only.
+- **Persistence:** The path is held for the session only. The dialog opens in its own remembered folder (v0.8.1, `mp3_tool.cover_dir`; before, it opened at the import folder), shared by Shared and Book artwork, moved only by accepted artwork, and separate from the import folder.
 - **Layout:** Choose… and Clear each get at least their label's width, so both read whole (ACT72-020, fixed in Phase 5).
 - **Intentional differences:** Artwork is a file control owned by this panel, not a shared text field.
 - **What must hold:** JPG/JPEG and PNG are always offered; HEIC/HEIF only when the shared capability probe can decode it. A chosen file is decoded first; a refusal shows an error and keeps the previous choice. JPG/PNG are embedded as their own bytes; HEIC/HEIF become an in-memory PNG; the tag gets exactly one front-cover APIC, and no artwork means no APIC. Shared artwork overrides every Book without erasing a Book's own choice. Artwork that no longer decodes at run time fails the Book (not retryable) and publishes nothing.
