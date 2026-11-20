@@ -378,6 +378,27 @@ def _stop_if_cancelled(cancel_event, controller) -> None:
     raise ConversionCancelled("Cancelled.")
 
 
+def _acknowledge_pending_cancel(cancel_event, controller) -> bool:
+    """True when a Cancel has been pressed or latched, after acknowledging it; False when there is none.
+
+    For a run that failed on an image with a Cancel already in: the failure path used to fall out of the loop
+    uncancelled, so a last image that failed while Cancel was latched settled ``COMPLETED_WITH_FAILURES`` and said
+    "All done". The Cancel is acknowledged here (``checkpoint`` records it), never skipped, so the run can settle
+    ``CANCELLED``. Does not wait and does not take the controller's lock over any work.
+    """
+    if controller is None:
+        return cancel_event.is_set()
+    if cancel_event.is_set():
+        controller.request_cancel()
+    if not controller.snapshot().cancel_requested:
+        return False
+    try:
+        controller.checkpoint()
+    except ConversionCancelled:
+        pass
+    return True
+
+
 @contextlib.contextmanager
 def _authorized_publication(cancel_event, controller):
     """One attempt to make an image final, ordered against Cancel.
@@ -3254,6 +3275,7 @@ class CoverResizerUI(ttk.Frame):
             staged = None
             succeeded = False
             aborted = False
+            stop = False
             if reporter is not None and item_id is not None:
                 reporter.current_item(item_id, f"Resizing {in_file.name}")
             # The measurement brackets this image's own work and nothing else —
@@ -3283,8 +3305,10 @@ class CoverResizerUI(ttk.Frame):
                 # Revision 1). Nothing carries its final name until the image is
                 # whole, and a replacement's original stays untouched until the
                 # one authorized install below.
+                # The staging name is short and fixed ("cover"), never the source's stem plus a prefix: a file name that
+                # fits the filesystem's 255-byte limit must still have a staging name that does.
                 staged = output_paths.temporary_sibling(
-                    final_out, suffix=written_suffix(in_file.suffix)
+                    final_out.parent / "cover", suffix=written_suffix(in_file.suffix)
                 )
 
                 self._log_q.put(("log", f"\n[{idx}/{total}] Resizing:\n {in_file}\n -> {final_out}\n"))
@@ -3345,9 +3369,10 @@ class CoverResizerUI(ttk.Frame):
                     output_paths.discard_temporary(staged)
                 except output_paths.OutputPathError:
                     pass
-                self._log_q.put(("log", f" ✗ Error: {e}\n"))
+                reason = getattr(e, "detail", "") if isinstance(e, output_paths.OutputPathError) else ""
+                self._log_q.put(("log", f" ✗ Error: {e}\n" + (f"   {reason}\n" if reason else "")))
                 trouble = f"{in_file.name} could not be resized."
-                detail = f"{type(e).__name__}: {e}"
+                detail = f"{type(e).__name__}: {e}" + (f" ({reason})" if reason else "")
                 if snapshot is not None and item_id is not None:
                     failures.append(FailureRecord(
                         item_id=item_id, stage=STAGE_RESIZE,
@@ -3356,6 +3381,10 @@ class CoverResizerUI(ttk.Frame):
                 if reporter is not None and item_id is not None:
                     reporter.failure(trouble, detail, item_id=item_id,
                                      stage=STAGE_RESIZE)
+                # A Cancel that was already in when this image failed still ends the run cancelled, and starts nothing more.
+                if _acknowledge_pending_cancel(self._cancel_event, controller):
+                    cancelled = True
+                    stop = True
 
             finally:
                 # Read once, first, so nothing this block does is counted as
@@ -3373,7 +3402,7 @@ class CoverResizerUI(ttk.Frame):
                 else:
                     reporter.progress(idx, total, item_id=item_id, stage=STAGE_RESIZE)
 
-            if aborted:
+            if aborted or stop:
                 break
 
         # Truthful about a partial batch: anything already installed stays

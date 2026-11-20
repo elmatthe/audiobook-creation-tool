@@ -57,6 +57,12 @@ Force Quit check. v0.8.1 is the next shared Windows + macOS release.
 - **Cover Image: no unfinished file under a final name.** Standard and numbered-beside-source saves were encoded directly
   to their final name; they now stage and publish by an exclusive new-name rename, so a name taken meanwhile is never
   overwritten and an interrupted save leaves no partial image.
+  A run that fails on an image while a Cancel is already latched ends CANCELLED (it used to end "completed with failures"
+  and say "All done"). The staging name is short and fixed, so a source name that fits the 255-byte limit still works.
+  A publication error now shows the shared helper's reason in the log. **Known limit:** a copy output on an exFAT or FAT
+  drive cannot be named exclusively (the same rule as every other tool); it fails with that explanation instead of saving
+  directly, so choose an output folder on another drive. A window closed while an image is still being encoded can leave one
+  `.act-tmp-cover-*` staging file beside it (the bounded shutdown predates this change).
 - **The complete GNU GPL v3 text ships in the archive** as `LICENSE` (the project inherits GPL-3.0 from
   epub2tts-edge). It is the canonical text, byte for byte, tracked and pinned to LF; the packager's root allowlist now
   names it and refuses a root file that git does not track. No model weights are added or redistributed.

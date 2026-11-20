@@ -267,9 +267,17 @@ def test_cancel_pressed_during_the_last_commit_does_not_undo_it(make_panel, tmp_
         panel.cancel()
         return granted
 
-    monkeypatch.setattr(jc.JobController, "authorize_commit", commit_then_cancel)
+    fired: list[bool] = []
+
+    def commit_then_cancel_recorded(controller):
+        fired.append(True)
+        return commit_then_cancel(controller)
+
+    monkeypatch.setattr(jc.JobController, "authorize_commit", commit_then_cancel_recorded)
     run_with_hook(panel)
 
+    assert fired == [True], "the scenario must really cancel during the authorized commit"
+    assert panel.job_controller.snapshot().cancel_requested is True
     with Image.open(files[0]) as img:
         assert img.size == (SIZE, SIZE)
     assert state_of(panel) is jc.JobState.SUCCEEDED
@@ -503,3 +511,142 @@ def test_the_controller_lock_is_not_held_while_an_image_is_resized(make_panel, t
     run_with_hook(panel, before_resize=probe)
 
     assert probes == [True]
+
+
+# --------------------------------------------------------------------------- #
+# Independent re-review findings (pre-merge remediation, round 2)
+# --------------------------------------------------------------------------- #
+
+
+def failing_resize_after_cancel(panel, number=1):
+    """A resize hook that presses Cancel and then fails the way a truncated image does while it is being decoded."""
+    seen = []
+
+    def resize(in_path, out_path, size, letterbox):
+        seen.append(Path(in_path).name)
+        if len(seen) == number:
+            panel.cancel()
+            raise OSError("image file is truncated")
+        return REAL_RESIZE(in_path, out_path, size=size, letterbox=letterbox)
+
+    return resize, seen
+
+
+@pytest.mark.parametrize("mode", [cr.ACTION_REPLACE, cr.ACTION_NUMBERED, cr.MODE_STANDARD])
+def test_a_cancel_latched_when_the_last_image_fails_settles_cancelled_not_completed(make_panel, output_base, tmp_path, mode):
+    """The review's blocker: Cancel latches during the decode, the decode raises, and the run used to fall out of the loop
+    uncancelled and settle COMPLETED_WITH_FAILURES with 'All done.'."""
+    src = make_image(tmp_path / "art" / "a.jpg")
+    before = sha(src)
+    panel = make_panel()
+    import_files(panel, src)
+    if mode != cr.MODE_STANDARD:
+        panel.var_source_side.set(True)
+        panel._on_source_side_change()
+        panel.var_source_action.set(mode)
+        if mode == cr.ACTION_REPLACE:
+            panel.confirm_replacement = lambda count: True
+    resize, seen = failing_resize_after_cancel(panel)
+    cr.resize_for_audiobook = resize
+    try:
+        start(panel, size=SIZE)
+    finally:
+        cr.resize_for_audiobook = REAL_RESIZE
+    drain(panel)
+
+    assert seen == ["a.jpg"]
+    assert state_of(panel) is jc.JobState.CANCELLED, state_of(panel)
+    assert panel.run_result.cancelled is True
+    assert sha(src) == before
+    assert strays(tmp_path) == [] and strays(output_base) == []
+    assert written_under(output_base) == [] if mode == cr.MODE_STANDARD else True
+    assert "All done" not in details_text(panel)
+
+
+def test_a_failure_without_a_cancel_still_settles_completed_with_failures(make_panel, tmp_path):
+    src = make_image(tmp_path / "art" / "a.jpg")
+    panel = make_panel()
+    import_files(panel, src)
+    panel.var_source_side.set(True)
+    panel._on_source_side_change()
+    panel.var_source_action.set(cr.ACTION_REPLACE)
+    panel.confirm_replacement = lambda count: True
+
+    def boom(*_a, **_k):
+        raise OSError("image file is truncated")
+
+    cr.resize_for_audiobook = boom
+    try:
+        start(panel, size=SIZE)
+    finally:
+        cr.resize_for_audiobook = REAL_RESIZE
+    assert state_of(panel) is jc.JobState.COMPLETED_WITH_FAILURES
+    assert panel.run_result.cancelled is False and panel.run_result.failed_count == 1
+
+
+def test_a_cancel_latched_during_a_failure_with_more_images_ahead_stops_the_run(make_panel, tmp_path):
+    panel, files, hashes, _asked = replace_panel(make_panel, tmp_path, count=3)
+    resize, seen = failing_resize_after_cancel(panel, number=2)
+    cr.resize_for_audiobook = resize
+    try:
+        start(panel, size=SIZE)
+    finally:
+        cr.resize_for_audiobook = REAL_RESIZE
+    assert seen == ["a.jpg", "b.jpg"], "the third image never starts"
+    assert state_of(panel) is jc.JobState.CANCELLED
+    with Image.open(files[0]) as img:
+        assert img.size == (SIZE, SIZE)
+    assert [sha(f) for f in files[1:]] == hashes[1:]
+
+
+@pytest.mark.parametrize("mode", [cr.MODE_STANDARD, cr.ACTION_NUMBERED, cr.ACTION_REPLACE])
+def test_a_valid_240_character_file_name_is_still_processed_in_every_mode(make_panel, output_base, tmp_path, mode):
+    """Review finding 2: the staging file's name used to carry the source's stem plus 20 bytes, so a name that fits the
+    filesystem's 255-byte limit failed before the resize. The staging name is now short and fixed."""
+    name = "a" * 240 + ".jpg"
+    src = make_image(tmp_path / "art" / name)
+    panel = make_panel()
+    import_files(panel, src)
+    if mode != cr.MODE_STANDARD:
+        panel.var_source_side.set(True)
+        panel._on_source_side_change()
+        panel.var_source_action.set(mode)
+        if mode == cr.ACTION_REPLACE:
+            panel.confirm_replacement = lambda count: True
+    start(panel, size=SIZE)
+    drain(panel)
+
+    assert state_of(panel) is jc.JobState.SUCCEEDED, details_text(panel)
+    assert strays(tmp_path) == [] and strays(output_base) == []
+    if mode == cr.ACTION_REPLACE:
+        with Image.open(src) as img:
+            assert img.size == (SIZE, SIZE)
+    elif mode == cr.MODE_STANDARD:
+        assert written_under(run_dir_of(output_base)) == [name]
+
+
+def test_the_staging_name_does_not_grow_with_the_source_name(make_panel, tmp_path):
+    seen: list[str] = []
+    src = make_image(tmp_path / "art" / ("b" * 200 + ".jpg"))
+    panel = make_panel()
+    import_files(panel, src)
+    run_with_hook(panel, before_resize=lambda n, _in, out: seen.append(out.name))
+    assert len(seen) == 1 and len(seen[0]) < 40 and seen[0].startswith(op.TEMP_SIBLING_PREFIX), seen
+
+
+def test_a_publication_failure_shows_its_explanation_in_the_log(make_panel, tmp_path, monkeypatch):
+    """Review finding 3: the shared helper's reason and workaround (exFAT/FAT cannot name a file exclusively) lives in
+    OutputPathError.detail; Cover used to log only the message."""
+    src = make_image(tmp_path / "art" / "a.jpg")
+    panel = make_panel()
+    import_files(panel, src)
+
+    def refuse(_temporary, _destination):
+        raise op.OutputPathError("a.jpg could not be saved in X", "this drive cannot give a new file its name; choose another drive")
+
+    monkeypatch.setattr(op, "publish_new", refuse)
+    run_with_hook(panel)
+    drain(panel)
+    assert "choose another drive" in details_text(panel)
+    assert state_of(panel) is jc.JobState.COMPLETED_WITH_FAILURES
+    assert strays(tmp_path) == []
