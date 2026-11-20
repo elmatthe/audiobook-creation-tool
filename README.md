@@ -109,6 +109,7 @@ The macOS revision was developed and tested natively on the one Mac named above:
 
 - A first installation on a Mac that has never had Homebrew, Apple's developer tools or another Python installed (the release archive's own clean-Mac installation check), and Macs other than the one tested, including Macs with 8 or 16 GB of memory.
 - The real Force Quit window (Activity Monitor or Option-Command-Escape) during work; it was checked with equivalent signals, not by hand.
+- Very long single text files with the local voices on Macs with less memory: Kokoro and OmniVoice assemble a file's whole narration in memory, and the 6.3-hour book above used up to about 7.3 GB with Kokoro. Splitting a very long book into several text files keeps each narration smaller.
 - Some rare failures of macOS itself while a job is being stopped (for example the system refusing to end a process); the app then reports the run as failed instead of cancelled.
 
 ## Earlier: v0.7.3
