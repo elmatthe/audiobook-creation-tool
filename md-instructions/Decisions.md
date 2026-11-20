@@ -2,6 +2,14 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-20 — macOS release candidate `5c810e7`: Codex findings verified (no release-critical macOS regression); native acceptance PASS; recommendation BLOCKED on owner gates, not on a product defect (Claude Code)
+
+Signed: Claude Code (Opus 5.5), HOME-MacOS. Evidence: `files/dev-work/macos-release-rc/` (ignored).
+- **Codex review of `b51dc6c`** (gpt-6.2-sol, high, read-only, fresh) answered "RELEASE-CRITICAL: FOUND (11)". Each finding was checked against the code and against the published Windows v0.8.0 (`codex/TRIAGE.md`). Rejected: #3 (a split book is withdrawn whole on Cancel — the documented publication unit, `m4b_execution.remove_outputs`, unchanged since v0.8.0) and #12 (`-write_xing 0` applies only to `codec == "mp3"`; the app passes `libmp3lame`). Pre-existing shared behaviour, noncritical, v0.8.1 candidates: #1, #2 (Cover Image writes in place and honours Cancel between images, by design), #4–#8, #10. Confirmed and bounded: #9 (a local-engine worker may be spawned just after the latch on a cold start; retired within the route bound, nothing published) — v0.8.1. Known: #11 (in-memory assembly peak of the local engines; D6-K, owner pending; the README now states it). No remediation round was opened, because no finding is a verified critical defect.
+- **Gate harness fix (`f11e126`, dev-only):** `inventory.live-surfaces` asked a Mac for Windows' four voice families; on darwin it now checks Edge, Kokoro and OmniVoice and that Chatterbox and Qwen3 are absent.
+- **Recommendation: BLOCKED for publication, pending owner decisions, not a product defect.** The open items are the never-run `fresh-macos` REAL CLEAN qualification, the full gate that cannot run on macOS until Windows-only tests skip there (see Handoff), and the KX-10 owner check. The agent does not waive any of them.
+- **Proposed deferral (owner approval needed):** the six OmniVoice voice previews (plan P6a Revision 3) to v0.8.1. Safe because the gallery is repository documentation outside the archive, and its publication needs the owner's licence review (CC-BY-NC weights, Higgs tokenizer terms) anyway; the README keeps saying the OmniVoice voices have no previews yet.
+
 ## 2026-11-20 — Expedited macOS release readiness: Cancel acknowledgment relaxed to about 1 s; D16 route C (`v0.8.0-macos.1`, identity `0.8.0+macos.1`); P5-I-R3 residuals triaged as non-blocking; no further containment redesign (owner decisions; recorded and triaged by Claude Code)
 
 Signed: the owner (decisions 1–3, given in the session's instruction); Claude Code (Opus 5.5), HOME-MacOS (recording, triage and implementation). Start `f61ed77`.
