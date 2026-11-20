@@ -20,7 +20,12 @@ from journeys.common import TOOLS, Context, expect_clean_close, native, open_too
 
 GATE_DIR = Path(__file__).resolve().parents[1]
 #: One voice family per speech engine, in the order the list shows them. Choosing one is a state of the TTS panel; nothing is synthesised.
-ENGINE_FAMILIES = ("Edge", "Kokoro", "Chatterbox", "Qwen3")
+#: Per platform, as ``shared.engine_policy`` offers them (P4C): a Mac offers Edge, Kokoro and OmniVoice, never Chatterbox or Qwen3
+#: (checked absent); Windows' families are unchanged.
+WINDOWS_ENGINE_FAMILIES = ("Edge", "Kokoro", "Chatterbox", "Qwen3")
+MACOS_ENGINE_FAMILIES = ("Edge", "Kokoro", "OmniVoice")
+MACOS_NOT_OFFERED = ("Chatterbox", "Qwen3")
+ENGINE_FAMILIES = MACOS_ENGINE_FAMILIES if sys.platform == "darwin" else WINDOWS_ENGINE_FAMILIES
 SHELL = "launcher"
 PROBE_TEXT = "Unmapped probe"
 
@@ -99,6 +104,10 @@ def _engine_states(scan: Scan) -> None:
         report.equal(f"{family}: no dialog appears from choosing a voice", scan.dialogs(), [])
         scan.take("tts", f"voice-{family.lower()}")
         session.screenshot(f"tts-{family.lower()}")
+    if sys.platform == "darwin":
+        for family in MACOS_NOT_OFFERED:
+            report.check(f"the voice list offers no {family} voice on a Mac",
+                         not any(value.startswith(family) for value in values), [v for v in values if v.startswith(family)])
 
 
 def run_scan(context: Context, *, inject: dict | None = None) -> Scan:
