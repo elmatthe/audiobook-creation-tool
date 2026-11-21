@@ -160,6 +160,12 @@ class PreviewError(RuntimeError):
 #: six new tracked previews need a separate owner authorization (plan section 5, Session 4), so the collection stays
 #: exactly these 28 and an OmniVoice voice is neither listed, pending nor blocked here.
 PREVIEW_BACKENDS = ("edge", "kokoro", "chatterbox", "qwen3")
+#: Display-only README rows for the six OmniVoice voices (the owner's 2026-11-16 presentation). They are NOT manifest records:
+#: no OmniVoice preview is authorized, generated, counted in "N of 28" or checked as a file. The README shows them as "To Be Added"
+#: and nothing here grants a publication right; adding a real preview needs its own owner authorization and manifest records.
+OMNIVOICE_PLACEHOLDER_ENGINE = "omnivoice"
+OMNIVOICE_PLACEHOLDER_ROWS = tuple(f"Omnivoice - {name}" for name in ("Female 1", "Female 2", "Male 1", "Male 2", "Male 3", "Male 4"))
+PLACEHOLDER_TEXT = "To Be Added"
 
 
 def registry_voices() -> list:
@@ -168,6 +174,14 @@ def registry_voices() -> list:
     from tts import voice_registry
 
     return [entry for entry in voice_registry.VOICES if entry.backend in PREVIEW_BACKENDS]
+
+
+def availability_for(backend: str) -> str:
+    """The README's Availability cell: where the app offers this engine, from ``shared.engine_policy`` (not hand-typed)."""
+    sys.path.insert(0, str(SCRIPTS))
+    from shared import engine_policy
+
+    return "MacOS + Windows" if engine_policy.is_offered(backend, engine_policy.MACOS) else "Windows Only"
 
 
 def rights_for(entry) -> dict:
@@ -679,16 +693,17 @@ def render_readme(data: dict) -> str:
         "Each link below is the raw WAV. GitHub serves raw files as downloads, so a click saves the file and your audio player opens it. "
         "Publishing a sample is not an approval of its audio quality"
         + ("; the owner's separate listening review is recorded under \"Owner listening review\"." if complete else "."), "",
-        "| Voice | Engine | Preview (raw WAV) | Publication |", "|---|---|---|---|"]
-    publication = {RIGHTS_CONFIRMED: "license reviewed", RIGHTS_OWNER: "owner-authorized", RIGHTS_UNRESOLVED: "not authorized"}
+        "| Voice | Engine | Preview (raw WAV) | Availability |", "|---|---|---|---|"]
     for v in data["voices"]:
         preview = v["preview"]
         link = f"[{preview['file']}]({RAW_BASE}{preview['file']})" if is_available(v) else \
             ("pending generation" if preview["status"] == PREVIEW_PENDING else "withdrawn")
-        note = ""
-        if is_clone(v) and is_available(v) and v["preview"]["transcript"]["status"] == TRANSCRIPT_PROVISIONAL:
-            note = " (provisional transcript)"
-        lines.append(f"| {v['label']} | {v['backend']} | {link} | {publication[v['rights']['status']]}{note} |")
+        # Availability is platform only (the owner's presentation); a provisional clone transcript is stated in the
+        # clone-profile section below, and recorded per voice in previews.json.
+        lines.append(f"| {v['label']} | {v['backend']} | {link} | {availability_for(v['backend'])} |")
+    # Display-only: after the manifest rows, never counted above, never given a link or a rights status.
+    lines += [f"| {label} | {label.split(' - ')[0]} | {PLACEHOLDER_TEXT} | {availability_for(OMNIVOICE_PLACEHOLDER_ENGINE)} |"
+              for label in OMNIVOICE_PLACEHOLDER_ROWS]
     lines += [
         "", "## Publication decision", "",
         f"On {decision['date']} the owner decided: {decision['decision']} This supersedes the earlier restriction: "

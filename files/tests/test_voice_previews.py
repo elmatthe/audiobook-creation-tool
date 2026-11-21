@@ -193,6 +193,28 @@ def test_the_readme_never_calls_an_incomplete_set_complete():
     assert "Pending previews" not in complete
 
 
+def test_the_six_omnivoice_rows_are_display_only_placeholders_and_claim_no_preview_or_right():
+    """The owner's README lists six OmniVoice rows as "To Be Added"; the manifest stays the 28 authorized previews."""
+    data = manifest()
+    text = vp.render_readme(data)
+    rows = [line for line in text.splitlines() if line.startswith("| Omnivoice - ")]
+    assert [r.split(" | ")[0][2:] for r in rows] == list(vp.OMNIVOICE_PLACEHOLDER_ROWS) and len(rows) == 6
+    assert all(r.endswith("| To Be Added | MacOS + Windows |") and ".wav" not in r for r in rows)
+    assert "| Voice | Engine | Preview (raw WAV) | Availability |" in text and "| Publication |" not in text
+    assert len(data["voices"]) == 28 and vp.counts(data)["total"] == 28 and vp.counts(data)["generated"] == 28
+    assert "**28 of 28 previews are available.**" in text and "34 previews" not in text and "of 34" not in text
+    assert not any("omnivoice" in json.dumps(v).lower() for v in data["voices"])  # no manifest record, so no rights record
+    assert [v["voice_id"] for v in data["voices"]] == [e.voice_id for e in vp.registry_voices()]
+    assert len(re.findall(r"\]\(https://[^)]+\.wav\)", text)) == 28  # exactly the 28 published links
+
+
+def test_each_availability_cell_follows_the_applications_engine_policy():
+    text = vp.render_readme(manifest())
+    for v in manifest()["voices"]:
+        row = next(line for line in text.splitlines() if line.startswith(f"| {v['label']} |"))
+        assert row.endswith("| " + ("MacOS + Windows" if v["backend"] in ("edge", "kokoro") else "Windows Only") + " |")
+
+
 def test_the_owner_listening_review_is_stated_only_for_a_complete_set_and_approves_no_transcript():
     """The 2026-10-20 review covered all 28 files; an incomplete set cannot claim it, and it is not a transcript approval."""
     complete = vp.render_readme(complete_set(manifest()))
@@ -1040,7 +1062,8 @@ def test_a_provisional_run_makes_clones_labels_them_and_never_writes_an_approval
     assert not approved_file.exists() and not approved_file.parent.exists()  # nothing was ever written as an approval
     assert "Provisional words" not in json.dumps(data) and "Provisional words" not in vp.README.read_text("utf-8")
     readme = vp.README.read_text("utf-8")
-    assert "(provisional transcript)" in readme and "use a provisional reference transcript" in readme
+    # The Availability column is platform only (the owner's table); the provisional status stays stated in the clone section.
+    assert "(provisional transcript)" not in readme and "use a provisional reference transcript" in readme
     assert "makes a clone only from the owner-approved transcript that ships with it" in readme
     assert "Set up cloned voices" not in readme  # the v0.6.7 per-computer setup is no longer the app's path (P03C)
     assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []

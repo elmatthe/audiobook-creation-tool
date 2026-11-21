@@ -2768,9 +2768,11 @@ def test_a_base_python_that_is_not_a_program_never_runs_and_the_launch_fails_clo
     assert result["state"] == proto.FAILED and result["forced"] is True and seen == []
 
 
-def test_windows_keeps_its_strict_no_link_rule_and_never_reads_a_chain(tmp_path, monkeypatch):
-    """Deterministic, on any platform: with ``sys.platform`` answering Windows, the console Python is
-    ``Scripts/python.exe``; a real file is accepted, and a link on the way is refused with the words it always had."""
+WINDOWS_LINK_WORDS = "the app environment's console Python is missing or reached through a link"
+
+
+def windows_console_python(tmp_path, monkeypatch):
+    """With ``sys.platform`` answering Windows, a real ``.venv/Scripts/python.exe`` and the POSIX link rule made fatal."""
     monkeypatch.setattr(sys, "platform", "win32")
 
     def never(*args, **kwargs):
@@ -2782,21 +2784,44 @@ def test_windows_keeps_its_strict_no_link_rule_and_never_reads_a_chain(tmp_path,
     assert python == root / ".venv" / "Scripts" / "python.exe"
     python.parent.mkdir(parents=True)
     python.write_bytes(b"MZ")
+    return root, python
+
+
+def test_windows_accepts_a_real_console_python_and_refuses_a_missing_one(tmp_path, monkeypatch):
+    """Deterministic, no link needed, on any platform: the same words, the same error code, the POSIX rule never consulted."""
+    root, python = windows_console_python(tmp_path, monkeypatch)
     assert proto.interpreter_problem(root) == ""
-    words = "the app environment's console Python is missing or reached through a link"
-    real = python.with_name("real-python.exe")
-    python.rename(real)
-    python.symlink_to(real)
-    assert proto.interpreter_problem(root) == words
+    python.unlink()
+    assert proto.interpreter_problem(root) == WINDOWS_LINK_WORDS  # missing
     with pytest.raises(proto.ProtocolError) as caught:
         proto.worker_launch(root, root / "request.json", SESSION)
-    assert caught.value.code == proto.WRONG_INTERPRETER and str(caught.value) == words
+    assert caught.value.code == proto.WRONG_INTERPRETER and str(caught.value) == WINDOWS_LINK_WORDS
+
+
+def test_windows_keeps_its_strict_no_link_rule_and_never_reads_a_chain(tmp_path, monkeypatch):
+    """Real links, on any platform: a linked console Python and a linked environment folder are refused with the words
+    they always had. Creating a real symbolic link needs a privilege some Windows accounts lack (WinError 1314, Developer
+    Mode off); only that exact refusal skips, so any other failure is still a failure and no link is ever simulated."""
+    root, python = windows_console_python(tmp_path, monkeypatch)
+    real = python.with_name("real-python.exe")
+    python.rename(real)
+    try:
+        python.symlink_to(real)
+    except OSError as refused:
+        if getattr(refused, "winerror", None) != 1314:  # ERROR_PRIVILEGE_NOT_HELD; anything else is a real problem
+            raise
+        pytest.skip("Windows refused to create a real symbolic link (WinError 1314: this account does not hold the "
+                    "symbolic-link privilege, Developer Mode is off), so the link rejection cannot be exercised here")
+    assert proto.interpreter_problem(root) == WINDOWS_LINK_WORDS
+    with pytest.raises(proto.ProtocolError) as caught:
+        proto.worker_launch(root, root / "request.json", SESSION)
+    assert caught.value.code == proto.WRONG_INTERPRETER and str(caught.value) == WINDOWS_LINK_WORDS
     python.unlink()
-    assert proto.interpreter_problem(root) == words  # missing
     real.rename(python)
+    assert proto.interpreter_problem(root) == ""  # the link was the only fault
     (root / ".venv").rename(root / "venv-real")
-    (root / ".venv").symlink_to(root / "venv-real")
-    assert proto.interpreter_problem(root) == words  # a linked environment folder
+    (root / ".venv").symlink_to(root / "venv-real", target_is_directory=True)
+    assert proto.interpreter_problem(root) == WINDOWS_LINK_WORDS  # a linked environment folder
 
 
 def test_windows_worker_checks_itself_exactly_as_before(monkeypatch):

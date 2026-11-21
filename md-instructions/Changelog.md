@@ -18,6 +18,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Checkpoint F2, tests, dev tool and gate metadata only; no application code)**
+- `files/dev-tools/voice_previews.py` renders the owner-edited `files/voice-previews/README.md` exactly: an `Availability` column from the application's engine policy and six display-only OmniVoice rows (`To Be Added`) that are not manifest records, are not counted and claim no publication right. `previews.json` (28 authorized previews) and every WAV are unchanged; the four README tests that F1 left failing pass again.
+- The Windows no-link-rule test is split: a deterministic test that needs no link, and the real-link test, which now skips only on WinError 1314 (this account cannot create symbolic links) under its own exact skip-policy rule with a ceiling of 1. Real link rejection stays unverified on accounts without the privilege.
+
 **Fixed (Checkpoint F1, tests and gate metadata only; no application code)**
 - The Aqua layout pins in five tests (`test_clear_all_imports`, `test_m4b_maker_ui`, `test_m4b_metadata_editor_ui`,
   `test_prototype_regression`, `test_mp3_tool_ui`) asserted that every Aqua button has the native `TButton` layout. Since

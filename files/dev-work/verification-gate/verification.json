@@ -181,6 +181,12 @@
         "max": 17
       },
       {
+        "id": "windows-real-symlink-privilege-not-held",
+        "pattern": "^Windows refused to create a real symbolic link \\(WinError 1314: this account does not hold the symbolic\\-link privilege, Developer Mode is off\\), so the link rejection cannot be exercised here$",
+        "max": 1,
+        "why": "v0.8.1 Checkpoint F2: test_optional_tts_setup.py::test_windows_keeps_its_strict_no_link_rule_and_never_reads_a_chain creates real symbolic links, which Windows allows only to an account with SeCreateSymbolicLinkPrivilege or Developer Mode. The test skips on exactly OSError.winerror 1314 and re-raises every other error; it never simulates a link. The no-link rule's deterministic half (a real console Python accepted, a missing one refused, the POSIX rule never consulted) is the separate passing test_windows_accepts_a_real_console_python_and_refuses_a_missing_one. On an account with the privilege the test runs and this skip does not occur."
+      },
+      {
         "id": "case-insensitive-filesystem",
         "pattern": "^(this filesystem is case-insensitive, so the two names are one file|the Windows path layer is case-blind by definition)$",
         "max": 3
