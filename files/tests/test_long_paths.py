@@ -1029,14 +1029,18 @@ def test_the_readme_gives_no_command_or_script_that_changes_the_setting_and_name
     lowered = README.lower()
     for command in ("reg add", "reg.exe add", "set-itemproperty", "new-itemproperty", ".reg file", "regedit /s"):
         assert command not in lowered, command
-    # v0.8.0 is released for Windows (owner decision 2026-11-14) with the long-path items still unqualified: the README
-    # links the download and lists those items. The macOS revision (D16, 2026-11-20) is linked only under its own tag,
-    # never as an asset of the Windows v0.8.0 tag.
-    assert "v0.8.0 is the current Windows release" in README and "(v0.8.0)" in section()
-    assert "in development" not in section() and "there is no v0.8.0 download" not in README
+    # v0.8.1 is the current release for Windows and macOS (one shared version). The earlier Windows v0.8.0 stays linked as
+    # the previous release. The macOS revision v0.8.0+macos.1 was never tagged or published, so it is NOT linked (no dead link).
+    assert "v0.8.1 is the current release for Windows and macOS" in README and "(v0.8.0)" in section()
+    assert "in development" not in section() and "there is no v0.8.1 download" not in README
+    assert README.count("releases/download/v0.8.1/AudiobookTool-Windows-v0.8.1.zip") == 1
+    assert README.count("releases/download/v0.8.1/AudiobookTool-MacOS-v0.8.1.zip") == 1
+    assert "releases/download/v0.8.1/AudiobookTool-MacOS-v0.8.1-macos" not in README
     assert README.count("releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip") == 1
     assert "releases/download/v0.8.0/AudiobookTool-MacOS" not in README and "AudiobookTool-MacOS-v0.8.0.zip" not in README
-    assert README.count("releases/download/v0.8.0-macos.1/AudiobookTool-MacOS-v0.8.0-macos.1.zip") == 1
+    assert "releases/download/v0.8.0-macos.1" not in README and "AudiobookTool-MacOS-v0.8.0-macos.1.zip" not in README
+    # the v0.8.1 gallery claim and review verdict are stated exactly
+    assert "exactly **28 published previews** in v0.8.1" in README and "PASS WITH LIMITATIONS" in README
     open_items = README[README.index("## Release verification and what is not yet qualified"):]
     open_items = open_items[:open_items.index("\n## ", 1)]
     assert "on a computer where the setting is off" in open_items and "with long paths off" in open_items

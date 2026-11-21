@@ -13,10 +13,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-## [0.8.1] - unreleased (in development on branch `0.8.1`)
+## [0.8.1] - unreleased (release candidate; tagging and publication await the owner)
 
-One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
-published yet.
+One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision (which was prepared but never tagged or
+published). Nothing is tagged or published yet.
+
+**Release preparation (documents only; no application code, no `scripts/` change)**
+- Final independent Codex review: **PASS WITH LIMITATIONS** for `f7a0b51e697cf71cf8d51887ed548a10908918ec` (M1, M2 and M3 independently closed).
+- README: v0.8.1 download links for `AudiobookTool-Windows-v0.8.1.zip` and `AudiobookTool-MacOS-v0.8.1.zip`, v0.8.1 release notes, and the v0.8.1 verification limits; the Windows v0.8.0 link and history are kept. The never-published `v0.8.0-macos.1` link is no longer given as a download.
+- New `files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`: the maintainer verification exception. The historical Full gate FAILED (56/56 journeys passed); F1/F2 corrected the failures; the targeted re-run of the original 30 reported 18 passes, 12 Windows skips and 0 failures; there is **no passing final canonical Full gate**, and the owner declined a second one.
+- The v0.8.1 voice-preview gallery still has 28 published previews; the six OmniVoice placeholders are not previews.
+
 
 **Fixed (Review R3, Codex M3; tests only)**
 - The test guard's bundled-Python bytecode exception no longer covers anything below `python/Lib/site-packages` (third-party code, matched by path component and case-insensitively); only genuine standard-library bytecode is excused.

@@ -1,5 +1,15 @@
 # Audiobook Creation Tool — Handoff
 
+## CURRENT — v0.8.1 release preparation (Windows, HOME-PC): documents only; the two archives are built and audited after the fast-forward of master (results in the release report); tag and GitHub release NOT done (2026-11-20, Claude Code Sonnet 5.5)
+
+Supersedes the Review R3 block below for status and next action; its history stands. Start `f7a0b51e697cf71cf8d51887ed548a10908918ec` (equal to origin/0.8.1), the commit the independent Codex review rated **PASS WITH LIMITATIONS**. The preparation commit is the next commit on branch `0.8.1` (cite it and the merged `master` by `git log`/the release report, not here). No `scripts/` file changed: the scripts tree stays `4388fda9b9f9c6af7927d8b139c95d5bf5d02459`.
+- **Changed:** `README.md` (v0.8.1 download links for both archives, v0.8.1 notes, verification limits; v0.8.0 history kept), `files/tests/test_long_paths.py` (the one README pin that named the old links), `md-instructions/Changelog.md`, this Handoff, and the new `files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`.
+- **Found:** the macOS-only `v0.8.0-macos.1` tag and release never existed (only `v0.8.0` does), so the old README download link was dead; the README no longer links it.
+- **Exception recorded, not hidden:** the historical Windows Full gate (`2026-11-20_164951_full_2cf1`, `00ae625`) FAILED (56/56 journeys passed); F1/F2 corrected the failures; the targeted re-run of the original 30 reported 18 passes, 12 Windows skips, 0 failures. No passing final canonical Full gate exists; the owner declined a second one and accepted the combined evidence.
+- **Not rerun, by instruction:** the Full gate, the complete suite, guarded groups, TTS engine downloads or inference.
+- **Still the owner's (not qualified):** native macOS Preferences Reset, Finder remembered folders, Full Keyboard Access; remaining Windows folder checks; conditional setup visuals; Windows real-symlink rejection on a privileged account; fresh Windows and fresh Mac installation (a fresh Mac is not qualified).
+- **Next exact action:** the owner decides on the `v0.8.1` tag and the GitHub release (upload of the two audited archives). Nothing is tagged, released or uploaded.
+
 ## CURRENT — v0.8.1 Review R3 (Windows, HOME-PC): Codex M3 site-packages boundary closed; guard predicate only; focused tests, no gate rerun (2026-11-20, Claude Code Sonnet 5.5)
 
 Supersedes the Review R2 block below for status and next action; its history stands. Start `93b1659` (equal to origin/0.8.1); the R3 commit is the next commit on branch `0.8.1` (cite it by `git log`, not here). M1, M2 and the R2 skip policy were not touched; no `scripts/` file changed.

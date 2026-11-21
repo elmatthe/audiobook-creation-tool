@@ -1,4 +1,4 @@
-# Audiobook Creation Tool v0.8.0 (Windows) and v0.8.0 for macOS, Revision 1
+# Audiobook Creation Tool v0.8.1 (Windows and macOS)
 
 A desktop app for Windows and Apple Silicon Macs for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
@@ -6,12 +6,12 @@ A desktop app for Windows and Apple Silicon Macs for turning PDF/TXT books into 
 
 | Platform | Version | Archive | Double-click after extraction |
 |---|---|---|---|
-| Windows | v0.8.0 | [AudiobookTool-Windows-v0.8.0.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
-| macOS (Apple Silicon) | v0.8.0 for macOS, Revision 1 (`0.8.0+macos.1`) | [AudiobookTool-MacOS-v0.8.0-macos.1.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0-macos.1/AudiobookTool-MacOS-v0.8.0-macos.1.zip) | `Setup_and_Run-audiobook-creation-tool.command` |
+| Windows | v0.8.1 | [AudiobookTool-Windows-v0.8.1.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.1/AudiobookTool-Windows-v0.8.1.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+| macOS (Apple Silicon) | v0.8.1 | [AudiobookTool-MacOS-v0.8.1.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.1/AudiobookTool-MacOS-v0.8.1.zip) | `Setup_and_Run-audiobook-creation-tool.command` |
 
-**Windows: v0.8.0 is the current Windows release.** Qualification is limited to Windows 11 on one computer (the developer's HOME-PC) at 100% display scaling; Windows 10, other computers, other display scaling and the configurations listed under [Release verification and what is not yet qualified](#release-verification-and-what-is-not-yet-qualified) are not separately qualified.
+**v0.8.1 is the current release for Windows and macOS**, built from one shared source tree (one version number again; the macOS-only revision that was prepared after v0.8.0 was never published and is superseded by this release). Windows qualification is limited to Windows 11 on one computer (the developer's HOME-PC) at 100% display scaling; Windows 10, other computers, other display scaling and the configurations listed under [Release verification and what is not yet qualified](#release-verification-and-what-is-not-yet-qualified) are not separately qualified.
 
-**macOS: the first macOS release of the v0.8.0 generation** is its own revision, built from newer source than the Windows v0.8.0 download (which is unchanged); see [macOS (Apple Silicon)](#macos-apple-silicon). Linux is not qualified or distributed.
+**macOS:** Apple Silicon only; see [macOS (Apple Silicon)](#macos-apple-silicon) for what was and was not qualified. Linux is not qualified or distributed. The earlier Windows download (v0.8.0) is listed under [More information](#more-information) and is unchanged; there has never been a published macOS download of v0.8.0.
 
 ### Windows
 
@@ -59,7 +59,7 @@ You can add a voice later: in **TTS Audiobook**, choose it and press **Create**.
 
 **Requirements:** a Mac with Apple Silicon (M1 or later). Intel Macs are not supported. Qualification is limited to one computer: a MacBook Pro with an Apple M4 Pro and 24 GB of memory, on macOS 27.0.1. Other Macs, other macOS versions and Macs with less memory are not separately qualified; for OmniVoice, 16 GB of memory or more is recommended (narration used up to about 11 GB on the Mac it was tested on).
 
-1. **Download** `AudiobookTool-MacOS-v0.8.0-macos.1.zip` and double-click it in Finder (Archive Utility extracts it to a folder named `AudiobookTool-MacOS-v0.8.0-macos.1`).
+1. **Download** `AudiobookTool-MacOS-v0.8.1.zip` and double-click it in Finder (Archive Utility extracts it to a folder named `AudiobookTool-MacOS-v0.8.1`).
 2. **Move the whole extracted folder out of Downloads**, for example onto your Desktop or into your home folder, and keep its contents together. If the app is started straight from Downloads, macOS may run the launcher from a temporary read-only copy ("App Translocation"); the launcher then says so and asks you to move the folder.
 3. **Open it the first time.** The app is not signed by an identified Apple developer, so the first double-click of `Setup_and_Run-audiobook-creation-tool.command` is blocked by macOS ("Apple could not verify…"). Click **Done** (not Move to Trash), then open **System Settings › Privacy & Security**, scroll to the message about `Setup_and_Run-audiobook-creation-tool.command`, click **Open Anyway** and confirm with your password or Touch ID. Double-click the launcher again. macOS remembers the choice for that file. (Since macOS 15, Control-click › Open no longer bypasses this.)
    - *Optional, for people comfortable with Terminal:* `xattr -d com.apple.quarantine Setup_and_Run-audiobook-creation-tool.command`, run in the app folder, removes the download flag from **that one file** only. It skips Apple's malware check for it; use it only for an archive you downloaded from this repository's Releases page.
@@ -75,6 +75,19 @@ Nothing is installed on the Mac itself: no Homebrew, no administrator password, 
 | OmniVoice — Six Cloned Voices | Unchecked | Six cloned voices on the Mac's GPU (Apple Silicon), about real time on the tested Mac; the processor (CPU) can be chosen instead and is slower. Its engine and model take about 4.2 GB on disk. **Non-commercial** model weights: the same licence terms as on Windows (see [OmniVoice](#whats-new-in-v080-omnivoice)); the review screen shows the terms before anything is downloaded. |
 
 **Cancel and Pause on a Mac:** Cancel stops the running job at once, without waiting for the current book, file or chunk to finish; the button shows the cancelling state within about a second, the job's helper processes are stopped, and nothing unfinished is published. If the app cannot confirm that a helper process ended, the run is reported as failed rather than cancelled. Pause lets the files in progress finish, keeps your progress, and Resume continues; Cancel also works while paused.
+
+## What's new in v0.8.1
+
+v0.8.1 is one shared version for Windows and macOS (it follows the published Windows v0.8.0; the macOS-only revision prepared after it was never published). Which voices each platform offers is unchanged: **34 registered voices on Windows**, and **20 on a Mac** (Edge 5, Kokoro 9, OmniVoice 6; Chatterbox and Qwen3 stay Windows only).
+
+- **File dialogs remember where you were.** Add Files, Add Folder, the M4B Maker's custom-destination Browse and the Preferences output-location Browse each reopen in the folder you last used, per tool and per action. The remembered folder changes only when a selection is accepted; an unreachable folder opens your home folder and is kept for when it returns. **Reset Preferences** clears every remembered folder (no file or folder is deleted). Add Files and Add Folder refuse while an import is already running.
+- **Outlined buttons by meaning.** Buttons show one of four colours in their text and outline only, in Light and Dark: red for Cancel, Clear, Remove and Reset; green for Start, Build, Save and Install; yellow for Pause, Resume and Retry Failed; blue for the Book controls, repair and review. Other buttons stay as they were. A coloured button never floods with its colour.
+- **The same look on macOS.** The outlined buttons are drawn on a Mac's native (Aqua) buttons too, in Light and Dark, with a visible disabled state and focus halo; Reset Preferences repaints them with the stored appearance.
+- **OmniVoice and empty paragraphs.** A paragraph with nothing to say (only "...", or a lone unreadable character) no longer fails the chapter: it becomes a 0.2-second pause, and everything else sounds as before. A failure now says where it happened (chunk and worker batch), and its technical details (never the narrated text) are kept beside the engine's last-failure file.
+- **Fixes from the independent review.** Three findings from the independent Codex review were fixed and re-reviewed: a cancelled second import dialog could discard the running import's remembered folder; Reset Preferences left the Aqua outlined buttons with the previous theme's images; and the test suite's write guard was too permissive about bundled-Python bytecode (tests only).
+- **Voice samples are unchanged:** the published gallery still has **28 previews**. The six OmniVoice rows listed there as "To Be Added" are placeholders; they are not previews and are not an authorisation to publish any.
+
+The final independent Codex review of v0.8.1 concluded **PASS WITH LIMITATIONS**; the limitations are listed below, and the full record is [`files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`](https://github.com/elmatthe/audiobook-creation-tool/blob/master/files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md). See the [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md) for the complete list.
 
 ## What's new in v0.8.0: OmniVoice
 
@@ -93,6 +106,19 @@ Attribution required by the audio tokenizer's licence (section 1.b.i, quoted as 
 
 ## Release verification and what is not yet qualified
 
+### v0.8.1
+
+v0.8.1's one full automated verification run (Windows) **failed**: its 56 of 56 native acceptance journeys passed, but 30 tests failed and one errored, all of them out-of-date test and gate expectations or Windows-versus-macOS test differences rather than application faults. Two bounded remediation commits corrected them; a later focused re-run of the original 30 reported 18 passes, 12 Windows skips and no failures, and the original teardown trigger was not reproduced. The independent review then raised three findings, all fixed and independently re-reviewed (verdict **PASS WITH LIMITATIONS**). **No passing final canonical full run exists.** The owner declined a second full run and accepted the combined evidence for this release. Skips are not passes. The details are in [`files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`](https://github.com/elmatthe/audiobook-creation-tool/blob/master/files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md).
+
+Not yet qualified for v0.8.1:
+
+- On a Mac: the native Preferences Reset confirmation, remembered folders in the Finder's file dialogs, and Full Keyboard Access (Tab) traversal of the outlined buttons.
+- On Windows: the remaining manual folder-dialog checks and the conditional first-run (setup) visuals.
+- Windows rejection of a real symbolic link, on an account that holds the privilege to create one (this account could not; that test skips).
+- A first installation of this exact release on a fresh Mac or a fresh Windows computer; a fresh Mac has not been qualified by any separate evidence. Everything listed for v0.8.0 below that was not re-tested still applies.
+
+### v0.8.0
+
 v0.8.0's one full automated verification run **failed** on five out-of-date checks in the test and verification tools (no fault in the app was found). Those five were corrected and their focused checks passed. The owner accepted the combined evidence (the passing parts of that full run, the corrected focused checks, an independent code review whose three findings were fixed, real installations in disposable copies on HOME-PC and the owner's approval of the 12 OmniVoice listening tracks) for this Windows release, and decided not to repeat the full run. The details are in [`files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`](https://github.com/elmatthe/audiobook-creation-tool/blob/master/files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md).
 
 Not yet qualified for v0.8.0:
@@ -103,7 +129,7 @@ Not yet qualified for v0.8.0:
 - OmniVoice on any graphics card other than the one RTX 5070 it was tested on.
 - A complete first-time installation of all five voice choices from this exact release (it was run on earlier v0.8.0 code; the later steps were rerun on the final code in disposable copies).
 
-### macOS revision 1: what was checked and what is not yet qualified
+### macOS (revision prepared as v0.8.0 Revision 1, never published; carried into v0.8.1): what was checked and what is not yet qualified
 
 The macOS revision was developed and tested natively on the one Mac named above: automated tests and the app's own automated checks of all six tools on the real window, long narrations with Kokoro (a whole 6.3-hour book), Edge (37 minutes) and OmniVoice (43 minutes), and Cancel, Pause and closing the app during work. Not yet qualified for the macOS revision:
 
@@ -158,11 +184,11 @@ Eight local voices: **Qwen3 - Aiden** and **Qwen3 - Ryan** (CustomVoice) and **Q
 
 ## Voice samples
 
-Short samples of all 28 voices from before v0.8.0, each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/README.md) folder of this repository on GitHub. The six OmniVoice voices have no preview samples yet. The samples are not part of the download.
+Short samples of all 28 voices from before v0.8.0 (the gallery still holds exactly **28 published previews** in v0.8.1), each reading the same sentence and named exactly as in the app, are in the [voice previews](https://github.com/elmatthe/audiobook-creation-tool/blob/f7963c31813a344a92a9f67e6c3af3fc2603f64d/files/voice-previews/README.md) folder of this repository on GitHub. The six OmniVoice voices have no preview samples yet. The samples are not part of the download.
 
 ## Requirements
 
-- **macOS revision:** a Mac with Apple Silicon; see [macOS (Apple Silicon)](#macos-apple-silicon) for what is installed, where, and what was qualified. Internet access is needed for the first-run downloads and for Edge TTS narration.
+- **macOS:** a Mac with Apple Silicon; see [macOS (Apple Silicon)](#macos-apple-silicon) for what is installed, where, and what was qualified. Internet access is needed for the first-run downloads and for Edge TTS narration.
 - Windows (64-bit), with space for the Python environment, outputs and any voice models. Qualification is limited to Windows 11 at 100% display scaling as described above; Windows 10 is not separately qualified.
 - On Windows the app is portable: everything it needs stays inside its folder and nothing is installed on the computer. On the first run, setup asks before downloading the app's own Python 3.12 (a standalone build, about 46 MB, checked against a fixed SHA-256) into `files\runtime-data\python`; it does not use or change any Python already on the computer, needs no administrator rights and leaves PATH and file associations alone. FFmpeg is the app's own verified copy in `files\bin` (about 250 MB, also checked before use) unless a working FFmpeg is already on the computer. The Python packages come from a fixed list in which every package has one version and a SHA-256 (`scripts\requirements-lock-windows-py312.txt`); the downloaded packages are kept in `files\runtime-data\python-packages` (about 500 MB), so a repair needs no internet, and pip's cache stays in the folder too. The Edge voices' English sentence data (about 4.3 MB from NLTK's data repository, also checked) is downloaded during setup, or, if it is missing later, only after you agree when you start an Edge narration; it is kept in `files\runtime-data\nltk_data`. Deleting the folder removes everything the app set up. (The optional offer to switch on Windows long paths is the one step that changes a Windows setting, and only with an administrator's approval.)
 - Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space (the first four choices together download about 14.8 GB and use about 18 GB; OmniVoice adds about 6.9 GB to download and about 11.6 GB on disk).
@@ -172,7 +198,9 @@ Short samples of all 28 voices from before v0.8.0, each reading the same sentenc
 
 See the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) for release notes and other versions.
 
-Previous macOS build: [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) (superseded by the macOS revision above). Previous Windows version: [v0.7.3](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip).
+Previous Windows release: [v0.8.0](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.8.0/AudiobookTool-Windows-v0.8.0.zip), superseded by v0.8.1. (The macOS-only revision `0.8.0+macos.1` was prepared but never tagged or published; no download exists.)
+
+Previous macOS build: [v0.6.6](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) (superseded). Previous Windows version: [v0.7.3](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.7.3/AudiobookTool-Windows-v0.7.3.zip).
 
 Detailed project and developer information: [Briefing](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Briefing.md), [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md), [Decisions](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Decisions.md), and [Handoff](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Handoff.md).
 
