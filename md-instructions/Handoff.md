@@ -1,5 +1,13 @@
 # Audiobook Creation Tool — Handoff
 
+## CURRENT — v0.8.1 Review R3 (Windows, HOME-PC): Codex M3 site-packages boundary closed; guard predicate only; focused tests, no gate rerun (2026-11-20, Claude Code Sonnet 5.5)
+
+Supersedes the Review R2 block below for status and next action; its history stands. Start `93b1659` (equal to origin/0.8.1); the R3 commit is the next commit on branch `0.8.1` (cite it by `git log`, not here). M1, M2 and the R2 skip policy were not touched; no `scripts/` file changed.
+- **M3 (`files/tests/conftest.py`).** `_bundled_python_bytecode` now refuses any entry with a `site-packages` path component below `python/Lib/` (compared per component, `casefold`, so `Site-Packages` too), for both `__pycache__` folders and `.pyc` files. Codex's repro (a correct-tag `pip/__pycache__/__init__.cpython-312.pyc` with unrelated bytes, source present before the snapshot) left the fingerprint unchanged on `93b1659`; the new tests fail there (19) and pass now. All earlier checks (bundled cache tag, source module, name and `.opt-N`, links, nested `__pycache__`) are unchanged.
+- **Tests (`test_suite_isolation.py`).** Synthetic `site-packages/pip` (+ `_vendor/rich`) with `__init__.py` before the snapshot: 18 parametrized cases (3 folder casings x 3 names incl. `.opt-1`/`.opt-2` x new or pre-existing cache folder), a bare new cache folder, a nested third-party package, and stdlib bytecode (plain and optimised) still excused beside that tree.
+- **Verified (focused).** `test_suite_isolation` + `test_macos_p1b_gate`: 104 passed, 1 skipped (the real link, WinError 1314). Not run, by instruction: full gate, full suite, guarded groups, synthesis.
+- **Next exact action:** Codex re-review of M3. Nothing else is authorized.
+
 ## CURRENT — v0.8.1 Review R2 (Windows, HOME-PC): Codex M3 re-review fixed; guard predicate and skip policy only; focused tests, no gate rerun (2026-11-20, Claude Code Sonnet 5.5)
 
 Supersedes the Review R1 block below for status and next action; its history stands. Start `0347a05` (equal to origin/0.8.1); the R2 commit is the next commit on branch `0.8.1` (cite it by `git log`, not here). M1 and M2 were not reopened; no `scripts/` file changed.

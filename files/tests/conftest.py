@@ -234,7 +234,8 @@ def _bundled_python_bytecode(relative: str, entry=None, *, root=None, tag=None) 
 
     ``relative`` is a path below the runtime-data folder, ``/``-separated; ``entry`` is its ``os.DirEntry``; ``tag`` is
     the bundled interpreter's cache tag (:func:`_bundled_cache_tag`) and ``root`` the runtime-data folder. Two things
-    qualify, both below ``python/Lib/`` and never through a link:
+    qualify, both below ``python/Lib/``, never below a ``site-packages`` folder (compared by path component, case-insensitively)
+    and never through a link:
 
     * a ``__pycache__`` folder that is not itself inside another ``__pycache__`` (it is not recorded, but the walk still
       descends, so whatever else is in it registers; a nested ``__pycache__`` is recorded);
@@ -248,6 +249,8 @@ def _bundled_python_bytecode(relative: str, entry=None, *, root=None, tag=None) 
     parts = relative.rstrip("/").split("/")
     if parts[:2] != ["python", "Lib"] or len(parts) < 3 or entry is None or _is_link(entry):
         return False
+    if any(part.casefold() == "site-packages" for part in parts[2:]):
+        return False  # third-party code (pip and friends) is not the standard library, whatever its case or depth
     if entry.is_dir(follow_symlinks=False):
         return parts[-1] == "__pycache__" and "__pycache__" not in parts[:-1]
     match = _BYTECODE_NAME.fullmatch(parts[-1])

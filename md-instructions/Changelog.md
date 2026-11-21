@@ -18,6 +18,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Review R3, Codex M3; tests only)**
+- The test guard's bundled-Python bytecode exception no longer covers anything below `python/Lib/site-packages` (third-party code, matched by path component and case-insensitively); only genuine standard-library bytecode is excused.
+
 **Fixed (Review R2, Codex M3 re-review; tests and gate metadata only)**
 - The test guard's bundled-Python bytecode exception now requires the bundled interpreter's own cache tag, an existing source module, a `__pycache__` that is not nested, and a location under `python/Lib/`; foreign-tag, source-less and nested-cache entries and links are reported.
 - The real-link isolation test has its own skip reason and policy rule (ceiling 1); the generic `no-symlink-privilege` ceiling stays 17.

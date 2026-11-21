@@ -166,6 +166,53 @@ def test_only_genuine_stdlib_bytecode_is_excused_inside_the_bundled_cache(tmp_pa
         assert (after != before) is detected, label
 
 
+def _site_packages_like(tmp_path, folder="site-packages", *, preexisting_cache=False):
+    """A bundled Python whose Lib holds a third-party pip. ``__init__.py`` exists BEFORE any snapshot."""
+    root = _runtime_data_like(tmp_path)
+    pip = root / "python" / "Lib" / folder / "pip"
+    (pip / "_vendor" / "rich").mkdir(parents=True)
+    (pip / "__init__.py").write_text("x", encoding="utf-8")
+    (pip / "_vendor" / "rich" / "__init__.py").write_text("x", encoding="utf-8")
+    if preexisting_cache:
+        (pip / "__pycache__").mkdir()
+    return root, pip
+
+
+@pytest.mark.parametrize("folder", ["site-packages", "Site-Packages", "SITE-PACKAGES"])
+@pytest.mark.parametrize("name", ["__init__.cpython-312.pyc", "__init__.cpython-312.opt-1.pyc", "__init__.cpython-312.opt-2.pyc"])
+@pytest.mark.parametrize("preexisting_cache", [False, True])
+def test_bytecode_under_site_packages_is_never_excused(tmp_path, folder, name, preexisting_cache):
+    """Review R3 (Codex): site-packages is third-party, not the standard library. A correct-tag .pyc with its source
+    beside it, in a new or an existing __pycache__, at any case of the folder name, still changes the fingerprint."""
+    root, pip = _site_packages_like(tmp_path, folder, preexisting_cache=preexisting_cache)
+    before = conftest._fingerprint_named("the real runtime data", root)
+    (pip / "__pycache__").mkdir(exist_ok=True)
+    (pip / "__pycache__" / name).write_bytes(b"unrelated bytes")
+    assert conftest._fingerprint_named("the real runtime data", root) != before
+
+
+def test_a_bare_site_packages_cache_folder_and_a_nested_third_party_package_register(tmp_path):
+    root, pip = _site_packages_like(tmp_path)
+    before = conftest._fingerprint_named("the real runtime data", root)
+    (pip / "__pycache__").mkdir()
+    assert conftest._fingerprint_named("the real runtime data", root) != before, "the cache folder itself"
+    root, pip = _site_packages_like(tmp_path / "nested")
+    before = conftest._fingerprint_named("the real runtime data", root)
+    cache = pip / "_vendor" / "rich" / "__pycache__"
+    cache.mkdir()
+    (cache / "__init__.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) != before, "a nested third-party package"
+
+
+def test_stdlib_bytecode_stays_excused_beside_a_site_packages_tree(tmp_path):
+    root, _ = _site_packages_like(tmp_path)
+    before = conftest._fingerprint_named("the real runtime data", root)
+    cache = root / "python" / "Lib" / "multiprocessing" / "__pycache__"
+    (cache / "heap.cpython-312.pyc").write_bytes(b"first written")
+    (cache / "heap.cpython-312.opt-1.pyc").write_bytes(b"optimised")
+    assert conftest._fingerprint_named("the real runtime data", root) == before
+
+
 def test_a_bundled_python_with_no_identifiable_cache_tag_excuses_nothing(tmp_path):
     root = _runtime_data_like(tmp_path)
     (root / "python" / "python312.dll").unlink()
