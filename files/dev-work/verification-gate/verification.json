@@ -177,8 +177,8 @@
       },
       {
         "id": "no-symlink-privilege",
-        "pattern": "^this (environment|account) (cannot create|may not create)",
-        "max": 16
+        "pattern": "^(this (environment|account) (cannot create|may not create)|cannot make a symbolic link here$)",
+        "max": 17
       },
       {
         "id": "case-insensitive-filesystem",
@@ -252,8 +252,62 @@
       {
         "id": "posix-synthesis-worker-retirement-p5d",
         "pattern": "^(POSIX\\ synthesis\\-worker\\ group\\ retirement\\ \\(Windows:\\ Job\\ Objects\\))$",
-        "max": 42,
-        "why": "v0.8.x P5-D: test_synthesis_worker_group_retirement.py's 26 tests of POSIX process groups when a synthesis worker ends: the local-engine worker (a crash with a helper on /dev/null, on its stderr or on its protocol channel; an engine-switch close; alive() never reaping; Cancel after an idle worker exited, through the run's own end and through cancel_requested; Cancel mid-chunk; an unconfirmed group end turning Cancel into a failure; an escapee holding its output reported; two ends at once) and the OmniVoice worker (done, an obeyed Cancel and a crash with a helper on /dev/null or on its output; a stubborn worker; an unconfirmed group end never a success or a clean Cancel; an escapee holding its output; under the app window's owner), and qwen3_process.kill_tree's POSIX twins of the Windows tree tests (a child whose parent already exited, the pipe reaching end-of-file) with its identity control. Windows keeps its Job Object and taskkill /T paths and the released worker supervision, pinned by test_kill_tree_keeps_its_windows_paths and test_a_worker_without_a_proved_group_keeps_the_released_supervision, which run everywhere. v0.8.x P5-D-R1 adds 9 more (35): a worker whose identity was not recorded at spawn is never admitted (OmniVoice done and stubborn, the local-engine worker), kill_tree never falls back to signalling a group it cannot prove (running, exited), choosing another engine retires a worker that already exited (with and without a helper), and a Cancel meeting another caller's unconfirmed end is never clean (close, kill). v0.8.x P5-D-R2 adds 7 more (42): a Cancel after another caller fully retired the request's worker unconfirmed is never clean (an answer withheld after close or kill, an escapee holding its output), a worker that died after such a retirement says so, the confirmed control (close, kill), and an end asked for a retired worker answers for it alone. Nothing Windows ran before is skipped by this rule."
+        "max": 44,
+        "why": "v0.8.x P5-D: test_synthesis_worker_group_retirement.py's 26 tests of POSIX process groups when a synthesis worker ends: the local-engine worker (a crash with a helper on /dev/null, on its stderr or on its protocol channel; an engine-switch close; alive() never reaping; Cancel after an idle worker exited, through the run's own end and through cancel_requested; Cancel mid-chunk; an unconfirmed group end turning Cancel into a failure; an escapee holding its output reported; two ends at once) and the OmniVoice worker (done, an obeyed Cancel and a crash with a helper on /dev/null or on its output; a stubborn worker; an unconfirmed group end never a success or a clean Cancel; an escapee holding its output; under the app window's owner), and qwen3_process.kill_tree's POSIX twins of the Windows tree tests (a child whose parent already exited, the pipe reaching end-of-file) with its identity control. Windows keeps its Job Object and taskkill /T paths and the released worker supervision, pinned by test_kill_tree_keeps_its_windows_paths and test_a_worker_without_a_proved_group_keeps_the_released_supervision, which run everywhere. v0.8.x P5-D-R1 adds 9 more (35): a worker whose identity was not recorded at spawn is never admitted (OmniVoice done and stubborn, the local-engine worker), kill_tree never falls back to signalling a group it cannot prove (running, exited), choosing another engine retires a worker that already exited (with and without a helper), and a Cancel meeting another caller's unconfirmed end is never clean (close, kill). v0.8.x P5-D-R2 adds 7 more (42): a Cancel after another caller fully retired the request's worker unconfirmed is never clean (an answer withheld after close or kill, an escapee holding its output), a worker that died after such a retirement says so, the confirmed control (close, kill), and an end asked for a retired worker answers for it alone. v0.8.x P5-I and P5-I-R3 add 2 more (44) with the same reason text. Nothing Windows ran before is skipped by this rule."
+      },
+      {
+        "id": "native-macos-aqua-native-size",
+        "pattern": "^compares with the native Aqua button$",
+        "max": 16,
+        "why": "v0.8.1 Checkpoint E: test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size, 4 roles by 4 labels. It builds a real Cocoa (Aqua) button and compares the role button's requested size with it, so only a Mac can run it; it ran and passed there in Checkpoint E (Handoff). The feature ACT.SHARED.BUTTON-ROLES carries it as a macos-native owner check, so a Windows run neither satisfies nor hides it. Every other Aqua role test (text and outline colour, layout, image pixels, Light/Dark repaint) runs on this interpreter and is not skipped by this rule."
+      },
+      {
+        "id": "native-macos-p1b-aqua-geometry",
+        "pattern": "^Aqua geometry regression: native macOS metrics only$",
+        "max": 48,
+        "why": "v0.8.x P1B: test_macos_p1b_visual_remediation.py's 48 Aqua text-fit and region-geometry regressions measure the native Aqua control metrics and skip unless the root is a real Aqua Tk. Windows has the same intent as the older rule native-macos-only (whose lower-case reason text is pinned at 39 and unchanged); this module spells the reason with a capital A, so it has its own rule. They run natively on the Mac (P1B)."
+      },
+      {
+        "id": "native-macos-p5h-assembly",
+        "pattern": "^(containment is the Mac's|POSIX reads|Windows reads its pipes as before)$",
+        "max": 18,
+        "why": "v0.8.x P5-H-R1: test_macos_p5h_r1_assembly.py's tests that need the Mac's real containment owner (the real_owner fixture: 15), two POSIX pipe reads (2: a pipe numbered past select's limit, which also needs the descriptor limit raised, and the WAV header read held to the kill deadline) and the read stage of the abandon test (1: Windows reads its pipes as before). They run natively on the Mac. The Windows-meaningful tests of the same module run here."
+      },
+      {
+        "id": "native-macos-p5h-kx1-drill",
+        "pattern": "^the KX-1 drill and its kernel start times are macOS's$",
+        "max": 6,
+        "why": "v0.8.x P5-H-R1: test_macos_p5h_r1_evidence_tools.py's 6 tests of the KX-1 kill drill and macOS kernel process start times; the drill is a macOS procedure and has no Windows meaning."
+      },
+      {
+        "id": "native-macos-p5i-posix-containment",
+        "pattern": "^POSIX containment is the Mac's$",
+        "max": 137,
+        "why": "v0.8.x P5-I and P5-I-R3: the 11 test_macos_p5i_*.py modules (27, 15, 16, 13, 25, 12, 2, 5, 5, 4 and 13 tests) are module-level macOS-only suites of the POSIX containment lifecycle (ledger, spawn admission, guardian, launch permits, settlement); Windows contains children with a Job Object, pinned elsewhere. They ran natively on the Mac. The P5-I design itself was NOT APPROVED by its independent review (Handoff): that is an open macOS release matter, and this rule only records that Windows has nothing to run. The ceiling is the count measured at Checkpoint F1; a new test in those modules raises it deliberately."
+      },
+      {
+        "id": "native-macos-p5-first-run-adapter",
+        "pattern": "^(the launcher loads the macOS adapter on the app's base Python|the Mac's first-run copy facts follow the host's own layout, which is python\\.exe here)$",
+        "max": 2,
+        "why": "v0.8.x P5-F and Checkpoint F1: test_macos_p5_first_run_choices.py's two tests that need the Mac's base Python or the Mac's copy layout (bin/python3.12); on Windows the same facts come out in the Windows layout. Its other tests (the negative controls that change one fact each) run here."
+      },
+      {
+        "id": "macos-pinned-archives-not-downloaded",
+        "pattern": "^(the pinned archive has not been downloaded here|the Riedl 9\\.0\\.1 ZIPs are not downloaded here)$",
+        "max": 2,
+        "why": "v0.8.x P1A: two macOS tests that unpack the pinned macOS archives (the Python build and the Riedl FFmpeg ZIPs) skip when those downloads are not in this checkout. A Windows checkout does not download Mac archives; the Mac does."
+      },
+      {
+        "id": "posix-process-id-probe",
+        "pattern": "^POSIX process-id probe: on Windows os\\.kill\\(pid, 0\\) ends the process$",
+        "max": 1,
+        "why": "v0.8.1 Checkpoint F1: test_macos_foundation.py::test_interrupted_macos_acquisitions_leave_only_what_the_next_run_removes probes a process id with os.kill(pid, 0), which on Windows is TerminateProcess; the test used its own parent's id, so on Windows it could end the process that started it. The code under test (ffmpeg_portable.recover_macos_staging) is reached only from the macOS install route."
+      },
+      {
+        "id": "posix-fcntl-simulation",
+        "pattern": "^this macOS simulation imports fcntl, which only POSIX has$",
+        "max": 8,
+        "why": "v0.8.1 Checkpoint F1: 8 tests in test_omnivoice_synth.py (7) and test_omnivoice_reference.py (1) that simulate a Mac by setting the platform to darwin; the code under test then takes a real fcntl lock, and Windows has no fcntl module. Faking one would hide the lock these tests are about (Checkpoint D), so they are skipped here and run for real on the Mac (135 passed there in Checkpoint E, Handoff)."
       }
     ],
     "darwin": [

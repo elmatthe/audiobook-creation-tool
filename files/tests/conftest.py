@@ -208,7 +208,21 @@ _REAL_SCANDIR = os.scandir
 _REAL_STAT = os.stat
 
 
-def _fingerprint(path: Path, *, follow_links: bool = True):
+def _bundled_python_bytecode(relative: str) -> bool:
+    """True for the bytecode cache of the app's own bundled Python, inside ``files/runtime-data``.
+
+    ``relative`` is a path below the runtime-data folder, ``/``-separated. Only a ``__pycache__`` folder (and what is in
+    it) below ``python/`` qualifies: that is the interpreter's own compile cache for its standard library, which the
+    interpreter writes the first time a module is imported (v0.8.1 Checkpoint F1: ``multiprocessing.heap`` and
+    ``popen_spawn_win32`` on the first real ``spawn`` the Edge publication tests make). It is neither application state
+    nor something a test can forge to fake an installation. Everything else under ``python/`` (the interpreter, its
+    libraries, ``Scripts``) and every ``__pycache__`` anywhere else in runtime-data still counts.
+    """
+    parts = relative.rstrip("/").split("/")
+    return parts[0] == "python" and "__pycache__" in parts[1:]
+
+
+def _fingerprint(path: Path, *, follow_links: bool = True, ignore=None):
     """(size, mtime_ns, sha256) for a file, or the metadata equivalent for a directory.
 
     A missing path fingerprints as ``None``, so a machine with no ``.venv`` and a
@@ -240,7 +254,7 @@ def _fingerprint(path: Path, *, follow_links: bool = True):
     the tree as an entry of its own and does not descend into it.
     """
     try:
-        return tuple(sorted(_walk(path, "", follow_links=follow_links)))
+        return tuple(sorted(_walk(path, "", follow_links=follow_links, ignore=ignore)))
     except NotADirectoryError:
         pass
     except OSError:
@@ -254,7 +268,7 @@ def _fingerprint(path: Path, *, follow_links: bool = True):
         return None
 
 
-def _walk(directory: Path, prefix: str, *, follow_links: bool = True):
+def _walk(directory: Path, prefix: str, *, follow_links: bool = True, ignore=None):
     """Every file under ``directory``, recursively, as (relpath, size, mtime).
 
     Raises ``NotADirectoryError`` for a file so :func:`_fingerprint` can fall
@@ -264,13 +278,15 @@ def _walk(directory: Path, prefix: str, *, follow_links: bool = True):
     with _REAL_SCANDIR(directory) as entries:
         for entry in entries:
             name = f"{prefix}{entry.name}"
+            if ignore is not None and ignore(name):
+                continue
             if not follow_links and _is_link(entry):
                 yield (name + "@", -2, -2)
             elif entry.is_dir():
                 # A directory that exists but is empty still has to register,
                 # or an emptied tree would look identical to an absent one.
                 yield (name + "/", -1, -1)
-                yield from _walk(Path(entry.path), name + "/", follow_links=follow_links)
+                yield from _walk(Path(entry.path), name + "/", follow_links=follow_links, ignore=ignore)
             elif entry.is_file():
                 info = entry.stat()
                 yield (name, info.st_size, info.st_mtime_ns)
@@ -304,7 +320,8 @@ def _fingerprint_named(name: str, path: Path):
     """The fingerprint the guard uses for the guarded path called *name*."""
     if name in _SHALLOW_GUARDED:
         return _listing(path)
-    return _fingerprint(path, follow_links=name not in _LINK_SAFE_TREES)
+    return _fingerprint(path, follow_links=name not in _LINK_SAFE_TREES,
+                        ignore=_bundled_python_bytecode if name == "the real runtime data" else None)
 
 
 def _snapshot(paths: dict, names) -> dict:

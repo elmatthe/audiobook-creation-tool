@@ -386,6 +386,30 @@ def test_aqua_role_images_are_outlined_neutral_and_transparent_outside(tk_root, 
             assert _contrast(tone, centre) >= 4.5, key
 
 
+def assert_aqua_button_layout(style, bundle, name, role=None):
+    """The Aqua button-layout contract since Checkpoint E, for any panel's button.
+
+    A semantic role button (red, green, yellow, blue) draws its own outlined image
+    element, with the padding and label nesting of a button and no separate focus
+    element (the keyboard-focus ring is part of the image); its native size is pinned
+    on a Mac by ``test_aqua_role_buttons_ask_for_exactly_the_native_size``. Every other
+    button stays on the native TButton layout exactly. ``role`` ("red"...) names the
+    role the style must be; ``None`` means it must be the plain, native button.
+    """
+    by_style = {bundle["styles"][key]: key[len("button_"):] for key in ROLE_KEYS}
+    assert by_style.get(str(name)) == role, (str(name), role)
+    layout, native = style.layout(str(name)), style.layout("TButton")
+    assert len(layout) == 1 and len(native) == 1, (layout, native)
+    if role is None:
+        assert layout == native, str(name)
+        return
+    element, options = layout[0]
+    assert element.startswith(f"CompactAqua.{role}.button."), element
+    assert options == {"sticky": "nswe", "children": [
+        ("Button.padding", {"sticky": "nswe", "children": [
+            ("Button.label", {"sticky": "nswe"})]})]}, (element, options)
+
+
 @pytest.mark.parametrize("label", ["X", "Start", "Add Files", "Remove Selected"])
 @pytest.mark.parametrize("key", ROLE_KEYS)
 @pytest.mark.skipif(sys.platform != "darwin", reason="compares with the native Aqua button")

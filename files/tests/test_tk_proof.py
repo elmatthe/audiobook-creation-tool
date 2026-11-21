@@ -147,14 +147,45 @@ def test_stage_zero_uses_the_same_real_tk_proof_and_a_bounded_run():
 
 @needs_tk
 @pytest.mark.skipif(not sys.platform.startswith("win"), reason="stage 0 is Windows PowerShell")
-def test_stage_zero_rejects_a_python_whose_tk_cannot_initialise(broken_tk, tmp_path):
+def test_stage_zero_rejects_a_python_whose_tk_cannot_initialise(tmp_path):
     """Real stage 0 with Tk broken: no Python is accepted and nothing is downloaded. (v0.7.0: stage 0 only ever uses
-    the app's own Python in files/runtime-data/python, never one installed on the computer.)"""
-    out = tmp_path / "selected.txt"
-    result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(STAGE_ZERO),
-                             "-OutFile", str(out), "-AssumeNo"], capture_output=True, text=True, timeout=300)
+    the app's own Python in files/runtime-data/python, never one installed on the computer.)
+
+    Hermetic since v0.8.1 Checkpoint F1. Stage 0 probes the app's own Python with ``-I``, which ignores PYTHONPATH, so
+    breaking Tk through the environment never reached the probe: on a machine that has the app's Python (every installed
+    copy, and the maintainer's) stage 0 accepted the real one and the test failed, passing before only where that Python
+    was absent. The probe now runs a copy of stage 0 in a throwaway repository layout whose app Python is a copy of this
+    interpreter's base Python: first healthy (the control: it is accepted), then with a sitecustomize in that copy that
+    breaks Tk the way a missing tk.tcl does (it is rejected and nothing is downloaded or written)."""
+    import shutil
+
+    base = Path(sys.base_prefix)
+    if not (base / "python.exe").is_file() or not (base / "Lib").is_dir():
+        pytest.skip("this interpreter's base Python is not a Windows install tree that can be copied")
+    repo = tmp_path / "repo"
+    (repo / "scripts" / "shared").mkdir(parents=True)
+    shutil.copyfile(STAGE_ZERO, repo / "scripts" / "shared" / STAGE_ZERO.name)
+    home = repo / "files" / "runtime-data" / "python"
+    shutil.copytree(base, home, ignore=shutil.ignore_patterns("__pycache__", "*.pdb", "include", "libs", "Scripts"))
+    site_packages = home / "Lib" / "site-packages"
+    assert not (site_packages / "sitecustomize.py").exists()
+
+    def stage_zero(name: str):
+        out = tmp_path / f"{name}.txt"
+        done = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                               str(repo / "scripts" / "shared" / STAGE_ZERO.name), "-OutFile", str(out), "-AssumeNo"],
+                              capture_output=True, text=True, timeout=300)
+        return done, out
+
+    healthy, out = stage_zero("healthy")
+    assert healthy.returncode == 0 and out.is_file(), f"the control, a healthy copy, is accepted: {healthy.stdout}{healthy.stderr}"
+    out.unlink()
+
+    (site_packages / "sitecustomize.py").write_text(BREAK_TK, encoding="utf-8")
+    result, out = stage_zero("broken")
     assert result.returncode == 2, result.stdout + result.stderr
     assert not out.exists()
+    assert not (repo / "files" / "temp").exists(), "nothing was downloaded"
 
 
 # --------------------------------------------------------------------------- #

@@ -18,6 +18,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Checkpoint F1, tests and gate metadata only; no application code)**
+- The Aqua layout pins in five tests (`test_clear_all_imports`, `test_m4b_maker_ui`, `test_m4b_metadata_editor_ui`,
+  `test_prototype_regression`, `test_mp3_tool_ui`) asserted that every Aqua button has the native `TButton` layout. Since
+  Checkpoint E a role button (red, green, yellow, blue) draws its own outlined image element and a plain button stays
+  native; they now say so through one helper (`assert_aqua_button_layout` in `test_button_roles.py`).
+- `ACT.SHARED.BUTTON-ROLES` has its macOS standing in `coverage.json` (recorded from the native Checkpoint E run, not
+  derived from the P1B census); the four Mac-only native-size comparisons are a `macos-native` owner check instead of
+  routine Windows verifications that could never run there.
+- The Windows skip policy names each macOS-only reason with its own exact ceiling and reason text instead of leaving 229
+  skips unmatched; the P5-D ceiling is 44 (two tests were added after it was set). Unreviewed skips still fail.
+- Mac-only tests that failed on Windows now say so: eight `fcntl` simulations, a process-id probe that ended the process
+  on Windows, a first-run copy layout, and three assembly and two worker tests made platform-correct. The Mac stop-budget
+  timing is asserted on POSIX only.
+- `test_stage_zero_rejects_a_python_whose_tk_cannot_initialise` is hermetic (a copy of stage 0 and of the Python, with a
+  healthy control); `test_edge_publication` simulates POSIX through the shared primitive; the MP3 hardening version pin is
+  0.8.1; the Tk module boundary forgets the application's disarmed indicator images; the production-write guard no longer
+  counts the bundled Python's own `__pycache__`.
+- Not changed: the four voice-preview documentation tests (the README was edited by hand on 2026-11-16; owner decision
+  needed) and the Windows symlink-privilege test.
+
 **Fixed (Checkpoint F, tests only)**
 - Two macOS-only test modules (`test_macos_p1b_gui_containment.py`, `test_macos_p2_kokoro_real.py`) no longer stop test
   collection on Windows: their `parametrize` decorators named `signal.SIGKILL`, which Windows does not have, and the

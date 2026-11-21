@@ -74,6 +74,7 @@ def without_the_interpreter_file(problems):
     return [item for item in problems if "does not exist" not in item]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the Mac's first-run copy facts follow the host's own layout, which is python.exe here")
 def test_a_real_copy_names_only_itself_and_runs_on_the_apps_own_base_python(world):
     facts = world["facts"]
     assert Path(facts["repo_root"]) == world["copy"] and Path(facts["bootstrap_module"]) == world["copy"] / "scripts" / "shared" / "bootstrap.py"

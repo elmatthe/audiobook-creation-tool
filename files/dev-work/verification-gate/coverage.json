@@ -20724,22 +20724,6 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_red-Start]"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_green-Start]"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_yellow-Start]"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size[button_blue-Start]"
-          },
-          {
-            "kind": "behavior",
             "test": "files/tests/test_button_roles.py::test_every_classified_button_takes_its_style_through_a_role_helper"
           },
           {
@@ -20802,6 +20786,11 @@
             "kind": "owner",
             "check": "visual-baselines",
             "detail": "Look at every tool panel, Preferences & Data and the setup dialogs in Light and Dark on Windows: roles, hover, pressed, focus ring and disabled state. Real-Tk screenshots exist from Checkpoint B (ignored); macOS Aqua is Checkpoint E."
+          },
+          {
+            "kind": "owner",
+            "check": "macos-native",
+            "detail": "On a real Mac, files/tests/test_button_roles.py::test_aqua_role_buttons_ask_for_exactly_the_native_size (four roles by four labels) must pass: an Aqua role button asks for exactly the size of the native button. It compares with Cocoa's own button, so it skips on every other platform and cannot be satisfied by a Windows run. It passed on the Mac in Checkpoint E (Handoff); this routine run does not re-prove it."
           }
         ]
       },
@@ -29665,6 +29654,18 @@
         },
         "class": "native",
         "why": "its routine tests run natively on macOS and pass"
+      },
+      "ACT.SHARED.BUTTON-ROLES": {
+        "tests": {
+          "fail": 1
+        },
+        "skipped_by": {},
+        "failing": [
+          "files/tests/test_tts_appearance.py::test_every_tts_button_takes_its_approved_outline_role"
+        ],
+        "journeys": {},
+        "class": "native-with-failures",
+        "why": "added after the P1B census, so not derived from it: recorded from the native Checkpoint E run on HOME-MacOS (Apple M4 Pro, 2026-11-20; Handoff Checkpoint E). The inventory audit and the per-tool appearance audits ran natively and passed; the one required test that failed there is the failing id above, which fails identically on the pristine pre-E commit 6357f29 (the Windows appearance bundle is built against the real darwin panel). Per-test pass counts were not recorded. The owner-manual acceptance (Tab through the role buttons with Full Keyboard Access; Light and Dark look on a real display) is still pending and is not claimed"
       },
       "ACT.SHARED.SCROLLING": {
         "tests": {

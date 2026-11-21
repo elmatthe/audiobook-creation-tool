@@ -11,6 +11,7 @@ no-clobber publication and retry determinism.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -29,6 +30,11 @@ from tts import omnivoice_synth as osy
 from tts import qwen3_runtime as rt
 from tts.speech import pipeline
 from tts.speech.pipeline import OFF, SETTING_V1, build_snapshot
+
+#: A macOS simulation runs code that takes a real ``fcntl`` lock; Windows has no such module, and faking one would hide the
+#: lock the test is about (Checkpoint D). These run for real on a Mac; the Windows gate names the skip in its policy.
+needs_fcntl = pytest.mark.skipif(importlib.util.find_spec("fcntl") is None,
+                                 reason="this macOS simulation imports fcntl, which only POSIX has")
 
 pytestmark = pytest.mark.usefixtures("production_writes_refused")
 
@@ -250,8 +256,8 @@ def test_the_worker_bound_is_the_released_48_except_on_a_mac_s_gpu():
 
 @pytest.mark.parametrize("system, device, sizes", [
     ("win32", None, [48, 2]),  # Windows, as released
-    ("darwin", "mps", [16, 16, 16, 2]),
-    ("darwin", "cpu", [48, 2]),
+    pytest.param("darwin", "mps", [16, 16, 16, 2], marks=needs_fcntl),
+    pytest.param("darwin", "cpu", [48, 2], marks=needs_fcntl),
 ])
 def test_without_the_seam_each_run_uses_its_device_s_worker_bound_in_plan_order(fake, monkeypatch, system, device,
                                                                                   sizes):
@@ -443,6 +449,7 @@ def test_a_failed_file_says_why_publishes_nothing_and_keeps_an_existing_output(f
      "ran out of memory \\(on a Mac the GPU shares the computer's memory\\)"),
     ({"behavior": "no_gpu"}, "never moves to the processor on its own"),
 ], ids=["oom", "no-gpu"])
+@needs_fcntl
 def test_on_a_mac_a_failed_file_says_why_in_the_mac_s_words(fake, plan, message, monkeypatch):
     """macOS P4B: the Mac's sentences -- memory the GPU shares, and a GPU that cannot be used, which is never answered by
     moving to the processor -- with the same guarantees: nothing published, nothing clobbered."""
@@ -456,6 +463,7 @@ def test_on_a_mac_a_failed_file_says_why_in_the_mac_s_words(fake, plan, message,
 
 
 @pytest.mark.parametrize("choice, device", [(None, "mps"), ("cpu", "cpu")])
+@needs_fcntl
 def test_on_a_mac_the_job_and_the_prompt_identity_carry_the_accepted_device(fake, monkeypatch, choice, device):
     """macOS P4B: the run's device comes from the policy once per file -- the Mac's GPU by default, the processor by
     explicit choice, both float32 -- and goes into the job and into the clone prompt's identity, so a prompt made on one
@@ -480,6 +488,7 @@ def test_on_a_mac_the_job_and_the_prompt_identity_carry_the_accepted_device(fake
     assert any(line.startswith("OmniVoice device: ") and said in line for line in fake.logs), fake.logs
 
 
+@needs_fcntl
 def test_on_a_mac_a_refused_device_choice_stops_before_any_worker_starts(fake, monkeypatch):
     """No guess and no fallback: a device the owner did not accept (MPS float16 is not even a value) stops the file
     before a job folder or a worker exists."""

@@ -661,7 +661,7 @@ def test_cancel_during_the_encode_kills_it_at_once(mac_folder, monkeypatch):
     monkeypatch.setattr(ffmpeg_watch.Supervised, "communicate", communicate)
     result = mac_folder["run"]()
     assert pressed, "the encoder ran"
-    assert pressed[0].returncode is not None and pressed[0].returncode < 0, "killed, not left to finish"
+    assert _was_killed(pressed[0].returncode), "killed, not left to finish"
     _assert_cancelled_cleanly(mac_folder, result)
 
 
@@ -740,6 +740,14 @@ def _sleeper() -> list[str]:
     return [sys.executable, "-c", "import time; time.sleep(60)"]
 
 
+def _was_killed(returncode) -> bool:
+    """A process that was stopped rather than left to finish: on POSIX a signal (a negative status); on Windows
+    TerminateProcess's own non-zero exit code (a process left to finish exits 0)."""
+    if returncode is None:
+        return False
+    return returncode < 0 if os.name == "posix" else returncode != 0
+
+
 def test_a_cancelled_run_starts_no_process_and_makes_no_file_for_one(monkeypatch):
     controller = JobController("p5h-r1-refused")
     controller.start()
@@ -783,7 +791,7 @@ def test_a_cancel_pressed_while_a_process_is_being_created_waits_for_it_and_then
             assert seen == {"cancel_waited": True, "latched_at_creation": False, "pressing": seen["pressing"]}
             assert not seen["pressing"].is_alive() and controller.cancel_check(), "the Cancel then went through"
             ffmpeg_watch.wake()
-            assert child.process.wait(5) < 0, "and the process it waited for is stopped"
+            assert _was_killed(child.process.wait(5)), "and the process it waited for is stopped"
             with pytest.raises(ConversionCancelled):
                 child.finish()
         finally:
@@ -1331,10 +1339,10 @@ def test_a_contained_ffmpeg_that_cannot_be_registered_is_ended(real_owner, monke
 @needs_ffmpeg
 def test_a_pipe_numbered_past_selects_limit_is_read(tmp_path):
     """Codex re-review 2: ``select()`` refused a descriptor above 1023; a busy app's FFmpeg pipe can be one."""
-    import resource
-
     if os.name != "posix":
         pytest.skip("POSIX reads")
+    import resource  # POSIX only: the check above comes first so Windows collects and skips
+
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     want = 1200
     if hard != resource.RLIM_INFINITY and hard < want:

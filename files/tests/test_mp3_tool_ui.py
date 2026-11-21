@@ -40,6 +40,7 @@ from shared.job_ui import MainThreadError  # noqa: E402
 
 from mp3 import mp3_tool, mp3_workflow as wf  # noqa: E402
 
+from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -1178,10 +1179,14 @@ def test_windows_styles_are_compact_namespaced_and_aqua_stays_native(tk_root, ma
             ttk.Style(tk_root), appearance.LIGHT, platform="darwin", root=tk_root))
     try:
         assert str(native.cget("style")) == native.appearance_bundle["styles"]["window"]
+        by_style = {native.appearance_bundle["styles"][key]: key[len("button_"):]
+                    for key in ("button_red", "button_green", "button_yellow", "button_blue")}
         for button in widgets_of(native, ttk.Button):
             name = str(button.cget("style"))
             assert name.startswith("CompactAqua.")
-            assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
+            # a semantic role button wears its outlined role element; every other one is native
+            assert_aqua_button_layout(ttk.Style(tk_root), native.appearance_bundle, name,
+                                      by_style.get(name))
         name = native.appearance_bundle["styles"]["combobox"]
         assert str(native.navigator.selector.cget("style")) == name
         assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TCombobox")

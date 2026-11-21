@@ -40,6 +40,7 @@ from artwork import m4b_artwork_ui
 from m4b.maker import m4b_maker, m4b_maker_batch as batch  # noqa: E402
 from m4b.maker import m4b_maker_plan as mp, m4b_maker_workflow as wf  # noqa: E402
 
+from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -721,7 +722,7 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
         assert panel.navigator.layout == "stacked"
         name = panel.appearance_bundle["styles"]["button_green"]
         assert str(panel.btn_build.cget("style")) == name
-        assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
+        assert_aqua_button_layout(ttk.Style(tk_root), panel.appearance_bundle, name, "green")
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
         # Without the Phase 13 hints the composition is the compact one
         # (v0.6.6 Phase 7): the options on one line, and the Book-only row

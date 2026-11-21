@@ -1485,8 +1485,10 @@ def test_a_cancelled_run_whose_ffmpeg_will_not_end_fails_and_is_never_reported_c
 
     def export(self, output, **kwargs):
         # A real encoder that keeps running: real-time input that never ends.
-        command = [disk_assembly.AudioSegment.converter, "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-re", "-i",
-                   "/dev/zero", "-f", "mp3", str(output)]
+        # (POSIX reads /dev/zero; Windows has no such device, so its endless real-time input is a generated silence.)
+        source = (["-f", "s16le", "-ar", "24000", "-ac", "1", "-re", "-i", "/dev/zero"] if os.name == "posix"
+                  else ["-re", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono"])
+        command = [disk_assembly.AudioSegment.converter, "-y", *source, "-f", "mp3", str(output)]
         done = ffmpeg_watch.run(command)
         raise AssertionError(f"the encoder was meant to be cancelled, not to finish ({done.returncode})")
 
@@ -1504,8 +1506,12 @@ def test_a_cancelled_run_whose_ffmpeg_will_not_end_fails_and_is_never_reported_c
         assert result.state is JobState.FAILED and not result.cancelled, result.state
         assert not is_available(JobAction.RETRY_FAILED, result.state, has_retryable=result.has_retryable), (
             "a run that may still have FFmpeg at work offers no Retry Failed")
-        assert settled_at - stuck["cancelled_at"] < ffmpeg_watch.ABANDON_WAIT_SECONDS + 1.0
-        assert ffmpeg_watch.ABANDON_WAIT_SECONDS + ffmpeg_watch.WATCH_SECONDS <= 4.0, "inside the 4 s FFmpeg stop budget"
+        if os.name == "posix":
+            # The stop budget is the Mac's: Windows reads its pipes as before (see the "read" stage of the abandon test in
+            # test_macos_p5h_r1_assembly), so a Windows run settles later (about 6 s measured on HOME-PC, Checkpoint F1).
+            # What is pinned on every platform is the verdict above and below, never a Cancel and never a Retry.
+            assert settled_at - stuck["cancelled_at"] < ffmpeg_watch.ABANDON_WAIT_SECONDS + 1.0
+            assert ffmpeg_watch.ABANDON_WAIT_SECONDS + ffmpeg_watch.WATCH_SECONDS <= 4.0, "inside the 4 s FFmpeg stop budget"
         assert stuck["process"].poll() is None, "it really was still running when the run settled"
         assert "still running" in log_text(panel)
     finally:
@@ -1528,6 +1534,9 @@ def test_an_item_that_ignores_cancel_fails_the_run_inside_the_bound_and_is_never
     from shared.job_control import JobState
 
     monkeypatch.setattr(panel_module, "ITEM_STOP_S", 0.5)
+    # The bound is the Mac's (the next test pins that Windows keeps waiting); this one pins the bound itself, so it
+    # states the platform it is about instead of inheriting the host's.
+    monkeypatch.setattr(panel_module, "_items_wait_bounded", lambda: True)
     gated_stubs.gate_on = ".txt"  # the file holds inside its conversion, Cancel or not, until released
     panel, _chosen = direct_panel(make_panel, tmp_path, "stubborn.txt")
     panel.run_job()

@@ -210,6 +210,7 @@ from tkinter import ttk  # noqa: E402
 
 from shared import appearance, ui_theme  # noqa: E402
 from test_importing import make_config  # noqa: E402
+from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 
 
@@ -307,7 +308,8 @@ def test_an_aqua_bundle_builds_the_same_panel_natively(fresh_root):
         assert [str(w) for w in _walk(ui) if _style_of(w).startswith("ACT.")] == []
         assert str(ui.cget("style")) == ui.appearance_bundle["styles"]["window"]
         name = str(ui.btn_save.cget("style"))
-        assert style.layout(name) == style.layout("TButton")
+        assert name == ui.appearance_bundle["styles"]["button_green"]
+        assert_aqua_button_layout(style, ui.appearance_bundle, name, "green")
         for name in GUARDED:
             assert getattr(ui, name, None) is not None, name
     finally:

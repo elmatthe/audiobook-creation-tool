@@ -294,6 +294,35 @@ def _instances_of(types):
             yield obj
 
 
+#: Attributes of the shared root that the application keeps its own Tk images in. ``appearance._indicator_images`` makes the
+#: check and radio indicator images once per interpreter and hands them to every ttk theme's element (ttk elements belong to a
+#: theme, so a later theme switch creates the elements again from the same images). The module boundary below disarms every
+#: leftover image while that root lives on, which turns those cached images into objects that cannot be given to
+#: ``element_create`` (TypeError: __str__ returned non-string): measured in v0.8.1 Checkpoint F1 as an order-dependent failure
+#: of whichever test next built a theme (test_other_shells_keep_their_status_bars after test_mp3_tool_ui, and, in other orders,
+#: test_mp3_tool_ui and two test_tts_worker_concurrency tests), before Checkpoint E too. Nothing in the application disarms
+#: images, so the fix belongs to the harness that does: forget the stale cache and the application draws fresh images.
+#: (The Aqua role images rebuild themselves under a new element generation; that is the application's own guard for them.)
+APP_IMAGE_CACHES = ("_compact_indicator_images",)
+
+
+def forget_disarmed_app_image_caches(tk) -> int:
+    """Drop each application image cache on the shared root whose images were disarmed. Returns how many were dropped."""
+    root = getattr(tk, "_default_root", None)
+    if root is None:
+        return 0
+    forgotten = 0
+    for attribute in APP_IMAGE_CACHES:
+        cache = getattr(root, attribute, None)
+        if cache and any(not getattr(image, "name", None) for image in cache.values()):
+            try:
+                delattr(root, attribute)
+            except AttributeError:
+                continue
+            forgotten += 1
+    return forgotten
+
+
 def finalise_tk_objects(tk) -> int:
     """Finalise every leftover Tk variable and image **on the main thread**.
 
@@ -344,6 +373,8 @@ def finalise_tk_objects(tk) -> int:
             disarmed += _disarm_variable(obj)
         elif issubclass(type(obj), image_type):
             disarmed += _disarm_image(obj)
+
+    forget_disarmed_app_image_caches(tk)
 
     # And again, so the now-inert cycles are cleared here rather than left for
     # an arbitrary thread to trip over later.

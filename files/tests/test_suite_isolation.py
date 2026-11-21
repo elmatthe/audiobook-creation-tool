@@ -63,6 +63,64 @@ def test_the_guard_watches_all_the_real_runtime_data_once_per_session():
     assert "the real runtime data" not in conftest._PER_TEST_GUARDED
 
 
+def _runtime_data_like(tmp_path):
+    root = tmp_path / "runtime-data"
+    (root / "python" / "Lib" / "multiprocessing" / "__pycache__").mkdir(parents=True)
+    (root / "python" / "Lib" / "multiprocessing" / "__init__.py").write_text("x", encoding="utf-8")
+    (root / "python" / "Lib" / "multiprocessing" / "__pycache__" / "context.cpython-312.pyc").write_bytes(b"old")
+    (root / "python" / "Lib" / "encodings").mkdir()
+    (root / "python" / "Lib" / "encodings" / "__init__.py").write_text("x", encoding="utf-8")
+    (root / "python" / "python.exe").write_bytes(b"exe")
+    (root / "logs").mkdir()
+    (root / "settings.json").write_text("{}", encoding="utf-8")
+    return root
+
+
+def test_the_bundled_pythons_own_bytecode_cache_is_not_production_state(tmp_path):
+    """Checkpoint F1: the interpreter writes a standard-library .pyc the first time a module is imported (the first real
+    spawn the Edge publication tests make), and that is not a test writing production state. The control: with nothing
+    written the fingerprint is stable; a new .pyc, a rewritten .pyc and a whole new __pycache__ folder inside the bundled
+    interpreter do not change it."""
+    root = _runtime_data_like(tmp_path)
+    named = lambda: conftest._fingerprint_named("the real runtime data", root)  # noqa: E731
+    before = named()
+    assert named() == before, "the control: an untouched tree fingerprints the same twice"
+    cache = root / "python" / "Lib" / "multiprocessing" / "__pycache__"
+    (cache / "heap.cpython-312.pyc").write_bytes(b"first written")
+    (cache / "context.cpython-312.pyc").write_bytes(b"rewritten, longer")
+    (root / "python" / "Lib" / "encodings" / "__pycache__").mkdir(parents=True)
+    (root / "python" / "Lib" / "encodings" / "__pycache__" / "idna.cpython-312.pyc").write_bytes(b"new")
+    assert named() == before
+
+
+def test_nothing_else_in_runtime_data_is_excused_by_the_bytecode_rule(tmp_path):
+    """The rule is narrow: the interpreter's own files, a .pyc outside a __pycache__ folder, a __pycache__ anywhere but
+    below python/, and every other file in runtime-data still change the fingerprint."""
+    changes = {
+        "a rewritten interpreter file": lambda root: (root / "python" / "python.exe").write_bytes(b"exe, changed"),
+        "a new library module": lambda root: (root / "python" / "Lib" / "multiprocessing" / "evil.py").write_text(
+            "x", encoding="utf-8"),
+        "a pyc that is not in a __pycache__": lambda root: (root / "python" / "Lib" / "stray.pyc").write_bytes(b"x"),
+        "a __pycache__ outside python": lambda root: ((root / "logs" / "__pycache__").mkdir(),
+                                                      (root / "logs" / "__pycache__" / "x.pyc").write_bytes(b"x")),
+        "a rewritten settings file": lambda root: (root / "settings.json").write_text('{"a": 1}', encoding="utf-8"),
+        "a new log": lambda root: (root / "logs" / "setup.log").write_text("x", encoding="utf-8"),
+    }
+    for number, (label, change) in enumerate(changes.items()):
+        root = _runtime_data_like(tmp_path / str(number))
+        before = conftest._fingerprint_named("the real runtime data", root)
+        change(root)
+        assert conftest._fingerprint_named("the real runtime data", root) != before, label
+
+
+def test_the_bytecode_rule_applies_to_the_runtime_data_tree_alone(tmp_path):
+    """Another guarded tree that happens to hold a python/__pycache__ keeps counting it."""
+    root = _runtime_data_like(tmp_path)
+    before = conftest._fingerprint_named("the real Qwen3 job folder", root)
+    (root / "python" / "Lib" / "multiprocessing" / "__pycache__" / "heap.cpython-312.pyc").write_bytes(b"new")
+    assert conftest._fingerprint_named("the real Qwen3 job folder", root) != before
+
+
 # --------------------------------------------------------------------------- #
 # B. The guard can actually detect a change
 # --------------------------------------------------------------------------- #

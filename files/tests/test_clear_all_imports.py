@@ -35,6 +35,7 @@ from m4b.maker import m4b_maker_workflow as maker_wf  # noqa: E402
 from m4b.metadata import m4b_metadata_workflow as editor_wf  # noqa: E402
 from mp3 import mp3_workflow  # noqa: E402
 
+from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
 from test_m4b_maker_ui import (  # noqa: E402,F401 - fixtures by import
@@ -371,7 +372,8 @@ def test_aqua_builds_the_button_natively(tk_root):
                         "artwork_buttons": "natural", "content_pad": 12}}
     for module, cls in ((m4b_maker, "M4BMakerUI"), (editor, "M4BMetadataEditorUI"),
                         (mp3_tool, "MP3ToolUI")):
-        # Aqua uses its own namespace inheriting native control layouts.
+        # Aqua uses its own namespace; the Clear all imports button is the red role,
+        # drawn with the outlined role element on the native layout.
         extra = {"appearance_bundle": appearance.build_bundle(
                      ttk.Style(tk_root), appearance.LIGHT, platform="darwin",
                      root=tk_root)}
@@ -383,7 +385,7 @@ def test_aqua_builds_the_button_natively(tk_root):
             name = extra["appearance_bundle"]["styles"]["danger_button"]
             assert str(panel.btn_clear_imports.cget("style")) == name
             style = ttk.Style(tk_root)
-            assert style.layout(name) == style.layout("TButton")
+            assert_aqua_button_layout(style, extra["appearance_bundle"], name, "red")
             assert str(panel.btn_clear_imports.cget("text")) == LABEL
         finally:
             panel.close()

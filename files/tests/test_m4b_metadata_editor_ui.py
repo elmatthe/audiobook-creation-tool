@@ -48,6 +48,7 @@ from m4b.metadata import m4b_metadata_plan as mp  # noqa: E402
 from m4b.metadata import m4b_metadata_workflow as wf  # noqa: E402
 from m4b.metadata.m4b_metadata_plan import EditorAction  # noqa: E402
 
+from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
 from test_m4b_metadata_processing import (  # noqa: E402,F401 - fixtures by import
@@ -938,7 +939,7 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
         assert panel.navigator.layout == "stacked"
         name = panel.appearance_bundle["styles"]["button_green"]
         assert str(panel.btn_save.cget("style")) == name
-        assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
+        assert_aqua_button_layout(ttk.Style(tk_root), panel.appearance_bundle, name, "green")
         assert [str(w) for w in _walk(panel) if _style_of(w).startswith("ACT.")] == []
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
         # Without the Phase 13 hints the composition is the compact one

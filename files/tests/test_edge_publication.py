@@ -343,6 +343,16 @@ def test_elsewhere_the_no_clobber_primitive_is_a_hard_link_and_an_unsupported_dr
     finished = finished_file(scratch)
     destination = run / "book-Voice.mp3"
     monkeypatch.setattr(publication, "_IS_WINDOWS", False)
+    # Since the macOS merge the publish goes through the shared primitive, which reads ``os.name`` itself rather than
+    # publication's flag, so on a Windows host the simulation must say "POSIX" there too (Checkpoint F1). The stand-in
+    # answers every other attribute with the real ``os`` (including the patched ``rename`` and ``link`` below).
+    class PosixOs:
+        name = "posix"
+
+        def __getattr__(self, attribute):
+            return getattr(os, attribute)
+
+    monkeypatch.setattr(output_paths, "os", PosixOs())
     monkeypatch.setattr(publication.os, "rename", lambda *a, **k: pytest.fail("rename would replace on POSIX"))
     monkeypatch.setattr(publication.os, "link", lambda *a, **k: (_ for _ in ()).throw(
         OSError(errno.ENOTSUP, "simulated: no hard links on this drive")))

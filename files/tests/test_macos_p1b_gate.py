@@ -107,6 +107,48 @@ def test_every_skip_rule_compiles_and_the_windows_rules_stay_exact():
     assert not re.search(win["native-macos-p1b"]["pattern"], "native macOS only (P1B): something else")
 
 
+#: v0.8.1 Checkpoint F1: each Windows rule for a macOS-only reason is exact, counted, explained, and cannot be stretched to
+#: cover a reason nobody reviewed. The ceilings are the counts measured on the failed Full gate and after the F1 gating.
+F1_WINDOWS_RULES = {
+    "native-macos-aqua-native-size": (16, "compares with the native Aqua button"),
+    "native-macos-p1b-aqua-geometry": (48, "Aqua geometry regression: native macOS metrics only"),
+    "native-macos-p5h-assembly": (18, "containment is the Mac's"),
+    "native-macos-p5h-kx1-drill": (6, "the KX-1 drill and its kernel start times are macOS's"),
+    "native-macos-p5i-posix-containment": (137, "POSIX containment is the Mac's"),
+    "native-macos-p5-first-run-adapter": (2, "the launcher loads the macOS adapter on the app's base Python"),
+    "macos-pinned-archives-not-downloaded": (2, "the pinned archive has not been downloaded here"),
+    "posix-process-id-probe": (1, "POSIX process-id probe: on Windows os.kill(pid, 0) ends the process"),
+    "posix-fcntl-simulation": (8, "this macOS simulation imports fcntl, which only POSIX has"),
+}
+
+
+def test_the_windows_rules_for_macos_only_tests_are_exact_counted_and_explained():
+    win = {rule["id"]: rule for rule in POLICY["skip_policy"]["win32"]}
+    for rule_id, (ceiling, reason) in F1_WINDOWS_RULES.items():
+        rule = win[rule_id]
+        assert rule["max"] == ceiling, rule_id
+        assert len(rule.get("why", "")) > 120, f"{rule_id} must say why it is not applicable and where it runs"
+        assert re.search(rule["pattern"], reason), rule_id
+        assert rule["pattern"].startswith("^") and rule["pattern"].rstrip(")").endswith("$"), f"{rule_id} must be anchored"
+        for wide in ("a reason nobody reviewed", "macOS", "native macOS only", "skipped", "POSIX", "Mac", ""):
+            assert not re.search(rule["pattern"], wide), (rule_id, wide)
+    assert win["posix-synthesis-worker-retirement-p5d"]["max"] == 44
+    assert win["native-macos-only"]["max"] == 39
+
+
+def test_an_unreviewed_macos_skip_and_one_over_a_new_ceiling_still_fail_on_windows():
+    windows = POLICY["skip_policy"]["win32"]
+    problems, _ = pytest_reports.skip_policy_problems(
+        [{"id": "t::new_mac_test", "reason": "native macOS only: a reason a person has not reviewed"}], [], windows)
+    assert problems and problems[0].startswith("unexpected skip")
+    for rule_id, (ceiling, reason) in F1_WINDOWS_RULES.items():
+        over = [{"id": f"t::{index}", "reason": reason} for index in range(ceiling + 1)]
+        problems, _ = pytest_reports.skip_policy_problems(over, [], windows)
+        assert any("more than" in problem and rule_id in problem for problem in problems), rule_id
+        problems, tally = pytest_reports.skip_policy_problems(over[:ceiling], [], windows)
+        assert problems == [] and tally == {rule_id: ceiling}, rule_id
+
+
 def test_fresh_macos_is_a_darwin_scenario_and_windows_keeps_its_frozen_set():
     verify = load_gate("act_verify_p1b_gate")
 

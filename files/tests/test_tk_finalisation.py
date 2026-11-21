@@ -136,6 +136,31 @@ def test_a_leftover_image_is_disarmed_too(tk_root):
     assert image not in tk_gate.armed_tk_objects(tk)
 
 
+def test_the_boundary_drops_the_applications_cached_indicator_images_it_disarmed(tk_root):
+    """v0.8.1 Checkpoint F1. The shared root caches the application's check/radio images and gives them to each theme's
+    elements; once the boundary has disarmed them a later theme switch could not use them. It now forgets that cache, so
+    the next build draws new images and ttk accepts them. The control: a cache whose images are alive is left alone."""
+    from tkinter import ttk
+
+    from shared import appearance
+
+    root = tk_root.winfo_toplevel()
+    style = ttk.Style(tk_root)
+    appearance.build_bundle(style, appearance.LIGHT, platform="win32", root=tk_root)
+    cached = root._compact_indicator_images
+    assert cached and all(image.name for image in cached.values())
+
+    tk_gate.finalise_tk_objects(tk)
+    assert getattr(root, "_compact_indicator_images", None) is None, "the disarmed cache is forgotten"
+    assert all(not image.name for image in cached.values())
+
+    appearance.build_bundle(style, appearance.LIGHT, platform="win32", root=tk_root)
+    fresh = root._compact_indicator_images
+    assert fresh is not cached and all(image.name for image in fresh.values()), "the next build draws live images"
+    assert tk_gate.forget_disarmed_app_image_caches(tk) == 0, "the control: live images are not dropped"
+    assert root._compact_indicator_images is fresh
+
+
 # --------------------------------------------------------------------------- #
 # B. The hazard itself — bounded
 # --------------------------------------------------------------------------- #

@@ -355,6 +355,7 @@ def test_an_unsafe_ffmpeg_zip_is_refused(ffmpeg_sandbox, tmp_path, problem):
     assert log.lines, problem
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-id probe: on Windows os.kill(pid, 0) ends the process")
 def test_interrupted_macos_acquisitions_leave_only_what_the_next_run_removes(ffmpeg_sandbox):
     build, _served = _fixture_build({"ffmpeg": b"A", "ffprobe": b"B"})
     root = ffmpeg_portable.macos_staging_root(build)

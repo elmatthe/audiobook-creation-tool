@@ -11,6 +11,7 @@ transcripts are untouched. Nothing here loads a model.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -27,6 +28,11 @@ from tts import omnivoice_runtime as ov
 from tts import qwen3_runtime as rt
 from tts import voice_install
 from tts import voice_registry as vr
+
+#: A macOS simulation runs code that takes a real ``fcntl`` lock; Windows has no such module, and faking one would hide the
+#: lock the test is about (Checkpoint D). These run for real on a Mac; the Windows gate names the skip in its policy.
+needs_fcntl = pytest.mark.skipif(importlib.util.find_spec("fcntl") is None,
+                                 reason="this macOS simulation imports fcntl, which only POSIX has")
 
 pytestmark = pytest.mark.usefixtures("production_writes_refused")
 
@@ -460,6 +466,7 @@ def test_a_prompt_identity_binds_the_device_off_cuda_and_keeps_every_cuda_key_as
     assert len({released, mps, cpu, ov.prompt_identity(spec, dtype="float32", **common)[0]}) == 4
 
 
+@needs_fcntl
 def test_the_model_guard_is_one_per_user_on_a_mac_and_never_stale(monkeypatch, tmp_path):
     """macOS P4B (D13): every copy of the app run by this user meets one flock in the user's own temporary folder, which
     a setup worker's TMPDIR does not move; it is taken at once or refused, freed on release, and the kernel frees it when
