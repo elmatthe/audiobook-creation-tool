@@ -6608,13 +6608,15 @@
         "A folder scan makes one Book per directory that directly contains MP3s; same-named directories never merge.",
         "Import Folder replaces every Book; when any Book holds files or settings the user is asked first, and declining changes nothing.",
         "A scan that finds no MP3s is reported in the log, not in a dialog.",
-        "Cancel Import stops a running scan and leaves the workspace as it was."
+        "Cancel Import stops a running scan and leaves the workspace as it was.",
+        "v0.8.2 R1: Import Folder asks before replacing a Book whose only work is a pasted Chapter Titles edit."
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_metadata_precedence.py",
-        "files/tests/test_mp3_panel_branches.py"
+        "files/tests/test_mp3_panel_branches.py",
+        "files/tests/test_mp3_cp1_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -6646,6 +6648,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_metadata_precedence.py::test_import_folder_asks_before_replacing_typed_values_and_a_refusal_keeps_them"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_import_folder_asks_before_replacing_a_book_whose_only_work_is_a_pasted_edit"
           }
         ]
       },
@@ -6682,12 +6688,14 @@
       "contracts": [
         "Chosen MP3s go into the current Book only, in the order the dialog returned them, whatever their folders.",
         "A file already in the current Book is skipped and the Summary says how many were skipped.",
-        "Adding to a Book that already has tracks never changes its typed or cleared values."
+        "Adding to a Book that already has tracks never changes its typed or cleared values.",
+        "v0.8.2 R1: adding files keeps a pasted Chapter Titles edit; only the added track takes its default."
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_workflow.py",
-        "files/tests/test_mp3_panel_branches.py"
+        "files/tests/test_mp3_panel_branches.py",
+        "files/tests/test_mp3_cp1_remediation.py"
       ],
       "journeys": [
         "mp3.write-id3-then-combine",
@@ -6726,6 +6734,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_panel_branches.py::test_a_file_already_in_the_book_is_skipped_and_the_log_says_how_many"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_adding_files_keeps_a_pasted_edit_and_only_the_new_track_takes_its_default"
           }
         ]
       },
@@ -6754,10 +6766,14 @@
         "Returns the tool to its startup state: one pristine Book, blank Shared values, no run result.",
         "A pristine workspace is cleared without asking; any Book work or Shared value asks first, and declining changes nothing.",
         "Source files and earlier outputs are never touched, and the log keeps its history with a divider.",
-        "Refused while a run or a scan is in progress (the button is locked)."
+        "Refused while a run or a scan is in progress (the button is locked).",
+        "v0.8.2 R1 (second pass): Clear All Imports builds the fresh job area before it resets anything; if that cannot be built nothing is cleared (Books, edits, the previous run and its Retry Failed stay) and the tool says so; an error retiring the previous job area does not stop the reset.",
+        "v0.8.2 R1: Clear All Imports asks first when the only work is a pasted Chapter Titles edit."
       ],
       "selection": [
-        "files/tests/test_clear_all_imports.py"
+        "files/tests/test_clear_all_imports.py",
+        "files/tests/test_mp3_adoption_lifecycle.py",
+        "files/tests/test_mp3_cp1_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -6773,6 +6789,22 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_clear_all_imports.py::test_mp3_clear_all_imports_is_locked_by_the_shared_group"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_clear_all_imports_changes_nothing_when_the_fresh_job_area_cannot_be_built"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_clear_all_imports_survives_an_error_retiring_the_previous_job_area"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_clear_all_imports_goes_on_when_only_the_fresh_job_areas_last_repaint_failed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_clear_all_imports_asks_when_the_only_work_is_a_pasted_edit"
           }
         ]
       },
@@ -6820,10 +6852,12 @@
         "Add Book adds a pristine Book; Duplicate Book copies settings but no tracks.",
         "Removing a Book with files or edited settings asks first; a pristine Book goes without asking.",
         "Book numbers are never reused while the workspace lives; a folder import or removing the last Book restarts at 1.",
-        "The selector label is 'Book N' plus the effective Album or source folder, elided after 40 characters."
+        "The selector label is 'Book N' plus the effective Album or source folder, elided after 40 characters.",
+        "v0.8.2 R1: removing a Book whose only work is a pasted Chapter Titles edit the navigator could not know of yet still asks first."
       ],
       "selection": [
-        "files/tests/test_mp3_tool_ui.py"
+        "files/tests/test_mp3_tool_ui.py",
+        "files/tests/test_mp3_cp1_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -6847,6 +6881,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_tool_ui.py::test_the_direct_selector_moves_through_stable_ids"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_removing_a_book_with_only_a_pasted_edit_asks_first[keep]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_removing_a_book_with_only_a_pasted_edit_asks_first[remove]"
           }
         ]
       },
@@ -7277,7 +7319,8 @@
             "usable_lines",
             "resolve_titles",
             "book_titles",
-            "chapter_titles_text"
+            "chapter_titles_text",
+            "set_book_field"
           ]
         },
         {
@@ -7288,7 +7331,9 @@
             "MP3ToolUI.on_chapter_edit",
             "MP3ToolUI.type_chapter_titles",
             "MP3ToolUI.chapter_titles_text",
-            "MP3ToolUI._TextLock"
+            "MP3ToolUI._TextLock",
+            "MP3ToolUI.flush_pending_editor_state",
+            "MP3ToolUI._on_chapter_modified"
           ]
         }
       ],
@@ -7297,14 +7342,17 @@
         "Usable line n names track n; blank lines are ignored; a short list leaves the remaining defaults; extra lines are ignored.",
         "The final Titles become TIT2, the filenames and the Combine timestamp labels.",
         "The box locks while a run is in progress, like the other Book options and the Maker's and Editor's boxes; the panel still fills a locked box (v0.7.2, ACT72-014).",
-        "v0.8.2: a Chapter Titles change no key release reported (a paste) is committed before a run is frozen and before moving to another Book."
+        "v0.8.2: a Chapter Titles change no key release reported (a paste) is committed before a run is frozen and before moving to another Book.",
+        "v0.8.2 R1: a Chapter Titles change that reached the box without a key release (a paste, a drop, an input method) is never painted over: every callback that can redraw the box first commits it, through one boundary, to the Book it was typed for (by identity), and the redraw itself repeats that commit; Tk's modified flag also commits it on the next event-loop turn. Unchanged text commits nothing, so untouched defaults keep following the track order; caret and selection are kept.",
+        "v0.8.2 R1: the panel's own repaint of the box is not on its undo history, so Ctrl+Z after a Book switch cannot bring another Book's titles into this Book; the user's own edits stay undoable. A change event delivered after the selection moved stores nothing on the new Book."
       ],
       "selection": [
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_plan.py",
         "files/tests/test_mp3_combine.py",
-        "files/tests/test_mp3_preparation.py"
+        "files/tests/test_mp3_preparation.py",
+        "files/tests/test_mp3_cp1_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -7336,6 +7384,102 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_preparation.py::test_moving_to_another_book_keeps_a_pasted_chapter_titles_edit"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[shared-artist]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[shared-album-artist]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[book-album]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[choose-shared-artwork]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[clear-shared-artwork]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[choose-book-artwork]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[clear-book-artwork]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[auto-number-toggle]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[start-number]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[move-track]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[remove-track]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[next-then-previous]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[select-away-and-back]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[add-book-and-back]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_native_paste_survives_an_action_that_redraws_the_editor_and_reaches_the_plan[duplicate-book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_paste_then_shared_artist_then_start_plans_the_pasted_titles[write_id3_tags]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_paste_then_shared_artist_then_start_plans_the_pasted_titles[combine_mp3s]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_distinct_edits_in_several_books_each_stay_with_their_own_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_untouched_default_titles_follow_reordered_tracks_and_store_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_the_modified_flag_commits_a_paste_on_the_next_event_loop_turn"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_the_caret_and_selection_survive_a_commit"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_pending_edit_never_lands_on_a_book_it_was_not_typed_for"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_late_modified_event_after_a_book_switch_stores_nothing_on_the_new_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_undo_cannot_bring_another_books_titles_into_this_book"
           }
         ]
       },
@@ -7628,7 +7772,10 @@
             "MP3ToolUI._on_preparation",
             "MP3ToolUI._end_preparation",
             "MP3ToolUI._adopt",
-            "MP3ToolUI.is_preparing"
+            "MP3ToolUI.is_preparing",
+            "_AttemptNotStarted",
+            "MP3ToolUI._fail_unstarted",
+            "MP3ToolUI._retire_adapter"
           ]
         },
         {
@@ -7654,12 +7801,17 @@
         "A second operation is refused while one runs; workspace controls are locked for the run.",
         "Edits made after the press never reach the run or its retry.",
         "An unexpected worker fault settles the run as Failed, frees the panel and keeps the detail out of the Summary.",
-        "v0.8.2: a processing press validates and freezes its inputs on the Tk thread and returns at once showing \"Preparing job…\" with Cancel; reserving and planning run on a preparation worker, and the run starts only when the pump adopts the finished plan. Repeated presses make one run; a stale preparation ending is never acted on; planning work grows linearly with the track count."
+        "v0.8.2: a processing press validates and freezes its inputs on the Tk thread and returns at once showing \"Preparing job…\" with Cancel; reserving and planning run on a preparation worker, and the run starts only when the pump adopts the finished plan. Repeated presses make one run; a stale preparation ending is never acted on; planning work grows linearly with the track count.",
+        "v0.8.2 R1: ownership of a prepared run changes hands in one place. A failure setting up the new job area (installed transactionally) changes nothing: the previous run, its result, job area, Retry Failed and kept staging stay; the unused empty run is released off Tk; the error is shown and the panel is free. A failure after handover settles the attempt as failed through its own controller, or frees the panel directly if the controller never started; no unstarted run is ever reported as running.",
+        "v0.8.2 R1 (second pass): the job-area swap is three steps. BUILD: the new adapter is constructed, dressed, registered and laid out while the previous one is untouched and live; a failure takes the half-built adapter down (no extra frame, no extra pump drain) and nothing changes hands. SWAP: plain assignments. RETIRE: closing the previous adapter and destroying its frame is cleanup of something the panel no longer owns; an error there is reported once, the frame is taken out of the layout and stopped, and the accepted run starts. The panel is never left idle with the navigator locked or the Start buttons disabled, and the next press through either button works.",
+        "v0.8.2 R1: the preparation worker makes no Tk call (profiled on the real thread)."
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_orchestration.py",
-        "files/tests/test_mp3_preparation.py"
+        "files/tests/test_mp3_preparation.py",
+        "files/tests/test_mp3_cp1_remediation.py",
+        "files/tests/test_mp3_adoption_lifecycle.py"
       ],
       "journeys": [
         "mp3.write-id3-then-combine"
@@ -7741,6 +7893,114 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_preparation.py::test_a_preparation_worker_that_cannot_start_reserves_nothing_and_frees_the_panel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_setup_failure_before_handover_ends_like_a_refused_preparation[install-jobs]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_setup_failure_before_handover_ends_like_a_refused_preparation[adapter-constructor]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_setup_failure_before_handover_ends_like_a_refused_preparation[adapter-dressing]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_controller_that_cannot_start_frees_the_panel_without_reporting_a_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_failure_after_handover_settles_the_run_as_failed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[frame-destroy-once-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[frame-destroy-once-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[frame-destroy-always-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[frame-destroy-always-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[adapter-close-once-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[adapter-close-once-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[adapter-close-entry-once-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_the_previous_job_area_never_strands_the_panel[adapter-close-entry-once-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_job_area_that_can_be_neither_closed_nor_destroyed_is_hidden_stopped_and_reported[write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_job_area_that_can_be_neither_closed_nor_destroyed_is_hidden_stopped_and_reported[combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_before_ownership_transfers_leaves_nothing_behind_and_loses_nothing[install-entry-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_before_ownership_transfers_leaves_nothing_behind_and_loses_nothing[install-entry-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_before_ownership_transfers_leaves_nothing_behind_and_loses_nothing[new-adapter-first-render-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_before_ownership_transfers_leaves_nothing_behind_and_loses_nothing[new-adapter-first-render-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_before_ownership_transfers_leaves_nothing_behind_and_loses_nothing[new-adapter-layout-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_before_ownership_transfers_leaves_nothing_behind_and_loses_nothing[new-adapter-layout-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_after_the_swap_settles_the_accepted_run_as_failed[write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_after_the_swap_settles_the_accepted_run_as_failed[combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_presses_are_refused_while_a_preparation_is_genuinely_active[write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_presses_are_refused_while_a_preparation_is_genuinely_active[combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_the_preparation_worker_makes_no_tk_call[write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_the_preparation_worker_makes_no_tk_call[combine]"
           }
         ]
       },
@@ -8018,13 +8278,15 @@
             "MP3ToolUI._prepare",
             "MP3ToolUI._request_operation",
             "MP3ToolUI._fit_output_hint",
-            "MP3ToolUI.output_hint_text"
+            "MP3ToolUI.output_hint_text",
+            "MP3ToolUI._release_unadopted"
           ]
         },
         {
           "path": "scripts/mp3/mp3_plan.py",
           "symbols": [
-            "plan_run"
+            "plan_run",
+            "_require_capture_matches"
           ]
         }
       ],
@@ -8034,7 +8296,9 @@
         "A run folder inside a source folder is refused.",
         "The output hint shows where runs land, eliding from the left so the run folder stays visible.",
         "If the run cannot be reserved or the plan is refused, the user sees the error and no empty run folder is left.",
-        "v0.8.2: the run is reserved by the preparation worker with the output configuration in force at the press, even if Preferences change while it prepares."
+        "v0.8.2: the run is reserved by the preparation worker with the output configuration in force at the press, even if Preferences change while it prepares.",
+        "v0.8.2 R1: one configuration snapshot, read at the press, is what every Book's run snapshot records and what the reservation resolves the output base from; Preferences saved while the preparation waits or plans do not reach it.",
+        "v0.8.2 R1: a plan refuses a supplied capture that is not a capture of the workspace it is planned against (Shared settings, attempted and skipped Books and their order, each Book's ordered files and effective options), in one pass per Book."
       ],
       "selection": [
         "files/tests/test_tool_output_integration.py",
@@ -8043,7 +8307,8 @@
         "files/tests/test_mp3_hardening.py",
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_panel_branches.py",
-        "files/tests/test_mp3_preparation.py"
+        "files/tests/test_mp3_preparation.py",
+        "files/tests/test_mp3_cp1_remediation.py"
       ],
       "journeys": [],
       "verification": {
@@ -8091,6 +8356,46 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_plan.py::test_long_source_paths_plan_like_short_ones"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_the_press_configuration_is_the_capture_the_reservation_and_the_plan[before-reserving]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_the_press_configuration_is_the_capture_the_reservation_and_the_plan[while-planning]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_stale_capture_of_the_same_books_is_refused[same-book-reordered]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_stale_capture_of_the_same_books_is_refused[same-book-track-removed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_stale_capture_of_the_same_books_is_refused[same-book-setting-changed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_stale_capture_of_the_same_books_is_refused[same-book-titles-changed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_stale_capture_of_the_same_books_is_refused[shared-setting-changed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_stale_capture_of_the_same_books_is_refused[book-added]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_matching_capture_plans_exactly_what_it_captured"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_validating_a_capture_is_linear_in_the_tracks"
           }
         ]
       },
@@ -8359,7 +8664,9 @@
         "A cancelled run keeps no private staging: no Retry Failed is offered after a Cancel, so the run folder's .work goes before the run reports Cancelled (v0.7.2, ACT72-037).",
         "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004).",
         "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished.",
-        "v0.8.2: Cancel during preparation starts nothing, releases only the empty run that press reserved, and leaves the workspace and the previous run as they were."
+        "v0.8.2: Cancel during preparation starts nothing, releases only the empty run that press reserved, and leaves the workspace and the previous run as they were.",
+        "v0.8.2 R1: Cancel after the plan was offered returns at once; the withdrawn plan's still-empty run is released exactly once by a short-lived worker (never on Tk), a failing release leaves only that empty folder, and the offered plan never starts.",
+        "v0.8.2 R1 (second pass): Cancel through the real button, while preparing or after the plan was offered, starts nothing for either operation, releases only that press's empty run, keeps the workspace and a pasted Chapter Titles edit, and the next press works."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
@@ -8370,7 +8677,9 @@
         "files/tests/test_mp3_staging_release.py",
         "files/tests/test_macos_p5i_r3_settlement.py",
         "files/tests/test_macos_p5i_r3_remediation.py",
-        "files/tests/test_mp3_preparation.py"
+        "files/tests/test_mp3_preparation.py",
+        "files/tests/test_mp3_cp1_remediation.py",
+        "files/tests/test_mp3_adoption_lifecycle.py"
       ],
       "journeys": [],
       "verification": {
@@ -8494,6 +8803,42 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_preparation.py::test_a_plan_offered_just_before_cancel_is_never_adopted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_cancel_or_close_after_offer_returns_at_once_while_slow_cleanup_runs_off_tk[cancel]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_failing_cleanup_never_reaches_tk_and_leaves_only_the_empty_run[raise]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_failing_cleanup_never_reaches_tk_and_leaves_only_the_empty_run[refuse]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_repeated_cancel_after_offer_releases_the_run_exactly_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_when_no_cleanup_worker_can_start_the_empty_run_is_left_and_named"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_cancel_before_adoption_starts_nothing_and_the_next_start_works[while-preparing-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_cancel_before_adoption_starts_nothing_and_the_next_start_works[while-preparing-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_cancel_before_adoption_starts_nothing_and_the_next_start_works[after-offer-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_cancel_before_adoption_starts_nothing_and_the_next_start_works[after-offer-combine]"
           }
         ]
       },
@@ -8582,13 +8927,17 @@
         "Re-runs only the failed tracks of the failed Books against the original frozen plan and run folder; later workspace edits never reach it.",
         "Staged pieces that succeeded are reused, the Book is published whole, and Books that succeeded are not touched.",
         "Item-less (Book-level) failures and cancelled runs are not retryable.",
-        "v0.8.2: a refused or faulted preparation keeps the previous run, its kept staging and its Retry Failed."
+        "v0.8.2: a refused or faulted preparation keeps the previous run, its kept staging and its Retry Failed.",
+        "v0.8.2 R1: a failed setup of a new run or of a retry keeps the previous run's Retry Failed and its kept staging.",
+        "v0.8.2 R1 (second pass): a job-area swap that fails before ownership transfers keeps the previous run's job area, result, Retry Failed and kept staging through every build seam; once ownership has transferred the new run replaces the old one and the old kept staging is removed off the Tk thread (by the new run's worker, or by a release worker when the new run could not start)."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
         "files/tests/test_mp3_hardening.py",
         "files/tests/test_ffmpeg_cancel.py",
-        "files/tests/test_mp3_preparation.py"
+        "files/tests/test_mp3_preparation.py",
+        "files/tests/test_mp3_cp1_remediation.py",
+        "files/tests/test_mp3_adoption_lifecycle.py"
       ],
       "journeys": [],
       "verification": {
@@ -8620,6 +8969,50 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_its_staging[fault]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_a_setup_failure_keeps_the_previous_runs_retry_and_its_staging"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_failed_swap_before_ownership_keeps_the_previous_retry_and_staging[install-entry-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_failed_swap_before_ownership_keeps_the_previous_retry_and_staging[install-entry-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_failed_swap_before_ownership_keeps_the_previous_retry_and_staging[new-adapter-first-render-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_failed_swap_before_ownership_keeps_the_previous_retry_and_staging[new-adapter-first-render-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_failed_swap_before_ownership_keeps_the_previous_retry_and_staging[new-adapter-layout-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_failed_swap_before_ownership_keeps_the_previous_retry_and_staging[new-adapter-layout-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_a_retryable_runs_job_area_still_hands_its_staging_to_the_new_run[write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_an_error_retiring_a_retryable_runs_job_area_still_hands_its_staging_to_the_new_run[combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_run_that_fails_after_the_swap_hands_the_old_staging_to_a_release_worker[write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_a_run_that_fails_after_the_swap_hands_the_old_staging_to_a_release_worker[combine]"
           }
         ]
       },
@@ -8922,13 +9315,17 @@
         "Closing the window asks a running worker to cancel; it stops at its next checkpoint.",
         "close() is idempotent, stops the scan poller and the pump, closes every component and leaves no scheduled Tk callback.",
         "Destroying the panel always reaches close().",
-        "Alt+F4 during a long Combine exits with status 0, no window, no owned process and no Tcl crash."
+        "Alt+F4 during a long Combine exits with status 0, no window, no owned process and no Tcl crash.",
+        "v0.8.2 R1: Close after the plan was offered returns at once; the release worker finishes after the pump closed.",
+        "v0.8.2 R1 (second pass): closing the window while a job is prepared, or while an unused run is being released, starts nothing, does not wait on the worker or the storage, releases the empty run exactly once and leaves no Tk callback behind."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_close_stops_media_children.py",
-        "files/tests/test_mp3_preparation.py"
+        "files/tests/test_mp3_preparation.py",
+        "files/tests/test_mp3_cp1_remediation.py",
+        "files/tests/test_mp3_adoption_lifecycle.py"
       ],
       "journeys": [
         "shutdown.mp3-close-during-work",
@@ -8963,6 +9360,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_preparation.py::test_closing_after_the_plan_was_offered_releases_it_unadopted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_cp1_remediation.py::test_cancel_or_close_after_offer_returns_at_once_while_slow_cleanup_runs_off_tk[close]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_closing_the_window_before_adoption_starts_nothing_and_leaves_no_run[while-preparing-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_closing_the_window_before_adoption_starts_nothing_and_leaves_no_run[while-preparing-combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_closing_the_window_before_adoption_starts_nothing_and_leaves_no_run[during-cleanup-write]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_adoption_lifecycle.py::test_closing_the_window_before_adoption_starts_nothing_and_leaves_no_run[during-cleanup-combine]"
           }
         ]
       },
@@ -18991,7 +19408,8 @@
             "JobAdapter.set_result",
             "MainThreadGuard",
             "MainThreadPump",
-            "queue_pull"
+            "queue_pull",
+            "JobAdapter._discard_unbuilt"
           ]
         }
       ],
@@ -19000,7 +19418,8 @@
         "Pause and Cancel are requests: 'Pause requested' is shown until the worker reaches a checkpoint; Cancel outranks Pause and wakes a paused worker.",
         "A run settles exactly once; Cancel and a result being made final race under one lock and exactly one wins.",
         "Retry Failed re-runs only the retryable failures of the exact original frozen run.",
-        "Workers never touch Tk: events cross a queue and are drawn on the main thread; a call from another thread is refused before any widget is touched."
+        "Workers never touch Tk: events cross a queue and are drawn on the main thread; a call from another thread is refused before any widget is touched.",
+        "v0.8.2 R1: a JobAdapter whose construction raises leaves nothing behind: its pump drain is removed and its frame destroyed before the error leaves; a caller-owned log view is untouched."
       ],
       "selection": [
         "files/tests/test_job_ui.py",
@@ -19075,6 +19494,14 @@
           {
             "kind": "media",
             "scenario": "tts.service-failure-then-retry"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_ui.py::test_an_adapter_whose_construction_fails_leaves_no_drain_and_no_frame[first-render]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_job_ui.py::test_an_adapter_whose_construction_fails_leaves_no_drain_and_no_frame[status-view]"
           }
         ]
       },
@@ -25603,6 +26030,7 @@
       "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<Configure>#2": "ACT.METADATA.LAYOUT",
       "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<Configure>#3": "ACT.METADATA.SOURCE-READBACK",
       "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<KeyRelease>": "ACT.METADATA.CHAPTER-TITLES",
+      "binding:scripts/mp3/mp3_tool.py::MP3ToolUI._build::bind:<<Modified>>": "ACT.MP3.CHAPTER-TITLES",
       "binding:scripts/mp3/mp3_tool.py::MP3ToolUI._build::bind:<Configure>": "ACT.MP3.OUTPUT-RUN",
       "binding:scripts/mp3/mp3_tool.py::MP3ToolUI._build::bind:<Configure>#2": "ACT.MP3.LAYOUT",
       "binding:scripts/mp3/mp3_tool.py::MP3ToolUI._build::bind:<KeyRelease>": "ACT.MP3.CHAPTER-TITLES",
@@ -25690,6 +26118,7 @@
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showwarning:APP_TITLE": "ACT.METADATA.RUN-START",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showwarning:APP_TITLE#2": "ACT.METADATA.UNREADABLE",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI.open_outdir::messagebox.showerror:APP_TITLE": "ACT.METADATA.OPEN-OUTPUT",
+      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._adopt::messagebox.showerror:APP_TITLE": "ACT.MP3.WRITE-AND-COMBINE",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_artwork::filedialog.askopenfilename:Select Book Artwork": "ACT.MP3.ARTWORK",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_files::filedialog.askopenfilenames:Select MP3 files": "ACT.MP3.ADD-FILES",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_folder::filedialog.askdirectory:Select a folder of MP3 audiobooks": "ACT.MP3.IMPORT-FOLDER",
@@ -25699,7 +26128,9 @@
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE#3": "ACT.MP3.WRITE-AND-COMBINE",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showwarning:APP_TITLE": "ACT.MP3.WRITE-AND-COMBINE",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._validated_artwork::messagebox.showerror:APP_TITLE": "ACT.MP3.ARTWORK",
+      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.clear_all_imports::messagebox.showerror:APP_TITLE": "ACT.MP3.CLEAR-IMPORTS",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.retry_failed::messagebox.showerror:APP_TITLE": "ACT.MP3.RETRY",
+      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.retry_failed::messagebox.showerror:APP_TITLE#2": "ACT.MP3.RETRY",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.on_close_during_base::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.optional_phase.on_close::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.poll::messagebox.showerror:Setup did not complete": "ACT.SETUP.FIRST-RUN",
@@ -27177,10 +27608,10 @@
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
-    "scripts/mp3/mp3_plan.py": "fe6669dbd0d43fd64e8c490456eb56bbced81883c05cf8ee24631d53939262e1",
+    "scripts/mp3/mp3_plan.py": "780c8bef0505895e3c4db4394a33a9bdd041135250d34e23a6d0f0203040bc55",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "065aca88de89f206376a8abdd48bf49e54d128b7234b564c9c974f3f013603df",
-    "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
+    "scripts/mp3/mp3_tool.py": "cbe3d337e8e702c216652c69ee73107799fedcda00c72d9b07fe4b0ca2f118cc",
+    "scripts/mp3/mp3_workflow.py": "66c99cb1c2963a9a667abc4008752aa460370caa5bc1fee12776e228f4a1f0df",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "1083d4880cc44d146c4ee6682a3f00630f4ada1e1cfa298a33c04e5a502a2d71",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
@@ -27210,7 +27641,7 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
-    "scripts/shared/job_ui.py": "b941d2efaedb50e5cbcdb533346658ae4dd84d901d7e7fb3ebbd81e1e7d35884",
+    "scripts/shared/job_ui.py": "c58ec1930e76fcc5a33b38501033dcfca38de482d4f3d638add7f27977c8cc40",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",

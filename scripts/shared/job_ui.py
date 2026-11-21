@@ -2612,28 +2612,53 @@ class JobAdapter:
         self._context = context
 
         self.frame = ttk.Frame(parent, style=style_name(theme, "surface"))
-        self.controls = JobControlBar(
-            self.frame, theme=theme, thread_id=thread_id, on_pause=on_pause,
-            on_resume=on_resume, on_cancel=on_cancel, on_retry=on_retry)
-        self.status = JobStatusView(self.frame, theme=theme, thread_id=thread_id)
-        self.views = (SummaryDetailsView(
-            self.frame, theme=theme, thread_id=thread_id, height=details_height)
-            if views is None else views)
-        self.locks = LockGroup(thread_id=thread_id)
+        try:
+            self.controls = JobControlBar(
+                self.frame, theme=theme, thread_id=thread_id, on_pause=on_pause,
+                on_resume=on_resume, on_cancel=on_cancel, on_retry=on_retry)
+            self.status = JobStatusView(self.frame, theme=theme, thread_id=thread_id)
+            self.views = (SummaryDetailsView(
+                self.frame, theme=theme, thread_id=thread_id, height=details_height)
+                if views is None else views)
+            self.locks = LockGroup(thread_id=thread_id)
 
-        self.controls.frame.grid(row=0, column=0, sticky="w")
-        self.status.frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        if self._owns_views:
-            self.views.frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
-            self.frame.rowconfigure(2, weight=1)
-        self.frame.columnconfigure(0, weight=1)
+            self.controls.frame.grid(row=0, column=0, sticky="w")
+            self.status.frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+            if self._owns_views:
+                self.views.frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+                self.frame.rowconfigure(2, weight=1)
+            self.frame.columnconfigure(0, weight=1)
 
-        self.locks.register(ControlKind.JOB_CONTROL, self.controls)
-        self.locks.register(ControlKind.PROGRESS_STATUS, self.status)
-        self.locks.register(ControlKind.LOG_VIEW, self.views)
+            self.locks.register(ControlKind.JOB_CONTROL, self.controls)
+            self.locks.register(ControlKind.PROGRESS_STATUS, self.status)
+            self.locks.register(ControlKind.LOG_VIEW, self.views)
 
-        pump.add_drain(self.drain)
-        self.render()
+            pump.add_drain(self.drain)
+            self.render()
+        except BaseException:
+            # v0.8.2 R1: the caller gets no object to close when construction raises, so a failed constructor takes
+            # down what it put up -- its pump drain and its frame (with every child in it) -- before the error leaves.
+            # A caller-owned ``views`` is the caller's and is left exactly as it was handed in.
+            self._discard_unbuilt(pump)
+            raise
+
+    def _discard_unbuilt(self, pump: MainThreadPump) -> None:
+        """Undo a construction that raised: no drain on the pump, no frame in the parent. Never raises."""
+        self._closed = True
+        self._pull = None
+        self._on_event = None
+        self._on_terminal = None
+        steps = [lambda: pump.remove_drain(self.drain)]
+        for name in ("controls", "status") + (("views",) if self._owns_views else ()):
+            part = getattr(self, name, None)
+            if part is not None:
+                steps.append(part.close)
+        steps.append(self.frame.destroy)
+        for step in steps:
+            try:
+                step()
+            except Exception:  # noqa: BLE001 - the construction error is the one the caller must see
+                pass
 
     def minimum_height(self) -> int:
         """Pixels this whole job area needs to stay functional.

@@ -63,9 +63,10 @@ from shared.book_workspace import (
     BookRunSnapshot,
     WorkspaceSnapshot,
     capture_workspace_run,
+    effective_run_options,
 )
 from shared.importing import IdFactory, ImportOptions, SupportedTypeCatalog
-from shared.job_control import RunSnapshot
+from shared.job_control import RunSnapshot, freeze_options
 from mp3 import mp3_workflow as wf
 
 __all__ = [
@@ -293,6 +294,11 @@ def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
     InputIndex`; each planned destination is then checked against it by one
     lookup, where it used to be checked against every input again (2N² path
     resolutions: 20 minutes at 2,341 tracks on the Tk thread).
+
+    v0.8.2 R1: a supplied capture must be a capture of *this* workspace --
+    the same Shared settings, Books, tracks, order and options -- or the plan
+    is refused (:func:`_require_capture_matches`); a matching Book id alone
+    would let a stale capture plan a hybrid of old and new contents.
     """
     if not isinstance(operation, MP3Operation):
         raise PlanError(f"operation must be an MP3Operation, got {type(operation).__name__}")
@@ -337,6 +343,7 @@ def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
     missing = [book_id for book_id, _snapshot in capture.runs if book_id not in books_by_id]
     if missing:
         raise PlanError(f"the capture names Book(s) this workspace does not hold: {', '.join(missing)}")
+    _require_capture_matches(capture, workspace)
 
     # Every source occurrence of the workspace, normalised once for this plan only (never shared or reused).
     inputs = output_paths.InputIndex(all_sources, checkpoint=check)
@@ -362,6 +369,34 @@ def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
     return RunPlan(operation=operation, reservation=reservation,
                    run_directory=run_directory, work_root=work_root,
                    capture=capture, books=tuple(plans))
+
+
+def _require_capture_matches(capture: BookRunSnapshot, workspace: WorkspaceSnapshot) -> None:
+    """Refuse a capture that is not a capture of *workspace* as it stands (v0.8.2 R1). Linear; reads no disk.
+
+    The plan takes its tracks, titles, numbers and options from the workspace and freezes them beside the capture,
+    which the run's result and Retry Failed are settled against. The two must therefore describe one workspace: a
+    matching Book id is not enough -- the same Book with its tracks reordered, added or removed, or with a changed
+    setting, would otherwise give a hybrid plan whose snapshot disagrees with its own tracks. Checked here, against
+    the capture's own contract (``capture_workspace_run``): the same Shared Metadata; the same Books attempted and
+    skipped, in workspace order; and for every attempted Book the same ordered imported files (occurrence and source
+    identities, revision) and the same effective run options. Each comparison is one pass over its Book.
+    """
+    if capture.shared != workspace.shared:
+        raise PlanError("the capture was taken with different Shared settings than this workspace holds")
+    attempted = [book.book_id for book in workspace.books if not book.is_empty]
+    skipped = [book.book_id for book in workspace.books if book.is_empty]
+    if list(capture.attempted_book_ids) != attempted or list(capture.skipped_book_ids) != skipped:
+        raise PlanError("the capture's Books, or their order, differ from this workspace's")
+    books_by_id = {book.book_id: book for book in workspace.books}
+    for book_id, snapshot in capture.runs:
+        book = books_by_id[book_id]
+        if snapshot.files is not book.files and snapshot.files != book.files:
+            raise PlanError(f"the capture of Book {book_id} holds different tracks, or a different track order, "
+                            "than this workspace")
+        if snapshot.tool_options != freeze_options(effective_run_options(book, workspace.shared)):
+            raise PlanError(f"the capture of Book {book_id} was taken with different settings than this "
+                            "workspace holds")
 
 
 def _no_checkpoint() -> None:

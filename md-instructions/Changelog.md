@@ -15,6 +15,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Fixed (Checkpoint 1 review remediation R1, MP3 Tool)**
+- Ctrl+Z in the Chapter Titles box can no longer bring the previous Book's titles into the Book you moved to.
+- Pasted Chapter Titles are no longer lost. A paste that was not followed by a keystroke used to be thrown away when a Shared or Book field, artwork, numbering or the track list was changed afterwards, and the run then used the old titles. The titles now stay with the Book they were pasted into through every such change, through moving between Books, duplicating, and both Start buttons.
+- If the job area of a new run cannot be set up, the tool no longer stays locked. Before the new run takes over, the previous run, its Retry Failed, its kept staging and every Book and edit stay as they were, the unused empty run folder is removed and the error is shown. After it has taken over, the run is reported as failed instead of appearing to run. Navigation and both Start buttons always come back.
+- One output-folder setting per job: the Preferences in force when Start is pressed are used for the whole job and recorded with it, even if Preferences are changed while the job is being prepared.
+- A job is refused if its frozen snapshot no longer matches the workspace it is planned from (tracks, their order, settings or titles changed).
+- Cancel and closing the window just after a job was prepared no longer wait on the output drive; the empty run folder is removed in the background.
+- Clear All Imports builds its fresh job area first; if that fails, nothing is cleared.
+- Internal: a job area that fails while being built leaves nothing behind (`shared/job_ui.py`).
+
 **Fixed (Checkpoint 1, MP3 Tool large jobs)**
 - Write ID3 Tags and Combine no longer freeze the window on large workspaces. v0.8.1 planned inside the button press and re-checked every output against every source (about 20 minutes for 2,341 tracks with "Ready" still shown); planning now checks each output against an index of the job's sources built once, and runs on a preparation worker. On HOME-PC, 2,341 tracks in seven Books are prepared in about 2.7 s while the window keeps responding (largest heartbeat gap 29 ms).
 - The job area shows "Preparing job…" with Cancel as soon as the button is pressed. Cancel during preparation starts nothing, removes the empty run folder and leaves every Book, setting, title and the previous run (including Retry Failed) as it was. A refused preparation shows its error and also leaves them as they were.

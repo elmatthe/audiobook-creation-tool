@@ -921,9 +921,10 @@ def wait_until_prepared(panel, timeout: float = 20.0) -> None:
 
 def conversion_workers(panel) -> list:
     """The processing workers (``mp3-<run id>``) the panel's thread factory made: not the preparation workers
-    (``mp3-prepare-N``, v0.8.2) and not the import scans (``import-...``)."""
+    (``mp3-prepare-N``, v0.8.2), not the workers that release an unused empty run (``mp3-release-N``, v0.8.2 R1)
+    and not the import scans (``import-...``)."""
     return [made for made in panel._thread_factory.made
-            if made.name.startswith("mp3-") and not made.name.startswith("mp3-prepare-")]
+            if made.name.startswith("mp3-") and not made.name.startswith(("mp3-prepare-", "mp3-release-"))]
 
 
 def reservations_under(tmp_path, monkeypatch):

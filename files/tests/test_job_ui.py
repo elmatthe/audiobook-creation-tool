@@ -1788,6 +1788,31 @@ def test_the_adapter_registers_one_drain_on_the_shared_pump(parent, pump):
     assert pump.drain_count == before
 
 
+@pytest.mark.parametrize("failing", ["first-render", "status-view"])
+def test_an_adapter_whose_construction_fails_leaves_no_drain_and_no_frame(parent, pump, monkeypatch, failing):
+    """v0.8.2 R1: the caller gets no object to close when the constructor raises, so the constructor takes down what
+    it put up. Before this an error in the first render left one frame in the parent and one drain on the pump."""
+    caller_log = job_ui.SummaryDetailsView(parent)
+    caller_log.append("kept line")
+    drains, children = pump.drain_count, len(parent.winfo_children())
+    def refuse(*_args, **_kwargs):
+        raise tk.TclError(f"fixture: {failing}")
+
+    with monkeypatch.context() as patch:  # never monkeypatch.undo(): it would undo the suite's own sandbox too
+        if failing == "first-render":
+            patch.setattr(job_ui.JobAdapter, "render", refuse)
+        else:
+            patch.setattr(job_ui.JobStatusView, "__init__", refuse)
+        with pytest.raises(tk.TclError, match="fixture"):
+            job_adapter(parent, pump, views=caller_log)
+    assert pump.drain_count == drains, "no drain is left on the pump"
+    assert len(parent.winfo_children()) == children, "no frame is left in the parent"
+    assert not caller_log.closed and caller_log.summary == ("kept line",), "the caller's own log view is untouched"
+    adapter = job_adapter(parent, pump, views=caller_log)  # and the next construction works
+    assert pump.drain_count == drains + 1 and adapter.state is JobState.IDLE
+    adapter.close()
+
+
 def test_every_job_state_is_presented_from_the_events_alone(parent, pump):
     publisher = Publisher()
     adapter = job_adapter(parent, pump, publisher)

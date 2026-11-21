@@ -2,6 +2,23 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-21 — v0.8.2: no persistence feature for the MP3 workspace; the guarantee is responsiveness and kept edits within the running session
+
+Signed: the owner's decision (Checkpoint 1 R1 instructions, 2026-11-21), recorded by Claude Code (Fable 5.2), HOME-PC.
+- **Decision.** NO Save Job, NO autosave, NO workspace drafts, NO crash-recovery feature, NO session restoration. Nothing of the kind is to be introduced on `0.8.2`.
+- **What is required instead.** Normal UI actions, large-job preparation and processing must not silently lose an in-memory edit or freeze the window. Editor state stays memory-only and ends with the application.
+- **Effect.** Item 5 of the v0.8.2 scalability backlog (large-workspace recovery / draft persistence) is withdrawn. The long-running-branch decision below is unchanged: no merge, tag, release, deadline or automatic Full gate per fix.
+
+## 2026-11-21 — v0.8.2 Checkpoint 1 review remediation R1: one editor commit boundary; a build / swap / retire job-area swap; one configuration snapshot; a capture must match its workspace; unused runs are released off Tk
+
+Signed: Claude Code (Opus 5.5, then Fable 5.2), HOME-PC. Evidence: Handoff, the R1 block; the two Codex reviews (ignored, local). Verdict on the commit is a self-review by the owner's choice of a single-agent completion; it is not an independent PASS.
+- **Editor commit boundary.** `flush_pending_editor_state` is the one place a Chapter Titles change enters the model outside a key release. It is bound to the Book the box shows (identity, not "current"), called first by every callback that asks the model for a change, and repeated inside `render` / `_render_chapters`, the only writers of the box, as the safety net. Rejected: relying on `<<Modified>>` alone (queued, so a callback can run first; kept as an addition); making `workspace` a flushing property (hidden Tk reads on every access); committing only at Start and navigation (the Checkpoint 1 state, which the review broke with a Shared edit).
+- **Job-area swap.** Build the new adapter completely, switch by assignment, then retire the old one as cleanup that can no longer affect ownership. "Nothing changed hands" is decided by `self.jobs is retired`, which is only sound because the previous adapter is untouched until after the switch; the first R1 version closed it first and the re-review showed the consequence (a closed adapter treated as live). A constructor must not leave a drain or a frame behind, so `JobAdapter.__init__` rolls back its own failure in the shared module rather than each caller reaching into the pump. Rejected: a new lifecycle framework; restoring a closed adapter; retrying a failed destroy.
+- **After ownership transfers.** A failure settles the accepted run through its own controller (`_fail_unstarted`); a previous run's result is never restored at that point because its job area is gone. The replaced run's kept staging has no ordering constraint and goes to a release worker; the unstarted attempt's own staging is released before its terminal event, on Tk, because a later Retry Failed relies on that order.
+- **One configuration snapshot.** Read once at the press and used for the capture and the reservation. The panel's construction-time configuration is kept for importing only. Rejected: using the injected construction-time configuration for the run (it is the import seam, and it is stale by the time of a press).
+- **Capture validation.** `plan_run` checks a supplied capture against the workspace by value (Shared Metadata, Book membership and order, files, effective options), linear in the tracks. Rejected: a single frozen "preparation input" type replacing the two arguments (a wider API change than the finding needs).
+- **Releasing an unused run.** A short-lived worker per release, exactly one owner per reservation (decided under the preparation's lock), no dependence on Tk or the pump. If no worker can start, the empty folder is left and reported rather than making Tk wait.
+
 ## 2026-11-21 — v0.8.2 is a long-running development branch: daily-use fixes accumulate on `0.8.2`; nothing is merged, tagged or released per fix
 
 Signed: the owner's decision (Checkpoint 1 instruction, 2026-11-21), recorded by Claude Code (Opus 5.5), HOME-PC.

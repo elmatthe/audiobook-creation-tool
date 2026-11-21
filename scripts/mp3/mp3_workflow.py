@@ -666,12 +666,19 @@ def remove_tracks(workspace: WorkspaceSnapshot,
 # --------------------------------------------------------------------------- #
 
 
-def set_book_field(workspace: WorkspaceSnapshot, name: str, value: object) -> BookMutation:
+def set_book_field(workspace: WorkspaceSnapshot, name: str, value: object, *,
+                   book_id: str | None = None) -> BookMutation:
     """Store one raw per-Book value. Text stays raw; blank is a stored fact.
 
     Writing ``""`` keeps the key with a blank value rather than deleting it, so a
     cleared prefilled field remains distinguishable from a never-populated one and
     nothing can later mistake the clear for an invitation to restore the source.
+
+    The current Book by default. *book_id* (v0.8.2) names the Book explicitly: the
+    panel commits a Chapter Titles edit to the Book it was typed for, which is not
+    the current one once a model change has already moved the selection. The
+    selection never moves here, and an identity this workspace does not hold is
+    refused.
     """
     space = _require_workspace(workspace)
     if name not in _ALL_BOOK_FIELDS:
@@ -681,7 +688,12 @@ def set_book_field(workspace: WorkspaceSnapshot, name: str, value: object) -> Bo
             raise MP3ContractError("auto_number must be a bool")
     elif not isinstance(value, str):
         raise MP3ContractError(f"{name} must be raw text, got {type(value).__name__}")
-    book = space.current
+    if book_id is None:
+        book = space.current
+    else:
+        book = next((entry for entry in space.books if entry.book_id == book_id), None)
+        if book is None:
+            raise MP3ContractError(f"book_id {book_id!r} is not one of this workspace's Books")
     if name in book.configuration and book.configuration[name] == value:
         return _unchanged(space)
     configuration = dict(book.configuration)

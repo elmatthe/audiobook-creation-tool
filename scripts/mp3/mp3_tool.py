@@ -529,6 +529,18 @@ class _PreparationMessage:
         self.total = total
 
 
+class _AttemptNotStarted(Exception):
+    """An attempt's setup failed before anything changed hands (v0.8.2 R1).
+
+    Raised by ``_start_attempt`` only while the previous job area, run, result and Retry Failed are all still exactly
+    as they were, so the caller can report it and carry on as if the press had been refused.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class _Attempt:
     """The facts one attempt shares between the worker and the main thread.
 
@@ -871,6 +883,8 @@ class MP3ToolUI(ttk.Frame):
         #: The one queue the preparation worker writes and the pump's preparation drain reads. Never replaced.
         self._prep_q: queue.SimpleQueue = queue.SimpleQueue()
         self._preparations = 0
+        #: v0.8.2 R1: names the short-lived workers that release an unused, empty run off the Tk thread.
+        self._releases = 0
         self._attempts = 0
         #: Private staging lives exactly as long as a Retry Failed can reach it (v0.7.2, ACT72-019 / ACT72-037). The
         #: worker releases what its attempt cannot retry; the main thread releases the rest once nothing can retry the
@@ -1204,8 +1218,15 @@ class MP3ToolUI(ttk.Frame):
         job_ui.style_tk_widget(self.chapter_text, bundle, "text")
         ui_theme.enable_mousewheel(self.chapter_text)
         self.chapter_text.bind("<KeyRelease>", self.on_chapter_edit)
+        # v0.8.2 R1: a paste, a drop or an input method changes the box without a key release. Tk's modified flag
+        # reports every change, so the model hears of it on the next event-loop turn; until then
+        # :meth:`flush_pending_editor_state` is what keeps it (any callback that can redraw the box calls it first).
+        self.chapter_text.bind("<<Modified>>", self._on_chapter_modified)
         self._suspend_chapters = False
+        #: What the box showed when the panel last wrote it, and the Book it showed it for. A difference between the
+        #: box and the baseline is an edit the model has not heard of yet; it belongs to that Book and no other.
         self._chapter_baseline = ""
+        self._chapter_book_id: str | None = None
 
         self.run_separator = ttk.Separator(run, orient=tk.HORIZONTAL,
                                            style=st("separator"))
@@ -1282,53 +1303,117 @@ class MP3ToolUI(ttk.Frame):
         once a settled ``WorkspaceRunResult`` reporting a retryable Book is
         handed to it *and* the run reached ``COMPLETED_WITH_FAILURES``.
         """
+        # v0.8.2 R1 -- transactional, in three steps that cannot be confused for one another:
+        #
+        # 1. BUILD. The new adapter is constructed, dressed, registered and laid out completely while the previous
+        #    one is still the live job area and has not been touched. If anything here raises, the half-built
+        #    adapter is taken down (its pump drain and its frame; the shared constructor undoes its own failure the
+        #    same way) and the exception goes to the caller with the previous job area -- stream, result, locks,
+        #    Retry Failed -- exactly as it was. ``self.jobs`` is still the previous adapter, and it is a live one.
+        # 2. SWAP. Plain attribute assignments, which cannot fail: from here the new adapter is the job area.
+        # 3. RETIRE. The previous adapter no longer owns anything, so closing it and taking its frame down is
+        #    cleanup (``_retire_adapter``): a Tk error there is reported and the frame is taken out of the layout,
+        #    and it can neither undo the swap nor stop the run the new adapter belongs to. (The second independent
+        #    review found the first R1 version closing the previous adapter *before* the swap: an error destroying
+        #    its frame then left a closed adapter installed, the navigator locked and both Start buttons disabled.)
         previous = getattr(self, "jobs", None)
-        if previous is not None:
-            previous.close()
-            previous.frame.destroy()
         bundle = self.appearance_bundle
-        self._event_q = queue.Queue()
-        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
-        self.jobs = job_ui.JobAdapter(
-            self.actions,
-            run_id=run_id,
-            pump=self._pump,
-            # The shared compact bundle, exactly as Cover's, TTS's and the
-            # Converter's job areas use it.
-            theme=bundle,
-            pull=job_ui.queue_pull(self._event_q),
-            estimator=self._estimator,
-            bridge=self._bridge,
-            item_ids=item_ids,
-            views=self.log,
-            context=self._context,
-            on_pause=self.pause,
-            on_resume=self.resume,
-            on_cancel=self.cancel,
-            on_retry=self.retry_failed,
-            on_event=self._on_job_event,
-            on_terminal=self._on_terminal,
-        )
-        self.jobs.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="ew")
-        self.jobs.controls.frame.grid_configure(sticky="e")
-        # The panel's own names for the shared pieces, re-pointed per run.
-        self.controls = self.jobs.controls
-        self.status = self.jobs.status
-        self.lock_group = self.jobs.locks
-        # Per-instance restyling, exactly as Cover, TTS and the Converter do it:
-        # the shared indicator stays generic for every panel that has not
-        # adopted the compact system, but here an unstyled native frame would
-        # be a light island in Dark. Aqua names inherit native controls.
-        self.status.indicator.frame.configure(style=style_name(bundle, "card"))
-        self.status.indicator.bar.configure(style=style_name(bundle, "progressbar"),
-                                            length=PROGRESS_BAR_LENGTH)
-        self.status.indicator.label.configure(style=style_name(bundle, "secondary_label"))
-        self.status.label_status.configure(style=style_name(bundle, "secondary_label"))
-        self._arrange_status()
-        self.jobs.register_inputs(self.navigator, self._tracks_lock, self._import_lock)
-        self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
-                                   self._book_options_lock, self._chapters_lock)
+        event_q: queue.Queue = queue.Queue()
+        estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        adapter = None
+        try:
+            adapter = job_ui.JobAdapter(
+                self.actions,
+                run_id=run_id,
+                pump=self._pump,
+                # The shared compact bundle, exactly as Cover's, TTS's and the
+                # Converter's job areas use it.
+                theme=bundle,
+                pull=job_ui.queue_pull(event_q),
+                estimator=estimator,
+                bridge=self._bridge,
+                item_ids=item_ids,
+                views=self.log,
+                context=self._context,
+                on_pause=self.pause,
+                on_resume=self.resume,
+                on_cancel=self.cancel,
+                on_retry=self.retry_failed,
+                on_event=self._on_job_event,
+                on_terminal=self._on_terminal,
+            )
+            # Per-instance restyling, exactly as Cover, TTS and the Converter do it:
+            # the shared indicator stays generic for every panel that has not
+            # adopted the compact system, but here an unstyled native frame would
+            # be a light island in Dark. Aqua names inherit native controls.
+            status = adapter.status
+            status.indicator.frame.configure(style=style_name(bundle, "card"))
+            status.indicator.bar.configure(style=style_name(bundle, "progressbar"),
+                                           length=PROGRESS_BAR_LENGTH)
+            status.indicator.label.configure(style=style_name(bundle, "secondary_label"))
+            status.label_status.configure(style=style_name(bundle, "secondary_label"))
+            adapter.register_inputs(self.navigator, self._tracks_lock, self._import_lock)
+            adapter.register_options(self.surface, self.shared_artwork, self.book_artwork,
+                                     self._book_options_lock, self._chapters_lock)
+            # Laid out in the previous adapter's cell, above it (a newer sibling stacks higher), before the swap.
+            adapter.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="ew")
+            adapter.controls.frame.grid_configure(sticky="e")
+            self._arrange_status(adapter)
+        except BaseException:
+            if adapter is not None:
+                self._retire_adapter(adapter)  # the build error is the one the caller must see
+            raise
+        # -- 2. SWAP: the panel's own names for the shared pieces, re-pointed per run. Assignments only. ------- #
+        self._event_q = event_q
+        self._estimator = estimator
+        self.jobs = adapter
+        self.controls = adapter.controls
+        self.status = adapter.status
+        self.lock_group = adapter.locks
+        # -- 3. RETIRE the previous adapter: cleanup of something the panel no longer owns. --------------------- #
+        if previous is not None:
+            for problem in self._retire_adapter(previous):
+                logging_setup.get_logger().warning("MP3 Tool: the previous job area was not fully retired: %s",
+                                                   problem)
+                self._say("The previous job area could not be fully removed; it was taken out of the layout.",
+                          f"Previous job area not fully retired: {problem}")
         self.jobs.render()
+
+    def _retire_adapter(self, adapter) -> tuple[str, ...]:
+        """Close an adapter the panel does not (or no longer) own and take its frame down. Main thread; never raises.
+
+        Cleanup, never a decision: whatever this meets, the caller's job area and run stay as they are. Each step is
+        tried on its own, so one failure cannot skip the next -- ``close`` drops the adapter's pump drain first thing
+        (one pump, one job drain), and the frame is destroyed. A frame Tk will not destroy is taken out of the
+        layout instead, and failing that lowered beneath its siblings, so it cannot sit over the live job area.
+        Returns one line per step that failed, for the caller to report once; nothing is retried or looped.
+        """
+        problems: list[str] = []
+        try:
+            adapter.close()
+        except Exception as exc:  # noqa: BLE001 - reported by the caller; the frame must still go
+            problems.append(f"close: {type(exc).__name__}: {exc}")
+            try:
+                self._pump.remove_drain(adapter.drain)  # ``close`` does this first; make sure of it regardless
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            adapter.frame.destroy()
+        except Exception as exc:  # noqa: BLE001 - reported by the caller
+            problems.append(f"destroy: {type(exc).__name__}: {exc}")
+            for fallback in (adapter.frame.grid_forget, adapter.frame.lower):
+                try:
+                    fallback()
+                    break
+                except Exception:  # noqa: BLE001 - try the next way of getting it out of sight
+                    continue
+            # A frame that outlives its adapter must not keep animating: an indeterminate "Preparing job…" bar
+            # re-arms a Tk timer for as long as its widget exists.
+            try:
+                adapter.status.indicator.bar.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        return tuple(problems)
 
     def _fit_output_hint(self, _event=None) -> None:
         """Show as much of the output path as the band holds, tail first.
@@ -1483,7 +1568,7 @@ class MP3ToolUI(ttk.Frame):
         self._render_mixed()
         self._set_row_floors()
 
-    def _arrange_status(self) -> None:
+    def _arrange_status(self, jobs=None) -> None:
         """The shared status view's lines: three, or two in the tight density.
 
         Grid positions and wrap only -- the same labels, bound to the same
@@ -1491,8 +1576,12 @@ class MP3ToolUI(ttk.Frame):
         progress, then stage and ETA, then the status line. Tight sets the
         status beside the progress bar and the stage beside the ETA, one line
         fewer beside the two operations.
+
+        *jobs* (v0.8.2 R1) is an adapter being built that is not the panel's
+        yet; with none given, the installed one.
         """
-        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            jobs = getattr(self, "jobs", None)
         if jobs is None:
             return
         view = jobs.status
@@ -1686,6 +1775,9 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("render")
         if self._closed:
             return
+        # v0.8.2 R1: whatever moved the model, the box is about to be redrawn from it; an edit it has not heard of
+        # yet is committed to the Book it was typed for first, never painted over.
+        self.flush_pending_editor_state()
         self._rendering = True
         try:
             space = self.workspace
@@ -1748,8 +1840,11 @@ class MP3ToolUI(ttk.Frame):
         return "\n".join(wf.default_titles(book, self.store))
 
     def _render_chapters(self) -> None:
+        # Never paints over an edit the model has not heard of: it is committed to its own Book first (v0.8.2 R1).
+        self.flush_pending_editor_state()
         raw = self._chapter_display()
         self._chapter_baseline = raw
+        self._chapter_book_id = self.workspace.current.book_id
         if raw == self.chapter_text.get("1.0", "end-1c"):
             return
         self._suspend_chapters = True
@@ -1760,6 +1855,11 @@ class MP3ToolUI(ttk.Frame):
             self.chapter_text.delete("1.0", "end")
             if raw:
                 self.chapter_text.insert("1.0", raw)
+            # v0.8.2 R1: the panel's own repaint is not an edit, so it is not something Ctrl+Z may undo. Left on the
+            # undo stack, one undo after a Book switch blanked the box and a second brought back the previous Book's
+            # titles, which the next key release then stored on this Book. Undo history starts again at each repaint;
+            # a box the repaint did not change (the early return above) keeps its history.
+            self.chapter_text.edit_reset()
             self.chapter_text.configure(state=state)
         finally:
             self._suspend_chapters = False
@@ -1811,31 +1911,36 @@ class MP3ToolUI(ttk.Frame):
     # Navigator callbacks
     # ------------------------------------------------------------------ #
 
-    # v0.8.2: each move first commits a Chapter Titles change no key release reported (a mouse paste, an input
-    # method), because the move re-renders the box for another Book and would otherwise drop it.
+    # v0.8.2 R1: every callback that asks the model for a change first commits a Chapter Titles change no key release
+    # reported yet (a paste, a drop, an input method) through :meth:`flush_pending_editor_state`, so the change it
+    # asks for is computed from a workspace that already holds it: a duplicate copies it, a removal asks about it, a
+    # Start freezes it. ``render`` repeats the flush as the safety net, so nothing redraws the box over it.
 
     def on_previous(self) -> None:
-        self.on_chapter_edit()
+        self.flush_pending_editor_state()
         self._apply(previous_book(self.workspace))
 
     def on_next(self) -> None:
-        self.on_chapter_edit()
+        self.flush_pending_editor_state()
         self._apply(next_book(self.workspace))
 
     def on_select(self, book_id: str) -> None:
-        self.on_chapter_edit()
+        self.flush_pending_editor_state()
         self._apply(select_book(self.workspace, book_id))
 
     def on_add(self) -> None:
-        self.on_chapter_edit()
+        self.flush_pending_editor_state()
         self._apply(add_book(self.workspace, id_factory=self._ids))
 
     def on_duplicate(self) -> None:
-        self.on_chapter_edit()
+        self.flush_pending_editor_state()
         self._apply(duplicate_book(self.workspace, id_factory=self._ids))
 
     def on_remove(self, meaningful: bool) -> None:
         """Decision 50A: the model answered; this panel decides to ask."""
+        # A pasted title the navigator could not know of yet still makes the Book worth asking about.
+        if self.flush_pending_editor_state():
+            meaningful = meaningful or has_meaningful_work(self.workspace.current)
         if meaningful and not self._confirm(
                 "Remove this Book?",
                 "This Book has imported MP3s or edited settings.\n\nRemove it anyway?"):
@@ -1849,6 +1954,7 @@ class MP3ToolUI(ttk.Frame):
     def on_shared_change(self, field: str, raw: str) -> None:
         if self._rendering:
             return
+        self.flush_pending_editor_state()
         values = dict(self.workspace.shared.values)
         values[field] = raw
         self._apply(set_shared_metadata(
@@ -1857,6 +1963,7 @@ class MP3ToolUI(ttk.Frame):
     def on_book_change(self, field: str, raw: str) -> None:
         if self._rendering:
             return
+        self.flush_pending_editor_state()
         mutation = wf.set_book_field(self.workspace, field, raw)
         if mutation.changed:
             self.workspace = mutation.workspace
@@ -1865,17 +1972,20 @@ class MP3ToolUI(ttk.Frame):
     def set_book_field(self, name: str, value) -> None:
         """Store one raw Book value and show it. The model owns the write."""
         self._guard.require("set_book_field")
+        self.flush_pending_editor_state()
         self._apply(wf.set_book_field(self.workspace, name, value))
 
     def on_auto_number(self) -> None:
         if self._rendering:
             return
+        self.flush_pending_editor_state()
         self._apply(wf.set_book_field(self.workspace, "auto_number",
                                       bool(self.var_auto_number.get())))
 
     def on_start_number(self) -> None:
         if self._rendering or self._closed:
             return
+        self.flush_pending_editor_state()
         raw = self.var_start_number.get()
         if raw == wf.start_number_text(self.workspace.current):
             return
@@ -1888,16 +1998,57 @@ class MP3ToolUI(ttk.Frame):
         self.var_start_number.set(raw)
 
     def on_chapter_edit(self, _event=None) -> None:
+        """A key release (or a modified flag) in the Chapter Titles box: commit what it shows."""
         if self._suspend_chapters or self._rendering or self._closed:
             return
-        raw = self.chapter_text.get("1.0", "end-1c")
-        if raw == self._chapter_baseline:
+        if self.flush_pending_editor_state():
+            self._render_light()
+
+    def _on_chapter_modified(self, _event=None) -> None:
+        """Tk's ``<<Modified>>``: some change reached the box, typed or not. Main thread only.
+
+        The flag is cleared so the next change reports again; clearing it reports once more, and that report finds
+        nothing new. A change the panel itself painted is the baseline already, so it commits nothing.
+        """
+        if self._closed:
             return
+        try:
+            if not self.chapter_text.edit_modified():
+                return
+            self.chapter_text.edit_modified(False)
+        except tk.TclError:
+            return
+        self.on_chapter_edit()
+
+    def flush_pending_editor_state(self) -> bool:
+        """Commit a Chapter Titles change the model has not heard of yet, to the Book it was typed for (v0.8.2 R1).
+
+        **The one commit boundary for the panel's own editor.** The box shows one Book's titles; the panel remembers
+        which Book (``_chapter_book_id``) and what it last wrote there (``_chapter_baseline``). Text that differs from
+        the baseline is the user's and is stored -- raw, exactly as the box holds it, like a key release stores it --
+        on *that* Book by its identity, so a change that already moved the selection can never hand it to another
+        Book. Unchanged text commits nothing, so a Book whose defaults were never edited keeps an empty
+        configuration and its displayed defaults keep following the track order. A Book that no longer exists
+        (removed or replaced after confirmation) has nowhere to keep it. The box itself is not touched: no repaint,
+        caret and selection stay where they are. Returns whether the model changed. Main thread only.
+        """
+        if self._closed or self._suspend_chapters:
+            return False
+        try:
+            raw = self.chapter_text.get("1.0", "end-1c")
+        except tk.TclError:
+            return False
+        if raw == self._chapter_baseline:
+            return False
         self._chapter_baseline = raw
-        mutation = wf.set_book_field(self.workspace, "chapter_titles", raw)
+        space = self.workspace
+        owner = self._chapter_book_id or space.current.book_id
+        if owner not in space.book_ids:
+            return False
+        mutation = wf.set_book_field(space, "chapter_titles", raw, book_id=owner)
         if mutation.changed:
             self.workspace = mutation.workspace
-        self._render_light()
+        return mutation.changed
 
     def type_chapter_titles(self, raw: str) -> None:
         """Type into the Chapter Titles box as a person would, then report it."""
@@ -1968,6 +2119,7 @@ class MP3ToolUI(ttk.Frame):
         selected = self.selected_occurrences()
         if not selected:
             return
+        self.flush_pending_editor_state()
         mutation = wf.move_tracks(self.workspace, selected, direction)
         if mutation.changed:
             self.workspace = mutation.workspace
@@ -1988,6 +2140,7 @@ class MP3ToolUI(ttk.Frame):
         selected = self.selected_occurrences()
         if not selected:
             return
+        self.flush_pending_editor_state()
         self._apply(wf.remove_tracks(self.workspace, selected))
 
     # ------------------------------------------------------------------ #
@@ -2009,6 +2162,7 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("import_folder")
         if self._closed or self._coordinator.is_active:
             return
+        self.flush_pending_editor_state()  # a pasted title is work the replace question must count
         if any(has_meaningful_work(book) for book in self.workspace.books):
             if not self._confirm(
                     "Replace the current Books?",
@@ -2078,6 +2232,7 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("clear_all_imports")
         if self._closed or self.is_running or self._coordinator.is_active:
             return False
+        self.flush_pending_editor_state()  # a pasted title is work the clear question must count
         meaningful = self._workspace_has_meaningful_work()
         if meaningful and not self._confirm(
                 "Clear all imports?",
@@ -2086,6 +2241,24 @@ class MP3ToolUI(ttk.Frame):
                 "and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self._attempt is not None
+        if meaningful or had_run:
+            self.log.divider(f"{DIVIDER_MARK} {CLEAR_IMPORTS_LABEL}")
+        # v0.8.2 R1: the fresh job area first, and only then the reset. The same transactional swap a new run uses
+        # (``_install_jobs``): if the fresh job area cannot be built, nothing has changed hands and nothing has been
+        # cleared -- the Books, the previous run, its Retry Failed and its kept staging are all still there -- so the
+        # tool says so and stays as it was instead of showing an emptied workspace beside a stale job area.
+        retired = self.jobs
+        try:
+            self._install_jobs(IDLE_RUN_ID, ())
+        except Exception as exc:  # noqa: BLE001 - decided here: nothing changed, or the reset goes on
+            detail = f"{type(exc).__name__}: {exc}"
+            if self.jobs is retired:
+                text = "Clear All Imports: the tool could not be reset; nothing was cleared."
+                self._say(text, detail)
+                messagebox.showerror(APP_TITLE, text, parent=self)
+                return False
+            # The fresh job area is installed and only its last repaint failed: the reset goes on and repaints it.
+            logging_setup.get_logger().warning("MP3 Tool: the fresh job area was not rendered: %s", detail)
         # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
         self._abandon_staging()
         self.workspace = wf.new_workspace(id_factory=self._ids)
@@ -2095,9 +2268,6 @@ class MP3ToolUI(ttk.Frame):
         self._attempt = None
         self._settled = None
         self.var_outdir.set(output_paths.destination_hint(TOOL_KEY))
-        if meaningful or had_run:
-            self.log.divider(f"{DIVIDER_MARK} {CLEAR_IMPORTS_LABEL}")
-        self._install_jobs(IDLE_RUN_ID, ())
         self.status.set_status(STATUS_READY)
         self.render()
         return True
@@ -2136,6 +2306,7 @@ class MP3ToolUI(ttk.Frame):
 
     def _project_import(self, kind: str | None, outcome: ImportOutcome) -> None:
         """The committed snapshot becomes Books (folder) or tracks (files)."""
+        self.flush_pending_editor_state()
         commit = outcome.commit
         if kind == "folder":
             result = wf.import_folder(
@@ -2189,8 +2360,9 @@ class MP3ToolUI(ttk.Frame):
         if self._closed or self.is_running or self._coordinator.is_active:
             return False
         # A Chapter Titles change no key release reported (a mouse paste, an input method) is committed through the
-        # model before anything is frozen, so the run uses exactly what the box shows.
-        self.on_chapter_edit()
+        # model, to its own Book, before anything is frozen, so the run uses exactly what the box shows.
+        if self.flush_pending_editor_state():
+            self._render_light()
         space = self.workspace
         eligible = []
         for position, book in enumerate(space.books, start=1):
@@ -2220,17 +2392,20 @@ class MP3ToolUI(ttk.Frame):
                      else mp3_plan.MP3Operation.WRITE_ID3)
         # Frozen here, on Tk, and never read again: the capture (taken on the caller's thread, as the shared capture
         # requires; no disk is read), the immutable workspace and store, the stable Book numbers, and the output
-        # configuration the reservation will use -- the one in force at this press, as before, even if Preferences
-        # change while the worker prepares.
+        # configuration -- the one in force at this press, even if Preferences change while the worker prepares.
+        # v0.8.2 R1: ONE configuration snapshot, read once here, is both what every Book's run snapshot records and
+        # what the reservation resolves its output base from, so the plan can never describe one base and write to
+        # another. (The panel's construction-time configuration still governs importing only.)
+        run_config = shared_config.get_effective()
         capture = mp3_plan.capture_for_run(
             space, catalog=wf.MP3_CATALOG,
             import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
-            effective_config=self._effective_config, id_factory=self._ids,
+            effective_config=run_config, id_factory=self._ids,
             created_at=self._clock())
         attempted = {book_id for book_id, _snapshot in capture.runs}
         preparation = _Preparation(
             label=label, operation=operation, workspace=space, store=self.store, capture=capture,
-            numbers=self.book_numbers, run_config=shared_config.get_effective(),
+            numbers=self.book_numbers, run_config=run_config,
             book_count=len(attempted),
             track_count=sum(book.file_count for book in space.books if book.book_id in attempted))
         self._preparations += 1
@@ -2336,15 +2511,24 @@ class MP3ToolUI(ttk.Frame):
                 message = self._prep_q.get_nowait()
             except queue.Empty:
                 return
+            current = message.preparation is self._preparing
             try:
                 self._on_preparation(message)
             except Exception as exc:  # noqa: BLE001 - one bad message must not stop the pump that frees the panel
                 logging_setup.get_logger().exception("MP3 Tool: preparation message failed: %s", exc)
-                if message.preparation is self._preparing:
+                # v0.8.2 R1: the current preparation's ending must free the panel even if it failed part-way, as
+                # long as no attempt took the run over; a plan it offered is released off Tk.
+                if current and not self._busy and not self._closed:
                     self._preparing = None
-                    self._end_preparation(STATUS_PREPARATION_FAILED,
-                                          f"{message.preparation.label}: the job could not be prepared.",
-                                          f"{type(exc).__name__}: {exc}")
+                    left = message.preparation.withdraw()
+                    if left is not None:
+                        self._release_unadopted(left)
+                    try:
+                        self._end_preparation(STATUS_PREPARATION_FAILED,
+                                              f"{message.preparation.label}: the job could not be prepared.",
+                                              f"{type(exc).__name__}: {exc}")
+                    except Exception:  # noqa: BLE001 - the pump must keep running
+                        logging_setup.get_logger().exception("MP3 Tool: the preparation could not be ended")
 
     def _on_preparation(self, message: _PreparationMessage) -> None:
         """Adopt a finished plan and start the run, or end the preparation. Main thread only.
@@ -2356,7 +2540,7 @@ class MP3ToolUI(ttk.Frame):
         if self._closed or preparation is not self._preparing:
             left = preparation.withdraw()
             if left is not None:
-                output_paths.release_if_empty(left.reservation)
+                self._release_unadopted(left)
             return
         kind = message.kind
         if kind == "progress":
@@ -2390,16 +2574,59 @@ class MP3ToolUI(ttk.Frame):
         self.render()
 
     def _adopt(self, preparation: _Preparation, plan: mp3_plan.RunPlan) -> None:
-        """The prepared plan becomes the run. Main thread only.
+        """The prepared plan becomes the run. Main thread only; never raises.
 
-        Only now does the new run replace the old one: its Retry Failed can no longer be reached, so the old plan's
-        kept staging goes -- removed by the new attempt's worker, off the Tk thread -- and the one controller,
-        reporter, adapter and conversion worker are created exactly as before.
+        Only once the new attempt's job area is up does the new run replace the old one (``_start_attempt``): its
+        Retry Failed can no longer be reached, so the old plan's kept staging goes -- removed by the new attempt's
+        worker, off the Tk thread -- and the one controller, reporter, adapter and conversion worker are created
+        exactly as before.
+
+        v0.8.2 R1: if that setup fails before anything changed hands, the preparation ends as a failed one does --
+        the previous run, its result, Retry Failed and kept staging untouched, the panel unlocked, the error shown --
+        and the plan nobody will run has its still-empty run released off the Tk thread.
         """
-        superseded = self._abandon_staging(defer=True)
-        self.last_plan = plan
-        self._settled = None
-        self._start_attempt(preparation.label, plan, superseded=superseded)
+        try:
+            self._start_attempt(preparation.label, plan, replaces=True)
+        except _AttemptNotStarted as exc:
+            self._release_unadopted(plan)
+            text = f"{preparation.label}: the job could not be started, and nothing was started."
+            self._end_preparation(STATUS_PREPARATION_FAILED, text, exc.detail)
+            messagebox.showerror(APP_TITLE, text, parent=self)
+
+    def _release_unadopted(self, plan: mp3_plan.RunPlan) -> None:
+        """Release the still-empty run of a plan nobody will run, **off the Tk thread** (v0.8.2 R1). Main thread.
+
+        A plan offered and then withdrawn (Cancel, Close, a stale ending) or one whose run could not be set up hands
+        its reservation here exactly once -- :meth:`_Preparation.withdraw` and :meth:`_Preparation.adopt` decide that
+        under the preparation's lock -- and a short-lived worker removes the run folder only while it is still empty
+        (``output_paths.release_if_empty``: links and anything inside are left alone; no source is ever touched).
+        The call returns at once whatever the storage does, and the worker needs neither Tk nor the pump, so it
+        finishes even after the panel closed. Should no worker start, the empty folder is left and named in the log
+        rather than making Tk wait on the filesystem.
+        """
+        reservation = plan.reservation
+        self._releases += 1
+        name = f"mp3-release-{self._releases}"
+
+        def release() -> None:
+            try:
+                released = output_paths.release_if_empty(reservation)
+            except Exception as exc:  # noqa: BLE001 - release_if_empty never raises; still, a worker must not
+                logging_setup.get_logger().warning("MP3 Tool: an unused run could not be released: %s (%s: %s)",
+                                                   reservation.run_directory, type(exc).__name__, exc)
+                return
+            if not released:
+                logging_setup.get_logger().warning("MP3 Tool: an unused run was left in place: %s",
+                                                   reservation.run_directory)
+
+        try:
+            self._thread_factory(release, name).start()
+        except Exception as exc:  # noqa: BLE001 - an empty folder left behind is harmless; a frozen window is not
+            logging_setup.get_logger().warning("MP3 Tool: an unused run was left in place: %s (%s: %s)",
+                                               reservation.run_directory, type(exc).__name__, exc)
+            if not self._closed:
+                self._say("An unused, empty run folder was left in place.",
+                          f"Unused run left in place: {reservation.run_directory} ({type(exc).__name__}: {exc})")
 
     # ------------------------------------------------------------------ #
     # The one run: controller, reporter, adapter, worker
@@ -2440,7 +2667,7 @@ class MP3ToolUI(ttk.Frame):
         return self._attempts
 
     def _start_attempt(self, label: str, plan: mp3_plan.RunPlan, *,
-                       retry_items=None, prior=None, superseded=None) -> None:
+                       retry_items=None, prior=None, replaces: bool = False) -> None:
         """Begin one attempt at *plan*: a first run, or a retry of it.
 
         The shared controller is this attempt's one state authority; its
@@ -2450,58 +2677,126 @@ class MP3ToolUI(ttk.Frame):
         directory, nothing reserved -- with a fresh controller, reporter and
         adapter, because a terminal controller and a retired adapter cannot be
         revived.
+
+        v0.8.2 R1 -- **ownership changes hands in one place.** Everything that
+        can fail without consequence comes first: the controller, the reporter
+        and the attempt are plain objects, and the new job area is installed
+        transactionally. If that fails, :class:`_AttemptNotStarted` is raised
+        and *nothing* has changed: the previous attempt, its result, its job
+        area with its Retry Failed and its kept staging, and the panel's idle
+        state are all as they were. Only after the job area is up does the new
+        attempt become the panel's (and, with ``replaces``, the plan replace the
+        last one, whose kept staging is handed to the new worker to remove). A
+        failure from there until the worker is running settles the attempt as
+        failed through its own controller and terminal event, as a worker
+        fault would, so the panel never stays busy with nothing running.
         """
-        attempt_number = self._attempts + 1
-        run_id = (self._attempt.run_id if retry_items is not None and self._attempt
-                  else self._ids.next_id("run"))
-        item_ids = tuple(track.occurrence_id for book in plan.books for track in book.tracks)
-        controller = job_control.JobController(run_id, listener=self._on_state, cancel_clock=time.monotonic)
-        reporter = job_control.JobReporter(
-            run_id, clock=self._clock, publish=self._publish, item_ids=item_ids)
-        attempt = _Attempt(label=label, plan=plan, run_id=run_id, number=attempt_number,
-                           controller=controller, reporter=reporter,
-                           retry_items=retry_items, prior=prior, superseded=superseded)
+        retired = self.jobs
+        failure: BaseException | None = None
+        try:
+            attempt_number = self._attempts + 1
+            run_id = (self._attempt.run_id if retry_items is not None and self._attempt
+                      else self._ids.next_id("run"))
+            item_ids = tuple(track.occurrence_id for book in plan.books for track in book.tracks)
+            controller = job_control.JobController(run_id, listener=self._on_state, cancel_clock=time.monotonic)
+            reporter = job_control.JobReporter(
+                run_id, clock=self._clock, publish=self._publish, item_ids=item_ids)
+            attempt = _Attempt(label=label, plan=plan, run_id=run_id, number=attempt_number,
+                               controller=controller, reporter=reporter,
+                               retry_items=retry_items, prior=prior)
+            # The divider first: it freezes the previous run's lines into the log's
+            # history, so the fresh adapter's empty first render cannot drop them.
+            heading = (f"Retry Failed — {label} — attempt {attempt_number}"
+                       if retry_items is not None
+                       else f"{label} — {plan.run_directory.name}")
+            self.log.divider(f"{DIVIDER_MARK} {heading}")
+            # The retired adapter is closed inside here, which drops its drain: one
+            # pump, one job drain however many attempts a run takes. The new
+            # adapter holds no result, so Retry Failed is unavailable for the whole
+            # of this attempt without anything setting it.
+            self._install_jobs(run_id, item_ids)
+        except Exception as exc:  # noqa: BLE001 - decided here: nothing changed hands, or the attempt settles
+            if self.jobs is retired:
+                raise _AttemptNotStarted(f"{type(exc).__name__}: {exc}") from exc
+            failure = exc
+
+        # -- From here the attempt owns the run. ----------------------------- #
+        if replaces:
+            # The new run replaces the old one: no Retry Failed can reach the old plan any more. Its kept staging is
+            # removed by this attempt's worker, off the Tk thread (``_release_superseded``).
+            attempt.superseded = self._abandon_staging(defer=True)
+            self.last_plan = plan
+            self._settled = None
         self._attempts = attempt_number
         self._attempt = attempt
         self._busy = True
-        # The divider first: it freezes the previous run's lines into the log's
-        # history, so the fresh adapter's empty first render cannot drop them.
-        heading = (f"Retry Failed — {label} — attempt {attempt_number}"
-                   if retry_items is not None
-                   else f"{label} — {plan.run_directory.name}")
-        self.log.divider(f"{DIVIDER_MARK} {heading}")
-        # The retired adapter is closed inside here, which drops its drain: one
-        # pump, one job drain however many attempts a run takes. The new
-        # adapter holds no result, so Retry Failed is unavailable for the whole
-        # of this attempt without anything setting it.
-        self._install_jobs(run_id, item_ids)
-
-        controller.start()
-        # Locked now, from the state the controller actually reached, rather
-        # than a tick later when the RUNNING event is drained.
-        self.lock_group.apply(controller.state)
-        books = len(attempt.books)
-        reporter.stage_changed(
-            STAGE_PREPARE,
-            (f"{label}: retrying {books} Book(s) in {plan.run_directory.name}…"
-             if retry_items is not None
-             else f"{label}: {books} Book(s) → {plan.run_directory.name}"))
-        reporter.output_location(plan.run_directory, f"Output: {plan.run_directory}")
-        reporter.progress(0, attempt.projection.total, stage=STAGE_PREPARE)
-        self._render_status()
-
         try:
+            if failure is not None:
+                raise failure
+            controller.start()
+            # Locked now, from the state the controller actually reached, rather
+            # than a tick later when the RUNNING event is drained.
+            self.lock_group.apply(controller.state)
+            books = len(attempt.books)
+            reporter.stage_changed(
+                STAGE_PREPARE,
+                (f"{label}: retrying {books} Book(s) in {plan.run_directory.name}…"
+                 if retry_items is not None
+                 else f"{label}: {books} Book(s) → {plan.run_directory.name}"))
+            reporter.output_location(plan.run_directory, f"Output: {plan.run_directory}")
+            reporter.progress(0, attempt.projection.total, stage=STAGE_PREPARE)
+            self._render_status()
             thread = self._thread_factory(lambda: self._worker(attempt), f"mp3-{run_id}")
             self._worker_thread = thread
             thread.start()
         except Exception as exc:  # noqa: BLE001 - a worker that never started must still settle the run
             # v0.8.2: reached from the pump since preparation; an exception escaping here would stop the pump and
             # leave the panel locked. The run fails as a worker fault would, through the same terminal event.
-            detail = f"{type(exc).__name__}: {exc}"
+            self._fail_unstarted(attempt, f"{type(exc).__name__}: {exc}")
+
+    def _fail_unstarted(self, attempt: _Attempt, detail: str) -> None:
+        """Settle an attempt whose worker never started as failed. Main thread only; never raises.
+
+        Nothing ran, so nothing of it can be retried: its staging (none for a first run) and the superseded run's
+        kept staging go, exactly as a worker fault releases them. The controller settles ``FAILED`` and the one
+        terminal event frees the panel. Should the controller not even have reached RUNNING -- it cannot be failed
+        from IDLE -- the panel is freed directly and the attempt is never reported as running.
+
+        Where the cleanup runs: the superseded run's kept staging can be large and has no ordering to keep (see
+        :meth:`_release_superseded`), so it goes to a short-lived release worker and Tk does not wait for it; only
+        when no worker can be started at all -- the usual reason the run's own could not -- is it removed here.
+        This attempt's own staging is released here, before the terminal event, because that order is what a later
+        Retry Failed relies on; for a run that never started it is a few directory checks.
+        """
+        controller, reporter = attempt.controller, attempt.reporter
+        try:
             reporter.technical(f"The processing worker could not be started: {detail}")
-            self._release_superseded(attempt)
-            self._release_staging(attempt, keep=())
+        except Exception:  # noqa: BLE001 - reporting is best effort here
+            pass
+        if attempt.superseded is not None:
+            self._releases += 1
+            try:
+                self._thread_factory(lambda: self._release_superseded(attempt),
+                                     f"mp3-release-{self._releases}").start()
+            except Exception:  # noqa: BLE001 - no worker at all: remove it here rather than leave it behind
+                self._release_superseded(attempt)
+        self._release_staging(attempt, keep=())
+        try:
+            if controller.state is JobState.IDLE:
+                controller.start()
             reporter.completed(controller.fail(FAULT_MESSAGE, detail))
+            return
+        except Exception as exc:  # noqa: BLE001 - the controller cannot settle; the panel must still be freed
+            logging_setup.get_logger().exception("MP3 Tool: an attempt could not be settled: %s", exc)
+        self._busy = False
+        self._settled = None
+        try:
+            self.jobs.render()
+            self.status.set_status(STATUS_PREPARATION_FAILED)
+        except Exception:  # noqa: BLE001
+            pass
+        self._say(f"{attempt.label}: the job could not be started, and nothing was processed.", detail)
+        self.render()
 
     def _publish(self, event) -> None:
         """Hand one produced event to the queue the shared adapter drains.
@@ -2614,6 +2909,9 @@ class MP3ToolUI(ttk.Frame):
         except Exception as exc:  # noqa: BLE001 - the new run must still go on
             problems = (f"{type(exc).__name__}: {exc}",)
         for line in problems:
+            # The session log always hears of it; the run's own Detailed pane does while the run is still open.
+            logging_setup.get_logger().warning(
+                "MP3 Tool: private staging of the previous run left in place (its .work folder): %s", line)
             try:
                 attempt.reporter.technical(
                     f"Private staging of the previous run left in place (its .work folder): {line}")
@@ -2838,7 +3136,7 @@ class MP3ToolUI(ttk.Frame):
                 return
             left = preparation.withdraw()
             if left is not None:
-                output_paths.release_if_empty(left.reservation)
+                self._release_unadopted(left)  # off Tk: Cancel never waits on the output storage
             if not self._closed:
                 self.controls.apply(JobState.CANCEL_REQUESTED)
                 self.status.set_status(STATUS_CANCELLING_PREPARATION)
@@ -2881,7 +3179,15 @@ class MP3ToolUI(ttk.Frame):
             retry_items[book.book_id] = tuple(request.item_ids)
         if not retry_items:
             return False
-        self._start_attempt(attempt.label, plan, retry_items=retry_items, prior=result)
+        try:
+            self._start_attempt(attempt.label, plan, retry_items=retry_items, prior=result)
+        except _AttemptNotStarted as exc:
+            # v0.8.2 R1: nothing changed hands; the failed Books, their kept staging and Retry Failed stay as they were.
+            text = "Retry Failed: the retry could not be started; nothing was changed."
+            self.jobs.render()
+            self._say(text, exc.detail)
+            messagebox.showerror(APP_TITLE, text, parent=self)
+            return False
         return True
 
     def on_pause(self) -> None:
@@ -2917,7 +3223,7 @@ class MP3ToolUI(ttk.Frame):
         if preparation is not None:
             left = preparation.withdraw()
             if left is not None:
-                output_paths.release_if_empty(left.reservation)
+                self._release_unadopted(left)  # off Tk; finishes after the pump closed
         # Nothing can retry once the tool is closed (ACT72-019): kept staging goes now, or when the worker ends.
         self._abandon_staging()
         controller = self.job_controller

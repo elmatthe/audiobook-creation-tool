@@ -38,6 +38,7 @@ from shared.job_control import JobAction, JobState  # noqa: E402
 from mp3 import mp3_plan, mp3_tool, mp3_workflow as wf  # noqa: E402
 
 import test_import_coordination as tic  # noqa: E402
+from test_importing import make_config  # noqa: E402
 from test_import_coordination import RealThreads, RecordingThreads  # noqa: E402
 from test_mp3_tool_ui import (  # noqa: E402,F401  (fixtures are collected by name)
     conversion_workers,
@@ -465,13 +466,14 @@ def test_the_run_uses_the_output_preferences_in_force_at_the_press(make_panel, t
 
     panel = make_panel(reader=no_tags, thread_factory=RecordingThreads(kind=Parked))
     import_folder(panel, library(tmp_path / "Library", 7))
-    at_press, later = object(), object()
+    # Real configurations (v0.8.2 R1): the same snapshot is now also what every Book's run snapshot records.
+    at_press, later = make_config(), make_config()
     monkeypatch.setattr(mp3_tool.shared_config, "get_effective", lambda: at_press)
     assert panel.write_id3_tags() is True
     monkeypatch.setattr(mp3_tool.shared_config, "get_effective", lambda: later)  # Preferences saved meanwhile
     preparation = next(t for t in panel._thread_factory.made if t.name.startswith("mp3-prepare-"))
     preparation.target()
-    assert seen == [at_press]
+    assert len(seen) == 1 and seen[0] is at_press
 
 
 def test_a_preparation_worker_that_cannot_start_reserves_nothing_and_frees_the_panel(make_panel, tmp_path,
