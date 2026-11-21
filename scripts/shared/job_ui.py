@@ -1560,7 +1560,7 @@ class ImportAdapter:
     def add_files(self) -> ImportOutcome | None:
         """Add individually chosen files, in the order the dialog returned them."""
         self._guard.require("add_files")
-        if self._closed or self._choose_files is None:
+        if self._closed or self._choose_files is None or self._refuse_while_active():
             return None
         paths = tuple(self._choose_files() or ())
         if not paths:
@@ -1573,7 +1573,7 @@ class ImportAdapter:
     def add_folder(self) -> ImportOutcome | None:
         """Start a background scan of one or more chosen roots, in chosen order."""
         self._guard.require("add_folder")
-        if self._closed or self._choose_folder is None:
+        if self._closed or self._choose_folder is None or self._refuse_while_active():
             return None
         chosen = tuple(self._choose_folder() or ())
         if not chosen:
@@ -1632,6 +1632,20 @@ class ImportAdapter:
         self._on_outcome = None
 
     # -- internals --------------------------------------------------------- #
+
+    def _refuse_while_active(self) -> bool:
+        """Refuse an overlapping Add Files / Add Folder *before* any chooser opens.
+
+        The coordinator would refuse it as busy anyway, but only after the tool's chooser
+        had overwritten the one remembered-folder candidate the running import is waiting
+        to settle (v0.8.1 review M1). Asking first means a cancelled or rejected second
+        dialog can neither discard the accepted import's history nor become the next
+        initial folder. Touches the status line only; the running import is left alone.
+        """
+        if not self._coordinator.is_active:
+            return False
+        self.status.set_message("An import is already running.")
+        return True
 
     def _request(self, roots: tuple[ImportRoot, ...]) -> ScanRequest:
         """Freeze the widgets into an immutable request, on this thread."""

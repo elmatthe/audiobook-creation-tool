@@ -122,6 +122,56 @@ def test_reset_keeps_live_appearance_and_next_toggle_consistent(fresh_root, monk
         appearance._listeners[:] = listeners
 
 
+def test_reset_from_dark_repaints_the_root_owned_aqua_role_buttons(fresh_root, monkeypatch):
+    """v0.8.1 review M2. Reset is driven from the Preferences toplevel; the Aqua role-button
+    images and element generation belong to the interpreter's root, so the refresh must go
+    through the root's style. Simulated Darwin on Windows Tk; native Mac confirmation is
+    still the owner's (the Cocoa drawing is not exercised here)."""
+    import types
+
+    monkeypatch.setattr(appearance, "sys", types.SimpleNamespace(platform="darwin"))
+    listeners = list(appearance._listeners)
+    appearance.set_appearance("dark")
+    style = ttk.Style(fresh_root)
+    dark = appearance.build_bundle(style, appearance.DARK, root=fresh_root)
+    root_images = fresh_root._compact_aqua_button_images
+    green = dark["styles"]["button_green"]
+    element = style.layout(green)[0][0]
+    width, height = appearance._AQUA_IMAGE_SIZE
+
+    def body(image):  # the neutral body of the role image, inside the outline
+        return tuple(image.get(width // 2, height // 2))
+
+    def rgb(bundle):
+        return tuple(value >> 8 for value in fresh_root.winfo_rgb(bundle["colors"]["field"]))
+
+    dialog = make_dialog(fresh_root, theme=dark)
+    try:
+        assert body(root_images["green_normal_flat"]) == rgb(dark)
+        assert dialog.reset_preferences() is True
+        assert appearance.get_appearance() == "light"
+        light = dialog.theme
+        assert light["appearance"] == "light" and rgb(light) != rgb(dark)
+        # The element every green button uses still belongs to the root's images, and they now hold Light.
+        assert style.layout(green)[0][0] == element
+        assert fresh_root._compact_aqua_button_images is root_images
+        for role in ("red", "green", "yellow", "blue"):
+            assert body(root_images[f"{role}_normal_flat"]) == rgb(light), role
+        assert not hasattr(dialog, "_compact_aqua_button_images"), "the dialog must not grow its own image cache"
+        dialog.destroy()
+        assert body(root_images["green_normal_flat"]) == rgb(light), "and it stays Light after Preferences closes"
+        # Live switching still works from the root afterwards.
+        toggled = appearance.toggle_appearance(style, root=fresh_root)
+        assert toggled["appearance"] == "dark"
+        assert body(root_images["green_normal_flat"]) == rgb(dark)
+    finally:
+        appearance._listeners[:] = listeners
+        if dialog.winfo_exists():
+            dialog.destroy()
+        appearance.set_appearance("light")
+        appearance.build_bundle(style, appearance.LIGHT, platform="darwin", root=fresh_root)
+
+
 def toplevels(root):
     return [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
 

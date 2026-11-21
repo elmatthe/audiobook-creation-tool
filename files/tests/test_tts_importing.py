@@ -1639,3 +1639,53 @@ def test_a_rejected_or_declined_tts_selection_is_not_remembered(make_panel, outp
     monkeypatch.setattr(panel_module.filedialog, "askopenfilenames", lambda **kw: (str(good),))
     panel.importer.add_files()
     assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(elsewhere), "the next accepted one is"
+
+
+def _overlap_setup(make_panel, tmp_path, monkeypatch, *, second_answer):
+    """Folder A scanning with its result still queued, and the Add Files / Add Folder dialogs scripted."""
+    previous = tmp_path / "Previous"
+    previous.mkdir()
+    app_settings.set(panel_module.KEY_INPUT_DIR, str(previous))
+    folder_a = tmp_path / "A"
+    sources(folder_a, "a1.txt")
+    folder_b = tmp_path / "B"
+    sources(folder_b, "b1.txt")
+    opened: list[tuple[str, str]] = []
+    answers = _recording_dialogs(monkeypatch, opened, files=(), folder=str(folder_a))
+    panel = make_panel(choose_files=None, choose_folder=None)  # inline scan thread: the result stays queued
+    panel.importer.add_folder()
+    assert panel.importer.is_importing, "A's scan is accepted and its terminal result is not drained yet"
+    answers["files"] = ()
+    answers["folder"] = str(folder_b) if second_answer == "folder-b" else ""
+    return panel, opened, previous, folder_a, folder_b
+
+
+def test_a_cancelled_second_dialog_does_not_discard_the_accepted_imports_history(
+        make_panel, output_base, tmp_path, monkeypatch):
+    panel, opened, previous, folder_a, _ = _overlap_setup(
+        make_panel, tmp_path, monkeypatch, second_answer="cancel")
+    panel.importer.add_files()  # a second dialog while A is still active; the user cancels it
+    drain_until(panel, lambda: not panel.importer.is_importing, "A's scan settles")
+    assert [path.name for path in panel.imported_files()] == ["a1.txt"], "A still imported"
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(folder_a), "A's accepted history is kept"
+
+
+def test_a_rejected_busy_import_location_is_never_remembered(make_panel, output_base, tmp_path, monkeypatch):
+    panel, opened, previous, folder_a, folder_b = _overlap_setup(
+        make_panel, tmp_path, monkeypatch, second_answer="folder-b")
+    panel.importer.add_folder()  # the importer refuses this as busy, whatever the dialog answered
+    drain_until(panel, lambda: not panel.importer.is_importing, "A's scan settles")
+    assert [path.name for path in panel.imported_files()] == ["a1.txt"], "B was not imported"
+    assert app_settings.get(panel_module.KEY_INPUT_DIR) == str(folder_a), "B was rejected as busy, so only A is remembered"
+
+
+def test_add_files_and_add_folder_open_no_dialog_while_an_import_is_active(
+        make_panel, output_base, tmp_path, monkeypatch):
+    panel, opened, previous, folder_a, folder_b = _overlap_setup(
+        make_panel, tmp_path, monkeypatch, second_answer="folder-b")
+    dialogs_before = len(opened)
+    assert panel.importer.add_files() is None and panel.importer.add_folder() is None
+    assert len(opened) == dialogs_before, "no chooser opens for a request that would be refused"
+    drain_until(panel, lambda: not panel.importer.is_importing, "A's scan settles")
+    panel.importer.add_files()  # idle again: the dialog works as before
+    assert len(opened) == dialogs_before + 1

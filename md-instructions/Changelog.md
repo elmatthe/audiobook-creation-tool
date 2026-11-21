@@ -18,6 +18,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Review R1, Codex findings M1-M3; focused tests only)**
+- Add Files and Add Folder (all six tools, one shared adapter) refuse while an import is already running, before the file dialog opens. A cancelled or rejected second dialog can no longer discard the running import's remembered folder or become the next one.
+- Reset Preferences refreshes the Light/Dark bundle through the interpreter root, so the Aqua outlined role buttons repaint with the stored appearance instead of keeping the previous theme's images. Native Mac confirmation is still the owner's.
+- The test guard's bundled-Python bytecode exception now covers only regular `*.cpython-NNN[.opt-N].pyc` files in a bundled `__pycache__`; any other file written there is reported.
+
 **Fixed (Checkpoint F2, tests, dev tool and gate metadata only; no application code)**
 - `files/dev-tools/voice_previews.py` renders the owner-edited `files/voice-previews/README.md` exactly: an `Availability` column from the application's engine policy and six display-only OmniVoice rows (`To Be Added`) that are not manifest records, are not counted and claim no publication right. `previews.json` (28 authorized previews) and every WAV are unchanged; the four README tests that F1 left failing pass again.
 - The Windows no-link-rule test is split: a deterministic test that needs no link, and the real-link test, which now skips only on WinError 1314 (this account cannot create symbolic links) under its own exact skip-policy rule with a ceiling of 1. Real link rejection stays unverified on accounts without the privilege.

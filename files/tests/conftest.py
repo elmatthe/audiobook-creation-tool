@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -208,18 +209,30 @@ _REAL_SCANDIR = os.scandir
 _REAL_STAT = os.stat
 
 
-def _bundled_python_bytecode(relative: str) -> bool:
-    """True for the bytecode cache of the app's own bundled Python, inside ``files/runtime-data``.
+_BYTECODE_FILE = re.compile(r"[^/]+\.(?:cpython|pypy)-\d+(?:\.opt-[12])?\.pyc")
 
-    ``relative`` is a path below the runtime-data folder, ``/``-separated. Only a ``__pycache__`` folder (and what is in
-    it) below ``python/`` qualifies: that is the interpreter's own compile cache for its standard library, which the
-    interpreter writes the first time a module is imported (v0.8.1 Checkpoint F1: ``multiprocessing.heap`` and
-    ``popen_spawn_win32`` on the first real ``spawn`` the Edge publication tests make). It is neither application state
-    nor something a test can forge to fake an installation. Everything else under ``python/`` (the interpreter, its
-    libraries, ``Scripts``) and every ``__pycache__`` anywhere else in runtime-data still counts.
+
+def _bundled_python_bytecode(relative: str, entry=None) -> bool:
+    """True for an entry the bundled Python's own compile cache legitimately adds, inside ``files/runtime-data``.
+
+    ``relative`` is a path below the runtime-data folder, ``/``-separated; ``entry`` is its ``os.DirEntry``.
+    Two things qualify, both below ``python/`` only: a ``__pycache__`` folder (it is not recorded, but the walk still
+    descends into it), and a regular file in one named like the interpreter's cache, ``<module>.<tag>-<NN>[.opt-N].pyc``.
+    That is the standard library's compile cache, which the interpreter writes the first time a module is imported
+    (v0.8.1 Checkpoint F1: ``multiprocessing.heap`` and ``popen_spawn_win32`` on the first real ``spawn`` the Edge
+    publication tests make). It is neither application state nor something a test can forge to fake an installation.
+
+    Nothing else is excused (v0.8.1 review M3: F1 first skipped the whole cache folder, which hid a ``.json`` written
+    beside a ``.pyc``): a link, a nested directory, a file that is not cache-named, the interpreter, its libraries,
+    ``Scripts`` and every ``__pycache__`` anywhere else in runtime-data still count.
     """
     parts = relative.rstrip("/").split("/")
-    return parts[0] == "python" and "__pycache__" in parts[1:]
+    if parts[0] != "python" or len(parts) < 2 or (entry is not None and _is_link(entry)):
+        return False
+    if entry is None or entry.is_dir(follow_symlinks=False):
+        return parts[-1] == "__pycache__"
+    return (entry.is_file(follow_symlinks=False) and parts[-2] == "__pycache__"
+            and _BYTECODE_FILE.fullmatch(parts[-1]) is not None)
 
 
 def _fingerprint(path: Path, *, follow_links: bool = True, ignore=None):
@@ -278,14 +291,18 @@ def _walk(directory: Path, prefix: str, *, follow_links: bool = True, ignore=Non
     with _REAL_SCANDIR(directory) as entries:
         for entry in entries:
             name = f"{prefix}{entry.name}"
-            if ignore is not None and ignore(name):
+            ignored = ignore is not None and ignore(name, entry)
+            if ignored and not entry.is_dir(follow_symlinks=False):
                 continue
             if not follow_links and _is_link(entry):
                 yield (name + "@", -2, -2)
             elif entry.is_dir():
                 # A directory that exists but is empty still has to register,
                 # or an emptied tree would look identical to an absent one.
-                yield (name + "/", -1, -1)
+                # An *ignored* directory is not recorded but is still walked: only
+                # its excused files are skipped, anything else in it registers.
+                if not ignored:
+                    yield (name + "/", -1, -1)
                 yield from _walk(Path(entry.path), name + "/", follow_links=follow_links, ignore=ignore)
             elif entry.is_file():
                 info = entry.stat()

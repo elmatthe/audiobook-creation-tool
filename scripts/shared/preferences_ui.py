@@ -495,8 +495,10 @@ class PreferencesDialog(tk.Toplevel):
         output_paths.refresh_destination_hints()
         self._set_status("Preferences reset. Defaults are back in force.", "success")
         if self.theme.get("mode") == "compact":
-            bundle = appearance.build_bundle(
-                ttk.Style(self), root=self.master.winfo_toplevel())
+            # The interpreter's root owns the Aqua role-button images and element generation; a style
+            # mastered by this dialog would paint a private copy the shared elements never use (review M2).
+            root = self.master.winfo_toplevel()
+            bundle = appearance.build_bundle(ttk.Style(root), root=root)
             appearance.notify_listeners(bundle)
             self.apply_appearance(bundle)
         return True

@@ -113,6 +113,77 @@ def test_nothing_else_in_runtime_data_is_excused_by_the_bytecode_rule(tmp_path):
         assert conftest._fingerprint_named("the real runtime data", root) != before, label
 
 
+def test_only_real_bytecode_files_are_excused_inside_the_bundled_cache(tmp_path):
+    """v0.8.1 review M3. The exception is for the interpreter's own ``*.cpython-NNN[.opt-N].pyc`` files, not for the
+    folder: Codex's reproduction (an unexpected-state.json beside heap.cpython-312.pyc in python/Lib/multiprocessing/
+    __pycache__) left the old fingerprint unchanged. Each control writes beside a legitimate .pyc, so a guard that
+    skipped the whole cache folder would pass none of them; the first entry is the positive control."""
+    pyc = lambda root: root / "python" / "Lib" / "multiprocessing" / "__pycache__"  # noqa: E731
+    changes = {
+        "(positive control) the expected heap .pyc": None,
+        "(positive control) an optimised .pyc": None,
+        "the reported unexpected-state.json": lambda root: (pyc(root) / "unexpected-state.json").write_text(
+            "{}", encoding="utf-8"),
+        "a source file": lambda root: (pyc(root) / "evil.py").write_text("x", encoding="utf-8"),
+        "an extensionless file": lambda root: (pyc(root) / "heap").write_bytes(b"x"),
+        "a pyc with no interpreter tag": lambda root: (pyc(root) / "heap.pyc").write_bytes(b"x"),
+        "an atomic-write leftover": lambda root: (pyc(root) / "heap.cpython-312.pyc.123").write_bytes(b"x"),
+        "a nested directory": lambda root: (pyc(root) / "nested").mkdir(),
+        "a pyc-named directory": lambda root: (pyc(root) / "dir.cpython-312.pyc").mkdir(),
+    }
+    for number, (label, change) in enumerate(changes.items()):
+        root = _runtime_data_like(tmp_path / str(number))
+        before = conftest._fingerprint_named("the real runtime data", root)
+        if change is None:
+            name = "heap.cpython-312.pyc" if "heap" in label else "heap.cpython-312.opt-2.pyc"
+            (pyc(root) / name).write_bytes(b"written by the interpreter")
+            assert conftest._fingerprint_named("the real runtime data", root) == before, label
+        else:
+            change(root)
+            assert conftest._fingerprint_named("the real runtime data", root) != before, label
+
+
+def test_a_link_in_the_bundled_cache_is_not_excused(tmp_path):
+    """A link named like a .pyc is not a regular cache file, so it still registers (skipped where the account may not
+    create links, like the real-link test beside it)."""
+    root = _runtime_data_like(tmp_path)
+    cache = root / "python" / "Lib" / "multiprocessing" / "__pycache__"
+    before = conftest._fingerprint_named("the real runtime data", root)
+    try:
+        (cache / "linked.cpython-312.pyc").symlink_to(root / "settings.json")
+    except OSError as error:
+        if getattr(error, "winerror", None) != 1314:
+            raise
+        pytest.skip("this account cannot create symbolic links (WinError 1314)")
+    assert conftest._fingerprint_named("the real runtime data", root) != before
+
+
+def test_the_bytecode_predicate_refuses_links_and_irregular_entries_without_needing_a_real_link():
+    class Entry:
+        def __init__(self, *, link=False, directory=False, file=True):
+            self._link, self._dir, self._file = link, directory, file
+
+        def is_symlink(self):
+            return self._link
+
+        def is_dir(self, follow_symlinks=True):
+            return self._dir
+
+        def is_file(self, follow_symlinks=True):
+            return self._file
+
+    ok = "python/Lib/x/__pycache__/heap.cpython-312.pyc"
+    accept = conftest._bundled_python_bytecode
+    assert accept(ok, Entry())
+    assert accept("python/Lib/x/__pycache__", Entry(directory=True, file=False))
+    assert not accept(ok, Entry(link=True)), "a link named like a .pyc"
+    assert not accept("python/Lib/x/__pycache__", Entry(link=True, directory=True, file=False)), "a linked cache folder"
+    assert not accept(ok, Entry(file=False)), "not a regular file"
+    assert not accept("python/Lib/x/__pycache__/sub", Entry(directory=True, file=False)), "a nested directory"
+    assert not accept("python/Lib/x/__pycache__/state.json", Entry())
+    assert not accept("logs/__pycache__/heap.cpython-312.pyc", Entry()), "outside python/"
+
+
 def test_the_bytecode_rule_applies_to_the_runtime_data_tree_alone(tmp_path):
     """Another guarded tree that happens to hold a python/__pycache__ keeps counting it."""
     root = _runtime_data_like(tmp_path)

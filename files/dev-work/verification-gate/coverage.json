@@ -19456,7 +19456,7 @@
         "Only ticked supported types are imported; hidden folders are skipped unless 'Include hidden folders' is ticked; 'Include subfolders' (on by default) controls recursion.",
         "A file already in the list is skipped and reported unless 'Allow duplicate files' is ticked.",
         "A broad root (a drive or share root, or the home folder) is confirmed before any scan starts, and a result over the configured threshold (default 1000) before anything is added; declining adds nothing.",
-        "An import appends in one step or not at all: a failed, cancelled or declined import leaves the list exactly as it was, and a second import while one is scanning is refused."
+        "An import appends in one step or not at all: a failed, cancelled or declined import leaves the list exactly as it was, and a second import while one is scanning is refused before its file dialog opens, so a cancelled or rejected second dialog can neither discard the running import's remembered folder nor become the next one."
       ],
       "selection": [
         "files/tests/test_importing.py",
@@ -19464,7 +19464,8 @@
         "files/tests/test_import_recursion.py",
         "files/tests/test_import_manager.py",
         "files/tests/test_import_coordination.py",
-        "files/tests/test_job_ui.py"
+        "files/tests/test_job_ui.py",
+        "files/tests/test_tts_importing.py"
       ],
       "journeys": [
         "cover.letterbox-numbered-run",
@@ -19507,6 +19508,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_job_ui.py::test_a_failed_import_leaves_the_prior_list_exactly_as_it_was"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_importing.py::test_a_cancelled_second_dialog_does_not_discard_the_accepted_imports_history"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_importing.py::test_a_rejected_busy_import_location_is_never_remembered"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_importing.py::test_add_files_and_add_folder_open_no_dialog_while_an_import_is_active"
           },
           {
             "kind": "native",
@@ -21110,6 +21123,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_file_dialog_history.py::test_reset_preferences_clears_every_history_and_touches_no_media"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_preferences_ui.py::test_reset_from_dark_repaints_the_root_owned_aqua_role_buttons"
           }
         ]
       },
@@ -27046,7 +27063,7 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
-    "scripts/shared/job_ui.py": "6609b7314100b692f0cf6f8d95b592e3c4fcf24adb96dc940eb4224b93c17558",
+    "scripts/shared/job_ui.py": "b941d2efaedb50e5cbcdb533346658ae4dd84d901d7e7fb3ebbd81e1e7d35884",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
@@ -27068,7 +27085,7 @@
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
     "scripts/shared/output_paths.py": "98ae9d47ecab4ba2cfa0a595604a763cc17e66baae7da4abfcdb5e7ad3c8ddd4",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
-    "scripts/shared/preferences_ui.py": "7783955e1e7df8c554bf41e29efc9cc50defd979288dc3caaa444d289e58cf91",
+    "scripts/shared/preferences_ui.py": "a587859b3e8d0385baf8bf757c6bf669040d2edfa81bdb923375076377c62ef4",
     "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",
     "scripts/shared/settings.py": "2f564a150ce9b5f0dce110d711e54e8c00f18dc59a017d59e31936bcc136f84f",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
