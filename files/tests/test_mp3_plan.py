@@ -947,3 +947,201 @@ def test_an_existing_folder_that_differs_only_by_case_follows_the_volume(tmp_pat
         assert planned.name == "dune", "a distinct entry on this volume"
     assert not planned.exists(), "planned, never created"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["Dune"], "nothing was created"
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.2 — planning work grows with the track count, not with its square
+# --------------------------------------------------------------------------- #
+#
+# v0.8.1 checked every planned destination against every source, resolving each source again each time: 2N² path
+# resolutions for Write ID3 (10,960,562 at the owner's 2,341 tracks; 20 minutes, on the Tk thread). These count the
+# work instead of timing it, so they hold on any machine and fail on the quadratic planner within seconds.
+
+
+def seven_books(source_root: Path, tracks: int, **configuration) -> tuple[BookJob, ...]:
+    """*tracks* placeholder MP3s spread over seven Books, one folder each, as the owner's library was."""
+    per_book = [tracks // 7 + (1 if n < tracks % 7 else 0) for n in range(7)]
+    made, number = [], 0
+    for index, count in enumerate(per_book, start=1):
+        names = []
+        for _ in range(count):
+            number += 1
+            names.append(f"{number:04d} Chapter {number}.mp3")
+        made.append(book(source_root, f"Book {index}", names, **configuration))
+    return tuple(made)
+
+
+def counted_plan(monkeypatch, space, store, reserve, operation, **kwargs):
+    """Plan once, counting path normalisations and input-guard lookups."""
+    normalised: list = []
+    lookups: list = []
+    real_normalise = output_paths._normalise
+    index = getattr(output_paths, "InputIndex", None)  # absent before v0.8.2, so the count can be proved there too
+
+    def normalise(path):
+        normalised.append(path)
+        return real_normalise(path)
+
+    def lookup(self, destination):
+        lookups.append(destination)
+        return real_lookup(self, destination)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(output_paths, "_normalise", normalise)
+        if index is not None:
+            real_lookup = index.assert_not_input
+            patch.setattr(index, "assert_not_input", lookup)
+        made = plan(space, store, reserve, operation=operation, **kwargs)
+    return made, len(normalised), len(lookups)
+
+
+@pytest.mark.parametrize("operation", [MP3Operation.WRITE_ID3, MP3Operation.COMBINE], ids=["write_id3", "combine"])
+def test_each_source_is_resolved_once_per_plan_not_once_per_destination(source_root, reserve, monkeypatch,
+                                                                        operation):
+    books = seven_books(source_root, 280)
+    made, normalised, lookups = counted_plan(monkeypatch, workspace(*books), observe(*books), reserve, operation)
+    tracks = sum(len(entry.tracks) for entry in made.books)
+    assert tracks == 280 and len(made.books) == 7
+    # v0.8.1 needed at least 2 x 280 x 280 = 156,800 here. Now: the inputs once, each destination once,
+    # containment per planned name, and a few per Book.
+    assert normalised <= 10 * tracks, normalised
+    expected = 2 * tracks + (2 * len(made.books) if operation is MP3Operation.COMBINE else 0)
+    assert lookups == expected, "every staged and published output is still checked against the inputs"
+
+
+def test_twice_the_tracks_take_about_twice_the_path_work(source_root, reserve, monkeypatch):
+    small = seven_books(source_root / "small", 350)
+    large = seven_books(source_root / "large", 700)
+    _, small_work, _ = counted_plan(monkeypatch, workspace(*small), observe(*small), reserve, MP3Operation.WRITE_ID3)
+    _, large_work, _ = counted_plan(monkeypatch, workspace(*large), observe(*large), reserve, MP3Operation.WRITE_ID3)
+    assert 1.8 <= large_work / small_work <= 2.2, (small_work, large_work)
+
+
+def test_the_owners_shape_2341_tracks_in_seven_books_plans_completely(source_root, reserve, monkeypatch):
+    books = seven_books(source_root, 2341, artist="Shared Narrator")
+    store = observe(*books)
+    made, normalised, lookups = counted_plan(monkeypatch, workspace(*books), store, reserve, MP3Operation.WRITE_ID3)
+    assert [len(entry.tracks) for entry in made.books] == [335, 335, 335, 334, 334, 334, 334]
+    assert lookups == 2 * 2341
+    assert normalised <= 10 * 2341, normalised  # v0.8.1: 10,960,562 source resolutions alone
+    order = [track.occurrence_id for entry in made.books for track in entry.tracks]
+    assert order == [item.occurrence_id for entry in books for item in entry.files.files], "track and Book order"
+    assert [entry.number for entry in made.books] == [1, 2, 3, 4, 5, 6, 7]
+    assert all(entry.artist == "Shared Narrator" for entry in made.books)
+    names = [track.published for entry in made.books for track in entry.tracks]
+    assert len({str(path).casefold() for path in names}) == 2341, "no two outputs share a name"
+
+
+def test_5000_tracks_plan_with_linear_path_work(source_root, reserve, monkeypatch):
+    books = seven_books(source_root, 5000)
+    made, normalised, lookups = counted_plan(monkeypatch, workspace(*books), observe(*books), reserve,
+                                             MP3Operation.COMBINE)
+    assert sum(len(entry.tracks) for entry in made.books) == 5000
+    assert lookups == 2 * 5000 + 2 * 7
+    assert normalised <= 10 * 5000, normalised  # v0.8.1: 50,000,000 source resolutions alone
+
+
+def test_a_plan_from_a_capture_taken_first_equals_the_plan_that_captures_itself(source_root, reserve):
+    books = (book(source_root, "A", ["01 Same.mp3", "02 Same.mp3", "Same.mp3"], auto_number=False,
+                  chapter_titles="Same\nsame\n"),
+             book(source_root, "B", ["1.mp3", "2.mp3"], album="Dune", start_number="7"),
+             book(source_root, "C", []))
+    space = workspace(*books)
+    store = observe(*books)
+    by_itself = plan(space, store, reserve, operation=MP3Operation.COMBINE, numbers={books[1].book_id: 9})
+    capture = mp.capture_for_run(space, catalog=wf.MP3_CATALOG,
+                                 import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
+                                 effective_config=make_config(), id_factory=_IDS)
+    given = mp.plan_run(space, store, operation=MP3Operation.COMBINE, reservation=reserve("mp3_tool"),
+                        capture=capture, numbers={books[1].book_id: 9})
+    assert given.capture is capture
+
+    def shape(made: RunPlan):
+        root = made.run_directory
+        return [(entry.book_id, entry.number, entry.folder_name, entry.published_dir.relative_to(root),
+                 entry.staging_dir.relative_to(root), entry.album, entry.start_number, entry.auto_number,
+                 entry.combined_published.relative_to(root), entry.timestamps_published.relative_to(root),
+                 [(t.occurrence_id, t.source, t.position, t.title, t.track_number, t.filename,
+                   t.staged.relative_to(root), t.published.relative_to(root)) for t in entry.tracks])
+                for entry in made.books]
+
+    assert shape(given) == shape(by_itself)
+    assert [t.filename.casefold() for t in given.books[0].tracks] == ["same.mp3", "same-1.mp3", "same-2.mp3"], \
+        "names that differ only by case are collision-numbered, never overwritten"
+
+
+def test_a_destination_that_names_another_books_source_is_refused(source_root, tmp_path):
+    """Book 1's planned output is Book 2's source. The planner is told not to look at the disk, so only the input
+    guard stands between them; it must still refuse, naming that source."""
+
+    class Blind(output_paths.RunReservation):
+        def planner(self, **kwargs):
+            return output_paths.DestinationPlanner(self.run_directory, check_filesystem=False)
+
+    run = tmp_path / "Outputs" / "MP3-Tool-1"
+    run.mkdir(parents=True)
+    first = book(source_root, "A", ["One.mp3"], album="Alpha", auto_number=False)
+    second = BookJob(book_id=book_workspace.new_book_id(_IDS), configuration={},
+                     files=ImportedFileSnapshot(Revision(1), (track(run, "Alpha", "One.mp3"),)))
+    reservation = Blind(tool_key="mp3_tool", base_directory=tmp_path / "Outputs",
+                        tool_directory=tmp_path / "Outputs", run_directory=run, run_number=1)
+    with pytest.raises(output_paths.UnsafePathError) as refused:
+        mp.plan_run(workspace(first, second), observe(first, second), operation=MP3Operation.WRITE_ID3,
+                    reservation=reservation, catalog=wf.MP3_CATALOG,
+                    import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
+                    effective_config=make_config(), id_factory=_IDS)
+    assert refused.value.message == "an output would overwrite one of the files being read"
+    assert refused.value.detail == f"destination equals input {(run / 'Alpha' / 'One.mp3').resolve()}"
+
+
+def test_a_checkpoint_that_raises_stops_planning_and_creates_nothing(source_root, reserve):
+    class Stop(Exception):
+        pass
+
+    books = seven_books(source_root, 140)
+    calls = {"n": 0}
+
+    def checkpoint():
+        calls["n"] += 1
+        if calls["n"] == 200:  # past the input index, part-way through the Books
+            raise Stop
+
+    with pytest.raises(Stop):
+        plan(workspace(*books), observe(*books), reserve, checkpoint=checkpoint)
+    assert reserve.calls["n"] == 1
+    directory = source_root.parent / "Outputs" / "MP3-Tool-1"
+    assert list(directory.iterdir()) == [], "a stopped plan leaves the run as empty as it found it"
+
+
+def test_progress_is_reported_per_book_and_once_complete(source_root, reserve):
+    books = seven_books(source_root, 21)
+    seen: list[tuple[int, int]] = []
+    plan(workspace(*books, book(source_root, "Empty", [])), observe(*books), reserve,
+         progress=lambda done, total: seen.append((done, total)))
+    assert seen == [(n, 7) for n in range(8)], "the empty Book is not attempted and not counted"
+
+
+def test_a_capture_of_another_workspace_is_refused(source_root, reserve):
+    mine = book(source_root, "A", ["1.mp3"])
+    other = book(source_root, "B", ["1.mp3"])
+    capture = mp.capture_for_run(workspace(other), catalog=wf.MP3_CATALOG,
+                                 import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
+                                 effective_config=make_config(), id_factory=_IDS)
+    with pytest.raises(PlanError, match="does not hold"):
+        mp.plan_run(workspace(mine), observe(mine), operation=MP3Operation.WRITE_ID3,
+                    reservation=reserve("mp3_tool"), capture=capture)
+    with pytest.raises(PlanError, match="needs either a capture"):
+        mp.plan_run(workspace(mine), observe(mine), operation=MP3Operation.WRITE_ID3,
+                    reservation=reserve("mp3_tool"))
+
+
+def test_long_source_paths_plan_like_short_ones(source_root, reserve):
+    deep = "/".join(["Very Long Folder Name For A Series"] * 5)
+    try:
+        books = (book(source_root, deep, [f"{n:02d} A Long Chapter Title Number {n}.mp3" for n in range(1, 4)]),)
+    except OSError as exc:  # pragma: no cover - a volume without room for the path
+        pytest.skip(f"this volume cannot hold the long path: {exc}")
+    made = plan(workspace(*books), observe(*books), reserve)
+    assert len(str(books[0].files.files[0].path)) > 200
+    assert [t.source for t in made.books[0].tracks] == [f.path for f in books[0].files.files]
+    assert made.books[0].folder_name == "Very Long Folder Name For A Series"

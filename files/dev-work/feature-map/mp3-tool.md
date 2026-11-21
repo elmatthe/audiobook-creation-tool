@@ -175,6 +175,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Persistence:** The last plan and result live for the session only.
 - **Intentional differences:** The two operations share one orchestration and differ only in the engine and the outputs.
 - **What must hold:** One press is one operation: it validates, reserves one run folder, freezes one plan for every non-empty Book and runs it on one worker with one controller. Empty Books are skipped; with no Book holding tracks the user is told to import first and nothing is reserved. A second operation is refused while one runs; workspace controls are locked for the run. Edits made after the press never reach the run or its retry. An unexpected worker fault settles the run as Failed, frees the panel and keeps the detail out of the Summary.
+- **Preparation (v0.8.2):** The press validates and freezes its inputs on the Tk thread (committing a Chapter Titles paste no key release reported) and returns at once with 'Preparing job…' and Cancel; a preparation worker reserves the run, with the output configuration in force at the press, and plans every track from an input index built once per plan. The run starts only when the panel adopts the finished plan. A press is refused while preparing or while an import is settling; a refused or faulted preparation shows its error, releases its empty run and leaves the previous run, its staging and its Retry Failed as they were; a stale preparation ending is never acted on. Measured on HOME-PC: 2,341 tracks in seven Books prepared in about 2.7 s with a 29 ms largest Tk heartbeat gap (v0.8.1: about 20 minutes inside the button press).
 
 ### Write ID3 Tags output
 `ACT.MP3.WRITE-ID3`
@@ -281,6 +282,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **What must hold:** Cancel stops a running FFmpeg or ffprobe step within a fraction of a second, through that step's own process handle (an unrelated FFmpeg, even one this program started, is untouched), and otherwise stops the run at its next checkpoint (between tracks, stages or Books); no later FFmpeg step and no later Book starts. Books never reached are 'Not attempted' and the batch ends Cancelled; a Book already published stays published. Retry Failed is not offered after a cancelled run. (ACT72-023, fixed in v0.7.2 Phase 6C.)
 - **Known gap:** No native (real-window) cancel journey for this tool; Cancel during a running encode is proved on real media through the panel's own worker with real threads.
 - A cancelled run keeps no .work folder: nothing can retry it, so its staging goes when it ends (ACT72-037, fixed in v0.7.2 Phase 6).
+- Cancel while a job is still being prepared (v0.8.2) reads 'Cancelling preparation…' until the preparation worker stops at its next checkpoint, then 'Cancelled — nothing was started': no media starts, only the empty run that press reserved is released, and the workspace and the previous run are unchanged. A plan finished just before Cancel is never adopted.
 
 ### Retry Failed
 `ACT.MP3.RETRY`

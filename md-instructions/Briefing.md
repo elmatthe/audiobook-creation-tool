@@ -16,6 +16,10 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
+## v0.8.2 development branch (`0.8.2`, from published v0.8.1) — long-running, not released
+
+Daily-use fixes accumulate on `0.8.2` as reviewed checkpoints; nothing is merged, tagged or published per fix, and the installed v0.8.1 stays the rollback (Decisions 2026-11-21). Checkpoint 1: MP3 Tool jobs are prepared on a worker from a once-per-plan input index (`shared.output_paths.InputIndex`), with "Preparing job…" and Cancel on the panel; the ordered scalability backlog for the other tools is in the Handoff.
+
 ## v0.8.0 OmniVoice integration — released for Windows 2026-11-14 on maintainer-accepted verification evidence; macOS v0.8.0 not supported or published
 
 Branch `feature/0.8.0-omnivoice-integration`, from the released v0.7.3 `master` (`dbf38f7`). Plan:

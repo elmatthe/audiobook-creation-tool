@@ -493,16 +493,80 @@ def _case_parts(path: Path) -> tuple[str, ...]:
 _CASE_INSENSITIVE_FS = os.name == "nt" or sys.platform == "darwin"
 
 
+def _input_key(path: Path) -> tuple[str, Path]:
+    """The one comparison key for "is this one of the inputs?", and the normalised path it came from.
+
+    Case-folded on every platform, deliberately: erring toward a refusal is the safe side of an overwrite.
+    """
+    normalised = _normalise(Path(path))
+    return str(normalised).casefold(), normalised
+
+
+def _refuse_input(normalised_input: Path) -> UnsafePathError:
+    return UnsafePathError(
+        "an output would overwrite one of the files being read",
+        f"destination equals input {normalised_input}",
+    )
+
+
 def assert_not_input(destination: Path, inputs: Iterable[Path]) -> None:
-    """Refuse a destination that is one of the operation's own input files."""
-    dest_key = str(_normalise(destination)).casefold()
+    """Refuse a destination that is one of the operation's own input files.
+
+    One-shot: every input is normalised again on every call. A caller checking many destinations against the same
+    inputs builds an :class:`InputIndex` once instead (v0.8.2: the MP3 planner did this per track and spent 20 minutes
+    on 2,341 tracks).
+    """
+    dest_key, _ = _input_key(destination)
     for source in inputs:
-        src_n = _normalise(Path(source))
-        if str(src_n).casefold() == dest_key:
-            raise UnsafePathError(
-                "an output would overwrite one of the files being read",
-                f"destination equals input {src_n}",
-            )
+        key, src_n = _input_key(source)
+        if key == dest_key:
+            raise _refuse_input(src_n)
+
+
+class InputIndex:
+    """Every input of ONE operation, normalised once, for :func:`assert_not_input`-identical checks (v0.8.2).
+
+    Built from the operation's own inputs when it is planned and dropped with the plan: never global, never reused by
+    another operation, never kept across a run. It is a snapshot of what each input resolved to at that moment, used to
+    refuse a planned destination that names an input; it grants nothing at write time, where the existing fresh checks
+    (containment, links, no-replace publication) still run.
+
+    Same key as the one-shot guard (:func:`_input_key`: resolved where possible, ``abspath`` on ``OSError``,
+    case-folded on every platform) and the same refusal, naming the first input in the given order with that key.
+    Every input is normalised, duplicates included, so a bad path among them surfaces exactly as before.
+
+    *checkpoint* (optional) is called before each input is normalised, so a cancellation can stop a long build.
+    """
+
+    __slots__ = ("_inputs", "_count")
+
+    def __init__(self, inputs: Iterable[Path], *, checkpoint=None) -> None:
+        found: dict[str, Path] = {}
+        count = 0
+        for source in inputs:
+            if checkpoint is not None:
+                checkpoint()
+            key, normalised = _input_key(source)
+            found.setdefault(key, normalised)
+            count += 1
+        self._inputs = found
+        self._count = count
+
+    @property
+    def input_count(self) -> int:
+        """How many inputs were indexed, repeats included."""
+        return self._count
+
+    def __len__(self) -> int:
+        """How many distinct inputs (by key) the index holds."""
+        return len(self._inputs)
+
+    def assert_not_input(self, destination: Path) -> None:
+        """:func:`assert_not_input` for this operation's inputs, by one lookup."""
+        key, _ = _input_key(destination)
+        found = self._inputs.get(key)
+        if found is not None:
+            raise _refuse_input(found)
 
 
 def assert_outside_source_trees(destination: Path, source_roots: Iterable[Path]) -> None:

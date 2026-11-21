@@ -309,6 +309,7 @@ def test_toggling_mid_run_leaves_the_running_job_alone(make_panel, tk_root, tmp_
     """A theme switch while a real worker is inside a Book touches no
     controller, adapter, plan or progress: the run settles as it would have."""
     from test_mp3_orchestration import three_books, wait_for
+    from test_mp3_tool_ui import wait_until_prepared
 
     panel = make_panel(thread_factory=RealThreads(),
                        appearance_bundle=_bundle(tk_root, appearance.LIGHT))
@@ -324,6 +325,7 @@ def test_toggling_mid_run_leaves_the_running_job_alone(make_panel, tk_root, tmp_
     monkeypatch.setattr(mp3_tool.mp3_processing, "write_id3_book", gated)
     try:
         assert panel.write_id3_tags()
+        wait_until_prepared(panel)  # v0.8.2: the run starts when the pump adopts the prepared plan
         controller, jobs, plan = panel.job_controller, panel.jobs, panel.last_plan
         assert started.wait(10.0)
         panel._pump.tick()

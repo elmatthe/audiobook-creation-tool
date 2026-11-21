@@ -31,6 +31,7 @@ from test_mp3_orchestration import settle, three_books, wait_for  # noqa: E402
 from test_mp3_tool_ui import (  # noqa: E402,F401  (fixtures are collected by name)
     make_panel,
     tk_root,
+    wait_until_prepared,
     windows_theme,
 )
 
@@ -169,6 +170,7 @@ def test_a_cancel_during_ffmpeg_leaves_no_work_area_and_publishes_nothing_partia
 
     monkeypatch.setattr(proc, "_clean_copy_args", slow_second_track_of_b)
     panel.write_id3_tags()
+    wait_until_prepared(panel)  # v0.8.2: the plan exists once the pump adopted it
     plan = panel.last_plan
     planted = sentinels(tmp_path, plan.run_directory)
     wait_for(panel, lambda: not panel.is_running, timeout=30.0)

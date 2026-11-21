@@ -7296,13 +7296,15 @@
         "Until edited, the box shows each track's default Title: a usable source TIT2, else the cleaned filename.",
         "Usable line n names track n; blank lines are ignored; a short list leaves the remaining defaults; extra lines are ignored.",
         "The final Titles become TIT2, the filenames and the Combine timestamp labels.",
-        "The box locks while a run is in progress, like the other Book options and the Maker's and Editor's boxes; the panel still fills a locked box (v0.7.2, ACT72-014)."
+        "The box locks while a run is in progress, like the other Book options and the Maker's and Editor's boxes; the panel still fills a locked box (v0.7.2, ACT72-014).",
+        "v0.8.2: a Chapter Titles change no key release reported (a paste) is committed before a run is frozen and before moving to another Book."
       ],
       "selection": [
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_plan.py",
-        "files/tests/test_mp3_combine.py"
+        "files/tests/test_mp3_combine.py",
+        "files/tests/test_mp3_preparation.py"
       ],
       "journeys": [],
       "verification": {
@@ -7326,6 +7328,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_tool_ui.py::test_the_chapter_titles_box_locks_with_the_run_and_is_still_filled_by_the_panel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_chapter_titles_edit_no_key_release_reported_reaches_the_plan"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_moving_to_another_book_keeps_a_pasted_chapter_titles_edit"
           }
         ]
       },
@@ -7611,7 +7621,14 @@
             "_Attempt",
             "_Attempt.__init__",
             "_Attempt.record",
-            "_Attempt.settled"
+            "_Attempt.settled",
+            "_Preparation",
+            "MP3ToolUI._show_preparing",
+            "MP3ToolUI._drain_preparation",
+            "MP3ToolUI._on_preparation",
+            "MP3ToolUI._end_preparation",
+            "MP3ToolUI._adopt",
+            "MP3ToolUI.is_preparing"
           ]
         },
         {
@@ -7622,7 +7639,8 @@
             "BookPlan",
             "TrackPlan",
             "MP3Operation",
-            "PlanError"
+            "PlanError",
+            "capture_for_run"
           ]
         },
         {
@@ -7635,11 +7653,13 @@
         "Empty Books are skipped; with no Book holding tracks the user is told to import first and nothing is reserved.",
         "A second operation is refused while one runs; workspace controls are locked for the run.",
         "Edits made after the press never reach the run or its retry.",
-        "An unexpected worker fault settles the run as Failed, frees the panel and keeps the detail out of the Summary."
+        "An unexpected worker fault settles the run as Failed, frees the panel and keeps the detail out of the Summary.",
+        "v0.8.2: a processing press validates and freezes its inputs on the Tk thread and returns at once showing \"Preparing job…\" with Cancel; reserving and planning run on a preparation worker, and the run starts only when the pump adopts the finished plan. Repeated presses make one run; a stale preparation ending is never acted on; planning work grows linearly with the track count."
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
-        "files/tests/test_mp3_orchestration.py"
+        "files/tests/test_mp3_orchestration.py",
+        "files/tests/test_mp3_preparation.py"
       ],
       "journeys": [
         "mp3.write-id3-then-combine"
@@ -7669,6 +7689,58 @@
           {
             "kind": "media",
             "scenario": "mp3.write-id3-then-combine"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[300-tracks]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[2341-tracks-seven-books]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_repeated_presses_while_preparing_make_exactly_one_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_stale_preparation_ending_is_never_acted_on"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_processing_worker_that_cannot_start_fails_the_run_and_frees_the_panel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_the_owners_shape_2341_tracks_in_seven_books_plans_completely"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_5000_tracks_plan_with_linear_path_work"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_twice_the_tracks_take_about_twice_the_path_work"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_a_checkpoint_that_raises_stops_planning_and_creates_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_progress_is_reported_per_book_and_once_complete"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_a_plan_from_a_capture_taken_first_equals_the_plan_that_captures_itself"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_a_capture_of_another_workspace_is_refused"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_preparation_worker_that_cannot_start_reserves_nothing_and_frees_the_panel"
           }
         ]
       },
@@ -7943,7 +8015,7 @@
         {
           "path": "scripts/mp3/mp3_tool.py",
           "symbols": [
-            "MP3ToolUI._reserve_run",
+            "MP3ToolUI._prepare",
             "MP3ToolUI._request_operation",
             "MP3ToolUI._fit_output_hint",
             "MP3ToolUI.output_hint_text"
@@ -7961,7 +8033,8 @@
         "A failed run keeps its folder for Retry Failed, and a later run never reuses that number.",
         "A run folder inside a source folder is refused.",
         "The output hint shows where runs land, eliding from the left so the run folder stays visible.",
-        "If the run cannot be reserved or the plan is refused, the user sees the error and no empty run folder is left."
+        "If the run cannot be reserved or the plan is refused, the user sees the error and no empty run folder is left.",
+        "v0.8.2: the run is reserved by the preparation worker with the output configuration in force at the press, even if Preferences change while it prepares."
       ],
       "selection": [
         "files/tests/test_tool_output_integration.py",
@@ -7969,7 +8042,8 @@
         "files/tests/test_mp3_tool_appearance.py",
         "files/tests/test_mp3_hardening.py",
         "files/tests/test_mp3_tool_ui.py",
-        "files/tests/test_mp3_panel_branches.py"
+        "files/tests/test_mp3_panel_branches.py",
+        "files/tests/test_mp3_preparation.py"
       ],
       "journeys": [],
       "verification": {
@@ -8009,6 +8083,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why[combine_mp3s]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_the_run_uses_the_output_preferences_in_force_at_the_press"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_long_source_paths_plan_like_short_ones"
           }
         ]
       },
@@ -8047,7 +8129,8 @@
         "A Book folder is named from the effective Album, else the one folder that holds all its tracks, else 'Book N'; names are sanitised.",
         "Repeated names within one run are numbered (Dune, Dune-1, Dune-2), including track filenames and a combined file that matches a track name.",
         "Track filenames come from the final Title with one leading number removed and the calculated number added once.",
-        "No destination is ever a source file or inside a source folder, and publication never overwrites an existing file."
+        "No destination is ever a source file or inside a source folder, and publication never overwrites an existing file.",
+        "v0.8.2: every source is normalised once per plan (InputIndex); each staged and published output is still refused if it names any input of any Book."
       ],
       "selection": [
         "files/tests/test_mp3_plan.py"
@@ -8078,6 +8161,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_plan.py::test_invalid_filename_characters_are_sanitised_identically_everywhere"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_each_source_is_resolved_once_per_plan_not_once_per_destination[write_id3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_each_source_is_resolved_once_per_plan_not_once_per_destination[combine]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_plan.py::test_a_destination_that_names_another_books_source_is_refused"
           }
         ]
       },
@@ -8120,7 +8215,8 @@
           "path": "scripts/mp3/mp3_tool.py",
           "symbols": [
             "MP3ToolUI._release_staging",
-            "MP3ToolUI._abandon_staging"
+            "MP3ToolUI._abandon_staging",
+            "MP3ToolUI._release_superseded"
           ]
         }
       ],
@@ -8262,7 +8358,8 @@
         "A stopped step is never a failed or retryable track and never the 999 launch failure; its half-written staged track or combined file is removed. Only that step's own process is stopped: any other FFmpeg, even one this program started, is untouched. Pause never stops or suspends a running step.",
         "A cancelled run keeps no private staging: no Retry Failed is offered after a Cancel, so the run folder's .work goes before the run reports Cancelled (v0.7.2, ACT72-037).",
         "A Book a Cancel stopped part-way reads 'Cancelled' and is counted as stopped by Cancel; Books the run never reached read 'Not attempted'. Both stay NOT_ATTEMPTED in the result (v0.7.2, ACT72-004).",
-        "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished."
+        "On macOS (v0.8.x P5-I-R3) the run's terminal path asks subprocess_utils.containment_problem (bounded from the Cancel click) first: a contained process of the run not confirmed ended makes the run FAILED, never CANCELLED or finished.",
+        "v0.8.2: Cancel during preparation starts nothing, releases only the empty run that press reserved, and leaves the workspace and the previous run as they were."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
@@ -8272,7 +8369,8 @@
         "files/tests/test_ffmpeg_cancel.py",
         "files/tests/test_mp3_staging_release.py",
         "files/tests/test_macos_p5i_r3_settlement.py",
-        "files/tests/test_macos_p5i_r3_remediation.py"
+        "files/tests/test_macos_p5i_r3_remediation.py",
+        "files/tests/test_mp3_preparation.py"
       ],
       "journeys": [],
       "verification": {
@@ -8388,6 +8486,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_mp3_staging_release.py::test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_not_attempted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_cancel_during_preparation_starts_nothing_and_keeps_the_workspace"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_plan_offered_just_before_cancel_is_never_adopted"
           }
         ]
       },
@@ -8475,12 +8581,14 @@
         "Offered only when the run completed with failures and at least one failed track is retryable.",
         "Re-runs only the failed tracks of the failed Books against the original frozen plan and run folder; later workspace edits never reach it.",
         "Staged pieces that succeeded are reused, the Book is published whole, and Books that succeeded are not touched.",
-        "Item-less (Book-level) failures and cancelled runs are not retryable."
+        "Item-less (Book-level) failures and cancelled runs are not retryable.",
+        "v0.8.2: a refused or faulted preparation keeps the previous run, its kept staging and its Retry Failed."
       ],
       "selection": [
         "files/tests/test_mp3_orchestration.py",
         "files/tests/test_mp3_hardening.py",
-        "files/tests/test_ffmpeg_cancel.py"
+        "files/tests/test_ffmpeg_cancel.py",
+        "files/tests/test_mp3_preparation.py"
       ],
       "journeys": [],
       "verification": {
@@ -8504,6 +8612,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_ffmpeg_cancel.py::test_a_genuine_mp3_failure_in_a_supervised_run_stays_retryable_and_retry_failed_rebuilds_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_its_staging[refused]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_its_staging[fault]"
           }
         ]
       },
@@ -8811,7 +8927,8 @@
       "selection": [
         "files/tests/test_mp3_orchestration.py",
         "files/tests/test_mp3_tool_ui.py",
-        "files/tests/test_close_stops_media_children.py"
+        "files/tests/test_close_stops_media_children.py",
+        "files/tests/test_mp3_preparation.py"
       ],
       "journeys": [
         "shutdown.mp3-close-during-work",
@@ -8838,6 +8955,14 @@
           {
             "kind": "native",
             "scenario": "shutdown.mp3-close-forced-landing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_closing_during_preparation_starts_nothing_and_releases_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_mp3_preparation.py::test_closing_after_the_plan_was_offered_releases_it_unadopted"
           }
         ]
       },
@@ -20076,7 +20201,8 @@
             "plan_flat",
             "plan_mirrored",
             "plan_multi_root",
-            "validate_custom_destination"
+            "validate_custom_destination",
+            "InputIndex"
           ]
         },
         {
@@ -20092,7 +20218,8 @@
         "A name that already exists or is already planned in the batch gets the next '-N' variant (case-insensitively); names are cleaned of Windows-forbidden characters and reserved names.",
         "A destination equal to an input, inside a source tree, or reached through a link or junction is refused.",
         "Each panel's read-only output-folder line follows a saved or reset output base without rebuilding the panel.",
-        "On macOS and Linux a temporary sibling, and so the output it becomes, is created with mode 0o666 under the user's umask, as any new file is; Windows keeps mkstemp (v0.8.x P1B; test_macos_p1b_filesystem.py)"
+        "On macOS and Linux a temporary sibling, and so the output it becomes, is created with mode 0o666 under the user's umask, as any new file is; Windows keeps mkstemp (v0.8.x P1B; test_macos_p1b_filesystem.py)",
+        "v0.8.2: InputIndex answers exactly as assert_not_input (same key, OSError fallback, case-folding and refusal) after normalising each input once per operation; it is never global or reused."
       ],
       "selection": [
         "files/tests/test_output_paths.py",
@@ -20133,6 +20260,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_output_location_refresh.py::test_saving_a_custom_base_refreshes_every_existing_panel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_output_paths.py::test_the_input_index_answers_exactly_as_the_one_shot_guard"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_output_paths.py::test_the_input_index_follows_links_exactly_as_the_one_shot_guard"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_output_paths.py::test_the_input_index_keeps_the_oserror_fallback"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_output_paths.py::test_the_input_index_normalises_each_input_once_and_each_destination_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_output_paths.py::test_the_input_index_runs_its_checkpoint_before_every_input_and_stops_when_it_raises"
           }
         ]
       },
@@ -25546,11 +25693,11 @@
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_artwork::filedialog.askopenfilename:Select Book Artwork": "ACT.MP3.ARTWORK",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_files::filedialog.askopenfilenames:Select MP3 files": "ACT.MP3.ADD-FILES",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_folder::filedialog.askdirectory:Select a folder of MP3 audiobooks": "ACT.MP3.IMPORT-FOLDER",
+      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._on_preparation::messagebox.showerror:APP_TITLE": "ACT.MP3.OUTPUT-RUN",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE": "ACT.MP3.INVALID-VALUES",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE#2": "ACT.MP3.INVALID-VALUES",
-      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE#3": "ACT.MP3.OUTPUT-RUN",
+      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE#3": "ACT.MP3.WRITE-AND-COMBINE",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showwarning:APP_TITLE": "ACT.MP3.WRITE-AND-COMBINE",
-      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._reserve_run::messagebox.showerror:APP_TITLE": "ACT.MP3.OUTPUT-RUN",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._validated_artwork::messagebox.showerror:APP_TITLE": "ACT.MP3.ARTWORK",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.retry_failed::messagebox.showerror:APP_TITLE": "ACT.MP3.RETRY",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.on_close_during_base::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
@@ -27030,9 +27177,9 @@
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
-    "scripts/mp3/mp3_plan.py": "3cd73fb580e6bcd9cf0808fa9d2e79721efa31181c758fb6e8382bf6071efced",
+    "scripts/mp3/mp3_plan.py": "fe6669dbd0d43fd64e8c490456eb56bbced81883c05cf8ee24631d53939262e1",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "b0eaa6b0303e486b7a2a584a527371632062428b845559fd2f1cad80dcace72c",
+    "scripts/mp3/mp3_tool.py": "065aca88de89f206376a8abdd48bf49e54d128b7234b564c9c974f3f013603df",
     "scripts/mp3/mp3_workflow.py": "fdefec40fe150529e9bfe0f83dd6661f8fd9887fb2ed1a19501ce893381e60d9",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "1083d4880cc44d146c4ee6682a3f00630f4ada1e1cfa298a33c04e5a502a2d71",
@@ -27083,7 +27230,7 @@
     "scripts/shared/optional_setup_tk_harness_v3.py": "23727d8ea3d09d7ac49d523a05055748f378593c9cacd6b7c9942241562afb26",
     "scripts/shared/optional_setup_v3.py": "1a3fa01225bbc10dd68a5f41092ab5c9134546835b6035279301626f04c18d43",
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
-    "scripts/shared/output_paths.py": "98ae9d47ecab4ba2cfa0a595604a763cc17e66baae7da4abfcdb5e7ad3c8ddd4",
+    "scripts/shared/output_paths.py": "311401786215e02fe60e41e919ab68abed39b9c1a18b56aa3e4e9760270926e8",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "a587859b3e8d0385baf8bf757c6bf669040d2edfa81bdb923375076377c62ef4",
     "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",

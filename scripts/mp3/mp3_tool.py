@@ -41,6 +41,13 @@ will read — Book order and ids, every track's occurrence, final Title, number
 and filename, effective metadata, signed Time, artwork, the Book subfolders and
 the private staging beside them (``mp3/mp3_plan.py``).
 
+v0.8.2 moves reserving and planning off the Tk thread: the press validates and
+freezes its inputs on Tk and shows "Preparing job…" with Cancel; one
+preparation worker reserves and plans (``_Preparation``, ``_prepare``); the
+pump adopts the finished plan and only then starts the one controller and the
+one processing worker. At 2,341 tracks the v0.8.1 press froze the window for
+about 20 minutes.
+
 Phase 9 runs it. One operation is **one** Plan 3 run: one ``JobController``
 for the whole batch (never one per Book), one ``JobReporter``, one event
 stream drained by one ``JobAdapter`` on the panel's one pump, one worker
@@ -171,7 +178,7 @@ from shared.importing import (
     RootKind,
     ScanRequest,
 )
-from shared.job_control import JobEventKind, JobState
+from shared.job_control import JobAction, JobEventKind, JobState, ProgressMode, ProgressView
 from shared.job_ui import MainThreadGuard, MainThreadPump, action_style, style_name
 from artwork import mp3_artwork
 from mp3 import mp3_plan
@@ -240,6 +247,16 @@ IDLE_RUN_ID = "mp3-idle"
 
 #: The stage announced on the main thread before the worker starts.
 STAGE_PREPARE = "prepare"
+
+#: v0.8.2: what the job area says between an accepted press and the plan's adoption, while the preparation worker
+#: reserves the run and plans every track off the Tk thread.
+STATUS_PREPARING = "Preparing job…"
+STATUS_CANCELLING_PREPARATION = "Cancelling preparation…"
+STATUS_PREPARATION_CANCELLED = "Cancelled — nothing was started"
+STATUS_PREPARATION_FAILED = "Not started"
+
+#: How many preparation messages one pump tick handles at most (one per Book plus one ending, normally).
+PREPARATION_DRAIN_LIMIT = 256
 
 #: Rules a line under the previous run's lines in both log panes.
 DIVIDER_MARK = "────"
@@ -426,6 +443,92 @@ class _RunProjection:
                           stage=self.stage_of(book_id))
 
 
+class _Preparation:
+    """One accepted press of Write ID3 Tags or Combine, from the click until its plan is adopted or it ends (v0.8.2).
+
+    Reserving the run and planning every track used to happen inside the button's Tk callback; at 2,341 tracks that
+    froze the window for 20 minutes before anything was shown. Now the press freezes its inputs here, on Tk -- the
+    immutable workspace snapshot and observation store, the Plan 6 capture, the stable Book numbers, the output
+    configuration -- and one preparation worker reserves and plans from them alone. It reads no widget and no Tk
+    variable, and talks back only through the panel's preparation queue.
+
+    This is not a job controller: the operation still gets exactly one ``JobController``, created when the plan is
+    adopted. Cancelling a preparation is this record's own ``threading.Event``, seen by the worker at every
+    :meth:`checkpoint` (between inputs, tracks and Books) through the shared ``ConversionCancelled``.
+
+    **Who owns the reservation.** The worker, from the moment it reserves until :meth:`offer` hands the finished plan
+    over; if the offer is refused (Cancel or Close came first) or planning fails, the worker releases the still-empty
+    run itself. Once offered, the panel owns it: :meth:`adopt` takes it for the conversion, or :meth:`withdraw` takes it
+    back so the panel releases it. The lock makes offer, adopt and withdraw one decision each, so exactly one side
+    releases a run and a plan nobody adopted can never start media.
+    """
+
+    def __init__(self, *, label: str, operation, workspace, store, capture, numbers, run_config,
+                 book_count: int, track_count: int) -> None:
+        self.label = label
+        self.operation = operation
+        self.workspace = workspace
+        self.store = store
+        self.capture = capture
+        self.numbers = dict(numbers)
+        self.run_config = run_config
+        self.book_count = book_count
+        self.track_count = track_count
+        self.cancel_requested = threading.Event()
+        self._lock = threading.Lock()
+        self._offered = None
+        self._handed_over = False
+
+    def checkpoint(self) -> None:
+        """The worker's cooperative stop: raises once Cancel or Close asked for it."""
+        if self.cancel_requested.is_set():
+            raise ConversionCancelled("preparation cancelled")
+
+    def offer(self, plan) -> bool:
+        """Worker: hand the finished plan to the panel. False when the panel no longer wants it.
+
+        Once only: a second offer for the same press (a replayed worker body) is refused, so its worker releases its
+        own run instead of replacing -- and leaking -- the run already handed over.
+        """
+        with self._lock:
+            if self.cancel_requested.is_set() or self._handed_over:
+                return False
+            self._handed_over = True
+            self._offered = plan
+            return True
+
+    def adopt(self):
+        """Panel: take the offered plan to run it, or ``None`` when there is none or Cancel came first."""
+        with self._lock:
+            if self.cancel_requested.is_set():
+                return None
+            plan, self._offered = self._offered, None
+            return plan
+
+    def withdraw(self):
+        """Panel: stop wanting this preparation. Returns an offered plan the caller must now release, if any."""
+        with self._lock:
+            self.cancel_requested.set()
+            plan, self._offered = self._offered, None
+            return plan
+
+
+class _PreparationMessage:
+    """What the preparation worker tells the panel: ``progress``, ``prepared``, ``cancelled``, ``refused`` or
+    ``fault``. Exactly one non-progress message per preparation, always the last it sends."""
+
+    __slots__ = ("preparation", "kind", "text", "detail", "done", "total")
+
+    def __init__(self, preparation: _Preparation, kind: str, *, text: str = "", detail: str = "",
+                 done: int = 0, total: int = 0) -> None:
+        self.preparation = preparation
+        self.kind = kind
+        self.text = text
+        self.detail = detail
+        self.done = done
+        self.total = total
+
+
 class _Attempt:
     """The facts one attempt shares between the worker and the main thread.
 
@@ -438,9 +541,12 @@ class _Attempt:
     """
 
     def __init__(self, *, label: str, plan: mp3_plan.RunPlan, run_id: str, number: int,
-                 controller, reporter, retry_items=None, prior=None) -> None:
+                 controller, reporter, retry_items=None, prior=None, superseded=None) -> None:
         self.label = label
         self.plan = plan
+        #: v0.8.2: the previous run's plan this one replaced, whose kept staging no Retry Failed can reach any more.
+        #: Its private staging is removed by this attempt's worker before the engine starts, off the Tk thread.
+        self.superseded = superseded
         self.run_id = run_id
         self.number = number
         self.controller = controller
@@ -758,6 +864,13 @@ class MP3ToolUI(ttk.Frame):
         self._attempt: _Attempt | None = None
         self._settled: WorkspaceRunResult | None = None
         self._busy = False
+        #: v0.8.2: the accepted press still being prepared off the Tk thread, or ``None``. While it is set the panel
+        #: is running (no second press, no Retry Failed, no Clear All Imports) but the previous attempt, its result
+        #: and its job area stay exactly as they were, so a refused or cancelled preparation leaves them reachable.
+        self._preparing: _Preparation | None = None
+        #: The one queue the preparation worker writes and the pump's preparation drain reads. Never replaced.
+        self._prep_q: queue.SimpleQueue = queue.SimpleQueue()
+        self._preparations = 0
         self._attempts = 0
         #: Private staging lives exactly as long as a Retry Failed can reach it (v0.7.2, ACT72-019 / ACT72-037). The
         #: worker releases what its attempt cannot retry; the main thread releases the rest once nothing can retry the
@@ -812,6 +925,7 @@ class MP3ToolUI(ttk.Frame):
         # froze the titles at its start, so an edit made during it looked live and reached nothing.
         self._chapters_lock = self._TextLock(self.chapter_text)
         self._install_jobs(IDLE_RUN_ID, ())
+        self._pump.add_drain(self._drain_preparation)
 
         self.render()
         if not ensure_ffmpeg_available():
@@ -1697,19 +1811,27 @@ class MP3ToolUI(ttk.Frame):
     # Navigator callbacks
     # ------------------------------------------------------------------ #
 
+    # v0.8.2: each move first commits a Chapter Titles change no key release reported (a mouse paste, an input
+    # method), because the move re-renders the box for another Book and would otherwise drop it.
+
     def on_previous(self) -> None:
+        self.on_chapter_edit()
         self._apply(previous_book(self.workspace))
 
     def on_next(self) -> None:
+        self.on_chapter_edit()
         self._apply(next_book(self.workspace))
 
     def on_select(self, book_id: str) -> None:
+        self.on_chapter_edit()
         self._apply(select_book(self.workspace, book_id))
 
     def on_add(self) -> None:
+        self.on_chapter_edit()
         self._apply(add_book(self.workspace, id_factory=self._ids))
 
     def on_duplicate(self) -> None:
+        self.on_chapter_edit()
         self._apply(duplicate_book(self.workspace, id_factory=self._ids))
 
     def on_remove(self, meaningful: bool) -> None:
@@ -2048,25 +2170,27 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("combine_mp3s")
         return self._request_operation("Combine MP3s → One MP3")
 
-    def _reserve_run(self):
-        """Reserve one run for one validated operation. None means do not start."""
-        try:
-            return output_paths.reserve_run_directory(TOOL_KEY)
-        except output_paths.OutputPathError as exc:
-            messagebox.showerror(APP_TITLE, exc.message, parent=self)
-            return None
-
     def _request_operation(self, label: str) -> bool:
-        """Validate, reserve one run, freeze the plan, start the one worker.
+        """Validate on Tk, freeze the inputs, and hand reserving and planning to the preparation worker.
 
         Exactly one reservation per operation, never one per Book, and only
         after the workspace validated. The plan is frozen from the workspace as
         it is at this moment; editing anything afterwards cannot reach it, and
         neither can a later Retry Failed read anything but it. A press while a
-        run is under way is refused before anything is reserved.
+        run is under way -- or being prepared, or while an import is still
+        settling -- is refused before anything is reserved.
+
+        v0.8.2: ``True`` now means *accepted*: the press returns at once with
+        the job area showing "Preparing job…" and Cancel, and the run starts
+        when the pump adopts the worker's finished plan
+        (:meth:`_on_preparation`). A refused plan is reported then, exactly as
+        before, with the empty run released and nothing started.
         """
-        if self._closed or self._busy:
+        if self._closed or self.is_running or self._coordinator.is_active:
             return False
+        # A Chapter Titles change no key release reported (a mouse paste, an input method) is committed through the
+        # model before anything is frozen, so the run uses exactly what the box shows.
+        self.on_chapter_edit()
         space = self.workspace
         eligible = []
         for position, book in enumerate(space.books, start=1):
@@ -2092,29 +2216,190 @@ class MP3ToolUI(ttk.Frame):
             messagebox.showwarning(APP_TITLE, "Import a folder or add MP3 files first.",
                                    parent=self)
             return False
-        reservation = self._reserve_run()
-        if reservation is None:
-            return False
         operation = (mp3_plan.MP3Operation.COMBINE if label.startswith("Combine")
                      else mp3_plan.MP3Operation.WRITE_ID3)
+        # Frozen here, on Tk, and never read again: the capture (taken on the caller's thread, as the shared capture
+        # requires; no disk is read), the immutable workspace and store, the stable Book numbers, and the output
+        # configuration the reservation will use -- the one in force at this press, as before, even if Preferences
+        # change while the worker prepares.
+        capture = mp3_plan.capture_for_run(
+            space, catalog=wf.MP3_CATALOG,
+            import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
+            effective_config=self._effective_config, id_factory=self._ids,
+            created_at=self._clock())
+        attempted = {book_id for book_id, _snapshot in capture.runs}
+        preparation = _Preparation(
+            label=label, operation=operation, workspace=space, store=self.store, capture=capture,
+            numbers=self.book_numbers, run_config=shared_config.get_effective(),
+            book_count=len(attempted),
+            track_count=sum(book.file_count for book in space.books if book.book_id in attempted))
+        self._preparations += 1
+        self._preparing = preparation
+        self._show_preparing(preparation)
+        self._say(f"{label}: preparing {preparation.book_count} Book(s), "
+                  f"{preparation.track_count} track(s)…")
         try:
-            plan = mp3_plan.plan_run(
-                space, self.store, operation=operation, reservation=reservation,
-                catalog=wf.MP3_CATALOG,
-                import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
-                effective_config=self._effective_config, id_factory=self._ids,
-                created_at=self._clock(), numbers=self.book_numbers)
-        except (wf.MP3ValueError, mp3_plan.PlanError,
-                output_paths.OutputPathError) as exc:
-            output_paths.release_if_empty(reservation)
-            messagebox.showerror(APP_TITLE, f"{label}: {exc}", parent=self)
+            thread = self._thread_factory(lambda: self._prepare(preparation),
+                                          f"mp3-prepare-{self._preparations}")
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 - nothing was reserved yet; the panel must not stay locked
+            if self._preparing is preparation:
+                self._preparing = None
+                preparation.withdraw()
+                text = f"{label}: the job could not be prepared, and nothing was started."
+                self._end_preparation(STATUS_PREPARATION_FAILED, text, f"{type(exc).__name__}: {exc}")
+                messagebox.showerror(APP_TITLE, text, parent=self)
             return False
-        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
-        self._abandon_staging()
+        return True
+
+    # -- the preparation: worker side ------------------------------------------ #
+
+    def _prepare(self, preparation: _Preparation) -> None:
+        """Reserve the run and plan it. **The preparation worker's whole body**; it never raises.
+
+        Reads only the frozen *preparation* and writes only the preparation queue: no widget, no Tk variable, no
+        panel state. Its last message is always exactly one ending -- ``prepared``, ``cancelled``, ``refused`` or
+        ``fault`` -- and any run it reserved but could not hand over is released (only while still empty) before
+        that message is sent, so the panel never sees an ending while a run of this press is still left behind.
+        """
+        post = self._prep_q.put
+        reservation = None
+        ending: _PreparationMessage | None = None
+        try:
+            preparation.checkpoint()
+            try:
+                reservation = output_paths.reserve_run_directory(
+                    TOOL_KEY, effective=preparation.run_config)
+            except output_paths.OutputPathError as exc:
+                ending = _PreparationMessage(preparation, "refused", text=exc.message, detail=exc.detail)
+                return
+            plan = mp3_plan.plan_run(
+                preparation.workspace, preparation.store, operation=preparation.operation,
+                reservation=reservation, capture=preparation.capture, numbers=preparation.numbers,
+                checkpoint=preparation.checkpoint,
+                progress=lambda done, total: post(
+                    _PreparationMessage(preparation, "progress", done=done, total=total)))
+            if preparation.offer(plan):
+                reservation = None  # the panel owns the run now
+                ending = _PreparationMessage(preparation, "prepared")
+            else:
+                ending = _PreparationMessage(preparation, "cancelled")
+        except ConversionCancelled:
+            ending = _PreparationMessage(preparation, "cancelled")
+        except (wf.MP3ValueError, mp3_plan.PlanError, output_paths.OutputPathError) as exc:
+            detail = exc.detail if isinstance(exc, output_paths.OutputPathError) else ""
+            ending = _PreparationMessage(preparation, "refused", text=f"{preparation.label}: {exc}", detail=detail)
+        except BaseException as exc:  # noqa: BLE001 - deliberately everything: the panel must hear an ending
+            ending = _PreparationMessage(
+                preparation, "fault",
+                text=f"{preparation.label}: the job could not be prepared, and nothing was started.",
+                detail=f"{type(exc).__name__}: {exc}")
+        finally:
+            if reservation is not None:
+                try:
+                    output_paths.release_if_empty(reservation)
+                except Exception:  # pragma: no cover - release_if_empty never raises; the ending must still go
+                    pass
+            post(ending if ending is not None else _PreparationMessage(
+                preparation, "fault", text=f"{preparation.label}: the job could not be prepared.",
+                detail="the preparation ended without a result"))
+
+    # -- the preparation: Tk side --------------------------------------------- #
+
+    def _show_preparing(self, preparation: _Preparation) -> None:
+        """Lock the workspace, offer Cancel, and say "Preparing job…" on the current job area. Main thread only.
+
+        The job area keeps the previous run's adapter: its stream, result and Retry Failed stay untouched behind this
+        presentation and come back with one ``jobs.render()`` if the preparation ends without a run.
+        """
+        self.lock_group.apply(JobState.RUNNING)
+        self.controls.apply(JobState.RUNNING)
+        # Cancel is the one control a preparation honours; Pause has no checkpoint to wait at here.
+        pause = self.controls.buttons.get(JobAction.PAUSE)
+        if pause is not None:
+            try:
+                pause.configure(state="disabled")  # the shared bar enables by this option, so it disables by it
+            except tk.TclError:
+                pass
+        self._show_preparation_progress(
+            f"{preparation.label}: checking {preparation.book_count} Book(s), {preparation.track_count} track(s)")
+        self.status.set_eta("")
+        self.status.set_status(STATUS_PREPARING)
+
+    def _show_preparation_progress(self, stage: str) -> None:
+        self.status.apply(ProgressView(ProgressMode.INDETERMINATE, label=STATUS_PREPARING), stage=stage)
+
+    def _drain_preparation(self) -> None:
+        """The pump's preparation drain: handle what the preparation worker said. Main thread only; never raises."""
+        for _ in range(PREPARATION_DRAIN_LIMIT):
+            try:
+                message = self._prep_q.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                self._on_preparation(message)
+            except Exception as exc:  # noqa: BLE001 - one bad message must not stop the pump that frees the panel
+                logging_setup.get_logger().exception("MP3 Tool: preparation message failed: %s", exc)
+                if message.preparation is self._preparing:
+                    self._preparing = None
+                    self._end_preparation(STATUS_PREPARATION_FAILED,
+                                          f"{message.preparation.label}: the job could not be prepared.",
+                                          f"{type(exc).__name__}: {exc}")
+
+    def _on_preparation(self, message: _PreparationMessage) -> None:
+        """Adopt a finished plan and start the run, or end the preparation. Main thread only.
+
+        A message from any preparation but the current one is stale: it is never acted on, and a plan it offered is
+        taken back and its empty run released. A plan Cancel or Close withdrew is never adopted, so no media starts.
+        """
+        preparation = message.preparation
+        if self._closed or preparation is not self._preparing:
+            left = preparation.withdraw()
+            if left is not None:
+                output_paths.release_if_empty(left.reservation)
+            return
+        kind = message.kind
+        if kind == "progress":
+            if message.total and not preparation.cancel_requested.is_set():
+                self._show_preparation_progress(
+                    f"{preparation.label}: planning Book {min(message.done + 1, message.total)} "
+                    f"of {message.total}")
+            return
+        self._preparing = None
+        if kind == "prepared":
+            plan = preparation.adopt()
+            if plan is not None:
+                self._adopt(preparation, plan)
+                return
+            kind = "cancelled"
+        if kind == "cancelled" or preparation.cancel_requested.is_set():
+            note = f" ({message.text})" if kind != "cancelled" and message.text else ""
+            self._end_preparation(
+                STATUS_PREPARATION_CANCELLED,
+                f"{preparation.label}: cancelled before anything was started; the workspace is unchanged.",
+                f"{preparation.label}: preparation cancelled{note}; {message.detail}".rstrip("; "))
+            return
+        self._end_preparation(STATUS_PREPARATION_FAILED, message.text, message.detail or message.text)
+        messagebox.showerror(APP_TITLE, message.text, parent=self)
+
+    def _end_preparation(self, status: str, line: str, detail: str) -> None:
+        """Put the job area back exactly as the previous run left it, then say why nothing started."""
+        self.jobs.render()
+        self.status.set_status(status)
+        self._say(line, detail)
+        self.render()
+
+    def _adopt(self, preparation: _Preparation, plan: mp3_plan.RunPlan) -> None:
+        """The prepared plan becomes the run. Main thread only.
+
+        Only now does the new run replace the old one: its Retry Failed can no longer be reached, so the old plan's
+        kept staging goes -- removed by the new attempt's worker, off the Tk thread -- and the one controller,
+        reporter, adapter and conversion worker are created exactly as before.
+        """
+        superseded = self._abandon_staging(defer=True)
         self.last_plan = plan
         self._settled = None
-        self._start_attempt(label, plan)
-        return True
+        self._start_attempt(preparation.label, plan, superseded=superseded)
 
     # ------------------------------------------------------------------ #
     # The one run: controller, reporter, adapter, worker
@@ -2130,7 +2415,13 @@ class MP3ToolUI(ttk.Frame):
 
     @property
     def is_running(self) -> bool:
-        return self._busy
+        """An attempt is running, or an accepted press is still being prepared (v0.8.2)."""
+        return self._busy or self._preparing is not None
+
+    @property
+    def is_preparing(self) -> bool:
+        """An accepted press is being reserved and planned off the Tk thread; no run has started yet."""
+        return self._preparing is not None
 
     @property
     def job_controller(self):
@@ -2149,7 +2440,7 @@ class MP3ToolUI(ttk.Frame):
         return self._attempts
 
     def _start_attempt(self, label: str, plan: mp3_plan.RunPlan, *,
-                       retry_items=None, prior=None) -> None:
+                       retry_items=None, prior=None, superseded=None) -> None:
         """Begin one attempt at *plan*: a first run, or a retry of it.
 
         The shared controller is this attempt's one state authority; its
@@ -2169,7 +2460,7 @@ class MP3ToolUI(ttk.Frame):
             run_id, clock=self._clock, publish=self._publish, item_ids=item_ids)
         attempt = _Attempt(label=label, plan=plan, run_id=run_id, number=attempt_number,
                            controller=controller, reporter=reporter,
-                           retry_items=retry_items, prior=prior)
+                           retry_items=retry_items, prior=prior, superseded=superseded)
         self._attempts = attempt_number
         self._attempt = attempt
         self._busy = True
@@ -2199,9 +2490,18 @@ class MP3ToolUI(ttk.Frame):
         reporter.progress(0, attempt.projection.total, stage=STAGE_PREPARE)
         self._render_status()
 
-        thread = self._thread_factory(lambda: self._worker(attempt), f"mp3-{run_id}")
-        self._worker_thread = thread
-        thread.start()
+        try:
+            thread = self._thread_factory(lambda: self._worker(attempt), f"mp3-{run_id}")
+            self._worker_thread = thread
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 - a worker that never started must still settle the run
+            # v0.8.2: reached from the pump since preparation; an exception escaping here would stop the pump and
+            # leave the panel locked. The run fails as a worker fault would, through the same terminal event.
+            detail = f"{type(exc).__name__}: {exc}"
+            reporter.technical(f"The processing worker could not be started: {detail}")
+            self._release_superseded(attempt)
+            self._release_staging(attempt, keep=())
+            reporter.completed(controller.fail(FAULT_MESSAGE, detail))
 
     def _publish(self, event) -> None:
         """Hand one produced event to the queue the shared adapter drains.
@@ -2251,6 +2551,7 @@ class MP3ToolUI(ttk.Frame):
         controller = attempt.controller
         reporter = attempt.reporter
         try:
+            self._release_superseded(attempt)
             self._run_attempt(attempt)
         except ConversionCancelled:
             # Plan 3 offers no Retry Failed after a Cancel, so nothing staged is kept (ACT72-037).
@@ -2298,20 +2599,47 @@ class MP3ToolUI(ttk.Frame):
             except Exception:  # pragma: no cover - reporting is best effort here
                 pass
 
-    def _abandon_staging(self) -> None:
+    def _release_superseded(self, attempt: _Attempt) -> None:
+        """Remove the kept staging of the run this attempt replaced (v0.8.2). Any thread; touches no widget.
+
+        That run is abandoned and finished, and nothing else holds or will release it, so the staging lock (which
+        orders one attempt's worker against Tk) is not taken: a large old ``.work`` is removed without making Tk wait.
+        Runs once, at most. Never raises; what could not be removed is named and stays where it is.
+        """
+        plan, attempt.superseded = attempt.superseded, None
+        if plan is None:
+            return
+        try:
+            problems = mp3_plan.release_staging(plan)
+        except Exception as exc:  # noqa: BLE001 - the new run must still go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            try:
+                attempt.reporter.technical(
+                    f"Private staging of the previous run left in place (its .work folder): {line}")
+            except Exception:  # pragma: no cover - reporting is best effort here
+                pass
+
+    def _abandon_staging(self, *, defer: bool = False):
         """The main thread's half: no Retry Failed can reach the current plan any more. Main thread only.
 
         Clear All Imports, a new run and closing the tool all drop the run. A worker still running keeps nothing
         when it ends; otherwise the kept Books go now. Never raises.
+
+        ``defer=True`` (v0.8.2, a new run adopting its plan): nothing is removed here; the plan whose kept staging
+        must go is returned for the new attempt's worker to remove (:meth:`_release_superseded`), off the Tk thread.
+        Returns ``None`` when there is nothing left for anyone to remove.
         """
         attempt = self._attempt
         if attempt is None:
-            return
+            return None
         try:
             with self._staging_lock:
                 attempt.abandoned = True
                 if attempt.running:
-                    return
+                    return None
+                if defer:
+                    return attempt.plan
                 problems = mp3_plan.release_staging(attempt.plan)
         except Exception as exc:  # noqa: BLE001 - closing must go on
             problems = (f"{type(exc).__name__}: {exc}",)
@@ -2497,7 +2825,24 @@ class MP3ToolUI(ttk.Frame):
         track or combined file removed (the ``.work`` folder itself stays, as
         ACT72-037 records); the Books never reached settle as ``NOT_ATTEMPTED`` and the
         batch as ``CANCELLED`` once the worker has acknowledged it -- never before.
+
+        v0.8.2: during preparation there is no run yet. Cancel asks the preparation
+        worker to stop at its next checkpoint and says so at once; the panel ends the
+        preparation when the worker acknowledges (its empty run released, nothing
+        started, the workspace and the previous run as they were). A plan already
+        offered is taken back here and its empty run released, so it can never start.
         """
+        preparation = self._preparing
+        if preparation is not None:
+            if preparation.cancel_requested.is_set():
+                return
+            left = preparation.withdraw()
+            if left is not None:
+                output_paths.release_if_empty(left.reservation)
+            if not self._closed:
+                self.controls.apply(JobState.CANCEL_REQUESTED)
+                self.status.set_status(STATUS_CANCELLING_PREPARATION)
+            return
         controller = self.job_controller
         if controller is not None and self._busy:
             controller.request_cancel()
@@ -2516,7 +2861,7 @@ class MP3ToolUI(ttk.Frame):
         publishes each Book whole from its original ``BookPlan``.
         """
         self._guard.require("retry_failed")
-        if self._closed or self._busy:
+        if self._closed or self.is_running:
             return False
         attempt = self._attempt
         result = self._settled
@@ -2566,6 +2911,13 @@ class MP3ToolUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # v0.8.2: a preparation still going stops at its next checkpoint and releases its own empty run; a plan it
+        # already offered is taken back here and released, so nothing it planned can start after the tool closed.
+        preparation, self._preparing = self._preparing, None
+        if preparation is not None:
+            left = preparation.withdraw()
+            if left is not None:
+                output_paths.release_if_empty(left.reservation)
         # Nothing can retry once the tool is closed (ACT72-019): kept staging goes now, or when the worker ends.
         self._abandon_staging()
         controller = self.job_controller

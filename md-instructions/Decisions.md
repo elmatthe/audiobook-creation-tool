@@ -2,6 +2,22 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-21 — v0.8.2 is a long-running development branch: daily-use fixes accumulate on `0.8.2`; nothing is merged, tagged or released per fix
+
+Signed: the owner's decision (Checkpoint 1 instruction, 2026-11-21), recorded by Claude Code (Opus 5.5), HOME-PC.
+- **Decision.** Branch `0.8.2` (from the published v0.8.1 `6a7be7525222f93cd569b356e5467d270c971fe0`) is for extended real-world testing and iterative remediation. Every defect found in daily use is fixed on this same branch as a focused checkpoint: commit, push `origin/0.8.2`, independent review, then the owner keeps testing. Checkpoints are development steps, not release milestones.
+- **Not done per fix.** No merge into `master`, no `v0.8.2` tag, no GitHub release, no automatic Full gate, no release deadline, and no replacement of the installed v0.8.1, which stays available as the rollback. The application identity stays `0.8.1` until a release decision.
+- **Backlog.** The ordered v0.8.2 scalability backlog lives in the Handoff (Checkpoint 1 block).
+
+## 2026-11-21 — v0.8.2 Checkpoint 1: MP3 jobs are prepared on their own worker from an input index built once per plan; the run starts when Tk adopts the plan
+
+Signed: Claude Code (Opus 5.5), HOME-PC. Evidence: Handoff v0.8.2 Checkpoint 1; Codex's root-cause handoff (ignored, local).
+- **Cause.** Both MP3 buttons reserved and planned inside the Tk callback, and the planner re-resolved every source for every destination (2N² resolutions; 20 minutes at 2,341 tracks).
+- **Index.** `output_paths.InputIndex` normalises one operation's inputs once and answers exactly as `assert_not_input` (same key, fallback, casefold and refusal). Rejected: a process-wide resolve cache (stale across jobs and filesystem changes; Codex measured that caching the resolver alone still froze for 193 s at 5,000), and removing checks. The one-shot guard stays for the other tools until their own checkpoints prove the index there.
+- **Thread boundary.** The press stays on Tk for edit commit, validation, the Plan 6 capture (documented as taken on the caller's thread) and freezing; a preparation worker reserves and plans; the pump adopts; then the existing `_start_attempt` creates the one `JobController` and the one processing worker. The preparation is not a controller: Cancel is its own event raised through the shared `ConversionCancelled` at checkpoints. Rejected: Codex's alternative of the same worker continuing into the engine after a FIFO or acknowledgement handshake, because (1) the owner's instruction is to start the conversion worker only after Tk adopts a successful plan, (2) a worker waiting on Tk deadlocks the suite's inline thread factories, and (3) keeping the previous job area untouched until adoption is what lets a refused or cancelled preparation restore Retry Failed with one re-render. Never more than one worker runs at a time: the preparation has posted its final message before the processing worker exists.
+- **Ownership.** The preparation worker owns its reservation until `_Preparation.offer` succeeds (once only); then the panel adopts or withdraws it. Every path releases a never-adopted run with `release_if_empty`, never recursively. The previous run's kept staging is released by the new run's worker (no staging lock: nothing else owns that abandoned plan), so a failed or cancelled preparation never destroys it.
+- **Deferred.** The shared `DestinationPlanner` identical-basename suffix search stays O(k²) (23.8 s at 2,341 identical titles with numbering off); changing it affects all six tools and belongs to backlog checkpoint 3 with cross-tool proof.
+
 ## 2026-11-20 — v0.8.1 Checkpoint E: on Aqua the four outlined role styles draw a same-size outline image element; every other Aqua control stays native
 
 Signed: Claude Code (Sonnet 5.5), HOME-MacOS. Evidence: Handoff v0.8.1 Checkpoint E; ignored `files/dev-work/macos-e/`.

@@ -13,6 +13,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
+
+**Fixed (Checkpoint 1, MP3 Tool large jobs)**
+- Write ID3 Tags and Combine no longer freeze the window on large workspaces. v0.8.1 planned inside the button press and re-checked every output against every source (about 20 minutes for 2,341 tracks with "Ready" still shown); planning now checks each output against an index of the job's sources built once, and runs on a preparation worker. On HOME-PC, 2,341 tracks in seven Books are prepared in about 2.7 s while the window keeps responding (largest heartbeat gap 29 ms).
+- The job area shows "Preparing job…" with Cancel as soon as the button is pressed. Cancel during preparation starts nothing, removes the empty run folder and leaves every Book, setting, title and the previous run (including Retry Failed) as it was. A refused preparation shows its error and also leaves them as they were.
+- A Chapter Titles change made without a key release (for example a mouse paste) is no longer lost when a run starts or when moving to another Book.
+- The previous run's kept staging is removed by the new run's worker instead of on the window's thread.
+
 ## [0.8.1] - unreleased (release candidate; tagging and publication await the owner)
 
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision (which was prepared but never tagged or

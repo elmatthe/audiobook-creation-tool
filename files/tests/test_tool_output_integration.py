@@ -310,8 +310,9 @@ def test_mp3_tool_reserves_exactly_one_run_per_operation(output_base):
              and node.func.attr == "reserve_run_directory"]
     assert len(calls) == 1, "one reservation seam"
     assert any(isinstance(a, ast.Name) and a.id == "TOOL_KEY" for a in calls[0].args)
-    assert source.count("def _reserve_run") == 1
-    assert source.count("self._reserve_run()") == 1, "reached from the one operation path"
+    # v0.8.2: the one seam is the preparation worker's body, started only by the one operation path.
+    assert source.count("def _prepare(") == 1
+    assert source.count("self._prepare(preparation)") == 1, "reached from the one operation path"
     assert "destination_hint(TOOL_KEY)" in source, "the destination is still displayed"
 
 
@@ -734,6 +735,7 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         "start_resize", "convert", "save", "on_clear_all_tags",
         "on_remove_series_numbering", "run_job", "_reserve_run", "_destination",
         "_start_frozen",  # v0.7.0: the second half of TTS run_job (shared with Install & Continue)
+        "_prepare",  # v0.8.2: the MP3 Tool's preparation worker, started only by Write ID3 Tags / Combine
     }
 
     def innermost_reservers(tree_):

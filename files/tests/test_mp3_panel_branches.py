@@ -24,11 +24,13 @@ import test_import_coordination as tic  # noqa: E402
 from test_importing import make_config  # noqa: E402
 from test_mp3_tool_ui import (  # noqa: E402,F401  (fixtures are collected by name)
     add_files,
+    conversion_workers,
     import_folder,
     make_panel,
     reservations_under,
     tk_root,
     tracks,
+    wait_until_prepared,
     windows_theme,
 )
 
@@ -143,11 +145,15 @@ def test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why(make_p
     monkeypatch.setattr(output_paths, "reserve_run_directory", refuse)
     panel = make_panel()
     import_folder(panel, _two_books(tmp_path))
-    bodies = len(panel._thread_factory.bodies)
-    assert getattr(panel, operation)() is False
+    workers = len(conversion_workers(panel))
+    # v0.8.2: the press is accepted and the run is reserved off the Tk thread; the refusal arrives through the pump.
+    assert getattr(panel, operation)() is True
+    wait_until_prepared(panel)
     assert reserved == [mp3_tool.TOOL_KEY]
     assert make_panel.dialogs[-1] == ("error", "The output folder cannot be created.")
-    assert len(panel._thread_factory.bodies) == bodies and panel.last_plan is None and not panel.is_running
+    assert len(conversion_workers(panel)) == workers and panel.last_plan is None and not panel.is_running
+    assert panel.job_controller is None, "no run was started"
+    assert panel.status.status_text == mp3_tool.STATUS_PREPARATION_FAILED
 
 
 @pytest.mark.parametrize("operation, label", [("write_id3_tags", "Write ID3 Tags"), ("combine_mp3s", "Combine MP3s → One MP3")],
@@ -162,11 +168,13 @@ def test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why(make
     monkeypatch.setattr(mp3_tool.mp3_plan, "plan_run", refuse)
     panel = make_panel()
     import_folder(panel, _two_books(tmp_path))
-    bodies = len(panel._thread_factory.bodies)
-    assert getattr(panel, operation)() is False
+    workers = len(conversion_workers(panel))
+    assert getattr(panel, operation)() is True  # v0.8.2: accepted; planned off the Tk thread
+    wait_until_prepared(panel)
     assert len(made) == 1 and not made[0].run_directory.exists(), "the empty run it reserved is released"
     assert make_panel.dialogs[-1] == ("error", f"{label}: two Books would write the same file")
-    assert len(panel._thread_factory.bodies) == bodies and panel.last_plan is None and not panel.is_running
+    assert len(conversion_workers(panel)) == workers and panel.last_plan is None and not panel.is_running
+    assert panel.job_controller is None, "no run was started"
 
 
 # --------------------------------------------------------------------------- no proved FFmpeg (ACT.MP3.FFMPEG-REQUIRED)

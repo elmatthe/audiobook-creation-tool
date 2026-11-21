@@ -905,6 +905,27 @@ def test_auto_number_and_start_number_are_book_only(make_panel):
 # --------------------------------------------------------------------------- #
 
 
+def wait_until_prepared(panel, timeout: float = 20.0) -> None:
+    """v0.8.2: a press is accepted at once and prepared off the Tk thread; pump until that preparation has ended
+    (its plan adopted and the run started, or refused or cancelled). Inline and real thread factories alike."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while panel.is_preparing:
+        if time.monotonic() > deadline:
+            raise AssertionError("the preparation did not end in time")
+        panel._pump.tick()
+        if panel.is_preparing:
+            time.sleep(0.005)
+
+
+def conversion_workers(panel) -> list:
+    """The processing workers (``mp3-<run id>``) the panel's thread factory made: not the preparation workers
+    (``mp3-prepare-N``, v0.8.2) and not the import scans (``import-...``)."""
+    return [made for made in panel._thread_factory.made
+            if made.name.startswith("mp3-") and not made.name.startswith("mp3-prepare-")]
+
+
 def reservations_under(tmp_path, monkeypatch):
     """The real ``RunReservation`` shape, kept inside ``tmp_path``; counts calls."""
     from shared import output_paths

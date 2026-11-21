@@ -1176,3 +1176,126 @@ def test_no_test_here_resolves_the_real_downloads_folder(tmp_path):
     base = op.resolve_output_base(snapshot)
     assert str(tmp_path) in str(base)
     assert base != shared_paths.downloads_dir() / "Audiobook-Creation-Tool-Outputs"
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.2 — the run-scoped input index (the MP3 planner's 20-minute freeze)
+# --------------------------------------------------------------------------- #
+
+
+def _refusal(check):
+    """What a guard said: ``None`` when it allowed the destination, else the refusal's type, message and detail."""
+    try:
+        check()
+    except op.UnsafePathError as exc:
+        return type(exc), exc.message, exc.detail
+    return None
+
+
+def _same_answer(destination, inputs):
+    """Both guards, on the same destination and inputs; they must agree exactly, refusal text included."""
+    one_shot = _refusal(lambda: op.assert_not_input(destination, inputs))
+    indexed = _refusal(lambda: op.InputIndex(inputs).assert_not_input(destination))
+    assert indexed == one_shot, (destination, one_shot, indexed)
+    return one_shot
+
+
+def test_the_input_index_answers_exactly_as_the_one_shot_guard(tmp_path, monkeypatch):
+    source = tmp_path / "Src"
+    existing = touch(source / "Chapter 01.mp3")
+    accented = touch(source / "Ünïcødé — 章 1.mp3")
+    relative_file = touch(source / "rel.mp3")
+    missing = source / "never made.mp3"
+    monkeypatch.chdir(tmp_path)
+    inputs = [existing, accented, missing, existing,  # a repeated occurrence
+              source / "Sub" / ".." / "Chapter 01.mp3",  # an alias of the first
+              Path("Src") / "rel.mp3"]  # relative to the working directory
+    refused = [existing, existing.with_name("CHAPTER 01.MP3"), accented,
+               source / "ünïcødé — 章 1.MP3", missing, missing.with_name("NEVER MADE.mp3"),
+               relative_file, source / "." / "rel.mp3", Path("Src") / "Chapter 01.mp3"]
+    allowed = [source / "Chapter 02.mp3", tmp_path / "Out" / "Chapter 01.mp3",
+               missing.with_suffix(".m4b"), tmp_path / "Src"]
+    for destination in refused:
+        answer = _same_answer(destination, inputs)
+        assert answer is not None and answer[1] == "an output would overwrite one of the files being read", destination
+    for destination in allowed:
+        assert _same_answer(destination, inputs) is None, destination
+    # The refusal names the first input, in the given order, that has the destination's key.
+    assert _same_answer(existing, inputs)[2] == f"destination equals input {existing.resolve()}"
+
+
+def test_the_input_index_follows_links_exactly_as_the_one_shot_guard(tmp_path, dir_link_support):
+    real = tmp_path / "Real"
+    inside = touch(real / "01.mp3")
+    link = tmp_path / "Linked"
+    assert dir_link_support(link, real) == ""
+    through_link = link / "01.mp3"
+    assert _same_answer(inside, [through_link]) is not None, "the input read through a link is the same file"
+    assert _same_answer(through_link, [inside]) is not None
+    assert _same_answer(real / "02.mp3", [through_link]) is None
+    # A link whose target is gone: whatever the platform resolves it to, both guards agree.
+    gone = tmp_path / "Gone"
+    gone.mkdir()
+    broken = tmp_path / "Broken"
+    assert dir_link_support(broken, gone) == ""
+    gone.rmdir()
+    for destination in (broken / "01.mp3", gone / "01.mp3", tmp_path / "Other.mp3"):
+        _same_answer(destination, [broken / "01.mp3", inside])
+
+
+def test_the_input_index_keeps_the_oserror_fallback(tmp_path, monkeypatch):
+    real_resolve = Path.resolve
+
+    def resolve(self, *args, **kwargs):
+        if "unresolvable" in str(self):
+            raise OSError("simulated: the volume refused")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    odd = tmp_path / "unresolvable" / "01.mp3"
+    inputs = [odd, touch(tmp_path / "plain.mp3")]
+    assert _same_answer(odd, inputs) == (
+        op.UnsafePathError, "an output would overwrite one of the files being read",
+        f"destination equals input {Path(os.path.abspath(str(odd)))}")
+    assert _same_answer(tmp_path / "unresolvable" / "02.mp3", inputs) is None
+
+
+def test_the_input_index_normalises_each_input_once_and_each_destination_once(tmp_path, monkeypatch):
+    calls: list = []
+    real = op._normalise
+
+    def counting(path):
+        calls.append(path)
+        return real(path)
+
+    monkeypatch.setattr(op, "_normalise", counting)
+    inputs = [touch(tmp_path / "S" / f"{n:03d}.mp3") for n in range(200)]
+    index = op.InputIndex([*inputs, inputs[0]])
+    assert len(calls) == 201, "every occurrence is normalised once, a repeat included"
+    assert len(index) == 200 and index.input_count == 201
+    calls.clear()
+    for n in range(300):
+        index.assert_not_input(tmp_path / "Out" / f"{n:03d}.mp3")
+    assert len(calls) == 300, "one normalisation per destination, never one per input"
+    calls.clear()
+    for n in range(50):
+        op.assert_not_input(tmp_path / "Out" / f"{n:03d}.mp3", inputs)
+    assert len(calls) == 50 * 201, "the one-shot guard other tools use is unchanged"
+
+
+def test_the_input_index_runs_its_checkpoint_before_every_input_and_stops_when_it_raises(tmp_path):
+    class Stop(Exception):
+        pass
+
+    seen: list[int] = []
+
+    def checkpoint():
+        seen.append(1)
+        if len(seen) == 3:
+            raise Stop
+
+    with pytest.raises(Stop):
+        op.InputIndex([tmp_path / f"{n}.mp3" for n in range(10)], checkpoint=checkpoint)
+    assert len(seen) == 3
+    op.InputIndex([tmp_path / f"{n}.mp3" for n in range(4)], checkpoint=lambda: seen.append(2))
+    assert seen.count(2) == 4

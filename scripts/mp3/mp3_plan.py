@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -77,6 +77,7 @@ __all__ = [
     "TrackPlan",
     "BookPlan",
     "RunPlan",
+    "capture_for_run",
     "plan_run",
     "book_folder_name",
     "track_filename",
@@ -256,11 +257,26 @@ def book_folder_name(album: str, source_folder: str | None, number: int) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def capture_for_run(workspace: WorkspaceSnapshot, *, catalog: SupportedTypeCatalog,
+                    import_options: ImportOptions, effective_config: Any, id_factory: IdFactory,
+                    created_at: float = 0.0) -> BookRunSnapshot:
+    """The Plan 6 capture one operation is frozen from. Synchronous, on the panel's own thread (v0.8.2).
+
+    The shared capture documents itself as taken on the caller's thread before any worker exists, so the panel takes
+    it here, on Tk, where it is cheap (no disk is read), and hands it to :func:`plan_run` on the preparation worker.
+    """
+    return capture_workspace_run(
+        workspace, catalog=catalog, import_options=import_options,
+        effective_config=effective_config, id_factory=id_factory, created_at=created_at)
+
+
 def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
              operation: MP3Operation, reservation: output_paths.RunReservation,
-             catalog: SupportedTypeCatalog, import_options: ImportOptions,
-             effective_config: Any, id_factory: IdFactory, created_at: float = 0.0,
-             numbers: Mapping[str, int] | None = None) -> RunPlan:
+             catalog: SupportedTypeCatalog | None = None, import_options: ImportOptions | None = None,
+             effective_config: Any = None, id_factory: IdFactory | None = None, created_at: float = 0.0,
+             numbers: Mapping[str, int] | None = None, capture: BookRunSnapshot | None = None,
+             checkpoint: Callable[[], None] | None = None,
+             progress: Callable[[int, int], None] | None = None) -> RunPlan:
     """Freeze one operation over the whole workspace. Creates nothing on disk.
 
     The reservation is the caller's — taken once, before this is called — and
@@ -268,6 +284,15 @@ def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
     Book's Start # or Time surface as the model's own ``MP3ValueError`` before
     anything is planned, so a refused plan leaves the (still empty) run for the
     caller to release.
+
+    v0.8.2: the panel plans on a worker. It passes the *capture* it took on Tk
+    (:func:`capture_for_run`) instead of the four capture inputs, a *checkpoint*
+    that raises to stop a cancelled preparation (called between inputs, tracks
+    and Books), and a *progress* callback told ``(Books planned, Books)``.
+    Every input is normalised once per plan into an :class:`~shared.output_paths.
+    InputIndex`; each planned destination is then checked against it by one
+    lookup, where it used to be checked against every input again (2N² path
+    resolutions: 20 minutes at 2,341 tracks on the Tk thread).
     """
     if not isinstance(operation, MP3Operation):
         raise PlanError(f"operation must be an MP3Operation, got {type(operation).__name__}")
@@ -276,6 +301,12 @@ def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
             f"reservation must be an output_paths.RunReservation, got {type(reservation).__name__}")
     if not isinstance(store, wf.ObservationStore):
         raise PlanError(f"store must be an ObservationStore, got {type(store).__name__}")
+    if capture is None:
+        if catalog is None or import_options is None or id_factory is None:
+            raise PlanError("a plan needs either a capture or the catalog, import options and id factory to take one")
+    elif not isinstance(capture, BookRunSnapshot):
+        raise PlanError(f"capture must be a BookRunSnapshot, got {type(capture).__name__}")
+    check = checkpoint if checkpoint is not None else _no_checkpoint
     number_map = dict(numbers or {})
 
     # Every Book's inputs are parsed before a single name is planned: a Book
@@ -293,33 +324,52 @@ def plan_run(workspace: WorkspaceSnapshot, store: wf.ObservationStore, *,
 
     run_directory = Path(reservation.run_directory)
     all_sources = [entry.path for book in workspace.books for entry in book.files.files]
+    check()
     output_paths.assert_outside_source_trees(
         run_directory, {path.parent for path in all_sources})
 
-    capture = capture_workspace_run(
-        workspace, catalog=catalog, import_options=import_options,
-        effective_config=effective_config, id_factory=id_factory,
-        created_at=created_at)
+    if capture is None:
+        capture = capture_for_run(
+            workspace, catalog=catalog, import_options=import_options,
+            effective_config=effective_config, id_factory=id_factory,
+            created_at=created_at)
+    books_by_id = {book.book_id: book for book in workspace.books}
+    missing = [book_id for book_id, _snapshot in capture.runs if book_id not in books_by_id]
+    if missing:
+        raise PlanError(f"the capture names Book(s) this workspace does not hold: {', '.join(missing)}")
+
+    # Every source occurrence of the workspace, normalised once for this plan only (never shared or reused).
+    inputs = output_paths.InputIndex(all_sources, checkpoint=check)
 
     planner = reservation.planner()
     work_root = planner.plan_directory(WORK_DIRNAME)
-    books_by_id = {book.book_id: book for book in workspace.books}
     plans: list[BookPlan] = []
+    total = len(capture.runs)
     for position, (book_id, snapshot) in enumerate(capture.runs, start=1):
+        check()
+        if progress is not None:
+            progress(position - 1, total)
         book = books_by_id[book_id]
         number = int(number_map.get(book_id, position))
         plans.append(_plan_book(
             book, snapshot, store=store, shared=workspace.shared, operation=operation,
             number=number, planner=planner, work_root=work_root,
             run_directory=run_directory, parsed=parsed[book_id],
-            all_sources=all_sources))
+            inputs=inputs, checkpoint=check))
+    check()
+    if progress is not None:
+        progress(total, total)
     return RunPlan(operation=operation, reservation=reservation,
                    run_directory=run_directory, work_root=work_root,
                    capture=capture, books=tuple(plans))
 
 
+def _no_checkpoint() -> None:
+    """The synchronous caller's checkpoint: nothing can cancel it."""
+
+
 def _plan_book(book: BookJob, snapshot: RunSnapshot, *, store, shared, operation,
-               number, planner, work_root, run_directory, parsed, all_sources) -> BookPlan:
+               number, planner, work_root, run_directory, parsed, inputs, checkpoint) -> BookPlan:
     start_number, time_delta = parsed
     scalars = wf.effective_scalars(shared, book)
     artist = str(scalars.get("artist", ""))
@@ -339,13 +389,14 @@ def _plan_book(book: BookJob, snapshot: RunSnapshot, *, store, shared, operation
     width = number_width(start_number, len(files))
     tracks: list[TrackPlan] = []
     for index, (entry, title) in enumerate(zip(files, titles), start=1):
+        checkpoint()
         track_number = start_number + index - 1 if auto_number else None
         wanted = track_filename(title, source_name=entry.name, number=track_number,
                                 width=width)
         published = planner.plan(wanted, subdir=folder_name)
         staged = staging_dir / published.name
-        output_paths.assert_not_input(published, all_sources)
-        output_paths.assert_not_input(staged, all_sources)
+        inputs.assert_not_input(published)
+        inputs.assert_not_input(staged)
         tracks.append(TrackPlan(
             occurrence_id=entry.occurrence_id, source=entry.path, position=index,
             title=title, track_number=track_number, filename=published.name,
@@ -360,7 +411,7 @@ def _plan_book(book: BookJob, snapshot: RunSnapshot, *, store, shared, operation
         timestamps_published = planner.plan(TIMESTAMPS_NAME, subdir=folder_name)
         timestamps_staged = staging_dir / timestamps_published.name
         for path in (combined_published, combined_staged):
-            output_paths.assert_not_input(path, all_sources)
+            inputs.assert_not_input(path)
 
     return BookPlan(
         book_id=book.book_id, number=number, snapshot=snapshot, operation=operation,

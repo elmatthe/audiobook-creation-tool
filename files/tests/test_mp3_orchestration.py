@@ -51,6 +51,7 @@ from test_mp3_tool_ui import (  # noqa: E402,F401  (fixtures are collected by na
     make_panel,
     reservations_under,
     tk_root,
+    wait_until_prepared,
     widgets_of,
     windows_theme,
 )
@@ -196,6 +197,9 @@ def test_a_second_operation_is_refused_while_one_runs(make_panel, tmp_path, monk
     monkeypatch.setattr(mp3_tool.mp3_processing, "write_id3_book", slow)
     assert panel.write_id3_tags() is True
     assert panel.is_running is True
+    assert panel.write_id3_tags() is False, "refused while preparing"
+    wait_until_prepared(panel)  # v0.8.2: the run starts when the pump adopts the prepared plan
+    assert panel.is_running is True
     assert panel.write_id3_tags() is False
     assert panel.combine_mp3s() is False
     assert len(made) == 1, "the refused presses reserved nothing"
@@ -253,6 +257,7 @@ def test_pause_is_shown_only_once_the_worker_acknowledged_it(make_panel, tmp_pat
 
     monkeypatch.setattr(mp3_tool.mp3_processing, "write_id3_book", slow)
     panel.write_id3_tags()
+    wait_until_prepared(panel)
     controller = panel.job_controller
     assert isinstance(controller, job_control.JobController)
     started.wait(10.0)
@@ -290,6 +295,7 @@ def test_cancel_stops_at_the_next_checkpoint_and_leaves_later_books_not_attempte
 
     monkeypatch.setattr(mp3_tool.mp3_processing, "write_id3_book", counting)
     panel.write_id3_tags()
+    wait_until_prepared(panel)
     first_done.wait(10.0)
     panel.cancel()
     assert panel.job_controller.state is JobState.CANCEL_REQUESTED
@@ -499,6 +505,7 @@ def test_one_progress_region_carries_book_and_track_context(make_panel, tmp_path
 
     monkeypatch.setattr(job_ui.JobStatusView, "apply", spy)
     panel.write_id3_tags()
+    wait_until_prepared(panel)  # v0.8.2: the run's own adapter exists once the prepared plan is adopted
     # Drain one event at a time so every intermediate projection is observed.
     panel.jobs._limit = 1
     while panel.is_running:
@@ -754,6 +761,7 @@ def test_closing_mid_run_is_safe_and_cancels_the_worker(make_panel, tmp_path, mo
 
     monkeypatch.setattr(mp3_tool.mp3_processing, "write_id3_run", blocking)
     panel.write_id3_tags()
+    wait_until_prepared(panel)
     started.wait(10.0)
     controller = panel.job_controller
     thread = panel._thread_factory.made[-1]
